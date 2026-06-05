@@ -31,6 +31,50 @@ ModelTier = Literal["light", "medium", "heavy", "reasoning"]
 # Ordered tier list for CONCEPT:ORCH-1.2 confidence-gated routing helpers.
 _TIER_ORDER: list[ModelTier] = ["light", "medium", "heavy", "reasoning"]
 
+# CONCEPT:ORCH-1.27 — Role-Specialized Model Routing.
+# Functional roles a pipeline stage can request. Assimilated from Quarq Agent's
+# three-specialized-model pattern (planner / generator / learner; agent-oss/agent.py:58-92),
+# generalized to a role→(tier,tags) binding over the existing registry so any provider
+# pool works and degrades gracefully via pick_for_task() instead of hardcoded model ids.
+# CONCEPT:ORCH-1.27 (+ORCH-1.12 RLM extension): planner/generator/learner/judge plus the RLM-GEPA
+# roles — a cheap proxy executor + sub-LM optimized against a strong proposer (the AppWorld trick).
+ModelRole = Literal[
+    "planner", "generator", "learner", "judge",
+    "rlm-executor", "rlm-proposer", "rlm-sublm",
+]
+
+
+class RoleSpec(BaseModel):
+    """Tier + capability-tag query that a functional role binds to.
+
+    CONCEPT:ORCH-1.27 — resolved at runtime through :meth:`ModelRegistry.pick_for_task`,
+    so a role degrades by tier when no exact-tag/tier model is configured.
+    """
+
+    tier: ModelTier = Field(default="medium")
+    tags: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+# Default role bindings mirroring Quarq's roles, expressed as portable tier+tag queries.
+#   planner   → cheap/fast structured-plan generation (Quarq gpt-4o-mini HyDE planner)
+#   generator → high-capability synthesis (Quarq gpt-4.1 generator)
+#   learner   → high-capability fact extraction / targeted edits (Quarq gpt-4.1 learner)
+#   judge     → deepest reasoning for binary evaluation (LongMemEval judge)
+_DEFAULT_ROLE_ROUTING: dict[str, RoleSpec] = {
+    "planner": RoleSpec(tier="light", tags=["plan", "json"]),
+    "generator": RoleSpec(tier="heavy", tags=["synthesis"]),
+    "learner": RoleSpec(tier="heavy", tags=["extraction"]),
+    "judge": RoleSpec(tier="reasoning", tags=[]),
+    # CONCEPT:ORCH-1.27 RLM-GEPA roles: cheap executor/sub-LM run the skill; the strong proposer
+    # reflects on traces and rewrites it. A skill optimized with a cheap executor still lifts a
+    # strong one at eval — so this is the cost/quality Pareto knob for RLM-GEPA.
+    "rlm-executor": RoleSpec(tier="light", tags=["code"]),
+    "rlm-sublm": RoleSpec(tier="light", tags=[]),
+    "rlm-proposer": RoleSpec(tier="reasoning", tags=["synthesis"]),
+}
+
 
 class ModelCostRate(BaseModel):
     """USD cost per 1 million tokens.
@@ -111,6 +155,13 @@ class ModelRegistry(BaseModel):
     """
 
     models: list[ModelDefinition] = Field(default_factory=list)
+    role_routing: dict[str, RoleSpec] = Field(
+        default_factory=dict,
+        description=(
+            "CONCEPT:ORCH-1.27 — optional role→(tier,tags) overrides. Empty keys "
+            "fall back to the built-in default map. Round-trips through JSON/YAML."
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -186,6 +237,56 @@ class ModelRegistry(BaseModel):
         if default is None:
             raise ValueError("Model registry is empty; configure at least one model.")
         return default
+
+    # ── CONCEPT:ORCH-1.27 role-specialized routing ───────────────────────────────
+
+    def resolve_role(
+        self,
+        role: ModelRole | str,
+        *,
+        override: RoleSpec | None = None,
+    ) -> RoleSpec:
+        """Resolve a functional role to its tier+tags binding.
+
+        Precedence (highest first): explicit ``override`` → this registry's
+        ``role_routing`` → the built-in :data:`_DEFAULT_ROLE_ROUTING` →
+        ``RoleSpec(tier="medium")`` for unknown roles.
+
+        CONCEPT:ORCH-1.27.
+        """
+        if override is not None:
+            return override
+        if role in self.role_routing:
+            return self.role_routing[role]
+        return _DEFAULT_ROLE_ROUTING.get(role, RoleSpec(tier="medium"))
+
+    def pick_for_role(
+        self,
+        role: ModelRole | str,
+        *,
+        override: RoleSpec | None = None,
+    ) -> ModelDefinition:
+        """Return the best-fit model for a functional role (planner/generator/learner/judge).
+
+        Binds the role to a ``(tier, tags)`` query (see :meth:`resolve_role`) and
+        delegates to :meth:`pick_for_task`, inheriting its tier-fallback semantics so a
+        role never hard-fails on a sparse pool (unless the registry is empty).
+
+        This is the agent-utilities answer to Quarq Agent's three hardcoded model
+        clients (agent-oss/agent.py:58-92): portable across any configured provider pool.
+
+        Args:
+            role: Functional role to resolve.
+            override: Optional per-call ``RoleSpec`` that wins over config/defaults.
+
+        Returns:
+            The selected ``ModelDefinition``.
+
+        Raises:
+            ValueError: If the registry is empty.
+        """
+        spec = self.resolve_role(role, override=override)
+        return self.pick_for_task(complexity=spec.tier, required_tags=spec.tags)
 
     # ── CONCEPT:ORCH-1.2 tier helpers ────────────────────────────────────────────
 

@@ -85,6 +85,22 @@ class PredictRLM:
                 else:
                     self.inputs.append(name)
 
+    def mount_skill_unit(self, skill: Any) -> None:
+        """Mount a composable :class:`~agent_utilities.rlm.skills.Skill` (CONCEPT:ORCH-1.28).
+
+        Merges the skill's ``tools`` and ``modules`` (name→source) into the REPL skill set and
+        appends its instructions to the task prompt. Raises on a name collision with already-mounted
+        tools/modules so composition is explicit.
+        """
+        for nm, src in {**skill.modules, **skill.tools}.items():
+            if nm in self.skills:
+                raise ValueError(f"Skill unit conflict: {nm!r} already mounted")
+            self.skills[nm] = src
+        if getattr(skill, "instructions", ""):
+            self._extra_instructions = (
+                getattr(self, "_extra_instructions", "") + "\n\n" + skill.instructions
+            )
+
     def mount_skill(self, name: str, skill_fn: Any):
         """Register a custom function or API client helper to be injected into the REPL."""
         import textwrap
@@ -101,8 +117,13 @@ class PredictRLM:
         prompt = (
             f"TASK DESCRIPTION:\n"
             f"  {self.signature.__doc__ or 'No description provided.'}\n\n"
-            f"INPUT VALUES PROVIDED:\n"
         )
+        # CONCEPT:ORCH-1.28 — inject mounted composable-Skill instructions (the SOP) so they
+        # actually reach the model, not just the skill's tool/module sources.
+        extra = getattr(self, "_extra_instructions", "")
+        if extra.strip():
+            prompt += f"SKILL INSTRUCTIONS (standard operating procedure):\n{extra.strip()}\n\n"
+        prompt += "INPUT VALUES PROVIDED:\n"
         for name in self.inputs:
             val = inputs.get(name, "Not provided")
             # If the input is massive, show metadata only in the prompt to prevent context pollution

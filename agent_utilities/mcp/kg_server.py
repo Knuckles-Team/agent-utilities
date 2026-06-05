@@ -78,6 +78,31 @@ def _build_dummy_request(path_params=None, json_body=None):
     return req
 
 
+def _actor_from_kwargs(kwargs: dict) -> Any:
+    """Build an ActorContext from optional ``_actor``/``_roles``/``_tenant`` keys.
+
+    Pops them so they are not forwarded to the tool. Returns None when no
+    identity was supplied (caller keeps the default system actor). This is how
+    MCP callers scope Company Brain data access (CONCEPT:KG-2.6).
+    """
+    actor_id = kwargs.pop("_actor", None)
+    roles = kwargs.pop("_roles", None)
+    tenant = kwargs.pop("_tenant", None)
+    if not actor_id and not roles and not tenant:
+        return None
+    from ..models.company_brain import ActorType
+    from ..security.brain_context import ActorContext
+
+    if isinstance(roles, str):
+        roles = [r.strip() for r in roles.split(",") if r.strip()]
+    return ActorContext(
+        actor_id=str(actor_id or "mcp:caller"),
+        actor_type=ActorType.AI_AGENT,
+        roles=tuple(roles or ()),
+        tenant_id=str(tenant or ""),
+    )
+
+
 async def _execute_tool(tool_name: str, **kwargs) -> Any:
     tool_func = REGISTERED_TOOLS.get(tool_name)
     if not tool_func:
@@ -85,10 +110,19 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
 
     import inspect
 
-    if inspect.iscoroutinefunction(tool_func):
-        return await tool_func(**kwargs)
-    else:
+    from ..security.brain_context import use_actor
+
+    actor = _actor_from_kwargs(kwargs)
+
+    async def _run() -> Any:
+        if inspect.iscoroutinefunction(tool_func):
+            return await tool_func(**kwargs)
         return tool_func(**kwargs)
+
+    if actor is None:
+        return await _run()
+    with use_actor(actor):
+        return await _run()
 
 
 def get_existing_disabled(engine, node_id: str) -> bool:
@@ -1641,6 +1675,14 @@ def _build_server():
             default="",
             description="Required when scope='federated'. The ExternalGraphReference node ID.",
         ),
+        as_of: str = Field(
+            default="",
+            description=(
+                "CONCEPT:KG-2.11 — optional ISO-8601 instant. When set, rows are filtered to "
+                "those whose bi-temporal validity (valid_from <= as_of < valid_to) holds, "
+                "answering 'what was true as of date T'."
+            ),
+        ),
     ) -> str:
         """Execute a read-only Cypher query against the Knowledge Graph. Use this to fetch graph data, explore relationships, and read node properties."""
         engine = _get_engine()
@@ -1669,7 +1711,7 @@ def _build_server():
                     }
                 )
         try:
-            results = engine.query_cypher(cypher, parsed_params)
+            results = engine.query_cypher(cypher, parsed_params, as_of=as_of or None)
             return json.dumps(results, default=str)
         except Exception as e:
             return json.dumps({"error": str(e)})
@@ -1689,17 +1731,27 @@ def _build_server():
         query: str = Field(description="Natural language search query or concept ID."),
         mode: str = Field(
             default="hybrid",
-            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.7', 'ORCH-1.0').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.",
+            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:KG-2.12).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.7', 'ORCH-1.0').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.",
         ),
         top_k: int = Field(default=10, description="Maximum results to return."),
+        self_correct: bool = Field(
+            default=False,
+            description="CONCEPT:KG-2.12 — run a self-correcting second retrieval pass at the deep threshold when the quality gate fails.",
+        ),
     ) -> str:
         """Search the Knowledge Graph using multiple strategies. Useful for finding context, concepts, memories, and capabilities across the ecosystem."""
         engine = _get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
         try:
-            if mode == "hybrid":
-                results = engine.search_hybrid(query=query, top_k=top_k)
+            if mode in ("hyde", "deep"):
+                results = engine.search_hybrid(
+                    query=query, top_k=top_k, mode=mode, self_correct=self_correct
+                )
+            elif mode == "hybrid":
+                results = engine.search_hybrid(
+                    query=query, top_k=top_k, self_correct=self_correct
+                )
             elif mode == "concept":
                 results = engine.search_hybrid(query=query, top_k=top_k)
             elif mode == "analogy":
@@ -1878,6 +1930,62 @@ def _build_server():
             return f"Write error: {str(e)}"
 
     REGISTERED_TOOLS["graph_write"] = graph_write
+
+    @mcp.tool(
+        name="graph_feedback",
+        description=(
+            "Record a human correction so the brain learns: correction_type "
+            "'outcome' adjusts an entity's reward, 'rule' persists a durable "
+            "governance/voice/source rule consulted at retrieval time, 'eval' "
+            "adds a regression case. This is how 'this was wrong, here's the fix' "
+            "becomes future behaviour (CONCEPT:KG-2.8)."
+        ),
+        tags=["graph-os", "feedback", "learning"],
+    )
+    def graph_feedback(
+        correction_type: str = Field(description="One of: outcome | rule | eval."),
+        target_id: str = Field(
+            description="Entity/episode/query the correction is about."
+        ),
+        corrected_value: str = Field(
+            default="",
+            description="The corrected value (reward, expected output, etc.).",
+        ),
+        reason: str = Field(default="", description="Why — the human's explanation."),
+        rule_scope: str = Field(
+            default="governance",
+            description="For rule corrections: governance | voice | source | preference.",
+        ),
+        rule_kind: str = Field(
+            default="forbid",
+            description="For rule corrections: forbid | prefer | demote.",
+        ),
+        actor_id: str = Field(
+            default="human", description="Who issued the correction."
+        ),
+    ) -> str:
+        """Record a human correction (outcome/rule/eval) and apply it durably."""
+        engine = _get_engine()
+        if not engine:
+            return "Error: IntelligenceGraphEngine not active."
+        try:
+            from ..knowledge_graph.adaptation.feedback import FeedbackService
+
+            service = FeedbackService.from_engine(engine)
+            result = service.record_correction(
+                correction_type,
+                target_id,
+                corrected_value=corrected_value or None,
+                reason=reason,
+                actor_id=actor_id,
+                rule_scope=rule_scope,
+                rule_kind=rule_kind,
+            )
+            return json.dumps(result.as_dict())
+        except Exception as e:
+            return f"Feedback error: {str(e)}"
+
+    REGISTERED_TOOLS["graph_feedback"] = graph_feedback
 
     @mcp.tool(
         name="graph_ingest",
@@ -2157,6 +2265,24 @@ def _build_server():
                 except Exception as e:
                     return f"Reflect error: {e}"
 
+            elif action == "curate_wiki":
+                # CONCEPT:KG-2.19 — delta-skip continuous ingest of a self-curating wiki dir.
+                try:
+                    import json
+
+                    from agent_utilities.knowledge_graph.ingestion.wiki_curator import (
+                        curate_wiki,
+                    )
+
+                    if not target_path:
+                        return json.dumps(
+                            {"error": "curate_wiki requires target_path (the wiki dir)"}
+                        )
+                    summary = curate_wiki(engine, target_path)
+                    return json.dumps(summary, default=str)
+                except Exception as e:
+                    return f"Wiki curation error: {e}"
+
             elif action == "agent_toolkit":
                 import json
 
@@ -2383,6 +2509,20 @@ def _build_server():
                 deps = json.loads(dependencies) if dependencies else []
                 job_id = await orch.dispatch_task(task, deps)
                 return f"Task dispatched. Job ID: {job_id}"
+            elif action == "rlm_run":
+                # CONCEPT:ORCH-1.12 — run the Predict-RLM runtime on an ad-hoc task.
+                from agent_utilities.rlm.runner import run_rlm
+
+                result = await run_rlm(task, input_text=completion_state)
+                return json.dumps(result, default=str)
+            elif action == "rlm_optimize":
+                # CONCEPT:ORCH-1.13 — optimize a skill prompt via the GEPA loop.
+                from agent_utilities.rlm.runner import optimize_rlm_skill
+
+                rows = json.loads(dependencies) if dependencies else []
+                dataset = rows if isinstance(rows, list) else []
+                result = await optimize_rlm_skill(task, dataset)
+                return json.dumps(result, default=str)
             elif action == "status":
                 if not job_id:
                     return "Error: job_id required"
@@ -2581,7 +2721,7 @@ def _build_server():
     def graph_configure(
         action: str = Field(
             default="register_mcp",
-            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor').",
+            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing').",
         ),
         config_key: str = Field(
             default="", description="The key or ID of the configuration/secret."
@@ -2669,6 +2809,43 @@ def _build_server():
                     return json.dumps(HookInstaller().doctor(), default=str)
                 except Exception as e:
                     return json.dumps({"error": f"Doctor failed: {e}"})
+            # ── CONCEPT:ORCH-1.27: Role-Specialized Model Routing ──
+            if action == "set_role_routing":
+                try:
+                    from pathlib import Path
+
+                    from agent_utilities.core.config import config as _cfg
+                    from agent_utilities.models.model_registry import (
+                        ModelRegistry,
+                        RoleSpec,
+                    )
+
+                    payload = json.loads(config_value) if config_value else {}
+                    reg_path = getattr(_cfg, "model_registry_path", None)
+                    if not reg_path or not Path(reg_path).is_file():
+                        return json.dumps(
+                            {
+                                "error": (
+                                    "No model_registry_path configured; cannot "
+                                    "persist role_routing."
+                                )
+                            }
+                        )
+                    registry = ModelRegistry.load_from_file(reg_path)
+                    for rname, spec in payload.items():
+                        registry.role_routing[rname] = RoleSpec.model_validate(spec)
+                    Path(reg_path).write_text(
+                        json.dumps(registry.model_dump(), indent=2)
+                    )
+                    return json.dumps(
+                        {
+                            "status": "success",
+                            "action": "set_role_routing",
+                            "roles": list(payload.keys()),
+                        }
+                    )
+                except Exception as e:
+                    return json.dumps({"error": f"set_role_routing failed: {e}"})
             return json.dumps({"error": f"Unknown action: {action}"})
         except Exception as e:
             return json.dumps({"error": str(e)})

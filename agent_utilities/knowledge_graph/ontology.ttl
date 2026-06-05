@@ -78,6 +78,10 @@ Modular imports:
             owl:onProperty :occurredDuring ],
         bfo:0000015 .
 
+:EvalCase a owl:Class ;
+    rdfs:label "Eval Case" ;
+    rdfs:comment "A regression evaluation case, often sourced from a human correction." .
+
 :ExternalGraphReference a owl:Class ;
     rdfs:label "External Graph Reference" ;
     rdfs:comment "A reference to an external SPARQL or LPG knowledge graph endpoint. CONCEPT:KG-2.9" ;
@@ -97,6 +101,10 @@ Modular imports:
     rdfs:comment "A source code file." ;
     rdfs:seeAlso schema:DigitalDocument ;
     rdfs:subClassOf bfo:0000004 .
+
+:Framework a owl:Class ;
+    rdfs:label "Framework" ;
+    rdfs:comment "A named mental model / repeatable method distilled from a source." .
 
 :Goal a owl:Class ;
     rdfs:label "Goal" ;
@@ -120,6 +128,10 @@ Modular imports:
             owl:onProperty :influencedBy ;
             owl:someValuesFrom :Evidence ],
         :Belief .
+
+:Insight a owl:Class ;
+    rdfs:label "Insight" ;
+    rdfs:comment "A distilled, reusable takeaway from a call or document." .
 
 :LanguageModel a owl:Class ;
     rdfs:label "Language Model" ;
@@ -174,6 +186,10 @@ Modular imports:
             owl:onProperty :ownedBy ;
             owl:someValuesFrom bfo:0000004 ] .
 
+:Playbook a owl:Class ;
+    rdfs:label "Playbook" ;
+    rdfs:comment "An executable, reusable procedure distilled from calls/docs. Crosswalked to the canonical BusinessProcess family." .
+
 :Policy a owl:Class ;
     rdfs:label "Policy" ;
     rdfs:comment "A governance rule or constraint." ;
@@ -181,6 +197,10 @@ Modular imports:
             owl:allValuesFrom bfo:0000001 ;
             owl:onProperty :governedBy ],
         bfo:0000031 .
+
+:Preference a owl:Class ;
+    rdfs:label "Preference" ;
+    rdfs:comment "A learned/asserted preference influencing routing or retrieval." .
 
 :Principle a owl:Class ;
     rdfs:label "Principle" ;
@@ -252,6 +272,11 @@ Modular imports:
             owl:onProperty :dependsOn ],
         bfo:0000004 .
 
+:SourceRule a owl:Class ;
+    rdfs:label "Source Rule" ;
+    rdfs:comment "A rule governing which sources may be used (e.g. never in public content)." ;
+    rdfs:subClassOf :GovernanceRule .
+
 :Symbol a owl:Class ;
     rdfs:label "Code Symbol" ;
     rdfs:subClassOf bfo:0000004 .
@@ -272,6 +297,11 @@ Modular imports:
     rdfs:comment "A software tool or instrument. BFO:IndependentContinuant, aligned to schema:SoftwareApplication." ;
     rdfs:seeAlso schema:SoftwareApplication ;
     rdfs:subClassOf bfo:0000004 .
+
+:VoiceRule a owl:Class ;
+    rdfs:label "Voice Rule" ;
+    rdfs:comment "A rule governing tone/phrasing/brand voice." ;
+    rdfs:subClassOf :GovernanceRule .
 
 :alignedWith a owl:ObjectProperty,
         owl:SymmetricProperty ;
@@ -301,6 +331,11 @@ Works for DataClassification, SecurityClearance, risk tier, etc.""" ;
     rdfs:domain :Place ;
     rdfs:range bfo:0000004 ;
     owl:inverseOf :locatedIn .
+
+:corrects a owl:ObjectProperty ;
+    rdfs:label "corrects" ;
+    rdfs:comment "Links a Correction to the node/output it corrects." ;
+    rdfs:domain :Correction .
 
 :dependencyOf a owl:ObjectProperty ;
     rdfs:label "dependency of" ;
@@ -386,6 +421,10 @@ Works for DataClassification, SecurityClearance, risk tier, etc.""" ;
     rdfs:comment "An atomic knowledge unit. BFO:GenericallyDependentContinuant, aligned to skos:Concept for full SKOS taxonomy support." ;
     rdfs:subClassOf bfo:0000031,
         skos:Concept .
+
+:Correction a owl:Class ;
+    rdfs:label "Correction" ;
+    rdfs:comment "A human-asserted correction of an agent output, fact, or routing decision." .
 
 :Decision a owl:Class ;
     rdfs:label "Decision" ;
@@ -520,6 +559,10 @@ Works for versions, phases, events, role transitions, etc.""" ;
             owl:onProperty :derivedFrom ;
             owl:someValuesFrom bfo:0000001 ],
         bfo:0000031 .
+
+:GovernanceRule a owl:Class ;
+    rdfs:label "Governance Rule" ;
+    rdfs:comment "A durable rule (forbid/prefer/demote) consulted at retrieval time." .
 
 :approvedBy a owl:ObjectProperty ;
     rdfs:label "approved by" ;

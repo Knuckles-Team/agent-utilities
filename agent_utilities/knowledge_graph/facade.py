@@ -204,8 +204,9 @@ class KnowledgeGraph:
     ) -> list[Designation]:
         """Designate the top-``k`` entities for a task.
 
-        Delegates directly to :meth:`CapabilityIndex.designate` on the
-        :attr:`retrieval` layer.
+        Delegates to :meth:`CapabilityIndex.designate`, then (when
+        ``KG_BRAIN_ENFORCE`` is on) drops designations the current actor is not
+        permitted to read and records a read audit. No-op filtering otherwise.
 
         Args:
             prompt_embedding: The task/query embedding vector.
@@ -215,9 +216,50 @@ class KnowledgeGraph:
         Returns:
             A list of :class:`Designation` objects, ranked by similarity.
         """
-        return self.retrieval.designate(
+        results = self.retrieval.designate(
             prompt_embedding, required_caps=required_caps, k=k
         )
+        from .core.secured_reads import audit_read, permit
+
+        ids: list[str] = [
+            i for d in results if isinstance((i := getattr(d, "id", None)), str)
+        ]
+        if ids:
+            allowed = set(permit(ids))
+            results = [d for d in results if getattr(d, "id", None) in allowed]
+            audit_read(ids, summary="designate")
+        # Apply learned/asserted governance rules so corrections-turned-rules
+        # change behaviour (CONCEPT:KG-2.8). Best-effort; never blocks retrieval.
+        try:
+            from .retrieval.governance_rules import (
+                apply_governance_rules,
+                load_active_rules,
+            )
+
+            rules = load_active_rules(self.store)
+            if rules:
+                results = apply_governance_rules(results, rules)
+        except Exception as exc:  # pragma: no cover - enhancement only
+            logger.debug("governance rule application skipped: %s", exc)
+        return results
+
+    def query(self, cypher: str, params: Any = None) -> list[dict[str, Any]]:
+        """Run a tenant-scoped, permission-filtered, audited Cypher read.
+
+        The guarded counterpart to ``store.execute``: applies tenant scoping to
+        the query, filters ACL-denied rows, and records a read audit — all
+        no-ops unless ``KG_BRAIN_ENFORCE`` is on. Internal/unscoped callers may
+        still use ``store.execute`` directly.
+        """
+        store = self.store
+        if store is None:
+            return []
+        from .core.secured_reads import audit_read, filter_rows, scope
+
+        rows = store.execute(scope(cypher), params or {}) or []
+        rows = filter_rows(rows)
+        audit_read([], summary="query")
+        return rows
 
     def populate_capability_index(self, nodes: Any) -> int:
         """Populate the L2 retrieval index from graph nodes (Plan 08 Synergy 1).

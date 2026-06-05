@@ -32,6 +32,16 @@ class FakeFrappeClient:
             {"name": "ITEM-WIDGET", "item_name": "Widget"},
             {"name": "ITEM-GADGET", "item_name": "Gadget"},
         ],
+        "Issue": [
+            {
+                "name": "ISS-0001",
+                "subject": "Login fails",
+                "status": "Open",
+                "priority": "High",
+                "customer": "CUST-001",
+            },
+            {"name": "ISS-0002", "subject": "Slow page"},  # no customer
+        ],
     }
 
     def get_list(self, doctype):
@@ -106,6 +116,23 @@ def test_sales_order_node_and_placed_by_edge():
     placed_by = {(e.source, e.target) for e in batch.edges if e.rel_type == "PLACED_BY"}
     assert ("order:SO-0001", "customer:CUST-001") in placed_by
     assert ("order:SO-0002", "customer:CUST-002") in placed_by
+
+
+def test_issue_maps_to_erpnext_issue_and_raised_by():
+    batch = _run()
+    by_id = {n.id: n for n in batch.nodes}
+
+    issue = by_id["erpnextissue:ISS-0001"]
+    assert issue.type == "ErpNextIssue"
+    assert issue.props["subject"] == "Login fails"
+    assert issue.props["status"] == "Open"
+
+    raised_by = {
+        (e.source, e.target) for e in batch.edges if e.rel_type == "RAISED_BY"
+    }
+    assert ("erpnextissue:ISS-0001", "customer:CUST-001") in raised_by
+    # Issue without a customer emits no RAISED_BY edge.
+    assert all(e.source != "erpnextissue:ISS-0002" for e in batch.edges)
 
 
 def test_write_batch_persists_to_backend():

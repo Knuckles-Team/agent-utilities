@@ -78,6 +78,23 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "prompt": "Prompt",
     "process_flow": "ProcessFlow",
     "process_step": "ProcessStep",
+    # Enterprise OS — canonical ArchiMate concepts & vendor crosswalk (KG-2.9)
+    "businessprocess": "BusinessProcess",
+    "businesstask": "BusinessTask",
+    "businesscapability": "BusinessCapability",
+    "applicationevent": "ApplicationEvent",
+    "erpnextissue": "ErpNextIssue",
+    # Feedback loop — corrections → rules → eval (CONCEPT:KG-2.8)
+    "correction": "Correction",
+    "governance_rule": "GovernanceRule",
+    "voice_rule": "VoiceRule",
+    "source_rule": "SourceRule",
+    "preference": "Preference",
+    "eval_case": "EvalCase",
+    # Operating intelligence distilled from calls/docs (CONCEPT:KG-2.8)
+    "insight": "Insight",
+    "framework": "Framework",
+    "playbook": "Playbook",
     "knowledge_base": "KnowledgeBase",
     "knowledge_base_topic": "KnowledgeBaseTopic",
     "experiment": "Experiment",
@@ -146,6 +163,8 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
 _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     "inherits_from": "inheritsFrom",
     "depends_on": "dependsOn",
+    "realizes": "realizes",
+    "corrects": "corrects",
     "imports": "imports",
     "provides": "provides",
     "part_of": "partOf",
@@ -165,6 +184,7 @@ _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     # Standard Ontology Edges (PROV-O, SKOS, Dublin Core, FIBO)
     "was_generated_by": "wasGeneratedBy",
     "was_derived_from": "wasDerivedFrom",
+    "derived_from": "wasDerivedFrom",
     "was_attributed_to": "wasAttributedTo",
     "has_temporal_extent": "hasTemporalExtent",
     "broader": "broader",

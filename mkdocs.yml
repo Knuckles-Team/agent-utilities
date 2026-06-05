@@ -53,6 +53,10 @@ nav:
       - Ecosystem & Peripherals: pillars/4_ecosystem_peripherals.md
       - Agent OS Infrastructure: pillars/5_agent_os_infrastructure.md
       - GeniusBot Cockpit: pillars/6_geniusbot_cockpit.md
+  - Architecture:
+      - C4 Architecture: pillars/architecture_c4.md
+      - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
+      - Company Brain Runtime: architecture/company_brain_runtime.md
   - Concept Registry:
       - Canonical Concept Map: concept_map.md
       - Concept Overview: overview.md

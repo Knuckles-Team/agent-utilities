@@ -73,6 +73,81 @@ def test_ingest_external_entity_stub(graph_engine):
     assert edge["type"] == "MAPPED_TO_EXTERNAL"
 
 
+class _CountingCamundaClient:
+    """Duck-typed camunda client that counts calls to detect TTL caching."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def list_process_definitions(self):
+        self.calls += 1
+        return [{"id": "invoice:1:abc", "key": "invoice", "name": "Invoice"}]
+
+    def list_tasks(self):
+        return []
+
+    def list_incidents(self):
+        return [
+            {"id": "inc-1", "incidentMessage": "boom", "processDefinitionId": "invoice:1:abc"}
+        ]
+
+
+def test_register_and_query_rest_source(graph_engine):
+    client = _CountingCamundaClient()
+    graph_engine.register_rest_source("rest:camunda", "camunda", client)
+
+    # Reference node is discoverable, tagged platform=rest.
+    assert "rest:camunda" in graph_engine.graph
+    assert graph_engine.graph.nodes["rest:camunda"]["platform"] == "rest"
+
+    records = graph_engine.query_rest_source("rest:camunda")
+    types = {r["type"] for r in records}
+    assert types == {"BusinessProcess", "Incident"}
+
+    # Type filter narrows to one canonical concept.
+    incidents = graph_engine.query_rest_source("rest:camunda", node_type="Incident")
+    assert len(incidents) == 1
+    assert incidents[0]["id"] == "incident:inc-1"
+
+
+def test_rest_source_ttl_cache(graph_engine):
+    client = _CountingCamundaClient()
+    graph_engine.register_rest_source(
+        "rest:camunda", "camunda", client, ttl_seconds=60
+    )
+    graph_engine.query_rest_source("rest:camunda")
+    graph_engine.query_rest_source("rest:camunda")
+    assert client.calls == 1  # second query served from cache
+
+    # ttl=0 forces a refetch every call.
+    client2 = _CountingCamundaClient()
+    graph_engine.register_rest_source("rest:c2", "camunda", client2, ttl_seconds=0)
+    graph_engine.query_rest_source("rest:c2")
+    graph_engine.query_rest_source("rest:c2")
+    assert client2.calls == 2
+
+
+def test_execute_federated_query_routes_rest(graph_engine):
+    client = _CountingCamundaClient()
+    graph_engine.register_rest_source("rest:camunda", "camunda", client)
+    results = graph_engine.execute_federated_query(
+        "rest:camunda", query="", parameters={"node_type": "BusinessProcess"}
+    )
+    assert len(results) == 1
+    assert results[0]["type"] == "BusinessProcess"
+
+
+def test_query_rest_union_dedups_local_wins(graph_engine):
+    client = _CountingCamundaClient()
+    graph_engine.register_rest_source("rest:camunda", "camunda", client)
+    local = [{"id": "incident:inc-1", "type": "Incident", "state": "local-edit"}]
+    merged = graph_engine.query_rest_union(
+        "rest:camunda", local, node_type="Incident"
+    )
+    assert len(merged) == 1  # same id deduped
+    assert merged[0]["state"] == "local-edit"  # local precedence
+
+
 @patch("requests.post")
 def test_execute_federated_sparql(mock_post, graph_engine):
     """Test executing SPARQL query against mock external HTTP endpoint."""

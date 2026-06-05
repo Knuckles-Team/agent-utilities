@@ -116,6 +116,22 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "prompt",
     "process_flow",
     "process_step",
+    # Enterprise OS — canonical ArchiMate concepts & vendor crosswalk (KG-2.9)
+    "businessprocess",
+    "businesstask",
+    "applicationevent",
+    "erpnextissue",
+    # Feedback loop — corrections → rules → eval (CONCEPT:KG-2.8)
+    "correction",
+    "governance_rule",
+    "voice_rule",
+    "source_rule",
+    "preference",
+    "eval_case",
+    # Operating intelligence distilled from calls/docs (CONCEPT:KG-2.8)
+    "insight",
+    "framework",
+    "playbook",
     "knowledge_base",
     "knowledge_base_topic",
     "experiment",
@@ -230,6 +246,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "similar_to",
     "mentions",
     "relates_to",
+    "corrects",
     # Enterprise OS edges (CONCEPT:KG-2.9)
     "runs_on",
     "affects",
@@ -803,6 +820,16 @@ class OWLBridge:
             downfed += 1
             affected_nodes.add(subject)
             affected_nodes.add(obj)
+
+            # Entailment-aware scoping (CONCEPT:KG-2.6): a derived fact inherits
+            # the most-restrictive classification of its parents so reasoning
+            # can't leak a RESTRICTED node through an inferred edge.
+            try:
+                from .secured_reads import inherit_inferred_acl
+
+                inherit_inferred_acl(subject, obj)
+            except Exception:  # pragma: no cover - best-effort
+                pass
 
         # Also sync to backend if available
         if downfed > 0 and self.backend:

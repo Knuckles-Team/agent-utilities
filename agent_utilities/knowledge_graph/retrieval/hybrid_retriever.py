@@ -487,6 +487,32 @@ class HybridRetriever:
             logger.debug("Quality gate assessment skipped: %s", e)
             return assembled_subgraph
 
+    @staticmethod
+    def _node_text(node: dict[str, Any]) -> str:
+        """Text whose tokens count against a retrieval budget."""
+        parts = [str(node.get(k, "")) for k in ("content", "text", "summary", "name")]
+        body = " ".join(p for p in parts if p)
+        return body or str(node)
+
+    def retrieve_hybrid_budgeted(
+        self,
+        query: str,
+        token_budget: int | None = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """``retrieve_hybrid`` capped to a context-token budget (CONCEPT:KG-2.1).
+
+        Retrieves as usual, then keeps the highest-ranked nodes that fit within
+        ``token_budget`` (no budget → unchanged). This is the retrieval-side fix
+        for context-window bloat — the article's "memory ate 40% of context".
+        """
+        results = self.retrieve_hybrid(query, **kwargs)
+        if not token_budget:
+            return results
+        from .budget import fit_within
+
+        return fit_within(results, token_budget, text_of=self._node_text)
+
     @property
     def last_quality_report(self):
         """The quality report from the most recent retrieval, if available."""
@@ -568,3 +594,200 @@ class HybridRetriever:
         except Exception as e:
             logger.warning(f"Query decomposition failed: {e}")
             return [query]
+
+    # ── CONCEPT:KG-2.12 — Memory-First Retrieval ──────────────────────────────────
+
+    def _generate_hyde_plan(self, query: str, mode_hint: str | None = None):
+        """Generate a structured HyDE retrieval plan via the ORCH-1.27 ``planner`` role.
+
+        Returns a :class:`~.hyde_planner.HydePlan`. Always succeeds — a planner/LLM failure
+        degrades to a single-query plan (see :func:`~.hyde_planner.parse_hyde_plan`).
+        """
+        from .hyde_planner import parse_hyde_plan
+
+        system_prompt = (
+            "You are a memory retrieval planner. Given a user question, emit a JSON object: "
+            '{"vector_queries": [<baseline factual statement>, <entity/anchor focus>, '
+            "<action/target focus>, <literal nouns, numbers & units>], "
+            '"keywords": [<2-4 exact proper nouns>], "search_mode": "standard"|"deep"}. '
+            'Use "deep" for aggregations, totals, counts, durations, or broad temporal spans; '
+            '"standard" for a single point fact. Return ONLY the JSON object.'
+        )
+        try:
+            model = create_model(role="planner")
+            agent = Agent(model=model, system_prompt=system_prompt)
+            result: Any = agent.run_sync(query)
+            raw = str(getattr(result, "output", None) or getattr(result, "data", ""))
+        except Exception as e:  # pragma: no cover - planner is best-effort
+            logger.debug("HyDE planner failed, using fallback plan: %s", e)
+            raw = ""
+        return parse_hyde_plan(raw, original_query=query, mode_hint=mode_hint)
+
+    def plan_and_retrieve(
+        self,
+        query: str,
+        context_window: int = 10,
+        mode: str = "hyde",
+        self_correct: bool = False,
+        corpus_id: str | None = None,
+        hard_negatives: set[str] | None = None,
+        active_task: str | None = None,
+        with_ledger: bool = False,
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        """Memory-first retrieval: HyDE plan → dual-threshold multi-query → gated 2nd pass.
+
+        CONCEPT:KG-2.12. Assimilates Quarq's retrieval policy (agent-oss/agent.py:1817-2825):
+
+        - ``mode="standard"|"deep"``: a single ``retrieve_hybrid`` at the matching threshold
+          (0.38 / 0.28) — Quarq's dual-threshold behavior.
+        - ``mode="hyde"``: the planner role emits a multi-query plan; each query runs through the
+          graph-native ``retrieve_hybrid`` at the plan's threshold; results are id-dedup/score
+          merged (``merge_retrievals``).
+        - ``self_correct=True``: if the quality gate reports ``gate_passed=False`` after the first
+          pass, a second pass re-runs the plan at the **deep** threshold (0.28) and merges —
+          an *evidence-based* trigger, not Quarq's model-self-report ``REQUIRED_DATA``.
+        - ``with_ledger=True``: also returns a quantitative-fidelity ACCEPT/REJECT ledger.
+
+        Returns the merged node list, or ``{"nodes": [...], "ledger": {...}, "plan": {...}}``
+        when ``with_ledger`` is set. Keeps the 3-hop Wire-First ceiling (method, not a service).
+        """
+        from .hyde_planner import (
+            HydePlan,
+            build_evidence_ledger,
+            is_trivial_query,
+            merge_retrievals,
+            threshold_for_mode,
+        )
+
+        # CONCEPT:KG-2.15 — social-closer gate: trivial turns skip the planner + retrieval entirely.
+        if is_trivial_query(query):
+            empty: list[dict[str, Any]] = []
+            if with_ledger:
+                return {"nodes": empty, "ledger": build_evidence_ledger(query, empty),
+                        "plan": HydePlan(vector_queries=[query]).model_dump(), "trivial": True}
+            return empty
+
+        if mode in ("standard", "deep"):
+            plan = HydePlan(vector_queries=[query], search_mode=mode)  # type: ignore[arg-type]
+        else:
+            plan = self._generate_hyde_plan(query)
+
+        threshold = threshold_for_mode(plan.search_mode)
+        queries = plan.effective_queries(query)
+        sub_window = max(2, context_window)
+
+        first_lists = [
+            self.retrieve_hybrid(
+                q,
+                context_window=sub_window,
+                corpus_id=corpus_id,
+                hard_negatives=hard_negatives,
+                relevance_threshold=threshold,
+                active_task=active_task,
+            )
+            for q in queries
+        ]
+        nodes = merge_retrievals(first_lists, context_window)
+
+        # Self-correcting second pass — fire only when the quality gate measured a failure.
+        report = self.last_quality_report
+        gate_failed = report is not None and not getattr(report, "gate_passed", True)
+        if self_correct and gate_failed:
+            deep_threshold = threshold_for_mode("deep")
+            second_lists = [
+                self.retrieve_hybrid(
+                    q,
+                    context_window=sub_window,
+                    corpus_id=corpus_id,
+                    hard_negatives=hard_negatives,
+                    relevance_threshold=deep_threshold,
+                    active_task=active_task,
+                )
+                for q in queries
+            ]
+            nodes = merge_retrievals([nodes, *second_lists], context_window)
+
+        # CONCEPT:KG-2.15 — 4-level fallback cascade: hybrid (above) → dense-only is already
+        # inside retrieve_hybrid → lexical keyword scan → backend scan. If the vector path yielded
+        # nothing (e.g. embeddings/HNSW unavailable or offline), degrade to a lexical fallback so a
+        # query always returns *something* instead of an empty result.
+        if not nodes:
+            nodes = self._lexical_fallback(query, context_window, corpus_id=corpus_id)
+
+        # CONCEPT:KG-2.18 — record that these memories were RECALLED, on the live retrieval path.
+        # The usage half (which recalled nodes actually informed the answer) is closed by the
+        # generation step via record_answer_usage(); trust is then trained from the two counts.
+        self.usage_telemetry.record_recall([str(n.get("id")) for n in nodes if n.get("id")])
+
+        if with_ledger:
+            return {
+                "nodes": nodes,
+                "ledger": build_evidence_ledger(query, nodes),
+                "plan": plan.model_dump(),
+            }
+        return nodes
+
+    @property
+    def usage_telemetry(self):
+        """Lazy KG-2.18 recall/usage telemetry, persistent across retrievals on this retriever."""
+        tel = getattr(self, "_usage_telemetry", None)
+        if tel is None:
+            from .retrieval_quality import UsageTelemetry
+
+            tel = UsageTelemetry()
+            self._usage_telemetry = tel
+        return tel
+
+    def record_answer_usage(self, used_ids: list[str], query: str = "") -> dict[str, Any]:
+        """Close the KG-2.18 loop: mark which recalled memories the answer actually used.
+
+        Records usage, persists trained ``trust_score`` onto those nodes, and returns a generation
+        lineage record (query → retrieved → used). Call this from the generation step.
+        """
+        from .retrieval_quality import build_lineage
+
+        self.usage_telemetry.record_usage(used_ids)
+        self.usage_telemetry.flush_to_engine(self.engine)
+        return build_lineage(query, list(self.usage_telemetry._recalled), used_ids=used_ids).model_dump()
+
+    def _lexical_fallback(
+        self, query: str, context_window: int, *, corpus_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Keyword/lexical fallback when the vector path returns nothing (CONCEPT:KG-2.15).
+
+        Degradation tiers 3-4 of the cascade: a backend ``CONTAINS`` scan over node content/name
+        for the query's distinctive tokens. Returns [] if no backend is available (tier-4 no-op).
+        """
+        backend = getattr(self.engine, "backend", None)
+        if backend is None:
+            return []
+        import re as _re
+
+        tokens = [t for t in _re.findall(r"[A-Za-z0-9_]{3,}", query)][:6]
+        if not tokens:
+            return []
+        where = " OR ".join(
+            f"toLower(n.content) CONTAINS $t{i} OR toLower(n.name) CONTAINS $t{i}"
+            for i in range(len(tokens))
+        )
+        params = {f"t{i}": tok.lower() for i, tok in enumerate(tokens)}
+        try:
+            rows = backend.execute(
+                f"MATCH (n) WHERE {where} "
+                f"RETURN n.id as id, n as data LIMIT {max(1, context_window)}",
+                params,
+            )
+        except Exception as e:  # pragma: no cover - backend dialect variance
+            logger.debug("Lexical fallback query failed: %s", e)
+            return []
+        out: list[dict[str, Any]] = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            data = row.get("data") if isinstance(row.get("data"), dict) else {}
+            data = dict(data)
+            data["id"] = row.get("id")
+            data.setdefault("_score", 0.2)  # low confidence — it's a lexical fallback
+            data["_fallback"] = "lexical"
+            out.append(data)
+        return out

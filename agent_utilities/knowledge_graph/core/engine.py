@@ -412,11 +412,13 @@ class IntelligenceGraphEngine(
             props["confidence"] = 1.0
         if "source" not in props:
             props["source"] = "system"
-        # Graphiti-inspired temporal metadata: valid_from enables temporal queries
-        if "valid_from" not in props:
-            from datetime import UTC, datetime
+        # CONCEPT:KG-2.11 — Bi-Temporal Memory. Stamp event_time / storage_time /
+        # valid_from / valid_to so edges support as-of queries and event-time contradiction
+        # precedence (extends the prior Graphiti-inspired valid_from). A caller-supplied
+        # event_time (e.g. a narrative date resolved by the learner) is preserved.
+        from agent_utilities.knowledge_graph.core.bitemporal import stamp_bitemporal
 
-            props["valid_from"] = datetime.now(UTC).isoformat()
+        stamp_bitemporal(props, event_time=props.get("event_time"))
 
         if self.backend and not ephemeral:
             # Tier 1: Backend is source of truth — write here FIRST

@@ -76,8 +76,14 @@ def main() -> int:
 
         llm_fn = make_llm_fn()
 
+    from .capability_writeback import resolve_writeback_fn
+
     pipe = EnrichmentPipeline(
-        backend, make_parse_fn(gc), community_fn=community_fn, llm_fn=llm_fn
+        backend,
+        make_parse_fn(gc),
+        community_fn=community_fn,
+        llm_fn=llm_fn,
+        writeback_fn=resolve_writeback_fn(backend),  # CONCEPT:KG-2.8 (gated by KG_EA_WRITEBACK)
     )
     summary = pipe.enrich(args.path)
 

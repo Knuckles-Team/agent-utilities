@@ -39,6 +39,77 @@ class GEPAInstance(BaseModel):
     rubric: str = ""
 
 
+# ── CONCEPT:ORCH-1.30 — Generalizing GEPA (held-out split, AgentSpec grounding, patch-merge) ──
+# Assimilated from the GEPA paper (Agrawal et al., ICLR 2026; D_train → D_feedback + D_pareto) and
+# predict-rlm's AgentSpec (anti-overfit grounding). Makes optimized skills *transfer* off the split.
+
+
+class AgentSpec(BaseModel):
+    """Grounds the proposer so optimized skills capture a general SOP, not benchmark glue.
+
+    CONCEPT:ORCH-1.30. ``counterfactual_axis`` names the dimension the skill must generalize across
+    (e.g. "different app/API set"), steering the proposer away from memorizing the training split.
+    """
+
+    use_cases: list[str] = Field(default_factory=list)
+    runtime_grounding: list[str] = Field(default_factory=list)  # tools, env constraints, protocol facts
+    scoring_rule: str = ""
+    counterfactual_axis: str = ""
+
+    def as_prompt(self) -> str:
+        parts = ["# Agent Specification (ground your edits in this — do not overfit the examples)"]
+        if self.use_cases:
+            parts.append("## Use cases\n" + "\n".join(f"- {u}" for u in self.use_cases))
+        if self.runtime_grounding:
+            parts.append("## Runtime surface & constraints\n" + "\n".join(f"- {r}" for r in self.runtime_grounding))
+        if self.scoring_rule:
+            parts.append(f"## Scoring rule\n{self.scoring_rule}")
+        if self.counterfactual_axis:
+            parts.append(
+                f"## Generalization requirement\nThe skill MUST generalize across: "
+                f"{self.counterfactual_axis}. Prefer general procedures over example-specific rules."
+            )
+        return "\n\n".join(parts)
+
+
+def split_dataset(
+    dataset: list[GEPAInstance], dev_fraction: float, *, seed: int = 0
+) -> tuple[list[GEPAInstance], list[GEPAInstance]]:
+    """Split into (feedback_set, held-out pareto/dev_set) — GEPA's D_feedback / D_pareto (ORCH-1.30).
+
+    Deterministic (seeded). ``dev_fraction`` in (0,1) reserves that fraction for selection. With
+    ``dev_fraction <= 0`` the pareto set is empty (current behavior — select on feedback set).
+    """
+    import random as _random
+
+    if dev_fraction <= 0 or len(dataset) < 2:
+        return list(dataset), []
+    rng = _random.Random(seed)  # nosec B311 - deterministic train/dev split, not security
+    idx = list(range(len(dataset)))
+    rng.shuffle(idx)
+    n_dev = max(1, int(round(len(dataset) * min(dev_fraction, 0.9))))
+    dev_ids = set(idx[:n_dev])
+    feedback = [d for i, d in enumerate(dataset) if i not in dev_ids]
+    pareto = [d for i, d in enumerate(dataset) if i in dev_ids]
+    return feedback, pareto
+
+
+def select_best_on_heldout(
+    candidates: list[Candidate], heldout_scores: dict[str, float]
+) -> Candidate:
+    """Pick the candidate with the highest held-out score (GEPA selection; patch-merge graft).
+
+    CONCEPT:ORCH-1.30 — selection happens on UNSEEN data, so a candidate that merely memorized the
+    feedback minibatch does not win. Ties break toward the earlier generation (simpler) candidate.
+    """
+    if not candidates:
+        raise ValueError("no candidates to select from")
+    return max(
+        candidates,
+        key=lambda c: (heldout_scores.get(c.id, float("-inf")), -c.generation),
+    )
+
+
 class ParetoCandidatePool:
     """Maintains a set of non-dominated candidates (the Pareto Frontier)."""
 
@@ -103,6 +174,18 @@ class ParetoCandidatePool:
         """Return the current active Pareto frontier candidates."""
         return self.pool
 
+    # ── CONCEPT:ORCH-1.31 — Graph-Native Optimization State (resumable GEPA) ──────────
+
+    def to_snapshot(self) -> list[dict[str, Any]]:
+        """Serialize the frontier (candidates + ancestry) for durable persistence (pure)."""
+        return [c.model_dump() for c in self.pool]
+
+    def load_snapshot(self, snapshot: list[dict[str, Any]]) -> int:
+        """Rebuild candidates from a snapshot and merge them into the pool. Returns the count."""
+        restored = [Candidate(**row) for row in snapshot]
+        self.update(restored)
+        return len(restored)
+
 
 class ReflectiveMutator:
     """Uses natural language execution traces and feedback to propose prompt updates."""
@@ -125,8 +208,20 @@ class ReflectiveMutator:
         traces: list[dict[str, Any]],
         feedback: list[str],
         generation: int,
+        agent_spec: Any = None,
     ) -> Candidate:
-        """Propose a mutated prompt variant using natural language gradients."""
+        """Propose a mutated prompt variant using natural language gradients.
+
+        CONCEPT:ORCH-1.30 — when an ``agent_spec`` is supplied, its grounding (use cases, runtime
+        surface, counterfactual axis) is prepended so the proposer writes a general SOP rather than
+        rules that overfit the training minibatch.
+        """
+        spec_block = ""
+        if agent_spec is not None:
+            try:
+                spec_block = agent_spec.as_prompt() + "\n\n"
+            except Exception:  # noqa: BLE001
+                spec_block = ""
         trace_summary = ""
         for i, t in enumerate(traces[:5]):  # limit to top 5 to avoid context blowup
             trace_summary += (
@@ -136,6 +231,7 @@ class ReflectiveMutator:
             )
 
         prompt = (
+            f"{spec_block}"
             f"PARENT PROMPT IDENTIFIER: {parent.id}\n"
             f"PARENT PROMPT INSTRUCTIONS:\n"
             f'"""\n{parent.prompt_text}\n"""\n\n'
@@ -233,16 +329,24 @@ class GEPAOptimizer:
         objectives: list[str] | None = None,
         config: RLMConfig | None = None,
         graph_deps: GraphDeps | None = None,
+        agent_spec: AgentSpec | None = None,
     ):
         self.signature_class = signature_class
         self.base_prompt = base_prompt
         self.evaluator_fn = evaluator_fn
         self.config = config or RLMConfig()
         self.graph_deps = graph_deps
+        self.agent_spec = agent_spec  # CONCEPT:ORCH-1.30 anti-overfit grounding
 
         self.objectives = objectives or ["accuracy", "efficiency"]
         self.pool = ParetoCandidatePool(objectives=self.objectives)
-        self.mutator = ReflectiveMutator(model=self.config.sub_llm_model_small)
+        # CONCEPT:ORCH-1.27 — the proposer is the STRONG model (resolved via the rlm-proposer role),
+        # decoupled from the cheap executor/sub-LM. Falls back to the configured small model.
+        from .roles import rlm_role_model
+
+        self.mutator = ReflectiveMutator(
+            model=rlm_role_model("rlm-proposer", fallback=self.config.sub_llm_model_small)
+        )
 
         # Initialize candidate pool with base prompt
         base_candidate = Candidate(
@@ -260,8 +364,16 @@ class GEPAOptimizer:
         iterations: int = 3,
         batch_size: int = 5,
         enable_schema_diversity: bool = False,
+        dev_fraction: float = 0.0,
     ) -> Candidate:
-        """Run the GEPA optimization loop over the provided dataset."""
+        """Run the GEPA optimization loop over the provided dataset.
+
+        CONCEPT:ORCH-1.30 — when ``dev_fraction > 0``, the dataset is split into a feedback set (for
+        proposing) and a held-out Pareto/dev set; the final candidate is selected by held-out score
+        so optimized skills generalize off the optimization split (no overfitting to the minibatch).
+        """
+        feedback_set, pareto_set = split_dataset(dataset, dev_fraction)
+        dataset = feedback_set  # propose/evaluate only on the feedback split
         for gen in range(1, iterations + 1):
             logger.info(f"--- Starting GEPA Generation {gen} ---")
             frontier = self.pool.get_frontier()
@@ -346,7 +458,9 @@ class GEPAOptimizer:
                 parent.scores = mean_scores
 
                 # Generate new mutated child candidate
-                child = await self.mutator.mutate(parent, traces, feedback, gen)
+                child = await self.mutator.mutate(
+                    parent, traces, feedback, gen, agent_spec=self.agent_spec
+                )
                 new_candidates.append(child)
 
             # 2. Perform Crossover if we have multiple Pareto candidates
@@ -359,10 +473,42 @@ class GEPAOptimizer:
             # 3. Update Pool
             self.pool.update(new_candidates)
 
-        # Return the best candidate from the frontier
-        best_candidate = self.pool.get_frontier()[0]
-        logger.info(f"Optimization finished. Best candidate: {best_candidate.id}")
+        # CONCEPT:ORCH-1.30 — select the final candidate on the HELD-OUT pareto set (generalization),
+        # not on the feedback minibatch the candidates were tuned on.
+        frontier = self.pool.get_frontier()
+        if pareto_set and len(frontier) > 1:
+            heldout = {c.id: await self._score_candidate_on(c, pareto_set) for c in frontier}
+            best_candidate = select_best_on_heldout(frontier, heldout)
+            logger.info(
+                "Optimization finished. Held-out best: %s (score %.3f)",
+                best_candidate.id, heldout.get(best_candidate.id, 0.0),
+            )
+        else:
+            best_candidate = frontier[0]
+            logger.info(f"Optimization finished. Best candidate: {best_candidate.id}")
         return best_candidate
+
+    async def _score_candidate_on(
+        self, candidate: Candidate, instances: list[GEPAInstance]
+    ) -> float:
+        """Mean accuracy of a candidate prompt over a (held-out) instance set (CONCEPT:ORCH-1.30)."""
+        total = 0.0
+        for instance in instances:
+            harness = PredictRLM(
+                signature=self.signature_class,
+                config=self.config,
+                graph_deps=self.graph_deps,
+            )
+            harness.signature.__doc__ = candidate.prompt_text
+            try:
+                result_model = await harness.run(**instance.input_data)
+                eval_scores, _ = await self.evaluator_fn(
+                    instance, result_model, str(result_model.model_dump())
+                )
+                total += float(eval_scores.get("accuracy", 0.0))
+            except Exception as e:  # noqa: BLE001 - a failed eval scores 0 for this instance
+                logger.debug("held-out eval failed for %s: %s", instance.id, e)
+        return total / max(len(instances), 1)
 
     def _perturb_instance(self, instance: GEPAInstance) -> GEPAInstance:
         """Create a synthetically perturbed version of an instance for schema diversity sweeps.
@@ -476,3 +622,60 @@ class GEPAOptimizer:
 
         except Exception as e:
             logger.warning(f"Could not persist trajectory node to graph: {e}")
+
+    # ── CONCEPT:ORCH-1.31 — Graph-Native Optimization State ──────────────────────────
+
+    async def persist_frontier(self, run_id: str) -> bool:
+        """Snapshot the Pareto frontier (candidates + ancestry) to the durable epistemic-graph.
+
+        CONCEPT:ORCH-1.31 — enables resumable, cross-session GEPA: a killed run can resume from the
+        persisted frontier, and prior frontiers accumulate as reusable optimization state. Best-effort.
+        """
+        import json as _json
+
+        try:
+            from ..graph.models import GraphNode
+
+            snapshot = self.pool.to_snapshot()
+            node = GraphNode(
+                id=f"gepa_frontier_{run_id}",
+                labels=["GEPAFrontier"],
+                properties={
+                    "run_id": run_id,
+                    "snapshot_json": _json.dumps(snapshot),
+                    "candidate_count": len(snapshot),
+                    "objectives": ",".join(self.objectives),
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                },
+            )
+            await create_or_merge_node(node)
+            logger.info("[ORCH-1.31] persisted GEPA frontier %s (%d candidates)", run_id, len(snapshot))
+            return True
+        except Exception as e:  # noqa: BLE001 - persistence is best-effort
+            logger.warning("Could not persist GEPA frontier: %s", e)
+            return False
+
+    async def resume_frontier(self, run_id: str) -> int:
+        """Load a persisted frontier snapshot into the pool. Returns candidates restored (0 if none).
+
+        CONCEPT:ORCH-1.31. Best-effort: a missing snapshot or absent backend returns 0.
+        """
+        import json as _json
+
+        try:
+            from ..graph.client import get_graph_client
+
+            client = get_graph_client()
+            rows = await client.query(
+                "MATCH (n:GEPAFrontier {run_id: $rid}) RETURN n.snapshot_json AS snap",
+                {"rid": run_id},
+            )
+            if not rows:
+                return 0
+            snap = rows[0].get("snap") if isinstance(rows[0], dict) else None
+            if not snap:
+                return 0
+            return self.pool.load_snapshot(_json.loads(snap))
+        except Exception as e:  # noqa: BLE001 - resume is best-effort
+            logger.debug("Could not resume GEPA frontier %s: %s", run_id, e)
+            return 0

@@ -40,6 +40,11 @@ Every concept has 1:1:1 traceability across:
 | `ORCH-1.11` | WASM Micro-Agent Execution | 1 | 1 | [OS-5.5](pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) |
 | `ORCH-1.12` | Structured Predict-RLM Runtime | 2 | 1 | [Pillar Summary](pillars/1_graph_orchestration.md) |
 | `ORCH-1.13` | GEPA Reflective Prompt Optimizer | 2 | 1 | [Pillar Summary](pillars/1_graph_orchestration.md) |
+| `ORCH-1.27` | Role-Specialized Model Routing 🔬 | 5 | 2 | [ORCH-1.27](pillars/1_graph_orchestration/ORCH-1.27-Role_Specialized_Model_Routing.md) |
+| `ORCH-1.28` | Composable Skills + Generic Adapter 🔬 | 2 | 1 | [ORCH-1.28](pillars/1_graph_orchestration/ORCH-1.28-Composable_Skills_And_Generic_Adapter.md) |
+| `ORCH-1.29` | RLM Resilience + Telemetry 🔬 | 2 | 1 | [ORCH-1.29](pillars/1_graph_orchestration/ORCH-1.29-RLM_Resilience_And_Telemetry.md) |
+| `ORCH-1.30` | Generalizing GEPA 🔬 | 1 | 1 | [ORCH-1.30](pillars/1_graph_orchestration/ORCH-1.30-Generalizing_GEPA.md) |
+| `ORCH-1.31` | Graph-Native Optimization State 🔬 | 1 | 1 | [ORCH-1.31](pillars/1_graph_orchestration/ORCH-1.31-Graph_Native_Optimization_State.md) |
 
 Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planning/` (unified `Planner` facade), `graph/routing/` (`Router`/`RoutingStrategy` strategy package over `graph/_router_impl.py`), `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, `graph/parallel_engine.py`, `graph/manifest_generators.py`, `models/execution_manifest.py`, `graph/reactive/ledger.py`, `graph/reactive/dispatcher.py`, `core/wasm_runner.py`, `rlm/predict_rlm.py`, `rlm/gepa.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`
 
@@ -64,6 +69,14 @@ Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planning/` (unified `P
 | `KG-2.7` | Semantic Compactor & Refactorer 🔬 | 1 | 1 | [KG-2.7](pillars/2_epistemic_knowledge_graph/KG-2.7-Semantic_Compactor_And_Refactorer.md) |
 | `KG-2.7` | Single Company Brain | 7 | 2 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
 | `KG-2.7` | Ingestion Engine | 1 | 24 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.11` | Bi-Temporal Memory Layers 🔬 | 4 | 1 | [KG-2.11](pillars/2_epistemic_knowledge_graph/KG-2.11-Bi_Temporal_Memory_Layers.md) |
+| `KG-2.12` | Memory-First Retrieval (HyDE) 🔬 | 4 | 1 | [KG-2.12](pillars/2_epistemic_knowledge_graph/KG-2.12-Memory_First_Retrieval.md) |
+| `KG-2.13` | Background Learning Engine 🔬 | 2 | 2 | [KG-2.13](pillars/2_epistemic_knowledge_graph/KG-2.13-Background_Learning_Engine.md) |
+| `KG-2.14` | Ground-Truth Context Authority 🔬 | 1 | 1 | [KG-2.14](pillars/2_epistemic_knowledge_graph/KG-2.14-Ground_Truth_Authority.md) |
+| `KG-2.15` | Resilient Retrieval 🔬 | 2 | 1 | [KG-2.15](pillars/2_epistemic_knowledge_graph/KG-2.15-Resilient_Retrieval.md) |
+| `KG-2.17` | Memory Hygiene 🔬 | 2 | 1 | [KG-2.17](pillars/2_epistemic_knowledge_graph/KG-2.17-Memory_Hygiene.md) |
+| `KG-2.18` | Evidence-Weighted Memory 🔬 | 1 | 1 | [KG-2.18](pillars/2_epistemic_knowledge_graph/KG-2.18-Evidence_Weighted_Memory.md) |
+| `KG-2.19` | Self-Curating Wiki 🔬 | 2 | 1 | [KG-2.19](pillars/2_epistemic_knowledge_graph/KG-2.19-Self_Curating_Wiki.md) |
 
 Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memory.py`, `knowledge_graph/core/engine_tasks.py`, `knowledge_graph/core/graph_compute.py`, `knowledge_graph/core/topological_analysis_engine.py`, `knowledge_graph/research/research_intelligence_engine.py`, `knowledge_graph/memory/synthesis.py`, `knowledge_graph/memory/memory_materializer.py`, `knowledge_graph/memory/observer.py`, `knowledge_graph/memory/reflector.py`, `knowledge_graph/memory/startup_context.py`, `knowledge_graph/ontology.ttl`, `knowledge_graph/retrieval/retrieval_quality.py`, `knowledge_graph/pipeline/document_deletion.py`, `knowledge_graph/pipeline/document_update.py`, `domains/finance/`, `knowledge_graph/orchestration/engine_enterprise.py`, `knowledge_graph/pipeline/phases/external_graphs.py`, `knowledge_graph/ingestion/engine.py`, `scripts/install_git_hooks.py`, `scripts/submit_diff.py`, `mcp/kg_server.py`, `mcp/kg_coordinator.py`, `knowledge_graph/backends/epistemic_graph_backend.py`, `knowledge_graph/backends/postgresql_backend.py`, `knowledge_graph/backends/tiered_backend.py`, `knowledge_graph/backends/contrib/ladybug_backend.py`, 🔬 `knowledge_graph/core/ar_graph.py`, 🔬 `knowledge_graph/core/time_series_graph.py`
 
@@ -85,6 +98,7 @@ Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memo
 | `AHE-3.9` | Physical Knowledge Distillation Engine 🔬 | 1 | 1 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
 | `AHE-3.10` | Multi-Optimizer Prompt Selection Strategy 🔬 | 1 | 1 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
 | `AHE-3.11` | GitOps Commit & Evolution Boundary Traceability 🔬 | 1 | 1 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
+| `AHE-3.12` | LongMemEval-S Validation Harness 🔬 | 2 | 1 | [AHE-3.12](pillars/3_agentic_harness_engineering/AHE-3.12-LongMemEval_S_Validation_Harness.md) |
 
 Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.py`, `graph/team_composer.py`, `agentic_evolution/forge.py`, `knowledge_graph/orchestration/engine_ahe.py`, `knowledge_graph/distillation/physical_distiller.py`, `harness/evolve_agent.py`, 🔬 `harness/distributed_state_manager.py`
 

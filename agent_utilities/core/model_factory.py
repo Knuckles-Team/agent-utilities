@@ -127,6 +127,38 @@ def get_model_config(model_id: str | None = None) -> dict | None:
     return None
 
 
+def _resolve_role_model(role: str):
+    """Resolve a functional role to a concrete model via the active registry.
+
+    CONCEPT:ORCH-1.27. Loads the registry from ``config.model_registry_path`` (kept
+    decoupled from the server layer on purpose) and calls ``pick_for_role``. Returns
+    the selected ``ModelDefinition`` or ``None`` if no registry/match is available.
+    Never raises — role resolution is best-effort and degrades to the caller's defaults.
+    """
+    try:
+        from pathlib import Path
+
+        from agent_utilities.models.model_registry import ModelRegistry
+
+        cfg_path = getattr(config, "model_registry_path", None)
+        if not cfg_path or not Path(cfg_path).is_file():
+            return None
+        registry = ModelRegistry.load_from_file(cfg_path)
+        if not registry.models:
+            return None
+        # Merge AgentConfig.role_routing as a fallback when the registry file
+        # carries no role override for this role (registry file wins on conflict).
+        cfg_roles = getattr(config, "role_routing", None) or {}
+        if role not in registry.role_routing and role in cfg_roles:
+            from agent_utilities.models.model_registry import RoleSpec
+
+            registry.role_routing[role] = RoleSpec.model_validate(cfg_roles[role])
+        return registry.pick_for_role(role)
+    except Exception as e:  # pragma: no cover - defensive
+        logging.getLogger(__name__).debug("Role resolution failed for %r: %s", role, e)
+        return None
+
+
 def create_model(
     provider: str | None = None,
     model_id: str | None = None,
@@ -135,6 +167,7 @@ def create_model(
     custom_headers: dict | None = None,
     ssl_verify: bool = True,
     timeout: float = 300.0,
+    role: str | None = None,
 ):
     """Initialize a pydantic-ai Model instance.
 
@@ -161,6 +194,16 @@ def create_model(
         from pydantic_ai.models.test import TestModel
 
         return TestModel()
+
+    # CONCEPT:ORCH-1.27 — resolve a functional role (planner/generator/learner/judge)
+    # to a concrete model when an explicit model_id was not supplied. Explicit args win.
+    if role is not None and model_id is None:
+        _resolved = _resolve_role_model(role)
+        if _resolved is not None:
+            provider = provider or _resolved.provider
+            model_id = _resolved.model_id
+            if base_url is None:
+                base_url = _resolved.base_url
 
     _model_id = model_id or "qwen/qwen3.5-9b"
     _provider = provider or "openai"

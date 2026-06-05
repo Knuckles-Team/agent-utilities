@@ -10,6 +10,13 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+:ErpNextIssue a owl:Class ;
+    rdfs:label "ERPNext Issue" ;
+    rdfs:comment """A Frappe/ERPNext Issue doctype record — the ERPNext analogue
+    of a ServiceNow incident (helpdesk/support ITSM ticket). Crosswalked to the
+    canonical :ApplicationEvent in ontology_archimate.ttl, so it is
+    interchangeable with ServiceNow incidents in cross-vendor queries.""" .
+
 :Item a owl:Class ;
     rdfs:label "Item" ;
     rdfs:comment "A sellable/stockable product or service (Frappe Item doctype)." .

@@ -952,6 +952,19 @@ class MemoryNode(RegistryNode):
     content: str = ""
     status: str = "ACTIVE"
     tags: list[str] = Field(default_factory=list)
+    # CONCEPT:KG-2.11 — Bi-Temporal Memory Layers. The three Quarq memory layers
+    # (semantic / episodic / procedural; agent-oss/agent.py:1058-1466,3587) as a first-class
+    # field. "procedural" memories are behavioural/operational rules; `target_entity` scopes a
+    # procedural rule to a specific entity ("global" / an entity name) for 1-hop selective
+    # injection during retrieval, replacing Quarq's substring tag-matching.
+    memory_type: Literal["semantic", "episodic", "procedural"] = "semantic"
+    target_entity: str = ""
+    # Bi-temporal validity (node-level mirror of the edge stamping in core/bitemporal.py):
+    # event_time = when the fact actually happened; storage_time = when it was saved.
+    event_time: str | None = None
+    storage_time: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
 
 
 class CodeNode(RegistryNode):

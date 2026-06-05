@@ -280,13 +280,30 @@ class TenancyManager:
         return ancestors
 
     def scope_cypher_query(self, query: str, tenant_id: str) -> str:
-        """Inject tenant scoping into a Cypher query."""
-        if "WHERE" in query.upper():
-            return query.replace("WHERE", f"WHERE n.tenant_id = '{tenant_id}' AND", 1)
-        if "RETURN" in query.upper():
-            return query.replace(
-                "RETURN", f"WHERE n.tenant_id = '{tenant_id}' RETURN", 1
-            )
+        """Inject tenant scoping into a Cypher read query.
+
+        Hardened over the original naive ``str.replace``: the tenant id is
+        validated (alphanumeric/``-``/``_``/``:`` only — no quote injection) and
+        the first ``WHERE``/``RETURN`` is matched **case-insensitively** so a
+        lowercase ``return`` can't silently bypass scoping. Queries with no
+        ``RETURN`` (writes/DDL) are returned unchanged.
+        """
+        import re
+
+        if not tenant_id:
+            return query
+        if not re.fullmatch(r"[A-Za-z0-9_:\-]+", tenant_id):
+            logger.warning("Refusing to scope with unsafe tenant id %r", tenant_id)
+            # Fail closed: an unsafe tenant id yields an impossible predicate.
+            tenant_id = "__no_such_tenant__"
+        cond = f"n.tenant_id = '{tenant_id}'"
+
+        m = re.search(r"\bWHERE\b", query, flags=re.IGNORECASE)
+        if m:
+            return query[: m.end()] + f" {cond} AND" + query[m.end() :]
+        m = re.search(r"\bRETURN\b", query, flags=re.IGNORECASE)
+        if m:
+            return query[: m.start()] + f"WHERE {cond} " + query[m.start() :]
         return query
 
     def is_member(self, actor_id: str, tenant_id: str) -> bool:
@@ -429,6 +446,22 @@ class ConflictResolver:
                 return entry.authority_level
         return 0.5
 
+    def effective_authority(self, source_system: str, age_days: float = 0.0) -> float:
+        """Trust-decayed authority for a source (CONCEPT:KG-2.6).
+
+        Returns ``authority_level * exp(-trust_decay_rate * age_days)`` for the
+        matching trust entry, so a high-authority-but-stale source can fall below
+        a fresher lower-authority one. This activates ``trust_decay_rate`` in the
+        live conflict path. Falls back to the neutral 0.5 prior when unknown.
+        """
+        import math
+
+        for entry in self._trust_hierarchy:
+            if entry.source_system and entry.source_system in source_system:
+                decay = max(0.0, float(entry.trust_decay_rate)) * max(0.0, age_days)
+                return float(entry.authority_level) * math.exp(-decay)
+        return 0.5
+
     @property
     def open_conflicts(self) -> list[ConflictNode]:
         return [c for c in self._conflicts if c.status == ConflictStatus.OPEN]
@@ -459,6 +492,9 @@ class ProvenanceTracker:
         self._read_audits: list[ReadAuditEntry] = []
         self._trust_entries: list[TrustHierarchyEntry] = []
         self._enforce = enforce_provenance
+        # Per-attribute provenance for field-level survivorship (Option B):
+        # node_id -> field -> [records] (newest last).
+        self._field_records: dict[str, dict[str, list[ProvenanceRecord]]] = {}
 
     def record_write(
         self,
@@ -488,6 +524,42 @@ class ProvenanceTracker:
         )
         self._records.append(record)
         return record
+
+    def record_field_write(
+        self,
+        node_id: str,
+        field: str,
+        actor_id: str,
+        actor_type: ActorType = ActorType.AI_AGENT,
+        assertion_type: AssertionType = AssertionType.AGENT_INFERENCE,
+        confidence: float = 0.8,
+        source_system: str = "",
+        tenant_id: str = "",
+    ) -> ProvenanceRecord:
+        """Record provenance for a single attribute (field-level survivorship)."""
+        record = ProvenanceRecord(
+            node_id=node_id,
+            actor_id=actor_id,
+            actor_type=actor_type,
+            action="set_field",
+            assertion_type=assertion_type,
+            confidence=confidence,
+            source_system=source_system,
+            rationale=f"field={field}",
+            tenant_id=tenant_id,
+        )
+        self._records.append(record)
+        self._field_records.setdefault(node_id, {}).setdefault(field, []).append(record)
+        return record
+
+    def get_field_provenance(self, node_id: str, field: str) -> list[ProvenanceRecord]:
+        """All provenance records for one attribute of a node."""
+        return list(self._field_records.get(node_id, {}).get(field, []))
+
+    def field_owner(self, node_id: str, field: str) -> ProvenanceRecord | None:
+        """The most recent writer of an attribute, or ``None``."""
+        recs = self._field_records.get(node_id, {}).get(field)
+        return recs[-1] if recs else None
 
     def record_read(
         self,

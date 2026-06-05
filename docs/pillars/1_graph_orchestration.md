@@ -310,3 +310,15 @@ For standard deployments using cloud-hosted models (Gemini, OpenAI, Claude) wher
 * **State Containment via persistent REPL**: Rather than passing raw chat logs back and forth via the API, the orchestrator keeps all intermediate calculations, databases, and heavy text dumps stored locally in variables inside the persistent RLM Python REPL (`RLMEnvironment`).
 * **Metadata-Only Prompting**: The API prompt is fed only constant-size **metadata** (e.g. variable names, types, and lengths) rather than raw variables. Agents interact by writing python code to mutate REPL states, achieving the whitepaper's **75% token reduction** and preventing context pollution entirely.
 * **Semantic Embedding Vectors**: Agents share intermediate thought states by passing lightweight high-dimensional embedding vectors (retrieved via cheap off-the-shelf embedding endpoints) representing the semantic "Thought Mementos". These vectors are used to programmatically query the local Knowledge Graph or rank context slices without generating raw text, mimicking the continuous latent state hand-off of the neural pipeline.
+
+### ORCH-1.27 — Role-Specialized Model Routing
+
+Assimilated from Quarq Agent's three-specialized-model pattern (planner / generator /
+learner; `agent-oss/agent.py:58-92`), generalized so functional **roles** bind to model
+*tiers + capability tags* rather than hardcoded model ids. `ModelRegistry.pick_for_role(role)`
+resolves `planner|generator|learner|judge` through the existing `pick_for_task` tier-fallback,
+so the same configuration runs on any provider pool (local LM Studio, cloud frontier, mixed) and
+degrades gracefully. Overridable per-call, via `ModelRegistry.role_routing`, via
+`AgentConfig.role_routing`, or live through `graph_configure(action="set_role_routing")`. This is
+the routing substrate for the memory-first synergy pipeline: the HyDE planner (KG-2.12), the
+background learner (KG-2.13), and the LongMemEval judge all request their role here. Extends ORCH-1.2.

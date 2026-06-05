@@ -37,6 +37,33 @@ Edit THIS file for any narrative / conventions changes, then run:
 - **Cardinal rules:** no stubs (`raise NotImplementedError` only with `# ABSTRACT-OK`);
   strangler-then-delete (never "v2 beside old"); keep the unit suite green.
 
+## Wire-First — reachable ≠ invoked (READ BEFORE shipping a complex feature)
+
+A feature is **not done when its code exists and unit-tests pass** — it is done when a **live call
+path actually invokes it**. We have repeatedly shipped code that was importable and unit-tested but
+*never called on any real path* (e.g. `mount_skill_unit` stored a skill's SOP but the prompt builder
+never read it; `UsageTelemetry` existed but `plan_and_retrieve` never recorded recall; a GEPA
+held-out split existed but the entry point passed `dev_fraction=0`). These pass every unit test and
+are still **dead code**.
+
+When implementing any non-trivial feature you MUST verify and test the *invocation*, not just the API:
+
+1. **Trace the live path end-to-end.** From an entry point (MCP tool, API route, CLI, hook, daemon
+   tick, or a registry/discovery mechanism) to your new code. If you added a method/field/flag, grep
+   that the existing hot path **actually calls/reads it** — don't assume `__init__` storing it is enough.
+2. **Default the integration ON.** If a new behavior needs a flag/param to activate, the live entry
+   point must pass a sensible default that turns it on (or it's off in production).
+3. **Write a LIVE-PATH test, not just an API test.** Exercise the *existing* class/entry point and
+   assert the new behavior happens as a side effect (e.g. "call `plan_and_retrieve`, assert recall was
+   recorded"), in addition to unit-testing the helper in isolation. Name it `*_live_path` / `*_integration`.
+4. **Run `check_wiring.py`** (import-graph, ≤3 hops) — but know its **blind spot**: it cannot see
+   **plugin/decorator dynamic registration** (`register_source` + `pkgutil` discovery, entry-points,
+   `@adaptor`). For those, also grep that a discovery/registration call runs on a live path. A
+   "0 hops / unreachable" result for a self-registering module is a false negative — verify the
+   discovery, don't delete the module.
+5. **No silent storage.** A value set in `__init__`/a setter but read nowhere is a bug. Either wire it
+   into the behavior or don't add it.
+
 ## Tech Stack & Architecture
 - Language/Version: Python 3.10+
 - Core Libraries: `agent-utilities`, `fastmcp`, `pydantic-ai`

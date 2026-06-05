@@ -92,6 +92,55 @@ class Concept(BaseModel):
     source_ids: list[str] = Field(default_factory=list)  # docs/symbols mentioning it
 
 
+class Insight(BaseModel):
+    """A distilled, actionable observation extracted from a call/doc (KG-2.8).
+
+    The "calls become operating intelligence" payoff: an insight is a reusable
+    takeaway (an objection pattern, a positioning signal, a risk flag), not just
+    a raw concept.
+    """
+
+    id: str
+    title: str
+    reasoning: str = ""
+    confidence: float = 0.7
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class Fact(BaseModel):
+    """A discrete, checkable assertion extracted from a source (KG-2.8)."""
+
+    id: str
+    statement: str
+    confidence: float = 0.7
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class Framework(BaseModel):
+    """A named mental model / repeatable method distilled from a source."""
+
+    id: str
+    name: str
+    summary: str = ""
+    steps: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class Playbook(BaseModel):
+    """An executable, reusable procedure distilled from calls/docs (KG-2.8).
+
+    Crosswalked to the ArchiMate ``BusinessProcess`` family so a playbook is
+    queryable alongside Camunda/ServiceNow processes.
+    """
+
+    id: str
+    name: str
+    steps: list[str] = Field(default_factory=list)
+    preconditions: list[str] = Field(default_factory=list)
+    expected_outcome: str = ""
+    source_ids: list[str] = Field(default_factory=list)
+
+
 class Document(BaseModel):
     """A non-code ingested artifact (paper, email, BRD, SOW, book, …).
 

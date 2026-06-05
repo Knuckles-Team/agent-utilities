@@ -485,6 +485,10 @@ def build_agent_app(
         app.include_router(interop.router)
         app.include_router(human.router)
         app.include_router(commands.router)
+        # CONCEPT:AHE-3.12 — LongMemEval-S validation harness (Quarq HTTP runner compatible).
+        from .routers import benchmark
+
+        app.include_router(benchmark.router)
 
         try:
             from agent_utilities.gateway.api import dashboard_router
