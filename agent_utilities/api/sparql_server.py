@@ -72,7 +72,8 @@ async def sparql_endpoint(request: Request):
         content_type = request.headers.get("Content-Type", "")
         if "application/x-www-form-urlencoded" in content_type:
             form_body = await request.form()
-            query = form_body.get("query", "")
+            _q = form_body.get("query", "")
+            query = _q if isinstance(_q, str) else ""
         elif "application/sparql-query" in content_type:
             body = await request.body()
             query = body.decode("utf-8")

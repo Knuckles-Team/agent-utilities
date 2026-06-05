@@ -81,7 +81,7 @@ class CodemapGenerator:
             subgraph_context += f"- {n.label} ({n.type}) in {n.file}\n"
 
         result = await hierarchy_agent.run(subgraph_context)
-        hierarchy = result.data
+        hierarchy = result.output
 
         # 4. Assemble final artifact
         artifact = CodemapArtifact(

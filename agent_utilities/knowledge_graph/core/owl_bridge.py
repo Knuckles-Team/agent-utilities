@@ -562,8 +562,10 @@ class OWLBridge:
         domain/range rules, and property chain composition.
         """
         try:
-            from epistemic_graph import EpistemicGraph
-        except ImportError as exc:
+            import importlib
+
+            EpistemicGraph = importlib.import_module("epistemic_graph").EpistemicGraph
+        except (ImportError, AttributeError) as exc:
             raise RuntimeError("epistemic-graph not available") from exc
 
         # Build a temporary Rust graph from the current in-memory networkx graph
