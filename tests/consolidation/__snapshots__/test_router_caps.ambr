@@ -1,0 +1,21 @@
+# serializer version: 1
+# name: test_fast_path
+  dict({
+    'action': 'direct_response',
+    'fast_path': True,
+  })
+# ---
+# name: test_kg_materialization
+  dict({
+    'materialized_graph': list([
+      'node_1',
+      'node_2',
+    ]),
+  })
+# ---
+# name: test_team_reuse
+  dict({
+    'reuse_team': True,
+    'team_id': 'summarizer_team',
+  })
+# ---
