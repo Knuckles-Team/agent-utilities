@@ -7,7 +7,11 @@ import json
 from pathlib import Path
 import pytest
 
-from epistemic_graph._epistemic_graph import EpistemicGraph
+# The compiled Rust core (epistemic_graph._epistemic_graph) must be built for these tests;
+# skip the whole module cleanly when it isn't, rather than erroring out collection.
+EpistemicGraph = pytest.importorskip(
+    "epistemic_graph._epistemic_graph"
+).EpistemicGraph
 from agent_utilities.knowledge_graph.core.company_brain import CompanyBrain
 
 
