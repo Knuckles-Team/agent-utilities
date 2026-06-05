@@ -108,6 +108,7 @@ def manage_container(compose_file: str, action: str):
         raise RuntimeError(f"docker compose {action} failed: {res.stderr}")
 
 
+@pytest.mark.live
 @pytest.mark.skipif(not DOCKER_AVAILABLE, reason="Docker is not active or installed")
 class TestMultiBackendIntegration:
     """Rigorous sequential integration tests for different database backends."""
