@@ -22,6 +22,17 @@ class InferenceEngine:
     def __init__(self, engine: IntelligenceGraphEngine):
         self.engine = engine
 
+    @staticmethod
+    def _edge_type(props: object) -> str:
+        """Return an edge's relationship type from its properties.
+
+        The graph engine canonicalizes the relationship under ``rel_type``
+        (the uppercased relationship-type slot); older writers used ``type``.
+        """
+        if isinstance(props, dict):
+            return str(props.get("rel_type") or props.get("type") or "")
+        return ""
+
     def run_inference(self) -> int:
         """Run standard inference rules over the graph.
 
@@ -137,8 +148,12 @@ class InferenceEngine:
             except Exception as e:
                 logger.error(f"Standard ontology inference failed: {e}")
 
-        else:
-            # GraphComputeEngine fallback
+        # GraphComputeEngine topological closure. This runs when there is no
+        # backend, and also as a fall-through when the Cypher rules produced
+        # nothing — the epistemic-graph backend cannot evaluate multi-hop
+        # ``MATCH (a)-[:R]->(b)-[:R]->(c)`` path patterns, so transitive rules
+        # must be derived by traversing the resident L0 graph directly.
+        if not self.engine.backend or new_inferences == 0:
             logger.info(
                 "InferenceEngine (GCE Fallback): Running topological inference."
             )
@@ -159,7 +174,7 @@ class InferenceEngine:
                 # Build adjacency only for the specified edge type (case-insensitive)
                 typed_adj: dict[str, list[str]] = {}
                 for u, v, props in raw_edges:
-                    e_type = props.get("type", "") if isinstance(props, dict) else ""
+                    e_type = self._edge_type(props)
                     if e_type.upper() == edge_type.upper():
                         typed_adj.setdefault(u, []).append(v)
 
@@ -173,9 +188,7 @@ class InferenceEngine:
                                 for src, tgt, props in raw_edges:
                                     if src == n and tgt == succ2:
                                         e_type = (
-                                            props.get("type", "")
-                                            if isinstance(props, dict)
-                                            else ""
+                                            self._edge_type(props)
                                         )
                                         if e_type.upper() == inferred_type.upper():
                                             already_linked = True
@@ -222,7 +235,7 @@ class InferenceEngine:
                 part_of_edges: dict[str, list[str]] = {}
 
                 for u, v, props in raw_edges:
-                    e_type = props.get("type", "") if isinstance(props, dict) else ""
+                    e_type = self._edge_type(props)
                     if e_type.upper() == "OCCURRED_DURING":
                         occurred_during_edges.append((u, v))
                     elif e_type.upper() == "PART_OF":
@@ -236,9 +249,7 @@ class InferenceEngine:
                             for src, tgt, props in raw_edges:
                                 if src == e and tgt == pp:
                                     e_type = (
-                                        props.get("type", "")
-                                        if isinstance(props, dict)
-                                        else ""
+                                        self._edge_type(props)
                                     )
                                     if e_type.upper() == "OCCURRED_DURING":
                                         already_linked = True
