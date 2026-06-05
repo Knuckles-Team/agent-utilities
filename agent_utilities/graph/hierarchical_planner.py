@@ -612,14 +612,14 @@ async def memory_selection_step(
         )
         try:
             fallback = Agent(model=ctx.deps.agent_model, system_prompt=prompt_content)
-            res = await fallback.run(
+            res_fb = await fallback.run(
                 f"Query: {ctx.state.query}\n\nAvailable memories:\n"
                 + "\n".join(memories[:20])
                 + "\n\nCRITICAL: Just output the exact file names you need, separated by commas. DO NOT output conversational text."
             )
 
             selected = []
-            raw_text = str(getattr(res, "data", getattr(res, "output", "")))
+            raw_text = str(getattr(res_fb, "data", getattr(res_fb, "output", "")))
             for mem_line in memories[:20]:
                 filename = (
                     mem_line.split(":")[0]
@@ -707,6 +707,7 @@ class LATSPlanner:
         self.model = model
         self.agent = Agent(
             model=model,
+            deps_type=GraphDeps,
             system_prompt=(
                 f"You are a LATS Planning Agent. Generate candidate execution plans "
                 f"and evaluate them based on the context.\n\nContext:\n{context}"

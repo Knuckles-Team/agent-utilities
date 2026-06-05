@@ -74,7 +74,7 @@ def _build_dummy_request(path_params=None, json_body=None):
         async def mock_json():
             return json_body
 
-        req.json = mock_json
+        setattr(req, "json", mock_json)
     return req
 
 
@@ -2586,12 +2586,12 @@ def _build_server():
                 return orch.grant_approval(job_id, approval_status)
             elif action == "execute_agent":
                 try:
-                    result = await orch.execute_agent(
+                    agent_result = await orch.execute_agent(
                         agent_name=agent_name,
                         task=task,
                         max_steps=max_steps,
                     )
-                    return result
+                    return agent_result
                 except Exception as exc:
                     return f"Error: agent execution failed: {exc}"
             elif action == "compile_workflow":

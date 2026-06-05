@@ -794,8 +794,8 @@ class HybridRetriever:
         for row in rows or []:
             if not isinstance(row, dict):
                 continue
-            data = row.get("data") if isinstance(row.get("data"), dict) else {}
-            data = dict(data)
+            _d = row.get("data")
+            data = dict(_d) if isinstance(_d, dict) else {}
             data["id"] = row.get("id")
             data.setdefault("_score", 0.2)  # low confidence — it's a lexical fallback
             data["_fallback"] = "lexical"
