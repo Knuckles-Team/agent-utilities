@@ -52,16 +52,23 @@ class AgentSpec(BaseModel):
     """
 
     use_cases: list[str] = Field(default_factory=list)
-    runtime_grounding: list[str] = Field(default_factory=list)  # tools, env constraints, protocol facts
+    runtime_grounding: list[str] = Field(
+        default_factory=list
+    )  # tools, env constraints, protocol facts
     scoring_rule: str = ""
     counterfactual_axis: str = ""
 
     def as_prompt(self) -> str:
-        parts = ["# Agent Specification (ground your edits in this — do not overfit the examples)"]
+        parts = [
+            "# Agent Specification (ground your edits in this — do not overfit the examples)"
+        ]
         if self.use_cases:
             parts.append("## Use cases\n" + "\n".join(f"- {u}" for u in self.use_cases))
         if self.runtime_grounding:
-            parts.append("## Runtime surface & constraints\n" + "\n".join(f"- {r}" for r in self.runtime_grounding))
+            parts.append(
+                "## Runtime surface & constraints\n"
+                + "\n".join(f"- {r}" for r in self.runtime_grounding)
+            )
         if self.scoring_rule:
             parts.append(f"## Scoring rule\n{self.scoring_rule}")
         if self.counterfactual_axis:
@@ -345,7 +352,9 @@ class GEPAOptimizer:
         from .roles import rlm_role_model
 
         self.mutator = ReflectiveMutator(
-            model=rlm_role_model("rlm-proposer", fallback=self.config.sub_llm_model_small)
+            model=rlm_role_model(
+                "rlm-proposer", fallback=self.config.sub_llm_model_small
+            )
         )
 
         # Initialize candidate pool with base prompt
@@ -477,11 +486,14 @@ class GEPAOptimizer:
         # not on the feedback minibatch the candidates were tuned on.
         frontier = self.pool.get_frontier()
         if pareto_set and len(frontier) > 1:
-            heldout = {c.id: await self._score_candidate_on(c, pareto_set) for c in frontier}
+            heldout = {
+                c.id: await self._score_candidate_on(c, pareto_set) for c in frontier
+            }
             best_candidate = select_best_on_heldout(frontier, heldout)
             logger.info(
                 "Optimization finished. Held-out best: %s (score %.3f)",
-                best_candidate.id, heldout.get(best_candidate.id, 0.0),
+                best_candidate.id,
+                heldout.get(best_candidate.id, 0.0),
             )
         else:
             best_candidate = frontier[0]
@@ -649,7 +661,11 @@ class GEPAOptimizer:
                 },
             )
             await create_or_merge_node(node)
-            logger.info("[ORCH-1.31] persisted GEPA frontier %s (%d candidates)", run_id, len(snapshot))
+            logger.info(
+                "[ORCH-1.31] persisted GEPA frontier %s (%d candidates)",
+                run_id,
+                len(snapshot),
+            )
             return True
         except Exception as e:  # noqa: BLE001 - persistence is best-effort
             logger.warning("Could not persist GEPA frontier: %s", e)

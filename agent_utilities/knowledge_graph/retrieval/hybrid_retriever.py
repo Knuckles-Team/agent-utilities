@@ -663,8 +663,12 @@ class HybridRetriever:
         if is_trivial_query(query):
             empty: list[dict[str, Any]] = []
             if with_ledger:
-                return {"nodes": empty, "ledger": build_evidence_ledger(query, empty),
-                        "plan": HydePlan(vector_queries=[query]).model_dump(), "trivial": True}
+                return {
+                    "nodes": empty,
+                    "ledger": build_evidence_ledger(query, empty),
+                    "plan": HydePlan(vector_queries=[query]).model_dump(),
+                    "trivial": True,
+                }
             return empty
 
         if mode in ("standard", "deep"):
@@ -717,7 +721,9 @@ class HybridRetriever:
         # CONCEPT:KG-2.18 — record that these memories were RECALLED, on the live retrieval path.
         # The usage half (which recalled nodes actually informed the answer) is closed by the
         # generation step via record_answer_usage(); trust is then trained from the two counts.
-        self.usage_telemetry.record_recall([str(n.get("id")) for n in nodes if n.get("id")])
+        self.usage_telemetry.record_recall(
+            [str(n.get("id")) for n in nodes if n.get("id")]
+        )
 
         if with_ledger:
             return {
@@ -738,7 +744,9 @@ class HybridRetriever:
             self._usage_telemetry = tel
         return tel
 
-    def record_answer_usage(self, used_ids: list[str], query: str = "") -> dict[str, Any]:
+    def record_answer_usage(
+        self, used_ids: list[str], query: str = ""
+    ) -> dict[str, Any]:
         """Close the KG-2.18 loop: mark which recalled memories the answer actually used.
 
         Records usage, persists trained ``trust_score`` onto those nodes, and returns a generation
@@ -748,7 +756,9 @@ class HybridRetriever:
 
         self.usage_telemetry.record_usage(used_ids)
         self.usage_telemetry.flush_to_engine(self.engine)
-        return build_lineage(query, list(self.usage_telemetry._recalled), used_ids=used_ids).model_dump()
+        return build_lineage(
+            query, list(self.usage_telemetry._recalled), used_ids=used_ids
+        ).model_dump()
 
     def _lexical_fallback(
         self, query: str, context_window: int, *, corpus_id: str | None = None

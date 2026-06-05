@@ -151,7 +151,9 @@ def _existing_capability_names(backend: Any) -> list[str]:
         rows = backend.execute(
             "MATCH (c:Capability) WHERE c.name IS NOT NULL RETURN c.name AS name LIMIT 5000"
         )
-        return [r.get("name") for r in (rows or []) if isinstance(r, dict) and r.get("name")]
+        return [
+            r.get("name") for r in (rows or []) if isinstance(r, dict) and r.get("name")
+        ]
     except Exception:  # noqa: BLE001 - dedup is best-effort
         return []
 
@@ -180,7 +182,9 @@ def resolve_writeback_fn(
             archi_client = get_archi_client()
             leanix_client = get_leanix_client()
         except Exception:  # noqa: BLE001 - no EA clients configured → nothing to push to
-            logger.debug("KG_EA_WRITEBACK set but no EA clients available; skipping writeback")
+            logger.debug(
+                "KG_EA_WRITEBACK set but no EA clients available; skipping writeback"
+            )
             return None
     if archi_client is None and leanix_client is None:
         return None

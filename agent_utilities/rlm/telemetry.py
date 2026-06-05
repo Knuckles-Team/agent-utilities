@@ -59,13 +59,20 @@ def classify_failure(exc: BaseException | str) -> FailureClass:
     if isinstance(exc, asyncio.TimeoutError):
         return "host_tool_timeout"
     text = str(exc).lower()
-    if "sandboxfatal" in text or "subprocess has been killed" in text or "mount" in text:
+    if (
+        "sandboxfatal" in text
+        or "subprocess has been killed" in text
+        or "mount" in text
+    ):
         return "sandbox_fatal"
     if "timeout" in text and "sandbox" in text:
         return "sandbox_exec_timeout"
     if "timeout" in text:
         return "host_tool_timeout"
-    if any(k in text for k in ("syntaxerror", "nameerror", "indentationerror", "unterminated")):
+    if any(
+        k in text
+        for k in ("syntaxerror", "nameerror", "indentationerror", "unterminated")
+    ):
         return "model_generated_bad_code"
     if "reject" in text or "invalid output" in text:
         return "evaluator_reject"
@@ -132,6 +139,9 @@ async def with_tool_timeout(
     try:
         return True, await asyncio.wait_for(coro, timeout=seconds)
     except TimeoutError:
-        return False, f"Tool call exceeded {seconds:.0f}s budget (recoverable — retry or adjust)."
+        return (
+            False,
+            f"Tool call exceeded {seconds:.0f}s budget (recoverable — retry or adjust).",
+        )
     except SandboxFatalError:
         raise  # fatal: must propagate to fast-fail the run
