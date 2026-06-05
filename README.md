@@ -72,6 +72,8 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **[Emergent Architecture](docs/guides/features.md#emergent-architecture-conceptkg-20-through-conceptorch-12)**: Dynamic AgentCapability auto-activation, TeamConfig coalition promotion, and evolutionary skill refinement via self-models.
 - **[Agent OS & Safety](docs/guides/features.md#human-in-the-loop--tool-safety)**: Built-in Universal Tool Guards, structural vulnerability scanning, and transparent process lifecycle management.
 - **[Dynamic Company Brain Ingestion](docs/guides/features.md#company-intelligence-graph)**: Dynamic data ingestion from external platforms like Jira, GitLab/GitHub, enterprise architecture repositories (e.g., Essential Project, Archi), and databases with automatic ontology alignment and GraphQL/REST extraction.
+- **[Company Brain Runtime (Trust, Permissions, Feedback)](docs/architecture/company_brain_runtime.md)**: The 6-layer "Single Company Brain" wired end-to-end behind `KG_BRAIN_ENFORCE` — **source-authority conflict resolution with trust decay** and **field-level survivorship** (durable per-attribute provenance / MDM golden record), **data-level ACLs + tenant scoping + read audit** on the retrieval path, a **human-correction → durable rule → eval** feedback loop, and **token-budgeted, task-scoped retrieval**.
+- **[Vendor-Neutral Enterprise Ontology](docs/architecture/vendor_neutral_enterprise_ontology.md)**: One ArchiMate-aligned upper ontology + crosswalk so ServiceNow↔ERPNext, Camunda↔Archi, etc. are interchangeable — a single query resolves all sources regardless of which vendor tool produced the data.
 - **[Enterprise Agent Governance](docs/pillars/4_ecosystem_peripherals.md#-enterprise-agent-governance-eco-416--eco-422)**: Production-grade mutation governance with risk-scored change proposals, human-in-the-loop approval gates, AGENTS.md self-improvement, lint enforcement hooks, plugin bundle distribution, permission policies, staleness auditing, and unified governance workflow pipeline.
 
 > 📖 **[View the Comprehensive Feature List & Architecture Deep Dives](docs/guides/features.md)**
@@ -84,19 +86,19 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **70 canonical concepts** across **12 pillars**.
+Synthesized from concept markers in the codebase into **80 canonical concepts** across **12 pillars**.
 
 > This count and the table below are generated from `docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand.
 
 | Pillar | ID Range | Count | Focus |
 |:------|:---------|:---:|:------|
-| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.11 | 8 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, Adversarial verification passed — no issues found, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
+| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.12 | 9 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, Adversarial verification passed — no issues found, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
 | **CTX-1** Context Management | CTX-1.0 | 1 | Nested Subfolder Instructions |
 | **ECO-4** Ecosystem & Peripherals | ECO-4.0 – ECO-4.23 | 13 | Register PlannerGraphSkill when graph_bundle is available, Live MCP server connection for tool metadata caching, Company Infrastructure Orchestration, Infrastructure Blueprint Library, Pluggable Event Queue Backend, Team-Specific Startup Context, Deterministic Lint Enforcement Hook, Plugin Bundle Distribution System |
 | **KG-1** Knowledge Graph Core | KG-1.0 | 1 | Centralized KG Coordination Protocol |
-| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.23 | 14 | Provides git-like transactional mutation for KG evolution, Self-Model proficiency + R5 ACO pheromone affinities, Entity-Claim Extraction for MAGMA Epistemic View, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Generates actionable LLM artifacts from KG-ingested research, Bidirectional sync to ensure both the persistent |
+| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.23 | 22 | Provides git-like transactional mutation for KG evolution, Self-Model proficiency + R5 ACO pheromone affinities, Entity-Claim Extraction for MAGMA Epistemic View, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Generates actionable LLM artifacts from KG-ingested research, / KG-2.10 — research assimilation + orchestration synthesis |
 | **LGC-1** Logic & Governance Core | LGC-1.0 | 1 | Logic & Governance Core |
-| **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.26 | 18 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Execution Budget. Defines caps for this session, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
+| **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.27 | 19 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Execution Budget. Defines caps for this session, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
 | **ORCH-2** Orchestration Extensions | ORCH-2.0 | 1 | Orchestration Engine |
 | **ORCH-5** Orchestration Runtime | ORCH-5.0 | 1 | / TUI-20 |
 | **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.10 | 10 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
@@ -125,6 +127,10 @@ The detailed architectural diagrams and deep-dive documentation for `agent-utili
   * *Contains: Ecosystem Dependency Graph, C4 Container Diagram, Cross-Pillar Data Flows.*
 * **[Memory Architecture](docs/pillars/memory_architecture.md)**
   * *Contains: Multi-Timescale Memory, Memento Context Management, Observational Memory Bridge.*
+* **[Company Brain Runtime](docs/architecture/company_brain_runtime.md)**
+  * *Contains: the 6-layer model wired end-to-end — trust/conflict resolution & field-level survivorship, data permissions/tenancy/audit, feedback→rule→eval, retrieval budget, streams, `KG_BRAIN_ENFORCE`.*
+* **[Vendor-Neutral Enterprise Ontology](docs/architecture/vendor_neutral_enterprise_ontology.md)**
+  * *Contains: the canonical ArchiMate crosswalk, vendor adapters, code→capability realization, and virtual REST federation.*
 
 ## External Agent Discovery (mcp_config.json)
 
@@ -366,6 +372,8 @@ Comprehensive system documentation is available in the [`docs/`](docs/) director
 | [Overview Map](docs/overview.md) | The Concept Galaxy — canonical concepts (see the Concept Map above for the authoritative count), query lifecycle, concept index |
 | [Concept Map](docs/concept_map.md) | Canonical concept registry (single source of truth) |
 | [C4 Architecture](docs/pillars/architecture_c4.md) | System context, container, and component diagrams |
+| [Company Brain Runtime](docs/architecture/company_brain_runtime.md) | The 6-layer brain wired end-to-end: trust/survivorship, permissions, feedback→rule→eval, retrieval budget (`KG_BRAIN_ENFORCE`) |
+| [Vendor-Neutral Enterprise Ontology](docs/architecture/vendor_neutral_enterprise_ontology.md) | ArchiMate crosswalk + vendor adapters making ServiceNow↔ERPNext↔Camunda interchangeable |
 | [Evolution Pipeline](docs/overview.md#evolution-pipeline--super-assimilation-architecture) | Assimilation governance, wire-or-discard heuristic, 4-phase pipeline |
 
 ### Pillar Deep-Dives

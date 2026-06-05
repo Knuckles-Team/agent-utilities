@@ -15,7 +15,15 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from ..models import Concept, Document, EnrichmentEdge
+from ..models import (
+    Concept,
+    Document,
+    EnrichmentEdge,
+    Fact,
+    Framework,
+    Insight,
+    Playbook,
+)
 
 LLMFn = Callable[[str], str]
 
@@ -158,6 +166,113 @@ def extract_concepts(
             )
         )
     return concepts
+
+
+_INTEL_PROMPT = """From this {doc_type} titled "{title}", extract reusable
+operating intelligence — the kind of takeaways a team would turn into training,
+playbooks, or risk flags (e.g. from a sales call: objections, positioning
+signals, next-step procedures).
+
+TEXT (excerpt):
+{excerpt}
+
+Output ONLY a JSON object with these keys, each a JSON array (omit or empty if
+none), max {limit} items each:
+- "insights": objects with "title" and "reasoning" (one sentence each).
+- "facts": objects with "statement" (a discrete checkable assertion).
+- "frameworks": objects with "name", "summary", and "steps" (array of strings).
+- "playbooks": objects with "name", "steps" (array), "preconditions" (array),
+  and "expected_outcome".
+No other text."""
+
+
+def _safe_json_obj(raw: str) -> dict:
+    import json
+
+    try:
+        start, end = raw.index("{"), raw.rindex("}") + 1
+        obj = json.loads(raw[start:end])
+        return obj if isinstance(obj, dict) else {}
+    except (ValueError, json.JSONDecodeError, Exception):
+        return {}
+
+
+def extract_intelligence(
+    text: str,
+    source_id: str,
+    llm_fn: LLMFn,
+    *,
+    source_type: str = "document",
+    title: str = "",
+    limit: int = 8,
+) -> tuple[list[Any], list[EnrichmentEdge]]:
+    """LLM-extract Insight/Fact/Framework/Playbook nodes + DERIVED_FROM edges.
+
+    Turns a call/doc into reusable operating intelligence (CONCEPT:KG-2.8). Each
+    returned node carries ``source_ids=[source_id]``; edges link ``source_id``
+    (the document/conversation) to each derived node via ``DERIVED_FROM``.
+    """
+    prompt = _INTEL_PROMPT.format(
+        doc_type=source_type, title=title or source_id, excerpt=text[:8000], limit=limit
+    )
+    obj = _safe_json_obj(llm_fn(prompt)) if text.strip() else {}
+    nodes: list[Any] = []
+    edges: list[EnrichmentEdge] = []
+
+    def _str(v: Any) -> str:
+        return str(v).strip()
+
+    def _list(v: Any) -> list[str]:
+        return [_str(s) for s in v if _str(s)] if isinstance(v, list) else []
+
+    for it in (obj.get("insights") or [])[:limit]:
+        if isinstance(it, dict) and _str(it.get("title")):
+            t = _str(it["title"])
+            nodes.append(
+                Insight(
+                    id=f"insight:{slug(t)}",
+                    title=t,
+                    reasoning=_str(it.get("reasoning")),
+                    source_ids=[source_id],
+                )
+            )
+    for it in (obj.get("facts") or [])[:limit]:
+        if isinstance(it, dict) and _str(it.get("statement")):
+            s = _str(it["statement"])
+            nodes.append(
+                Fact(id=f"fact:{slug(s)}", statement=s, source_ids=[source_id])
+            )
+    for it in (obj.get("frameworks") or [])[:limit]:
+        if isinstance(it, dict) and _str(it.get("name")):
+            n = _str(it["name"])
+            nodes.append(
+                Framework(
+                    id=f"framework:{slug(n)}",
+                    name=n,
+                    summary=_str(it.get("summary")),
+                    steps=_list(it.get("steps")),
+                    source_ids=[source_id],
+                )
+            )
+    for it in (obj.get("playbooks") or [])[:limit]:
+        if isinstance(it, dict) and _str(it.get("name")):
+            n = _str(it["name"])
+            nodes.append(
+                Playbook(
+                    id=f"playbook:{slug(n)}",
+                    name=n,
+                    steps=_list(it.get("steps")),
+                    preconditions=_list(it.get("preconditions")),
+                    expected_outcome=_str(it.get("expected_outcome")),
+                    source_ids=[source_id],
+                )
+            )
+
+    edges = [
+        EnrichmentEdge(source=source_id, target=n.id, rel_type="DERIVED_FROM")
+        for n in nodes
+    ]
+    return nodes, edges
 
 
 def extract_document(

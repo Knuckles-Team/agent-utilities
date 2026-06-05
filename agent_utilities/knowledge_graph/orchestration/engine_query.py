@@ -33,12 +33,19 @@ class QueryMixin(_Base):
         query: str,
         params: dict[str, Any] | None = None,
         clearance_level: int = 999,
+        as_of: str | None = None,
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query against the persistent Graph store.
 
         Enterprise ABAC/RBAC Middleware Interceptor:
         Queries are automatically scoped by the user's/agent's security clearance.
         Nodes with a requiresClassification > clearance_level are omitted.
+
+        CONCEPT:KG-2.11 — when ``as_of`` (an ISO-8601 instant) is supplied, result rows are
+        post-filtered to those whose bi-temporal validity interval
+        (``valid_from <= as_of < valid_to``) contains that instant. Rows without temporal
+        metadata pass through unchanged. This answers "what was true as of date T" — something
+        Quarq's flat storage-ordered files cannot do.
         """
         if params is None:
             params = {}
@@ -53,8 +60,61 @@ class QueryMixin(_Base):
             logger.warning(
                 "GraphBackend not initialized; using basic graph compute fallback for Cypher query."
             )
-            return self._query_nx_fallback(query, params, clearance_level)
-        return self.backend.execute(query, params)
+            rows = self._query_nx_fallback(query, params, clearance_level)
+        else:
+            rows = self.backend.execute(query, params)
+
+        if as_of:
+            from agent_utilities.knowledge_graph.core.bitemporal import filter_as_of
+
+            rows = filter_as_of(rows, as_of)
+        return rows
+
+    def resolve_temporal_contradiction(
+        self,
+        fact_a_id: str,
+        fact_b_id: str,
+        fact_a_props: dict[str, Any],
+        fact_b_props: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Resolve two contradicting facts by event-time precedence (CONCEPT:KG-2.11).
+
+        The later ``event_time`` wins; a ``SUPERSEDES`` edge is written winner→loser and the
+        loser's ``valid_to`` is closed at the winner's ``event_time`` (the fact is never
+        deleted, preserving as-of history). Implements Quarq's prompt-only "newer supersedes
+        older" rule (agent-oss/agent.py:2462-2468) as a structural graph mutation.
+
+        Returns a summary dict ``{"winner": id, "loser": id, "valid_to": boundary}``.
+        """
+        from agent_utilities.knowledge_graph.core.bitemporal import (
+            resolve_precedence,
+            supersede,
+        )
+
+        a = {**fact_a_props, "id": fact_a_id}
+        b = {**fact_b_props, "id": fact_b_id}
+        winner, loser = resolve_precedence(a, b)
+        supersede(winner, loser)
+        # Persist: SUPERSEDES edge + close the loser's validity interval.
+        try:
+            self.link_nodes(
+                winner["id"],
+                loser["id"],
+                "SUPERSEDES",
+                properties={"event_time": winner.get("event_time")},
+            )
+            if self.backend:
+                self.backend.execute(
+                    "MATCH (n) WHERE n.id = $id SET n.valid_to = $vt",
+                    {"id": loser["id"], "vt": loser.get("valid_to")},
+                )
+        except Exception as e:  # pragma: no cover - persistence is best-effort
+            logger.warning("Temporal contradiction persistence failed: %s", e)
+        return {
+            "winner": winner["id"],
+            "loser": loser["id"],
+            "valid_to": loser.get("valid_to"),
+        }
 
     def _query_nx_fallback(
         self,
@@ -224,15 +284,34 @@ class QueryMixin(_Base):
         skip_quality_gate: bool = False,
         relevance_threshold: float | None = None,
         target_paths: list[str] | None = None,
+        mode: str = "standard",
+        self_correct: bool = False,
+        corpus_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Perform a multi-faceted search using Hybrid GraphRAG."""
-        results = self.hybrid_retriever.retrieve_hybrid(
-            query,
-            context_window=top_k * 2,
-            skip_quality_gate=skip_quality_gate,
-            relevance_threshold=relevance_threshold,
-            target_paths=target_paths,
-        )
+        """Perform a multi-faceted search using Hybrid GraphRAG.
+
+        CONCEPT:KG-2.12 — when ``mode`` is ``"hyde"``/``"deep"`` (or ``self_correct`` is set),
+        delegates to the memory-first ``plan_and_retrieve`` policy (HyDE multi-query plan, dual
+        thresholds, and an evidence-gated second pass). ``mode="standard"`` preserves the prior
+        single-query behavior.
+        """
+        if mode in ("hyde", "deep") or self_correct:
+            results = self.hybrid_retriever.plan_and_retrieve(
+                query,
+                context_window=top_k * 2,
+                mode=mode if mode in ("hyde", "standard", "deep") else "hyde",
+                self_correct=self_correct,
+                corpus_id=corpus_id,
+            )
+        else:
+            results = self.hybrid_retriever.retrieve_hybrid(
+                query,
+                context_window=top_k * 2,
+                skip_quality_gate=skip_quality_gate,
+                relevance_threshold=relevance_threshold,
+                target_paths=target_paths,
+                corpus_id=corpus_id,
+            )
         if not include_archived:
             results = [
                 r for r in results if str(r.get("status", "")).upper() != "ARCHIVED"

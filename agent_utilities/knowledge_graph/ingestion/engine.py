@@ -639,11 +639,16 @@ class IngestionEngine:
         except Exception:  # noqa: BLE001
             hash_seen = {}
 
+        # CONCEPT:KG-2.8 — build the capability writeback callable (EA tools) for injection. Gated
+        # by KG_EA_WRITEBACK; returns None (no-op) unless EA writeback is enabled + clients exist.
+        from ..enrichment.capability_writeback import resolve_writeback_fn
+
         pipe = EnrichmentPipeline(
             backend,
             make_parse_fn(graph_compute),
             community_fn=community_fn,
             hash_seen=hash_seen,
+            writeback_fn=resolve_writeback_fn(backend),
         )
         try:
             summary = pipe.enrich(source_path)

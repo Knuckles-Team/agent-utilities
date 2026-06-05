@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -20,10 +20,15 @@ from pydantic import BaseModel
 from .cards import CapabilityCard, LLMFn, generate_symbol_cards
 from .classify import TestThresholds, classify_test
 from .extractors.code_test import ParseFn, extract_python, resolve_covers
-from .extractors.document import extract_document, read_document_text
+from .extractors.document import (
+    extract_document,
+    extract_intelligence,
+    read_document_text,
+)
 from .features import CommunityFn, cluster_features, resolve_call_edges
-from .models import Concept, EnrichmentEdge, ExtractionResult
+from .models import Concept, EnrichmentEdge, ExtractionResult, GraphNode
 from .patterns import detect_patterns
+from .realizes import EmbedFn, resolve_realizes
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +64,10 @@ class EnrichmentSummary(BaseModel):
     documents: int = 0
     concepts: int = 0
     mentions_edges: int = 0
+    realizes_edges: int = 0
+    capabilities_minted: int = 0
+    capabilities_pushed: int = 0
+    intelligence_nodes: int = 0
 
 
 def discover_python_files(root: str | Path) -> list[Path]:
@@ -93,6 +102,11 @@ class EnrichmentPipeline:
         community_fn: CommunityFn | None = None,
         card_cache: dict[str, CapabilityCard] | None = None,
         min_feature_size: int = 3,
+        capability_provider: Callable[[], list[Any]] | None = None,
+        capability_registry: list[Any] | None = None,
+        mint_capabilities: bool = True,
+        realizes_embed_fn: EmbedFn | None = None,
+        writeback_fn: Callable[[list[GraphNode]], Any] | None = None,
     ) -> None:
         self.backend = backend
         self.parse_fn = parse_fn
@@ -102,6 +116,12 @@ class EnrichmentPipeline:
         self.community_fn = community_fn
         self.card_cache = card_cache if card_cache is not None else {}
         self.min_feature_size = min_feature_size
+        # Code → capability (REALIZES) resolution (CONCEPT:KG-2.8).
+        self.capability_provider = capability_provider
+        self.capability_registry = capability_registry
+        self.mint_capabilities = mint_capabilities
+        self.realizes_embed_fn = realizes_embed_fn
+        self.writeback_fn = writeback_fn
 
     def enrich(self, target_path: str | Path) -> EnrichmentSummary:
         files = discover_python_files(target_path)
@@ -172,6 +192,34 @@ class EnrichmentPipeline:
                 self._write_edge(mid, f.id, "PART_OF_FEATURE")
             summary.features += 1
 
+        # Code → capability: match features to BusinessCapability nodes (LeanIX/
+        # Archi), mint provisional ones bottom-up, emit REALIZES edges, and
+        # optionally push the minted capabilities back to EA tools (KG-2.8).
+        if features and (
+            self.capability_provider is not None
+            or self.capability_registry is not None
+            or self.mint_capabilities
+        ):
+            capabilities = (
+                self.capability_provider() if self.capability_provider else []
+            )
+            minted, realizes_edges = resolve_realizes(
+                features,
+                capabilities,
+                registry=self.capability_registry,
+                mint_missing=self.mint_capabilities,
+                embed_fn=self.realizes_embed_fn,
+            )
+            for cap in minted:
+                self._write_capability(cap)
+                summary.capabilities_minted += 1
+            for e in realizes_edges:
+                self._write_edge(e.source, e.target, e.rel_type)
+                summary.realizes_edges += 1
+            if minted and self.writeback_fn is not None:
+                result = self.writeback_fn(minted)
+                summary.capabilities_pushed = _writeback_count(result)
+
         return summary
 
     # ── writers (GraphBackend single interface) ──────────────────────────
@@ -228,6 +276,22 @@ class EnrichmentPipeline:
                 metadata=json.dumps(doc.metadata)[:4000],
             )
             summary.documents += 1
+            # Distil reusable operating intelligence (CONCEPT:KG-2.8): turn the
+            # document/call into Insight/Fact/Framework/Playbook nodes.
+            try:
+                intel_nodes, intel_edges = extract_intelligence(
+                    text,
+                    doc.id,
+                    self.llm_fn,
+                    source_type=doc.doc_type,
+                    title=doc.title,
+                )
+                for node in intel_nodes:
+                    self._write_intelligence(node)
+                    summary.intelligence_nodes += 1
+                all_edges.extend(intel_edges)
+            except Exception as exc:  # pragma: no cover - enrichment best-effort
+                logger.debug("intelligence extraction skipped for %s: %s", p, exc)
             for c in concepts:
                 # Concepts are canonical by id; merge source_ids across docs.
                 existing = all_concepts.get(c.id)
@@ -255,6 +319,21 @@ class EnrichmentPipeline:
 
         return list(all_concepts.values()), all_edges, summary
 
+    def _write_intelligence(self, node: Any) -> None:
+        """Persist an Insight/Fact/Framework/Playbook node (CONCEPT:KG-2.8).
+
+        The node type label is the model class name (``Insight``/...); list
+        fields are JSON-serialised so they survive scalar property storage.
+        """
+        data = node.model_dump()
+        node_id = data.pop("id")
+        props = {
+            k: (json.dumps(v) if isinstance(v, list) else v)
+            for k, v in data.items()
+            if v is not None
+        }
+        self.backend.add_node(node_id, type=type(node).__name__, **props)
+
     def _write_feature(self, f: Any) -> None:
         self.backend.add_node(
             f.id,
@@ -265,6 +344,11 @@ class EnrichmentPipeline:
             patterns=",".join(f.patterns),
             member_ids=json.dumps(f.member_ids),
         )
+
+    def _write_capability(self, cap: GraphNode) -> None:
+        """Persist a (provisional, code-derived) BusinessCapability node."""
+        props = {k: v for k, v in cap.props.items() if v is not None}
+        self.backend.add_node(cap.id, type=cap.type, **props)
 
     def _write_test(self, t: Any) -> bool:
         issues = classify_test(t, self.thresholds)
@@ -291,6 +375,14 @@ class EnrichmentPipeline:
         add_edge = getattr(self.backend, "add_edge", None)
         if callable(add_edge):
             add_edge(source, target, rel_type=rel_type)
+
+
+def _writeback_count(result: Any) -> int:
+    """Total capabilities pushed by a writeback result (tolerant of shape)."""
+    if result is None:
+        return 0
+    pushed = getattr(result, "archi_pushed", 0) + getattr(result, "leanix_pushed", 0)
+    return int(pushed)
 
 
 def make_parse_fn(graph_compute: Any) -> ParseFn:

@@ -40,10 +40,21 @@ To maintain 1:1 parity between external file systems and the Knowledge Graph, th
 - **MD5 Checksums vs Timestamps**: We explicitly opted for temporal mark-and-sweep over md5 checksum tracking. Checksum tracking introduces significant state overhead and collision complexities. In contrast, timestamp-based pruning is an atomic and stateless mechanism that natively drops deleted files while gracefully updating modified ones.
 
 ### Graph-Level Access Control (RBAC/ABAC)
-Security is implemented natively at the query layer. Cryptographic ABAC middleware injects dynamic `requiresClassification` and `SecurityClearance` filters directly into Cypher statements. This guarantees that agents cannot traverse restricted sub-graphs (like executive compensation data) regardless of the prompt.
+Security is enforced natively on the read path. Node ACLs (`DataLevelPermissions` —
+classification + read/write roles) and tenant scoping are applied at retrieval time
+via `core/secured_reads.py` and the guarded `facade.designate`/`facade.query`, so
+agents cannot retrieve restricted sub-graphs (like executive compensation data)
+regardless of the prompt. Enforcement is gated by **`KG_BRAIN_ENFORCE`** (off by
+default for backward compatibility); identity is carried by an `ActorContext`. See
+**[Company Brain Runtime](../architecture/company_brain_runtime.md)** for the full
+wiring.
 
-### Entailment-Aware Permission Scoper (CONCEPT:KG-2.7)
-To secure logical inferences produced by the Rust Datalog backend, the **Entailment-Aware Permission Scoper** intersects the security classifications of premise nodes. When inferring a relationship (e.g., `dependsOn` transitivity), the inferred edge automatically inherits the strictest `DataClassification` from its parent lineage. This ensures that implicitly reasoned knowledge can never accidentally bypass the zero-trust classification perimeter.
+### Entailment-Aware Permission Scoper (CONCEPT:KG-2.6 / KG-2.7)
+Logical inferences inherit their parents' secrecy. When `owl_bridge` downfeeds an
+inferred relationship (e.g. `dependsOn` transitivity), `secured_reads.inherit_inferred_acl`
+sets the inferred target's `DataClassification` to the **strictest** of its premise
+nodes, so implicitly reasoned knowledge can never bypass the classification
+perimeter. Active under `KG_BRAIN_ENFORCE`.
 
 ### Semantic Subsumption & Inductive Hypergraphs (KG-2.2 & KG-2.4)
 When new information is encountered, **OWL-Driven Semantic Subsumption** automatically computes embedding similarities against OWL class prototypes, injecting the new concept into the correct lineage. **Inductive Knowledge Hypergraphs** vectorize relationship intersections via `EncPI` (Positional Interaction Encodings), enabling the graph to perform zero-shot generalization over entirely novel runtime topologies.
@@ -256,6 +267,31 @@ ontology.ttl                → Core upper ontology (BFO, PROV-O, SKOS)
 
 The `OntologyLoader` (`core/ontology_loader.py`) resolves `owl:imports` declarations at runtime, fetching remote ontologies via HTTP with TTL-based caching.
 
+### Vendor-Neutral Enterprise Crosswalk (CONCEPT:KG-2.9)
+
+The enterprise rarely runs one vendor per capability — ServiceNow *or* ERPNext for
+ITSM, Camunda *or* Archi for processes. The crosswalk makes reasoning
+**vendor-neutral**: each per-system class is related to one canonical
+ArchiMate-aligned concept in `ontology_archimate.ttl`, so a single query resolves
+all sources regardless of which product produced the data.
+
+```turtle
+:Incident      rdfs:subClassOf :ApplicationEvent .   # ServiceNow
+:ErpNextIssue  rdfs:subClassOf :ApplicationEvent .   # ERPNext
+:Incident      owl:equivalentClass :ErpNextIssue .   # interchangeable
+:Change        rdfs:subClassOf :BusinessProcess .
+```
+
+After `owl_bridge` reasoning, ServiceNow incidents, ERPNext issues, and Camunda
+process incidents all carry inferred `rdf:type :ApplicationEvent`, so
+`SELECT ?e WHERE { ?e a :ApplicationEvent }` returns them all. Vendor data lands
+via **self-registering extractors** (`enrichment/extractors/{servicenow,erpnext,camunda,leanix}.py`)
+that emit canonical node types; code is linked to the `BusinessCapability` it
+realizes via `enrichment/realizes.py` (with write-back to Archi/LeanIX); and live
+REST systems can be queried on-demand via `engine_federation.register_rest_source`.
+
+→ **Deep dive:** [Vendor-Neutral Enterprise Ontology](../architecture/vendor_neutral_enterprise_ontology.md)
+
 ### SHACL Governance Validation
 
 The `SHACLValidator` (`core/shacl_validator.py`) validates the materialized RDF graph against SHACL shape constraints using `pyshacl`:
@@ -376,3 +412,78 @@ Background ingestion jobs across the entire ecosystem are no longer transient in
 - **Job Recovery**: If the MCP server or your IDE restarts, pending ingestion jobs are automatically recovered from the cypher backend on startup and placed back into the execution queue.
 - **Provenance**: Jobs store `agent_id`, timestamp, and metadata (like `.git` directory mapping) as topological properties.
 - **Monitoring**: Check statuses reliably via the `graph_ingest` MCP tool actions `jobs` (list) and `job_status` (per-job), which interact natively with the graph backend instead of memory.
+
+### KG-2.11 — Bi-Temporal Memory Layers
+
+Assimilated from Quarq Agent's three memory layers and Temporal Truth Protocol
+(`agent-oss/agent.py`), implemented **structurally** rather than via prompt date-discipline.
+Three additions: (1) a first-class **procedural** memory layer — `MemoryNode.memory_type ∈
+{semantic, episodic, procedural}` with `target_entity` for 1-hop entity-scoped rule injection;
+(2) **bi-temporal stamping** — every relationship carries `event_time` (when it happened) vs
+`storage_time` (when it was saved) plus `valid_from`/`valid_to`, auto-applied on the
+`engine.link_nodes` hot path via the pure `knowledge_graph/core/bitemporal.py` helpers; (3)
+**as-of queries** (`query_cypher(as_of=T)`, surfaced through `graph_query(as_of=...)`) and
+**event-time contradiction precedence** (`resolve_temporal_contradiction` writes a `SUPERSEDES`
+edge and closes the superseded fact's validity interval — never deleting it, so history remains
+queryable). This is the correctness substrate for memory-first retrieval (KG-2.12) and the
+background learner (KG-2.13). Extends KG-2.1.
+
+### KG-2.12 — Memory-First Retrieval
+
+Assimilated from Quarq Agent's retrieval stack (`agent-oss/agent.py`), layered as a *policy* over
+the KG-2.3 hybrid retriever via `HybridRetriever.plan_and_retrieve`: (1) **HyDE query expansion** —
+the ORCH-1.27 `planner` role emits a multi-vector plan (baseline / entity / action / literal-unit)
++ keywords + mode, each query running through the graph-native `retrieve_hybrid` (so backlink boost
+and positional encodings enrich every hit); (2) **dual thresholds** — standard 0.38 / deep 0.28
+(`hyde_planner.HYDE_THRESHOLDS`); (3) **self-correcting two-pass** — a second pass at the deep
+threshold fires *only* when the KG-2.6 quality gate reports `gate_passed=False` (an evidence-based
+trigger, stronger than Quarq's model-self-report `REQUIRED_DATA`); (4) **quantitative-fidelity
+ledger** — `build_evidence_ledger` emits an ACCEPT/REJECT table with extracted numbers for
+complete-ledger aggregation. Exposed via `graph_search(mode="hyde"|"deep", self_correct=True)`.
+Extends KG-2.3; reuses AHE-3.4 decomposition and the KG-2.6 gate.
+
+### KG-2.13 — Background Learning Engine
+
+Assimilated from Quarq Agent's async learner (`agent-oss/agent.py`). `BackgroundLearner`
+(`knowledge_graph/memory/learning_engine.py`) runs targeted **ADD / UPDATE / DELETE** fact edits —
+not raw transcript dumps — under a `Semaphore(4)` with bounded exponential backoff and an
+`await_pending` sync barrier. The ORCH-1.27 `learner` role extracts edits (`extract_edits`);
+`resolve_relative_dates` converts "yesterday"/"N weeks ago" to absolute dates at learn time so the
+stored `event_time` is a real instant. Edits become **bi-temporal mutations** (KG-2.11): an UPDATE
+re-stamps event/storage time on the node; a DELETE is **soft** (`status=REMOVED` + `valid_to`),
+preserving history — strictly better than Quarq's JSON-line overwrite / hard delete. Exposed via
+the `agent-utilities-memory learn` CLI subcommand. Backoff is bounded (not Quarq's infinite loop) so
+background learning can never wedge CI. Extends KG-2.1 (+AHE-3).
+
+### KG-2.14 — Ground-Truth Context Authority
+
+Makes injected memory **authoritative**: each `StartupChunk` carries a `source_authority` tier and
+the startup payload opens with a Ground-Truth Hierarchy preamble instructing the agent to use the
+injected memory directly and stop re-fetching ("memory-zero behavior"). Graph-grounded (composes
+with KG-2.11 validity + KG-2.6 trust), not a flat prompt rule. Assimilated from memory-os Layer 7.
+See [KG-2.14](2_epistemic_knowledge_graph/KG-2.14-Ground_Truth_Authority.md). Extends KG-2.1.
+
+### KG-2.15 — Resilient Retrieval
+
+A 4-level fallback cascade (hybrid → dense → lexical → backend) guarantees a query always returns
+something even when the vector store is offline, and a social-closer gate skips retrieval on trivial
+turns. See [KG-2.15](2_epistemic_knowledge_graph/KG-2.15-Resilient_Retrieval.md). Extends KG-2.12.
+
+### KG-2.17 — Memory Hygiene
+
+A maintenance pass that bounds growth without data loss: a decay scanner archives stale AI memory by
+closing its bi-temporal `valid_to` (never deletes; alerts high-confidence stale items), and a
+semantic-merge pass collapses near-duplicates (cosine ≥ 0.92). Exposed via `agent-utilities-memory
+hygiene`. See [KG-2.17](2_epistemic_knowledge_graph/KG-2.17-Memory_Hygiene.md). Extends KG-2.1/2.3.
+
+### KG-2.18 — Evidence-Weighted Memory
+
+Closes the feedback loop the quality gate lacked: a Bayesian trust score trained by recall→usage
+telemetry, persisted onto nodes, plus a generation lineage record linking each answer to the memory
+ids it was grounded on. See [KG-2.18](2_epistemic_knowledge_graph/KG-2.18-Evidence_Weighted_Memory.md). Extends KG-2.6.
+
+### KG-2.19 — Self-Curating Wiki
+
+Continuously ingests a markdown knowledge vault into the graph but only when pages change (SHA-256
+delta-skip, crash-safe state), reusing the ingestion engine + synthesis. Exposed via
+`graph_ingest(action="curate_wiki")`. See [KG-2.19](2_epistemic_knowledge_graph/KG-2.19-Self_Curating_Wiki.md). Extends KG-2.7.

@@ -478,3 +478,117 @@ class RetrievalQualityGate:
             node_count=report.total_candidates,
             mean_relevance=report.mean_relevance_score,
         )
+
+
+# ── CONCEPT:KG-2.18 — Evidence-Weighted Memory ──────────────────────────────────
+# Assimilated from memory-os (ClaudioDrews/memory-os@a4ca094, layers/03-fact-store.md +
+# icarus/state.py + scripts/context_enhancer.py). The quality gate above SCORES retrieval but
+# nothing trains those scores. This closes the loop: usage telemetry + a Bayesian trust score that
+# reflects whether retrieved memory was actually used, plus a generation lineage record linking an
+# answer back to the memory ids it was grounded on.
+
+TRUST_PRIOR = 0.5   # Bayesian prior — a fact starts neutral.
+TRUST_WEIGHT = 2.0  # Prior strength (pseudo-counts); higher = slower to move from the prior.
+
+
+def bayesian_trust(
+    helpful: int, total: int, *, prior: float = TRUST_PRIOR, weight: float = TRUST_WEIGHT
+) -> float:
+    """Smoothed trust score in [0, 1] = (helpful + prior·weight) / (total + weight).
+
+    A fact retrieved many times and usually used trends toward 1.0; one retrieved but never used
+    trends toward 0.0; an unseen fact stays at the prior. Avoids the divide-by-zero / overconfident
+    swings of a raw helpful/total ratio.
+    """
+    total = max(0, total)
+    helpful = max(0, min(helpful, total))
+    return round((helpful + prior * weight) / (total + weight), 4)
+
+
+class LineageRecord(BaseModel):
+    """Provenance of one generation: which memory ids grounded the answer (CONCEPT:KG-2.18)."""
+
+    query: str
+    retrieved_ids: list[str] = Field(default_factory=list)
+    used_ids: list[str] = Field(default_factory=list)
+    model: str = ""
+    context_hash: str = ""
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+
+def build_lineage(
+    query: str, retrieved_ids: list[str], *, used_ids: list[str] | None = None, model: str = ""
+) -> LineageRecord:
+    """Build a generation lineage record with a stable context hash over the retrieved ids."""
+    import hashlib
+
+    digest = hashlib.sha256(
+        ("|".join(sorted(retrieved_ids)) + f"::{query}").encode()
+    ).hexdigest()[:16]
+    return LineageRecord(
+        query=query,
+        retrieved_ids=list(retrieved_ids),
+        used_ids=list(used_ids or []),
+        model=model,
+        context_hash=digest,
+    )
+
+
+class UsageTelemetry:
+    """Records recall→usage events and derives trust per memory node (CONCEPT:KG-2.18).
+
+    ``record_recall`` logs that ids were surfaced; ``record_usage`` logs that an id actually
+    informed the answer. ``trust(id)`` returns the Bayesian trust from those counts. In-process by
+    default; ``flush_to_engine`` persists trust_score onto nodes (the previously-unused
+    ``store_memory(trust_score=...)`` field) so it survives restarts.
+    """
+
+    def __init__(self) -> None:
+        self._recalled: dict[str, int] = {}
+        self._used: dict[str, int] = {}
+
+    def record_recall(self, node_ids: list[str]) -> None:
+        for nid in node_ids:
+            if nid:
+                self._recalled[nid] = self._recalled.get(nid, 0) + 1
+
+    def record_usage(self, node_ids: list[str]) -> None:
+        for nid in node_ids:
+            if nid:
+                self._used[nid] = self._used.get(nid, 0) + 1
+
+    def trust(self, node_id: str) -> float:
+        return bayesian_trust(self._used.get(node_id, 0), self._recalled.get(node_id, 0))
+
+    def usage_rate(self) -> float:
+        """Fraction of distinct recalled nodes that were actually used."""
+        if not self._recalled:
+            return 0.0
+        used = sum(1 for nid in self._recalled if self._used.get(nid, 0) > 0)
+        return round(used / len(self._recalled), 4)
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "recalled_nodes": len(self._recalled),
+            "used_nodes": sum(1 for n in self._recalled if self._used.get(n, 0) > 0),
+            "usage_rate": self.usage_rate(),
+            "trust": {nid: self.trust(nid) for nid in self._recalled},
+        }
+
+    def flush_to_engine(self, engine: Any) -> int:
+        """Persist trust_score onto memory nodes; returns the count written."""
+        backend = getattr(engine, "backend", None)
+        if backend is None:
+            return 0
+        n = 0
+        for nid in self._recalled:
+            try:
+                backend.execute(
+                    "MATCH (m) WHERE m.id = $id SET m.trust_score = $ts",
+                    {"id": nid, "ts": self.trust(nid)},
+                )
+                n += 1
+            except Exception as e:  # pragma: no cover - backend variance
+                logger.debug("trust_score flush failed for %s: %s", nid, e)
+                continue
+        return n

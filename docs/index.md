@@ -11,7 +11,7 @@ This repository provides the core primitives, memory engines, orchestration laye
 
 > [!TIP]
 > **Experience the Platform in Action**
-> Read our comprehensive **[Technical Novel: The Narrative Journey](journey.md)** to see all 5 pillars and the unified concept architecture trace the high-stakes execution of a quantitative portfolio rebalancing mandate. It's the best way to understand how the pieces fit together.
+> Read our comprehensive **[Technical Novel: The Narrative Journey](journey.md)** to see all 5 pillars and the unified concept architecture trace the high-stakes execution of a quantitative portfolio rebalancing mandate — and how the same brain now runs a **full enterprise** (ITSM, ERP, BPM, EA) across whichever vendor tools a client deploys, made **trusted and self-correcting** by source-authority survivorship, data permissions, and a human-correction → rule loop. It's the best way to understand how the pieces fit together.
 
 ---
 

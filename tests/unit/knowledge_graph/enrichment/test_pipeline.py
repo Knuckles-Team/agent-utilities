@@ -110,6 +110,87 @@ def test_pipeline_enriches_patterns_features_and_cards(tmp_path):
     assert any(rel == "PART_OF_FEATURE" for _, _, rel in backend.edges)
 
 
+def _feature_parse_fn(file_path, source):
+    return {"nodes": [
+        {"node_id": "s1", "node_type": "SYMBOL", "properties": {
+            "symbol_type": "Function", "name": "orchestrate", "line": "1",
+            "ast_hash": "a1", "file_path": file_path, "is_test": "false",
+            "calls": "plan,execute"}},
+        {"node_id": "s2", "node_type": "SYMBOL", "properties": {
+            "symbol_type": "Function", "name": "plan", "line": "5",
+            "ast_hash": "a2", "file_path": file_path, "is_test": "false",
+            "calls": "execute"}},
+        {"node_id": "s3", "node_type": "SYMBOL", "properties": {
+            "symbol_type": "Function", "name": "execute", "line": "9",
+            "ast_hash": "a3", "file_path": file_path, "is_test": "false",
+            "calls": ""}},
+    ]}
+
+
+def _community_all(node_ids, edges):
+    return [list(node_ids)]
+
+
+def test_pipeline_mints_capabilities_and_realizes_edges(tmp_path):
+    (tmp_path / "svc.py").write_text("def orchestrate(): pass\n")
+    backend = FakeBackend()
+    pushed = []
+
+    def _wb(nodes):
+        pushed.extend(nodes)
+        return _Result(len(nodes))
+
+    pipe = EnrichmentPipeline(
+        backend,
+        _feature_parse_fn,
+        community_fn=_community_all,
+        min_feature_size=3,
+        mint_capabilities=True,
+        writeback_fn=_wb,
+    )
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.features == 1
+    assert summary.capabilities_minted == 1
+    assert summary.realizes_edges == 1
+    assert summary.capabilities_pushed == 1
+    # A provisional BusinessCapability node + a REALIZES edge were written.
+    assert any(
+        n.get("type") == "BusinessCapability" and n.get("provisional") is True
+        for n in backend.nodes.values()
+    )
+    assert any(rel == "REALIZES" for _, _, rel in backend.edges)
+    assert len(pushed) == 1
+
+
+def test_pipeline_matches_existing_capability_no_mint(tmp_path):
+    (tmp_path / "svc.py").write_text("def orchestrate(): pass\n")
+    backend = FakeBackend()
+
+    # Provide an existing capability whose name overlaps the feature members.
+    caps = [{"id": "capability:ORCH", "name": "orchestrate plan execute", "summary": ""}]
+    pipe = EnrichmentPipeline(
+        backend,
+        _feature_parse_fn,
+        community_fn=_community_all,
+        min_feature_size=3,
+        mint_capabilities=False,
+        capability_provider=lambda: caps,
+    )
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.capabilities_minted == 0
+    assert summary.realizes_edges == 1
+    assert ("REALIZES" in {rel for _, _, rel in backend.edges})
+    assert any(t == "capability:ORCH" for _, t, _ in backend.edges)
+
+
+class _Result:
+    def __init__(self, n):
+        self.archi_pushed = n
+        self.leanix_pushed = 0
+
+
 def test_pipeline_is_hash_incremental(tmp_path):
     f = tmp_path / "test_x.py"
     f.write_text("def test_x():\n    pass\n")

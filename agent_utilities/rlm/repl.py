@@ -12,6 +12,11 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 from ..graph.client import get_graph_client
 from ..graph.state import GraphDeps
 from .config import RLMConfig
+from .telemetry import (  # CONCEPT:ORCH-1.29
+    RunTrace,
+    SandboxFatalError,
+    classify_failure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -404,12 +409,17 @@ class RLMEnvironment:
                 f.write(code)
                 f.write("\n\n")
 
-            res = manager.run_container(
-                image="python:3.11-slim",
-                command="python /data/script.py",
-                volumes={tmpdir: {"bind": "/data", "mode": "rw"}},
-                detach=False,
-            )
+            try:
+                res = manager.run_container(
+                    image="python:3.11-slim",
+                    command="python /data/script.py",
+                    volumes={tmpdir: {"bind": "/data", "mode": "rw"}},
+                    detach=False,
+                )
+            except Exception as e:  # noqa: BLE001
+                # CONCEPT:ORCH-1.29 — an irreversible sandbox failure (daemon down, container
+                # killed, mount lost) is FATAL: fast-fail instead of iterating on a dead sandbox.
+                raise SandboxFatalError(f"container sandbox died: {e}") from e
             output = res.get("output", "")
             return self.vars, output
 
@@ -590,6 +600,11 @@ class RLMEnvironment:
         history: list[Any] = []
         max_turns = 5
 
+        # CONCEPT:ORCH-1.29 — populate a structured RunTrace as the live loop runs, so the GEPA
+        # proposer gets classified per-iteration feedback (not just the free-text ReasoningTraceNode).
+        run_trace = RunTrace()
+        self.last_run_trace = run_trace
+
         # Build the initial prompt — metadata-only or full depending on config
         if self.config.metadata_only_root and self.depth == 0:
             context_info = self._build_context_metadata()
@@ -615,7 +630,23 @@ class RLMEnvironment:
 
             if code_blocks:
                 code_to_run = code_blocks[0]
-                _, stdout = await self.execute(code_to_run)
+                # CONCEPT:ORCH-1.29 — record this iteration; classify + re-raise on failure (fatal
+                # sandbox death still fast-fails) so the RunTrace captures the failure class.
+                try:
+                    _, stdout = await self.execute(code_to_run)
+                except SandboxFatalError as e:
+                    run_trace.add_step(code=code_to_run, failure_class=classify_failure(e))
+                    run_trace.final_status = "failure"
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    run_trace.add_step(code=code_to_run, failure_class=classify_failure(e))
+                    run_trace.final_status = "failure"
+                    raise
+                run_trace.add_step(
+                    code=code_to_run,
+                    output=str(stdout)[:2000],
+                    finish_reason=str(getattr(res, "finish_reason", "") or "stop"),
+                )
 
                 # Record trajectory
                 if self.config.trajectory_storage == "process_flow" and self.graph_deps:
@@ -684,6 +715,7 @@ class RLMEnvironment:
                         history.append({"role": "user", "content": stdout_feedback})
                         continue
 
+                    run_trace.final_status = "success"  # CONCEPT:ORCH-1.29
                     return val
 
                 # Feed stdout back as metadata (Algorithm 1 alignment)

@@ -137,6 +137,35 @@ def extract(config: Any) -> ExtractionBatch:
             )
         )
 
+    # Issue -> ErpNextIssue node (ITSM helpdesk ticket; ServiceNow-incident
+    # analogue, crosswalked to canonical :ApplicationEvent). Emits RAISED_BY ->
+    # Customer when present, mirroring ServiceNow's assignee/CI linkage.
+    for row in _get_list(client, "Issue"):
+        name = _first(row, "name", "subject")
+        if name is None:
+            continue
+        node_id = f"erpnextissue:{name}"
+        nodes.append(
+            GraphNode(
+                id=node_id,
+                type="ErpNextIssue",
+                props={
+                    "subject": _first(row, "subject", "name"),
+                    "status": _first(row, "status", "state"),
+                    "priority": _first(row, "priority"),
+                },
+            )
+        )
+        customer = _first(row, "customer", "customer_name")
+        if customer is not None:
+            edges.append(
+                EnrichmentEdge(
+                    source=node_id,
+                    target=f"customer:{customer}",
+                    rel_type="RAISED_BY",
+                )
+            )
+
     nodes.extend(orgunits.values())
     return ExtractionBatch(category="erpnext", nodes=nodes, edges=edges)
 

@@ -339,6 +339,23 @@ def create_backend(
         except Exception as e:
             logger.debug(f"Failed to auto-initialize or migrate graph schema: {e}")
 
+        # CONCEPT:KG-2.6 — wrap with the Company Brain write-path guard
+        # (provenance + source-authority arbitration) only when enforcement is
+        # on, so the default path stays byte-identical.
+        try:
+            from ..core.company_brain_runtime import brain_enforcement_enabled
+
+            if brain_enforcement_enabled():
+                from ..core.company_brain_runtime import get_company_brain
+                from .brain_guarded_backend import BrainGuardedBackend
+
+                backend = BrainGuardedBackend(  # type: ignore[assignment]
+                    backend, get_company_brain()
+                )
+                logger.info("Company Brain write-path guard installed")
+        except Exception as e:  # pragma: no cover - guard is best-effort
+            logger.warning("Brain guard not installed: %s", e)
+
     if backend and _ACTIVE_BACKEND is None:
         _ACTIVE_BACKEND = backend
 

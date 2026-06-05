@@ -232,6 +232,121 @@ Finally, the **High-Performance Visual Finance Cockpit** (`CONCEPT:GBOT-6.6`) st
 
 ---
 
+## Chapter 7: The Enterprise Federation (One Brain, Every Vendor)
+
+Operation Emerald Horizon was a single mandate. But the substrate that ran it no
+longer serves one desk — it now runs **a full enterprise**. ITSM, ERP, process
+orchestration, and enterprise architecture all flow through the same brain. The
+catch: no two clients run the same tools. One firm runs **ServiceNow** for service
+management; the firm next door runs **ERPNext**. One models its processes in
+**Camunda**; another documents them in **Archi** and inventories them in **LeanIX**.
+
+A lesser system would need a bespoke integration per product. This one does not,
+because of the **Vendor-Neutral Enterprise Crosswalk** (`CONCEPT:KG-2.9`). The
+crosswalk defines a small set of canonical ArchiMate concepts — `ApplicationEvent`,
+`BusinessProcess`, `BusinessTask`, `BusinessCapability`, `BusinessActor` — and binds
+every vendor's classes to them with `rdfs:subClassOf` and `owl:equivalentClass`
+axioms in `ontology_archimate.ttl`. The reasoner does the rest.
+
+```
+        ServiceNow            ERPNext              Camunda
+        :Incident             :ErpNextIssue        :BusinessTask
+            │                     │                     │
+            └───── subClassOf ────┼──── subClassOf ─────┘
+                                  ▼
+                       Canonical ArchiMate concept
+                  ( :ApplicationEvent / :BusinessProcess )
+                                  ▼
+            SELECT ?e WHERE { ?e a :ApplicationEvent }   ← one query, all vendors
+```
+
+When the enterprise onboards a client, the **self-registering source extractors**
+(`CONCEPT:KG-2.9`) wake. Each adapter — `servicenow.py`, `erpnext.py`,
+`camunda.py`, `leanix.py` — lifts its system's REST API into the *same* uniform
+canonical nodes, touching no shared hub file. A Camunda process incident and a
+ServiceNow incident become indistinguishable to the reasoning layer; both are an
+`ApplicationEvent`. The day a client migrates from ServiceNow to ERPNext, an
+engineer swaps an *adapter* — the ontology, the queries, and every downstream
+report stay exactly as they were.
+
+Then the brain turns inward, to the enterprise's own software. The **epistemic
+graph** parses each in-house codebase into features, and the **code → capability
+bridge** (`CONCEPT:KG-2.8`, `enrichment/realizes.py`) links those features to the
+`BusinessCapability` nodes they *realize*. For an acquired company that arrived
+with codebases but a thin architecture catalog, the bridge mints the missing
+capabilities bottom-up — and the **capability write-back** pushes them straight
+back into Archi and LeanIX, so the enterprise-architecture catalog is enriched
+from the very code the merger brought in. The map and the territory finally agree.
+
+```
+   Source code ──► features ──► REALIZES ──► BusinessCapability ──► [Archi / LeanIX]
+        ▲                                            │
+        └──────── "show all code for capability X" ◄─┘
+```
+
+Some questions, though, must never be stale. For those, the **virtual REST
+federation** (`CONCEPT:KG-2.1`, `engine_federation.register_rest_source`) queries a
+live system on demand — invoking the very same extractor at query time, TTL-cached,
+and unioning the fresh records with what's already materialized. No data is
+duplicated that doesn't need to be; nothing is reasoned over that has gone cold.
+
+The result is an organization that is *legible*. A single traversal runs from a
+high-level business capability down through the ServiceNow incident, the Camunda
+model, the GitLab repository, and the exact source function that supports it —
+regardless of which vendor's logo is on the login screen.
+
+---
+
+## Chapter 8: The Trusted Brain (Source Truth, Permissions, and the Compounding Loop)
+
+A brain that ingests everything is not yet a brain you can trust. The moment the
+enterprise points this system at *real* client data — incidents, compensation,
+contracts, code — three questions stop being academic: when two systems disagree,
+who is right? who is allowed to see what? and when a human says "that's wrong,"
+does the system actually learn? The **Company Brain Runtime** (`CONCEPT:KG-2.6`)
+answers all three, and it can be switched on with a single flag, `KG_BRAIN_ENFORCE`.
+
+The first answer is **source truth**. Every write now passes through a guarded
+backend that stamps provenance and resolves contradictions by *authority*, not by
+whoever wrote last. A declarative trust hierarchy ranks the sources — a live
+ServiceNow record outranks a nine-month-old SOP; a human judgment outranks an
+agent's inference — and that authority **decays with age**, so a stale
+high-authority fact can lose to a fresher one. Crucially, the arbitration is
+**attribute by attribute**, the discipline data stewards call survivorship: when
+ServiceNow owns an incident's `status`, an analyst contributes its
+`business_impact`, and a low-trust importer later tries to overwrite the status
+while adding a `customer` link, the brain keeps ServiceNow's status, keeps the
+analyst's impact, *and* accepts the new customer link — a true golden record
+assembled from many hands. Each attribute remembers its own lineage, written
+durably onto the node, so this survives a restart: a fresh process reconstructs
+who-owns-what straight from the graph.
+
+The second answer is **permission**. Reads now flow through a secured path that
+filters nodes by classification and role, scopes queries to a tenant, and writes
+an audit entry for every access — mandatory for anything marked RESTRICTED. The
+marketing agent simply cannot retrieve the HR compensation node; the reasoner
+cannot leak it through an inferred edge, because derived facts inherit the
+strictest secrecy of their parents. The brain is no longer one big shared folder
+with better search; it is the *right* brain for the *right* workflow.
+
+The third answer is the one most systems skip: the **compounding loop**. When a
+human corrects the brain — through the `graph_feedback` channel — the correction
+does not evaporate. It becomes a reward signal that reshapes future routing, or a
+durable governance rule that is consulted at retrieval time so the same mistake is
+never made twice, or a regression case added to an evaluation corpus that guards
+against backsliding. A correction today is a behavior tomorrow.
+
+And because memory is only useful if it arrives at the right moment, retrieval
+itself is now disciplined: a **token budget** caps how much context any task pulls
+(no more memory eating the window), and a task-scoped router returns the handful of
+pieces that matter for the work in front of it rather than everything it knows.
+
+With these three answers in place, the company brain is finally safe to run an
+enterprise on — accurate, source-aware, access-controlled, and a little smarter
+every time a human touches it.
+
+---
+
 ## Epilogue: The Sovereign Star (The Self-Evolving Digital Entity)
 
 The trades are executed, the logs are written, and the dashboard glows green. **Operation Emerald Horizon** is a success.
@@ -241,3 +356,16 @@ But as the system powers down its active execution threads, something remarkable
 The next time a developer—or another autonomous agent—submits a directive to rebalance a portfolio, they will not start from scratch. They will inherit a substrate that is mathematically, semantically, and structurally smarter than it was an hour ago.
 
 This is the **North Star** of `agent-utilities`. It is not just software. It is a living, self-documenting, self-healing, and self-evolving epistemic network—a sovereign digital entity designed to scale corporate intelligence into the infinite horizon.
+
+And it is no longer a single mandate on a single desk. The same brain now runs a
+**full enterprise** — ITSM, ERP, process orchestration, and enterprise
+architecture — across whichever vendor tools a given client happens to deploy,
+unified beneath one vendor-neutral ontology. ServiceNow or ERPNext, Camunda or
+Archi: it does not matter. The reasoning is the same, the queries are the same, and
+the organization is, at last, legible end to end.
+
+And it is *trusted*. It knows which source to believe when they disagree, it knows
+who is allowed to see what, and it turns every human correction into a rule it will
+not break again. A company brain that is accurate, source-aware, access-controlled,
+and compounding — that is the difference between software that remembers and an
+organization that learns.

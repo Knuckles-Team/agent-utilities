@@ -607,7 +607,39 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_file_watch,
                 )
             )
+        # Memory hygiene: decay-archive stale AI memory + semantic-merge dedup (CONCEPT:KG-2.17).
+        # Long interval (default daily) — bounded maintenance, gated by KG_HYGIENE_DAEMON.
+        if os.environ.get("KG_HYGIENE_DAEMON", "1") != "0":
+            jobs.append(
+                (
+                    "hygiene",
+                    float(os.getenv("KG_HYGIENE_INTERVAL", "86400")),
+                    self._tick_hygiene,
+                )
+            )
         return jobs
+
+    def _tick_hygiene(self) -> None:
+        """One memory-hygiene pass (CONCEPT:KG-2.17).
+
+        Archives stale AI-generated memory by closing its bi-temporal ``valid_to`` (never deletes;
+        alerts high-confidence stale items) and merges near-duplicates. Run by the consolidated
+        maintenance scheduler behind the shared foreground-throttle gate.
+        """
+        try:
+            from agent_utilities.knowledge_graph.memory.hygiene import MemoryHygiene
+
+            summary = MemoryHygiene(self).run()
+            if summary.get("archived") or summary.get("merged"):
+                logger.info(
+                    "[KG-2.17] hygiene: archived=%s alerted=%s merged=%s scanned=%s",
+                    summary.get("archived"),
+                    summary.get("alerted"),
+                    summary.get("merged"),
+                    summary.get("scanned"),
+                )
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("hygiene tick error: %s", e)
 
     def _tick_file_watch(self) -> None:
         """One SDD/skills/scholarx/config file-watch scan (CONCEPT:KG-2.6 / OS-5.0).

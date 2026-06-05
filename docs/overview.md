@@ -153,8 +153,13 @@ graph TD
 | ORCH-1.9 | Autonomous Department Orchestration | OWL-materialized company departments with `reportsTo` hierarchy |
 | ORCH-1.10 | Reactive Event Sourcing | Reactive event-driven state and graph staging dispatcher |
 | ORCH-1.11 | WASM Micro-Agent Sandbox | Isolated micro-agent WebAssembly sandbox runner with gas/memory limits and Python emulation fallback |
+| ORCH-1.27 | Role-Specialized Model Routing | Binds planner/generator/learner/judge + RLM (executor/proposer/sub-LM) roles to model tiers+tags over the registry |
+| ORCH-1.28 | Composable Skills + Generic Adapter | Structured Skill units (instructions+packages+modules+tools) + merge; minimal generic env adapter preserving the host evaluator |
+| ORCH-1.29 | RLM Resilience + Telemetry | Structured RunTrace + FailureClass taxonomy; recoverable tool timeout vs fatal sandbox error |
+| ORCH-1.30 | Generalizing GEPA | Held-out feedback/Pareto split + AgentSpec anti-overfit grounding + held-out candidate selection (transferable skills) |
+| ORCH-1.31 | Graph-Native Optimization State | Persist the GEPA Pareto frontier + ancestry to the epistemic-graph; resumable, cross-session optimization |
 
-### Pillar 2: Epistemic Knowledge Graph (KG-2.0 – 2.60)
+### Pillar 2: Epistemic Knowledge Graph (KG-2.0 – 2.23)
 
 | ID | Concept | Description |
 |---|---|---|
@@ -171,7 +176,14 @@ graph TD
 | KG-2.7 | Rust-Native High-Performance Compute | High-performance quantitative execution, graph traversal, and epistemic reasoning via the out-of-process epistemic-graph engine (MessagePack/UDS client; no PyO3) plus Rustworkx |
 | KG-2.7 | Event Backbone | Protocol-based pub/sub with MemoryEventBackend (default) and RedpandaEventBackend (distributed) |
 | KG-2.7 | Query Router | Cost-based query planner routing to L1 Rust / L2 Cache / L3 Persistent / L4 Vector tiers |
-| KG-2.12 | Business Process Execution | Graph-driven orchestration of complex enterprise and operational business processes |
+| KG-2.11 | Bi-Temporal Memory Layers | Event-time vs storage-time + valid_from/valid_to on the graph; as-of queries and event-time contradiction precedence; procedural memory layer |
+| KG-2.12 | Memory-First Retrieval (HyDE) | HyDE query expansion + dual thresholds + self-correcting two-pass + quantitative-fidelity ledger over the hybrid retriever |
+| KG-2.13 | Background Learning Engine | Async, semaphore-bounded learner emitting typed, outcome-grounded ADD/UPDATE/DELETE bi-temporal memory edits |
+| KG-2.14 | Ground-Truth Context Authority | Authority-ranked startup context + a Ground-Truth preamble so injected memory is treated as authoritative (no re-fetching) |
+| KG-2.15 | Resilient Retrieval | 4-level retrieval fallback cascade + social-closer triviality gate |
+| KG-2.17 | Memory Hygiene | Scheduled decay scanner (archive via valid_to, never delete) + semantic-merge dedup |
+| KG-2.18 | Evidence-Weighted Memory | Bayesian trust feedback loop + recall/usage telemetry + generation lineage extending the quality gate |
+| KG-2.19 | Self-Curating Wiki | Delta-skip (SHA-256) continuous ingest of a markdown knowledge vault, reusing the ingestion engine + synthesis |
 | KG-2.21 | Working Set Manager | LRU-evicting subgraph cache for L1 Rust engine with 50K node cap |
 | KG-2.7 | Single Company Brain | Extensible operational state layer encompassing Ontology Bridges, Enterprise Architecture Repositories, and Entailment-Aware Permissions |
 
@@ -187,6 +199,7 @@ graph TD
 | AHE-3.5 | Heavy Thinking & Background Intelligence | Heavy thinking, background intelligence |
 | AHE-3.6 | Backtest & Curriculum | Backtest harness, horizon-aware curriculum |
 | AHE-3.8 | Interpretability & Model Evolution | Agent-Interpretable Model Evolver workflows and LLM-Graded Interpretability Tests |
+| AHE-3.12 | LongMemEval-S Validation Harness | FastAPI /benchmark surface (Quarq-runner compatible) + frozen corpus + CI floor gate proving the memory-first stack vs 98.2% |
 
 ### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.20)
 

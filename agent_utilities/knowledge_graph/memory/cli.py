@@ -125,6 +125,34 @@ def cmd_reflect(args: argparse.Namespace) -> None:
         print("No observations to reflect on.", file=sys.stderr)
 
 
+def cmd_learn(args: argparse.Namespace) -> None:
+    """Extract targeted memory edits from a transcript and apply them (CONCEPT:KG-2.13)."""
+    import json as _json
+
+    from agent_utilities.knowledge_graph.memory.learning_engine import run_learner
+
+    transcript = args.text
+    if args.file:
+        transcript = Path(args.file).read_text()
+    if not transcript.strip():
+        print("Error: provide --file or --text for learn", file=sys.stderr)
+        sys.exit(1)
+
+    engine = _get_engine()
+    result = run_learner(engine, transcript, now=args.now or None, dry_run=args.dry_run)
+    print(_json.dumps(result, indent=2, default=str))
+
+
+def cmd_hygiene(args: argparse.Namespace) -> None:
+    """Run a memory-hygiene pass (CONCEPT:KG-2.17)."""
+    import json as _json
+
+    from agent_utilities.knowledge_graph.memory.hygiene import run_hygiene
+
+    engine = _get_engine()
+    print(_json.dumps(run_hygiene(engine, dry_run=args.dry_run), indent=2, default=str))
+
+
 def cmd_materialize(args: argparse.Namespace) -> None:
     """Materialize KG memory state into Markdown files."""
     from agent_utilities.knowledge_graph.memory import (
@@ -288,6 +316,26 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("reflect", help="Run reflection cycle")
     p.add_argument("--dry-run", action="store_true", help="Print without persisting")
 
+    # learn (CONCEPT:KG-2.13 — targeted ADD/UPDATE/DELETE learner)
+    p = sub.add_parser(
+        "learn", help="Extract targeted memory edits from a transcript and apply them"
+    )
+    p.add_argument("--file", help="Path to a transcript text file")
+    p.add_argument("--text", default="", help="Inline transcript text")
+    p.add_argument(
+        "--now", default="", help="Override 'now' ISO date for date resolution"
+    )
+    p.add_argument(
+        "--dry-run", action="store_true", help="Print edits without persisting"
+    )
+
+    # hygiene (CONCEPT:KG-2.17 — decay scanner + semantic merge)
+    p = sub.add_parser(
+        "hygiene",
+        help="Run a memory-hygiene pass: archive stale memory + merge near-duplicates",
+    )
+    p.add_argument("--dry-run", action="store_true", help="Report without archiving")
+
     # materialize
     sub.add_parser("materialize", help="Render KG memory to Markdown files")
 
@@ -329,6 +377,8 @@ def main() -> None:
         "recall": cmd_recall,
         "observe": cmd_observe,
         "reflect": cmd_reflect,
+        "learn": cmd_learn,
+        "hygiene": cmd_hygiene,
         "materialize": cmd_materialize,
         "sync": cmd_sync,
         "install": cmd_install,

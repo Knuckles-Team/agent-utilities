@@ -82,3 +82,17 @@ The **Multi-Optimizer Prompt Selection Strategy** ensures that the optimization 
 Every evolutionary cycle is governed by strict, declarative **GitOps boundaries**. When changes are distilled to the physical file system, a structured, isolated git commit is generated programmatically. This commit is tagged with concept traceability IDs and the source failure cluster ID, linking runtime agent telemetry directly to code version control.
 - **Source Code**: `agent_utilities/knowledge_graph/distillation/physical_distiller.py`
 - **Hot Path**: `PhysicalDistillationEngine.commit_distilled_changes(...)`
+
+### AHE-3.12 — LongMemEval-S Validation Harness
+
+A FastAPI `/benchmark` surface (`server/routers/benchmark.py`, mounted in `build_agent_app`)
+compatible with Quarq's HTTP benchmark runner (`quarqlabs/benchmarks`), used to prove the
+memory-first synergy stack (ORCH-1.27 role routing + KG-2.11 bi-temporal + KG-2.12 memory-first
+retrieval + KG-2.13 learner) meets or beats Quarq's 98.2% on LongMemEval-S. `POST /benchmark/session`
+ingests haystack messages as **episodic** memory into a **frozen, versioned** `EvaluationCorpus`
+(reproducible across agent versions — Quarq re-derives FAISS each run); `POST /benchmark/query` runs
+the HyDE + self-correcting two-pass pipeline (corpus-scoped), synthesizes via the `generator` role,
+and scores via the `judge` role with a deterministic fallback; `GET /benchmark/report/{run_id}`
+returns the LongMemEval-style accuracy + per-category breakdown. `scripts/check_longmemeval.py` gates
+CI on a frozen-subset floor (default 95%), sharing the exact scoring helpers so gate and live router
+never diverge; the full 500-question run is nightly/on-demand. Extends AHE-3.

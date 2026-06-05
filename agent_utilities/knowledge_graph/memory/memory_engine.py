@@ -793,6 +793,34 @@ DEFAULT_BUDGET_CHARS = 24000
 MIN_BUDGET_CHARS = 2000
 
 
+# CONCEPT:KG-2.14 -- Ground-Truth Context Authority.
+# Assimilated from memory-os Layer 7 "Ground Truth Hierarchy" (ClaudioDrews/memory-os@a4ca094,
+# layers/07-ground-truth.md): injected memory is declared authoritative so the agent stops
+# re-fetching/rediscovering context already in its prompt ("memory-zero behavior"). agent-utilities
+# makes it structural -- authority is a graph-grounded tier on each chunk, not a flat prompt rule.
+AUTHORITY_ADVISORY = "advisory"
+AUTHORITY_STANDARD = "standard"
+AUTHORITY_AUTHORITATIVE = "authoritative"
+# Priority boost applied to authoritative chunks so durable, injected memory ranks above hints.
+AUTHORITY_BOOST = 6
+
+
+def _authority_for(source: str, heading: str) -> str:
+    """Classify a startup chunk's authority tier (CONCEPT:KG-2.14).
+
+    Durable, user/agent-curated memory (profile facts, preferences, identity, active goals, team
+    conventions, layered project rules) is *authoritative*; transient recall hints are *advisory*.
+    """
+    h = heading.lower()
+    if source in ("profile", "team", "agents_md"):
+        return AUTHORITY_AUTHORITATIVE
+    if any(k in h for k in ("core identity", "preference", "active goal", "current session", "rule")):
+        return AUTHORITY_AUTHORITATIVE
+    if source in ("recall", "overflow", "hint"):
+        return AUTHORITY_ADVISORY
+    return AUTHORITY_STANDARD
+
+
 @dataclass(frozen=True)
 class StartupChunk:
     """A prioritized chunk of startup context."""
@@ -802,6 +830,7 @@ class StartupChunk:
     body: str
     handle: str
     priority: int
+    source_authority: str = AUTHORITY_STANDARD  # CONCEPT:KG-2.14
 
     @property
     def size(self) -> int:
@@ -884,7 +913,12 @@ class StartupContextBuilder:
         # Assemble payload
         header = self._build_header(budget, cwd=cwd, task=task, agent=agent)
         footer = self._build_footer(task=task, cwd=cwd)
-        used = len(header) + len(footer)
+        # CONCEPT:KG-2.14 -- Ground-Truth preamble declaring authoritative sources up front.
+        auth_sources = sorted(
+            {c.source for c in chunks if c.source_authority == AUTHORITY_AUTHORITATIVE}
+        )
+        preamble = self._build_authority_preamble(auth_sources)
+        used = len(header) + len(footer) + (len(preamble) + 2 if preamble else 0)
         selected: list[StartupChunk] = []
         overflow: list[StartupChunk] = []
 
@@ -897,6 +931,8 @@ class StartupContextBuilder:
                 overflow.append(chunk)
 
         parts = [header.rstrip()]
+        if preamble:
+            parts.append(preamble)
         parts.extend(c.body.strip() for c in selected)
         if overflow:
             parts.append(self._overflow_section(overflow))
@@ -979,6 +1015,7 @@ class StartupContextBuilder:
                         body=body,
                         handle=handle,
                         priority=priority,
+                        source_authority=_authority_for(source_name, heading),
                     )
                 )
         return chunks
@@ -1023,6 +1060,9 @@ class StartupContextBuilder:
         terms = self._route_terms(cwd=cwd, task=task, agent=agent)
         if terms and any(t in body.lower() or t in h for t in terms):
             priority += 5
+        # CONCEPT:KG-2.14 -- authoritative (durable, injected) memory outranks advisory hints.
+        if _authority_for(source, heading) == AUTHORITY_AUTHORITATIVE:
+            priority += AUTHORITY_BOOST
         return priority
 
     def _route_terms(
@@ -1062,6 +1102,32 @@ class StartupContextBuilder:
         if task:
             lines.append(f"- Task: {task}")
         return "\n".join(lines)
+
+    def _build_authority_preamble(self, auth_sources: list[str]) -> str:
+        """Emit the Ground-Truth Hierarchy preamble (CONCEPT:KG-2.14).
+
+        Declares that the memory injected below is authoritative and must be used directly, so the
+        agent stops re-fetching context it was already given. Assimilated from memory-os Layer 7;
+        made structural here -- the named sources are graph-grounded (bi-temporal + trust ranked),
+        not an unverifiable prompt assertion. Returns "" when no authoritative sources are present.
+        """
+        if not auth_sources:
+            return ""
+        labels = {
+            "profile": "user profile & preferences",
+            "team": "team conventions",
+            "agents_md": "project rules (AGENTS.md)",
+        }
+        named = ", ".join(labels.get(s, s) for s in auth_sources)
+        return (
+            "## Ground Truth Hierarchy (authoritative)\n"
+            "\n"
+            "The memory injected below is **authoritative** for this session. Treat it as already-"
+            "known fact: do not re-fetch, re-search, or re-derive information that is already "
+            "present here, and when it conflicts with your prior assumptions, the injected memory "
+            "wins. Runtime tool output you obtain this turn outranks it; everything else does not.\n"
+            f"\n- Authoritative sources present: {named}.\n"
+        )
 
     def _build_footer(self, *, task: str | None, cwd: str | None) -> str:
         query = task or (Path(cwd).name if cwd else "current work")
@@ -1118,7 +1184,8 @@ class StartupContextBuilder:
                         heading=f"Team: {team}",
                         body=body,
                         handle=f"startup:team:{self._slug(team)}",
-                        priority=8,  # High priority — team conventions matter
+                        priority=8 + AUTHORITY_BOOST,  # High + authoritative (KG-2.14)
+                        source_authority=AUTHORITY_AUTHORITATIVE,
                     )
                 )
         except Exception as e:
@@ -1143,7 +1210,8 @@ class StartupContextBuilder:
                     heading="Project Rules (Layered)",
                     body=f"## Project Rules (AGENTS.md)\n\n{content}",
                     handle="startup:agents_md:layered",
-                    priority=9,  # Very high — project rules are critical
+                    priority=9 + AUTHORITY_BOOST,  # Very high + authoritative (KG-2.14)
+                    source_authority=AUTHORITY_AUTHORITATIVE,
                 )
         except Exception as e:
             logger.debug("Layered AGENTS.md load failed: %s", e)

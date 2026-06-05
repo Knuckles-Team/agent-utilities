@@ -10,6 +10,7 @@ that lack semantic web capabilities.
 
 
 import logging
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -122,6 +123,13 @@ class FederationMixin:
         Returns:
             A list of dictionary records.
         """
+        # 0. REST virtual sources are served by invoking their extractor (the
+        # `query` string carries no SPARQL endpoint; an optional `node_type`
+        # parameter filters to one canonical type).
+        if reference_id in getattr(self, "_rest_sources", {}):
+            node_type = (parameters or {}).get("node_type")
+            return self.query_rest_source(reference_id, node_type=node_type)
+
         # 1. Retrieve the endpoint details from the local graph
         if not hasattr(self, "backend") or not self.backend:  # type: ignore[attr-defined]
             # Fallback to local memory graph if no persistent backend
@@ -159,6 +167,121 @@ class FederationMixin:
             return self.execute_federated_lpg(
                 endpoint=endpoint_url, query=query, parameters=parameters
             )
+
+    # ── REST virtualization (query-time, extractor-backed) ───────────────────
+    #
+    # Camunda/ServiceNow/ERPNext speak REST/JSON, not SPARQL, so true Ontop-style
+    # virtual-SPARQL is out of scope. Instead we virtualize by invoking the
+    # *existing* self-registering extractor on demand (TTL-cached) and returning
+    # its materialized records — no duplicate mapping code, no extra dependency.
+    # Limitation: reasoning applies only over the fetched slice; for full
+    # cross-source reasoning, materialize via the ingestion pipeline instead.
+
+    def register_rest_source(
+        self,
+        reference_id: str,
+        extractor_category: str,
+        client: Any,
+        *,
+        ttl_seconds: float = 60.0,
+        config: dict[str, Any] | None = None,
+    ) -> None:
+        """Register a REST-backed virtual source keyed to an existing extractor.
+
+        ``extractor_category`` is an enrichment registry key (e.g. ``"camunda"``,
+        ``"servicenow"``, ``"erpnext"``, ``"leanix"``); ``client`` is the
+        duck-typed API client that extractor consumes. Fetches are cached for
+        ``ttl_seconds`` to bound query-time latency.
+        """
+        if not hasattr(self, "_rest_sources"):
+            self._rest_sources: dict[str, dict[str, Any]] = {}
+        self._rest_sources[reference_id] = {
+            "category": extractor_category,
+            "client": client,
+            "config": dict(config or {}),
+            "ttl_seconds": float(ttl_seconds),
+            "cache": None,  # tuple(monotonic_ts, batch)
+        }
+        # Make the virtual source discoverable like SPARQL references.
+        self.add_node(  # type: ignore[attr-defined]
+            node_id=reference_id,
+            node_type="ExternalGraphReference",
+            properties={
+                "platform": "rest",
+                "extractorCategory": extractor_category,
+                "ttlSeconds": ttl_seconds,
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        )
+        logger.info(
+            "Registered REST virtual source %s (extractor=%s, ttl=%ss)",
+            reference_id,
+            extractor_category,
+            ttl_seconds,
+        )
+
+    def _fetch_rest_batch(self, reference_id: str) -> Any:
+        """Fetch (or return cached) ExtractionBatch for a REST virtual source."""
+        from ..enrichment.registry import discover_extractors, get_source
+
+        src = getattr(self, "_rest_sources", {}).get(reference_id)
+        if src is None:
+            raise ValueError(f"No REST virtual source registered as {reference_id}.")
+
+        cache = src.get("cache")
+        if cache is not None:
+            ts, batch = cache
+            if (time.monotonic() - ts) < src["ttl_seconds"]:
+                return batch
+
+        extractor = get_source(src["category"])
+        if extractor is None:
+            discover_extractors()  # lazy-load extractor modules, then retry
+            extractor = get_source(src["category"])
+        if extractor is None:
+            raise ValueError(f"Unknown extractor category {src['category']!r}.")
+
+        config = {"client": src["client"], **src["config"]}
+        batch = extractor.extract(config)
+        src["cache"] = (time.monotonic(), batch)
+        return batch
+
+    def query_rest_source(
+        self, reference_id: str, node_type: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Return materialized records from a REST virtual source (TTL-cached).
+
+        Each record is ``{"id", "type", **props}``. Pass ``node_type`` to filter
+        to one canonical type (e.g. ``"Incident"``, ``"BusinessProcess"``).
+        """
+        batch = self._fetch_rest_batch(reference_id)
+        records: list[dict[str, Any]] = []
+        for node in batch.nodes:
+            if node_type is not None and node.type != node_type:
+                continue
+            records.append({"id": node.id, "type": node.type, **dict(node.props)})
+        return records
+
+    def query_rest_union(
+        self,
+        reference_id: str,
+        local_records: list[dict[str, Any]],
+        node_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Union freshly-fetched REST records with locally materialized ones.
+
+        De-duplicated by record ``id`` (local records take precedence).
+        """
+        merged: dict[str, dict[str, Any]] = {}
+        for rec in self.query_rest_source(reference_id, node_type=node_type):
+            rid = rec.get("id")
+            if rid:
+                merged[rid] = rec
+        for rec in local_records:  # local wins on id collision
+            rid = rec.get("id")
+            if rid:
+                merged[rid] = rec
+        return list(merged.values())
 
     def execute_federated_sparql(
         self, endpoint: str, query: str

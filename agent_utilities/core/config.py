@@ -426,6 +426,13 @@ class AgentConfig(BaseSettings):
     """Enable or disable the background plan/task watcher thread in the KG MCP server."""
     model_registry_path: str | None = Field(default=None, alias="MODEL_REGISTRY_PATH")
     """Path to a YAML or JSON file defining the model registry."""
+    role_routing: dict[str, dict] = Field(
+        default_factory=dict, alias="MODEL_ROLE_ROUTING"
+    )
+    """CONCEPT:ORCH-1.27 — optional role→{tier,tags} overrides for planner/generator/
+    learner/judge model selection. Empty roles fall back to the built-in default map in
+    `models/model_registry.py`. Merged into the active registry when no registry-level
+    override is present."""
     graph_direct_execution: bool = Field(default=True, alias="GRAPH_DIRECT_EXECUTION")
     """When True, AG-UI and ACP adapters bypass the LLM tool-call hop
     and invoke graph execution directly.  Set to False to restore the
@@ -906,7 +913,7 @@ class BoundedLRUCache:
         if max_size < 1:
             raise ValueError("max_size must be >= 1")
         self.max_size = max_size
-        self._data: "OrderedDict[str, Any]" = OrderedDict()
+        self._data: OrderedDict[str, Any] = OrderedDict()
 
     def __setitem__(self, key: str, value: Any) -> None:
         if key in self._data:

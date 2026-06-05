@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 70
+total_concepts: 84
 total_pillars: 12
 pillars:
 - AHE-3
@@ -63,6 +63,7 @@ concepts:
   - agent_utilities/graph/verification.py
   - agent_utilities/harness/citation_tracker.py
   - agent_utilities/harness/continuous_evaluation_engine.py
+  - agent_utilities/harness/eval_corpus.py
   - agent_utilities/harness/evaluation_engine.py
   - agent_utilities/harness/evolve_agent.py
   - agent_utilities/harness/imodel_evolver.py
@@ -156,6 +157,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/distillation/physical_distiller.py
   doc: GitOps Git Commit Automation
+- id: AHE-3.12
+  name: LongMemEval-S validation harness
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/server/app.py
+  - agent_utilities/server/routers/benchmark.py
+  doc: LongMemEval-S validation harness
 - id: CTX-1.0
   name: Nested Subfolder Instructions
   pillar: CTX-1
@@ -413,6 +422,7 @@ concepts:
   - agent_utilities/graph/routing/enrichers/capability_designation.py
   - agent_utilities/graph/routing/enrichers/self_model.py
   - agent_utilities/graph/routing/strategies/fast_path.py
+  - agent_utilities/graph/routing/strategies/workflow_context.py
   - agent_utilities/graph/subagent_patterns.py
   - agent_utilities/graph/verification.py
   - agent_utilities/graph/workspace_attention.py
@@ -421,6 +431,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_memory.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/model_display.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/memory/__init__.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
   - agent_utilities/knowledge_graph/memory/cli.py
@@ -429,7 +440,9 @@ concepts:
   - agent_utilities/knowledge_graph/memory/optimization_engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_federation.py
   - agent_utilities/knowledge_graph/pipeline/phases/external_graphs.py
+  - agent_utilities/knowledge_graph/retrieval/budget.py
   - agent_utilities/knowledge_graph/retrieval/chat_search.py
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/memory_retriever.py
   - agent_utilities/messaging/kg_ingest.py
   - agent_utilities/messaging/router.py
@@ -574,8 +587,12 @@ concepts:
   - agent_utilities/domains/medical/models.py
   - agent_utilities/graph/state.py
   - agent_utilities/knowledge_graph/adaptation/research_artifacts.py
+  - agent_utilities/knowledge_graph/backends/__init__.py
+  - agent_utilities/knowledge_graph/backends/brain_guarded_backend.py
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/core/archimate_layer.py
   - agent_utilities/knowledge_graph/core/company_brain.py
+  - agent_utilities/knowledge_graph/core/company_brain_runtime.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/formal_reasoning_core.py
   - agent_utilities/knowledge_graph/core/markov_regime.py
@@ -585,6 +602,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/ontology_publisher.py
   - agent_utilities/knowledge_graph/core/optimal_execution.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/core/secured_reads.py
   - agent_utilities/knowledge_graph/core/shacl_validator.py
   - agent_utilities/knowledge_graph/core/source_resolver.py
   - agent_utilities/knowledge_graph/core/sparql_http.py
@@ -602,6 +620,10 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/latent_topology_rag.py
   - agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py
+  - agent_utilities/knowledge_graph/streams/__init__.py
+  - agent_utilities/knowledge_graph/streams/kafka_adapter.py
+  - agent_utilities/knowledge_graph/streams/nats_adapter.py
+  - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/company.py
   - agent_utilities/models/company_brain.py
   - agent_utilities/models/domains/finance.py
@@ -611,10 +633,11 @@ concepts:
   - agent_utilities/models/schema_pack.py
   - agent_utilities/models/schema_packs/finance.py
   - agent_utilities/sdd/watcher.py
+  - agent_utilities/security/brain_context.py
   - agent_utilities/security/threat_defense_engine.py
   doc: Generates actionable LLM artifacts from KG-ingested research
 - id: KG-2.7
-  name: Bidirectional sync to ensure both the persistent
+  name: / KG-2.10 — research assimilation + orchestration synthesis
   pillar: KG-2
   status: live
   code_paths:
@@ -622,7 +645,10 @@ concepts:
   - agent_utilities/core/background_throttle.py
   - agent_utilities/core/config.py
   - agent_utilities/graph/routing/strategies/query_tier.py
+  - agent_utilities/knowledge_graph/adaptation/topic_resolver.py
   - agent_utilities/knowledge_graph/backends/base.py
+  - agent_utilities/knowledge_graph/backends/cypher_transpiler.py
+  - agent_utilities/knowledge_graph/backends/postgresql_backend.py
   - agent_utilities/knowledge_graph/backends/sparql/base.py
   - agent_utilities/knowledge_graph/backends/sparql/jena_fuseki_backend.py
   - agent_utilities/knowledge_graph/backends/tiered_backend.py
@@ -641,40 +667,56 @@ concepts:
   - agent_utilities/knowledge_graph/memory/agent_context.py
   - agent_utilities/knowledge_graph/pipeline/__init__.py
   - agent_utilities/knowledge_graph/pipeline/phases/__init__.py
-  doc: Bidirectional sync to ensure both the persistent
+  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/research/search.py
+  - agent_utilities/mcp/kg_server.py
+  doc: / KG-2.10 — research assimilation + orchestration synthesis
 - id: KG-2.8
-  name: Cards are cached by
+  name: Optional + lazy LLM; pass extract_concepts=False
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/gateway/api.py
+  - agent_utilities/gateway/daemon.py
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
+  - agent_utilities/knowledge_graph/core/conversation_ingestion.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/enrichment/__init__.py
   - agent_utilities/knowledge_graph/enrichment/__main__.py
+  - agent_utilities/knowledge_graph/enrichment/capability_writeback.py
   - agent_utilities/knowledge_graph/enrichment/cards.py
   - agent_utilities/knowledge_graph/enrichment/classify.py
   - agent_utilities/knowledge_graph/enrichment/distill.py
   - agent_utilities/knowledge_graph/enrichment/extractors/__init__.py
   - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
   - agent_utilities/knowledge_graph/enrichment/extractors/document.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/text.py
   - agent_utilities/knowledge_graph/enrichment/features.py
   - agent_utilities/knowledge_graph/enrichment/models.py
   - agent_utilities/knowledge_graph/enrichment/patterns.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/enrichment/query.py
+  - agent_utilities/knowledge_graph/enrichment/realizes.py
   - agent_utilities/knowledge_graph/enrichment/semantic.py
+  - agent_utilities/knowledge_graph/facade.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/manifest.py
   - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py
+  - agent_utilities/knowledge_graph/retrieval/governance_rules.py
+  - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/knowledge_graph.py
-  doc: Cards are cached by
+  doc: Optional + lazy LLM; pass extract_concepts=False
 - id: KG-2.9
   name: Universal DataConnector
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/camunda.py
   - agent_utilities/knowledge_graph/enrichment/extractors/erpnext.py
   - agent_utilities/knowledge_graph/enrichment/extractors/grafana.py
   - agent_utilities/knowledge_graph/enrichment/extractors/infra.py
@@ -696,6 +738,50 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/pydantic_graph.py
   - agent_utilities/knowledge_graph/enrichment/synthesize.py
   doc: S4c
+- id: KG-2.11
+  name: optional ISO-8601 instant. When set, rows are filtered to
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/bitemporal.py
+  - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: optional ISO-8601 instant. When set, rows are filtered to
+- id: KG-2.12
+  name: run a self-correcting second retrieval pass at the deep threshold when the quality gate fails
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+  - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
+  - agent_utilities/mcp/kg_server.py
+  doc: run a self-correcting second retrieval pass at the deep threshold when the quality gate fails
+- id: KG-2.13
+  name: targeted ADD/UPDATE/DELETE learner
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/cli.py
+  - agent_utilities/knowledge_graph/memory/learning_engine.py
+  doc: targeted ADD/UPDATE/DELETE learner
+- id: KG-2.14
+  name: Ground-Truth preamble declaring authoritative sources up front
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/memory_engine.py
+  doc: Ground-Truth preamble declaring authoritative sources up front
+- id: KG-2.15
+  name: social-closer / triviality gate
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+  - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
+  doc: social-closer / triviality gate
 - id: KG-2.16
   name: KG-2.16
   pillar: KG-2
@@ -703,6 +789,30 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   doc: KG-2.16
+- id: KG-2.17
+  name: decay scanner + semantic merge
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/memory/cli.py
+  - agent_utilities/knowledge_graph/memory/hygiene.py
+  doc: decay scanner + semantic merge
+- id: KG-2.18
+  name: Evidence-Weighted Memory ──────────────────────────────────
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py
+  doc: Evidence-Weighted Memory ──────────────────────────────────
+- id: KG-2.19
+  name: delta-skip continuous ingest of a self-curating wiki dir
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/wiki_curator.py
+  - agent_utilities/mcp/kg_server.py
+  doc: delta-skip continuous ingest of a self-curating wiki dir
 - id: KG-2.21
   name: Working Set Eviction & Memory Management
   pillar: KG-2
@@ -916,21 +1026,25 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   doc: Compiled Orchestration Kernel
 - id: ORCH-1.12
-  name: RLM planning + fallback parser. The
+  name: run the Predict-RLM runtime on an ad-hoc task
   pillar: ORCH-1
   status: live
   code_paths:
   - agent_utilities/graph/_router_impl.py
+  - agent_utilities/mcp/kg_server.py
   - agent_utilities/rlm/predict_rlm.py
-  doc: RLM planning + fallback parser. The
+  - agent_utilities/rlm/runner.py
+  doc: run the Predict-RLM runtime on an ad-hoc task
 - id: ORCH-1.13
-  name: GEPA Reflective Prompt Optimizer
+  name: optimize a skill prompt via the GEPA loop
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/rlm/gepa.py
-  doc: GEPA Reflective Prompt Optimizer
+  - agent_utilities/rlm/runner.py
+  doc: optimize a skill prompt via the GEPA loop
 - id: ORCH-1.20
   name: Service Registry Initialization
   pillar: ORCH-1
@@ -979,6 +1093,48 @@ concepts:
   - agent_utilities/graph/parallel_engine.py
   - agent_utilities/models/execution_manifest.py
   doc: RLM synthesis failed, falling back to
+- id: ORCH-1.27
+  name: role-specialized routing ───────────────────────────────
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/core/model_factory.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/models/model_registry.py
+  - agent_utilities/rlm/gepa.py
+  - agent_utilities/rlm/roles.py
+  doc: role-specialized routing ───────────────────────────────
+- id: ORCH-1.28
+  name: Composable Skills + Generic Environment Adapter
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/predict_rlm.py
+  - agent_utilities/rlm/skills.py
+  doc: Composable Skills + Generic Environment Adapter
+- id: ORCH-1.29
+  name: RLM Resilience + Structured Telemetry
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/repl.py
+  - agent_utilities/rlm/telemetry.py
+  doc: RLM Resilience + Structured Telemetry
+- id: ORCH-1.30
+  name: selection happens on UNSEEN data, so a candidate that merely memorized the
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/gepa.py
+  doc: selection happens on UNSEEN data, so a candidate that merely memorized the
+- id: ORCH-1.31
+  name: Graph-Native Optimization State ──────────────────────────
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/gepa.py
+  doc: Graph-Native Optimization State ──────────────────────────
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

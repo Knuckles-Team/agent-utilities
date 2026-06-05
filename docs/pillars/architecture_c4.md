@@ -30,6 +30,8 @@ C4Context
     System_Ext(geniusbot, "geniusbot", "Premium multi-platform PySide6 Systems & Finance Cockpit")
     System_Ext(skills, "universal-skills", "Skill graph and SDD tooling")
 
+    System_Ext(enterprise, "Enterprise Systems", "ITSM/ERP/BPM/EA tools — ServiceNow OR ERPNext, Camunda, Archi, LeanIX, GitLab — interchangeable via the vendor-neutral crosswalk")
+
     Rel(dev, antigravity, "Develops in")
     Rel(dev, terminal, "CLI interaction")
     Rel(dev, geniusbot, "Visual interaction")
@@ -42,6 +44,7 @@ C4Context
     Rel(geniusbot, au, "Direct Python API & AgentBridge (asynchronous)")
     Rel(skills, au, "DSTDD pipeline, skill ingestion")
     Rel(agent, au, "Orchestrated execution")
+    Rel(au, enterprise, "Vendor adapters lift REST APIs → canonical ArchiMate nodes; virtual REST federation queries live data (KG-2.9 / KG-2.1)")
 ```
 
 ## Level 2: Container Diagram
@@ -150,6 +153,18 @@ C4Component
         Component(dspy_bridge, "DSPy KG Bridge", "Python", "KG-2.2: Instantly persists evolved prompts and optimization traces")
         Component(align_bridge, "Ontology Alignment Bridge", "Python", "KG-2.7: Unifies disparate silos (Enterprise Architecture Repositories [EARs], ServiceNow) via cosine_similarity & owl:sameAs")
         Component(entail_scope, "Entailment-Aware Permission Scoper", "Python", "KG-2.7: Intersects security classifications for Rust Datalog inferred edges")
+        Component(crosswalk, "Vendor-Neutral Crosswalk", "OWL/Turtle", "KG-2.9: ontology_archimate.ttl — binds each vendor class (ServiceNow :Incident, ERPNext :ErpNextIssue, Camunda :BusinessTask) to one canonical ArchiMate concept via subClassOf/equivalentClass")
+        Component(vendor_ext, "Vendor Source Extractors", "Python", "KG-2.9: Self-registering adapters (servicenow/erpnext/camunda/leanix) lift REST APIs into canonical GraphNodes")
+        Component(realizes, "Code→Capability Bridge", "Python", "KG-2.8: realizes.py — REALIZES edges from code features to BusinessCapability (match / mint / curated)")
+        Component(cap_wb, "Capability Write-Back", "Python", "KG-2.8: Pushes provisional/derived capabilities back to Archi (add_element) & LeanIX (postbusinesscapability)")
+        Component(rest_fed, "Virtual REST Federation", "Python", "KG-2.1: register_rest_source — query live REST systems on-demand via extractors, TTL-cached")
+        Component(brain_guard, "Brain-Guarded Backend", "Python", "KG-2.6: write-path provenance + source-authority arbitration (trust decay). Installed when KG_BRAIN_ENFORCE=1")
+        Component(secured, "Secured Reads", "Python", "KG-2.6: read-path ACL filter + tenant scope + read audit; entailment-aware ACL inheritance")
+        Component(feedback, "Feedback Service", "Python", "KG-2.8: human correction → reward / durable governance rule / eval case (graph_feedback tool)")
+        Component(govrules, "Governance Rules", "Python", "KG-2.8: rules consulted at retrieval time to filter/re-rank designations")
+        Component(budget, "Retrieval Budget", "Python", "KG-2.1: token-budgeted, task-scoped retrieval (no context bloat)")
+        Component(streams, "Stream Adapters", "Python", "KG-2.6: real Kafka/NATS ingestion (optional deps)")
+        Component(intel, "Intelligence Extractors", "Python", "KG-2.8: distil calls/docs → Insight/Fact/Framework/Playbook")
     }
 
     Rel(engine, backend, "Tier 1: Cypher persistence")
@@ -173,6 +188,20 @@ C4Component
     Rel(ontology, entail_scope, "Delegates security classification filtering for inferred graphs")
     Rel(engine, cache_fabric, "Stores and invalidates ephemeral agent contexts with dynamic TTL tracking")
     Rel(dspy_bridge, engine, "Fast-path Cypher MERGE")
+    Rel(vendor_ext, engine, "Writes canonical GraphNodes via single backend interface")
+    Rel(vendor_ext, crosswalk, "Emits canonical types bound by the crosswalk")
+    Rel(crosswalk, ontology, "Loaded as a sibling ontology; HermiT propagates rdf:type to canonical concepts")
+    Rel(realizes, engine, "Writes REALIZES edges + provisional capabilities")
+    Rel(realizes, cap_wb, "Hands minted capabilities for write-back")
+    Rel(rest_fed, vendor_ext, "Invokes extractors at query-time (TTL-cached, no materialization)")
+    Rel(brain_guard, backend, "Wraps the store: provenance + authority-arbitrated writes (KG_BRAIN_ENFORCE)")
+    Rel(secured, engine, "Filters/scopes/audits reads on the facade path")
+    Rel(feedback, govrules, "Persists rules consumed by")
+    Rel(govrules, retrieval, "Re-ranks/filters designations at retrieval time")
+    Rel(feedback, engine, "Writes Correction/rule/eval nodes")
+    Rel(budget, retrieval, "Caps retrieved context to a token budget")
+    Rel(streams, pipeline, "Feeds live events into ingestion")
+    Rel(intel, pipeline, "Distils documents/calls into operating-intelligence nodes")
 ```
 
 ### Pillar 3: Agentic Harness (AHE)
@@ -361,6 +390,26 @@ flowchart LR
             ONT_PUB -->|"push"| STARDOG["KG-2.6: Stardog / Fuseki"]
             STARDOG -->|"owl:imports"| ONT_LOAD["KG-2.2: Ontology Loader"]
             ONT_LOAD -->|"merge"| KG_MATERIALIZE
+        end
+
+        subgraph VENDORNEUTRAL ["Vendor-Neutral Crosswalk Flow (KG-2.9)"]
+            direction LR
+            VN_SN["ServiceNow :Incident"] -->|"extractor"| VN_NODES["KG-2.9: Canonical GraphNodes"]
+            VN_ERP["ERPNext :ErpNextIssue"] -->|"extractor"| VN_NODES
+            VN_CAM["Camunda :BusinessTask"] -->|"extractor"| VN_NODES
+            VN_NODES -->|"promote"| VN_REASON["KG-2.2: owl_bridge + HermiT"]
+            VN_REASON -->|"subClassOf / equivalentClass"| VN_CANON["KG-2.9: :ApplicationEvent / :BusinessProcess"]
+            VN_CANON -->|"one query, all vendors"| VN_QUERY["KG-2.6: SELECT ?e a :ApplicationEvent"]
+            VN_LIVE["KG-2.1: register_rest_source"] -.->|"query-time, TTL-cached"| VN_QUERY
+        end
+
+        subgraph REALIZES_FLOW ["Code → Capability Flow (KG-2.8)"]
+            direction LR
+            RZ_CODE["KG-2.7: Rust AST → features"] -->|"resolve_realizes"| RZ_MATCH["KG-2.8: match / mint / registry"]
+            RZ_LEANIX["LeanIX/Archi BusinessCapability"] --> RZ_MATCH
+            RZ_MATCH -->|"REALIZES edge"| RZ_KG["KG-2.0: KG Persistence"]
+            RZ_MATCH -->|"provisional capability"| RZ_WB["KG-2.8: capability_writeback"]
+            RZ_WB -->|"add_element / postbusinesscapability"| RZ_EA["Archi / LeanIX"]
         end
 
         subgraph MATERIALIZE ["KG Graph Materialization Flow (ORCH-1.20)"]

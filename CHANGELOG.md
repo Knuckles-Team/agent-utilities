@@ -8,6 +8,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **RLM-GEPA synergy features (CONCEPT:ORCH-1.28–1.31 + ORCH-1.12/1.13/1.27 wiring)** — Assimilated
+  from the GEPA paper (Agrawal et al., ICLR 2026, `2507.19457`), `Trampoline-AI/predict-rlm@edaddfe`,
+  and the AppWorld RLM-GEPA work (claims verified against source before implementation):
+  - **P0 — RLM-GEPA live entry point.** `rlm/runner.py` (`run_rlm`, `optimize_rlm_skill`) +
+    `graph_orchestrate(action="rlm_run"|"rlm_optimize")` make `PredictRLM`/`GEPAOptimizer` reachable
+    ≤3 hops (they were library-only — a Wire-First violation).
+  - **ORCH-1.28 Composable Skills + Generic Adapter** — `rlm/skills.py` (`Skill`, `merge_skills` with
+    conflict detection, `RegistryEnvironmentAdapter`); `PredictRLM.mount_skill_unit`. Extends ORCH-1.12.
+  - **ORCH-1.29 RLM Resilience + Telemetry** — `rlm/telemetry.py` (`RunTrace`, `FailureClass`,
+    `classify_failure`, `with_tool_timeout`, `SandboxFatalError` wired into `repl.py`). Extends ORCH-1.12.
+  - **ORCH-1.30 Generalizing GEPA** — held-out feedback/Pareto split (`split_dataset`,
+    `optimize(dev_fraction=...)`, `select_best_on_heldout`) + `AgentSpec` anti-overfit grounding in
+    `rlm/gepa.py`. Extends ORCH-1.13.
+  - **ORCH-1.27 (RLM extension)** — added `rlm-executor`/`rlm-sublm`/`rlm-proposer` roles to the model
+    registry; the GEPA proposer now resolves the strong `rlm-proposer` role (`rlm/roles.py`).
+  - **ORCH-1.31 Graph-Native Optimization State** — `ParetoCandidatePool.to_snapshot`/`load_snapshot` +
+    `GEPAOptimizer.persist_frontier`/`resume_frontier` for resumable, cross-session GEPA on the
+    durable epistemic-graph. Extends ORCH-1.13 (+KG-2.7).
+- **Memory-OS synergy features (CONCEPT:KG-2.14, KG-2.15, KG-2.17, KG-2.18, KG-2.19 + KG-2.13
+  enhancement)** — Assimilated from `ClaudioDrews/memory-os@a4ca094` (all claims verified against
+  source before implementation):
+  - **KG-2.14 Ground-Truth Context Authority** — `StartupChunk.source_authority` tier + priority
+    boost + a Ground-Truth Hierarchy preamble in `build_payload` so injected memory is treated as
+    authoritative (stops re-fetching). `knowledge_graph/memory/memory_engine.py`. Extends KG-2.1.
+  - **KG-2.15 Resilient Retrieval** — 4-level fallback cascade (`_lexical_fallback`) + social-closer
+    triviality gate (`hyde_planner.is_trivial_query`) in `plan_and_retrieve`. Extends KG-2.12.
+  - **KG-2.17 Memory Hygiene** — decay scanner (importance half-life, archive via `valid_to`, never
+    delete; confidence alert) + semantic-merge dedup (cosine 0.92, length pre-filter) in
+    `knowledge_graph/memory/hygiene.py`; `agent-utilities-memory hygiene` CLI. Extends KG-2.1/2.3.
+  - **KG-2.18 Evidence-Weighted Memory** — Bayesian `trust_score` feedback loop + recall/usage
+    `UsageTelemetry` + generation `LineageRecord` in `retrieval/retrieval_quality.py`. Extends KG-2.6.
+  - **KG-2.19 Self-Curating Wiki** — SHA-256 delta-skip continuous ingest of a markdown vault
+    (`ingestion/wiki_curator.py`, crash-safe state) reusing `IngestionEngine`; MCP
+    `graph_ingest(action="curate_wiki")`. Extends KG-2.7.
+  - **KG-2.13 enhancement** — typed, outcome-grounded learning: `MemoryEdit` gains `entry_type`,
+    `training_value`, `outcome_gate`, `evidence_ids`; un-grounded decisions are dropped; persisted
+    decisions get `GROUNDED_BY` edges.
+- **Docs** — fixed two misnamed per-concept files (restored KG-2.7 Speculative-Brancher /
+  Semantic-Compactor to their correct `KG-2.7-*` names) and added per-concept deep-dives for
+  KG-2.11–2.15/2.17–2.19, ORCH-1.27, and AHE-3.12; refreshed `concept_map.md` + `overview.md`.
+- **LongMemEval-S Validation Harness (CONCEPT:AHE-3.12)** — A FastAPI `/benchmark` surface
+  (`session` / `query` / `report` / `health`) compatible with Quarq's HTTP benchmark runner
+  (`quarqlabs/benchmarks`), proving the memory-first synergy (ORCH-1.27 + KG-2.11/2.12/2.13) meets
+  or beats 98.2% on LongMemEval-S. Haystack messages ingest as episodic memory into a **frozen,
+  versioned** `EvaluationCorpus` (reproducible — Quarq re-derives FAISS each run); questions run the
+  HyDE + two-pass pipeline; answers synthesize via the `generator` role and are scored by the
+  `judge` role with a deterministic pure-Python fallback (`normalize_answer`, `judge_binary`,
+  `aggregate_report`). New `server/routers/benchmark.py` (mounted in `build_agent_app`) and
+  `scripts/check_longmemeval.py` CI floor gate (default 95% on a frozen subset; full 500-q run is
+  nightly/on-demand). Extends AHE-3.
+- **Background Learning Engine (CONCEPT:KG-2.13)** — Assimilated Quarq Agent's asynchronous
+  targeted-edit learner (`agent-oss/agent.py:99-160, 2951-3007, 3303/3646`): a concurrency-bounded
+  (`Semaphore(4)`), backoff-retried, sync-barriered loop that emits targeted **ADD/UPDATE/DELETE**
+  fact edits rather than raw dumps. New `knowledge_graph/memory/learning_engine.py`
+  (`MemoryEdit`, `resolve_relative_dates`, `parse_memory_edits`, `with_backoff`, `BackgroundLearner`,
+  `extract_edits` via the ORCH-1.27 `learner` role, `run_learner`) and an `agent-utilities-memory
+  learn` CLI subcommand. Edits are written as **bi-temporal graph mutations** (KG-2.11): UPDATE
+  re-stamps event/storage time; DELETE is **soft** (`status=REMOVED` + `valid_to`), preserving
+  history — unlike Quarq's JSON-line overwrite / hard delete. Backoff is bounded (not Quarq's
+  infinite loop) to honor the ≤60s test gate. Extends KG-2.1 (+AHE-3).
+- **Memory-First Retrieval (CONCEPT:KG-2.12)** — Assimilated Quarq Agent's retrieval stack —
+  HyDE query expansion, dual-threshold hybrid search, self-correcting two-pass retrieval, and a
+  quantitative-fidelity evidence ledger (`agent-oss/agent.py:1817-2825, 2435, 3211`) — onto the
+  graph-native hybrid retriever. New pure helpers in `knowledge_graph/retrieval/hyde_planner.py`
+  (`HydePlan`, `HYDE_THRESHOLDS` 0.38/0.28, `parse_hyde_plan`, `merge_retrievals`,
+  `build_evidence_ledger`) and `HybridRetriever.plan_and_retrieve()` (HyDE multi-query via the
+  ORCH-1.27 `planner` role → dual threshold → **evidence-gated** second pass on
+  `RetrievalQualityReport.gate_passed=False` → optional ledger). Exposed via `search_hybrid(mode,
+  self_correct)` and `graph_search(mode="hyde"|"deep", self_correct=True)`. The second pass is
+  triggered by a *measured* quality-gate failure, not just model self-report. Extends KG-2.3.
+- **Bi-Temporal Memory Layers (CONCEPT:KG-2.11)** — Assimilated Quarq Agent's three memory
+  layers (semantic / episodic / procedural; `agent-oss/agent.py:1058-1466,3587`) and Temporal
+  Truth Protocol (`agent-oss/agent.py:2370-2477,3114-3161`) as **structural graph metadata**
+  instead of prompt-only date discipline. Adds a first-class procedural memory layer
+  (`MemoryNode.memory_type` + `target_entity`), a pure bi-temporal core
+  (`knowledge_graph/core/bitemporal.py`: `stamp_bitemporal`, `is_valid_as_of`, `filter_as_of`,
+  `resolve_precedence`, `supersede`) auto-wired into `engine.link_nodes`, **as-of queries**
+  (`query_cypher(as_of=...)` + `graph_query(as_of=...)`) answering "what was true on date T",
+  and **event-time contradiction precedence** (`resolve_temporal_contradiction` writes a
+  `SUPERSEDES` edge and closes the loser's `valid_to` without deleting history). Extends KG-2.1.
+- **Role-Specialized Model Routing (CONCEPT:ORCH-1.27)** — Assimilated Quarq Agent's
+  three-specialized-model pattern (planner / generator / learner; `agent-oss/agent.py:58-92`)
+  as portable **role→(tier,tags) bindings** over the existing model registry, rather than
+  hardcoded model ids. New `ModelRole`, `RoleSpec`, `_DEFAULT_ROLE_ROUTING`, optional
+  `ModelRegistry.role_routing`, and `ModelRegistry.pick_for_role()` / `resolve_role()` in
+  `models/model_registry.py`; `create_model(role=...)` in `core/model_factory.py`;
+  `AgentConfig.role_routing` override; and a `graph_configure(action="set_role_routing")`
+  MCP action. Roles degrade gracefully via the existing `pick_for_task` tier-fallback so any
+  provider pool works. First feature of the memory-first synergy assimilation (extends ORCH-1.2).
 - **GeniusBot Desktop Cockpit Integration (CONCEPT:GBOT-6.0 – 6.6)** — Built complete systems-level integration and visual design systems mapping for `geniusbot`, a premium Qt/PySide6-based Multi-Platform Systems and Finance Cockpit:
   - **GBOT-6.0 (Desktop Cockpit Orchestrator)**: Native Python/PySide6 interface orchestration for autonomous agent interactions.
   - **GBOT-6.1 (Ecosystem Dynamic Tab Matrix)**: Tabular matrix manager for swappable multi-plugin ecosystem cockpits.

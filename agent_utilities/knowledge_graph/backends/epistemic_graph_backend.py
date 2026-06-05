@@ -624,6 +624,22 @@ class EpistemicGraphBackend(GraphBackend):
         props = {"rel_type": rel_type, **properties}
         self._graph.add_edge(source, target, props)
 
+    def get_node_properties(self, node_id: str) -> dict[str, Any] | None:
+        """Return a node's current properties, or ``None`` if it doesn't exist.
+
+        Cheap in-memory read used by the Company Brain write-path guard for
+        field-level survivorship (CONCEPT:KG-2.6). Returns ``{}`` for a node that
+        exists with no properties; ``None`` lets the guard fall back to
+        node-level arbitration.
+        """
+        try:
+            if not self._graph.has_node(node_id):
+                return None
+            props = self._graph._get_node_properties(node_id)
+            return dict(props) if isinstance(props, dict) else {}
+        except Exception:  # pragma: no cover - read best-effort
+            return None
+
     # --- Persistence ---
 
     def save_to_json(self, path: str) -> None:

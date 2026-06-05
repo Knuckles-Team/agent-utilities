@@ -51,6 +51,12 @@ email = "knucklessg1@gmail.com"
 text = "MIT"
 
 [project.optional-dependencies]
+kafka = [
+    "aiokafka>=0.10.0"
+]
+nats = [
+    "nats-py>=2.6.0"
+]
 mcp = [
     "fastmcp>=3.3.0",
     "eunomia-mcp>=0.3.10",
