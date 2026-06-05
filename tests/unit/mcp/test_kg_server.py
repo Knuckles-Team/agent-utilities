@@ -23,6 +23,15 @@ class MockMCP:
 
         return decorator
 
+    def custom_route(self, *args, **kwargs):
+        # Liveness/health endpoints registered via FastMCP's custom_route; record
+        # them like tools so _build_server runs without a real ASGI app.
+        def decorator(func):
+            self.funcs[func.__name__] = func
+            return func
+
+        return decorator
+
 
 @pytest.fixture
 def server_tools():

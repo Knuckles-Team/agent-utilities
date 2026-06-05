@@ -492,11 +492,13 @@ def build_agent_app(
 
         try:
             from agent_utilities.gateway.api import dashboard_router
-            from agent_utilities.gateway.graph_api import graph_router
+            from agent_utilities.gateway.graph_api import register_graph_routes
 
             app.include_router(dashboard_router, prefix="/api/dashboard")
-            app.include_router(graph_router, prefix="/api/graph")
-            logger.info("Mounted centralized Gateway API routers (Dashboard, Graph)")
+            # The full Knowledge Graph REST surface is centralized here (graph-os
+            # MCP is now a thin FastMCP wrapper). Routes are mounted under /api/*.
+            register_graph_routes(app, prefix="/api")
+            logger.info("Mounted centralized Gateway API (Dashboard + Knowledge Graph)")
         except ImportError as e:
             logger.error(f"Failed to load Gateway APIs: {e}")
 

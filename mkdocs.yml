@@ -46,6 +46,10 @@ markdown_extensions:
 nav:
   - Home: index.md
   - The Narrative Journey: journey.md
+  - Deployment:
+      - Deploying agent-utilities: guides/deployment.md
+      - Configuration: guides/configuration.md
+      - Tiered Graph Engine: guides/tiered_graph_engine.md
   - Technical Documentation:
       - Graph Orchestration Engine: pillars/1_graph_orchestration.md
       - Epistemic Knowledge Graph: pillars/2_epistemic_knowledge_graph.md
