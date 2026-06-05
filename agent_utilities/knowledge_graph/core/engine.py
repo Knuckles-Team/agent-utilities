@@ -39,6 +39,7 @@ from ..backends import create_backend, get_active_backend
 from ..backends.base import GraphBackend
 from ..orchestration.engine_ahe import AHEMixin
 from ..orchestration.engine_federation import FederationMixin
+from ..orchestration.engine_infra import InfrastructureEngineMixin
 from ..orchestration.engine_query import QueryMixin
 from .engine_ingestion import IngestionMixin
 from .engine_mcp_discovery import MCPDiscoveryMixin
@@ -89,6 +90,7 @@ class IntelligenceGraphEngine(
     TaskManagerMixin,
     FederationMixin,
     AHEMixin,
+    InfrastructureEngineMixin,
 ):
     """Engine for querying the unified intelligence graph (Agents, Tools, Code, Memory).
 
