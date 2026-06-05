@@ -42,12 +42,14 @@ def test_compress_to_memento_persist():
             engine_mock, messages, source="test_agent", dry_run=False
         )
         assert memento == "Memento: Server deployed"
-        engine_mock.add_node.assert_called_once()
-        args, kwargs = engine_mock.add_node.call_args
-        assert args[1] == "Memento"
-        assert kwargs["properties"]["content"] == "Memento: Server deployed"
-        assert kwargs["properties"]["source"] == "test_agent"
-        assert kwargs["properties"]["type"] == "MementoBlock"
+        # CONCEPT:KG-2.20 MEM-4 — persistence is lossless by default: a Memento node plus a
+        # recoverable EvictedBlock node linked SUMMARIZES.
+        calls = {c.args[1]: c.kwargs for c in engine_mock.add_node.call_args_list}
+        assert "Memento" in calls and "EvictedBlock" in calls
+        assert calls["Memento"]["properties"]["content"] == "Memento: Server deployed"
+        assert calls["Memento"]["properties"]["source"] == "test_agent"
+        assert calls["Memento"]["properties"]["type"] == "MementoBlock"
+        engine_mock.link_nodes.assert_called_once()
 
 
 def test_get_recent_mementos():

@@ -18,6 +18,7 @@ from .checkpointing import (
 from .context_warnings import ContextLimitWarner
 from .eviction import ToolOutputEviction
 from .hooks import Hook, HookEvent, HookInput, HookResult, HooksCapability
+from .memento import MementoCompaction
 from .stuck_loop import StuckLoopDetection, StuckLoopError
 from .teams import TeamCapability
 
@@ -39,5 +40,6 @@ __all__ = [
     "fork_from_checkpoint",
     "ContextLimitWarner",
     "ToolOutputEviction",
+    "MementoCompaction",
     "TeamCapability",
 ]

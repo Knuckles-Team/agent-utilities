@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 84
+total_concepts: 85
 total_pillars: 12
 pillars:
 - AHE-3
@@ -799,12 +799,13 @@ concepts:
   - agent_utilities/knowledge_graph/memory/hygiene.py
   doc: decay scanner + semantic merge
 - id: KG-2.18
-  name: Evidence-Weighted Memory ──────────────────────────────────
+  name: record that these memories were RECALLED, on the live retrieval path
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py
-  doc: Evidence-Weighted Memory ──────────────────────────────────
+  doc: record that these memories were RECALLED, on the live retrieval path
 - id: KG-2.19
   name: delta-skip continuous ingest of a self-curating wiki dir
   pillar: KG-2
@@ -813,6 +814,16 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/wiki_curator.py
   - agent_utilities/mcp/kg_server.py
   doc: delta-skip continuous ingest of a self-curating wiki dir
+- id: KG-2.20
+  name: live Memento block-compress-evict sawtooth
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/agent/factory.py
+  - agent_utilities/capabilities/memento.py
+  - agent_utilities/knowledge_graph/memory/agent_context.py
+  - agent_utilities/knowledge_graph/memory/memento_compressor.py
+  doc: live Memento block-compress-evict sawtooth
 - id: KG-2.21
   name: Working Set Eviction & Memory Management
   pillar: KG-2
@@ -1111,16 +1122,18 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/rlm/predict_rlm.py
+  - agent_utilities/rlm/runner.py
   - agent_utilities/rlm/skills.py
   doc: Composable Skills + Generic Environment Adapter
 - id: ORCH-1.29
-  name: RLM Resilience + Structured Telemetry
+  name: populate a structured RunTrace as the live loop runs, so the GEPA
   pillar: ORCH-1
   status: live
   code_paths:
   - agent_utilities/rlm/repl.py
+  - agent_utilities/rlm/runner.py
   - agent_utilities/rlm/telemetry.py
-  doc: RLM Resilience + Structured Telemetry
+  doc: populate a structured RunTrace as the live loop runs, so the GEPA
 - id: ORCH-1.30
   name: selection happens on UNSEEN data, so a candidate that merely memorized the
   pillar: ORCH-1

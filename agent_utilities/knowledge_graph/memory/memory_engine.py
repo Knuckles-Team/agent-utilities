@@ -88,7 +88,7 @@ class MemoryEngine:
     def compactor(self) -> Any:
         """Lazy-initialized ContextCompactor."""
         if self._compactor is None:
-            from .elastic_context_manager import ContextCompactor
+            from .agent_context import ContextCompactor
 
             self._compactor = ContextCompactor(
                 max_tokens=self.max_tokens,
@@ -100,8 +100,9 @@ class MemoryEngine:
     def startup_builder(self) -> Any:
         """Lazy-initialized StartupContextBuilder."""
         if self._startup_builder is None and self.engine is not None:
-            from .startup_context import StartupContextBuilder
-
+            # StartupContextBuilder is defined in this module (below); the prior
+            # ``from .startup_context import`` was a broken self-reference to a module
+            # that never existed.
             self._startup_builder = StartupContextBuilder(engine=self.engine)
         return self._startup_builder
 
@@ -235,7 +236,7 @@ class MemoryEngine:
         if self.engine is None:
             return []
 
-        from .agent_context import get_recent_mementos
+        from .memento_compressor import get_recent_mementos
 
         return get_recent_mementos(self.engine, source=source, limit=limit)
 
@@ -814,7 +815,16 @@ def _authority_for(source: str, heading: str) -> str:
     h = heading.lower()
     if source in ("profile", "team", "agents_md"):
         return AUTHORITY_AUTHORITATIVE
-    if any(k in h for k in ("core identity", "preference", "active goal", "current session", "rule")):
+    if any(
+        k in h
+        for k in (
+            "core identity",
+            "preference",
+            "active goal",
+            "current session",
+            "rule",
+        )
+    ):
         return AUTHORITY_AUTHORITATIVE
     if source in ("recall", "overflow", "hint"):
         return AUTHORITY_ADVISORY

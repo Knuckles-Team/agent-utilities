@@ -55,6 +55,7 @@ from agent_utilities.capabilities import (
     ContextLimitWarner,
     HooksCapability,
     InMemoryCheckpointStore,
+    MementoCompaction,
     StuckLoopDetection,
     TeamCapability,
     ToolOutputEviction,
@@ -284,6 +285,7 @@ def create_agent(
     output_style: str | None = None,
     output_eviction: bool = True,
     eviction_threshold_chars: int = 80_000,
+    memento_compaction: bool = True,
 ) -> tuple[Agent, list[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
 
@@ -540,6 +542,17 @@ def create_agent(
         agent_capabilities.append(
             ToolOutputEviction(
                 threshold_chars=eviction_threshold_chars,
+            )
+        )
+
+    # CONCEPT:KG-2.20 — live Memento block-compress-evict sawtooth (default ON). Where
+    # ContextLimitWarner only *warns* and ToolOutputEviction only handles oversized tool results,
+    # this evicts old completed reasoning blocks from the message history, replacing each with a
+    # dense memento, when the running context exceeds budget.
+    if memento_compaction:
+        agent_capabilities.append(
+            MementoCompaction(
+                max_tokens=max_context_tokens,
             )
         )
 
