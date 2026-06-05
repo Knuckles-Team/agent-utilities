@@ -286,7 +286,7 @@ def create_agent(
     output_eviction: bool = True,
     eviction_threshold_chars: int = 80_000,
     memento_compaction: bool = True,
-) -> tuple[Agent, list[Any]]:
+) -> tuple[Agent[Any, Any], list[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
 
     CONCEPT:OS-5.0 Agent Creation
@@ -594,7 +594,7 @@ def create_agent(
         model_settings=settings,
         name=name,
         output_type=(
-            str | DeferredToolRequests if output_type is None else output_type
+            [str, DeferredToolRequests] if output_type is None else output_type
         ),
         toolsets=agent_toolsets,
         tool_timeout=DEFAULT_TOOL_TIMEOUT,
@@ -617,11 +617,13 @@ def create_agent(
 
         from agent_utilities.rlm.specialist import recursive_reasoner_tool
 
-        agent._tools["recursive_reasoner_tool"] = Tool(
-            recursive_reasoner_tool,
-            takes_ctx=True,
-            description="Recursive reasoning specialist for massive contexts",
-            name="recursive_reasoner_tool",
+        agent._function_toolset.add_tool(
+            Tool(
+                recursive_reasoner_tool,
+                takes_ctx=True,
+                description="Recursive reasoning specialist for massive contexts",
+                name="recursive_reasoner_tool",
+            )
         )
         logger.info("Enabled RLM Recursive Reasoner Tool")
 

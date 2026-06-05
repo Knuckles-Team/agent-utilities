@@ -256,7 +256,7 @@ def flag_mcp_tool_definitions(
     return wrapped
 
 
-def apply_tool_guard_approvals(agent: Agent) -> None:
+def apply_tool_guard_approvals(agent: Agent[Any, Any]) -> None:
     """Apply requires_approval=True to all sensitive function tools on an agent.
 
     Iterates the agent's function toolset (the first entry in the public
