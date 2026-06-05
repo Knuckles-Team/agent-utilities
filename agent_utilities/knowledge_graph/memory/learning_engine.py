@@ -203,7 +203,10 @@ class BackgroundLearner:
                         content=edit.content,
                         memory_type=edit.memory_type,
                         target_entity=edit.target_entity,
-                        tags=[f"type:{edit.entry_type}", f"train:{edit.training_value}"],
+                        tags=[
+                            f"type:{edit.entry_type}",
+                            f"train:{edit.training_value}",
+                        ],
                         event_time=props["event_time"],
                         storage_time=props["storage_time"],
                         valid_from=props["valid_from"],

@@ -40,9 +40,35 @@ def threshold_for_mode(mode: str) -> float:
 # Trivial turns skip the whole HyDE plan + retrieval, saving the planner LLM call and embedding work.
 SOCIAL_CLOSERS: frozenset[str] = frozenset(
     {
-        "hi", "hello", "hey", "yo", "sup", "ok", "okay", "k", "kk", "yes", "no",
-        "yep", "nope", "thanks", "thank you", "thx", "ty", "great", "cool", "nice",
-        "bye", "goodbye", "cya", "later", "np", "sure", "got it", "gotcha", "done",
+        "hi",
+        "hello",
+        "hey",
+        "yo",
+        "sup",
+        "ok",
+        "okay",
+        "k",
+        "kk",
+        "yes",
+        "no",
+        "yep",
+        "nope",
+        "thanks",
+        "thank you",
+        "thx",
+        "ty",
+        "great",
+        "cool",
+        "nice",
+        "bye",
+        "goodbye",
+        "cya",
+        "later",
+        "np",
+        "sure",
+        "got it",
+        "gotcha",
+        "done",
     }
 )
 

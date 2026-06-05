@@ -635,11 +635,15 @@ class RLMEnvironment:
                 try:
                     _, stdout = await self.execute(code_to_run)
                 except SandboxFatalError as e:
-                    run_trace.add_step(code=code_to_run, failure_class=classify_failure(e))
+                    run_trace.add_step(
+                        code=code_to_run, failure_class=classify_failure(e)
+                    )
                     run_trace.final_status = "failure"
                     raise
                 except Exception as e:  # noqa: BLE001
-                    run_trace.add_step(code=code_to_run, failure_class=classify_failure(e))
+                    run_trace.add_step(
+                        code=code_to_run, failure_class=classify_failure(e)
+                    )
                     run_trace.final_status = "failure"
                     raise
                 run_trace.add_step(
