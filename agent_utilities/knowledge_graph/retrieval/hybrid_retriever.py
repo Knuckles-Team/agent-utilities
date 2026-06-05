@@ -454,7 +454,21 @@ class HybridRetriever:
                         for nid in all_discovered:
                             if nid not in visited:
                                 visited.add(nid)
-                                d = dict(self.engine.graph._get_node_properties(nid))
+                                if nid == node_id:
+                                    # Preserve the vector-scored base node — it carries
+                                    # _score, the active-task attention boost and its
+                                    # embedding. Enrich (don't overwrite) with any graph
+                                    # properties (e.g. type) it lacks rather than
+                                    # refetching a bare graph projection.
+                                    d = dict(node)
+                                    for k, v in self.engine.graph._get_node_properties(
+                                        nid
+                                    ).items():
+                                        d.setdefault(k, v)
+                                else:
+                                    d = dict(
+                                        self.engine.graph._get_node_properties(nid)
+                                    )
                                 d["id"] = nid
                                 if self._boost_strategy == "context_only":
                                     d["_context_boost"] = self._backlink_boost(nid)
