@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Mementified Context Management (CONCEPT:KG-2.20, extends KG-2.1)** — Assimilated from *Memento:
+  Teaching LLMs to Manage Their Own Context* (Kontonis et al., MSR AI Frontiers 2026). Brings the
+  paper's block-compress-evict pattern to the orchestration layer (the paper's flagged "agents"
+  application). **MEM-0:** strangled the memento compressor into a canonical `memento_compressor.py`,
+  fixing a silently-broken `.memento_compressor` import that had left the memento write path and the
+  whole `MemoryEngine` compaction facade dead. **MEM-1:** new default-ON `MementoCompaction`
+  capability that, on `before_model_request`, segments the running history and evicts old completed
+  blocks as dense mementos (live-path test: −77% tokens on a synthetic trajectory). **MEM-2:**
+  judge-refine compression loop (rubric, τ=8/10, ≤2 iters — the paper's 28%→92% quality step).
+  **MEM-3:** semantic-boundary segmentation (`boundary_score`/`segment_into_blocks`, never cuts
+  mid-derivation) + a `memento_blocks` `ContextCompactor` strategy. **MEM-4:** lossless
+  recoverability (`Memento -[:SUMMARIZES]-> EvictedBlock`, `recover_evicted_block`) — the
+  orchestration-layer substitute for the paper's in-engine implicit KV channel (which we cannot
+  reproduce; documented honestly). Comparative analysis: `.specify/reports/memento-comparative-analysis.md`.
 - **RLM-GEPA synergy features (CONCEPT:ORCH-1.28–1.31 + ORCH-1.12/1.13/1.27 wiring)** — Assimilated
   from the GEPA paper (Agrawal et al., ICLR 2026, `2507.19457`), `Trampoline-AI/predict-rlm@edaddfe`,
   and the AppWorld RLM-GEPA work (claims verified against source before implementation):

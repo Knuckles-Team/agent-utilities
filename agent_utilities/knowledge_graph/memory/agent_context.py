@@ -103,6 +103,9 @@ class CompactionStrategy(StrEnum):
     SUMMARIZE_TOOLS = "summarize_tools"
     DROP_MIDDLE = "drop_middle"
     PROGRESSIVE = "progressive"
+    MEMENTO_BLOCKS = (
+        "memento_blocks"  # CONCEPT:KG-2.20 — semantic-boundary block segmentation
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -224,9 +227,77 @@ class ContextCompactor:
             return self._compact_drop_middle(messages, tokens_before)
         elif strategy == CompactionStrategy.PROGRESSIVE:
             return self._compact_progressive(messages, tokens_before)
+        elif strategy == CompactionStrategy.MEMENTO_BLOCKS:
+            return self._compact_memento_blocks(messages, tokens_before)
         else:
             # Fallback
             return self._compact_summarize_tools(messages, tokens_before)
+
+    def _compact_memento_blocks(
+        self,
+        messages: list[dict[str, Any]],
+        tokens_before: int,
+    ) -> CompactedResult:
+        """Segment into semantic blocks and replace older completed blocks with compact notes.
+
+        CONCEPT:KG-2.20 — the LLM-free compactor path. Uses ``segment_into_blocks`` (semantic-boundary
+        segmentation) and replaces each evicted block with a single structured placeholder instead of
+        dropping the middle blindly. The capability layer (``MementoCompaction``) does the same
+        segmentation but compresses each evicted block with an LLM into a dense memento; this method is
+        the dependency-free fallback used when no model/engine is available.
+        """
+        from .memento_compressor import plan_block_eviction
+
+        evicted_groups, kept = plan_block_eviction(
+            messages, budget_tokens=self.max_tokens
+        )
+        if not evicted_groups:
+            return CompactedResult(
+                messages=list(messages),
+                tokens_before=tokens_before,
+                tokens_after=tokens_before,
+                strategy_used=CompactionStrategy.MEMENTO_BLOCKS.value,
+                summary_text="No completed blocks to evict",
+                messages_removed=0,
+            )
+
+        evicted_idx = {i for grp in evicted_groups for i in grp}
+        compacted: list[dict[str, Any]] = []
+        inserted_for: set[int] = set()
+        group_of = {i: gi for gi, grp in enumerate(evicted_groups) for i in grp}
+        for i, msg in enumerate(messages):
+            if i in evicted_idx:
+                gi = group_of[i]
+                if gi not in inserted_for:
+                    grp = evicted_groups[gi]
+                    roles = ",".join(
+                        sorted({str(messages[j].get("role", "?")) for j in grp})
+                    )
+                    compacted.append(
+                        {
+                            "role": "system",
+                            "content": (
+                                f"[Memento block {gi + 1}: {len(grp)} messages ({roles}) "
+                                f"evicted to fit context budget; recoverable via expand_summary]"
+                            ),
+                        }
+                    )
+                    inserted_for.add(gi)
+            else:
+                compacted.append(msg)
+
+        tokens_after = estimate_message_tokens(compacted)
+        return CompactedResult(
+            messages=compacted,
+            tokens_before=tokens_before,
+            tokens_after=tokens_after,
+            strategy_used=CompactionStrategy.MEMENTO_BLOCKS.value,
+            summary_text=(
+                f"Evicted {len(evicted_groups)} completed block(s), "
+                f"{len(evicted_idx)} messages, into block notes"
+            ),
+            messages_removed=len(evicted_idx),
+        )
 
     def _compact_summarize_tools(
         self,
@@ -1657,136 +1728,7 @@ class SemanticCompactor:
             return 0
 
 
-import logging
-import time
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
-logger = logging.getLogger(__name__)
-
-MEMENTO_SYSTEM_PROMPT = """You are a state-compression Memento generator for an autonomous agent.
-Your task is to take a block of reasoning and conversation history and compress it into a dense Memento.
-
-## Strict Rules:
-1. You are NOT summarizing for a human. You are compressing state for an LLM to reason forward from.
-2. You MUST extract exact formulas, key intermediate values, commands executed, and their precise outcomes.
-3. Keep the strategic decisions and the current execution state (what succeeded, what failed, what is next).
-4. Do NOT hallucinate or add outside knowledge.
-5. Provide a terse, information-dense output that can act as a drop-in replacement for the raw block.
-6. Output ONLY the memento text.
-"""
-
-
-def compress_to_memento(
-    engine: IntelligenceGraphEngine,
-    messages: list[dict[str, str]],
-    *,
-    source: str = "agent_runner",
-    dry_run: bool = False,
-) -> str | None:
-    """Compress a block of messages into a dense memento and persist it.
-
-    Args:
-        engine: IntelligenceGraphEngine instance.
-        messages: The block of raw messages to compress.
-        source: The source agent or component name.
-        dry_run: If True, do not persist to the KG.
-
-    Returns:
-        The generated memento string, or None if compression failed.
-    """
-    if not messages:
-        return None
-
-    # Format block for compression
-    transcript_lines = []
-    for msg in messages:
-        role = msg.get("role", "unknown").upper()
-        content = msg.get("content", "")
-        transcript_lines.append(f"[{role}]: {content}")
-    block_text = "\n\n".join(transcript_lines)
-
-    try:
-        from pydantic_ai import Agent
-
-        from agent_utilities.core.config import (
-            DEFAULT_KG_MODEL_ID,
-            DEFAULT_LLM_PROVIDER,
-        )
-        from agent_utilities.core.model_factory import create_model
-
-        model = create_model(
-            provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
-        )
-        agent = Agent(model, system_prompt=MEMENTO_SYSTEM_PROMPT)
-
-        import nest_asyncio
-
-        nest_asyncio.apply()
-
-        user_content = (
-            f"## Compress the following block into a Memento:\n\n{block_text}"
-        )
-        result = agent.run_sync(user_content)
-        memento_text = str(getattr(result, "data", result)).strip()
-    except Exception as e:
-        logger.warning("Memento compression failed: %s", e)
-        return None
-
-    if dry_run:
-        return memento_text
-
-    _persist_memento(engine, memento_text, source=source)
-    return memento_text
-
-
-def _persist_memento(
-    engine: IntelligenceGraphEngine,
-    memento_text: str,
-    *,
-    source: str = "unknown",
-) -> None:
-    """Persist the generated memento to the Knowledge Graph."""
-    if not engine or not engine.backend:
-        return
-
-    memento_id = f"mem_{hashlib.md5(memento_text.encode(), usedforsecurity=False).hexdigest()[:10]}"
-    current_time = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-    props: dict[str, Any] = {
-        "name": f"Memento: {current_time}",
-        "content": memento_text,
-        "source": source,
-        "timestamp": current_time,
-        "type": "MementoBlock",
-    }
-
-    try:
-        engine.add_node(memento_id, "Memento", properties=props)
-        logger.info("[KG-2.7] Persisted Memento context block (%s)", memento_id)
-    except Exception as e:
-        logger.debug("Failed to persist Memento: %s", e)
-
-
-def get_recent_mementos(
-    engine: IntelligenceGraphEngine,
-    source: str,
-    limit: int = 5,
-) -> list[str]:
-    """Retrieve the most recent mementos for a given source."""
-    if not engine or not engine.backend:
-        return []
-
-    try:
-        rows = engine.backend.execute(
-            "MATCH (m:Memento {source: $source}) "
-            "RETURN m.content AS content "
-            "ORDER BY m.timestamp ASC LIMIT $limit",
-            {"source": source, "limit": limit},
-        )
-        return [r.get("content", "") for r in rows if r.get("content")]
-    except Exception as e:
-        logger.debug("Failed to retrieve Mementos: %s", e)
-        return []
+# CONCEPT:KG-2.20 — the Memento compressor (MEMENTO_SYSTEM_PROMPT, compress_to_memento,
+# _persist_memento, get_recent_mementos) was strangled out of this module into
+# ``memento_compressor.py`` (its canonical home, which observer.py/memory_engine.py already
+# imported). Import memento helpers from ``.memento_compressor``, not from here.

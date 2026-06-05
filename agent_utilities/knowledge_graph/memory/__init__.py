@@ -24,11 +24,18 @@ from .agent_context import (
     PreemptiveCacheEngine,
     SemanticCompactor,
     TimescaleMemoryStore,
-    compress_to_memento,
     estimate_message_tokens,
     estimate_tokens,
-    get_recent_mementos,
     prune_context_by_semantic_distance,
+)
+from .memento_compressor import (
+    MEMENTO_SYSTEM_PROMPT,
+    boundary_score,
+    compress_to_memento,
+    get_recent_mementos,
+    judge_memento,
+    plan_block_eviction,
+    segment_into_blocks,
 )
 from .memory_engine import (
     EvolvingMemoryAPI,
@@ -80,6 +87,11 @@ __all__ = [
     "MemoryTimescale",
     "MemoryEntry",
     "compress_to_memento",
+    "judge_memento",
+    "boundary_score",
+    "segment_into_blocks",
+    "plan_block_eviction",
+    "MEMENTO_SYSTEM_PROMPT",
     "estimate_message_tokens",
     "estimate_tokens",
     "get_recent_mementos",
