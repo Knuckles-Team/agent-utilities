@@ -403,6 +403,7 @@ class HybridRetriever:
                 continue
 
             # Fetch immediate neighborhood using backend Cypher
+            context_nodes: list[dict[str, Any]] = []
             if self.engine.backend:
                 # Get 1 to multi_hop_depth neighbors
                 query_str = (
@@ -410,7 +411,6 @@ class HybridRetriever:
                 )
                 neighbors = self.engine.backend.execute(query_str, {"id": node_id})
 
-                context_nodes = [node]
                 for n_row in neighbors:
                     if not isinstance(n_row, dict):
                         continue
@@ -424,6 +424,11 @@ class HybridRetriever:
                         visited.add(m["id"])
                         context_nodes.append(m)
 
+            # The epistemic-graph backend cannot evaluate variable-length path
+            # patterns, so yielding no usable neighbors is not authoritative —
+            # fall through to the resident-graph BFS traversal in that case.
+            if context_nodes:
+                assembled_subgraph.append(node)
                 assembled_subgraph.extend(context_nodes)
             else:
                 # GraphComputeEngine BFS fallback
