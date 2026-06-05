@@ -1,15 +1,24 @@
 #!/usr/bin/env python
 """Multi-MCP Server Multiplexer.
 
-Aggregates multiple underlying MCP servers into a single unified MCP server
-instance, delegating tool requests dynamically based on prefixed tool names.
-This drastically speeds up boot times and avoids process resource contention.
+Aggregates multiple underlying MCP servers (declared in an ``mcp_config.json``)
+into a single unified server, delegating tool calls dynamically based on
+prefixed tool names. This speeds up boot times and avoids per-server process
+resource contention for clients with tool-count limits.
+
+Built on the standard ``mcp_server.py`` scaffolding: it uses
+``create_mcp_server()`` for the standard ``--transport/--host/--port`` args and
+middleware, and exposes the aggregated tools through a FastMCP instance so the
+multiplexer can be deployed as either a **stdio** or **streamable-http** server.
+The proven child-server lifecycle, host-aware prefixing, and enable/disable tool
+filtering are preserved (see :class:`MCPMultiplexer`).
 
 CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import contextlib
 import json
@@ -20,10 +29,9 @@ from pathlib import Path
 from typing import Any
 
 import mcp.types
+from fastmcp.tools import FunctionTool, ToolResult
 from mcp import StdioServerParameters, stdio_client
 from mcp.client.session import ClientSession
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
 
 # Direct all logs to stderr so stdout remains perfectly clean for stdio JSON-RPC
 logging.basicConfig(
@@ -147,45 +155,41 @@ class MCPMultiplexer:
             str, tuple[str, str]
         ] = {}  # prefixed_name -> (server_name, original_name)
         self.aggregated_tools: list[mcp.types.Tool] = []
-        self.server = Server("mcp-multiplexer")
-        self._setup_handlers()
 
-    def _setup_handlers(self):
-        @self.server.list_tools()
-        async def handle_list_tools() -> list[mcp.types.Tool]:
-            logger.info("Listing aggregated tools")
-            return self.aggregated_tools
+    async def call_proxied_tool(
+        self, prefixed_name: str, arguments: dict[str, Any] | None = None
+    ) -> mcp.types.CallToolResult:
+        """Forward a prefixed tool call to the owning child server's session.
 
-        @self.server.call_tool()
-        async def handle_call_tool(
-            name: str, arguments: dict[str, Any] | None = None
-        ) -> mcp.types.CallToolResult:
-            logger.info(f"Calling tool: {name}")
-            if name not in self.tool_to_server:
-                raise ValueError(f"Tool {name} is not registered in multiplexer")
+        Looks up the ``(server_name, original_name)`` mapping recorded during
+        :meth:`start_children` and forwards the call to that child's live
+        ``ClientSession``. Raises if the tool/server is unknown or inactive.
+        """
+        logger.info(f"Calling tool: {prefixed_name}")
+        if prefixed_name not in self.tool_to_server:
+            raise ValueError(f"Tool {prefixed_name} is not registered in multiplexer")
 
-            server_name, original_name = self.tool_to_server[name]
-            session = self.sessions.get(server_name)
-            if not session:
-                raise RuntimeError(f"Session for server '{server_name}' is not active")
+        server_name, original_name = self.tool_to_server[prefixed_name]
+        session = self.sessions.get(server_name)
+        if not session:
+            raise RuntimeError(f"Session for server '{server_name}' is not active")
 
-            try:
-                # Forward the call directly to the child session
-                result = await session.call_tool(original_name, arguments or {})
-                return result
-            except Exception as e:
-                logger.error(
-                    f"Error calling tool '{original_name}' on '{server_name}': {e}",
-                    exc_info=True,
-                )
-                return mcp.types.CallToolResult(
-                    content=[
-                        mcp.types.TextContent(
-                            type="text", text=f"Error executing tool: {e}"
-                        )
-                    ],
-                    isError=True,
-                )
+        try:
+            # Forward the call directly to the child session
+            return await session.call_tool(original_name, arguments or {})
+        except Exception as e:
+            logger.error(
+                f"Error calling tool '{original_name}' on '{server_name}': {e}",
+                exc_info=True,
+            )
+            return mcp.types.CallToolResult(
+                content=[
+                    mcp.types.TextContent(
+                        type="text", text=f"Error executing tool: {e}"
+                    )
+                ],
+                isError=True,
+            )
 
     async def _start_child(
         self, server_name: str, cfg: dict
@@ -354,62 +358,139 @@ class MCPMultiplexer:
                 )
                 self.aggregated_tools.append(prefixed_tool)
 
-    async def run(self):
-        """Run the multiplexer stdio server."""
-        try:
-            await self.start_children()
-            logger.info(
-                f"Aggregated {len(self.aggregated_tools)} total tools. Starting stdio server."
+
+def _resolve_config_path(explicit: str | None) -> Path:
+    """Resolve the mcp_config.json path from --config, ``MCP_CONFIG``, or the
+    standard discovery candidates."""
+    if explicit:
+        return Path(explicit)
+    if os.environ.get("MCP_CONFIG"):
+        return Path(os.environ["MCP_CONFIG"])
+    candidates = [
+        Path.home() / ".gemini" / "antigravity" / "mcp_config.json",
+        Path.home() / ".config" / "agent-utilities" / "mcp_config.json",
+        Path.home() / ".config" / "agent-utilities" / "config.json",
+        Path("mcp_config.json"),
+        Path("workspace/mcp_config.json"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+
+def _register_forwarding_tools(mcp, mux: MCPMultiplexer) -> None:
+    """Register one FastMCP forwarding tool per aggregated child tool.
+
+    Each tool keeps the multiplexer's prefixed name and the child's published
+    input schema; calling it forwards the validated arguments to the owning
+    child session via :meth:`MCPMultiplexer.call_proxied_tool`.
+    """
+
+    def _make_forwarder(prefixed_name: str):
+        async def _forward(**kwargs: Any) -> ToolResult:
+            result = await mux.call_proxied_tool(prefixed_name, kwargs)
+            return ToolResult(
+                content=list(getattr(result, "content", []) or []),
+                structured_content=getattr(result, "structuredContent", None),
             )
-            async with stdio_server() as (read_stream, write_stream):
-                await self.server.run(
-                    read_stream,
-                    write_stream,
-                    self.server.create_initialization_options(),
-                    raise_exceptions=True,
-                )
-        finally:
-            logger.info("Shutting down multiplexer and child servers...")
-            await self.exit_stack.aclose()
+
+        return _forward
+
+    for tool in mux.aggregated_tools:
+        schema = tool.inputSchema or {"type": "object", "properties": {}}
+        mcp.add_tool(
+            FunctionTool(
+                name=tool.name,
+                description=tool.description or "",
+                parameters=schema,
+                fn=_make_forwarder(tool.name),
+            )
+        )
 
 
-def main():
-    import argparse
+def get_mcp_instance():
+    """Build the multiplexer's FastMCP server and the aggregation engine.
 
-    parser = argparse.ArgumentParser(description="Multi-MCP Server Multiplexer")
-    parser.add_argument(
-        "--config",
-        default=os.environ.get("MCP_CONFIG"),
-        help="Path to mcp_config.json file",
+    Returns ``(args, mcp, mux)``. ``args`` carries the standard
+    ``--transport/--host/--port`` options parsed by ``create_mcp_server``; the
+    multiplexer-specific ``--config`` is parsed separately so both coexist.
+    Child servers are started (and their tools registered) later, inside the
+    serving event loop, by :func:`mcp_server`.
+    """
+    from agent_utilities.mcp.server_factory import create_mcp_server
+
+    # Parse --config without disturbing the factory's own argv parsing.
+    cfg_parser = argparse.ArgumentParser(add_help=False)
+    cfg_parser.add_argument("--config", default=os.environ.get("MCP_CONFIG"))
+    cfg_args, _ = cfg_parser.parse_known_args()
+
+    config_path = _resolve_config_path(cfg_args.config)
+    logger.info("Using MCP config: %s", config_path)
+    mux = MCPMultiplexer(config_path)
+
+    args, mcp, middlewares = create_mcp_server(
+        name="mcp-multiplexer",
+        version="0.1.0",
+        instructions=(
+            "Aggregates multiple child MCP servers (declared in mcp_config.json) "
+            "into a single unified server. Tools are namespaced by a short, "
+            "host-aware server prefix; calls are forwarded to the owning child."
+        ),
     )
-    args = parser.parse_args()
+    for middleware in middlewares:
+        mcp.add_middleware(middleware)
 
-    config_path = None
-    if args.config:
-        config_path = Path(args.config)
-    else:
-        candidates = [
-            Path.home() / ".gemini" / "antigravity" / "mcp_config.json",
-            Path.home() / ".config" / "agent-utilities" / "mcp_config.json",
-            Path.home() / ".config" / "agent-utilities" / "config.json",
-            Path("mcp_config.json"),
-            Path("workspace/mcp_config.json"),
-        ]
-        for c in candidates:
-            if c.exists():
-                config_path = c
-                break
-        if not config_path:
-            config_path = candidates[0]
+    return args, mcp, mux
 
-    logger.info(f"Using MCP config: {config_path}")
 
-    multiplexer = MCPMultiplexer(config_path)
+async def _serve(args, mcp, mux: MCPMultiplexer) -> None:
+    """Start child servers, register forwarding tools, and serve — all in one
+    event loop so the child ``ClientSession`` objects stay bound to the loop
+    that runs the server."""
     try:
-        asyncio.run(multiplexer.run())
+        await mux.start_children()
+        _register_forwarding_tools(mcp, mux)
+        logger.info(
+            "Aggregated %d tools from %d child servers. Serving over %s.",
+            len(mux.aggregated_tools),
+            len(mux.sessions),
+            getattr(args, "transport", "stdio"),
+        )
+
+        transport = getattr(args, "transport", "stdio")
+        host = getattr(args, "host", "0.0.0.0")
+        port = int(getattr(args, "port", 8000))
+
+        if transport == "stdio":
+            await mcp.run_async(transport="stdio")
+        elif transport == "streamable-http":
+            await mcp.run_async(transport="streamable-http", host=host, port=port)
+        elif transport == "sse":
+            await mcp.run_async(transport="sse", host=host, port=port)
+        else:
+            await mcp.run_async(transport="stdio")
+    finally:
+        logger.info("Shutting down multiplexer and child servers...")
+        await mux.exit_stack.aclose()
+
+
+def mcp_server() -> None:
+    """mcp-multiplexer entry point (registered as console_scripts).
+
+    Standard ``mcp_server.py`` scaffolding: deployable as a ``stdio`` or
+    ``streamable-http`` server via the ``--transport`` flag.
+    """
+    args, mcp, mux = get_mcp_instance()
+    try:
+        asyncio.run(_serve(args, mcp, mux))
     except KeyboardInterrupt:
         logger.info("Multiplexer execution interrupted.")
 
 
+# Back-compat alias — the previous console_scripts entry referenced ``main``.
+main = mcp_server
+
+
 if __name__ == "__main__":
-    main()
+    mcp_server()

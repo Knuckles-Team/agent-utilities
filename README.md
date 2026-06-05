@@ -323,12 +323,35 @@ pip install "agent-utilities[all]"
 
 For more details, see the [Installation Guide](docs/guides/installation.md).
 
-## Quick Start
+### Zero-infrastructure by default
 
-You can quickly launch the graph-os MCP server:
+Out of the box, agent-utilities runs as a **single self-contained binary with no
+external system dependencies**. The default knowledge-graph backend is `tiered` —
+the always-included Rust-native `epistemic_graph` (L1) in front of an embedded
+**LadybugDB** (L2). No Postgres/Neo4j server is required to get started.
+
+To use a durable PostgreSQL tier in production, just set a DSN — the tiered L2
+auto-switches to Postgres (your existing configuration keeps working unchanged):
 
 ```bash
-uv run graph-os
+export GRAPH_BACKEND=tiered
+export GRAPH_DB_URI=postgresql://agent:agent@localhost:5432/agent_kg
+```
+
+## Deployment
+
+Full deployment instructions — running `graph-os` and `mcp-multiplexer` as
+standard **stdio** or **streamable-http** servers, the centralized REST API
+gateway, Docker composes, and production hardening — are in the
+**[Deployment Guide](docs/guides/deployment.md)**.
+
+## Quick Start
+
+You can quickly launch the graph-os MCP server (a thin FastMCP wrapper):
+
+```bash
+uv run graph-os                       # stdio (default)
+uv run graph-os --transport streamable-http --host 0.0.0.0 --port 8004
 ```
 
 Or start the standalone agent from your code:
@@ -352,6 +375,8 @@ For detailed tutorials, installation options, and configuration guides, refer to
 * **[Quick Start](docs/guides/quick-start.md)**
 * **[Installation Guide](docs/guides/installation.md)**
   * *Bare-metal, pip packages, Docker*
+* **[Deployment Guide](docs/guides/deployment.md)**
+  * *Zero-infra default, graph-os & multiplexer (stdio/streamable-http), API gateway, production hardening*
 * **[Configuration & Environment Variables](docs/guides/configuration.md)**
   * *Multi-tiered LLM setup, Models Config*
 * **[Local Secret Storage (Vault & SQLite)](docs/guides/secrets-auth.md)**

@@ -1010,7 +1010,10 @@ async def graph_analyze_relevance_sweep_endpoint(request: Request) -> JSONRespon
 
 async def graph_analyze_blast_radius_endpoint(request: Request) -> JSONResponse:
     try:
-        node_id = request.query_params.get("node_id", "")
+        # The endpoint contract uses ``id`` (accept legacy ``node_id`` as a fallback).
+        node_id = request.query_params.get("id") or request.query_params.get(
+            "node_id", ""
+        )
         depth = int(request.query_params.get("depth", "2"))
         res = await _execute_tool(
             "graph_analyze", action="blast_radius", id=node_id, depth=depth
@@ -1598,15 +1601,24 @@ def _ingest_capabilities(engine):
         logger.error(f"Failed to ingest skills: {e}")
 
 
-def _build_server():
-    """Build the KG MCP server with all tools registered."""
+def _build_server(bootstrap: bool = True):
+    """Build the KG MCP server with all tools registered.
+
+    Args:
+        bootstrap: When True (default) start the background engine bootstrap
+            thread (engine init, task workers, capability ingest). The API
+            gateway calls this with ``bootstrap=False`` (via
+            :func:`ensure_tools_registered`) because it owns the engine/daemon
+            lifecycle itself and only needs ``REGISTERED_TOOLS`` populated so the
+            centralized REST handlers can dispatch.
+    """
     import sys
 
     from agent_utilities.mcp.server_factory import create_mcp_server
 
     is_readonly = False
 
-    if not any(arg in sys.argv for arg in ["--help", "-h"]):
+    if bootstrap and not any(arg in sys.argv for arg in ["--help", "-h"]):
         # Build the engine + start daemons/workers + ingest capabilities in a
         # BACKGROUND thread so mcp.run() can start serving (and the multiplexer
         # can list tools) immediately — engine init is ~30s and was blocking the
@@ -1642,6 +1654,10 @@ def _build_server():
             )
         return None
 
+    # In embedded mode (bootstrap=False, e.g. the API gateway populating
+    # REGISTERED_TOOLS) do NOT parse the host process's argv — pass an empty
+    # command line so the factory uses defaults instead of choking on unrelated
+    # flags (pytest/uvicorn args) with SystemExit.
     args, mcp, middlewares = create_mcp_server(
         name="graph-os",
         version="0.1.0",
@@ -1653,7 +1669,14 @@ def _build_server():
             "kg_analyze for LLM-powered cross-reference analysis, "
             "and kg_ingest_* for adding data."
         ),
+        command_args=None if bootstrap else [],
     )
+
+    # Liveness endpoint for streamable-http/sse deployments (container
+    # healthchecks). Does not touch the engine so it stays fast and lock-free.
+    @mcp.custom_route("/health", methods=["GET"])
+    async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
+        return JSONResponse({"status": "ok", "server": "graph-os"})
 
     # ═══ Synthesized Tools (7 tools, action-routed) ═══
 
@@ -3273,352 +3296,194 @@ class CentralizedCypherMiddleware:
         return
 
 
-def main():
-    """Entry point for the KG MCP server."""
+def ensure_tools_registered() -> None:
+    """Idempotently register all ``graph_*`` tools into ``REGISTERED_TOOLS``.
+
+    The centralized REST handlers (and the API gateway that mounts them via
+    :func:`_mount_rest_routes`) dispatch through ``REGISTERED_TOOLS`` using
+    :func:`_execute_tool`. Building the MCP server populates that dict as a side
+    effect; we discard the throwaway FastMCP instance and skip the engine
+    bootstrap (``bootstrap=False``) because the gateway owns the engine/daemon
+    lifecycle and the handlers resolve the engine lazily via ``_get_engine()``.
+    """
+    if REGISTERED_TOOLS:
+        return
+    _build_server(bootstrap=False)
+
+
+def _mount_rest_routes(app, prefix: str = "") -> None:
+    """Mount the full Knowledge Graph REST surface onto ``app``.
+
+    ``app`` is any Starlette/FastAPI application exposing ``add_route``. Every
+    path is prepended with ``prefix`` (the API gateway mounts these under
+    ``/api``). Handlers dispatch through ``REGISTERED_TOOLS`` — call
+    :func:`ensure_tools_registered` first.
+
+    This is the single source of truth for the KG REST route table. The
+    ``graph-os`` MCP server itself is now a thin FastMCP wrapper (MCP tools
+    only); the REST API is served centrally by ``agent_utilities.gateway`` so the
+    table never drifts between the two.
+    """
+    from agent_utilities.core.sessions import (
+        cancel_goal,
+        cancel_session_run,
+        create_goal,
+        delete_session,
+        get_all_sessions,
+        get_goal_iterations,
+        get_session_details,
+        list_goals,
+        submit_session_reply,
+    )
+
+    def route(path: str, handler, methods: list[str]) -> None:
+        app.add_route(prefix + path, handler, methods=methods)
+
+    # ── Sessions & goals (durable Starlette handlers in core.sessions) ──
+    route("/sessions", get_all_sessions, ["GET"])
+    route("/sessions/{session_id}", get_session_details, ["GET"])
+    route("/sessions/{session_id}", delete_session, ["DELETE"])
+    route("/sessions/{session_id}/reply", submit_session_reply, ["POST"])
+    route("/sessions/{session_id}/cancel", cancel_session_run, ["POST"])
+    route("/goals", create_goal, ["POST"])
+    route("/goals", list_goals, ["GET"])
+    route("/goals/{goal_id}/iterations", get_goal_iterations, ["GET"])
+    route("/goals/{goal_id}/cancel", cancel_goal, ["POST"])
+
+    # ── Tools introspection / toggles ──
+    route("/tools", get_tools_endpoint, ["GET"])
+    route("/tools/toggle", toggle_tool_endpoint, ["POST"])
+
+    # ── Bilateral graph execution (action-routed) ──
+    route("/graph/query", graph_query_endpoint, ["POST"])
+    route("/graph/search", graph_search_endpoint, ["POST"])
+    route("/graph/write", graph_write_endpoint, ["POST"])
+    route("/graph/ingest", graph_ingest_endpoint, ["POST"])
+    route("/graph/analyze", graph_analyze_endpoint, ["POST"])
+    route("/graph/orchestrate", graph_orchestrate_endpoint, ["POST"])
+    route("/graph/configure", graph_configure_endpoint, ["POST"])
+
+    # ── Granular query ──
+    route("/graph/query/federated", graph_query_federated_endpoint, ["POST"])
+
+    # ── Granular search ──
+    route("/graph/search/hybrid", graph_search_hybrid_endpoint, ["POST"])
+    route("/graph/search/concept", graph_search_concept_endpoint, ["POST"])
+    route("/graph/search/analogy", graph_search_analogy_endpoint, ["POST"])
+    route("/graph/search/memory", graph_search_memory_endpoint, ["POST"])
+    route("/graph/search/discover", graph_search_discover_endpoint, ["POST"])
+    route("/graph/search/dci", graph_search_dci_endpoint, ["POST"])
+
+    # ── Granular write ──
+    route("/graph/write/node", graph_write_node_endpoint, ["POST"])
+    route("/graph/write/node/{node_id}", graph_write_delete_node_endpoint, ["DELETE"])
+    route("/graph/write/edge", graph_write_edge_endpoint, ["POST"])
+    route("/graph/write/edge", graph_write_delete_edge_endpoint, ["DELETE"])
+    route("/graph/write/external", graph_write_external_endpoint, ["POST"])
+    route("/graph/write/bulk", graph_write_bulk_endpoint, ["POST"])
+    route("/graph/write/memory", graph_write_memory_endpoint, ["POST"])
+    route("/graph/write/memory/recall", graph_write_memory_recall_endpoint, ["POST"])
+    route("/graph/write/chat", graph_write_chat_endpoint, ["POST"])
+    route("/graph/write/sdd", graph_write_sdd_endpoint, ["POST"])
+    route("/graph/write/execution", graph_write_execution_endpoint, ["POST"])
+
+    # ── Granular ingest ──
+    route("/graph/ingest/submit", graph_ingest_submit_endpoint, ["POST"])
+    route("/graph/ingest/corpus", graph_ingest_corpus_endpoint, ["POST"])
+    route("/graph/ingest/jobs", graph_ingest_jobs_endpoint, ["GET"])
+    route("/graph/ingest/job/{job_id}", graph_ingest_job_status_endpoint, ["GET"])
+    route("/graph/ingest/rebuild-indexes", graph_ingest_rebuild_indexes_endpoint, ["POST"])
+    route("/graph/ingest/observe", graph_ingest_observe_endpoint, ["POST"])
+    route("/graph/ingest/materialize", graph_ingest_materialize_endpoint, ["POST"])
+    route("/graph/ingest/sync", graph_ingest_sync_endpoint, ["POST"])
+    route("/graph/ingest/reflect", graph_ingest_reflect_endpoint, ["POST"])
+    route("/graph/ingest/agent-toolkit", graph_ingest_agent_toolkit_endpoint, ["POST"])
+    route("/graph/ingest/knowledge-pack", graph_ingest_knowledge_pack_endpoint, ["POST"])
+
+    # ── Granular analyze ──
+    route("/graph/analyze/synthesize", graph_analyze_synthesize_endpoint, ["POST"])
+    route("/graph/analyze/deep-extract", graph_analyze_deep_extract_endpoint, ["POST"])
+    route("/graph/analyze/background-research", graph_analyze_background_research_endpoint, ["POST"])
+    route("/graph/analyze/relevance-sweep", graph_analyze_relevance_sweep_endpoint, ["POST"])
+    route("/graph/analyze/blast-radius", graph_analyze_blast_radius_endpoint, ["GET"])
+    route("/graph/analyze/inspect", graph_analyze_inspect_endpoint, ["GET"])
+    route("/graph/analyze/context", graph_analyze_context_endpoint, ["POST"])
+    route("/graph/analyze/evaluate-alpha", graph_analyze_evaluate_alpha_endpoint, ["POST"])
+    route("/graph/analyze/evaluate", graph_analyze_evaluate_endpoint, ["POST"])
+    route("/graph/analyze/evolve-model", graph_analyze_evolve_model_endpoint, ["POST"])
+    route("/graph/analyze/forecast", graph_analyze_forecast_endpoint, ["POST"])
+    route("/graph/analyze/causal", graph_analyze_causal_endpoint, ["POST"])
+    route("/graph/analyze/invariant", graph_analyze_invariant_endpoint, ["POST"])
+    route("/graph/analyze/security-scan", graph_analyze_security_scan_endpoint, ["POST"])
+
+    # ── Granular orchestrate ──
+    route("/graph/orchestrate/dispatch", graph_orchestrate_dispatch_endpoint, ["POST"])
+    route("/graph/orchestrate/job/{job_id}", graph_orchestrate_status_endpoint, ["GET"])
+    route("/graph/orchestrate/request-approval", graph_orchestrate_request_approval_endpoint, ["POST"])
+    route("/graph/orchestrate/grant-approval", graph_orchestrate_grant_approval_endpoint, ["POST"])
+    route("/graph/orchestrate/execute-agent", graph_orchestrate_execute_agent_endpoint, ["POST"])
+    route("/graph/orchestrate/consensus", graph_orchestrate_consensus_endpoint, ["POST"])
+    route("/graph/orchestrate/start-debate", graph_orchestrate_start_debate_endpoint, ["POST"])
+    route("/graph/orchestrate/submit-risk-veto", graph_orchestrate_submit_risk_veto_endpoint, ["POST"])
+    route("/graph/orchestrate/cron-jobs", graph_orchestrate_list_cron_jobs_endpoint, ["GET"])
+    route("/graph/orchestrate/trigger-cron-job", graph_orchestrate_trigger_cron_job_endpoint, ["POST"])
+    route("/graph/orchestrate/compile-workflow", graph_orchestrate_compile_workflow_endpoint, ["POST"])
+    route("/graph/orchestrate/workflows", graph_orchestrate_list_workflows_endpoint, ["GET"])
+    route("/graph/orchestrate/execute-workflow", graph_orchestrate_execute_workflow_endpoint, ["POST"])
+    route("/graph/orchestrate/dispatch-workflow", graph_orchestrate_dispatch_workflow_endpoint, ["POST"])
+    route("/graph/orchestrate/workflow-status/{job_id}", graph_orchestrate_workflow_status_endpoint, ["GET"])
+    route("/graph/orchestrate/export-workflow", graph_orchestrate_export_workflow_endpoint, ["POST"])
+
+    # ── Granular configure ──
+    route("/graph/configure/secret", graph_configure_secret_endpoint, ["POST"])
+    route("/graph/configure/register-mcp", graph_configure_register_mcp_endpoint, ["POST"])
+    route("/graph/configure/install-hooks", graph_configure_install_hooks_endpoint, ["POST"])
+    route("/graph/configure/uninstall-hooks", graph_configure_uninstall_hooks_endpoint, ["POST"])
+    route("/graph/configure/doctor", graph_configure_doctor_endpoint, ["POST"])
+
+
+def mcp_server() -> None:
+    """``graph-os`` MCP server entry point (registered as console_scripts).
+
+    Thin FastMCP wrapper following the standard ``mcp_server.py`` template: it
+    serves ONLY the MCP tool surface, over ``stdio`` or ``streamable-http`` (or
+    legacy ``sse``), selected by the standard ``--transport/--host/--port`` args
+    from :func:`create_mcp_server`. The REST API (``/graph/*``, ``/sessions``,
+    ``/goals``, ``/tools``) is centralized in the API gateway
+    (``agent_utilities.gateway``) — see :func:`_mount_rest_routes`.
+    """
     os.environ["IS_KG_SERVER"] = "true"
     args, mcp, middlewares = _build_server()
 
-    # Apply middleware stack
+    # Apply the middleware stack assembled by the factory.
     for middleware in middlewares:
         mcp.add_middleware(middleware)
 
+    transport = getattr(args, "transport", "stdio")
+    host = getattr(args, "host", "0.0.0.0")
+    port = int(getattr(args, "port", 8000))
+
     logger.info(
-        "Starting Knowledge Graph MCP Server (transport=%s, port=%s)",
-        args.transport,
-        args.port,
+        "Starting graph-os MCP Server (transport=%s, host=%s, port=%s)",
+        transport,
+        host,
+        port,
     )
 
-    if args.transport == "stdio":
+    if transport == "stdio":
         mcp.run(transport="stdio")
+    elif transport == "streamable-http":
+        mcp.run(transport="streamable-http", host=host, port=port)
+    elif transport == "sse":
+        mcp.run(transport="sse", host=host, port=port)
     else:
-        import anyio
-        import uvicorn
+        mcp.run(transport="stdio")
 
-        app = mcp.http_app()
 
-        # Mount standard Starlette sessions and goals REST endpoints
-        from agent_utilities.core.sessions import (
-            cancel_goal,
-            cancel_session_run,
-            create_goal,
-            delete_session,
-            get_all_sessions,
-            get_goal_iterations,
-            get_session_details,
-            list_goals,
-            submit_session_reply,
-        )
-
-        app.add_route("/sessions", get_all_sessions, methods=["GET"])
-        app.add_route("/sessions/{session_id}", get_session_details, methods=["GET"])
-        app.add_route("/sessions/{session_id}", delete_session, methods=["DELETE"])
-        app.add_route(
-            "/sessions/{session_id}/reply", submit_session_reply, methods=["POST"]
-        )
-        app.add_route(
-            "/sessions/{session_id}/cancel", cancel_session_run, methods=["POST"]
-        )
-        app.add_route("/goals", create_goal, methods=["POST"])
-        app.add_route("/goals", list_goals, methods=["GET"])
-        app.add_route(
-            "/goals/{goal_id}/iterations", get_goal_iterations, methods=["GET"]
-        )
-        app.add_route("/goals/{goal_id}/cancel", cancel_goal, methods=["POST"])
-
-        # Mount new Tools and Graph endpoints
-        app.add_route("/tools", get_tools_endpoint, methods=["GET"])
-        app.add_route("/tools/toggle", toggle_tool_endpoint, methods=["POST"])
-
-        # Bilateral Graph execution routes
-        app.add_route("/graph/query", graph_query_endpoint, methods=["POST"])
-        app.add_route("/graph/search", graph_search_endpoint, methods=["POST"])
-        app.add_route("/graph/write", graph_write_endpoint, methods=["POST"])
-        app.add_route("/graph/ingest", graph_ingest_endpoint, methods=["POST"])
-        app.add_route("/graph/analyze", graph_analyze_endpoint, methods=["POST"])
-        app.add_route(
-            "/graph/orchestrate", graph_orchestrate_endpoint, methods=["POST"]
-        )
-        app.add_route("/graph/configure", graph_configure_endpoint, methods=["POST"])
-
-        # Granular Graph Query endpoints
-        app.add_route(
-            "/graph/query/federated", graph_query_federated_endpoint, methods=["POST"]
-        )
-
-        # Granular Graph Search endpoints
-        app.add_route(
-            "/graph/search/hybrid", graph_search_hybrid_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/search/concept", graph_search_concept_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/search/analogy", graph_search_analogy_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/search/memory", graph_search_memory_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/search/discover", graph_search_discover_endpoint, methods=["POST"]
-        )
-        app.add_route("/graph/search/dci", graph_search_dci_endpoint, methods=["POST"])
-
-        # Granular Graph Write endpoints
-        app.add_route("/graph/write/node", graph_write_node_endpoint, methods=["POST"])
-        app.add_route(
-            "/graph/write/node/{node_id}",
-            graph_write_delete_node_endpoint,
-            methods=["DELETE"],
-        )
-        app.add_route("/graph/write/edge", graph_write_edge_endpoint, methods=["POST"])
-        app.add_route(
-            "/graph/write/edge", graph_write_delete_edge_endpoint, methods=["DELETE"]
-        )
-        app.add_route(
-            "/graph/write/external", graph_write_external_endpoint, methods=["POST"]
-        )
-        app.add_route("/graph/write/bulk", graph_write_bulk_endpoint, methods=["POST"])
-        app.add_route(
-            "/graph/write/memory", graph_write_memory_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/write/memory/recall",
-            graph_write_memory_recall_endpoint,
-            methods=["POST"],
-        )
-        app.add_route("/graph/write/chat", graph_write_chat_endpoint, methods=["POST"])
-        app.add_route("/graph/write/sdd", graph_write_sdd_endpoint, methods=["POST"])
-        app.add_route(
-            "/graph/write/execution", graph_write_execution_endpoint, methods=["POST"]
-        )
-
-        # Granular Graph Ingest endpoints
-        app.add_route(
-            "/graph/ingest/submit", graph_ingest_submit_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/ingest/corpus", graph_ingest_corpus_endpoint, methods=["POST"]
-        )
-        app.add_route("/graph/ingest/jobs", graph_ingest_jobs_endpoint, methods=["GET"])
-        app.add_route(
-            "/graph/ingest/job/{job_id}",
-            graph_ingest_job_status_endpoint,
-            methods=["GET"],
-        )
-        app.add_route(
-            "/graph/ingest/rebuild-indexes",
-            graph_ingest_rebuild_indexes_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/ingest/observe", graph_ingest_observe_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/ingest/materialize",
-            graph_ingest_materialize_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/ingest/sync", graph_ingest_sync_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/ingest/reflect", graph_ingest_reflect_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/ingest/agent-toolkit",
-            graph_ingest_agent_toolkit_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/ingest/knowledge-pack",
-            graph_ingest_knowledge_pack_endpoint,
-            methods=["POST"],
-        )
-
-        # Granular Graph Analyze endpoints
-        app.add_route(
-            "/graph/analyze/synthesize",
-            graph_analyze_synthesize_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/analyze/deep-extract",
-            graph_analyze_deep_extract_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/analyze/background-research",
-            graph_analyze_background_research_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/analyze/relevance-sweep",
-            graph_analyze_relevance_sweep_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/analyze/blast-radius",
-            graph_analyze_blast_radius_endpoint,
-            methods=["GET"],
-        )
-        app.add_route(
-            "/graph/analyze/inspect", graph_analyze_inspect_endpoint, methods=["GET"]
-        )
-        app.add_route(
-            "/graph/analyze/context", graph_analyze_context_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/analyze/evaluate-alpha",
-            graph_analyze_evaluate_alpha_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/analyze/evaluate", graph_analyze_evaluate_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/analyze/evolve-model",
-            graph_analyze_evolve_model_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/analyze/forecast", graph_analyze_forecast_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/analyze/causal", graph_analyze_causal_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/analyze/invariant",
-            graph_analyze_invariant_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/analyze/security-scan",
-            graph_analyze_security_scan_endpoint,
-            methods=["POST"],
-        )
-
-        # Granular Graph Orchestrate endpoints
-        app.add_route(
-            "/graph/orchestrate/dispatch",
-            graph_orchestrate_dispatch_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/job/{job_id}",
-            graph_orchestrate_status_endpoint,
-            methods=["GET"],
-        )
-        app.add_route(
-            "/graph/orchestrate/request-approval",
-            graph_orchestrate_request_approval_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/grant-approval",
-            graph_orchestrate_grant_approval_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/execute-agent",
-            graph_orchestrate_execute_agent_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/consensus",
-            graph_orchestrate_consensus_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/start-debate",
-            graph_orchestrate_start_debate_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/submit-risk-veto",
-            graph_orchestrate_submit_risk_veto_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/cron-jobs",
-            graph_orchestrate_list_cron_jobs_endpoint,
-            methods=["GET"],
-        )
-        app.add_route(
-            "/graph/orchestrate/trigger-cron-job",
-            graph_orchestrate_trigger_cron_job_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/compile-workflow",
-            graph_orchestrate_compile_workflow_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/workflows",
-            graph_orchestrate_list_workflows_endpoint,
-            methods=["GET"],
-        )
-        app.add_route(
-            "/graph/orchestrate/execute-workflow",
-            graph_orchestrate_execute_workflow_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/dispatch-workflow",
-            graph_orchestrate_dispatch_workflow_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/orchestrate/workflow-status/{job_id}",
-            graph_orchestrate_workflow_status_endpoint,
-            methods=["GET"],
-        )
-        app.add_route(
-            "/graph/orchestrate/export-workflow",
-            graph_orchestrate_export_workflow_endpoint,
-            methods=["POST"],
-        )
-
-        # Granular Graph Configure endpoints
-        app.add_route(
-            "/graph/configure/secret", graph_configure_secret_endpoint, methods=["POST"]
-        )
-        app.add_route(
-            "/graph/configure/register-mcp",
-            graph_configure_register_mcp_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/configure/install-hooks",
-            graph_configure_install_hooks_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/configure/uninstall-hooks",
-            graph_configure_uninstall_hooks_endpoint,
-            methods=["POST"],
-        )
-        app.add_route(
-            "/graph/configure/doctor", graph_configure_doctor_endpoint, methods=["POST"]
-        )
-
-        app = CentralizedCypherMiddleware(app)
-
-        logger.info(
-            "Starting Knowledge Graph MCP Server over wrapped transport on %s:%s",
-            args.host,
-            args.port,
-        )
-
-        config = uvicorn.Config(
-            app,
-            host=args.host,
-            port=args.port,
-            log_level="info",
-        )
-        server = uvicorn.Server(config)
-        anyio.run(server.serve)
+# Back-compat alias — the previous console_scripts entry and some docs/tooling
+# reference ``main``; keep it pointing at the new thin entry point.
+main = mcp_server
 
 
 if __name__ == "__main__":
-    main()
+    mcp_server()
