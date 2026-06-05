@@ -4,7 +4,10 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.mcp_utilities import create_mcp_parser, load_mcp_config
+from agent_utilities.mcp_utilities import (
+    create_mcp_parser,
+    load_mcp_servers_from_config,
+)
 
 
 def test_mcp_parser_defaults():
@@ -29,7 +32,7 @@ def test_mcp_parser_custom():
 def test_load_mcp_config_empty(tmp_path):
     config_path = tmp_path / "mcp_config.json"
     # File doesn't exist
-    servers = load_mcp_config(config_path)
+    servers = load_mcp_servers_from_config(config_path)
     assert servers == []
 
 
@@ -44,7 +47,7 @@ def test_load_mcp_config_valid(tmp_path):
 
     with patch("pydantic_ai.mcp.load_mcp_servers") as mock_load:
         mock_load.return_value = [MagicMock()]
-        servers = load_mcp_config(config_path)
+        servers = load_mcp_servers_from_config(config_path)
         assert len(servers) == 1
         mock_load.assert_called_once()
 
@@ -56,7 +59,7 @@ def test_load_mcp_config_env_expansion(tmp_path):
     config_path.write_text(json.dumps(config_data))
 
     with patch("pydantic_ai.mcp.load_mcp_servers"):
-        load_mcp_config(config_path)
+        load_mcp_servers_from_config(config_path)
         # Verify that expand_env_vars was called (implicitly by checking temp file content is not possible here without more mocks,
         # but we can assume base_utilities.expand_env_vars works)
         pass

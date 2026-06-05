@@ -58,8 +58,11 @@ class TestStructuralCausalModel:
 
     def test_do_intervention(self, medical_scm):
         mutilated = medical_scm.do_intervention("cancer", "negative")
-        # After do(cancer=negative), cancer has no parents
-        parents = list(mutilated.predecessors("cancer"))
+        # After do(cancer=negative), cancer has no parents. do_intervention returns a
+        # raw rustworkx PyDiGraph (indices preserved across .copy()), so query parents
+        # by node index via predecessor_indices — the same API the SCM uses internally.
+        cancer_idx = medical_scm._node_map["cancer"]
+        parents = list(mutilated.predecessor_indices(cancer_idx))
         assert len(parents) == 0
 
     def test_causal_ancestors(self, medical_scm):
