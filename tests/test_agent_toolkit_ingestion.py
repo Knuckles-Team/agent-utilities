@@ -461,12 +461,11 @@ class TestUnifiedIngestion:
                 r1 = await engine.ingest_agent_toolkit([str(mcp_config)])
                 assert r1["mcp_servers"] == 1
 
-                # Second ingestion — should skip due to freshness (if backend existed)
-                # Without backend, it will re-ingest (expected for memory-only mode)
+                # Second ingestion — the server is now fresh in the KG, so the
+                # config-hash freshness check skips re-ingesting it (idempotent).
                 r2 = await engine.ingest_agent_toolkit([str(mcp_config)])
-                assert (
-                    r2["mcp_servers"] == 1
-                )  # Re-ingested (no backend for freshness check)
+                assert r2["mcp_servers"] == 0  # Skipped, not re-ingested
+                assert r2["skipped"] == 1
 
     @pytest.mark.asyncio
     async def test_ingest_real_portainer_config(self):
