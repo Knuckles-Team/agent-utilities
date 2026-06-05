@@ -86,7 +86,7 @@ class TestDiversityPreservingConsolidation:
         new = [0.0, 1.0, 0.0, 0.0, 0.0]
         fisher = [0.5, 0.5, 0.1, 0.1, 0.1]
         all_emb = np.random.randn(20, 5)
-        result = regularizer.diversity_preserving_synthesis(
+        result = regularizer.diversity_preserving_consolidation(
             old,
             new,
             fisher,
@@ -102,7 +102,7 @@ class TestDiversityPreservingConsolidation:
         new = [0.0, 1.0, 0.0]
         fisher = [10.0, 0.0, 0.0]  # High Fisher on dim 0 → resist change
         all_emb = np.random.randn(20, 3)
-        result = regularizer.diversity_preserving_synthesis(
+        result = regularizer.diversity_preserving_consolidation(
             old,
             new,
             fisher,
