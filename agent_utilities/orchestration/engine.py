@@ -153,26 +153,95 @@ class AgentOrchestrationEngine:
 
     # --- Dynamic Team Synthesis ---
     def synthesize_team(
-        self, query: str, domain: str, complexity: float = 1.0, **kwargs: Any
+        self,
+        query: str,
+        domain: str,
+        complexity: float = 1.0,
+        delegated_authority: str | None = None,
+        **kwargs: Any,
     ) -> Any:
-        """Synthesize a subagent team based on KG graph analysis.
-        Replaces legacy AgentOrchestrationEngine team synthesis.
+        """Synthesize a subagent team for a domain via KG analysis.
+
+        Topology scoping runs on the **epistemic-graph compute layer**
+        (``get_blast_radius`` over the out-of-process tokio/MessagePack engine — not
+        PyO3/FFI, not scipy/sklearn), which bounds the candidate agents to the domain
+        sub-graph. The agent roster and each agent's tools are then resolved from the
+        graph store, and when a ``delegated_authority`` is supplied the roster is
+        restricted to agents authorised for it (CONCEPT:ORCH-1.3 governance). Replaces
+        legacy AgentOrchestrationEngine team synthesis.
         """
         logger.info(f"Synthesizing team for {domain} (complexity: {complexity})")
-        # Delegate to Rust graph compute for sub-graph pattern matching
         assert (
             self.engine is not None
         ), "IntelligenceGraphEngine is required for team synthesis"
-        team_nodes = self.engine.graph_compute.get_blast_radius(
-            f"domain:{domain}", max_depth=2
-        )
 
         import uuid
 
         from agent_utilities.models.knowledge_graph import TeamComposition
 
+        # Epistemic-graph compute: scope candidate agents to the domain's blast radius.
+        # Coerce to a concrete id list so a missing/short-circuited compute layer simply
+        # widens the roster query rather than raising.
+        try:
+            candidate_ids = [
+                n.get("id") if isinstance(n, dict) else str(n)
+                for n in (
+                    self.engine.graph_compute.get_blast_radius(
+                        f"domain:{domain}", max_depth=2
+                    )
+                    or []
+                )
+            ]
+        except Exception:  # noqa: BLE001 - Rust compute unavailable → domain-wide roster
+            candidate_ids = []
+
+        # Resolve the agent roster from the graph store. With a delegated authority,
+        # restrict to agents authorised for it; otherwise scope by domain.
+        if delegated_authority:
+            agent_query = (
+                "MATCH (a:Agent)-[:HAS_DELEGATED_AUTHORITY_FROM|AUTHORIZED_FOR]->"
+                "(auth {id: $delegated_authority}) "
+                "WHERE size($candidate_ids) = 0 OR a.agent_id IN $candidate_ids "
+                "RETURN a.agent_id AS agent_id, a.role AS role, a.name AS name"
+            )
+        else:
+            agent_query = (
+                "MATCH (a:Agent) "
+                "WHERE a.domain = $domain "
+                "AND (size($candidate_ids) = 0 OR a.agent_id IN $candidate_ids) "
+                "RETURN a.agent_id AS agent_id, a.role AS role, a.name AS name"
+            )
+        params = {
+            "domain": domain,
+            "candidate_ids": candidate_ids,
+            "delegated_authority": delegated_authority,
+        }
+        agent_rows = self.engine.backend.execute(agent_query, params) or []
+
         agents = []
-        if not team_nodes:
+        for row in agent_rows:
+            agent_id = row.get("agent_id") or row.get("id")
+            role = row.get("role") or "general"
+            # Per-agent tool binding via the USES edge to CallableResource nodes.
+            tool_rows = (
+                self.engine.backend.execute(
+                    "MATCH (a:Agent {agent_id: $agent_id})-[:USES]->(t:CallableResource) "
+                    "RETURN t.name AS tool_name",
+                    {"agent_id": agent_id},
+                )
+                or []
+            )
+            tools = [t["tool_name"] for t in tool_rows if t.get("tool_name")]
+            agents.append(
+                {
+                    "role": role,
+                    "agent_id": agent_id,
+                    "tools": tools,
+                    "system_prompt": f"You are the {role} agent.",
+                }
+            )
+
+        if not agents:
             agents.append(
                 {
                     "role": "general",
@@ -181,22 +250,21 @@ class AgentOrchestrationEngine:
                     "system_prompt": "You are a general agent.",
                 }
             )
-        else:
-            for node in team_nodes:
-                agents.append(
-                    {
-                        "role": str(node),
-                        "agent_id": str(node),
-                        "tools": [],
-                        "system_prompt": f"You are {node}.",
-                    }
-                )
 
         return TeamComposition(
             team_id=f"team:{uuid.uuid4().hex[:12]}",
             adaptive_agent_router=agents,
-            execution_mode="parallel" if complexity > 1 else "sequential",
-            reasoning=f"Synthesized topology from blast radius of domain:{domain}",
+            execution_mode=(
+                "parallel" if (complexity > 1 or len(agents) > 1) else "sequential"
+            ),
+            reasoning=(
+                f"Synthesized {len(agents)}-agent topology for domain:{domain}"
+                + (
+                    f" under delegated authority {delegated_authority}"
+                    if delegated_authority
+                    else ""
+                )
+            ),
             confidence=0.8,
         )
 
