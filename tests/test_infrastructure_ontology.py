@@ -89,12 +89,21 @@ def test_host_ingestion_and_sparql_matchmaking(mock_inventory_file):
     assert "host:r510" in ingested
     assert "host:gr1080" in ingested
 
-    # Verify LPG relationships were correctly created in networkx graph
+    # Verify LPG relationships were correctly created. The graph engine
+    # canonicalizes the relationship under ``rel_type`` (uppercased), so read
+    # edge data via get_edge_data rather than networkx adjacency subscripting.
     assert engine.graph.has_edge("host:r510", "storage:r510")
-    assert engine.graph["host:r510"]["storage:r510"][0]["type"] == "attached_storage"
+    storage_edge = engine.graph.get_edge_data("host:r510", "storage:r510")[0]
+    assert storage_edge["rel_type"] == "ATTACHED_STORAGE"
 
     assert engine.graph.has_edge("host:gr1080", "gpu:gr1080")
-    assert engine.graph["host:gr1080"]["gpu:gr1080"][0]["type"] == "has_accelerator"
+    gpu_edge = engine.graph.get_edge_data("host:gr1080", "gpu:gr1080")[0]
+    assert gpu_edge["rel_type"] == "HAS_ACCELERATOR"
+
+    # Matchmaking runs SPARQL over the OWL backend, which needs owlready2
+    # (an optional extra). Skip that portion when it isn't installed, matching
+    # the importorskip convention used by the other OWL test modules.
+    pytest.importorskip("owlready2")
 
     # Generate matchmaking recommendations
     recs = engine.generate_matchmaking_recommendations(

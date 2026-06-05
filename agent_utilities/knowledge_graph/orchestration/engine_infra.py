@@ -307,8 +307,8 @@ class InfrastructureEngineMixin(_Base):
         default_ontology = str(
             Path(__file__).parent.parent / "ontology_infrastructure.ttl"
         )
+        # The oxigraph OWL backend was removed; use the default (owlready2).
         owl_backend = create_owl_backend(
-            backend_type="oxigraph",
             ontology_path=default_ontology,
         )
 
