@@ -29,21 +29,21 @@ def test_quant_moving_averages_and_variance():
     assert ema[1] == pytest.approx(1.5)
     assert ema[2] == pytest.approx(2.25)
 
-    # 3. Rolling Variance (window=3)
-    # Elements at index 2 are [1, 2, 3] -> mean=2. Uses population variance:
-    # Var = ((1-2)^2 + (2-2)^2 + (3-2)^2) / 3 = 2/3 ≈ 0.666667
+    # 3. Rolling Variance (window=3) — engine uses SAMPLE variance (ddof=1), per
+    # epistemic_graph.quant.rolling_variance's documented contract.
+    # Elements at index 2 are [1, 2, 3] -> mean=2.
+    # Var = ((1-2)^2 + (2-2)^2 + (3-2)^2) / (3-1) = 2/2 = 1.0
     var = eq.rolling_variance(data, 3)
     assert len(var) == 5
-    assert var[2] == pytest.approx(2.0 / 3.0)
-    assert var[3] == pytest.approx(2.0 / 3.0)
-    assert var[4] == pytest.approx(2.0 / 3.0)
+    assert var[2] == pytest.approx(1.0)
+    assert var[3] == pytest.approx(1.0)
+    assert var[4] == pytest.approx(1.0)
 
-    # 4. Rolling Z-Score (window=3)
-    # [1, 2, 3] -> mean=2, std = sqrt(2/3) ≈ 0.81649658.
-    # For element 3: (3 - 2) / sqrt(2/3) = 1.22474487
+    # 4. Rolling Z-Score (window=3) — uses the sample std = sqrt(1.0) = 1.0.
+    # For element 3: (3 - 2) / 1.0 = 1.0
     zscores = eq.rolling_zscore(data, 3)
     assert len(zscores) == 5
-    assert zscores[2] == pytest.approx(1.22474487)
+    assert zscores[2] == pytest.approx(1.0)
 
 
 def test_quant_orderbook_matching_simulation():

@@ -27,8 +27,14 @@ TTL_FILES = sorted(glob.glob(str(KG_DIR / "*.ttl")))
 
 
 def test_expected_ttl_count() -> None:
-    """There should be exactly the 20 ontology TTL files Plan 05 operates on."""
-    assert len(TTL_FILES) == 20, f"expected 20 ttl files, found {len(TTL_FILES)}: {TTL_FILES}"
+    """At least the 20 ontology TTL files Plan 05 operates on must be present.
+
+    The domain-ontology library has grown well past the original 20 (banking, legal,
+    medical, government, …); every file found is parse-checked by test_each_ttl_parses
+    below, so this guards the Plan-05 baseline against accidental removal rather than
+    pinning an exact count that legitimately grows.
+    """
+    assert len(TTL_FILES) >= 20, f"expected >= 20 ttl files, found {len(TTL_FILES)}: {TTL_FILES}"
 
 
 @pytest.mark.parametrize("ttl_path", TTL_FILES, ids=lambda p: Path(p).name)
