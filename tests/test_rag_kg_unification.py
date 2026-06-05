@@ -309,7 +309,7 @@ class TestResearchOrchestrator:
 
         orch = ResearchOrchestrator(engine=None)
 
-        report = asyncio.get_event_loop().run_until_complete(
+        report = asyncio.run(
             orch.run_research_cycle(
                 query="test",
                 papers=[],  # Empty papers list = no-op
