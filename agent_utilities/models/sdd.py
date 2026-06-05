@@ -49,9 +49,21 @@ class Task(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     # Unified fields from ExecutionStep
-    refined_subtask: str | None = None
+    refined_subtask: str | None = Field(
+        default=None,
+        description=(
+            "CONCEPT:ORCH-1.1 — Conductor-refined, self-contained restatement of this "
+            "step's goal used by the executor in lieu of the raw description when present."
+        ),
+    )
     timeout: float = 3600.0
-    access_list: list[str] = Field(default_factory=list)
+    access_list: list[str] = Field(
+        default_factory=list,
+        description=(
+            "CONCEPT:ORCH-1.3 — Visibility allow-list of upstream step ids whose results "
+            "this step may read ('all' grants full visibility; empty denies cross-step access)."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod

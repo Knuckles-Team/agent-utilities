@@ -79,8 +79,14 @@ class TestRefinedSubtaskModel:
     def test_refined_subtask_json_schema(self):
         """refined_subtask appears in the JSON schema."""
         schema = ExecutionStep.model_json_schema()
-        assert "refined_subtask" in schema["properties"]
-        desc = schema["properties"]["refined_subtask"]["description"]
+        # ExecutionStep (== Task) is self-referential (subtasks), so pydantic emits the
+        # properties under $defs behind a top-level $ref rather than at the root.
+        props = (
+            schema.get("properties")
+            or schema["$defs"][schema["$ref"].rsplit("/", 1)[-1]]["properties"]
+        )
+        assert "refined_subtask" in props
+        desc = props["refined_subtask"]["description"]
         assert "CONCEPT:ORCH-1.1" in desc
 
     def test_refined_subtask_coexists_with_input_data(self):

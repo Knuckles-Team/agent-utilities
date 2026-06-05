@@ -356,7 +356,10 @@ class MemoryOptimizationEngine:
         min_p = 1.0
         for _ in range(self._n_projections):
             direction = rng.standard_normal(d)
-            direction = float(direction / (np.linalg.norm(direction) or 1.0))
+            # Normalise the random projection vector to unit length; it must stay a
+            # d-dim array (wrapping it in float() collapsed it and raised
+            # "only 0-dimensional arrays can be converted to Python scalars").
+            direction = direction / (np.linalg.norm(direction) or 1.0)
             projection = centered @ direction
             p_value = self._simplified_normality_p(projection)
             min_p = float(min(min_p, p_value))
