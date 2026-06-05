@@ -801,28 +801,61 @@ class StructuralCausalModel:
         if x not in self._node_map or y not in self._node_map:
             return True  # Unconnected variables are trivially independent
 
-        # BFS on undirected view to check reachability excluding Z
+        # Bayes-Ball / Koller-Friedman "Reachable" algorithm. A plain undirected
+        # BFS is WRONG for d-separation: it cannot honour the collider rule (an
+        # undirected path A—C—B through a collider C∉Z must be BLOCKED, but is
+        # active for chains/forks). We track traversal direction and the set of
+        # Z-ancestors so colliders open only when Z conditions on them (or a
+        # descendant).
         try:
             xi = self._node_map[x]
             yi = self._node_map[y]
             z_indices = {self._node_map[zn] for zn in z if zn in self._node_map}
-            # Simple path check: BFS on undirected adjacency, blocking on Z
-            visited: set[int] = set()
-            queue = collections.deque([xi])
-            visited.add(xi)
+
+            # Phase I: ancestors(Z) ∪ Z — nodes whose descendant (or self) is in Z.
+            # A collider is "active" only if it lies in this set.
+            z_ancestors: set[int] = set()
+            stack = list(z_indices)
+            while stack:
+                n = stack.pop()
+                if n in z_ancestors:
+                    continue
+                z_ancestors.add(n)
+                stack.extend(self._graph.predecessor_indices(n))
+
+            # Phase II: BFS over (node, direction) trail states from X.
+            # direction True  = arriving going "up"   (from a child, via child→parent)
+            # direction False = arriving going "down" (from a parent, via parent→child)
+            visited: set[tuple[int, bool]] = set()
+            queue = collections.deque([(xi, True)])
             while queue:
-                current = queue.popleft()
-                if current == yi:
-                    return False  # Path found, not d-separated
-                # Get both predecessors and successors (undirected)
-                neighbors = set(self._graph.successor_indices(current)) | set(
-                    self._graph.predecessor_indices(current)
-                )
-                for nb in neighbors:
-                    if nb not in visited and nb not in z_indices:
-                        visited.add(nb)
-                        queue.append(nb)
-            return True  # No path found
+                node, going_up = queue.popleft()
+                if (node, going_up) in visited:
+                    continue
+                visited.add((node, going_up))
+
+                # A reached node not in Z is d-connected to X.
+                if node != xi and node not in z_indices and node == yi:
+                    return False
+
+                if going_up and node not in z_indices:
+                    # Trail going up through a non-collider, non-conditioned node:
+                    # may continue up to parents and down to children.
+                    for parent in self._graph.predecessor_indices(node):
+                        queue.append((parent, True))
+                    for child in self._graph.successor_indices(node):
+                        queue.append((child, False))
+                elif not going_up:
+                    if node not in z_indices:
+                        # Pass-through (chain/fork tail): continue down to children.
+                        for child in self._graph.successor_indices(node):
+                            queue.append((child, False))
+                    if node in z_ancestors:
+                        # Collider that is conditioned on (or has a descendant in Z):
+                        # the trail bounces back up to the parents.
+                        for parent in self._graph.predecessor_indices(node):
+                            queue.append((parent, True))
+            return True  # Y not reachable on any active trail → d-separated
         except Exception:
             return True
 
