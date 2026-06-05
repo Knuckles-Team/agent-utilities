@@ -205,24 +205,37 @@ def start_epistemic_graph_server():
         yield None
 
 
+import importlib
 import sys
 from unittest.mock import MagicMock
 
-# Removed numpy mocks to prevent PyBind11 PyCapsule crash
-sys.modules["scipy"] = MagicMock()
-sys.modules["scipy.stats"] = MagicMock()
-sys.modules["pandas"] = MagicMock()
-sys.modules["sklearn"] = MagicMock()
-sys.modules["sklearn.linear_model"] = MagicMock()
-sys.modules["statsmodels"] = MagicMock()
-sys.modules["statsmodels.tsa.stattools"] = MagicMock()
-sys.modules["hmmlearn"] = MagicMock()
-sys.modules["hmmlearn.hmm"] = MagicMock()
-sys.modules["yfinance"] = MagicMock()
-sys.modules["torch"] = MagicMock()
-sys.modules["torch.nn"] = MagicMock()
-sys.modules["sklearn.metrics"] = MagicMock()
-sys.modules["sklearn.preprocessing"] = MagicMock()
-
-for mod_name in ["pandas", "torch", "scipy", "sklearn"]:
-    sys.modules[mod_name].__version__ = "2.2.0"  # type: ignore
+# Optional heavy dependencies. These are mocked ONLY when genuinely absent, so the
+# suite still *collects* on a minimal env — but when the real library is installed
+# we use it. Mocking these unconditionally (the previous behaviour) shadowed the real
+# libraries with MagicMocks for the whole session and silently broke every test that
+# needed real pandas/scipy/sklearn/torch (e.g. the finance pipeline). numpy is never
+# mocked (a MagicMock numpy triggers a PyBind11 PyCapsule crash).
+_OPTIONAL_HEAVY_DEPS = [
+    "scipy",
+    "scipy.stats",
+    "pandas",
+    "sklearn",
+    "sklearn.linear_model",
+    "sklearn.metrics",
+    "sklearn.preprocessing",
+    "statsmodels",
+    "statsmodels.tsa.stattools",
+    "hmmlearn",
+    "hmmlearn.hmm",
+    "yfinance",
+    "torch",
+    "torch.nn",
+]
+for _mod_name in _OPTIONAL_HEAVY_DEPS:
+    try:
+        importlib.import_module(_mod_name)
+    except Exception:  # noqa: BLE001 — any import failure → fall back to a mock
+        mock = MagicMock()
+        # Give the mock a plausible __version__ so version-probing code doesn't choke.
+        mock.__version__ = "0.0.0-mock"
+        sys.modules[_mod_name] = mock
