@@ -262,6 +262,25 @@ ignore_missing_imports = true
 check_untyped_defs = true
 disallow_untyped_defs = false
 
+# --- mypy debt baseline (see .specify/reports/mypy-remediation-plan.md) ---
+# 596 of ~723 errors are [attr-defined] false positives from pydantic-graph generic
+# state/deps access: mypy cannot resolve concrete fields (ctx.state.query,
+# node.plan, NodeSnapshot.run_id, ...) through BaseNode[StateT, ...] /
+# GraphRunContext[StateT, DepsT]. These are framework-pattern noise, not bugs.
+# Scope the suppression to attr-defined in the five graph/checkpoint hot files ONLY,
+# so every other module — and all NEW code — stays strictly checked. The real fix
+# (typed State/Deps protocols on each node generic) is tracked in the remediation
+# plan as Phase 2; remove an entry here as each file is properly annotated.
+[[tool.mypy.overrides]]
+module = [
+    "agent_utilities.graph._router_impl",
+    "agent_utilities.graph.executor",
+    "agent_utilities.graph.verification",
+    "agent_utilities.graph.hierarchical_planner",
+    "agent_utilities.core.checkpoint.manager",
+]
+disable_error_code = ["attr-defined"]
+
 [dependency-groups]
 
 
