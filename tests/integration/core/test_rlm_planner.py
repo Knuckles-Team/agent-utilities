@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_utilities.graph.executor import GraphDeps, GraphState
+from agent_utilities.graph.executor import GraphDeps, GraphState  # type: ignore[attr-defined]
 from agent_utilities.graph.steps import router_step
 
 

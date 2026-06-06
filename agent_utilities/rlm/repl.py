@@ -718,7 +718,11 @@ class RLMEnvironment:
                             f"Execution STDOUT:\n{stdout[:2000]}\n\n"
                             f"CRITICAL: {validation_err}"
                         )
-                        history.append(ModelRequest(parts=[UserPromptPart(content=stdout_feedback)]))
+                        history.append(
+                            ModelRequest(
+                                parts=[UserPromptPart(content=stdout_feedback)]
+                            )
+                        )
                         continue
 
                     run_trace.final_status = "success"  # CONCEPT:ORCH-1.29
@@ -745,7 +749,11 @@ class RLMEnvironment:
                         del self.vars["__FINAL__"]
                         history.append(
                             ModelRequest(
-                                parts=[UserPromptPart(content=f"CRITICAL: {validation_err}")]
+                                parts=[
+                                    UserPromptPart(
+                                        content=f"CRITICAL: {validation_err}"
+                                    )
+                                ]
                             )
                         )
                         continue

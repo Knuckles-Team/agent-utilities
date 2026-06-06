@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 86
+total_concepts: 92
 total_pillars: 12
 pillars:
 - AHE-3
@@ -165,6 +165,14 @@ concepts:
   - agent_utilities/server/app.py
   - agent_utilities/server/routers/benchmark.py
   doc: LongMemEval-S validation harness
+- id: AHE-3.13
+  name: pre-emit quality gate on the live execution path
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/core/execution/engine.py
+  - agent_utilities/harness/quality_gates.py
+  doc: pre-emit quality gate on the live execution path
 - id: CTX-1.0
   name: Nested Subfolder Instructions
   pillar: CTX-1
@@ -838,6 +846,18 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   doc: Rust-Accelerated Reasoning
+- id: KG-2.24
+  name: Live Refreshable Artifact models + bounded-JSON + safe interpolation
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/gateway/artifacts_api.py
+  - agent_utilities/knowledge_graph/live_artifacts/__init__.py
+  - agent_utilities/knowledge_graph/live_artifacts/models.py
+  - agent_utilities/knowledge_graph/live_artifacts/refresh.py
+  - agent_utilities/knowledge_graph/live_artifacts/store.py
+  - agent_utilities/server/app.py
+  doc: Live Refreshable Artifact models + bounded-JSON + safe interpolation
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -879,6 +899,7 @@ concepts:
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/hierarchical_planner.py
   - agent_utilities/graph/horizon_curriculum.py
+  - agent_utilities/graph/nodes.py
   - agent_utilities/graph/routing/strategies/llm_planner.py
   - agent_utilities/graph/state.py
   - agent_utilities/graph/subagent_patterns.py
@@ -928,9 +949,10 @@ concepts:
   - agent_utilities/models/mcp.py
   - agent_utilities/models/model_registry.py
   - agent_utilities/protocols/a2a_config.py
+  - agent_utilities/workflows/skill_picker.py
   doc: Invalidate hot cache so routing reflects new self-knowledge
 - id: ORCH-1.3
-  name: Execution Budget. Defines caps for this session
+  name: Visibility allow-list of upstream step ids whose results
   pillar: ORCH-1
   status: live
   code_paths:
@@ -946,11 +968,12 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/sdd.py
   - agent_utilities/models/usage.py
+  - agent_utilities/orchestration/engine.py
   - agent_utilities/protocols/a2a_graph_skill.py
   - agent_utilities/sdd/orchestrator.py
   - agent_utilities/security/execution_stability_engine.py
   - agent_utilities/tools/sdd_tools.py
-  doc: Execution Budget. Defines caps for this session
+  doc: Visibility allow-list of upstream step ids whose results
 - id: ORCH-1.3b
   name: ORCH-1.3b
   pillar: ORCH-1
@@ -1157,6 +1180,39 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/execution_manifest.py
   doc: KG-Governed Agent Swarm
+- id: ORCH-1.33
+  name: additive multi-CLI adapter dispatch. When a manifest requests an external runtime
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/execution/adapters/__init__.py
+  - agent_utilities/core/execution/adapters/base.py
+  - agent_utilities/core/execution/adapters/defs/__init__.py
+  - agent_utilities/core/execution/adapters/executor.py
+  - agent_utilities/core/execution/adapters/registry.py
+  - agent_utilities/core/execution/engine.py
+  - agent_utilities/core/execution/stream_handlers.py
+  doc: additive multi-CLI adapter dispatch. When a manifest requests an external runtime
+- id: ORCH-1.34
+  name: BYOK provider-normalizing proxy router
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/credentials.py
+  - agent_utilities/core/execution/provider_proxy.py
+  - agent_utilities/security/egress.py
+  - agent_utilities/server/app.py
+  - agent_utilities/server/routers/proxy.py
+  doc: BYOK provider-normalizing proxy router
+- id: ORCH-1.35
+  name: Held-turn registry for mid-turn tool-result injection
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/execution/held_turns.py
+  - agent_utilities/security/sidecar_runtime.py
+  - agent_utilities/server/routers/human.py
+  doc: Held-turn registry for mid-turn tool-result injection
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
@@ -1325,6 +1381,15 @@ concepts:
   code_paths:
   - agent_utilities/security/tool_guard.py
   doc: Ontological Guardrail Engine
+- id: OS-5.11
+  name: Run-Scoped Tool Token
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/cli/__init__.py
+  - agent_utilities/cli/__main__.py
+  - agent_utilities/security/run_token.py
+  doc: Run-Scoped Tool Token
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

@@ -580,9 +580,7 @@ class EpistemicGraphBackend(GraphBackend):
                 if m_alias and "." in it:
                     prop = m_alias.group(1)
                     value = self._node_value(nid, data, prop)
-                    has_explicit_alias = (
-                        m_alias.lastindex and m_alias.lastindex >= 2
-                    )
+                    has_explicit_alias = m_alias.lastindex and m_alias.lastindex >= 2
                     if has_explicit_alias:
                         row[m_alias.group(2)] = value
                     else:

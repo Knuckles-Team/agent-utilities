@@ -13,7 +13,7 @@ automated fallback strategies for resilience in production workflows.
 import asyncio
 import logging
 import os
-from typing import cast, Any
+from typing import Any, cast
 
 from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_graph import End
@@ -40,7 +40,7 @@ from ..models import (
 )
 from .hsm import check_specialist_preconditions, on_enter_specialist, on_exit_specialist
 from .protocol_agnostic_execution import execute_graph
-from .state import GraphDeps, GraphState
+from .state import GraphDeps
 
 logger = logging.getLogger(__name__)
 
@@ -481,9 +481,7 @@ def get_step_descriptions() -> str:
     return "\n".join([f"- {k}: {v}" for k, v in steps.items()])
 
 
-async def _execute_dynamic_mcp_agent(
-    ctx: StepContext, agent_info: MCPAgent
-) -> str:
+async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> str:
     """Execute a dynamically generated specialist agent from an MCP server registry.
 
     This implements a resilient execution protocol including:
@@ -1505,9 +1503,7 @@ async def _execute_specialized_step(
         return "error_recovery"
 
 
-async def _execute_domain_logic(
-    ctx: StepContext, domain: str
-):
+async def _execute_domain_logic(ctx: StepContext, domain: str):
     """Core logic to execute a domain-specific agent or sub-graph.
 
     This implements the 'Data & Lifestyle' and 'Media & HomeLab' layers of

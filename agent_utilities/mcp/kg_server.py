@@ -74,7 +74,7 @@ def _build_dummy_request(path_params=None, json_body=None):
         async def mock_json():
             return json_body
 
-        setattr(req, "json", mock_json)
+        req.json = mock_json
     return req
 
 
@@ -3392,53 +3392,133 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/ingest/corpus", graph_ingest_corpus_endpoint, ["POST"])
     route("/graph/ingest/jobs", graph_ingest_jobs_endpoint, ["GET"])
     route("/graph/ingest/job/{job_id}", graph_ingest_job_status_endpoint, ["GET"])
-    route("/graph/ingest/rebuild-indexes", graph_ingest_rebuild_indexes_endpoint, ["POST"])
+    route(
+        "/graph/ingest/rebuild-indexes", graph_ingest_rebuild_indexes_endpoint, ["POST"]
+    )
     route("/graph/ingest/observe", graph_ingest_observe_endpoint, ["POST"])
     route("/graph/ingest/materialize", graph_ingest_materialize_endpoint, ["POST"])
     route("/graph/ingest/sync", graph_ingest_sync_endpoint, ["POST"])
     route("/graph/ingest/reflect", graph_ingest_reflect_endpoint, ["POST"])
     route("/graph/ingest/agent-toolkit", graph_ingest_agent_toolkit_endpoint, ["POST"])
-    route("/graph/ingest/knowledge-pack", graph_ingest_knowledge_pack_endpoint, ["POST"])
+    route(
+        "/graph/ingest/knowledge-pack", graph_ingest_knowledge_pack_endpoint, ["POST"]
+    )
 
     # ── Granular analyze ──
     route("/graph/analyze/synthesize", graph_analyze_synthesize_endpoint, ["POST"])
     route("/graph/analyze/deep-extract", graph_analyze_deep_extract_endpoint, ["POST"])
-    route("/graph/analyze/background-research", graph_analyze_background_research_endpoint, ["POST"])
-    route("/graph/analyze/relevance-sweep", graph_analyze_relevance_sweep_endpoint, ["POST"])
+    route(
+        "/graph/analyze/background-research",
+        graph_analyze_background_research_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/analyze/relevance-sweep",
+        graph_analyze_relevance_sweep_endpoint,
+        ["POST"],
+    )
     route("/graph/analyze/blast-radius", graph_analyze_blast_radius_endpoint, ["GET"])
     route("/graph/analyze/inspect", graph_analyze_inspect_endpoint, ["GET"])
     route("/graph/analyze/context", graph_analyze_context_endpoint, ["POST"])
-    route("/graph/analyze/evaluate-alpha", graph_analyze_evaluate_alpha_endpoint, ["POST"])
+    route(
+        "/graph/analyze/evaluate-alpha", graph_analyze_evaluate_alpha_endpoint, ["POST"]
+    )
     route("/graph/analyze/evaluate", graph_analyze_evaluate_endpoint, ["POST"])
     route("/graph/analyze/evolve-model", graph_analyze_evolve_model_endpoint, ["POST"])
     route("/graph/analyze/forecast", graph_analyze_forecast_endpoint, ["POST"])
     route("/graph/analyze/causal", graph_analyze_causal_endpoint, ["POST"])
     route("/graph/analyze/invariant", graph_analyze_invariant_endpoint, ["POST"])
-    route("/graph/analyze/security-scan", graph_analyze_security_scan_endpoint, ["POST"])
+    route(
+        "/graph/analyze/security-scan", graph_analyze_security_scan_endpoint, ["POST"]
+    )
 
     # ── Granular orchestrate ──
     route("/graph/orchestrate/dispatch", graph_orchestrate_dispatch_endpoint, ["POST"])
     route("/graph/orchestrate/job/{job_id}", graph_orchestrate_status_endpoint, ["GET"])
-    route("/graph/orchestrate/request-approval", graph_orchestrate_request_approval_endpoint, ["POST"])
-    route("/graph/orchestrate/grant-approval", graph_orchestrate_grant_approval_endpoint, ["POST"])
-    route("/graph/orchestrate/execute-agent", graph_orchestrate_execute_agent_endpoint, ["POST"])
-    route("/graph/orchestrate/consensus", graph_orchestrate_consensus_endpoint, ["POST"])
-    route("/graph/orchestrate/start-debate", graph_orchestrate_start_debate_endpoint, ["POST"])
-    route("/graph/orchestrate/submit-risk-veto", graph_orchestrate_submit_risk_veto_endpoint, ["POST"])
-    route("/graph/orchestrate/cron-jobs", graph_orchestrate_list_cron_jobs_endpoint, ["GET"])
-    route("/graph/orchestrate/trigger-cron-job", graph_orchestrate_trigger_cron_job_endpoint, ["POST"])
-    route("/graph/orchestrate/compile-workflow", graph_orchestrate_compile_workflow_endpoint, ["POST"])
-    route("/graph/orchestrate/workflows", graph_orchestrate_list_workflows_endpoint, ["GET"])
-    route("/graph/orchestrate/execute-workflow", graph_orchestrate_execute_workflow_endpoint, ["POST"])
-    route("/graph/orchestrate/dispatch-workflow", graph_orchestrate_dispatch_workflow_endpoint, ["POST"])
-    route("/graph/orchestrate/workflow-status/{job_id}", graph_orchestrate_workflow_status_endpoint, ["GET"])
-    route("/graph/orchestrate/export-workflow", graph_orchestrate_export_workflow_endpoint, ["POST"])
+    route(
+        "/graph/orchestrate/request-approval",
+        graph_orchestrate_request_approval_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/grant-approval",
+        graph_orchestrate_grant_approval_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/execute-agent",
+        graph_orchestrate_execute_agent_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/consensus", graph_orchestrate_consensus_endpoint, ["POST"]
+    )
+    route(
+        "/graph/orchestrate/start-debate",
+        graph_orchestrate_start_debate_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/submit-risk-veto",
+        graph_orchestrate_submit_risk_veto_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/cron-jobs",
+        graph_orchestrate_list_cron_jobs_endpoint,
+        ["GET"],
+    )
+    route(
+        "/graph/orchestrate/trigger-cron-job",
+        graph_orchestrate_trigger_cron_job_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/compile-workflow",
+        graph_orchestrate_compile_workflow_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/workflows",
+        graph_orchestrate_list_workflows_endpoint,
+        ["GET"],
+    )
+    route(
+        "/graph/orchestrate/execute-workflow",
+        graph_orchestrate_execute_workflow_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/dispatch-workflow",
+        graph_orchestrate_dispatch_workflow_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/workflow-status/{job_id}",
+        graph_orchestrate_workflow_status_endpoint,
+        ["GET"],
+    )
+    route(
+        "/graph/orchestrate/export-workflow",
+        graph_orchestrate_export_workflow_endpoint,
+        ["POST"],
+    )
 
     # ── Granular configure ──
     route("/graph/configure/secret", graph_configure_secret_endpoint, ["POST"])
-    route("/graph/configure/register-mcp", graph_configure_register_mcp_endpoint, ["POST"])
-    route("/graph/configure/install-hooks", graph_configure_install_hooks_endpoint, ["POST"])
-    route("/graph/configure/uninstall-hooks", graph_configure_uninstall_hooks_endpoint, ["POST"])
+    route(
+        "/graph/configure/register-mcp", graph_configure_register_mcp_endpoint, ["POST"]
+    )
+    route(
+        "/graph/configure/install-hooks",
+        graph_configure_install_hooks_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/configure/uninstall-hooks",
+        graph_configure_uninstall_hooks_endpoint,
+        ["POST"],
+    )
     route("/graph/configure/doctor", graph_configure_doctor_endpoint, ["POST"])
 
 

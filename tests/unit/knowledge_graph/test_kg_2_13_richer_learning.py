@@ -43,7 +43,7 @@ def test_memory_edit_new_fields_defaults():
 @pytest.mark.concept(id="KG-2.13")
 def test_ungrounded_decision_is_gated_out():
     eng = _FakeEngine()
-    learner = BackgroundLearner(eng)
+    learner = BackgroundLearner(eng)  # type: ignore[arg-type]
     counts = learner.apply_edits([
         MemoryEdit(action="ADD", id="d1", content="We will use Postgres", entry_type="decision"),
     ])
@@ -54,7 +54,7 @@ def test_ungrounded_decision_is_gated_out():
 @pytest.mark.concept(id="KG-2.13")
 def test_grounded_decision_persists_with_tags_and_edges():
     eng = _FakeEngine()
-    learner = BackgroundLearner(eng)
+    learner = BackgroundLearner(eng)  # type: ignore[arg-type]
     counts = learner.apply_edits([
         MemoryEdit(
             action="ADD", id="d1", content="We will use Postgres", entry_type="decision",
@@ -72,7 +72,7 @@ def test_grounded_decision_persists_with_tags_and_edges():
 @pytest.mark.concept(id="KG-2.13")
 def test_plain_fact_not_gated():
     eng = _FakeEngine()
-    learner = BackgroundLearner(eng)
+    learner = BackgroundLearner(eng)  # type: ignore[arg-type]
     counts = learner.apply_edits([MemoryEdit(action="ADD", id="f1", content="User name is Sam")])
     assert counts["added"] == 1 and counts["gated"] == 0
 

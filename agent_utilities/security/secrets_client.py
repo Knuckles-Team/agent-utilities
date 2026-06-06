@@ -763,9 +763,7 @@ def generate_pq_kem_keypair() -> Any:
     """
     import importlib
 
-    ml_kem = importlib.import_module(
-        "cryptography.hazmat.primitives.asymmetric.ml_kem"
-    )
+    ml_kem = importlib.import_module("cryptography.hazmat.primitives.asymmetric.ml_kem")
 
     private_key = ml_kem.MLKEM768PrivateKey.generate()
     public_key = private_key.public_key()
@@ -781,9 +779,7 @@ def generate_pq_dsa_keypair() -> Any:
     """
     import importlib
 
-    ml_dsa = importlib.import_module(
-        "cryptography.hazmat.primitives.asymmetric.ml_dsa"
-    )
+    ml_dsa = importlib.import_module("cryptography.hazmat.primitives.asymmetric.ml_dsa")
 
     private_key = ml_dsa.MLDSA65PrivateKey.generate()
     public_key = private_key.public_key()

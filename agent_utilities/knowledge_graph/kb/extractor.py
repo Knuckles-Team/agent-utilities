@@ -9,8 +9,8 @@ is validated by Pydantic before entering the knowledge graph.
 """
 
 import logging
-from typing import Any
 import os
+from typing import Any
 
 from agent_utilities.core.config import config
 

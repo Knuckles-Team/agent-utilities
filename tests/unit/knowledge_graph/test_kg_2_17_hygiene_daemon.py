@@ -13,7 +13,7 @@ from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
 def _bare_mixin():
     # Construct without __init__ — _maintenance_jobs / _tick_hygiene only need the class methods.
-    return TaskManagerMixin.__new__(TaskManagerMixin)
+    return TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
 
 
 @pytest.mark.concept(id="KG-2.17")

@@ -46,7 +46,9 @@ def _risk_engine() -> Any:
 
 
 def _to_list(returns: Any) -> list[float]:
-    return returns.tolist() if hasattr(returns, "tolist") else [float(r) for r in returns]
+    return (
+        returns.tolist() if hasattr(returns, "tolist") else [float(r) for r in returns]
+    )
 
 
 @dataclass

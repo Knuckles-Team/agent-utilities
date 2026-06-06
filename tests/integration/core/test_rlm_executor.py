@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_utilities.graph.executor import (
+from agent_utilities.graph.executor import (  # type: ignore[attr-defined]
     GraphState,
     _execute_dynamic_mcp_agent,
 )

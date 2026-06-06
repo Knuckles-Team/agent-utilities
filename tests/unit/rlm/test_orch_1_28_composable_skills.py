@@ -43,7 +43,7 @@ def test_generic_adapter_small_surface_and_preserved_evaluator():
         return {"score": 1.0 if answer == "DONE" else 0.0, "calls": len(log)}
 
     env = RegistryEnvironmentAdapter(
-        calls, descriptions={"login": "auth"}, evaluator=evaluator
+        calls, descriptions={"login": "auth"}, evaluator=evaluator  # type: ignore[arg-type]
     )
     assert env.list_items() == ["login", "search"]
     assert "auth" in env.describe("login")

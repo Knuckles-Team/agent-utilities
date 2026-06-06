@@ -66,10 +66,10 @@ def test_filter_as_of_selects_temporally_correct_row():
     old = {"id": "a", "content": "lives in Boston", "valid_from": "2020-01-01T00:00:00+00:00", "valid_to": "2023-01-01T00:00:00+00:00"}
     new = {"id": "b", "content": "lives in Denver", "valid_from": "2023-01-01T00:00:00+00:00", "valid_to": None}
     rows = [old, new]
-    assert [r["id"] for r in filter_as_of(rows, "2021-06-01T00:00:00+00:00")] == ["a"]
-    assert [r["id"] for r in filter_as_of(rows, "2024-06-01T00:00:00+00:00")] == ["b"]
+    assert [r["id"] for r in filter_as_of(rows, "2021-06-01T00:00:00+00:00")] == ["a"]  # type: ignore[arg-type]
+    assert [r["id"] for r in filter_as_of(rows, "2024-06-01T00:00:00+00:00")] == ["b"]  # type: ignore[arg-type]
     # No as_of → unfiltered.
-    assert len(filter_as_of(rows, None)) == 2
+    assert len(filter_as_of(rows, None)) == 2  # type: ignore[arg-type]
 
 
 @pytest.mark.concept(id="KG-2.11")
