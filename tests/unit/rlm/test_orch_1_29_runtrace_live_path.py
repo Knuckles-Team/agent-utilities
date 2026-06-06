@@ -38,7 +38,7 @@ async def test_run_full_rlm_populates_runtrace(monkeypatch):
     async def _fake_execute(code):
         return {}, "stdout output here"
 
-    env.execute = _fake_execute  # avoid real sandbox
+    env.execute = _fake_execute  # type: ignore[method-assign]  # avoid real sandbox
 
     result = await env.run_full_rlm("analyze the data")
 
@@ -60,7 +60,7 @@ async def test_run_full_rlm_records_failure_class(monkeypatch):
     async def _boom(code):
         raise SyntaxError("unterminated string literal")
 
-    env.execute = _boom
+    env.execute = _boom  # type: ignore[method-assign]
 
     with pytest.raises(SyntaxError):
         await env.run_full_rlm("task")

@@ -26,7 +26,7 @@ from ..models import GraphResponse
 from .graph_models import ValidationResult
 from .hsm import StateInvariantError, assert_state_valid
 from .lifecycle import _emit_node_lifecycle
-from .state import GraphDeps, GraphState
+from .state import GraphDeps
 
 logger = logging.getLogger(__name__)
 

@@ -52,7 +52,7 @@ from agent_utilities.core.config import (
 from ..models import ExecutionStep, GraphPlan
 from ..tools.knowledge_tools import knowledge_tools
 from .lifecycle import _emit_node_lifecycle
-from .state import GraphDeps, GraphState
+from .state import GraphDeps
 
 logger = logging.getLogger(__name__)
 

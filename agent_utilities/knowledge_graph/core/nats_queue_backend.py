@@ -31,10 +31,18 @@ class NatsQueueBackend(QueueBackend):
         self._js: Any = None
         self._loop = None
 
-        # Check if we can connect to NATS
+        # Check if we can connect to NATS. The eager probe is HARD-BOUNDED by asyncio.wait_for:
+        # nats-py's initial-connect retry loop ignores connect_timeout/max_reconnect_attempts when the
+        # broker is absent and can spin for ~2 minutes, blowing past test/timeout budgets. wait_for
+        # cancels after a few seconds so construction always degrades to the SQLite fallback promptly.
+        eager_timeout = float(
+            os.environ.get("AGENT_UTILITIES_NATS_CONNECT_TIMEOUT", "3.0")
+        )
         try:
             self._loop = asyncio.new_event_loop()
-            self._run_sync(self._connect_nats())
+            self._run_sync(
+                asyncio.wait_for(self._connect_nats(), timeout=eager_timeout)
+            )
             logger.info("Successfully connected to NATS JetStream queue backend.")
         except Exception as e:
             logger.warning(
@@ -75,7 +83,15 @@ class NatsQueueBackend(QueueBackend):
     async def _connect_nats(self):
         if nats is None:
             raise ImportError("nats-py is not installed")
-        self._nats_client = await nats.connect(self.nats_url, connect_timeout=2.0)
+        # Fail fast during eager construction: when no broker is reachable, do NOT spend minutes
+        # retrying — degrade to the SQLite fallback in ~2s. Reconnect/retry are disabled here so a
+        # refused connection raises promptly instead of blowing past the test/timeout budget.
+        self._nats_client = await nats.connect(
+            self.nats_url,
+            connect_timeout=2.0,
+            allow_reconnect=False,
+            max_reconnect_attempts=0,
+        )
         self._js = self._nats_client.jetstream()
 
         # Ensure streams exist

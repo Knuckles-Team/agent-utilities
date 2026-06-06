@@ -207,7 +207,7 @@ async def ag_ui_endpoint(request: Request) -> Response:
                             (
                                 "chunk",
                                 chunk
-                                if isinstance(chunk, (bytes, bytearray))
+                                if isinstance(chunk, bytes | bytearray)
                                 else bytes(chunk)
                                 if isinstance(chunk, memoryview)
                                 else chunk.encode("utf-8"),
@@ -220,7 +220,7 @@ async def ag_ui_endpoint(request: Request) -> Response:
                             (
                                 "chunk",
                                 chunk
-                                if isinstance(chunk, (bytes, bytearray))
+                                if isinstance(chunk, bytes | bytearray)
                                 else bytes(chunk)
                                 if isinstance(chunk, memoryview)
                                 else chunk.encode("utf-8"),

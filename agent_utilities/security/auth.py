@@ -20,7 +20,7 @@ valid (logical OR), allowing gradual migration from API keys to JWT.
 
 import logging
 import time
-from typing import cast, Any
+from typing import Any, cast
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer

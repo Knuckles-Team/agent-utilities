@@ -44,7 +44,6 @@ from .executor import (
 )
 from .hsm import StateInvariantError, assert_state_valid
 from .lifecycle import _emit_node_lifecycle
-from .state import GraphDeps, GraphState
 
 logger = logging.getLogger(__name__)
 

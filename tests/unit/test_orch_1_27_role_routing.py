@@ -19,7 +19,7 @@ from agent_utilities.models.model_registry import (
 
 def _model(mid: str, tier: str, tags: list[str]) -> ModelDefinition:
     return ModelDefinition(
-        id=mid, name=mid, provider="openai", model_id=mid, tier=tier, tags=tags
+        id=mid, name=mid, provider="openai", model_id=mid, tier=tier, tags=tags  # type: ignore[arg-type]
     )
 
 
