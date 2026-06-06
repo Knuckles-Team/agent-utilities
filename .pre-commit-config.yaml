@@ -33,6 +33,9 @@ repos:
   - id: mypy
     additional_dependencies: [pydantic, types-PyYAML, types-requests]
     args: ["--ignore-missing-imports"]
+    # Align with ruff/bandit/codespell, which all exclude tests — the repo does
+    # not statically type-check test code (validated at runtime by pytest).
+    exclude: ^(tests/|test/|scripts/|script/)
 - repo: https://github.com/jendrikseipp/vulture
   rev: v2.16
   hooks:
@@ -44,7 +47,7 @@ repos:
   rev: v2.4.2
   hooks:
   - id: codespell
-    args: ["-L", "ans,linar,nam,tread,ot,disjointness", "--ignore-words=.codespellignore"]
+    args: ["-L", "ans,linar,nam,tread,ot,disjointness,trough", "--ignore-words=.codespellignore"]
     exclude: ^(tests/|test/|scripts/|script/|\.specify/)
 - repo: https://github.com/PyCQA/bandit
   rev: 1.9.4
