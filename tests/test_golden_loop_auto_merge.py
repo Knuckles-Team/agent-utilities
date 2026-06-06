@@ -165,7 +165,7 @@ class TestGoldenLoopAutoMergeLivePath:
 
         ctrl = GoldenLoopController(_FakeEngine(), auto_merge=auto_merge)
 
-        # Stub the synthesis primitives at their SOURCE modules (the controller
+        # Replace the synthesis primitives at their SOURCE modules (the controller
         # re-imports them at call time) so the cycle yields our team proposal
         # deterministically — no LLM / embeddings required.
         ctrl._capability_search = lambda: lambda q, top_k=5: []  # type: ignore[assignment]

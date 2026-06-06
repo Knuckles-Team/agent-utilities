@@ -173,7 +173,7 @@ def compute_backoff(
     capped = min(raw, policy.max_backoff_s)
     if not policy.jitter:
         return capped
-    _rng = rng if rng is not None else _random_module.Random()
+    _rng = rng if rng is not None else _random_module.Random()  # noqa: S311 # nosec B311 - jitter only, not security
     return capped * (0.5 + 0.5 * _rng.random())
 
 
