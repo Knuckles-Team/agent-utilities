@@ -20,7 +20,7 @@ def _claude_args(model: str, prompt: str) -> list[str]:
 
 def _generic_cmd_args(model: str, prompt: str) -> list[str]:
     # Generic single-shot CLI: model as -m, prompt as the trailing positional arg.
-    return ([f"-m", model] if model else []) + ([prompt] if prompt else [])
+    return (["-m", model] if model else []) + ([prompt] if prompt else [])
 
 
 CLAUDE_CODE = AdapterDefinition(
@@ -30,7 +30,11 @@ CLAUDE_CODE = AdapterDefinition(
     build_args=_claude_args,
     stream_format=StreamFormat.JSONL,
     prompt_delivery=PromptDelivery.STDIN_JSONL,
-    fallback_models=("claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"),
+    fallback_models=(
+        "claude-opus-4-8",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+    ),
     model_override_env_var="AGENT_UTILITIES_CLAUDE_MODEL",
 )
 
@@ -40,7 +44,11 @@ OLLAMA = AdapterDefinition(
     id="ollama",
     bin="ollama",
     version_args=("--version",),
-    build_args=lambda model, prompt: ["run", model or "llama3", *([prompt] if prompt else [])],
+    build_args=lambda model, prompt: [
+        "run",
+        model or "llama3",
+        *([prompt] if prompt else []),
+    ],
     stream_format=StreamFormat.PLAIN,
     prompt_delivery=PromptDelivery.ARGS,
     fallback_models=("llama3", "qwen2.5", "mistral"),

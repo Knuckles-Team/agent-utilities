@@ -85,6 +85,9 @@ class SHACLValidator:
                 mapped_graph.bind("kg", rdflib.Namespace("http://knuckles.team/kg#"))
 
                 casing_map = {
+                    # CONCEPT:KG-2.25 — Ontology Action System
+                    "Ontologyaction": "OntologyAction",
+                    "Actioninvocation": "ActionInvocation",
                     "Architecturedecisionrecord": "ArchitectureDecisionRecord",
                     "Optimizationpattern": "OptimizationPattern",
                     "Softwarefeature": "SoftwareFeature",

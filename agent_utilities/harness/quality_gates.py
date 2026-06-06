@@ -29,23 +29,39 @@ class Antipattern:
 
 
 DEFAULT_ANTIPATTERNS: tuple[Antipattern, ...] = (
-    Antipattern("invented-metric", r"\b\d+(\.\d+)?\s*(x|%)\s+(faster|better|more|uptime)\b",
-                "cite a source or use an honest placeholder (—)"),
-    Antipattern("filler-copy", r"\b(lorem ipsum|feature one|feature two|your text here)\b",
-                "write specific copy or leave a clearly-marked stub"),
-    Antipattern("emoji-feature-icon", r"[✨\U0001F680\U0001F3AF]",  # ✨ 🚀 🎯
-                "use a real icon set or none"),
-    Antipattern("gradient-spam", r"linear-gradient\([^)]*\).*linear-gradient\(",
-                "limit decorative gradients; prefer a flat palette"),
+    Antipattern(
+        "invented-metric",
+        r"\b\d+(\.\d+)?\s*(x|%)\s+(faster|better|more|uptime)\b",
+        "cite a source or use an honest placeholder (—)",
+    ),
+    Antipattern(
+        "filler-copy",
+        r"\b(lorem ipsum|feature one|feature two|your text here)\b",
+        "write specific copy or leave a clearly-marked stub",
+    ),
+    Antipattern(
+        "emoji-feature-icon",
+        r"[✨\U0001F680\U0001F3AF]",  # ✨ 🚀 🎯
+        "use a real icon set or none",
+    ),
+    Antipattern(
+        "gradient-spam",
+        r"linear-gradient\([^)]*\).*linear-gradient\(",
+        "limit decorative gradients; prefer a flat palette",
+    ),
 )
 
 
 class AntipatternRegistry:
     """Detects anti-slop patterns in output text."""
 
-    def __init__(self, patterns: tuple[Antipattern, ...] = DEFAULT_ANTIPATTERNS) -> None:
+    def __init__(
+        self, patterns: tuple[Antipattern, ...] = DEFAULT_ANTIPATTERNS
+    ) -> None:
         self._patterns = patterns
-        self._compiled = [(p, re.compile(p.pattern, re.IGNORECASE | re.DOTALL)) for p in patterns]
+        self._compiled = [
+            (p, re.compile(p.pattern, re.IGNORECASE | re.DOTALL)) for p in patterns
+        ]
 
     def detect(self, text: str) -> list[Antipattern]:
         """Return the antipatterns found in ``text``."""
@@ -91,7 +107,9 @@ RulePredicate = Callable[[ChecklistRule, str], bool]
 class PreflightGate:
     """Evaluate output against a P0/P1/P2 checklist. A failing P0 blocks emission in ``block`` mode."""
 
-    def __init__(self, rules: list[ChecklistRule], *, predicate: RulePredicate | None = None) -> None:
+    def __init__(
+        self, rules: list[ChecklistRule], *, predicate: RulePredicate | None = None
+    ) -> None:
         self._rules = rules
         # Default predicate: a rule passes unless its keyword(s) are absent — overridable per skill.
         self._predicate = predicate or (lambda rule, out: True)
@@ -101,8 +119,12 @@ class PreflightGate:
         failed_other: list[str] = []
         for rule in self._rules:
             if not self._predicate(rule, output):
-                (failed_p0 if rule.priority is Priority.P0 else failed_other).append(rule.text)
-        return PreflightResult(passed=not failed_p0, failed_p0=failed_p0, failed_other=failed_other)
+                (failed_p0 if rule.priority is Priority.P0 else failed_other).append(
+                    rule.text
+                )
+        return PreflightResult(
+            passed=not failed_p0, failed_p0=failed_p0, failed_other=failed_other
+        )
 
 
 # ── Multi-dimensional self-critique ──────────────────────────────────
@@ -132,8 +154,16 @@ def _heuristic_scorer(text: str) -> dict[str, int]:
     coverage = 5 if n > 400 else 4 if n > 150 else 3 if n > 40 else 1
     coherence = 4 if ("\n" in t or ". " in t) else 3 if n > 20 else 2
     evidence = 4 if re.search(r"https?://|\[\d+\]|source:", t, re.IGNORECASE) else 3
-    safety = 1 if re.search(r"\b(password|api[_-]?key|secret)\b\s*[:=]", t, re.IGNORECASE) else 5
-    specificity = 2 if re.search(r"lorem ipsum|feature one|your text here", t, re.IGNORECASE) else 4
+    safety = (
+        1
+        if re.search(r"\b(password|api[_-]?key|secret)\b\s*[:=]", t, re.IGNORECASE)
+        else 5
+    )
+    specificity = (
+        2
+        if re.search(r"lorem ipsum|feature one|your text here", t, re.IGNORECASE)
+        else 4
+    )
     return {
         "coverage": coverage,
         "coherence": coherence,
@@ -160,7 +190,9 @@ class MultiDimensionalCritique:
         weakest = min(scores, key=lambda d: scores[d]) if scores else ""
         passed = all(v >= 3 for v in scores.values())
         aps = [a.name for a in self._antipatterns.detect(output)]
-        return CritiqueResult(scores=scores, weakest=weakest, passed=passed and not aps, antipatterns=aps)
+        return CritiqueResult(
+            scores=scores, weakest=weakest, passed=passed and not aps, antipatterns=aps
+        )
 
 
 # ── Composed pre-emit gate ───────────────────────────────────────────
@@ -196,4 +228,6 @@ class PreEmitGate:
         crit = self._critique.critique(output)
         ok = (pf is None or pf.passed) and crit.passed
         blocked = (self.mode == "block") and not ok
-        return GateResult(ok=ok, blocked=blocked, preflight=pf, critique=crit, mode=self.mode)
+        return GateResult(
+            ok=ok, blocked=blocked, preflight=pf, critique=crit, mode=self.mode
+        )

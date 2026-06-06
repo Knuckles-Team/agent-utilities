@@ -155,6 +155,26 @@ class TelemetryEngine:
 
 
 # Replay Engine (OS-5.6) — Deterministic execution trace recording & replay
+# HITL Escalation Matrix (OS-5.12) — formal value/risk → approver policy
+from .escalation_matrix import (  # noqa: E402
+    EscalationDecision,
+    EscalationGate,
+    EscalationMatrix,
+    EscalationOutcome,
+    EscalationRule,
+    Fallback,
+    RiskTier,
+    ValueTier,
+    classify_risk_tier,
+    classify_value_tier,
+    make_decision_provider,
+)
+
+# Langfuse exporter (ECO-4.24) — optional auto span/token/trace export
+from .langfuse_exporter import (  # noqa: E402
+    LangfuseExporter,
+    get_langfuse_exporter,
+)
 from .replay_engine import (  # noqa: E402
     DistributedReplayEngine,
     InteractionRecord,
@@ -167,4 +187,19 @@ __all__ = [
     "DistributedReplayEngine",
     "ReplayManifest",
     "InteractionRecord",
+    # HITL Escalation Matrix (OS-5.12)
+    "EscalationMatrix",
+    "EscalationGate",
+    "EscalationRule",
+    "EscalationDecision",
+    "EscalationOutcome",
+    "RiskTier",
+    "ValueTier",
+    "Fallback",
+    "classify_risk_tier",
+    "classify_value_tier",
+    "make_decision_provider",
+    # Langfuse exporter (ECO-4.24)
+    "LangfuseExporter",
+    "get_langfuse_exporter",
 ]

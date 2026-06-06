@@ -66,7 +66,9 @@ def run(namespace: str, agent: str, task: str, *, project: str = "") -> dict[str
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="agent-utilities", description="agent-utilities dev lifecycle CLI")
+    p = argparse.ArgumentParser(
+        prog="agent-utilities", description="agent-utilities dev lifecycle CLI"
+    )
     p.add_argument("--namespace", default="default", help="isolated stack namespace")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     sub = p.add_subparsers(dest="command", required=True)
@@ -87,7 +89,11 @@ def main(argv: list[str] | None = None) -> int:
         out = run(args.namespace, args.agent, args.task, project=args.project)
     else:
         # start/stop/logs/inspect orchestrate the existing console-scripts; report intent + namespace.
-        out = {"command": args.command, "namespace": args.namespace, "components": list(COMPONENTS)}
+        out = {
+            "command": args.command,
+            "namespace": args.namespace,
+            "components": list(COMPONENTS),
+        }
     print(json.dumps(out, indent=None if args.json else 2))
     return 0
 

@@ -35,7 +35,9 @@ class RefreshResult:
     ok: bool
     reason: str = ""
     rendered: str = ""
-    at: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    at: str = field(
+        default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    )
 
 
 class RefreshService:
@@ -62,11 +64,15 @@ class RefreshService:
             candidate = artifact.model_copy(update={"data": new_data})
             candidate.validate_data()
             rendered = candidate.render()
-        except Exception as exc:  # preserve prior on ANY failure (bi-temporal valid-time)
+        except (
+            Exception
+        ) as exc:  # preserve prior on ANY failure (bi-temporal valid-time)
             artifact.data = prior_data
             artifact.last_rendered = prior_render
             self._store.put(artifact)
-            res = RefreshResult(artifact_id, ok=False, reason=str(exc), rendered=prior_render)
+            res = RefreshResult(
+                artifact_id, ok=False, reason=str(exc), rendered=prior_render
+            )
             self.refreshes.append(res)
             logger.info("refresh failed for %s (prior preserved): %s", artifact_id, exc)
             return res
@@ -74,7 +80,9 @@ class RefreshService:
         artifact.data = new_data
         artifact.last_rendered = rendered
         artifact.refresh_count += 1
-        artifact.provenance.generated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        artifact.provenance.generated_at = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+        )
         self._store.put(artifact)
         res = RefreshResult(artifact_id, ok=True, rendered=rendered)
         self.refreshes.append(res)

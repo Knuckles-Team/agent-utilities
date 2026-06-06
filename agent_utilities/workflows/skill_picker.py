@@ -97,7 +97,13 @@ class SkillPicker:
         self._success_rate = success_rate or (lambda _name: 0.5)
         self._w_keyword, self._w_success, self._w_fit = w_keyword, w_success, w_fit
 
-    def _score(self, c: SkillCandidate, q_tokens: set[str], scenario: str | None, tier: str | None) -> ScoredSkill:
+    def _score(
+        self,
+        c: SkillCandidate,
+        q_tokens: set[str],
+        scenario: str | None,
+        tier: str | None,
+    ) -> ScoredSkill:
         c_tokens = _tokenize(f"{c.name} {c.description} {' '.join(c.tags)}")
         overlap = len(q_tokens & c_tokens) / max(1, len(q_tokens)) if q_tokens else 0.0
         success = max(0.0, min(1.0, self._success_rate(c.name)))
@@ -106,8 +112,12 @@ class SkillPicker:
             fit += 0.7
         if tier and c.tier == tier:
             fit += 0.3
-        score = self._w_keyword * overlap + self._w_success * success + self._w_fit * fit
-        return ScoredSkill(c, score, {"keyword": overlap, "success": success, "fit": fit})
+        score = (
+            self._w_keyword * overlap + self._w_success * success + self._w_fit * fit
+        )
+        return ScoredSkill(
+            c, score, {"keyword": overlap, "success": success, "fit": fit}
+        )
 
     def rank(
         self,
@@ -118,13 +128,19 @@ class SkillPicker:
         tier: str | None = None,
     ) -> list[ScoredSkill]:
         """Return candidates ranked best-first. If ``scenario`` is given, filter to it first."""
-        pool = [c for c in candidates if (scenario is None or c.resolved_scenario() == scenario)]
+        pool = [
+            c
+            for c in candidates
+            if (scenario is None or c.resolved_scenario() == scenario)
+        ]
         q_tokens = _tokenize(query)
         scored = [self._score(c, q_tokens, scenario, tier) for c in pool]
         scored.sort(key=lambda s: s.score, reverse=True)
         return scored
 
-    def pick(self, query: str, candidates: list[SkillCandidate], **kw) -> SkillCandidate | None:
+    def pick(
+        self, query: str, candidates: list[SkillCandidate], **kw
+    ) -> SkillCandidate | None:
         """Return the single best skill for ``query`` (or None if no candidates)."""
         ranked = self.rank(query, candidates, **kw)
         return ranked[0].candidate if ranked else None

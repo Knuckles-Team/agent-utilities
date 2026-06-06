@@ -42,6 +42,14 @@ def _callable_nodes_with_embeddings(engine: Any) -> list[dict[str, Any]]:
     backend = getattr(engine, "backend", None)
     backend_embeddings = getattr(backend, "_embeddings", {}) or {}
 
+    # Release-channel gate (CONCEPT:OS-5.13): resolve the active channel once;
+    # callable nodes tagged with a higher channel (e.g. ``edge``) are excluded
+    # from the designation index unless the active channel admits them. On the
+    # default ``stable`` channel only stable components are routable.
+    from agent_utilities.core.release_channel import active_channel, channel_visible
+
+    current_channel = active_channel()
+
     nodes: list[dict[str, Any]] = []
     try:
         node_ids = graph.node_ids()
@@ -56,6 +64,10 @@ def _callable_nodes_with_embeddings(engine: Any) -> list[dict[str, Any]]:
         ntype = str(props.get("type", "")).lower()
         rtype = str(props.get("resource_type", "")).lower()
         if ntype not in _CALLABLE_TYPES and rtype not in _CALLABLE_TYPES:
+            continue
+        # Channel gate: hide components not released on the active channel.
+        node_channel = props.get("release_channel") or props.get("channel")
+        if node_channel and not channel_visible(node_channel, current_channel):
             continue
         emb = props.get("embedding") or backend_embeddings.get(nid)
         if not emb:

@@ -30,7 +30,7 @@ def _sse_data(line: str) -> str | None:
     if not s or s.startswith(":"):
         return None
     if s.startswith("data:"):
-        return s[len("data:"):].strip()
+        return s[len("data:") :].strip()
     return s
 
 
@@ -60,7 +60,11 @@ def normalize_chunk(provider: str, raw: str) -> list[ExecEvent]:
             if delta:
                 out.append(ExecEvent(ExecEventType.TEXT_DELTA, text=str(delta)))
             if ch.get("finish_reason"):
-                out.append(ExecEvent(ExecEventType.END, data={"finish_reason": ch["finish_reason"]}))
+                out.append(
+                    ExecEvent(
+                        ExecEventType.END, data={"finish_reason": ch["finish_reason"]}
+                    )
+                )
         return out
     # Anthropic Messages API: {type: content_block_delta, delta:{text}} / {type: message_stop}
     if p == "anthropic":
@@ -71,7 +75,12 @@ def normalize_chunk(provider: str, raw: str) -> list[ExecEvent]:
         if t == "message_stop":
             return [ExecEvent(ExecEventType.END)]
         if t == "error":
-            return [ExecEvent(ExecEventType.ERROR, text=str(obj.get("error", {}).get("message", "error")))]
+            return [
+                ExecEvent(
+                    ExecEventType.ERROR,
+                    text=str(obj.get("error", {}).get("message", "error")),
+                )
+            ]
         return []
     # Google Gemini: {candidates:[{content:{parts:[{text}]}}]}
     if p == "google":
@@ -79,7 +88,9 @@ def normalize_chunk(provider: str, raw: str) -> list[ExecEvent]:
         for cand in obj.get("candidates", []) or []:
             for part in (cand.get("content") or {}).get("parts", []) or []:
                 if part.get("text"):
-                    out_g.append(ExecEvent(ExecEventType.TEXT_DELTA, text=str(part["text"])))
+                    out_g.append(
+                        ExecEvent(ExecEventType.TEXT_DELTA, text=str(part["text"]))
+                    )
         return out_g
     return []
 
@@ -107,7 +118,9 @@ def event_to_sse(ev: ExecEvent) -> str:
     return f"data: {json.dumps(body)}\n\n"
 
 
-def check_egress(base_url: str | None, *, allow_loopback: bool = True) -> EgressDecision:
+def check_egress(
+    base_url: str | None, *, allow_loopback: bool = True
+) -> EgressDecision:
     """Validate a custom ``base_url`` (DNS-resolved SSRF guard) before any upstream fetch."""
     if not base_url:
         return EgressDecision(True, "no custom base_url")

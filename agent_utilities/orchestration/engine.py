@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 import asyncio
 import contextlib
 import json
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -525,6 +526,7 @@ class AgentOrchestrationEngine:
             except Exception as e:
                 logger.debug("run_graph: Prompt scanning skipped: %s", e)
             result = None
+            _graph_run_start = time.perf_counter()
             try:
                 if tracer:
                     with tracer.start_as_current_span(f"graph_run:{run_id}") as span:
@@ -579,6 +581,31 @@ class AgentOrchestrationEngine:
                 f"run_graph: Final state: routed_domain={state.routed_domain}, "
                 f"registry_keys={list(state.results_registry.keys())}"
             )
+
+            # --- Langfuse auto-export (CONCEPT:ECO-4.24) ---
+            # Default-on: ships this graph run as a Langfuse trace + token-usage
+            # generation when LANGFUSE_* keys are configured. No-ops cleanly when
+            # the keys/dep are absent so the live path is never affected.
+            try:
+                from ..observability.langfuse_exporter import get_langfuse_exporter
+
+                _exporter = get_langfuse_exporter()
+                if _exporter is not None:
+                    _usage: dict[str, int] = {}
+                    if isinstance(result, GraphResponse):
+                        _usage = result.metadata.get("token_usage", {}) or {}
+                    elif isinstance(result, dict):
+                        _usage = result.get("metadata", {}).get("token_usage", {}) or {}
+                    _exporter.export_graph_run(
+                        run_id=run_id,
+                        query=query,
+                        status="success" if result else "timeout",
+                        duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
+                        token_usage=_usage,
+                        metadata={"domain": state.routed_domain},
+                    )
+            except Exception as _lf_exc:  # noqa: BLE001 — export must never crash a run
+                logger.debug("run_graph: Langfuse export skipped: %s", _lf_exc)
 
         if isinstance(result, GraphResponse):
             result.mermaid = mermaid_prefix if mermaid_prefix else None
@@ -1272,7 +1299,7 @@ class AgentOrchestrationEngine:
             tasks = []
             for i in range(min(max_fan_out, 3)):
                 # Add variation to prompt
-                sub_task = f"{current_context}\n\nAttempt {i+1}. Ensure you work towards: {completion_state}"
+                sub_task = f"{current_context}\n\nAttempt {i + 1}. Ensure you work towards: {completion_state}"
                 tasks.append(
                     run_agent(
                         agent_name=f"dynamic_worker_{i}",

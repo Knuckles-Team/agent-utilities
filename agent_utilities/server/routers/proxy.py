@@ -19,13 +19,13 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from agent_utilities.core.credentials import CredentialResolver
+from agent_utilities.core.execution.adapters.base import ExecEvent, ExecEventType
 from agent_utilities.core.execution.provider_proxy import (
     SUPPORTED_PROVIDERS,
     check_egress,
     event_to_sse,
     stream_proxy,
 )
-from agent_utilities.core.execution.adapters.base import ExecEvent, ExecEventType
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +54,18 @@ async def _upstream_lines(url: str, headers: dict, body: dict) -> AsyncIterator[
     summary="BYOK provider proxy → canonical SSE stream",
     response_model=None,
 )
-async def proxy_stream(provider: str, request: Request) -> StreamingResponse | JSONResponse:
+async def proxy_stream(
+    provider: str, request: Request
+) -> StreamingResponse | JSONResponse:
     """Proxy a chat completion to ``provider`` and stream canonical SSE events.
 
     Body: ``{base_url?, api_key?, model, messages, system?, max_tokens?, allow_loopback?}``.
     """
     provider = provider.lower()
     if provider not in SUPPORTED_PROVIDERS:
-        return JSONResponse({"error": f"unsupported provider: {provider}"}, status_code=400)
+        return JSONResponse(
+            {"error": f"unsupported provider: {provider}"}, status_code=400
+        )
     try:
         data = await request.json()
     except (json.JSONDecodeError, ValueError):
@@ -72,13 +76,17 @@ async def proxy_stream(provider: str, request: Request) -> StreamingResponse | J
     decision = check_egress(base_url, allow_loopback=allow_loopback)
     if not decision.allowed:
         # SSRF gate: reject BEFORE any upstream fetch.
-        return JSONResponse({"error": "blocked base_url", "reason": decision.reason}, status_code=400)
+        return JSONResponse(
+            {"error": "blocked base_url", "reason": decision.reason}, status_code=400
+        )
 
     creds = CredentialResolver().resolve(provider)
     api_key = data.get("api_key") or creds.api_key
     url = base_url or creds.base_url or _DEFAULT_URLS.get(provider)
     if not url:
-        return JSONResponse({"error": f"no endpoint for provider {provider}"}, status_code=400)
+        return JSONResponse(
+            {"error": f"no endpoint for provider {provider}"}, status_code=400
+        )
 
     headers = {"content-type": "application/json"}
     if provider == "anthropic":
@@ -99,9 +107,13 @@ async def proxy_stream(provider: str, request: Request) -> StreamingResponse | J
 
     async def gen() -> AsyncIterator[str]:
         try:
-            async for sse in stream_proxy(provider, _upstream_lines(url, headers, body)):
+            async for sse in stream_proxy(
+                provider, _upstream_lines(url, headers, body)
+            ):
                 yield sse
-        except httpx.HTTPError as exc:  # upstream failure → canonical error event, not a 500 mid-stream
+        except (
+            httpx.HTTPError
+        ) as exc:  # upstream failure → canonical error event, not a 500 mid-stream
             logger.warning("proxy upstream error for %s: %s", provider, exc)
             yield event_to_sse(ExecEvent(ExecEventType.ERROR, text=str(exc)))
             yield event_to_sse(ExecEvent(ExecEventType.END))

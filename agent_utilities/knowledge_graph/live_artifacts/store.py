@@ -51,8 +51,14 @@ class LiveArtifactStore:
             return
         try:
             self._writer(artifact.model_dump())
-        except Exception:  # durable write is best-effort; never lose the in-memory artifact
-            logger.warning("artifact persistence failed for %s", artifact.artifact_id, exc_info=True)
+        except (
+            Exception
+        ):  # durable write is best-effort; never lose the in-memory artifact
+            logger.warning(
+                "artifact persistence failed for %s",
+                artifact.artifact_id,
+                exc_info=True,
+            )
 
 
 _default_store: LiveArtifactStore | None = None
