@@ -110,15 +110,15 @@ class _FakeRetriever:
 @pytest.mark.concept(id="KG-2.12")
 def test_plan_and_retrieve_standard_uses_038_threshold():
     r = _FakeRetriever(gate_passed=True)
-    nodes = r.plan_and_retrieve("q", mode="standard")
+    nodes = r.plan_and_retrieve("q", mode="standard")  # type: ignore[misc]
     assert r.calls == [0.38]
-    assert nodes and nodes[0]["id"] == "q@0.38"
+    assert nodes and nodes[0]["id"] == "q@0.38"  # type: ignore[index]
 
 
 @pytest.mark.concept(id="KG-2.12")
 def test_plan_and_retrieve_deep_uses_028_threshold():
     r = _FakeRetriever(gate_passed=True)
-    r.plan_and_retrieve("q", mode="deep")
+    r.plan_and_retrieve("q", mode="deep")  # type: ignore[misc]
     assert r.calls == [0.28]
 
 
@@ -126,18 +126,18 @@ def test_plan_and_retrieve_deep_uses_028_threshold():
 def test_self_correct_triggers_second_pass_only_on_gate_failure():
     # Gate passes → no second pass.
     ok = _FakeRetriever(gate_passed=True)
-    ok.plan_and_retrieve("q", mode="standard", self_correct=True)
+    ok.plan_and_retrieve("q", mode="standard", self_correct=True)  # type: ignore[misc]
     assert ok.calls == [0.38]
 
     # Gate fails → a deep-threshold second pass is added.
     bad = _FakeRetriever(gate_passed=False)
-    bad.plan_and_retrieve("q", mode="standard", self_correct=True)
+    bad.plan_and_retrieve("q", mode="standard", self_correct=True)  # type: ignore[misc]
     assert bad.calls == [0.38, 0.28]
 
 
 @pytest.mark.concept(id="KG-2.12")
 def test_with_ledger_returns_structured_payload():
     r = _FakeRetriever(gate_passed=True)
-    out = r.plan_and_retrieve("q", mode="standard", with_ledger=True)
+    out = r.plan_and_retrieve("q", mode="standard", with_ledger=True)  # type: ignore[misc]
     assert set(out) == {"nodes", "ledger", "plan"}
-    assert out["plan"]["search_mode"] == "standard"
+    assert out["plan"]["search_mode"] == "standard"  # type: ignore[call-overload]

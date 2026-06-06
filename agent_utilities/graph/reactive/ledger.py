@@ -36,11 +36,7 @@ _last_ts: list[str] = [""]
 def _next_event_timestamp() -> str:
     import datetime
 
-    ts = (
-        datetime.datetime.now(datetime.timezone.utc)
-        .strftime("%Y-%m-%dT%H:%M:%S.%f")
-        + "Z"
-    )
+    ts = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
     if ts <= _last_ts[0]:
         # Strictly increase past the previous stamp to preserve append order.
         prev = _last_ts[0]

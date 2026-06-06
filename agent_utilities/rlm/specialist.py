@@ -1,8 +1,6 @@
 import logging
 from typing import Any
 
-from pydantic_ai import RunContext
-
 from .repl import RLMEnvironment
 
 logger = logging.getLogger(__name__)
@@ -12,9 +10,7 @@ logger = logging.getLogger(__name__)
 # Here we define the specialist tool.
 
 
-async def recursive_reasoner_tool(
-    ctx: Any, prompt: str, context_data: str = ""
-) -> str:
+async def recursive_reasoner_tool(ctx: Any, prompt: str, context_data: str = "") -> str:
     """
     A recursive reasoning specialist that can handle massive context and unbounded logical depth.
     Use this when you have huge amounts of data (like full codebase analysis or large DB dumps)

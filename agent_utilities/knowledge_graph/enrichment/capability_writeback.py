@@ -152,7 +152,9 @@ def _existing_capability_names(backend: Any) -> list[str]:
             "MATCH (c:Capability) WHERE c.name IS NOT NULL RETURN c.name AS name LIMIT 5000"
         )
         return [
-            str(r["name"]) for r in (rows or []) if isinstance(r, dict) and r.get("name")
+            str(r["name"])
+            for r in (rows or [])
+            if isinstance(r, dict) and r.get("name")
         ]
     except Exception:  # noqa: BLE001 - dedup is best-effort
         return []

@@ -50,18 +50,18 @@ class _FakeRetriever:
 @pytest.mark.concept(id="KG-2.18")
 def test_plan_and_retrieve_records_recall_on_live_path():
     r = _FakeRetriever([{"id": "n1", "_score": 0.9}, {"id": "n2", "_score": 0.8}])
-    r.plan_and_retrieve("a real query", mode="standard")
+    r.plan_and_retrieve("a real query", mode="standard")  # type: ignore[misc]
     # The retrieval populated recall telemetry as a side effect (the integration that was missing).
-    assert r.usage_telemetry._recalled.get("n1") == 1
-    assert r.usage_telemetry._recalled.get("n2") == 1
+    assert r.usage_telemetry._recalled.get("n1") == 1  # type: ignore[misc]
+    assert r.usage_telemetry._recalled.get("n2") == 1  # type: ignore[misc]
 
 
 @pytest.mark.concept(id="KG-2.18")
 def test_record_answer_usage_closes_loop_and_persists_trust():
     r = _FakeRetriever([{"id": "n1", "_score": 0.9}, {"id": "n2", "_score": 0.8}])
-    r.plan_and_retrieve("q", mode="standard")
-    lineage = r.record_answer_usage(["n1"], query="q")
+    r.plan_and_retrieve("q", mode="standard")  # type: ignore[misc]
+    lineage = r.record_answer_usage(["n1"], query="q")  # type: ignore[misc]
     # n1 was used → higher trust than the merely-recalled n2; trust persisted to the backend.
-    assert r.usage_telemetry.trust("n1") > r.usage_telemetry.trust("n2")
+    assert r.usage_telemetry.trust("n1") > r.usage_telemetry.trust("n2")  # type: ignore[misc]
     assert any("trust_score" in w[0] for w in r.engine.backend.writes)
     assert lineage["used_ids"] == ["n1"] and lineage["context_hash"]

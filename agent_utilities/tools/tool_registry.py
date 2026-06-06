@@ -18,7 +18,9 @@ from agent_utilities.models import AgentDeps
 __version__ = "0.2.40"
 
 
-def register_agent_tools(agent: Agent[Any, Any], graph_bundle: tuple | None = None) -> None:
+def register_agent_tools(
+    agent: Agent[Any, Any], graph_bundle: tuple | None = None
+) -> None:
     """Central aggregator for registering all Agent OS tools.
 
     Groups tools by domain and applies environment-based gating using

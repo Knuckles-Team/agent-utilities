@@ -64,7 +64,7 @@ class _FakeEngine:
 @pytest.mark.concept(id="KG-2.13")
 def test_apply_add_stamps_bitemporal_and_type():
     eng = _FakeEngine()
-    learner = BackgroundLearner(eng)
+    learner = BackgroundLearner(eng)  # type: ignore[arg-type]
     counts = learner.apply_edits(
         [
             MemoryEdit(
@@ -80,44 +80,44 @@ def test_apply_add_stamps_bitemporal_and_type():
     )
     assert counts["added"] == 1
     node = eng.nodes["m1"]
-    assert node.memory_type == "procedural"
-    assert node.target_entity == "global"
-    assert node.event_time == "2026-06-04T00:00:00+00:00"
-    assert node.storage_time == "2026-06-04T12:00:00+00:00"
+    assert node.memory_type == "procedural"  # type: ignore[attr-defined]
+    assert node.target_entity == "global"  # type: ignore[attr-defined]
+    assert node.event_time == "2026-06-04T00:00:00+00:00"  # type: ignore[attr-defined]
+    assert node.storage_time == "2026-06-04T12:00:00+00:00"  # type: ignore[attr-defined]
 
 
 @pytest.mark.concept(id="KG-2.13")
 def test_apply_update_supersedes_content_and_stamps():
     eng = _FakeEngine()
-    learner = BackgroundLearner(eng)
+    learner = BackgroundLearner(eng)  # type: ignore[arg-type]
     learner.apply_edits([MemoryEdit(action="ADD", id="m1", content="lives in Boston")])
     learner.apply_edits(
         [MemoryEdit(action="UPDATE", id="m1", content="lives in Denver",
                     event_time="2026-06-04T00:00:00+00:00")],
         now="2026-06-04T12:00:00+00:00",
     )
-    assert eng.nodes["m1"].content == "lives in Denver"
-    assert eng.nodes["m1"].event_time == "2026-06-04T00:00:00+00:00"
+    assert eng.nodes["m1"].content == "lives in Denver"  # type: ignore[attr-defined]
+    assert eng.nodes["m1"].event_time == "2026-06-04T00:00:00+00:00"  # type: ignore[attr-defined]
 
 
 @pytest.mark.concept(id="KG-2.13")
 def test_apply_delete_is_soft_and_preserves_node():
     eng = _FakeEngine()
-    learner = BackgroundLearner(eng)
+    learner = BackgroundLearner(eng)  # type: ignore[arg-type]
     learner.apply_edits([MemoryEdit(action="ADD", id="m1", content="ephemeral")])
     counts = learner.apply_edits(
         [MemoryEdit(action="DELETE", id="m1")], now="2026-06-04T12:00:00+00:00"
     )
     assert counts["deleted"] == 1
     # Soft delete: node still exists, marked REMOVED with a closed validity interval.
-    assert eng.nodes["m1"].status == "REMOVED"
-    assert eng.nodes["m1"].valid_to == "2026-06-04T12:00:00+00:00"
+    assert eng.nodes["m1"].status == "REMOVED"  # type: ignore[attr-defined]
+    assert eng.nodes["m1"].valid_to == "2026-06-04T12:00:00+00:00"  # type: ignore[attr-defined]
 
 
 @pytest.mark.concept(id="KG-2.13")
 def test_apply_update_missing_node_is_skipped():
     eng = _FakeEngine()
-    learner = BackgroundLearner(eng)
+    learner = BackgroundLearner(eng)  # type: ignore[arg-type]
     counts = learner.apply_edits([MemoryEdit(action="UPDATE", id="ghost", content="x")])
     assert counts == {"added": 0, "updated": 0, "deleted": 0, "skipped": 1, "gated": 0}
 
@@ -145,7 +145,7 @@ async def test_with_backoff_retries_then_succeeds():
 @pytest.mark.asyncio
 async def test_schedule_and_await_pending_drains_tasks():
     eng = _FakeEngine()
-    learner = BackgroundLearner(eng, concurrency=2)
+    learner = BackgroundLearner(eng, concurrency=2)  # type: ignore[arg-type]
     learner.schedule([MemoryEdit(action="ADD", id="a", content="fact A")])
     learner.schedule([MemoryEdit(action="ADD", id="b", content="fact B")])
     await learner.await_pending()

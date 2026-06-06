@@ -187,9 +187,7 @@ class InferenceEngine:
                                 already_linked = False
                                 for src, tgt, props in raw_edges:
                                     if src == n and tgt == succ2:
-                                        e_type = (
-                                            self._edge_type(props)
-                                        )
+                                        e_type = self._edge_type(props)
                                         if e_type.upper() == inferred_type.upper():
                                             already_linked = True
                                             break
@@ -248,9 +246,7 @@ class InferenceEngine:
                             already_linked = False
                             for src, tgt, props in raw_edges:
                                 if src == e and tgt == pp:
-                                    e_type = (
-                                        self._edge_type(props)
-                                    )
+                                    e_type = self._edge_type(props)
                                     if e_type.upper() == "OCCURRED_DURING":
                                         already_linked = True
                                         break

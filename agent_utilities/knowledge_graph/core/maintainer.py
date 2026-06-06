@@ -577,7 +577,8 @@ class GraphMaintainer:
                 # fall through to numpy over the in-hand embeddings.
             except Exception as e:  # noqa: BLE001 - Rust core unavailable → numpy fallback
                 logger.debug(
-                    "Native compute_similarity_edges unavailable (%s); numpy fallback", e
+                    "Native compute_similarity_edges unavailable (%s); numpy fallback",
+                    e,
                 )
 
         return _numpy_pairs()
