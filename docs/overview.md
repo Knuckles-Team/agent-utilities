@@ -184,7 +184,9 @@ graph TD
 | KG-2.17 | Memory Hygiene | Scheduled decay scanner (archive via valid_to, never delete) + semantic-merge dedup |
 | KG-2.18 | Evidence-Weighted Memory | Bayesian trust feedback loop + recall/usage telemetry + generation lineage extending the quality gate |
 | KG-2.19 | Self-Curating Wiki | Delta-skip (SHA-256) continuous ingest of a markdown knowledge vault, reusing the ingestion engine + synthesis |
+| KG-2.20 | Rust-Native Finance Compute Suite | epistemic-graph quant kernels (KG-2.20f/g/h/i): market-making (Avellaneda-Stoikov/GLT/logit), microstructure (OFI/VPIN/microprice/Hawkes), sizing (Kelly/Bayesian/empirical), validation (purged-CPCV/DSR/PBO/Brier), forensic scores, state-space/stat-arb (Kalman/OU/ADF), signal combination (alpha-engine/IR=IC√N) |
 | KG-2.21 | Working Set Manager | LRU-evicting subgraph cache for L1 Rust engine with 50K node cap |
+| KG-2.22 | Data Science Primitives | Rust-backed OLS / K-means / PCA / estimators (ridge/lasso/RF/GB/SVR) replacing scikit-learn on the hot path, parity-validated |
 | KG-2.7 | Single Company Brain | Extensible operational state layer encompassing Ontology Bridges, Enterprise Architecture Repositories, and Entailment-Aware Permissions |
 
 ### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.15)

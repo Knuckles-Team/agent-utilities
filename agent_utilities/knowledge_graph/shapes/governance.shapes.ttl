@@ -57,6 +57,23 @@
             sh:path :triggersOnEvent ] ;
     sh:targetClass :Hook .
 
+:OntologyActionShape a sh:NodeShape ;
+    sh:description "CONCEPT:KG-2.25 — Governed ontology actions must be named, permission-gated, and typed over the objects they act on." ;
+    sh:name "Ontology Action Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "OntologyAction must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ],
+        [ sh:datatype xsd:string ;
+            sh:message "OntologyAction must declare its required_capability (the gating ServiceCapability)." ;
+            sh:minCount 1 ;
+            sh:path :required_capability ],
+        [ sh:datatype xsd:string ;
+            sh:message "OntologyAction must declare at least one acts_on ontology object type." ;
+            sh:minCount 1 ;
+            sh:path :acts_on ] ;
+    sh:targetClass :OntologyAction .
+
 :OptimizationPatternShape a sh:NodeShape ;
     sh:description "Optimization patterns must specify their directory scope." ;
     sh:name "Optimization Pattern Shape" ;

@@ -52,7 +52,9 @@ class HeldTurnRegistry:
         loop = asyncio.get_event_loop()
         fut: asyncio.Future = loop.create_future()
         key = self._key(run_id, tool_use_id)
-        self._pending[key] = _Pending(future=fut, tool_use_id=tool_use_id, created_at=loop.time())
+        self._pending[key] = _Pending(
+            future=fut, tool_use_id=tool_use_id, created_at=loop.time()
+        )
         try:
             return await asyncio.wait_for(fut, timeout=timeout)
         finally:

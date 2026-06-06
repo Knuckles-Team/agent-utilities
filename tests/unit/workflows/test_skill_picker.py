@@ -29,12 +29,14 @@ def test_success_rate_breaks_keyword_ties():
     rates = {"alpha": 0.9, "beta": 0.1}
     picker = SkillPicker(success_rate=lambda n: rates[n])
     best = picker.pick("build a landing page", [a, b])
+    assert best is not None
     assert best.name == "alpha"  # higher historical success ranks first
 
 
 def test_cold_skill_neutral_prior():
     picker = SkillPicker()  # default 0.5 prior, no crash on unknown skills
     best = picker.pick("anything", [SkillCandidate(name="cold", description="cold skill")])
+    assert best is not None
     assert best.name == "cold"
 
 
@@ -51,6 +53,7 @@ def test_keyword_overlap_contributes():
     match = SkillCandidate(name="dashboard", description="build a kanban dashboard")
     other = SkillCandidate(name="poster", description="design a poster")
     best = picker.pick("kanban dashboard", [match, other])
+    assert best is not None
     assert best.name == "dashboard"
 
 

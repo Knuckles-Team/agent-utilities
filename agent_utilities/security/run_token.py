@@ -19,6 +19,9 @@ import os
 import time
 from dataclasses import dataclass
 
+# Per-process signing-secret fallback (dev/test); env-provided in production.
+_EPHEMERAL: bytes | None = None
+
 
 def _secret() -> bytes:
     """Signing secret (env-provided in production; ephemeral per-process fallback for dev/tests)."""
@@ -27,11 +30,8 @@ def _secret() -> bytes:
         return val.encode()
     # Stable within a process so mint/validate agree; not persisted (dev/test default).
     global _EPHEMERAL
-    try:
-        return _EPHEMERAL
-    except NameError:
-        pass
-    _EPHEMERAL = hashlib.sha256(f"au-run-token:{os.getpid()}".encode()).digest()
+    if _EPHEMERAL is None:
+        _EPHEMERAL = hashlib.sha256(f"au-run-token:{os.getpid()}".encode()).digest()
     return _EPHEMERAL
 
 
@@ -120,8 +120,16 @@ def validate_token(
     t = time.time() if now is None else now
     if t >= decoded.expires_at:
         raise TokenError("token expired")
-    if endpoint is not None and "*" not in decoded.endpoints and endpoint not in decoded.endpoints:
+    if (
+        endpoint is not None
+        and "*" not in decoded.endpoints
+        and endpoint not in decoded.endpoints
+    ):
         raise TokenError(f"endpoint {endpoint!r} not in token scope")
-    if operation is not None and "*" not in decoded.operations and operation not in decoded.operations:
+    if (
+        operation is not None
+        and "*" not in decoded.operations
+        and operation not in decoded.operations
+    ):
         raise TokenError(f"operation {operation!r} not in token scope")
     return decoded

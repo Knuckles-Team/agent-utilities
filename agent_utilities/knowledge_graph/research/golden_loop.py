@@ -37,12 +37,21 @@ class GoldenLoopController:
         *,
         codebase_root: str | None = None,
         propose_only: bool = True,
+        auto_merge: bool | None = None,
     ) -> None:
         self.engine = engine
         self.codebase_root = codebase_root or os.getenv("WORKSPACE_PATH") or "."
         # propose_only is always True in v1 — kept explicit so a future
         # human-approved apply path is a deliberate flip, never accidental.
         self.propose_only = propose_only
+        # Governed auto-merge (CONCEPT:AHE-3.14) — OFF by default. Enabled
+        # explicitly (auto_merge=True) or via KG_GOLDEN_AUTO_MERGE=1; only then
+        # do high-quality, governance-valid proposals promote proposal→active.
+        from .auto_merge import GovernedAutoMerger, MergePolicy
+
+        self._merger = GovernedAutoMerger(
+            engine, policy=MergePolicy.from_env(auto_merge)
+        )
 
     # ------------------------------------------------------------------
     def _capability_search(self):
@@ -162,12 +171,30 @@ class GoldenLoopController:
                 nodes, edges = persist_synthesis(self.engine.backend, team, *members)
             except Exception as e:  # noqa: BLE001
                 logger.debug("persist_synthesis failed: %s", e)
+
+        # GOVERNED auto-merge (CONCEPT:AHE-3.14): consider promoting the team
+        # proposal to active. Disabled by default → stays proposal-only; only a
+        # high-quality, governance-valid proposal auto-merges when enabled.
+        merge: dict[str, Any] | None = None
+        try:
+            ev = self._merger.consider(team)
+            merge = {
+                "proposal_id": ev.proposal_id,
+                "quality_score": round(ev.quality_score, 4),
+                "merged": ev.merged,
+                "reason": ev.reason,
+                "audit_ref": ev.audit_ref,
+            }
+        except Exception as e:  # noqa: BLE001
+            logger.debug("auto-merge consideration failed: %s", e)
+
         return {
             "goal": goal,
             "lead": getattr(team, "lead", None) or getattr(team, "name", None),
             "members": [getattr(m, "name", "?") for m in members],
             "persisted_nodes": nodes,
             "persisted_edges": edges,
+            "auto_merge": merge,
         }
 
 

@@ -25,7 +25,7 @@ def test_resolver_requires_source_query():
 
 
 def test_resolver_shapes_kg_rows(monkeypatch):
-    # Stub KnowledgeGraph.query to avoid a live KG.
+    # Replace KnowledgeGraph.query with a fake to avoid a live KG.
     import agent_utilities.knowledge_graph.facade as facade
 
     class _StubKG:
@@ -67,7 +67,9 @@ def test_refresh_via_kg_source_rederives(monkeypatch):
     monkeypatch.setattr(_StubKG, "query", lambda self, c, params=None: boom(c))
     res2 = svc.refresh(art.artifact_id, kg_source_resolver)
     assert res2.ok is False
-    assert "count=1" in store.get(art.artifact_id).last_rendered  # prior preserved
+    final = store.get(art.artifact_id)
+    assert final is not None
+    assert "count=1" in final.last_rendered  # prior preserved
 
 
 def test_install_registers_resolver():

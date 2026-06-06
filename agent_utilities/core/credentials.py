@@ -53,9 +53,16 @@ class CredentialResolver:
     ``~/.config/agent-utilities/media-config.json``); the file maps ``{provider: {api_key, base_url}}``.
     """
 
-    def __init__(self, *, env: dict[str, str] | None = None, config_path: str | Path | None = None):
+    def __init__(
+        self,
+        *,
+        env: dict[str, str] | None = None,
+        config_path: str | Path | None = None,
+    ):
         self._env = env if env is not None else dict(os.environ)
-        self._config_path = Path(config_path) if config_path else self._default_config_path()
+        self._config_path = (
+            Path(config_path) if config_path else self._default_config_path()
+        )
         self._file_cache: dict[str, dict] | None = None
 
     @staticmethod
@@ -67,9 +74,17 @@ class CredentialResolver:
     def _file(self) -> dict[str, dict]:
         if self._file_cache is None:
             try:
-                self._file_cache = json.loads(self._config_path.read_text()) if self._config_path.exists() else {}
+                self._file_cache = (
+                    json.loads(self._config_path.read_text())
+                    if self._config_path.exists()
+                    else {}
+                )
             except (OSError, json.JSONDecodeError):
-                logger.debug("credential config unreadable at %s", self._config_path, exc_info=True)
+                logger.debug(
+                    "credential config unreadable at %s",
+                    self._config_path,
+                    exc_info=True,
+                )
                 self._file_cache = {}
         return self._file_cache
 
@@ -86,10 +101,15 @@ class CredentialResolver:
         env_key = self._from_env(_ENV_KEYS.get(p, ()))
         env_url = self._from_env(_BASE_URL_KEYS.get(p, ()))
         if env_key or env_url:
-            return ProviderCredentials(p, api_key=env_key, base_url=env_url, source="env")
+            return ProviderCredentials(
+                p, api_key=env_key, base_url=env_url, source="env"
+            )
         entry = self._file().get(p, {})
         if entry.get("api_key") or entry.get("base_url"):
             return ProviderCredentials(
-                p, api_key=entry.get("api_key"), base_url=entry.get("base_url"), source="file"
+                p,
+                api_key=entry.get("api_key"),
+                base_url=entry.get("base_url"),
+                source="file",
             )
         return ProviderCredentials(p, source="none")

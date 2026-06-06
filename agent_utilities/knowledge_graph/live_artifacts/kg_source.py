@@ -30,7 +30,9 @@ def kg_source_resolver(artifact: LiveArtifact) -> dict[str, Any]:
     """
     query = (artifact.source_query or "").strip()
     if not query:
-        raise ValueError(f"artifact {artifact.artifact_id} has no source_query to refresh from")
+        raise ValueError(
+            f"artifact {artifact.artifact_id} has no source_query to refresh from"
+        )
 
     # Imported lazily so the live_artifacts package has no hard KG-construction cost at import time.
     from agent_utilities.knowledge_graph.facade import KnowledgeGraph
@@ -59,6 +61,8 @@ def install_kg_artifact_source() -> bool:
         register_artifact_source(kg_source_resolver)
         logger.info("Live Artifact refresh wired to the KG source resolver (KG-2.24).")
         return True
-    except Exception:  # pragma: no cover - defensive: never break startup over an optional wire
+    except (
+        Exception
+    ):  # pragma: no cover - defensive: never break startup over an optional wire
         logger.warning("could not install KG artifact source resolver", exc_info=True)
         return False

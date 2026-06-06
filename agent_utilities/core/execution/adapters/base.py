@@ -93,7 +93,8 @@ class AdapterDefinition:
     bin: str
     version_args: tuple[str, ...] = ("--version",)
     build_args: Callable[[str, str], list[str]] = field(
-        default=lambda model, prompt: ([] if not model else ["-m", model]) + ([prompt] if prompt else [])
+        default=lambda model, prompt: ([] if not model else ["-m", model])
+        + ([prompt] if prompt else [])
     )
     stream_format: StreamFormat = StreamFormat.PLAIN
     prompt_delivery: PromptDelivery = PromptDelivery.ARGS
@@ -102,7 +103,9 @@ class AdapterDefinition:
     list_models: Callable[[], list[str]] | None = None
     env: dict[str, str] = field(default_factory=dict)
 
-    def resolve_model(self, requested: str | None, env: dict[str, str] | None = None) -> str:
+    def resolve_model(
+        self, requested: str | None, env: dict[str, str] | None = None
+    ) -> str:
         """Resolve the effective model id: explicit request > override env var > first fallback > ""."""
         import os
 

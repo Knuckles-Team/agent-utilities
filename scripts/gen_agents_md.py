@@ -39,6 +39,10 @@ EXCLUDE_DIRS = {
     ".pytest_cache",
     ".pytest_tmp",
     ".tmp",
+    ".agent_data",
+    ".agent",
+    ".agents",
+    ".cache",
 }
 
 # Any directory with more than this many direct children is summarized.

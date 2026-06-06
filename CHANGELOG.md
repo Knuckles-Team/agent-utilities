@@ -8,6 +8,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Sentiment Fusion Signals (CONCEPT:KG-2.29)** — credibility-weighted sentiment fusion
+  (lexicon polarity + source-credibility prior + recency decay) emitted as a SENTIMENT_ANALYST
+  `AgentSignal` consumed by `SwarmConsensus` and registered into `BayesianSignalFusion`;
+  `:SentimentFact` KG provenance nodes.
+- **Geopolitical Risk Scoring (CONCEPT:KG-2.30)** — risk factors × sector/region exposure →
+  portfolio geopolitical-risk score; wired into `StressTestEngine` (shock vector) and
+  `RegimeDetector` (regime flag); `:GeopoliticalRisk`/`affectsSector`/`exposedTo` OWL facts so
+  "which holdings are exposed to risk X" is a graph query.
+- **Dividend Sustainability & Credit/Fixed-Income Quality (CONCEPT:KG-2.31)** — payout/coverage/
+  growth + yield-trap detection, and Merton distance-to-default (PD = Φ(−DD)) + interest-coverage/
+  leverage credit grading; folded into the debate via `DebateContext.fundamentals_report` so the
+  Bear/Risk personas argue against real solvency numbers.
+- **Multi-Market Composite Backtester (CONCEPT:KG-2.32)** — path-dependent, look-ahead-safe
+  (signals shifted 1 bar) multi-market backtest with a shared capital pool + per-market
+  attribution + engine-or-local Sharpe/DSR/drawdown.
+- **SABR Volatility Surface (epistemic-graph CONCEPT:KG-2.20j)** — Hagan (2002) implied-vol,
+  smile, and (α,ρ,ν) calibration kernels; exposed via emerald `emerald_derivatives` (+vol-arb)
+  and data-science `quant_derivatives`.
+- **Execution Bridge (emerald CONCEPT:EE-032)** — routes decisions to orders through the
+  ExchangeBackend Protocol; live orders blocked behind `require_human_approval_live` + RiskGuard,
+  paper executes freely. **Cockpit CLI (EE-033)** — text-mode live engine/account/risk/positions
+  snapshot (`emerald-cockpit`).
+- **Trade-Journal Bias Auditor & Shadow Account (CONCEPT:KG-2.26)** — From Vibe-Trading's
+  shadow account. `TradeJournalAuditor.audit()` builds a `TraderProfile` (win rate, avg
+  holding period, PnL ratio, max drawdown) + 4 behavioural-bias diagnostics (disposition,
+  overtrading, momentum-chasing, anchoring) and persists them as queryable `:TraderProfile`/
+  `:BehavioralBias` KG nodes a future debate/risk-officer can cite.
+- **Agent Calibration / Reputation Tracking (CONCEPT:KG-2.27)** — `CalibrationTracker` records
+  each persona's past directional calls + outcomes and computes a Brier-based calibration
+  score (via engine `brier_score`), then `apply_calibration_to_swarm()` rewrites
+  `SwarmConsensus` role weights so miscalibrated voices are down-weighted — a reputation
+  feedback loop persisted to the KG (`:AgentCalibration`).
+- **Persona Decision-Heuristic Enrichment (CONCEPT:KG-2.28)** — From Fincept's persona registry.
+  Attaches typed, evaluable rules (Graham P/E<15·P/B<1.5·MoS≥30%, Buffett ROIC/moat, Burry
+  forensic short triggers, Lynch PEG, …) to each investor persona; `evaluate_persona()` returns
+  pass/fail + rationale and the `DebateEngine` folds the verdict into each side's prompt when
+  `DebateContext.metrics` is present. Seeded as `:DecisionHeuristic` OWL facts.
+- **HITL Escalation Matrix (CONCEPT:OS-5.12)** — `EscalationMatrix` (risk × value tier →
+  required approver/timeout/fallback) consulted by the Ontology Action `ActionExecutor` after
+  authorization: high-tier actions require human approval (driven through `ApprovalManager`),
+  audited + KG-persisted; conservative default matrix.
+- **Release-Channel System (CONCEPT:OS-5.13)** — `ReleaseChannel` (stable/beta/edge) +
+  `@release_channel` guard + `ChannelRegistry`, wired into capability designation so
+  edge-tagged agents/skills/tools are genuinely unroutable on `stable` (default).
+- **Langfuse Exporter (CONCEPT:ECO-4.24)** — lazy/optional Langfuse sink wired into
+  `AgentOrchestrationEngine.run_graph`; exports spans/token-usage/traces when
+  `LANGFUSE_*` keys + dep are present, clean no-op otherwise.
+- **Golden-Loop Auto-Merge (CONCEPT:AHE-3.14)** — governed promotion path: golden-loop
+  proposals passing a conservative quality threshold + governance validity auto-promote to
+  active skills/prompts; below-threshold stay propose-only (the safe default; opt-in via
+  `KG_GOLDEN_AUTO_MERGE`), every decision audited.
+- **Quant-framework comparative analysis** — `docs/comparative_analysis_quant_frameworks.md`
+  (Vibe-Trading / AutoHedge / FinceptTerminal vs agent-utilities) seeding KG-2.26/27/28.
+- **Investor-persona debate voices (CONCEPT:KG-2.6)** — `DebateEngine.with_personas()` loads
+  persona prompt bodies (default Buffett vs Burry) so each side argues in-voice; archetype
+  stamped on each `DebateArgument.role`.
+- **Ontology Action System (CONCEPT:KG-2.25)** — First-class, governed *verbs* on the
+  ontology, closing the one genuine gap vs Palantir AIP's "data+logic+**actions**+security"
+  ontology. Adds `OntologyAction`/`ActionParameter`/`ActionInvocation` models, an
+  `ActionRegistry`, and a permission-gated + audited + KG-persisted `ActionExecutor`
+  (`agent_utilities/knowledge_graph/actions/`). Authorization reuses the existing
+  `PermissionsKernel`; every invocation is audited via `AuditLogger` and persisted as a
+  queryable `action_invocation` KG node. New OWL module `ontology_action.ttl` adds
+  `:OntologyAction` + `:actsOn`/`:hasParameter`/`:producesEffect` and a property chain
+  `:mayBeInvokedBy ← (:requiresCapability ∘ :providedBy)` so an agent's eligibility to invoke
+  an action is **reasoned by OWL, not hand-wired**. Governed by a new SHACL shape; two real
+  built-in actions (`kg.search`, `finance.forensic_screen`) registered on the live path.
+- **Declarative Resilience Policy (CONCEPT:ORCH-1.36)** — Closes the L7 reliability gap.
+  `ResiliencePolicy` (max attempts, exponential backoff + seedable jitter, `retry_on`
+  predicate/allow-list with a non-retryable hard-deny set, per-attempt timeout, fallback
+  chain) + `run_with_resilience`/`_sync` (`agent_utilities/orchestration/resilience.py`).
+  Wired **default-ON** into the live specialist-execution path
+  (`graph/executor.py:_execute_dynamic_mcp_agent`), composing with — not replacing — the
+  existing circuit breaker, per-attempt timeout, and sibling-specialist fallback.
+- **Investor-persona debate voices (CONCEPT:KG-2.6)** — The Bull/Bear `DebateEngine` now loads
+  investor-persona prompt bodies (`DebateEngine.with_personas(bull, bear)`, default Buffett vs
+  Burry) so each side argues in a specific investor's voice; the persona archetype is stamped
+  on every `DebateArgument.role` for the audit trail. Generic voices preserved as fallback.
+- **Palantir AIP comparative analysis** — `docs/comparative_analysis_palantir_aip.md`: a
+  capability-by-capability (12) + layer-by-layer (9) mapping showing agent-utilities meets
+  ~10/12 AIP capabilities in full and exceeds it on OWL+SHACL reasoning, graph-native compute,
+  self-evolution, and reward-weighted routing; documents the closed gaps above and the backlog.
 - **KG-Governed Agent Swarm (CONCEPT:ORCH-1.32, extends ORCH-1.8/1.1/1.27)** — Assimilated from Kimi
   K2.6 Agent Swarm (Moonshot AI) + PARL/Mooncake. Adds governance/quality deltas on top of the
   existing `ParallelEngine` (which already did dependency-ordered parallel waves + synthesis):

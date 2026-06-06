@@ -38,9 +38,17 @@ from ..models import (
     MCPAgent,
     MCPServerHealth,
 )
+from ..orchestration.resilience import (
+    DEFAULT_RETRYABLE,
+    ResiliencePolicy,
+    run_with_resilience,
+)
 from .hsm import check_specialist_preconditions, on_enter_specialist, on_exit_specialist
 from .protocol_agnostic_execution import execute_graph
-from .state import GraphDeps
+from .state import (  # noqa: F401 — GraphState re-exported for tests
+    GraphDeps,
+    GraphState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +69,29 @@ _SPECIALIST_TIER_HINTS: dict[str, str] = {
     "verifier": "reasoning",
     "recursive_orchestrator": "heavy",
 }
+
+
+def _specialist_resilience_policy(node_timeout: float) -> ResiliencePolicy:
+    """CONCEPT:ORCH-1.36 — Declarative Resilience Policy for specialist runs.
+
+    Builds the default policy applied to a single specialist LLM call on the
+    live execution path (:func:`_execute_dynamic_mcp_agent`). The policy retries
+    only transient model/tool errors (``TimeoutError``/``ConnectionError`` —
+    never ``ValueError``/permission errors), uses short exponential backoff with
+    jitter, and enforces ``node_timeout`` as the per-attempt timeout. It composes
+    with the outer attempt loop, the per-server circuit breaker, and the existing
+    sibling-specialist fallback — it does not replace them.
+    """
+    return ResiliencePolicy(
+        max_attempts=2,
+        backoff_base_s=0.5,
+        backoff_factor=2.0,
+        max_backoff_s=5.0,
+        jitter=True,
+        retry_on=DEFAULT_RETRYABLE,
+        timeout_s=node_timeout,
+        name="specialist_execution",
+    )
 
 
 def _resolve_access_context(
@@ -876,10 +907,27 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                     if isinstance(raw_input, str)
                     else raw_input
                 )
-                res = await asyncio.wait_for(
-                    agent.run(run_input, deps=ctx.deps, message_history=prev_messages),
-                    timeout=node_timeout,
-                )
+                # CONCEPT:ORCH-1.36 — Declarative Resilience Policy.
+                # The single per-node-timeout LLM call is wrapped in the
+                # declarative retry/backoff/timeout policy so transient model
+                # or tool errors (TimeoutError/ConnectionError) are retried with
+                # exponential backoff *before* surfacing to the outer attempt
+                # loop. This composes with — and does not replace — the existing
+                # per-server circuit breaker (``ctx.deps.server_health``) and the
+                # ``node_timeout`` second wait, which is now enforced per attempt
+                # by the policy's ``timeout_s``.
+                _policy = _specialist_resilience_policy(node_timeout)
+
+                async def _run_agent_once(
+                    _agent: Any = agent,
+                    _input: Any = run_input,
+                    _hist: Any = prev_messages,
+                ) -> Any:
+                    return await _agent.run(
+                        _input, deps=ctx.deps, message_history=_hist
+                    )
+
+                res = await run_with_resilience(_run_agent_once, _policy)
                 logger.info(
                     f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Completed."
                 )

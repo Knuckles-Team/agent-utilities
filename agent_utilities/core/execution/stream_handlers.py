@@ -55,12 +55,17 @@ def _jsonl_handler(lines: Iterable[str]) -> Iterator[ExecEvent]:
         if kind in {"text", "delta", "content", "text_delta", "assistant"}:
             yield ExecEvent(
                 ExecEventType.TEXT_DELTA,
-                text=str(obj.get("text") or obj.get("content") or obj.get("delta") or ""),
+                text=str(
+                    obj.get("text") or obj.get("content") or obj.get("delta") or ""
+                ),
             )
         elif kind in {"tool_use", "tool", "tool_call"}:
             yield ExecEvent(ExecEventType.TOOL_USE, data=obj)
         elif kind in {"error", "err"}:
-            yield ExecEvent(ExecEventType.ERROR, text=str(obj.get("error") or obj.get("message") or s))
+            yield ExecEvent(
+                ExecEventType.ERROR,
+                text=str(obj.get("error") or obj.get("message") or s),
+            )
         elif kind in {"end", "done", "result", "turn_end"}:
             yield ExecEvent(ExecEventType.END, data=obj)
         else:

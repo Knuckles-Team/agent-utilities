@@ -78,6 +78,10 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "decision",
     "observation",
     "action",
+    # Ontology Action System — governed verbs (CONCEPT:KG-2.25)
+    "ontology_action",
+    "action_invocation",
+    "action_parameter",
     "belief",
     "hypothesis",
     "fact",
@@ -409,6 +413,12 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "works_at",
     "related_to",
     "associated_with",
+    # Ontology Action System — governed verbs (CONCEPT:KG-2.25)
+    "acts_on",
+    "invokes",
+    "invoked_by",
+    "acts_on_object",
+    "may_be_invoked_by",
     # Capability Abstraction Layer (CONCEPT:KG-2.7)
     "provides_capability",
     "requires_capability",

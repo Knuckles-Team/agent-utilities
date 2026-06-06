@@ -33,6 +33,10 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "decision": "Decision",
     "observation": "Observation",
     "action": "Action",
+    # Ontology Action System — governed verbs (CONCEPT:KG-2.25)
+    "ontology_action": "OntologyAction",
+    "action_invocation": "ActionInvocation",
+    "action_parameter": "ActionParameter",
     "belief": "Belief",
     "hypothesis": "Hypothesis",
     "fact": "Fact",
@@ -181,6 +185,14 @@ _EDGE_TYPE_TO_OWL_PROP: dict[str, str] = {
     "observed_by": "observedBy",
     "occurred_during": "occurredDuring",
     "defined_in": "definedIn",
+    # Ontology Action System — governed verbs (CONCEPT:KG-2.25)
+    "acts_on": "actsOn",
+    "invokes": "invokes",
+    "invoked_by": "invokedBy",
+    "acts_on_object": "actsOnObject",
+    "may_be_invoked_by": "mayBeInvokedBy",
+    "requires_capability": "requiresCapability",
+    "provides_capability": "providesCapability",
     # Standard Ontology Edges (PROV-O, SKOS, Dublin Core, FIBO)
     "was_generated_by": "wasGeneratedBy",
     "was_derived_from": "wasDerivedFrom",

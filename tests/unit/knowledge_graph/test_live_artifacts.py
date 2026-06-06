@@ -133,6 +133,7 @@ def test_provenance_records_model_and_evidence():
     art.provenance.evidence_node_ids = ["node:1", "node:2"]
     store.create(art)
     got = store.get(art.artifact_id)
+    assert got is not None
     assert got.provenance.model == "adapter:claude-code"
     assert "node:1" in got.provenance.evidence_node_ids
 

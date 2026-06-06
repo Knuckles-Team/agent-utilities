@@ -96,7 +96,7 @@ def render_template(template: str, data: dict[str, Any]) -> str:
         for elem in seq:
             scope = {"item": elem, "data": data}
 
-            def sub_var(vm: re.Match) -> str:
+            def sub_var(vm: re.Match, elem: object = elem, scope: dict = scope) -> str:
                 key = vm.group(1)
                 if key in {"item", "."}:
                     val = elem

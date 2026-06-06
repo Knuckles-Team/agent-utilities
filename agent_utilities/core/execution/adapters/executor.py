@@ -38,7 +38,9 @@ async def run_adapter(
     """
     path = shutil.which(definition.bin)
     if not path:
-        raise AdapterExecutionError(f"adapter {definition.id!r}: {definition.bin!r} not on PATH")
+        raise AdapterExecutionError(
+            f"adapter {definition.id!r}: {definition.bin!r} not on PATH"
+        )
 
     eff_model = definition.resolve_model(model, env)
     deliver_via_args = definition.prompt_delivery is PromptDelivery.ARGS
@@ -57,33 +59,47 @@ async def run_adapter(
             env=({**__import__("os").environ, **proc_env} if proc_env else None),
         )
     except OSError as exc:  # pragma: no cover - exercised via missing-bin path
-        raise AdapterExecutionError(f"adapter {definition.id!r}: spawn failed: {exc}") from exc
+        raise AdapterExecutionError(
+            f"adapter {definition.id!r}: spawn failed: {exc}"
+        ) from exc
 
     stdin_payload: bytes | None = None
     if not deliver_via_args:
         if definition.prompt_delivery is PromptDelivery.STDIN_JSONL:
             import json
 
-            stdin_payload = (json.dumps({"type": "user", "text": prompt}) + "\n").encode()
+            stdin_payload = (
+                json.dumps({"type": "user", "text": prompt}) + "\n"
+            ).encode()
         else:  # STDIN_TEXT
             stdin_payload = prompt.encode()
 
     try:
-        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(stdin_payload), timeout=timeout)
-    except asyncio.TimeoutError as exc:
+        stdout_b, stderr_b = await asyncio.wait_for(
+            proc.communicate(stdin_payload), timeout=timeout
+        )
+    except TimeoutError as exc:
         proc.kill()
-        raise AdapterExecutionError(f"adapter {definition.id!r}: timed out after {timeout}s") from exc
+        raise AdapterExecutionError(
+            f"adapter {definition.id!r}: timed out after {timeout}s"
+        ) from exc
 
     stdout = stdout_b.decode(errors="replace")
     handler = get_stream_handler(definition.stream_format)
     events = list(handler(stdout.splitlines(keepends=True)))
-    if proc.returncode and not any(e.type is ExecEventType.TEXT_DELTA and e.text for e in events):
+    if proc.returncode and not any(
+        e.type is ExecEventType.TEXT_DELTA and e.text for e in events
+    ):
         err = stderr_b.decode(errors="replace").strip()
-        events.append(ExecEvent(ExecEventType.ERROR, text=err or f"exit {proc.returncode}"))
+        events.append(
+            ExecEvent(ExecEventType.ERROR, text=err or f"exit {proc.returncode}")
+        )
     return events
 
 
-async def run_adapter_text(definition: AdapterDefinition, prompt: str, **kw: object) -> str:
+async def run_adapter_text(
+    definition: AdapterDefinition, prompt: str, **kw: object
+) -> str:
     """Convenience: run an adapter and fold the event stream into final text."""
     events = await run_adapter(definition, prompt, **kw)  # type: ignore[arg-type]
     return collect_text(events)

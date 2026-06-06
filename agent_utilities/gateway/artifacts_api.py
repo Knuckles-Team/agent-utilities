@@ -31,8 +31,11 @@ logger = logging.getLogger(__name__)
 artifacts_router = APIRouter(tags=["live-artifacts"])
 
 _refresh_service: RefreshService | None = None
+
+
 # Resolver: given an artifact, return fresh data (e.g. by querying the KG over source_node_ids).
-_source_resolver: Callable[[LiveArtifact], dict[str, Any]] = lambda a: dict(a.data)
+def _default_source_resolver(a: LiveArtifact) -> dict[str, Any]:
+    return dict(a.data)
 
 
 def _service() -> RefreshService:
@@ -42,7 +45,12 @@ def _service() -> RefreshService:
     return _refresh_service
 
 
-def register_artifact_source(resolver: Callable[[LiveArtifact], dict[str, Any]]) -> None:
+_source_resolver: Callable[[LiveArtifact], dict[str, Any]] = _default_source_resolver
+
+
+def register_artifact_source(
+    resolver: Callable[[LiveArtifact], dict[str, Any]],
+) -> None:
     """Register the KG-backed source resolver used when a refresh omits inline ``data``."""
     global _source_resolver
     _source_resolver = resolver
@@ -72,7 +80,9 @@ async def create_artifact(req: CreateArtifactRequest) -> dict[str, Any]:
     try:
         get_live_artifact_store().create(art)
     except BoundedJSONError as exc:
-        raise HTTPException(status_code=400, detail=f"bounded-JSON violation: {exc}") from exc
+        raise HTTPException(
+            status_code=400, detail=f"bounded-JSON violation: {exc}"
+        ) from exc
     return {"artifact_id": art.artifact_id, "rendered": art.last_rendered}
 
 
@@ -84,8 +94,12 @@ async def get_artifact(artifact_id: str) -> dict[str, Any]:
     return art.model_dump()
 
 
-@artifacts_router.post("/api/artifacts/{artifact_id}/refresh", summary="Refresh a Live Artifact")
-async def refresh_artifact(artifact_id: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+@artifacts_router.post(
+    "/api/artifacts/{artifact_id}/refresh", summary="Refresh a Live Artifact"
+)
+async def refresh_artifact(
+    artifact_id: str, body: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Re-derive the artifact's data and re-render; preserves prior render on failure."""
     body = body or {}
     if "data" in body:

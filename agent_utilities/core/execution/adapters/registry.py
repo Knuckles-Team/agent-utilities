@@ -54,14 +54,20 @@ class AdapterRegistry:
 
             for d in BUILTIN_ADAPTERS:
                 self._defs.setdefault(d.id, d)
-        except Exception:  # pragma: no cover - defensive: built-ins must never break import
+        except (
+            Exception
+        ):  # pragma: no cover - defensive: built-ins must never break import
             logger.debug("no builtin adapters loaded", exc_info=True)
 
     # -- detection ----------------------------------------------------
-    def _probe(self, definition: AdapterDefinition, *, timeout: float) -> DetectedAdapter:
+    def _probe(
+        self, definition: AdapterDefinition, *, timeout: float
+    ) -> DetectedAdapter:
         path = shutil.which(definition.bin)
         if not path:
-            return DetectedAdapter(id=definition.id, available=False, error="not on PATH")
+            return DetectedAdapter(
+                id=definition.id, available=False, error="not on PATH"
+            )
         version: str | None = None
         try:
             proc = subprocess.run(  # noqa: S603 - bin resolved via shutil.which, args are static
@@ -72,26 +78,41 @@ class AdapterRegistry:
             )
             _version_lines = (proc.stdout or proc.stderr or "").strip().splitlines()
             version = _version_lines[0] if _version_lines else None
-        except (subprocess.TimeoutExpired, OSError) as exc:  # broken/stalled CLI → unavailable, no raise
-            return DetectedAdapter(id=definition.id, available=False, path=path, error=str(exc))
+        except (
+            subprocess.TimeoutExpired,
+            OSError,
+        ) as exc:  # broken/stalled CLI → unavailable, no raise
+            return DetectedAdapter(
+                id=definition.id, available=False, path=path, error=str(exc)
+            )
         models: tuple[str, ...] = definition.fallback_models
         if definition.list_models is not None:
             try:
                 live = tuple(definition.list_models())
                 if live:
                     models = live
-            except Exception:  # live listing is best-effort; fall back to declared models
+            except (
+                Exception
+            ):  # live listing is best-effort; fall back to declared models
                 logger.debug("list_models failed for %s", definition.id, exc_info=True)
-        return DetectedAdapter(id=definition.id, available=True, path=path, version=version, models=models)
+        return DetectedAdapter(
+            id=definition.id, available=True, path=path, version=version, models=models
+        )
 
-    def detect(self, *, force: bool = False, timeout: float = 3.0) -> dict[str, DetectedAdapter]:
+    def detect(
+        self, *, force: bool = False, timeout: float = 3.0
+    ) -> dict[str, DetectedAdapter]:
         """Probe all registered adapters (cached for ``detect_ttl`` seconds).
 
         Non-blocking in spirit: each probe is bounded by ``timeout`` and failures are captured, never
         raised, so one stalled CLI cannot wedge detection of the rest.
         """
         now = time.monotonic()
-        if not force and self._detect_cache and (now - self._detect_cache_at) < self._detect_ttl:
+        if (
+            not force
+            and self._detect_cache
+            and (now - self._detect_cache_at) < self._detect_ttl
+        ):
             return dict(self._detect_cache)
         self._detect_cache = {
             d.id: self._probe(d, timeout=timeout) for d in self._defs.values()
