@@ -636,7 +636,9 @@ class ParallelEngine:
                 # exponential backoff: 0.5s, 1s, 2s, ... (bounded)
                 await asyncio.sleep(min(0.5 * (2 ** (attempt - 1)), 8.0))
             return last or AgentExecutionResult(
-                agent_id=agent.agent_id, role=agent.role, success=False,
+                agent_id=agent.agent_id,
+                role=agent.role,
+                success=False,
                 error="no attempt produced a result",
             )
 

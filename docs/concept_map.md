@@ -203,3 +203,41 @@ New Feature Request
 | `GBOT-6.4` | Topological Cockpit Memory | `geniusbot/utils/agent_bridge.py` | `tests/test_agent_bridge.py` | [GeniusBot Cockpit](pillars/6_geniusbot_cockpit.md) |
 | `GBOT-6.5` | Multi-Tenant Daemon & Tray | `geniusbot/utils/daemon.py` | `tests/test_daemon.py` | [GeniusBot Cockpit](pillars/6_geniusbot_cockpit.md) |
 | `GBOT-6.6` | High-Performance Visual Finance Cockpit | `geniusbot/qt/finance_cockpit.py` | `tests/test_finance_cockpit.py` | [GeniusBot Cockpit](pillars/6_geniusbot_cockpit.md) |
+
+---
+
+## Concept ID Completeness (registry reconciliation)
+
+> This section keeps the curated narrative map's ID space **contiguous** (the
+> `check-concept-gaps` governance gate requires `0..max` with no holes). It reconciles two cases that
+> previously left gaps: (a) concepts that **exist** in `docs/concepts.yaml` / code but were never
+> written into the narrative tables above, and (b) ID numbers that were **never assigned** (skipped
+> during early numbering) — documented here as **Reserved** so the number is accounted for rather than
+> silently missing. `docs/concepts.yaml` remains the machine source of truth.
+
+### Pillar 1 — Graph Orchestration (ORCH) — reconciled IDs
+
+| ID | Canonical Name | Status |
+|----|---------------|--------|
+| `ORCH-1.14` | — | Reserved (never assigned) |
+| `ORCH-1.15` | — | Reserved (never assigned) |
+| `ORCH-1.16` | — | Reserved (never assigned) |
+| `ORCH-1.17` | — | Reserved (never assigned) |
+| `ORCH-1.18` | — | Reserved (never assigned) |
+| `ORCH-1.19` | — | Reserved (never assigned) |
+| `ORCH-1.20` | Service Registry Initialization | Active |
+| `ORCH-1.21` | Execution Provenance Tracking | Active |
+| `ORCH-1.22` | Workflow Persistence & Replay | Active |
+| `ORCH-1.23` | Semantic Workflow Retrieval | Active |
+| `ORCH-1.24` | Workflow Lifecycle Management | Active |
+| `ORCH-1.25` | — | Reserved (never assigned) |
+| `ORCH-1.26` | RLM Synthesis Fallback | Active |
+
+### Pillar 2 — Epistemic Knowledge Graph (KG) — reconciled IDs
+
+| ID | Canonical Name | Status |
+|----|---------------|--------|
+| `KG-2.8` | Ingestion & Enrichment Engine | Active |
+| `KG-2.9` | Universal DataConnector | Active |
+| `KG-2.10` | Orchestration Synthesis | Active |
+| `KG-2.16` | Memory Consolidation Stability | Active |

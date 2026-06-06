@@ -65,7 +65,7 @@ def test_plan_decay_buckets():
         {"id": "a", "source_type": "ai", "importance_score": 0.1, "confidence": 0.1, "created_at": _old(400)},
         {"id": "k", "source_type": "ai", "importance_score": 0.2, "created_at": _old(1)},
     ]
-    plan = plan_decay(nodes, NOW)
+    plan = plan_decay(nodes, NOW)  # type: ignore[arg-type]
     assert plan["exempt"] == ["h"] and plan["archive"] == ["a"] and plan["keep"] == ["k"]
 
 

@@ -105,15 +105,16 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
     # out-of-box default is the zero-infra ``tiered`` backend whose L2 is an
     # embedded LadybugDB — fine for dev, but single-host for prod. Require a
     # durable L2 (a Postgres DSN or graph_backend_l2=postgresql) in production.
-    graph_backend = (getattr(config, "graph_backend", "tiered") or "tiered").strip().lower()
+    graph_backend = (
+        (getattr(config, "graph_backend", "tiered") or "tiered").strip().lower()
+    )
     has_pg_dsn = bool(
         (getattr(config, "graph_db_uri", None) or "").strip()
         or (getattr(config, "pggraph_dsn", None) or "").strip()
     )
     if graph_backend == "tiered":
-        l2 = (
-            (getattr(config, "graph_backend_l2", None) or "").strip().lower()
-            or ("postgresql" if has_pg_dsn else "ladybug")
+        l2 = (getattr(config, "graph_backend_l2", None) or "").strip().lower() or (
+            "postgresql" if has_pg_dsn else "ladybug"
         )
         if l2 not in ("postgres", "postgresql", "pggraph"):
             offending.append(

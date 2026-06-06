@@ -67,7 +67,7 @@ class _FakeRetriever:
 @pytest.mark.concept(id="KG-2.15")
 def test_trivial_query_skips_retrieval_entirely():
     r = _FakeRetriever(hybrid_results=[{"id": "1", "_score": 0.9}])
-    out = r.plan_and_retrieve("thanks!", mode="standard")
+    out = r.plan_and_retrieve("thanks!", mode="standard")  # type: ignore[misc]
     assert out == []
     assert r.hybrid_calls == 0  # planner + retrieval skipped
 
@@ -77,17 +77,17 @@ def test_lexical_fallback_fires_when_vector_empty():
     # Vector path returns nothing; backend has a lexical match.
     rows = [{"id": "kb1", "data": {"name": "Staging deploy guide", "content": "deploy staging"}}]
     r = _FakeRetriever(hybrid_results=[], backend_rows=rows)
-    out = r.plan_and_retrieve("how to deploy staging", mode="standard")
-    assert out and out[0]["id"] == "kb1"
-    assert out[0]["_fallback"] == "lexical"
-    assert out[0]["_score"] == 0.2
+    out = r.plan_and_retrieve("how to deploy staging", mode="standard")  # type: ignore[misc]
+    assert out and out[0]["id"] == "kb1"  # type: ignore[index]
+    assert out[0]["_fallback"] == "lexical"  # type: ignore[index]
+    assert out[0]["_score"] == 0.2  # type: ignore[index]
 
 
 @pytest.mark.concept(id="KG-2.15")
 def test_no_fallback_when_vector_returns_results():
     r = _FakeRetriever(hybrid_results=[{"id": "v1", "_score": 0.8}], backend_rows=[{"id": "x"}])
-    out = r.plan_and_retrieve("real query here", mode="standard")
-    assert [n["id"] for n in out] == ["v1"]
+    out = r.plan_and_retrieve("real query here", mode="standard")  # type: ignore[misc]
+    assert [n["id"] for n in out] == ["v1"]  # type: ignore[index]
     assert r.engine.backend.queries == []  # lexical fallback not invoked
 
 
@@ -95,5 +95,5 @@ def test_no_fallback_when_vector_returns_results():
 def test_lexical_fallback_no_backend_returns_empty():
     r = _FakeRetriever(hybrid_results=[])
     r.engine.backend = None
-    out = r.plan_and_retrieve("query with no backend available", mode="standard")
+    out = r.plan_and_retrieve("query with no backend available", mode="standard")  # type: ignore[misc]
     assert out == []

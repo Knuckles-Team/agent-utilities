@@ -52,7 +52,7 @@ from ..models import GraphResponse
 try:
     from opentelemetry import trace
 
-    tracer: "trace.Tracer | None" = trace.get_tracer("agent-utilities.graph")
+    tracer: trace.Tracer | None = trace.get_tracer("agent-utilities.graph")
 except ImportError:
     tracer = None
 

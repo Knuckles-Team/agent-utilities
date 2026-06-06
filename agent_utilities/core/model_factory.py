@@ -338,4 +338,44 @@ def create_model(
             os.environ["HUGGING_FACE_API_KEY"] = target_api_key
         return HuggingFaceModel(model_name=_model_id)
 
+    elif _provider in ("custom", "proxy"):
+        # CONCEPT:ORCH-1.34 — BYOK custom endpoint. The provider proxy emits OpenAI-compatible
+        # canonical streams, so a custom endpoint is reached via an OpenAI-compatible client pointed at
+        # the resolved base_url. Credentials resolve env > file > none; the base_url passes the
+        # DNS-resolved SSRF egress guard before any client is constructed.
+        from agent_utilities.core.credentials import CredentialResolver
+        from agent_utilities.security.egress import validate_base_url_resolved
+
+        creds = CredentialResolver().resolve("openai")
+        target_base_url = base_url or creds.base_url or config.openai_base_url
+        target_api_key = (
+            api_key if api_key is not None else creds.api_key
+        ) or config.openai_api_key
+        if not target_base_url:
+            raise ValueError(
+                "custom/proxy provider requires a base_url (BYOK endpoint)"
+            )
+        decision = validate_base_url_resolved(target_base_url)
+        if not decision.allowed:
+            raise ValueError(
+                f"custom/proxy base_url rejected by egress guard: {decision.reason}"
+            )
+
+        if AsyncOpenAI is not None and OpenAIProvider is not None:
+            custom_client = AsyncOpenAI(
+                api_key=target_api_key or "EMPTY",
+                base_url=target_base_url,
+                http_client=http_client,
+                default_headers=custom_headers,
+                timeout=timeout,
+            )
+            return OpenAIChatModel(
+                model_name=_model_id,
+                provider=OpenAIProvider(openai_client=custom_client),
+            )
+        os.environ["OPENAI_BASE_URL"] = target_base_url
+        if target_api_key:
+            os.environ["OPENAI_API_KEY"] = target_api_key
+        return OpenAIChatModel(model_name=_model_id, provider="openai")
+
     return OpenAIChatModel(model_name=_model_id, provider="openai")

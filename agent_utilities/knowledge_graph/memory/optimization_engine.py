@@ -916,8 +916,14 @@ class AutoSimilarityLinker:
             items = [n for n in (nodes or []) if getattr(n, "embedding", None)]
             out: list[SimilarityEdgeNode] = []
             for i, a in enumerate(items):
+                ea = a.embedding
+                if ea is None:
+                    continue
                 for b in items[i + 1 :]:
-                    sim = _cosine_similarity(a.embedding, b.embedding)
+                    eb = b.embedding
+                    if eb is None:
+                        continue
+                    sim = _cosine_similarity(ea, eb)
                     if sim >= threshold:
                         out.append(self._build_edge(a.id, b.id, sim))
             return out
@@ -941,7 +947,8 @@ class AutoSimilarityLinker:
                 # Empty native result: L0 likely lacks these nodes — disambiguate with numpy.
             except Exception as e:  # noqa: BLE001 - Rust core unavailable → numpy fallback
                 logger.debug(
-                    "Native compute_similarity_edges unavailable (%s); numpy fallback", e
+                    "Native compute_similarity_edges unavailable (%s); numpy fallback",
+                    e,
                 )
 
         return _numpy_edges()

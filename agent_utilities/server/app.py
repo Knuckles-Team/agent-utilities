@@ -53,7 +53,7 @@ from ..base_utilities import __version__, to_boolean
 from .concurrency import AsyncioConcurrencyManager, RedisConcurrencyManager
 from .dependencies import inject_reload_app, resolve_model_registry, verify_api_key
 from .models import ReloadableApp
-from .routers import agent_ui, commands, core, human, interop
+from .routers import agent_ui, commands, core, human, interop, proxy
 
 logger = logging.getLogger(__name__)
 
@@ -485,6 +485,17 @@ def build_agent_app(
         app.include_router(interop.router)
         app.include_router(human.router)
         app.include_router(commands.router)
+        # CONCEPT:ORCH-1.34 — BYOK provider-normalizing proxy (/api/proxy/{provider}/stream).
+        app.include_router(proxy.router)
+        # CONCEPT:KG-2.24 — Live Refreshable Artifacts (/api/artifacts...).
+        from agent_utilities.gateway.artifacts_api import artifacts_router
+        from agent_utilities.knowledge_graph.live_artifacts.kg_source import (
+            install_kg_artifact_source,
+        )
+
+        app.include_router(artifacts_router)
+        # Wire artifact refresh to re-derive from the live KG (falls back to preserve-prior on failure).
+        install_kg_artifact_source()
         # CONCEPT:AHE-3.12 — LongMemEval-S validation harness (Quarq HTTP runner compatible).
         from .routers import benchmark
 

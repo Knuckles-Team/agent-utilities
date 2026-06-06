@@ -171,9 +171,7 @@ class PostgresBackend(BaseStatePersistence[StateT]):
             )
 
     async def snapshot_node(self, state: StateT, next_node: Any) -> None:
-        await self._insert_node(
-            f"{self._run_id}:{time.time()}", state, next_node
-        )
+        await self._insert_node(f"{self._run_id}:{time.time()}", state, next_node)
 
     async def snapshot_node_if_new(
         self, snapshot_id: str, state: StateT, next_node: Any
@@ -244,9 +242,7 @@ class RedisBackend(BaseStatePersistence[StateT]):
             await r.hset(key, member, json.dumps(data))
 
     async def snapshot_node(self, state: StateT, next_node: Any) -> None:
-        await self._write_node(
-            str(time.time()), state, next_node, if_new=False
-        )
+        await self._write_node(str(time.time()), state, next_node, if_new=False)
 
     async def snapshot_node_if_new(
         self, snapshot_id: str, state: StateT, next_node: Any

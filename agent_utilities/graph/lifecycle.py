@@ -77,7 +77,9 @@ async def usage_guard_step(
     logger.info(
         f"[LAYER:GRAPH:USAGE_GUARD] Handling query: '{cast(GraphState, ctx.state).query[:50]}...'"
     )
-    _emit_node_lifecycle(cast(GraphDeps, ctx.deps).event_queue, "usage_guard", "node_start")
+    _emit_node_lifecycle(
+        cast(GraphDeps, ctx.deps).event_queue, "usage_guard", "node_start"
+    )
     # Token / cost budget check
     usage = cast(GraphState, ctx.state).session_usage
     cost_limit = 5.0
@@ -98,7 +100,10 @@ async def usage_guard_step(
     if cast(GraphDeps, ctx.deps).tool_guard_mode == "off":
         logger.info("UsageGuard: Tool guard mode is OFF. Bypassing policy check.")
         _emit_node_lifecycle(
-            cast(GraphDeps, ctx.deps).event_queue, "usage_guard", "node_complete", next_node="router"
+            cast(GraphDeps, ctx.deps).event_queue,
+            "usage_guard",
+            "node_complete",
+            next_node="router",
         )
         return "router"
 
@@ -183,7 +188,10 @@ async def approval_gate_step(
         'router' if redirection feedback is provided.
 
     """
-    if cast(GraphState, ctx.state).mode != "plan" and not cast(GraphState, ctx.state).human_approval_required:
+    if (
+        cast(GraphState, ctx.state).mode != "plan"
+        and not cast(GraphState, ctx.state).human_approval_required
+    ):
         return ctx.inputs
 
     safety_guard_prompt = load_specialized_prompts("safety_guard")

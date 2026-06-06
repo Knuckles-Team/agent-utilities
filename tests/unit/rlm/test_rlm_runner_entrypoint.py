@@ -22,8 +22,8 @@ def test_dynamic_signature_has_input_and_output():
     assert "input_text" in fields and "summary" in fields
     assert sig.__doc__ == "summarize the text"
     # input_text marked input; summary marked output.
-    assert fields["input_text"].json_schema_extra.get("is_input") is True
-    assert fields["summary"].json_schema_extra.get("is_output") is True
+    assert fields["input_text"].json_schema_extra.get("is_input") is True  # type: ignore[union-attr]
+    assert fields["summary"].json_schema_extra.get("is_output") is True  # type: ignore[union-attr]
 
 
 @pytest.mark.concept(id="ORCH-1.13")
