@@ -33,6 +33,9 @@ _DECISION = RegistryNodeType.DECISION.value
 _ARXIV = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d+\.\d+)(?:v\d+)?", re.IGNORECASE)
 _DOI = re.compile(r"(?:doi\.org/|doi:)\s*(10\.\S+)", re.IGNORECASE)
 _WS = re.compile(r"\s+")
+# Concept ids referenced in a doc (KG-2.7 / AHE-3.12 / ORCH-1.3b) — the exact
+# signal the gap matcher (auto_satisfy) uses to recognize already-built features.
+_CONCEPT_REF = re.compile(r"\b([A-Z]{2,6}-\d+(?:\.\d+[a-z]?|-\d+)?)\b")
 
 
 @dataclass
@@ -103,13 +106,16 @@ def _ingest_items(
         if existing is not None and existing.get("content_hash") == fp:
             report.skipped += 1  # unchanged → idempotent no-op
             continue
+        name = str(item.get("title") or item.get("name") or uri)
         props = {
-            "name": str(item.get("title") or item.get("name") or uri),
+            "name": name,
             "content": text,
             "content_hash": fp,
             "source_uri": uri,
             "kind": str(item.get("kind", "") or ""),
             "status": "open",
+            # Capture referenced concept ids so the gap matcher can recognize
+            "concept_ids": sorted(set(_CONCEPT_REF.findall(f"{name} {text}".upper()))),
         }
         engine.add_node(node_id, node_type, properties=props)
         report.node_ids.append(node_id)

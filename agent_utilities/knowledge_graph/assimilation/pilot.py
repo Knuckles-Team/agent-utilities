@@ -25,6 +25,7 @@ from .gap_analysis import _FEATURE_TYPES, is_closed
 class PilotReport:
     total_features: int = 0
     already_built: int = 0  # features the graph marks satisfied/superseded/implemented
+    recognized_built: int = 0  # features auto_satisfy matched to a concept THIS pass
     open_gaps: int = 0
     proposed: int = 0
     reproposed_built: list[str] = field(default_factory=list)  # MUST be empty
@@ -52,15 +53,23 @@ def run_pilot(
     *,
     top_n: int = 50,
     feature_types: tuple[str, ...] = _FEATURE_TYPES,
+    synth_fn: Any = None,
 ) -> PilotReport:
-    """Run the assimilation pass and validate the no-re-propose-built invariant."""
+    """Run the assimilation pass and validate the no-re-propose-built invariant.
+
+    ``synth_fn`` is forwarded to plan synthesis; pass
+    ``assimilation.plan_synthesis._default_synth`` to run the pilot fully offline
+    (deterministic, no planner LLM).
+    """
     from ..research.golden_loop import run_assimilation_pass
 
     ids = _all_feature_ids(engine, feature_types)
     # Snapshot what's already built BEFORE synthesis flips features to 'proposed'.
     built = {fid for fid in ids if is_closed(engine, fid)}
 
-    rep = run_assimilation_pass(engine, synthesize=True, top_n=top_n, force=True)
+    rep = run_assimilation_pass(
+        engine, synthesize=True, top_n=top_n, force=True, synth_fn=synth_fn
+    )
     proposed = rep.get("proposed_plans", []) or []
     proposed_ids = [p["feature_id"] for p in proposed]
 
@@ -68,6 +77,7 @@ def run_pilot(
     report = PilotReport(
         total_features=len(ids),
         already_built=len(built),
+        recognized_built=int(rep.get("auto_satisfied", 0)),
         open_gaps=int(rep.get("open_gaps", 0)),
         proposed=len(proposed_ids),
         reproposed_built=reproposed_built,
@@ -83,6 +93,7 @@ def summarize(report: PilotReport) -> str:
     lines = [
         f"Assimilation pilot: {status}",
         f"  features={report.total_features} already_built={report.already_built} "
+        f"recognized_built={report.recognized_built} "
         f"open_gaps={report.open_gaps} proposed={report.proposed}",
         f"  re-proposed already-built: {report.reproposed_built or 'none (invariant holds)'}",
         "  top gaps: "

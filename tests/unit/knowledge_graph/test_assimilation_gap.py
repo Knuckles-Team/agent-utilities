@@ -112,3 +112,60 @@ def test_dry_run_does_not_write():
     report = auto_satisfy(engine, write=False)
     assert report.satisfied == 1  # detected
     assert not is_closed(engine, "f1")  # but no edge written
+
+
+def test_auto_satisfy_id_reference_beats_embedding():
+    """An explicit concept-id reference wins over the embedding-closest concept.
+
+    Regression for the calibration finding: pure cosine recognized 0/21 built
+    capabilities (argmax wrong 71% of the time). The feature here is embedding-
+    identical to the WRONG concept (KG-9.9) yet references KG-2.7 — the id signal
+    must win, exact, score 1.0.
+    """
+    engine = _Engine(
+        {
+            "spec:foo": {
+                "type": "capability",
+                "status": "open",
+                "embedding": [0.0, 1.0, 0.0],
+                "concept_ids": ["KG-2.7"],
+            },
+            "KG-2.7": {
+                "type": "concept",
+                "status": "live",
+                "concept_id": "KG-2.7",
+                "embedding": [1.0, 0.0, 0.0],  # orthogonal to the feature
+            },
+            "KG-9.9": {
+                "type": "concept",
+                "status": "live",
+                "concept_id": "KG-9.9",
+                "embedding": [0.0, 1.0, 0.0],  # embedding-identical, but NOT referenced
+            },
+        }
+    )
+    report = auto_satisfy(engine)
+    assert ("spec:foo", "KG-2.7", 1.0) in report.candidates
+    assert is_closed(engine, "spec:foo")
+
+
+def test_auto_satisfy_id_from_content_marker():
+    """A CONCEPT:<ID> marker in the node's content text is recognized."""
+    engine = _Engine(
+        {
+            "spec:bar": {
+                "type": "capability",
+                "status": "open",
+                "embedding": [0.0, 1.0, 0.0],
+                "content": "This implements CONCEPT:AHE-3.1 in-house training.",
+            },
+            "AHE-3.1": {
+                "type": "concept",
+                "status": "live",
+                "concept_id": "AHE-3.1",
+                "embedding": [1.0, 0.0, 0.0],
+            },
+        }
+    )
+    report = auto_satisfy(engine)
+    assert ("spec:bar", "AHE-3.1", 1.0) in report.candidates
