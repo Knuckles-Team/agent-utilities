@@ -19,15 +19,24 @@ from agent_utilities.rlm.telemetry import (
 def test_classify_failure_taxonomy():
     assert classify_failure(SandboxFatalError("x")) == "sandbox_fatal"
     assert classify_failure(TimeoutError()) == "host_tool_timeout"
-    assert classify_failure(SyntaxError("unterminated string")) == "model_generated_bad_code"
+    assert (
+        classify_failure(SyntaxError("unterminated string"))
+        == "model_generated_bad_code"
+    )
     assert classify_failure("evaluator reject: bad") == "evaluator_reject"
     assert classify_failure("something odd") == "unknown"
 
 
 @pytest.mark.concept(id="ORCH-1.29")
 def test_dominant_failure_precedence():
-    assert dominant_failure(["unknown", "host_tool_timeout", "sandbox_fatal"]) == "sandbox_fatal"
-    assert dominant_failure(["model_generated_bad_code", "unknown"]) == "model_generated_bad_code"
+    assert (
+        dominant_failure(["unknown", "host_tool_timeout", "sandbox_fatal"])
+        == "sandbox_fatal"
+    )
+    assert (
+        dominant_failure(["model_generated_bad_code", "unknown"])
+        == "model_generated_bad_code"
+    )
     assert dominant_failure([]) == "unknown"
 
 
@@ -52,7 +61,9 @@ async def test_with_tool_timeout_recoverable():
         return "done"
 
     ok, val = await with_tool_timeout(slow(), seconds=0.01)
-    assert ok is False and "recoverable" in val.lower()  # timeout is recoverable, not fatal
+    assert (
+        ok is False and "recoverable" in val.lower()
+    )  # timeout is recoverable, not fatal
 
     async def fast():
         return 42

@@ -35,8 +35,12 @@ def test_startup_chunk_has_authority_field_default():
     c = StartupChunk(source="x", heading="h", body="b", handle="hd", priority=4)
     assert c.source_authority == AUTHORITY_STANDARD
     c2 = StartupChunk(
-        source="profile", heading="Preferences", body="b", handle="hd",
-        priority=10, source_authority=AUTHORITY_AUTHORITATIVE,
+        source="profile",
+        heading="Preferences",
+        body="b",
+        handle="hd",
+        priority=10,
+        source_authority=AUTHORITY_AUTHORITATIVE,
     )
     assert c2.source_authority == AUTHORITY_AUTHORITATIVE
 
@@ -45,8 +49,12 @@ def test_startup_chunk_has_authority_field_default():
 def test_chunk_priority_boosts_authoritative():
     # Bypass __init__ (no engine needed for _chunk_priority).
     b = StartupContextBuilder.__new__(StartupContextBuilder)
-    auth = b._chunk_priority("profile", "Preferences", "body", cwd=None, task=None, agent=None)
-    plain = b._chunk_priority("active", "Random Notes", "body", cwd=None, task=None, agent=None)
+    auth = b._chunk_priority(
+        "profile", "Preferences", "body", cwd=None, task=None, agent=None
+    )
+    plain = b._chunk_priority(
+        "active", "Random Notes", "body", cwd=None, task=None, agent=None
+    )
     # Preferences is authoritative (base 10 + boost); random notes is standard (base 4).
     assert auth >= 10 + AUTHORITY_BOOST
     assert plain == 4

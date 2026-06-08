@@ -13,7 +13,9 @@ from agent_utilities.rlm.roles import RLM_ROLES, rlm_role_model
 
 
 def _model(mid, tier, tags):
-    return ModelDefinition(id=mid, name=mid, provider="openai", model_id=mid, tier=tier, tags=tags)
+    return ModelDefinition(
+        id=mid, name=mid, provider="openai", model_id=mid, tier=tier, tags=tags
+    )
 
 
 @pytest.mark.concept(id="ORCH-1.27")
@@ -28,11 +30,13 @@ def test_rlm_roles_registered_in_default_map():
 
 @pytest.mark.concept(id="ORCH-1.27")
 def test_pick_for_role_resolves_rlm_roles_on_a_pool():
-    reg = ModelRegistry(models=[
-        _model("cheap", "light", ["code"]),
-        _model("mid", "medium", []),
-        _model("strong", "reasoning", ["synthesis"]),
-    ])
+    reg = ModelRegistry(
+        models=[
+            _model("cheap", "light", ["code"]),
+            _model("mid", "medium", []),
+            _model("strong", "reasoning", ["synthesis"]),
+        ]
+    )
     assert reg.pick_for_role("rlm-executor").id == "cheap"
     assert reg.pick_for_role("rlm-proposer").id == "strong"
 

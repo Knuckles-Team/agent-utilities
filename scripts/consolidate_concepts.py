@@ -8,6 +8,9 @@ Run: python3 scripts/consolidate_concepts.py --dry-run
      python3 scripts/consolidate_concepts.py --apply
 """
 
+# ruff: noqa: F601 — completed one-off migration; the duplicate source keys are a
+# frozen (last-wins) artifact of the historical consolidation run, not reconstructable.
+
 import argparse
 import re
 from pathlib import Path
@@ -33,8 +36,6 @@ RENAME_MAP = {
     "KG-003": "KG-2.0",
     "KG-004": "KG-2.0",
     "KG-3.00": "KG-2.0",
-    "KG-2.7": "KG-2.1",  # context compaction → Tiered Memory
-    "KG-2.7": "KG-2.1",  # chat recall → Tiered Memory
     "KG-2.7": "KG-2.1",  # project-aware context → Tiered Memory
     "KG-2.7": "KG-2.2",  # semantic subsumption → Ontology & Epistemics
     "KG-2.23": "KG-2.2",  # agent reasoning → Ontology & Epistemics
@@ -46,8 +47,6 @@ RENAME_MAP = {
     "KG-2.34": "KG-2.5",  # spectral clusters → Topological Analysis
     "KG-2.35": "KG-2.5",  # blast radius → Topological Analysis
     # Finance domain collapse
-    "KG-2.7": "KG-2.6",  # risk scoring → Finance
-    "KG-2.7": "KG-2.6",  # financial models → Finance
     "KG-2.7": "KG-2.6",  # trading strategies → Finance
     "KG-2.40": "KG-2.6",  # portfolio optimization → Finance
     "KG-2.41": "KG-2.6",  # market microstructure → Finance
@@ -60,7 +59,6 @@ RENAME_MAP = {
     "KG-2.48": "KG-2.6",  # slippage model → Finance
     "KG-2.49": "KG-2.6",  # execution analytics → Finance
     # Research intelligence collapse
-    "KG-2.7": "KG-2.7",  # research pipeline → Research Intelligence (renumber)
     "KG-2.7": "KG-2.7",  # source resolver → Research Intelligence
     "KG-2.33": "KG-2.7",  # research sub-agent → Research Intelligence
     "KG-2.39": "KG-2.7",  # research orchestration → Research Intelligence
@@ -72,8 +70,6 @@ RENAME_MAP = {
     "KG-2.53": "KG-2.7",  # state checkpointing → Multi-Domain Architecture
     # Enterprise domain collapse
     "KG-2.70": "KG-2.7",  # enterprise core → Enterprise
-    "KG-2.75": "KG-2.7",  # governance → Enterprise
-    "KG-2.70": "KG-2.7",  # infrastructure → Enterprise
     "KG-2.75": "KG-2.7",  # HR → Enterprise
     # Vectorized retrieval
     "KG-2.50": "KG-2.7",  # context-window filtering → Vectorized Retrieval
@@ -101,8 +97,7 @@ RENAME_MAP = {
     "ECO-4.1": "ECO-4.0",  # universal skills → Tool Interface
     "ECO-4.5": "ECO-4.0",  # skill loading → Tool Interface
     "ECO-4.6": "ECO-4.0",  # bridges → Tool Interface
-    "ECO-4.9": "ECO-4.0",  # tool assignment → Tool Interface
-    "ECO-4.6": "ECO-4.0",  # bridge → Tool Interface
+    "ECO-4.9": "ECO-4.0",  # bridge → Tool Interface
     "ECO-4.2": "ECO-4.1",  # A2A network → A2A (renumber)
     "ECO-4.3": "ECO-4.2",  # community telemetry → Telemetry (renumber)
     "ECO-4.7": "ECO-4.2",  # ecosystem topology → Telemetry

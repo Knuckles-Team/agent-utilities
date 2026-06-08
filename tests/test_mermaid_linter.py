@@ -1,5 +1,4 @@
 import sys
-import os
 from pathlib import Path
 
 # Add the scripts directory to sys.path so we can import mermaid_linter
@@ -8,6 +7,7 @@ if scripts_dir not in sys.path:
     sys.path.insert(0, scripts_dir)
 
 import mermaid_linter
+
 
 def test_validate_valid_mermaid_block():
     # A perfectly valid diagram with double quotes and no special characters in unquoted nodes
@@ -18,6 +18,7 @@ def test_validate_valid_mermaid_block():
     ]
     findings = mermaid_linter.validate_mermaid_block("dummy.md", 1, block)
     assert len(findings) == 0
+
 
 def test_validate_unquoted_special_chars():
     # Invalid unquoted special characters in node label
@@ -30,6 +31,7 @@ def test_validate_unquoted_special_chars():
     assert "Unquoted special character(s)" in findings[0]["message"]
     assert findings[0]["line"] == 2
 
+
 def test_validate_mismatched_quotes():
     # Odd number of quotes on a line
     block = [
@@ -40,6 +42,7 @@ def test_validate_mismatched_quotes():
     assert len(findings) == 1
     assert "Mismatched double quotes" in findings[0]["message"]
     assert findings[0]["line"] == 2
+
 
 def test_validate_sequence_diagram_unclosed_block():
     # Sequence diagram with missing end block

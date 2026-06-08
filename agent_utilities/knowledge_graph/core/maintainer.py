@@ -467,7 +467,7 @@ class GraphMaintainer:
                 ),
             )
 
-            prompt = f"Existing Skills:\n{skills}\n\n" f"Existing Agents:\n{agents}"
+            prompt = f"Existing Skills:\n{skills}\n\nExisting Agents:\n{agents}"
 
             result = agent.run_sync(prompt)
             data = result.output

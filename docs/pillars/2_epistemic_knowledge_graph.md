@@ -487,3 +487,44 @@ ids it was grounded on. See [KG-2.18](2_epistemic_knowledge_graph/KG-2.18-Eviden
 Continuously ingests a markdown knowledge vault into the graph but only when pages change (SHA-256
 delta-skip, crash-safe state), reusing the ingestion engine + synthesis. Exposed via
 `graph_ingest(action="curate_wiki")`. See [KG-2.19](2_epistemic_knowledge_graph/KG-2.19-Self_Curating_Wiki.md). Extends KG-2.7.
+
+### KG-2.2 — Self-bootstrapping ontology (ingest)
+
+The OWL reasoning ingest phase can derive its ontology from the graph's own
+records instead of the fixed `ontology.ttl`. With `PipelineConfig.enable_ontology_bootstrap`
+(env `ENABLE_KG_ONTOLOGY_BOOTSTRAP`) set and no explicit `owl_ontology_path`,
+`bootstrap_ontology_path` samples nodes, derives classes + typed properties
+(plateau-stopped `OntologyBootstrapper`), emits Turtle, and reasons over it —
+falling back to the bundled ontology if nothing is derived. Extends KG-2.7.
+
+### KG-2.12 — Executable-RAG LLM plan synthesizer
+
+`HybridRetriever.retrieve_executable(use_planner=True)` synthesizes a richer,
+non-linear retrieve/answer plan via the ORCH-1.27 `planner` role instead of the
+deterministic linear plan. `parse_executable_plan` is parse-or-fallback: any
+malformed/partial LLM output degrades to `build_linear_plan`, so the run never
+breaks on a planner failure. Extends KG-2.12.
+
+### KG-2.1 — MEMO merge-generalize
+
+`EvolvingMemoryStore.reconcile_similar` collapses *near-duplicate* insights (not
+just exact-signature dups) into a canonical survivor via `merge(generalize=True)`,
+preserving absorbed variants under `metadata['generalized_from']`. Wired into the
+evolution cycle so paraphrased insights converge on general rules. See the
+[In-House Training Substrate](../architecture/in_house_training_substrate.md) for
+how this couples with the replay buffer. Extends KG-2.1.
+
+### KG-2.7 — Graph-Native Assimilation Engine
+
+The self-evolution loop that assimilates external innovations (research papers, OSS
+libraries, our ~62 repos, docs/chat) into the ecosystem — as **graph operations**,
+not per-source LLM reading. `knowledge_graph/assimilation/` provides dedup
+(`SIMILAR_TO`/`SUPERSEDES`), gap analysis (`SATISFIED_BY` + `open_features` — the
+"stop rediscovering built features" filter), synergy bundles (cross-pillar
+`HAS_SYNERGY_WITH`) + leverage ranking, grounded plan synthesis from a feature's KG
+neighborhood, and lifecycle close-out (`DERIVED_FROM_RESEARCH`/`ASSIMILATED_INTO`).
+Content-addressed ingest + a per-cycle state watermark make it idempotent — cost
+grows with the delta, not the corpus. Runs via `graph_orchestrate(action="assimilate")`,
+the golden-loop daemon tick, or `scripts/run_assimilation_breadth.py`. Each cycle
+emits metrics + a queryable `EvolutionCycle` node for monitoring. Full design:
+[Graph-Native Assimilation Engine](../architecture/assimilation_engine.md). Extends KG-2.7.

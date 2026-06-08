@@ -34,7 +34,9 @@ def test_resolver_shapes_kg_rows(monkeypatch):
             return [{"n": 1}, {"n": 2}, {"n": 3}]
 
     monkeypatch.setattr(facade, "KnowledgeGraph", lambda *a, **k: _StubKG())
-    art = LiveArtifact(template="{{data.count}}", data={}, source_query="MATCH (n) RETURN n")
+    art = LiveArtifact(
+        template="{{data.count}}", data={}, source_query="MATCH (n) RETURN n"
+    )
     shaped = kg_source_resolver(art)
     assert shaped["count"] == 3
     assert shaped["first"] == {"n": 1}
@@ -53,7 +55,11 @@ def test_refresh_via_kg_source_rederives(monkeypatch):
     monkeypatch.setattr(facade, "KnowledgeGraph", lambda *a, **k: _StubKG())
     store = LiveArtifactStore()
     art = store.create(
-        LiveArtifact(template="count={{data.count}}", data={"count": 0}, source_query="MATCH (n) RETURN n")
+        LiveArtifact(
+            template="count={{data.count}}",
+            data={"count": 0},
+            source_query="MATCH (n) RETURN n",
+        )
     )
     svc = RefreshService(store)
     res = svc.refresh(art.artifact_id, kg_source_resolver)

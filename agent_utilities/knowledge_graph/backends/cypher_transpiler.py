@@ -491,8 +491,7 @@ def _build_traversal(
     ].strip()
 
     join = (
-        f'FROM "{s_label}" {s_alias} '
-        f"JOIN {EDGE_TABLE} e ON e.source_id = {s_alias}.id"
+        f'FROM "{s_label}" {s_alias} JOIN {EDGE_TABLE} e ON e.source_id = {s_alias}.id'
     )
     params_list: list[Any] = []
     if r_type:
@@ -555,7 +554,7 @@ def _build_traversal(
     if not select_cols:
         return None
     return TranspiledQuery(
-        sql=f'SELECT {", ".join(select_cols)} {join}{limit_sql}',
+        sql=f"SELECT {', '.join(select_cols)} {join}{limit_sql}",
         params=params_list,
         query_type=QueryType.SELECT,
         return_columns=return_cols,

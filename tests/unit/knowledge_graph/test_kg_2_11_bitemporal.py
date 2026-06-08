@@ -49,10 +49,15 @@ def test_stamp_is_idempotent():
 
 @pytest.mark.concept(id="KG-2.11")
 def test_is_valid_as_of_within_and_outside_interval():
-    props = {"valid_from": "2023-01-01T00:00:00+00:00", "valid_to": "2024-01-01T00:00:00+00:00"}
+    props = {
+        "valid_from": "2023-01-01T00:00:00+00:00",
+        "valid_to": "2024-01-01T00:00:00+00:00",
+    }
     assert is_valid_as_of(props, "2023-06-01T00:00:00+00:00") is True
     assert is_valid_as_of(props, "2022-06-01T00:00:00+00:00") is False  # before
-    assert is_valid_as_of(props, "2024-06-01T00:00:00+00:00") is False  # after (>= valid_to)
+    assert (
+        is_valid_as_of(props, "2024-06-01T00:00:00+00:00") is False
+    )  # after (>= valid_to)
 
 
 @pytest.mark.concept(id="KG-2.11")
@@ -63,8 +68,18 @@ def test_open_interval_is_valid_forever():
 
 @pytest.mark.concept(id="KG-2.11")
 def test_filter_as_of_selects_temporally_correct_row():
-    old = {"id": "a", "content": "lives in Boston", "valid_from": "2020-01-01T00:00:00+00:00", "valid_to": "2023-01-01T00:00:00+00:00"}
-    new = {"id": "b", "content": "lives in Denver", "valid_from": "2023-01-01T00:00:00+00:00", "valid_to": None}
+    old = {
+        "id": "a",
+        "content": "lives in Boston",
+        "valid_from": "2020-01-01T00:00:00+00:00",
+        "valid_to": "2023-01-01T00:00:00+00:00",
+    }
+    new = {
+        "id": "b",
+        "content": "lives in Denver",
+        "valid_from": "2023-01-01T00:00:00+00:00",
+        "valid_to": None,
+    }
     rows = [old, new]
     assert [r["id"] for r in filter_as_of(rows, "2021-06-01T00:00:00+00:00")] == ["a"]  # type: ignore[arg-type]
     assert [r["id"] for r in filter_as_of(rows, "2024-06-01T00:00:00+00:00")] == ["b"]  # type: ignore[arg-type]

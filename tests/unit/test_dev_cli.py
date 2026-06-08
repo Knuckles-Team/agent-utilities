@@ -25,7 +25,9 @@ def test_status_reports_components(monkeypatch, tmp_path):
     st = cli.status("default")
     assert st["namespace"] == "default"
     assert set(st["components"]) == set(cli.COMPONENTS)
-    assert all(c["running"] is False for c in st["components"].values())  # nothing started
+    assert all(
+        c["running"] is False for c in st["components"].values()
+    )  # nothing started
 
 
 def test_run_mints_scoped_token(monkeypatch, tmp_path):
@@ -35,7 +37,10 @@ def test_run_mints_scoped_token(monkeypatch, tmp_path):
     assert decoded.run_id == "run:ns1:researcher"
     assert decoded.project == "proj"
     # token is scoped to the artifact/proxy/runs endpoints, not unlimited
-    assert validate_token(out["tool_token"], endpoint="/api/artifacts/*").run_id == "run:ns1:researcher"
+    assert (
+        validate_token(out["tool_token"], endpoint="/api/artifacts/*").run_id
+        == "run:ns1:researcher"
+    )
 
 
 def test_main_status_json(monkeypatch, tmp_path, capsys):
@@ -60,5 +65,11 @@ def test_context_glossary_present():
     ctx = Path(__file__).resolve().parents[2] / "docs" / "CONTEXT.md"
     text = ctx.read_text()
     # glossary defines the new ubiquitous-language terms for the adapted features
-    for term in ("Live Artifact", "Run-Scoped Token", "Pre-Emit Gate", "Adapter", "Provider Proxy"):
+    for term in (
+        "Live Artifact",
+        "Run-Scoped Token",
+        "Pre-Emit Gate",
+        "Adapter",
+        "Provider Proxy",
+    ):
         assert f"**{term}**" in text

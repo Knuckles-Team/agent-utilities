@@ -44,9 +44,16 @@ def test_memory_edit_new_fields_defaults():
 def test_ungrounded_decision_is_gated_out():
     eng = _FakeEngine()
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
-    counts = learner.apply_edits([
-        MemoryEdit(action="ADD", id="d1", content="We will use Postgres", entry_type="decision"),
-    ])
+    counts = learner.apply_edits(
+        [
+            MemoryEdit(
+                action="ADD",
+                id="d1",
+                content="We will use Postgres",
+                entry_type="decision",
+            ),
+        ]
+    )
     assert counts["gated"] == 1 and counts["added"] == 0
     assert "d1" not in eng.nodes  # not persisted
 
@@ -55,12 +62,18 @@ def test_ungrounded_decision_is_gated_out():
 def test_grounded_decision_persists_with_tags_and_edges():
     eng = _FakeEngine()
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
-    counts = learner.apply_edits([
-        MemoryEdit(
-            action="ADD", id="d1", content="We will use Postgres", entry_type="decision",
-            training_value="high", evidence_ids=["msg7", "msg9"],
-        )
-    ])
+    counts = learner.apply_edits(
+        [
+            MemoryEdit(
+                action="ADD",
+                id="d1",
+                content="We will use Postgres",
+                entry_type="decision",
+                training_value="high",
+                evidence_ids=["msg7", "msg9"],
+            )
+        ]
+    )
     assert counts["added"] == 1
     node = eng.nodes["d1"]
     assert "type:decision" in node.tags and "train:high" in node.tags
@@ -73,7 +86,9 @@ def test_grounded_decision_persists_with_tags_and_edges():
 def test_plain_fact_not_gated():
     eng = _FakeEngine()
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
-    counts = learner.apply_edits([MemoryEdit(action="ADD", id="f1", content="User name is Sam")])
+    counts = learner.apply_edits(
+        [MemoryEdit(action="ADD", id="f1", content="User name is Sam")]
+    )
     assert counts["added"] == 1 and counts["gated"] == 0
 
 

@@ -85,7 +85,9 @@ def test_merge_does_not_corrupt_survivor_id():
         assert "SET new += old" not in " ".join(q.split())
 
     # Property merge targets the survivor and never writes a protected key.
-    prop_sets = [p for q, p in backend.calls if "SET new += $props" in " ".join(q.split())]
+    prop_sets = [
+        p for q, p in backend.calls if "SET new += $props" in " ".join(q.split())
+    ]
     assert prop_sets, "expected a non-destructive property merge"
     props = prop_sets[0]["props"]
     assert "id" not in props and "name" not in props

@@ -18,7 +18,9 @@ def _cap(cid, name, summary=""):
 
 
 def test_match_existing_capability_top_down():
-    features = [_feat("feature:1", "order fulfillment pipeline", "ships customer orders")]
+    features = [
+        _feat("feature:1", "order fulfillment pipeline", "ships customer orders")
+    ]
     caps = [
         _cap("capability:OF", "Order Fulfillment", "fulfill and ship orders"),
         _cap("capability:HR", "Human Resources", "payroll and people"),
@@ -81,7 +83,10 @@ def test_embed_fn_used_when_supplied():
         return [1.0, 0.0] if "alpha" in t else [0.0, 1.0]
 
     features = [_feat("feature:1", "alpha service", "")]
-    caps = [_cap("capability:A", "alpha capability", ""), _cap("capability:B", "beta", "")]
+    caps = [
+        _cap("capability:A", "alpha capability", ""),
+        _cap("capability:B", "beta", ""),
+    ]
     minted, edges = resolve_realizes(
         features, caps, mint_missing=False, embed_fn=embed, match_threshold=0.9
     )

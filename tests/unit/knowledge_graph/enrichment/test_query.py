@@ -28,18 +28,50 @@ def backend():
 
 def _parse_fn(file_path, source):
     if file_path.endswith("test_good.py"):
-        return {"nodes": [{
-            "node_id": "symbol:test_good", "node_type": "SYMBOL",
-            "properties": {"symbol_type": "Function", "name": "test_good", "line": "1",
-                           "ast_hash": "g", "file_path": file_path, "is_test": "true",
-                           "assert_count": "3", "mock_count": "0", "fixture_count": "1",
-                           "marks": "", "is_skipped": "false", "calls": ""}}]}
-    return {"nodes": [{
-        "node_id": "symbol:test_bad", "node_type": "SYMBOL",
-        "properties": {"symbol_type": "Function", "name": "test_bad", "line": "1",
-                       "ast_hash": "b", "file_path": file_path, "is_test": "true",
-                       "assert_count": "0", "mock_count": "5", "fixture_count": "1",
-                       "marks": "", "is_skipped": "false", "calls": ""}}]}
+        return {
+            "nodes": [
+                {
+                    "node_id": "symbol:test_good",
+                    "node_type": "SYMBOL",
+                    "properties": {
+                        "symbol_type": "Function",
+                        "name": "test_good",
+                        "line": "1",
+                        "ast_hash": "g",
+                        "file_path": file_path,
+                        "is_test": "true",
+                        "assert_count": "3",
+                        "mock_count": "0",
+                        "fixture_count": "1",
+                        "marks": "",
+                        "is_skipped": "false",
+                        "calls": "",
+                    },
+                }
+            ]
+        }
+    return {
+        "nodes": [
+            {
+                "node_id": "symbol:test_bad",
+                "node_type": "SYMBOL",
+                "properties": {
+                    "symbol_type": "Function",
+                    "name": "test_bad",
+                    "line": "1",
+                    "ast_hash": "b",
+                    "file_path": file_path,
+                    "is_test": "true",
+                    "assert_count": "0",
+                    "mock_count": "5",
+                    "fixture_count": "1",
+                    "marks": "",
+                    "is_skipped": "false",
+                    "calls": "",
+                },
+            }
+        ]
+    }
 
 
 def test_tests_needing_work_is_a_graph_query(backend, tmp_path):

@@ -26,7 +26,11 @@ _INTEL_JSON = json.dumps(
         ],
         "facts": [{"statement": "Refund window is 30 days"}],
         "frameworks": [
-            {"name": "Objection Handling", "summary": "LAER", "steps": ["Listen", "Answer"]}
+            {
+                "name": "Objection Handling",
+                "summary": "LAER",
+                "steps": ["Listen", "Answer"],
+            }
         ],
         "playbooks": [
             {
@@ -87,8 +91,9 @@ def test_pipeline_persists_intelligence(tmp_path, monkeypatch):
     backend = FakeBackend()
 
     # parse_fn is unused for documents; pass a dummy.
-    pipe = EnrichmentPipeline(backend, parse_fn=lambda fp, src: {"nodes": []},
-                              llm_fn=_fake_llm)
+    pipe = EnrichmentPipeline(
+        backend, parse_fn=lambda fp, src: {"nodes": []}, llm_fn=_fake_llm
+    )
     _concepts, _edges, summary = pipe.enrich_documents([tmp_path / "call.md"])
 
     assert summary.intelligence_nodes == 4

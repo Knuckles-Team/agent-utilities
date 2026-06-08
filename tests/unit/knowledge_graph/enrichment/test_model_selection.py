@@ -13,10 +13,22 @@ from agent_utilities.knowledge_graph.enrichment.orchestration import (
 from agent_utilities.knowledge_graph.enrichment.registry import get_source, write_batch
 
 _MODELS = [
-    {"id": "qwen/qwen3.5-9b", "provider": "openai", "intelligence_level": "normal",
-     "can_route": False, "can_kg": True, "context_window": 65536},
-    {"id": "qwen-lite", "provider": "openai", "intelligence_level": "light",
-     "can_route": True, "can_kg": False, "context_window": 32768},
+    {
+        "id": "qwen/qwen3.5-9b",
+        "provider": "openai",
+        "intelligence_level": "normal",
+        "can_route": False,
+        "can_kg": True,
+        "context_window": 65536,
+    },
+    {
+        "id": "qwen-lite",
+        "provider": "openai",
+        "intelligence_level": "light",
+        "can_route": True,
+        "can_kg": False,
+        "context_window": 32768,
+    },
 ]
 
 
@@ -32,10 +44,16 @@ class FakeBackend:
 
 
 def test_config_models_extractor_to_kg():
-    batch = extract_models({"data": {"chat_models": _MODELS,
-                                     "embedding_models": [{"id": "bge-m3",
-                                                           "provider": "openai",
-                                                           "context_window": 8192}]}})
+    batch = extract_models(
+        {
+            "data": {
+                "chat_models": _MODELS,
+                "embedding_models": [
+                    {"id": "bge-m3", "provider": "openai", "context_window": 8192}
+                ],
+            }
+        }
+    )
     by_id = {n.id: n for n in batch.nodes}
     assert by_id["model:qwen-lite"].props["can_route"] is True
     assert by_id["model:qwen-qwen3-5-9b"].props["can_kg"] is True
@@ -44,9 +62,9 @@ def test_config_models_extractor_to_kg():
 
 
 def test_select_model_light_vs_heavy():
-    assert select_model(_MODELS, "light") == "qwen-lite"      # can_route
+    assert select_model(_MODELS, "light") == "qwen-lite"  # can_route
     assert select_model(_MODELS, "normal") == "qwen/qwen3.5-9b"  # can_kg
-    assert select_model([], "light") == ""                    # no models → fallback
+    assert select_model([], "light") == ""  # no models → fallback
 
 
 def test_agent_spec_emits_uses_model_edge():

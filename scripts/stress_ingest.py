@@ -27,7 +27,7 @@ import json
 import os
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -71,7 +71,7 @@ def _write_progress(**kw: Any) -> None:
         return
     with _progress_lock:
         _progress.update(kw)
-        _progress["updated"] = datetime.now(timezone.utc).isoformat()
+        _progress["updated"] = datetime.now(UTC).isoformat()
         try:
             _progress_path.write_text(json.dumps(_progress, indent=2))
         except OSError:
@@ -118,7 +118,9 @@ class ResourceSampler:
             "cpu_avg_pct": round(sum(self.cpu_samples) / len(self.cpu_samples), 1)
             if self.cpu_samples
             else 0.0,
-            "cpu_peak_pct": round(max(self.cpu_samples), 1) if self.cpu_samples else 0.0,
+            "cpu_peak_pct": round(max(self.cpu_samples), 1)
+            if self.cpu_samples
+            else 0.0,
             "rss_peak_mb": round(max(self.rss_samples) / 1e6, 1)
             if self.rss_samples
             else 0.0,
@@ -154,7 +156,9 @@ def _node_count(engine: Any) -> int:
 # ── Category → manifest builders ────────────────────────────────────────────
 def _manifests(cat: str, limit: int | None) -> list[dict[str, Any]]:
     """Return a list of {content_type, source_uri, metadata} dicts per category."""
-    cap = (lambda xs: xs[:limit] if limit else xs)
+
+    def cap(xs):
+        return xs[:limit] if limit else xs
 
     if cat == "config":
         return (
@@ -200,7 +204,11 @@ def _manifests(cat: str, limit: int | None) -> list[dict[str, Any]]:
                     if p.is_dir() and not p.name.startswith(".")
                 ]
         return [
-            {"content_type": "codebase", "source_uri": str(p), "metadata": {"features": False}}
+            {
+                "content_type": "codebase",
+                "source_uri": str(p),
+                "metadata": {"features": False},
+            }
             for p in cap(repos)
         ]
     if cat == "mcp_servers":
@@ -314,7 +322,7 @@ async def _amain(cats: list[str], limit: int | None, rdir: Path) -> int:
         "limit": limit,
     }
     report = {
-        "generated": datetime.now(timezone.utc).isoformat(),
+        "generated": datetime.now(UTC).isoformat(),
         "total": total,
         "categories": results,
     }
@@ -348,7 +356,7 @@ def main() -> int:
         if args.report_dir
         else WORKSPACE
         / "reports"
-        / f"ingest-stress-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+        / f"ingest-stress-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
     )
     rdir.mkdir(parents=True, exist_ok=True)
     _progress_path = rdir / "progress.json"

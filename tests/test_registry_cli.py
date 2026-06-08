@@ -8,7 +8,10 @@ import json
 
 import pytest
 
-from agent_utilities.core.registry.package_adapter import AgentRegistry, SpecialistPackage
+from agent_utilities.core.registry.package_adapter import (
+    AgentRegistry,
+    SpecialistPackage,
+)
 
 
 @pytest.fixture

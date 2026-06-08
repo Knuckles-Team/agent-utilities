@@ -171,8 +171,16 @@ class TestAttentionFilter:
         # Mock backend to return our test nodes
         mock_backend = MagicMock()
         mock_backend.execute.return_value = [
-            {"id": "hub", "emb": [1.0, 0.0], "data": {"id": "hub", "name": "Dark Image", "embedding": [1.0, 0.0]}},
-            {"id": "leaf", "emb": [0.0, 1.0], "data": {"id": "leaf", "name": "Unrelated", "embedding": [0.0, 1.0]}},
+            {
+                "id": "hub",
+                "emb": [1.0, 0.0],
+                "data": {"id": "hub", "name": "Dark Image", "embedding": [1.0, 0.0]},
+            },
+            {
+                "id": "leaf",
+                "emb": [0.0, 1.0],
+                "data": {"id": "leaf", "name": "Unrelated", "embedding": [0.0, 1.0]},
+            },
         ]
         engine.backend = mock_backend
 
@@ -180,7 +188,9 @@ class TestAttentionFilter:
 
         # Set up embed_model
         mock_embed = MagicMock()
-        mock_embed.get_text_embedding.side_effect = lambda text: [1.0, 0.0] if "dark" in text or "Dark" in text else [0.0, 1.0]
+        mock_embed.get_text_embedding.side_effect = lambda text: (
+            [1.0, 0.0] if "dark" in text or "Dark" in text else [0.0, 1.0]
+        )
         r.embed_model = mock_embed
 
         # Search with active_task matching "hub" node embedding (similarity 1.0)
@@ -194,10 +204,12 @@ class TestAttentionFilter:
 
         # hub node should have task boost applied and be sorted first with high score
         hub_node = next(x for x in results if x["id"] == "hub")
-        leaf_node = next(x for x in results if x["id"] == "leaf")
+        next(x for x in results if x["id"] == "leaf")
 
         assert "_active_task_boost" in hub_node
-        assert hub_node["_active_task_boost"] == 1.0  # Cosine similarity of [1.0, 0.0] and [1.0, 0.0]
+        assert (
+            hub_node["_active_task_boost"] == 1.0
+        )  # Cosine similarity of [1.0, 0.0] and [1.0, 0.0]
 
     @patch(
         "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model"
@@ -213,8 +225,16 @@ class TestAttentionFilter:
         # Mock backend to return nodes without embeddings (forces overlap fallback)
         mock_backend = MagicMock()
         mock_backend.execute.return_value = [
-            {"id": "hub", "emb": [1.0, 0.0], "data": {"id": "hub", "name": "Dark Image"}},
-            {"id": "leaf", "emb": [0.0, 1.0], "data": {"id": "leaf", "name": "Unrelated"}},
+            {
+                "id": "hub",
+                "emb": [1.0, 0.0],
+                "data": {"id": "hub", "name": "Dark Image"},
+            },
+            {
+                "id": "leaf",
+                "emb": [0.0, 1.0],
+                "data": {"id": "leaf", "name": "Unrelated"},
+            },
         ]
         engine.backend = mock_backend
 
@@ -235,7 +255,9 @@ class TestAttentionFilter:
 
         hub_node = next(x for x in results if x["id"] == "hub")
         assert "_active_task_boost_overlap" in hub_node
-        assert hub_node["_active_task_boost_overlap"] == 2  # words "dark", "image" both overlap
+        assert (
+            hub_node["_active_task_boost_overlap"] == 2
+        )  # words "dark", "image" both overlap
 
     @patch(
         "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model"
@@ -251,7 +273,11 @@ class TestAttentionFilter:
         # Mock backend to return test nodes
         mock_backend = MagicMock()
         mock_backend.execute.return_value = [
-            {"id": "hub", "emb": [1.0, 0.0], "data": {"id": "hub", "name": "Dark Image", "embedding": [1.0, 0.0]}},
+            {
+                "id": "hub",
+                "emb": [1.0, 0.0],
+                "data": {"id": "hub", "name": "Dark Image", "embedding": [1.0, 0.0]},
+            },
         ]
         engine.backend = mock_backend
 

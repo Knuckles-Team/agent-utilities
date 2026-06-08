@@ -20,8 +20,9 @@ NEW_REPO_BLOCK = """- repo: local
       pass_filenames: true
 """
 
+
 def inject_hook_to_file(filepath):
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+    with open(filepath, encoding="utf-8", errors="ignore") as f:
         content = f.read()
 
     if "check-mermaid" in content:
@@ -38,7 +39,9 @@ def inject_hook_to_file(filepath):
             newline_idx = content.find("\n", hooks_idx)
             if newline_idx != -1:
                 # Insert the HOOK_BLOCK right after 'hooks:\n'
-                new_content = content[:newline_idx + 1] + HOOK_BLOCK + content[newline_idx + 1:]
+                new_content = (
+                    content[: newline_idx + 1] + HOOK_BLOCK + content[newline_idx + 1 :]
+                )
                 with open(filepath, "w", encoding="utf-8") as f:
                     f.write(new_content)
                 print(f"Successfully injected (existing repo: local): {filepath}")
@@ -52,6 +55,7 @@ def inject_hook_to_file(filepath):
         f.write(new_content)
     print(f"Successfully appended new repo: local block: {filepath}")
     return True
+
 
 def main():
     scan_dir = "/home/apps/workspace/agent-packages"
@@ -70,6 +74,7 @@ def main():
                     count += 1
 
     print(f"\nCompleted hook injection for {count} pre-commit configuration files.")
+
 
 if __name__ == "__main__":
     main()

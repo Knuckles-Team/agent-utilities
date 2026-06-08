@@ -64,9 +64,7 @@ def test_skips_non_provisional_capabilities():
 def test_skips_existing_names_idempotent():
     archi = FakeArchi()
     nodes = [_derived("capability:derived:billing", "Billing")]
-    result = push_capabilities(
-        nodes, archi_client=archi, existing_names=["billing"]
-    )
+    result = push_capabilities(nodes, archi_client=archi, existing_names=["billing"])
     assert result.skipped_existing == 1
     assert result.archi_pushed == 0
 

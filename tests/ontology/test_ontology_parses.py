@@ -34,7 +34,9 @@ def test_expected_ttl_count() -> None:
     below, so this guards the Plan-05 baseline against accidental removal rather than
     pinning an exact count that legitimately grows.
     """
-    assert len(TTL_FILES) >= 20, f"expected >= 20 ttl files, found {len(TTL_FILES)}: {TTL_FILES}"
+    assert len(TTL_FILES) >= 20, (
+        f"expected >= 20 ttl files, found {len(TTL_FILES)}: {TTL_FILES}"
+    )
 
 
 @pytest.mark.parametrize("ttl_path", TTL_FILES, ids=lambda p: Path(p).name)

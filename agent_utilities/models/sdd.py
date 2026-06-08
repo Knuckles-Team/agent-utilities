@@ -57,6 +57,13 @@ class Task(BaseModel):
         ),
     )
     timeout: float = 3600.0
+    model_id: str | None = Field(
+        default=None,
+        description=(
+            "CONCEPT:ORCH-1.27 — Conductor-assigned per-step model id. When set, the "
+            "executor runs this step on this exact model instead of inferring a role/tier."
+        ),
+    )
     access_list: list[str] = Field(
         default_factory=list,
         description=(

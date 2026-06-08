@@ -27,6 +27,49 @@ except ImportError:
     OWL_SUPPORT = False
 
 
+def bootstrap_ontology_path(ctx: PipelineContext) -> str | None:
+    """Derive an ontology from the graph's own records and write it to a temp .ttl.
+
+    CONCEPT:KG-2.2 — the self-bootstrapping ontology agent applied to ingest:
+    instead of the fixed ``ontology.ttl``, sample the graph's nodes (capped by
+    ``ontology_bootstrap_sample_limit``), let :class:`OntologyBootstrapper` derive
+    classes + typed properties (plateau-stopped), and emit Turtle for the OWL
+    backend to reason over. Returns the temp path, or ``None`` if nothing was
+    derived (caller then falls back to the bundled ontology).
+    """
+    import tempfile
+
+    from ...core.ontology_bootstrap import OntologyBootstrapper
+
+    boot = OntologyBootstrapper(
+        plateau_patience=ctx.config.ontology_bootstrap_plateau_patience
+    )
+    limit = ctx.config.ontology_bootstrap_sample_limit
+    seen = 0
+    for node_id, data in ctx.graph.nodes(data=True):
+        record = {**(data or {}), "id": node_id}
+        boot.observe(record)
+        seen += 1
+        if boot.plateaued or seen >= limit:
+            break
+    result = boot.result()
+    if not result.classes:
+        return None
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".ttl", prefix="bootstrap_ontology_", delete=False, encoding="utf-8"
+    ) as fh:
+        fh.write(boot.to_turtle())
+        path = fh.name
+    logger.info(
+        "Bootstrapped ontology from %d records: %d classes, %d properties → %s",
+        result.samples_seen,
+        len(result.classes),
+        len(result.properties),
+        path,
+    )
+    return path
+
+
 async def execute_owl_reasoning(
     ctx: PipelineContext, deps: dict[str, PhaseResult]
 ) -> dict[str, Any]:
@@ -40,8 +83,17 @@ async def execute_owl_reasoning(
             "reason": "OWL dependencies not installed (agent-utilities[owl] required)",
         }
 
-    # Resolve ontology path
-    ontology_path = ctx.config.owl_ontology_path or _DEFAULT_ONTOLOGY
+    # Resolve ontology path. With ontology-bootstrap on and no explicit ontology,
+    # derive the schema from the graph's own records (CONCEPT:KG-2.2); fall back to
+    # the bundled ontology if nothing could be derived.
+    ontology_path = ctx.config.owl_ontology_path
+    if not ontology_path and ctx.config.enable_ontology_bootstrap:
+        try:
+            ontology_path = bootstrap_ontology_path(ctx)
+        except Exception as e:  # pragma: no cover - best-effort, falls back
+            logger.warning("Ontology bootstrap failed, using bundled ontology: %s", e)
+            ontology_path = None
+    ontology_path = ontology_path or _DEFAULT_ONTOLOGY
     if not Path(ontology_path).exists():
         return {
             "status": "error",

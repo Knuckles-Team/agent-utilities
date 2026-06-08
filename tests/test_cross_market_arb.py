@@ -5,9 +5,9 @@ import pytest
 
 from agent_utilities.domains.finance.cross_market_arb import (
     CointegrationAnalyzer,
-    OrnsteinUhlenbeckModel,
     CostAwareThresholdFilter,
     EventArbitrageEngine,
+    OrnsteinUhlenbeckModel,
 )
 
 
@@ -69,7 +69,7 @@ class TestPredictionMarketArbitrage:
             model_probability=0.70,
             market_a_price=0.60,
             market_b_price=0.65,
-            execution_costs=0.08
+            execution_costs=0.08,
         )
         assert "market_a" in ops
         assert "market_b" not in ops

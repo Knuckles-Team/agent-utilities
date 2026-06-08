@@ -7,7 +7,9 @@ import tempfile
 import pytest
 
 from agent_utilities.knowledge_graph.backends import create_backend
-from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import LADYBUG_AVAILABLE
+from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import (
+    LADYBUG_AVAILABLE,
+)
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer

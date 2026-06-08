@@ -132,6 +132,20 @@ class RLMConfig(BaseModel):
         description="Enable parallel asynchronous sub-calls in RLM.",
     )
 
+    max_turns: int = Field(
+        default=5,
+        ge=1,
+        description="Max REPL turns in the full RLM loop before forcing a final answer.",
+    )
+
+    compaction_threshold: int = Field(
+        default=200_000,
+        description=(
+            "Output size above which lossy Memento compaction (KG-2.20) is preferred "
+            "when RLM (lossless) is not triggered — see select_long_context_strategy."
+        ),
+    )
+
     trajectory_storage: Literal["process_flow", "none"] = Field(
         default="process_flow",
         description="How to store RLM trajectories in the Knowledge Graph.",
@@ -171,3 +185,29 @@ class RLMConfig(BaseModel):
         if self.trigger_on_kg_bulk_analysis and kg_node_count > self.kg_bulk_threshold:
             return True
         return False
+
+    def select_long_context_strategy(
+        self,
+        *,
+        output_size: int = 0,
+        trace_count: int = 0,
+        kg_node_count: int = 0,
+        requires_long_horizon: bool = False,
+    ) -> str:
+        """Explicit lossless-vs-compaction decision for a long-context payload.
+
+        CONCEPT:ORCH-1.12. Returns ``"rlm_lossless"`` when RLM should handle the
+        context losslessly (recursive variable access, no information loss),
+        ``"memento_compaction"`` when the payload is large but RLM isn't triggered
+        (fall back to lossy KG-2.20 Memento compaction), else ``"none"``.
+        """
+        if self.should_trigger(
+            output_size=output_size,
+            trace_count=trace_count,
+            kg_node_count=kg_node_count,
+            requires_long_horizon=requires_long_horizon,
+        ):
+            return "rlm_lossless"
+        if output_size > self.compaction_threshold:
+            return "memento_compaction"
+        return "none"

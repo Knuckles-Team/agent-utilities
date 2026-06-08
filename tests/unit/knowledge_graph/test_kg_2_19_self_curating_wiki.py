@@ -98,4 +98,5 @@ def test_state_persisted_atomically(tmp_path):
     WikiCurator(state).curate(wiki, lambda p: None)
     assert state.is_file()
     import json
+
     assert str(wiki / "a.md") in json.loads(state.read_text())

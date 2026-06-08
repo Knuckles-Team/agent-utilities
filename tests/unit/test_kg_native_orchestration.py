@@ -13,8 +13,8 @@ Tests cover all 7 gaps:
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
 @pytest.fixture(autouse=True)

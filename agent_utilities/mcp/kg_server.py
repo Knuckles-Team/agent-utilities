@@ -2782,6 +2782,29 @@ def _build_server(bootstrap: bool = True):
                 )
                 return _json.dumps(rep, indent=2, default=str)
 
+            elif action == "assimilate":
+                # Graph-native assimilation pass (CONCEPT:KG-2.7): dedup → gap →
+                # synergy → rank (idempotent via watermark). With "synthesize" in the
+                # task, also propose grounded SDD plans for the top open gaps.
+                import json as _json
+
+                from agent_utilities.knowledge_graph.research.golden_loop import (
+                    run_assimilation_pass,
+                )
+
+                _mt = (
+                    max_fan_out
+                    if isinstance(max_fan_out, int) and max_fan_out > 0
+                    else 5
+                )
+                rep = run_assimilation_pass(
+                    _get_engine(),
+                    synthesize="synthesize" in (task or "").lower(),
+                    top_n=_mt,
+                    force="force" in (task or "").lower(),
+                )
+                return _json.dumps(rep, indent=2, default=str)
+
             else:
                 return f"Error: Unknown orchestration action '{action}'"
         except Exception as e:

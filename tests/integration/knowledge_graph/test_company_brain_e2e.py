@@ -69,8 +69,11 @@ def test_write_path_trust_arbitration_via_create_backend(enforced):
 def test_read_path_permissions(enforced):
     brain = get_company_brain()
     brain.permissions.set_acl(
-        NodeACL(node_id="hr:comp", classification=DataClassification.CONFIDENTIAL,
-                read_roles=["hr"])
+        NodeACL(
+            node_id="hr:comp",
+            classification=DataClassification.CONFIDENTIAL,
+            read_roles=["hr"],
+        )
     )
     with use_actor(ActorContext("a:mk", ActorType.AI_AGENT, roles=("marketing",))):
         assert sr.permit(["hr:comp", "pub:1"]) == ["pub:1"]
@@ -82,8 +85,11 @@ def test_correction_becomes_rule_that_changes_retrieval(enforced):
     backend = create_backend("memory")
     svc = FeedbackService(backend=backend)
     res = svc.record_correction(
-        "rule", "tool:risky", reason="never auto-use",
-        rule_scope="governance", rule_kind="forbid",
+        "rule",
+        "tool:risky",
+        reason="never auto-use",
+        rule_scope="governance",
+        rule_kind="forbid",
     )
     assert res.applied and res.created_ids
 
@@ -101,12 +107,22 @@ def test_intelligence_capture_yields_playbook(enforced):
         extract_intelligence,
     )
 
-    llm = lambda p: json.dumps(
-        {"playbooks": [{"name": "Renewal Save", "steps": ["call", "discount"],
-                        "expected_outcome": "retained"}]}
+    def llm(p):
+        return json.dumps(
+            {
+                "playbooks": [
+                    {
+                        "name": "Renewal Save",
+                        "steps": ["call", "discount"],
+                        "expected_outcome": "retained",
+                    }
+                ]
+            }
+        )
+
+    nodes, edges = extract_intelligence(
+        "transcript", "doc:c1", llm, source_type="transcript"
     )
-    nodes, edges = extract_intelligence("transcript", "doc:c1", llm,
-                                        source_type="transcript")
     playbooks = [n for n in nodes if type(n).__name__ == "Playbook"]
     assert playbooks and playbooks[0].name == "Renewal Save"
     assert all(e.rel_type == "DERIVED_FROM" for e in edges)

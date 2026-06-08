@@ -88,7 +88,11 @@ class _CountingCamundaClient:
 
     def list_incidents(self):
         return [
-            {"id": "inc-1", "incidentMessage": "boom", "processDefinitionId": "invoice:1:abc"}
+            {
+                "id": "inc-1",
+                "incidentMessage": "boom",
+                "processDefinitionId": "invoice:1:abc",
+            }
         ]
 
 
@@ -112,9 +116,7 @@ def test_register_and_query_rest_source(graph_engine):
 
 def test_rest_source_ttl_cache(graph_engine):
     client = _CountingCamundaClient()
-    graph_engine.register_rest_source(
-        "rest:camunda", "camunda", client, ttl_seconds=60
-    )
+    graph_engine.register_rest_source("rest:camunda", "camunda", client, ttl_seconds=60)
     graph_engine.query_rest_source("rest:camunda")
     graph_engine.query_rest_source("rest:camunda")
     assert client.calls == 1  # second query served from cache
@@ -141,9 +143,7 @@ def test_query_rest_union_dedups_local_wins(graph_engine):
     client = _CountingCamundaClient()
     graph_engine.register_rest_source("rest:camunda", "camunda", client)
     local = [{"id": "incident:inc-1", "type": "Incident", "state": "local-edit"}]
-    merged = graph_engine.query_rest_union(
-        "rest:camunda", local, node_type="Incident"
-    )
+    merged = graph_engine.query_rest_union("rest:camunda", local, node_type="Incident")
     assert len(merged) == 1  # same id deduped
     assert merged[0]["state"] == "local-edit"  # local precedence
 

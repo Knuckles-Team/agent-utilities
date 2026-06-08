@@ -16,8 +16,16 @@ class FakeFrappeClient:
 
     _DATA: dict[str, list[dict[str, Any]]] = {
         "Employee": [
-            {"name": "HR-EMP-001", "employee_name": "Ada Lovelace", "department": "Engineering"},
-            {"name": "HR-EMP-002", "employee_name": "Grace Hopper", "department": "Engineering"},
+            {
+                "name": "HR-EMP-001",
+                "employee_name": "Ada Lovelace",
+                "department": "Engineering",
+            },
+            {
+                "name": "HR-EMP-002",
+                "employee_name": "Grace Hopper",
+                "department": "Engineering",
+            },
             {"name": "HR-EMP-003", "employee_name": "Solo Worker"},  # no department
         ],
         "Customer": [
@@ -127,9 +135,7 @@ def test_issue_maps_to_erpnext_issue_and_raised_by():
     assert issue.props["subject"] == "Login fails"
     assert issue.props["status"] == "Open"
 
-    raised_by = {
-        (e.source, e.target) for e in batch.edges if e.rel_type == "RAISED_BY"
-    }
+    raised_by = {(e.source, e.target) for e in batch.edges if e.rel_type == "RAISED_BY"}
     assert ("erpnextissue:ISS-0001", "customer:CUST-001") in raised_by
     # Issue without a customer emits no RAISED_BY edge.
     assert all(e.source != "erpnextissue:ISS-0002" for e in batch.edges)

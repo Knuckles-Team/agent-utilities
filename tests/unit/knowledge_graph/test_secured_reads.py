@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from agent_utilities.knowledge_graph.core import secured_reads as sr

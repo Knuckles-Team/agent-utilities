@@ -8,8 +8,14 @@ from agent_utilities.knowledge_graph.enrichment.models import CodeEntity
 
 def _fn(name, ast_hash):
     return CodeEntity(
-        id=f"code:m.py::{name}", name=name, qualname=name, kind="function",
-        file_path="m.py", line=1, ast_hash=ast_hash, patterns=["Factory"],
+        id=f"code:m.py::{name}",
+        name=name,
+        qualname=name,
+        kind="function",
+        file_path="m.py",
+        line=1,
+        ast_hash=ast_hash,
+        patterns=["Factory"],
     )
 
 

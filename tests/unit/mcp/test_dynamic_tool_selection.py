@@ -4,9 +4,9 @@ import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agent_utilities.tools.dynamic_tool_orchestrator import DynamicToolOrchestrator
 
 from agent_utilities.mcp.server_factory import create_mcp_server
+from agent_utilities.tools.dynamic_tool_orchestrator import DynamicToolOrchestrator
 
 
 class DummyComponent:

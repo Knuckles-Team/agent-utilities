@@ -12,16 +12,30 @@ from agent_utilities.knowledge_graph.enrichment.patterns import detect_patterns
 
 def _cls(name, bases=None, methods=None, decorators=None, is_abstract=False):
     return CodeEntity(
-        id=f"code:m.py::{name}", name=name, qualname=name, kind="class",
-        file_path="m.py", line=1, ast_hash="h", bases=bases or [],
-        methods=methods or [], decorators=decorators or [], is_abstract=is_abstract,
+        id=f"code:m.py::{name}",
+        name=name,
+        qualname=name,
+        kind="class",
+        file_path="m.py",
+        line=1,
+        ast_hash="h",
+        bases=bases or [],
+        methods=methods or [],
+        decorators=decorators or [],
+        is_abstract=is_abstract,
     )
 
 
 def _fn(name, calls=None, decorators=None):
     return CodeEntity(
-        id=f"code:m.py::{name}", name=name, qualname=name, kind="function",
-        file_path="m.py", line=1, ast_hash="h", calls=calls or [],
+        id=f"code:m.py::{name}",
+        name=name,
+        qualname=name,
+        kind="function",
+        file_path="m.py",
+        line=1,
+        ast_hash="h",
+        calls=calls or [],
         decorators=decorators or [],
     )
 

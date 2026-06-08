@@ -33,7 +33,9 @@ class _FakeAgent:
 @pytest.mark.asyncio
 async def test_run_full_rlm_populates_runtrace(monkeypatch):
     monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
-    env = RLMEnvironment(context="some data", config=RLMConfig(metadata_only_root=False))
+    env = RLMEnvironment(
+        context="some data", config=RLMConfig(metadata_only_root=False)
+    )
 
     async def _fake_execute(code):
         return {}, "stdout output here"

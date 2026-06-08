@@ -28,9 +28,13 @@ class FakeBackend:
 
 
 def test_agent_spec_to_graph():
-    a = AgentSpec(name="Retriever Bot", goal="answer from KG",
-                  prompt_id="prompt:retriever", tools=["graph_query", "embed"],
-                  skills=["knowledge-graph-ingest"])
+    a = AgentSpec(
+        name="Retriever Bot",
+        goal="answer from KG",
+        prompt_id="prompt:retriever",
+        tools=["graph_query", "embed"],
+        skills=["knowledge-graph-ingest"],
+    )
     b = agent_to_batch(a)
     backend = FakeBackend()
     write_batch(backend, b)
@@ -43,8 +47,12 @@ def test_agent_spec_to_graph():
 
 
 def test_team_hierarchy_defaults_to_lead():
-    t = TeamSpec(name="KG Squad", goal="build the graph", lead="Lead",
-                 members=["Lead", "Retriever", "Linker"])
+    t = TeamSpec(
+        name="KG Squad",
+        goal="build the graph",
+        lead="Lead",
+        members=["Lead", "Retriever", "Linker"],
+    )
     b = team_to_batch(t)
     backend = FakeBackend()
     write_batch(backend, b)
@@ -58,14 +66,21 @@ def test_team_hierarchy_defaults_to_lead():
 
 
 def test_prompt_lineage_and_workflow():
-    p = PromptSpec(name="Retriever v2", content="You retrieve...",
-                   evolved_from="prompt:retriever-v1", rationale="add grounding")
+    p = PromptSpec(
+        name="Retriever v2",
+        content="You retrieve...",
+        evolved_from="prompt:retriever-v1",
+        rationale="add grounding",
+    )
     pb = prompt_to_batch(p)
     assert any(e.rel_type == "EVOLVED_FROM" for e in pb.edges)
     assert pb.nodes[0].type == "Prompt"
 
-    w = WorkflowSpec(name="Ingest Flow", steps=["scan", "parse", "enrich"],
-                     orchestrates=["agent:retriever", "skill:enrich"])
+    w = WorkflowSpec(
+        name="Ingest Flow",
+        steps=["scan", "parse", "enrich"],
+        orchestrates=["agent:retriever", "skill:enrich"],
+    )
     wb = workflow_to_batch(w)
     assert wb.nodes[0].type == "Workflow"
     assert {e.rel_type for e in wb.edges} == {"ORCHESTRATES"}

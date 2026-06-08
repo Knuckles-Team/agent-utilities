@@ -1,7 +1,6 @@
 """Tests for CONCEPT:KG-2.6 — Signal Fusion and Alpha Combination Engine."""
 
 import numpy as np
-import pytest
 
 from agent_utilities.domains.finance.signal_fusion import (
     AlphaCombinationEngine,
@@ -42,8 +41,6 @@ class TestAlphaCombinationEngine:
 
         assert len(weights) == 3
         assert np.isclose(np.abs(weights).sum(), 1.0)
-
-
 
 
 class TestLaplaceEnsembleFusion:

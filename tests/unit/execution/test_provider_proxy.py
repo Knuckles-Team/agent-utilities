@@ -33,8 +33,14 @@ def test_ip_literal_private_blocked():
 
 
 def test_loopback_carve_out():
-    assert validate_base_url("http://127.0.0.1:11434/v1", allow_loopback=True).allowed is True
-    assert validate_base_url("http://127.0.0.1:11434/v1", allow_loopback=False).allowed is False
+    assert (
+        validate_base_url("http://127.0.0.1:11434/v1", allow_loopback=True).allowed
+        is True
+    )
+    assert (
+        validate_base_url("http://127.0.0.1:11434/v1", allow_loopback=False).allowed
+        is False
+    )
 
 
 def test_bad_scheme_blocked():
@@ -47,7 +53,9 @@ def test_public_dns_to_private_ip_blocked():
     def fake_resolver(host, _port=None):
         return [(2, 1, 6, "", ("10.1.2.3", 0))]
 
-    d = validate_base_url_resolved("https://evil.example.com/v1", resolver=fake_resolver)
+    d = validate_base_url_resolved(
+        "https://evil.example.com/v1", resolver=fake_resolver
+    )
     assert d.allowed is False
     assert "blocked IP" in d.reason
 

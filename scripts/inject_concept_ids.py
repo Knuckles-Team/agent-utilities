@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# ruff: noqa: F601 — one-off concept-id injection script; duplicate map keys are a
+# frozen (last-wins) artifact of the historical run.
 import re
 from pathlib import Path
 

@@ -327,7 +327,7 @@ class KnowledgeGraph:
                 index.add(str(nid), emb, caps, swappable_with=swap)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning(
-                    "KnowledgeGraph.populate_capability_index: skipping node " "%r: %s",
+                    "KnowledgeGraph.populate_capability_index: skipping node %r: %s",
                     nid,
                     exc,
                 )

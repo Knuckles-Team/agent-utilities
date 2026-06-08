@@ -10,7 +10,11 @@ import shutil
 
 import pytest
 
-from agent_utilities.core.execution.adapters import AdapterDefinition, AdapterRegistry, StreamFormat
+from agent_utilities.core.execution.adapters import (
+    AdapterDefinition,
+    AdapterRegistry,
+    StreamFormat,
+)
 from agent_utilities.core.execution.engine import UnifiedExecutionEngine
 from agent_utilities.models.execution_manifest import AgentSpec, ExecutionManifest
 
@@ -62,11 +66,15 @@ async def test_run_via_model_id_adapter_prefix():
     reg = AdapterRegistry(load_builtins=False)
     reg.register(
         AdapterDefinition(
-            id="echo2", bin="echo", build_args=lambda model, prompt: [prompt],
+            id="echo2",
+            bin="echo",
+            build_args=lambda model, prompt: [prompt],
         )
     )
     eng = UnifiedExecutionEngine(registry=reg)
-    m = ExecutionManifest(agents=[AgentSpec(agent_id="a", model_id="adapter:echo2", task_template="x")])
+    m = ExecutionManifest(
+        agents=[AgentSpec(agent_id="a", model_id="adapter:echo2", task_template="x")]
+    )
     res = await eng.run(m)
     assert res.success is True
     assert res.telemetry.get("runtime_adapter") == "echo2"

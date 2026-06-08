@@ -3,9 +3,12 @@
 CONCEPT:ORCH-1.10 — Dynamic Workflows.
 """
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from agent_utilities.orchestration.engine import AgentOrchestrationEngine
+
 
 @pytest.mark.asyncio
 async def test_execute_workflow_dynamic_convergence():
@@ -13,10 +16,17 @@ async def test_execute_workflow_dynamic_convergence():
     engine = AgentOrchestrationEngine()
 
     # Mock the components that `execute_workflow` calls
-    with patch("agent_utilities.orchestration.agent_runner.run_agent", new_callable=AsyncMock) as mock_run_agent, \
-         patch("agent_utilities.capabilities.adversarial_verifier.run_adversarial_pass", new_callable=AsyncMock) as mock_adv_pass, \
-         patch("agent_utilities.agent.factory.create_agent") as mock_create_agent:
-
+    with (
+        patch(
+            "agent_utilities.orchestration.agent_runner.run_agent",
+            new_callable=AsyncMock,
+        ) as mock_run_agent,
+        patch(
+            "agent_utilities.capabilities.adversarial_verifier.run_adversarial_pass",
+            new_callable=AsyncMock,
+        ) as mock_adv_pass,
+        patch("agent_utilities.agent.factory.create_agent") as mock_create_agent,
+    ):
         # Let the agent runner return a dummy output
         mock_run_agent.return_value = "Subagent output"
 
@@ -39,7 +49,7 @@ async def test_execute_workflow_dynamic_convergence():
             task="Build a web app",
             completion_state="Must have a PR ready",
             max_fan_out=2,
-            max_iterations=5
+            max_iterations=5,
         )
 
         # Verify the outcome

@@ -73,8 +73,7 @@ def main() -> int:
             example = code[cid][0]
             print(f"  - {cid} (e.g. {example})")
         print(
-            "\nRegenerate the registry with "
-            "`python scripts/build_concepts_yaml.py`.",
+            "\nRegenerate the registry with `python scripts/build_concepts_yaml.py`.",
             file=sys.stderr,
         )
         return 1

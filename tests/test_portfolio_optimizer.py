@@ -109,7 +109,9 @@ class TestBlackLittermanOptimizer:
         views = [0.15]
         pick_matrix = [[1.0, 0.0, 0.0]]
         opt = BlackLittermanOptimizer()
-        result = opt.optimize(market_caps, cov, names, views=views, pick_matrix=pick_matrix)
+        result = opt.optimize(
+            market_caps, cov, names, views=views, pick_matrix=pick_matrix
+        )
         assert result.method == "black_litterman"
         # View on first asset should increase its weight
         assert result.weights[names[0]] > 0
@@ -222,7 +224,9 @@ class TestCircuitBreaker:
 
 class TestEdgeKellyOptimizer:
     def test_basic_quarter_kelly(self):
-        from agent_utilities.domains.finance.portfolio_optimizer import EdgeKellyOptimizer
+        from agent_utilities.domains.finance.portfolio_optimizer import (
+            EdgeKellyOptimizer,
+        )
 
         opt = EdgeKellyOptimizer()
         # Edge = 0.10, Market price = 0.50, Odds against = 0.50
@@ -232,14 +236,18 @@ class TestEdgeKellyOptimizer:
         assert np.isclose(f, 0.05)
 
     def test_negative_edge(self):
-        from agent_utilities.domains.finance.portfolio_optimizer import EdgeKellyOptimizer
+        from agent_utilities.domains.finance.portfolio_optimizer import (
+            EdgeKellyOptimizer,
+        )
 
         opt = EdgeKellyOptimizer()
         f = opt.compute_fraction(0.4, 1.0)
         assert f == 0.0
 
     def test_max_weight_clamping(self):
-        from agent_utilities.domains.finance.portfolio_optimizer import EdgeKellyOptimizer
+        from agent_utilities.domains.finance.portfolio_optimizer import (
+            EdgeKellyOptimizer,
+        )
 
         opt = EdgeKellyOptimizer()
         # Edge = 0.8. odds = 0.5. Full Kelly = 1.6. Quarter = 0.4

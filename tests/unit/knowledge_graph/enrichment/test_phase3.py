@@ -26,15 +26,20 @@ def test_detect_doc_type():
 
 def test_extract_document_with_concepts():
     def fake_llm(prompt):
-        return ('[{"name": "Retrieval Augmented Generation", "kind": "technique", '
-                '"summary": "Ground LLM output in retrieved context."},'
-                '{"name": "HNSW Index", "kind": "method", "summary": "ANN vector search."}]')
+        return (
+            '[{"name": "Retrieval Augmented Generation", "kind": "technique", '
+            '"summary": "Ground LLM output in retrieved context."},'
+            '{"name": "HNSW Index", "kind": "method", "summary": "ANN vector search."}]'
+        )
 
     doc, concepts, edges = extract_document(
         "/papers/rag.pdf", "Abstract: a paper about RAG and vector search.", fake_llm
     )
     assert doc.doc_type == "paper"
-    assert {c.name for c in concepts} == {"Retrieval Augmented Generation", "HNSW Index"}
+    assert {c.name for c in concepts} == {
+        "Retrieval Augmented Generation",
+        "HNSW Index",
+    }
     assert all(e.rel_type == "MENTIONS" and e.source == doc.id for e in edges)
     assert concepts[0].id.startswith("concept:")
 
@@ -53,11 +58,16 @@ def test_link_concepts_to_code_by_similarity():
             {"id": "doc:zzz", "type": "Document", "_similarity": 0.95},  # ignored
         ]
 
-    edges = link_concepts_to_code(concepts, fake_embed, fake_search,
-                                  relates_threshold=0.55, realizes_threshold=0.78)
+    edges = link_concepts_to_code(
+        concepts,
+        fake_embed,
+        fake_search,
+        relates_threshold=0.55,
+        realizes_threshold=0.78,
+    )
     rels = {(e.target.split("::")[-1], e.rel_type) for e in edges}
-    assert ("HnswIndex", "REALIZES") in rels   # 0.81 >= 0.78
-    assert ("helper", "RELATES_TO") in rels    # 0.60 in [0.55, 0.78)
+    assert ("HnswIndex", "REALIZES") in rels  # 0.81 >= 0.78
+    assert ("helper", "RELATES_TO") in rels  # 0.60 in [0.55, 0.78)
     assert not any(e.target == "doc:zzz" for e in edges)  # non-code filtered
 
 
@@ -79,17 +89,30 @@ def test_find_related_ranks_cross_ingestion():
 # ── distillation: research → spec ────────────────────────────────────────────
 def test_gather_and_distill_specs():
     concepts = [
-        Concept(id="concept:rag", name="RAG", summary="retrieval-augmented gen",
-                source_ids=["doc:1"]),
-        Concept(id="concept:hnsw", name="HNSW", summary="ANN index", source_ids=["doc:1"]),
+        Concept(
+            id="concept:rag",
+            name="RAG",
+            summary="retrieval-augmented gen",
+            source_ids=["doc:1"],
+        ),
+        Concept(
+            id="concept:hnsw", name="HNSW", summary="ANN index", source_ids=["doc:1"]
+        ),
     ]
     edges = [
-        EnrichmentEdge(source="concept:rag", target="code:agents/bot/x.py::retrieve",
-                       rel_type="RELATES_TO"),
-        EnrichmentEdge(source="concept:rag", target="code:agents/bot/y.py::answer",
-                       rel_type="RELATES_TO"),
-        EnrichmentEdge(source="concept:hnsw", target="code:other/z.py::idx",
-                       rel_type="RELATES_TO"),  # outside target codebase
+        EnrichmentEdge(
+            source="concept:rag",
+            target="code:agents/bot/x.py::retrieve",
+            rel_type="RELATES_TO",
+        ),
+        EnrichmentEdge(
+            source="concept:rag",
+            target="code:agents/bot/y.py::answer",
+            rel_type="RELATES_TO",
+        ),
+        EnrichmentEdge(
+            source="concept:hnsw", target="code:other/z.py::idx", rel_type="RELATES_TO"
+        ),  # outside target codebase
     ]
     code_files = {
         "code:agents/bot/x.py::retrieve": "agents/bot/x.py",
@@ -103,9 +126,11 @@ def test_gather_and_distill_specs():
     assert all(c.concept_name != "HNSW" for c in cands)
 
     def fake_llm(prompt):
-        return ('[{"title": "Add RAG retrieval", "problem": "no grounding", '
-                '"approach": "add retriever + HNSW", "value": "accuracy", '
-                '"concept_names": ["RAG"]}]')
+        return (
+            '[{"title": "Add RAG retrieval", "problem": "no grounding", '
+            '"approach": "add retriever + HNSW", "value": "accuracy", '
+            '"concept_names": ["RAG"]}]'
+        )
 
     specs = distill_specs("agents/bot", cands, fake_llm, limit=3)
     assert specs[0].title == "Add RAG retrieval"

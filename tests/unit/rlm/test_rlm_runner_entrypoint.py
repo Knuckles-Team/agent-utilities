@@ -36,9 +36,10 @@ def test_default_evaluator_scores_match():
     assert hit["accuracy"] == 1.0 and "matched" in hit["feedback"]
     assert miss["accuracy"] == 0.0 and "missing" in miss["feedback"]
     # Efficiency rewards shorter prompts.
-    assert _default_evaluator(_Inst(), "x", "a")["efficiency"] > _default_evaluator(
-        _Inst(), "x", "a" * 5000
-    )["efficiency"]
+    assert (
+        _default_evaluator(_Inst(), "x", "a")["efficiency"]
+        > _default_evaluator(_Inst(), "x", "a" * 5000)["efficiency"]
+    )
 
 
 @pytest.mark.concept(id="ORCH-1.12")

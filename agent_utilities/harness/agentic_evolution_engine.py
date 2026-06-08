@@ -61,6 +61,8 @@ class AgenticEvolutionEngine:
         self._skill_detector: Any = None
         self._skill_factory: Any = None
         self._skill_merger: Any = None
+        self._memory_store: Any = None
+        self._replay_buffer: Any = None
         self._gap_threshold = gap_threshold
         self._merge_threshold = merge_threshold
         self._initialized = False
@@ -79,6 +81,24 @@ class AgenticEvolutionEngine:
                 self._variant_pool = VariantPool(self._engine)
             except Exception as e:
                 logger.debug("VariantPool not available: %s", e)
+
+        # Unified evolving-memory store (KG-2.1) — captures per-cycle insights.
+        try:
+            from .evolving_memory import EvolvingMemoryStore
+
+            self._memory_store = EvolvingMemoryStore(engine=self._engine)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("EvolvingMemoryStore not available: %s", e)
+            self._memory_store = None
+
+        # Prioritized replay buffer (AHE-3.0, b4-03 F4) — decisive cycles resurface.
+        try:
+            from .replay_buffer import PrioritizedReplayBuffer
+
+            self._replay_buffer = PrioritizedReplayBuffer()
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("PrioritizedReplayBuffer not available: %s", e)
+            self._replay_buffer = None
 
         # Skill evolution (ECO-4.1)
         try:
@@ -161,7 +181,9 @@ class AgenticEvolutionEngine:
         self._lazy_init()
         if not self._skill_factory:
             raise RuntimeError("SkillFactory not available")
-        return self._skill_factory.create_from_gap(gap, trace_id)
+        skill = self._skill_factory.create_from_gap(gap, trace_id)
+        self._record_skill(skill, "gap")
+        return skill
 
     def create_skill_from_execution(
         self,
@@ -174,9 +196,11 @@ class AgenticEvolutionEngine:
         self._lazy_init()
         if not self._skill_factory:
             raise RuntimeError("SkillFactory not available")
-        return self._skill_factory.create_from_execution(
+        skill = self._skill_factory.create_from_execution(
             task_text, result_summary, success, trace_id
         )
+        self._record_skill(skill, "execution")
+        return skill
 
     def find_merge_candidates(self, skills: list[Any]) -> list[Any]:
         """Find pairs of skills that may overlap."""
@@ -190,7 +214,34 @@ class AgenticEvolutionEngine:
         self._lazy_init()
         if not self._skill_merger:
             raise RuntimeError("SkillMerger not available")
-        return self._skill_merger.merge(skill_a, skill_b)
+        merged = self._skill_merger.merge(skill_a, skill_b)
+        self._record_skill(merged, "merge")
+        return merged
+
+    def _record_skill(self, skill: Any, source: str) -> None:
+        """Mirror a created/merged skill into the unified EvolvingMemoryStore.
+
+        CONCEPT:KG-2.1 — routes skill evolution through the single graph-native
+        SKILL bank (dedup + resolve shared with insights/workspace banks). Best-effort.
+        """
+        if self._memory_store is None or skill is None:
+            return
+        name = getattr(skill, "name", None) or getattr(skill, "title", None) or ""
+        desc = getattr(skill, "description", "") or getattr(skill, "content", "")
+        content = f"{name}: {desc}".strip(": ").strip()
+        if not content:
+            return
+        try:
+            from .evolving_memory import MemoryBank
+
+            self._memory_store.add(
+                MemoryBank.SKILL,
+                content,
+                importance=0.55,
+                metadata={"source": source, "skill_id": str(getattr(skill, "id", ""))},
+            )
+        except Exception as e:  # pragma: no cover - best-effort
+            logger.debug("skill memory record failed: %s", e)
 
     # --- Unified Evolution Cycle ---
 
@@ -225,6 +276,45 @@ class AgenticEvolutionEngine:
             winners = self.tournament_select(base_id, top_k=top_k)
             report["winners"] = winners
             report["pruned"] = self.prune_losers(base_id, keep=top_k)
+            # CONCEPT:AHE-3.2 — population-drift / diversity-collapse signal
+            health = self._variant_pool.population_health(base_id)
+            report["population_health"] = health
+            report["early_stop_recommended"] = bool(health.get("collapsed"))
+
+            # CONCEPT:KG-2.1 — capture the cycle outcome as a reusable INSIGHT.
+            if self._memory_store is not None and winners:
+                from .evolving_memory import MemoryBank
+
+                insight = self._memory_store.add(
+                    MemoryBank.INSIGHT,
+                    f"Evolution cycle for {base_id}: promoted {winners[:3]} "
+                    f"(spread={health.get('spread')}, collapsed={health.get('collapsed')})",
+                    importance=0.6,
+                    metadata={
+                        "base_id": base_id,
+                        "winners": winners,
+                        "collapsed": bool(health.get("collapsed")),
+                    },
+                )
+                report["insight_id"] = insight.id
+                # b4-03 merge-generalize: converge paraphrased cycle insights.
+                generalized = self._memory_store.reconcile_similar(MemoryBank.INSIGHT)
+                if generalized:
+                    report["insights_generalized"] = generalized
+
+            # b4-03 F4: push the cycle as a replay state, keyed by base_id so rare
+            # (decisive) bases resurface preferentially for re-evaluation.
+            if self._replay_buffer is not None:
+                self._replay_buffer.add(
+                    {
+                        "base_id": base_id,
+                        "winners": winners,
+                        "spread": health.get("spread"),
+                        "collapsed": bool(health.get("collapsed")),
+                    },
+                    key=base_id,
+                )
+                report["replay_buffer_size"] = len(self._replay_buffer)
 
         # Skill gap detection
         if task_text and self._skill_detector:
@@ -238,3 +328,15 @@ class AgenticEvolutionEngine:
                 }
 
         return report
+
+    def sample_replay(self, n: int = 1, *, seed: int | None = None) -> list[Any]:
+        """Sample decisive past cycles to re-evaluate (CONCEPT:AHE-3.0, b4-03 F4).
+
+        Returns prioritized (rare/decisive) cycle states from the replay buffer —
+        the daemon can re-run these instead of only fresh bases. Empty when no
+        cycle has been recorded yet.
+        """
+        self._lazy_init()
+        if self._replay_buffer is None:
+            return []
+        return self._replay_buffer.sample(n, seed=seed)

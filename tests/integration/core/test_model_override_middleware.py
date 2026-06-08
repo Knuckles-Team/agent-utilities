@@ -33,8 +33,8 @@ from fastapi.testclient import TestClient
 from agent_utilities.graph.executor import pick_specialist_model
 from agent_utilities.graph.state import REQUESTED_MODEL_ID_CTX, GraphDeps
 from agent_utilities.models import ModelDefinition, ModelRegistry
-from agent_utilities.server import build_agent_app
 from agent_utilities.orchestration.engine import AgentOrchestrationEngine
+from agent_utilities.server import build_agent_app
 
 
 @pytest.fixture

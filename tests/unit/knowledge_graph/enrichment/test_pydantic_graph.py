@@ -31,16 +31,27 @@ class FakeBackend:
 
 def _cls(name, bases=None, methods=None, file_path="flow.py"):
     return CodeEntity(
-        id=f"code:{file_path}::{name}", name=name, qualname=name, kind="class",
-        file_path=file_path, line=1, ast_hash="h", bases=bases or [],
+        id=f"code:{file_path}::{name}",
+        name=name,
+        qualname=name,
+        kind="class",
+        file_path=file_path,
+        line=1,
+        ast_hash="h",
+        bases=bases or [],
         methods=methods or [],
     )
 
 
 def _fn(name, file_path="flow.py"):
     return CodeEntity(
-        id=f"code:{file_path}::{name}", name=name, qualname=name, kind="function",
-        file_path=file_path, line=1, ast_hash="h",
+        id=f"code:{file_path}::{name}",
+        name=name,
+        qualname=name,
+        kind="function",
+        file_path=file_path,
+        line=1,
+        ast_hash="h",
     )
 
 

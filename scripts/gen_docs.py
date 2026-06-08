@@ -115,9 +115,7 @@ def render_block(data: dict) -> str:
 def generate_readme(current: str, data: dict) -> str:
     block = render_block(data)
     if BEGIN in current and END in current:
-        pattern = re.compile(
-            re.escape(BEGIN) + r".*?" + re.escape(END), re.DOTALL
-        )
+        pattern = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.DOTALL)
         return pattern.sub(lambda _m: block, current)
     raise SystemExit(
         "ERROR: README.md is missing the generated-block markers "
@@ -128,7 +126,9 @@ def generate_readme(current: str, data: dict) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--check", action="store_true", help="verify README is up to date")
+    group.add_argument(
+        "--check", action="store_true", help="verify README is up to date"
+    )
     group.add_argument("--write", action="store_true", help="rewrite README in place")
     args = parser.parse_args()
 

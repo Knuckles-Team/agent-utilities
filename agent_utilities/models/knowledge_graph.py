@@ -393,6 +393,10 @@ class RegistryNodeType(StrEnum):
     # Generalized Relationship Ontology
     RELATIONSHIP = "relationship"
 
+    # Research Assimilation Engine (CONCEPT:KG-2.7)
+    SDD_FEATURE = "sdd_feature"
+    REQUIREMENT = "requirement"  # PRD/BRD/SOW/tasks ingest (reuses DECISION for chat)
+
 
 class RegistryEdgeType(StrEnum):
     """Enumeration of relationship types in the registry graph."""
@@ -610,6 +614,19 @@ class RegistryEdgeType(StrEnum):
     CITES_PAPER = "cites_paper"
     CITED_BY_PAPER = "cited_by_paper"
     DISCOVERED_IN_SESSION = "discovered_in_session"
+    # Research Assimilation Engine (CONCEPT:KG-2.7) — the assimilation lifecycle.
+    # NOTE: values are UPPER_SNAKE to match the live Cypher relationship labels this
+    # subsystem already writes/queries (ADDRESSES/ADDRESSED_BY via topic_resolver,
+    # RELEVANCE_SCORED via the relevance sweep) — registering them here makes the
+    # enum the source of truth WITHOUT splitting existing edges. (Differs from the
+    # OGM lowercase edges above by design.) Dedup reuses SIMILAR_TO (KG-2.3);
+    # synergy reuses HAS_SYNERGY_WITH (KG-2.4); supersession reuses SUPERSEDES.
+    ADDRESSES = "ADDRESSES"
+    ADDRESSED_BY = "ADDRESSED_BY"
+    RELEVANCE_SCORED = "RELEVANCE_SCORED"
+    ASSIMILATED_INTO = "ASSIMILATED_INTO"
+    DERIVED_FROM_RESEARCH = "DERIVED_FROM_RESEARCH"
+    SATISFIED_BY = "SATISFIED_BY"
     # Spectral Cluster Navigator (CONCEPT:KG-2.5)
     MEMBER_OF_CLUSTER = "member_of_cluster"
     CLUSTER_PARENT = "cluster_parent"
@@ -1088,6 +1105,18 @@ class PipelineConfig(BaseModel):
     owl_ontology_path: str | None = None
     owl_promotion_importance_threshold: float = 0.1
     owl_promotion_recency_days: int = 7
+    # Self-bootstrapping ontology (CONCEPT:KG-2.2) — derive the ontology from the
+    # graph's own records instead of the fixed ontology.ttl. Off by default; when on
+    # and no explicit owl_ontology_path is set, the OWL phase reasons over a schema
+    # inferred from sampled nodes (plateau-stopped).
+    enable_ontology_bootstrap: bool = Field(
+        default_factory=lambda: (
+            __import__("os").getenv("ENABLE_KG_ONTOLOGY_BOOTSTRAP", "false").lower()
+            in ("true", "1", "yes")
+        )
+    )
+    ontology_bootstrap_plateau_patience: int = 5
+    ontology_bootstrap_sample_limit: int = 2000
     # External Graph Endpoints settings
     enable_external_graphs: bool = Field(
         default_factory=lambda: (
@@ -1246,6 +1275,27 @@ class ConceptNode(RegistryNode):
     concept_id: str
     definition: str = ""
     is_permanent: bool = False
+
+
+class SDDFeatureNode(RegistryNode):
+    """A feature tracked through the research-assimilation lifecycle.
+
+    CONCEPT:KG-2.7 — Research Assimilation
+
+    Links an extracted research/library feature to the concepts/code that satisfy
+    it (``SATISFIED_BY``) and the SDD plan that implements it
+    (``DERIVED_FROM_RESEARCH`` / ``ASSIMILATED_INTO``). Its ``status`` is the
+    "already hit" ledger state that drives golden-loop exclusion — a feature is
+    re-proposed only while ``status == 'open'`` and it has no closing edge.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SDD_FEATURE
+    sdd_feature_id: str
+    concept_ids: list[str] = Field(default_factory=list)
+    research_sources: list[str] = Field(default_factory=list)
+    status: str = "open"  # open|proposed|in_progress|implemented|rejected|superseded
+    sdd_path: str = ""
+    codebase: str = ""
 
 
 class SourceNode(RegistryNode):

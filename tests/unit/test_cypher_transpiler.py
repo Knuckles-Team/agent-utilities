@@ -24,8 +24,7 @@ class TestRelationshipTraversal:
 
     def test_count_distinct_target(self):
         cypher = (
-            "MATCH (s:Memory)-[r:MENTIONS]->(t:Concept) "
-            "RETURN count(DISTINCT t) as c"
+            "MATCH (s:Memory)-[r:MENTIONS]->(t:Concept) RETURN count(DISTINCT t) as c"
         )
         tq = transpile(cypher, {}, KNOWN_TABLES)
         assert tq.query_type == QueryType.COUNT

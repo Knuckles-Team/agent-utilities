@@ -99,6 +99,8 @@ C4Component
         Component(workflowrunner, "Workflow Runner", "Python", "ORCH-1.24: Executes stored workflows via wave-based parallel dispatch")
         Component(pll, "🔬 Prediction Linkage Layer", "Python", "ORCH-1.6: Fuses confidence matrices for ensemble modeling")
         Component(mas, "🔬 RecursiveMAS Latent Orchestrator", "Python", "ORCH-1.7: Continuous latent loop or simulated semantic collaboration")
+        Component(gwt, "Global Workspace Attention", "Python", "ORCH-1.2: Scores/selects/broadcasts specialist proposals; get_attention_score read-back + engine-mismatch telemetry")
+        Component(massys, "Multi-Agent Social System", "Python", "ORCH-1.32: Swarm as S=(f,g,G) — archetypes, local observability, co-evolution, P1–P4 swarm health")
     }
 
     Rel(router, planner, "Routes task to planning")
@@ -120,7 +122,14 @@ C4Component
     Rel(workflowrunner, workflowstore, "Loads workflows by name")
     Rel(pll, orchestrator, "Returns fused predictions")
     Rel(mas, planner, "Bypasses standard planning via latent loops")
+    Rel(dispatcher, gwt, "After each wave: select + broadcast winners")
+    Rel(gwt, router, "get_attention_score → runtime specialist standing")
+    Rel(dispatcher, massys, "After each wave: swarm-health snapshot → telemetry")
 ```
+
+> **GWT loop & MASS:** see [Global Workspace Attention](../architecture/global_workspace_attention.md)
+> and [Multi-Agent Social System](../architecture/multi_agent_social_system.md). Both are driven by
+> `ParallelEngine.execute` after a multi-agent wave and surface in `ExecutionResult.telemetry`.
 
 ### Pillar 2: Knowledge Graph (KG)
 
@@ -222,6 +231,9 @@ C4Component
         Component(physdistill, "🔬 Physical Knowledge Distiller", "Python", "AHE-3.9: Distills evolved prompts/tools to physical git-tracked files")
         Component(dynoptimizer, "🔬 Dynamic Optimizer Selector", "Python", "AHE-3.10: Dynamically selects optimal optimizer (MIPROv2, FewShot, etc.) based on cluster scale")
         Component(gitops_bound, "🔬 GitOps Evolution Boundary", "Python", "AHE-3.11: Enforces git boundaries and registers evolutionary changes in KG")
+        Component(rewardspine, "Training Reward Spine", "Python", "AHE-3.1: graph/training_signals.py — advantage / failure-point / composite-reward / difficulty-floor")
+        Component(replay, "Prioritized Replay Buffer", "Python", "AHE-3.0: harness/replay_buffer.py — inverse-frequency replay of decisive states (b4-03)")
+        Component(trainsub, "In-House Training Substrate", "Python+torch+Rust", "AHE-3.1/KG-2.22: data-science-mcp trainers (SFT/DPO/GRPO) + epistemic-graph Rust kernels — see architecture/in_house_training_substrate.md")
     }
 
     Rel(eval, selfmodel, "Updates self-assessment scores")
@@ -235,7 +247,15 @@ C4Component
     Rel(evolve, physdistill, "Offloads evolved structures for physical write")
     Rel(physdistill, gitops_bound, "Triggers git changes and commits via boundaries")
     Rel(evolve, dynoptimizer, "Selects dynamic optimizer strategy based on failure characteristics")
+    Rel(evolve, replay, "Pushes decisive cycles; sample_replay resurfaces rare states")
+    Rel(rewardspine, trainsub, "Feeds reward/advantage signals to trainers")
+    Rel(trainsub, eval, "eval_hooks bridge checkpoints into the reliability suite")
 ```
+
+> **Training substrate:** the reward spine + replay buffer feed the cross-repo
+> [In-House Training Substrate](../architecture/in_house_training_substrate.md)
+> (data-science-mcp gradient trainers + epistemic-graph Rust kernels); trained
+> checkpoints go live via the model-registry role seam with no hot-path edit.
 
 ### Pillar 4: Ecosystem Peripherals (ECO)
 

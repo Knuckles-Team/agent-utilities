@@ -3,18 +3,19 @@
 CONCEPT:ORCH-1.12/31 — RLM GEPA Verification
 """
 
-import pytest
 import unittest.mock
+
+import pytest
 from pydantic import BaseModel
-from agent_utilities.rlm.predict_rlm import PredictRLM, InputField, OutputField
+
 from agent_utilities.rlm.gepa import (
     Candidate,
     GEPAInstance,
+    GEPAOptimizer,
     ParetoCandidatePool,
     ReflectiveMutator,
-    GEPAOptimizer,
 )
-from agent_utilities.rlm.config import RLMConfig
+from agent_utilities.rlm.predict_rlm import InputField, OutputField, PredictRLM
 
 
 class DummySignature(BaseModel):

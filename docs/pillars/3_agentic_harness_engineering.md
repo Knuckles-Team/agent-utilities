@@ -96,3 +96,22 @@ and scores via the `judge` role with a deterministic fallback; `GET /benchmark/r
 returns the LongMemEval-style accuracy + per-category breakdown. `scripts/check_longmemeval.py` gates
 CI on a frozen-subset floor (default 95%), sharing the exact scoring helpers so gate and live router
 never diverge; the full 500-question run is nightly/on-demand. Extends AHE-3.
+
+### AHE-3.1 — In-house training substrate
+
+The harness can fine-tune its own open-weight models end-to-end. The deterministic
+reward/data engine (`graph/training_signals.py` + data-science-mcp `training_data.py`)
+builds SFT/DPO/GRPO corpora; the gradient trainers (data-science-mcp `trainers/`,
+torch/PEFT) consume them; the Rust performance path (epistemic-graph
+`datascience/training.rs`) mirrors the loss/optimizer kernels; `eval_hooks` bridge
+checkpoints back into the AHE-3.1 reliability suite. Trained checkpoints go live via
+the model-registry role seam with no hot-path edit. Full cross-repo design:
+[In-House Training Substrate](../architecture/in_house_training_substrate.md).
+
+### AHE-3.0 — Prioritized replay of decisive states
+
+`harness/replay_buffer.PrioritizedReplayBuffer` (inverse-frequency priority,
+seed-faithful sampling) is wired into `AgenticEvolutionEngine.run_evolution_cycle`:
+each cycle pushes its outcome keyed by base id so rare/decisive bases resurface
+preferentially via `sample_replay`. Pairs with MEMO merge-generalize (KG-2.1) for
+sample-efficient, weight-free self-evolution (source b4-03). Extends AHE-3.0.

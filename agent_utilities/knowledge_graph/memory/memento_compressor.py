@@ -207,12 +207,54 @@ def compress_to_memento(
                 break
             memento_text = retry
 
+    # Convergence-guaranteed escalation (CONCEPT:KG-2.20 / Root-Theorem F4): the
+    # judge-refine loop can terminate with a memento that did NOT actually shrink the
+    # block (LLM ignored the budget). Guarantee output < input by deterministic
+    # truncation so eviction always reduces footprint (the raw block stays
+    # losslessly recoverable via SUMMARIZES).
+    memento_text = _guarantee_shorter(memento_text, block_text)
+
+    # External verification gate (CONCEPT:KG-2.20): an *independent*, deterministic
+    # faithfulness check (AHE-3.1 FaithfulnessScorer) of the memento against its
+    # source block — distinct from the LLM self-judge above. The verdict is stamped
+    # as provenance; a failure never blocks persistence (the raw block is kept
+    # losslessly via SUMMARIZES so a low-fidelity memento can be re-expanded).
+    verdict = verify_memento(block_text, memento_text)
+    if not verdict["verified"]:
+        logger.warning(
+            "[KG-2.20] Memento failed external faithfulness gate "
+            "(ratio=%.2f, ungrounded=%s) — persisting with lossless recoverability",
+            verdict["faithful_ratio"],
+            verdict["ungrounded"],
+        )
+
     if dry_run:
         return memento_text
 
     raw_block = block_text if persist_raw else None
-    _persist_memento(engine, memento_text, source=source, raw_block=raw_block)
+    _persist_memento(
+        engine, memento_text, source=source, raw_block=raw_block, verification=verdict
+    )
     return memento_text
+
+
+def verify_memento(block_text: str, memento_text: str) -> dict[str, Any]:
+    """External, deterministic faithfulness check of a memento vs its source block.
+
+    CONCEPT:KG-2.20. Reuses the AHE-3.1 :class:`FaithfulnessScorer` as an
+    *external* verifier (independent of the LLM judge-refine loop) so a
+    compaction's grounding is auditable and gate-able. Returns
+    ``{verified, faithful_ratio, ungrounded, verifier}``.
+    """
+    from agent_utilities.harness.reliability_scorers import FaithfulnessScorer
+
+    result = FaithfulnessScorer().score("", memento_text, {"evidence": block_text})
+    return {
+        "verified": result.passed,
+        "faithful_ratio": float(result.metrics.get("faithful_ratio", result.score)),
+        "ungrounded": int(result.metrics.get("hallucinated", 0)),
+        "verifier": result.evaluator,
+    }
 
 
 def _persist_memento(
@@ -221,6 +263,7 @@ def _persist_memento(
     *,
     source: str = "unknown",
     raw_block: str | None = None,
+    verification: dict[str, Any] | None = None,
 ) -> str | None:
     """Persist the memento as a ``Memento`` node and return its id.
 
@@ -243,6 +286,14 @@ def _persist_memento(
         "type": "MementoBlock",
         "recoverable": bool(raw_block),
     }
+    if verification is not None:
+        # Provenance stamp (CONCEPT:KG-2.20) — the external-verification verdict
+        # travels with the memento so downstream trust/re-expansion is auditable.
+        props["provenance_verified"] = bool(verification.get("verified"))
+        props["provenance_faithfulness"] = float(
+            verification.get("faithful_ratio", 0.0)
+        )
+        props["provenance_verifier"] = str(verification.get("verifier", ""))
 
     try:
         engine.add_node(memento_id, "Memento", properties=props)
@@ -289,6 +340,80 @@ def recover_evicted_block(
     except Exception as e:
         logger.debug("Failed to recover evicted block for %s: %s", memento_id, e)
     return None
+
+
+def _guarantee_shorter(
+    memento_text: str, block_text: str, *, max_ratio: float = 0.9
+) -> str:
+    """Guarantee a memento is strictly smaller than the block it replaces.
+
+    CONCEPT:KG-2.20 (Root-Theorem F4). If compression failed to reduce size, the
+    memento is head-truncated to ``max_ratio`` of the block length with a marker —
+    a deterministic terminal guarantee that eviction always shrinks the footprint.
+    """
+    cap = int(len(block_text) * max_ratio)
+    if len(memento_text) <= cap or cap <= 0:
+        return memento_text
+    marker = " …[truncated:recoverable]"
+    keep = max(0, cap - len(marker))
+    return memento_text[:keep] + marker
+
+
+def recover_chain(
+    engine: IntelligenceGraphEngine, memento_id: str, *, max_depth: int = 16
+) -> str | None:
+    """Recover the leaf raw block by walking the SUMMARIZES DAG (CONCEPT:KG-2.20 MEM-4).
+
+    Generalizes :func:`recover_evicted_block` to a hierarchical summary DAG:
+    follows ``Memento -[:SUMMARIZES]-> (Memento|EvictedBlock)`` edges down to the
+    deepest recoverable content, so multi-level mementos still expand losslessly.
+    """
+    if not engine or not getattr(engine, "backend", None):
+        return None
+    current = memento_id
+    last_content: str | None = None
+    seen: set[str] = set()
+    for _ in range(max_depth):
+        if current in seen:
+            break
+        seen.add(current)
+        try:
+            rows = engine.backend.execute(
+                "MATCH (n {id: $id})-[:SUMMARIZES]->(c) "
+                "RETURN c.id AS id, c.content AS content LIMIT 1",
+                {"id": current},
+            )
+        except Exception as e:  # pragma: no cover - backend variance
+            logger.debug("recover_chain hop failed at %s: %s", current, e)
+            break
+        row = next(iter(rows or []), None)
+        if not row or not row.get("id"):
+            break
+        if row.get("content"):
+            last_content = str(row["content"])
+        current = str(row["id"])
+    return last_content
+
+
+def link_parent_memento(
+    engine: IntelligenceGraphEngine, parent_id: str, child_ids: list[str]
+) -> int:
+    """Add a hierarchy level: ``parent_memento -[:SUMMARIZES]-> child_memento`` edges.
+
+    CONCEPT:KG-2.20 — builds the summary DAG (summaries-of-summaries). Returns the
+    number of edges linked. The parent's compressed content is produced by
+    :func:`compress_to_memento` over the children's text; this wires the lineage.
+    """
+    if not engine or not getattr(engine, "link_nodes", None):
+        return 0
+    linked = 0
+    for cid in child_ids:
+        try:
+            engine.link_nodes(parent_id, cid, "SUMMARIZES")
+            linked += 1
+        except Exception as e:  # pragma: no cover - best-effort
+            logger.debug("link_parent_memento failed for %s: %s", cid, e)
+    return linked
 
 
 # ── Semantic-boundary segmentation (CONCEPT:KG-2.20 MEM-3, paper §Stage 1-3) ────────────────────

@@ -17,13 +17,13 @@ import uuid
 import numpy as np
 
 from agent_utilities.models.knowledge_graph import (
+    AgentRAGConfigNode,
     DistillationIndexNode,
     OrchestrationCycleNode,
     RegistryEdgeType,
     RegistryNode,
     RegistryNodeType,
     SimilarityEdgeNode,
-    AgentRAGConfigNode,
 )
 
 # ── Helpers ──────────────────────────────────────────────────────────

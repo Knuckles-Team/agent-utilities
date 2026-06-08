@@ -15,9 +15,9 @@ import pytest
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.memory import (
-    SynthesisEngine,
     DecisionToPrincipleRule,
     EpisodeToPreferenceRule,
+    SynthesisEngine,
 )
 
 # ---------------------------------------------------------------------------

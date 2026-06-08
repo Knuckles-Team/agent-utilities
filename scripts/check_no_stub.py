@@ -16,7 +16,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-BANNED_SUBSTRINGS = ('"[Mock]', "[Mock]'", "dummy_embedding", "Fallback equal-weight", "equal weighting since")
+BANNED_SUBSTRINGS = (
+    '"[Mock]',
+    "[Mock]'",
+    "dummy_embedding",
+    "Fallback equal-weight",
+    "equal weighting since",
+)
 SKIP_DIRS = {"__pycache__", ".venv", "tests", "scripts"}
 
 
@@ -29,7 +35,9 @@ def scan(pkg_root: Path) -> list[str]:
         lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
         for i, line in enumerate(lines, 1):
             stripped = line.lstrip()
-            is_comment_or_doc = stripped.startswith("#") or stripped.startswith(('"', "'"))
+            is_comment_or_doc = stripped.startswith("#") or stripped.startswith(
+                ('"', "'")
+            )
             for needle in BANNED_SUBSTRINGS:
                 if needle in line and not is_comment_or_doc:
                     violations.append(f"{rel}:{i}: stub marker {needle!r}")

@@ -47,9 +47,21 @@ class HybridRetriever:
         self,
         engine: IntelligenceGraphEngine,
         schema_pack: SchemaPack | None = None,
+        enable_rerank: bool = True,
     ):
         self.engine = engine
         self._schema_pack = schema_pack
+
+        # CONCEPT:KG-2.6 — Reasoning-aware reranking (default ON): reorder an
+        # over-fetched candidate pool by query-relevance before capping to the
+        # context window so the most relevant nodes drive context assembly.
+        if enable_rerank:
+            from .reasoning_reranker import ReasoningAwareReranker
+
+            self._reranker: Any = ReasoningAwareReranker()
+        else:
+            self._reranker = None
+        self._rerank_overfetch = 4
 
         # Backlink boost config from schema pack (CONCEPT:KG-2.2)
         if schema_pack:
@@ -380,7 +392,12 @@ class HybridRetriever:
 
                 scored_nodes.sort(key=lambda x: x["_score"], reverse=True)
                 if scored_nodes:
-                    base_nodes = scored_nodes[:context_window]
+                    base_nodes = self._rerank_candidates(
+                        query,
+                        scored_nodes,
+                        context_window,
+                        instruction=active_task or "",
+                    )
                 else:
                     logger.debug("No semantic matches found, falling back to keyword")
                     base_nodes = self.engine._search_keyword(
@@ -506,12 +523,83 @@ class HybridRetriever:
             logger.debug("Quality gate assessment skipped: %s", e)
             return assembled_subgraph
 
+    def _rerank_candidates(
+        self,
+        query: str,
+        scored_nodes: list[dict[str, Any]],
+        context_window: int,
+        instruction: str = "",
+    ) -> list[dict[str, Any]]:
+        """Reasoning-aware rerank of the candidate pool, capped to the window.
+
+        Over-fetches ``context_window * _rerank_overfetch`` vector-ranked
+        candidates, reorders them by blended query-relevance (CONCEPT:KG-2.6),
+        and returns the top ``context_window``. With reranking disabled this is
+        the plain vector-order top-``context_window`` slice — identical to the
+        prior behaviour.
+        """
+        if self._reranker is None:
+            return scored_nodes[:context_window]
+        pool = scored_nodes[
+            : max(context_window * self._rerank_overfetch, context_window)
+        ]
+        if len(pool) <= 1:
+            return pool[:context_window]
+        reranked = self._reranker.rerank(
+            query, pool, text_fn=self._node_text, instruction=instruction
+        )
+        return reranked[:context_window]
+
     @staticmethod
     def _node_text(node: dict[str, Any]) -> str:
         """Text whose tokens count against a retrieval budget."""
         parts = [str(node.get(k, "")) for k in ("content", "text", "summary", "name")]
         body = " ".join(p for p in parts if p)
         return body or str(node)
+
+    def direct_search(
+        self,
+        query: str,
+        *,
+        top_k: int = 10,
+        labels: tuple[str, ...] = ("Article", "Code", "Concept", "KBFact", "KBConcept"),
+        limit_per_label: int = 500,
+    ) -> Any:
+        """Direct Corpus Interaction — literal/term search over node text (CONCEPT:KG-2.12).
+
+        A precise, auditable retrieval mode that greps document text directly
+        instead of dense-vector similarity, returning ranked hits with line-level
+        localization. Complements :meth:`retrieve_hybrid` for exact-term / code /
+        identifier lookups where embeddings under-perform.
+
+        Returns:
+            A ``DciResult`` (see :mod:`direct_corpus`).
+        """
+        from .direct_corpus import searcher_from_nodes
+
+        nodes: list[dict[str, Any]] = []
+        if self.engine.backend:
+            for label in labels:
+                try:
+                    rows = (
+                        self.engine.backend.execute(
+                            f"MATCH (n:{label}) RETURN n.id as id, n as data "
+                            f"LIMIT {int(limit_per_label)}"
+                        )
+                        or []
+                    )
+                except Exception as e:
+                    logger.debug("direct_search label %s failed: %s", label, e)
+                    continue
+                for r in rows:
+                    if not isinstance(r, dict):
+                        continue
+                    _d = r.get("data")
+                    data = dict(_d) if isinstance(_d, dict) else {}
+                    data["id"] = r.get("id", data.get("id", ""))
+                    nodes.append(data)
+
+        return searcher_from_nodes(nodes).search(query, top_k=top_k)
 
     def retrieve_hybrid_budgeted(
         self,
@@ -531,6 +619,105 @@ class HybridRetriever:
         from .budget import fit_within
 
         return fit_within(results, token_budget, text_of=self._node_text)
+
+    def retrieve_executable(
+        self,
+        query: str,
+        *,
+        subqueries: list[str] | None = None,
+        modes: tuple[str, ...] = ("vector", "grep"),
+        top_k: int = 5,
+        answer_fn: Any = None,
+        use_planner: bool = False,
+    ) -> Any:
+        """Executable multi-hop RAG over retrieve()/answer() steps (CONCEPT:KG-2.12).
+
+        Runs a deterministic program that dispatches each retrieve step to a mode
+        — ``vector`` (``retrieve_hybrid``) or ``grep`` (``direct_search``) — with
+        execution-driven adaptive retrieval + mode fallback (vector→grep), and an
+        inspectable trace. Replaces ungrounded NL self-reflection with a grounded,
+        self-repairing program. ``answer_fn(query, evidence)`` defaults to a
+        deterministic extractive concatenation; inject an LLM answerer for prose.
+
+        The plan is built deterministically by ``build_linear_plan`` (one retrieve
+        per sub-query → answer). Set ``use_planner=True`` to instead synthesize the
+        plan with the ORCH-1.27 ``planner`` role (richer / non-linear plans); a
+        planner failure degrades to the deterministic plan, so the run never breaks.
+
+        Returns:
+            A ``RagResult`` (see :mod:`executable_rag`).
+        """
+        from .executable_rag import ExecutableRagProgram, build_linear_plan
+
+        def retrieve_fn(q: str, mode: str, k: int) -> list[dict[str, Any]]:
+            if mode == "grep":
+                res = self.direct_search(q, top_k=k)
+                return [
+                    {"id": h.doc_id, "content": "", "score": h.score} for h in res.hits
+                ]
+            nodes = self.retrieve_hybrid(q, context_window=k, skip_quality_gate=True)
+            return [
+                {"id": n.get("id", ""), "content": self._node_text(n)} for n in nodes
+            ]
+
+        def _default_answer(q: str, evidence: list[dict[str, Any]]) -> str:
+            snippets = [
+                str(e.get("content", "")) for e in evidence[:3] if e.get("content")
+            ]
+            return " ".join(snippets) if snippets else "insufficient evidence"
+
+        if use_planner:
+            plan = self._synthesize_executable_plan(
+                query, subqueries=subqueries, modes=modes, top_k=top_k
+            )
+        else:
+            plan = build_linear_plan(
+                subqueries or [query], question=query, mode=modes[0], top_k=top_k
+            )
+        program = ExecutableRagProgram(
+            retrieve_fn,
+            answer_fn or _default_answer,
+            fallback_modes=list(modes[1:]),
+        )
+        return program.run(plan, question=query)
+
+    def _synthesize_executable_plan(
+        self,
+        query: str,
+        *,
+        subqueries: list[str] | None = None,
+        modes: tuple[str, ...] = ("vector", "grep"),
+        top_k: int = 5,
+    ) -> Any:
+        """Synthesize an executable RAG plan via the ORCH-1.27 ``planner`` role.
+
+        Returns a list of :class:`~.executable_rag.PlanStep`. Always succeeds — a
+        planner/LLM failure degrades to :func:`~.executable_rag.build_linear_plan`
+        through :func:`~.executable_rag.parse_executable_plan` (CONCEPT:KG-2.12).
+        """
+        from .executable_rag import parse_executable_plan
+
+        allowed = " | ".join(modes)
+        system_prompt = (
+            "You are an executable-RAG plan synthesizer. Given a question, emit a "
+            'JSON object {"steps": [...]} where each step is '
+            '{"op": "retrieve"|"answer", "query": str, "mode": '
+            f'"{allowed}", "top_k": int, "out_var": str}}. Use one or more '
+            "retrieve steps (decompose multi-hop questions; pick the mode best "
+            "suited to each sub-query) followed by a final answer step over the "
+            "original question. Return ONLY the JSON object."
+        )
+        try:
+            model = create_model(role="planner")
+            agent = Agent(model=model, system_prompt=system_prompt)
+            result: Any = agent.run_sync(query)
+            raw = str(getattr(result, "output", None) or getattr(result, "data", ""))
+        except Exception as e:  # pragma: no cover - planner is best-effort
+            logger.debug("Executable-RAG planner failed, using linear plan: %s", e)
+            raw = ""
+        return parse_executable_plan(
+            raw, question=query, subqueries=subqueries, mode=modes[0], top_k=top_k
+        )
 
     @property
     def last_quality_report(self):

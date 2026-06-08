@@ -36,7 +36,10 @@ def test_is_trivial_query_rules():
     assert is_trivial_query("hi there") is True
     assert is_trivial_query("thanks a lot") is True
     # Long or non-conversational queries are not trivial.
-    assert is_trivial_query("hello, please optimize my portfolio under constraints") is False
+    assert (
+        is_trivial_query("hello, please optimize my portfolio under constraints")
+        is False
+    )
     assert is_trivial_query("compute the efficient frontier") is False
     assert is_trivial_query("") is False
 

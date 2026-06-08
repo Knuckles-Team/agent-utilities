@@ -26,9 +26,9 @@ from pydantic import ValidationError
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.memory import (
+    EpisodeToPreferenceRule,
     SynthesisEngine,
     SynthesisProposal,
-    EpisodeToPreferenceRule,
 )
 
 
@@ -229,9 +229,7 @@ def test_engine_isolates_broken_rules(
         min_evidence_count = 1
         min_confidence = 0.0
 
-        def detect(
-            self, engine: IntelligenceGraphEngine
-        ) -> list[SynthesisProposal]:
+        def detect(self, engine: IntelligenceGraphEngine) -> list[SynthesisProposal]:
             raise RuntimeError("intentional failure for the test")
 
     ce = SynthesisEngine(synthetic_engine)

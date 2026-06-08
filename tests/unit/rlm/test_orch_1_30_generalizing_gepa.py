@@ -14,7 +14,12 @@ from agent_utilities.rlm.gepa import (
 
 
 def _ds(n: int) -> list[GEPAInstance]:
-    return [GEPAInstance(id=str(i), input_data={"input_text": str(i)}, reference_output=str(i)) for i in range(n)]
+    return [
+        GEPAInstance(
+            id=str(i), input_data={"input_text": str(i)}, reference_output=str(i)
+        )
+        for i in range(n)
+    ]
 
 
 @pytest.mark.concept(id="ORCH-1.30")

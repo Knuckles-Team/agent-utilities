@@ -19,7 +19,8 @@ from agent_utilities.models.graph import ExecutionStep, GraphPlan
 
 # --- (a) facade import resolves ---------------------------------------------
 def test_planner_facade_imports():
-    from agent_utilities.graph.planning import Plan, Planner as P
+    from agent_utilities.graph.planning import Plan
+    from agent_utilities.graph.planning import Planner as P
 
     assert P is Planner
     # ``Plan`` is the canonical plan model alias.
@@ -164,6 +165,8 @@ def test_reexport_identity_manifest():
 
 # --- (d) original import paths still resolve --------------------------------
 def test_original_import_paths_resolve():
+    # And the router that depends on these still imports.
+    import agent_utilities.graph._router_impl  # noqa: F401
     from agent_utilities.graph.hierarchical_planner import (  # noqa: F401
         LATSPlanner,
         planner_step,
@@ -178,6 +181,3 @@ def test_original_import_paths_resolve():
     from agent_utilities.graph.reward_decomposition import (  # noqa: F401
         RewardDecomposer,
     )
-
-    # And the router that depends on these still imports.
-    import agent_utilities.graph._router_impl  # noqa: F401

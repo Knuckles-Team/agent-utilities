@@ -31,8 +31,8 @@ def test_find_path_offloads_to_l0_single_call():
     result = QueryMixin.find_path(fake, "a", "b")  # type: ignore[arg-type]
 
     assert result == ["a", "mid", "b"]
-    assert calls["shortest"] == 1      # used the compiled L0 traversal
-    assert calls["successors"] == 0    # did NOT fall into the Python BFS
+    assert calls["shortest"] == 1  # used the compiled L0 traversal
+    assert calls["successors"] == 0  # did NOT fall into the Python BFS
 
 
 def test_find_path_falls_back_to_bfs_when_l0_unavailable():

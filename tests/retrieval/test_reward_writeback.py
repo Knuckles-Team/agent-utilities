@@ -6,8 +6,6 @@ that class on the next identical query.
 
 from __future__ import annotations
 
-import numpy as np
-
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
 
 
@@ -43,7 +41,9 @@ def test_success_raises_rank_for_query_class():
         idx.record_outcome("tool_b", success=False)
 
     after = idx.designate(query, required_caps=["search"], k=2)
-    assert after[0].id == "tool_a", f"reward should lift tool_a to rank 1: {[d.id for d in after]}"
+    assert after[0].id == "tool_a", (
+        f"reward should lift tool_a to rank 1: {[d.id for d in after]}"
+    )
     # Provenance surfaces the learned reward.
     assert after[0].provenance["reward"] > 0.5
     # The pre-reinforcement ranking should not already favour tool_a by reward.
@@ -55,7 +55,9 @@ def test_reward_weight_zero_disables_boost():
     for _ in range(10):
         idx.record_outcome("tool_a", success=True)
     # With the boost off, ranking is pure similarity (tool_b is closer).
-    out = idx.designate([1.0, 0.0, 0.0], required_caps=["search"], k=2, reward_weight=0.0)
+    out = idx.designate(
+        [1.0, 0.0, 0.0], required_caps=["search"], k=2, reward_weight=0.0
+    )
     assert out[0].id == "tool_b"
 
 
