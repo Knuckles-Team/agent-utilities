@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ...models.knowledge_graph import RegistryEdgeType, RegistryNodeType
-from .dedup import _cosine
+from .dedup import _cosine, iter_all_edges
 
 # A concept id like KG-2.7 / AHE-3.12 / ORCH-1.3b / OS-5 / KG-2.20g.
 _CONCEPT_ID_RE = re.compile(r"\b([A-Z]{2,6}-\d+(?:\.\d+[a-z]?|-\d+)?)\b")
@@ -123,6 +123,7 @@ def auto_satisfy(
     threshold: float = 0.85,
     restrict_to: set[str] | None = None,
     write: bool = True,
+    reconcile: bool = True,
 ) -> GapReport:
     """Write candidate ``SATISFIED_BY`` edges for features matching built concepts.
 
@@ -154,6 +155,12 @@ def auto_satisfy(
     report = GapReport(features=len(features), concepts=len(concepts))
     if not features or not concepts:
         return report
+
+    # Idempotency: drop prior auto-written SATISFIED_BY edges so this pass replaces,
+    # not accumulates (a stricter re-run must be able to un-close a feature).
+    targets = set(features) if restrict_to is None else set(features) & restrict_to
+    if write and reconcile and targets:
+        _clear_auto_satisfied(engine, targets)
 
     # Concept indices: canonical id → node id, and node id → embedding.
     concept_by_key: dict[str, str] = {}
@@ -243,6 +250,51 @@ def is_closed(engine: Any, feature_id: str, status: str = "") -> bool:
     return False
 
 
+def _closed_feature_index(
+    engine: Any, feature_types: tuple[str, ...]
+) -> tuple[set[str], dict[str, dict[str, Any]]]:
+    """``(closed_ids, all_features)`` — feature ids closed by status or a closing edge.
+
+    BATCHED: one node scan + one bulk edge scan
+    (:func:`~assimilation.dedup.iter_all_edges`), instead of ``O(features)``
+    per-node ``out_edges``/``in_edges`` round-trips — the live-backend scaling fix.
+    Falls back to the per-node :func:`is_closed` when the graph has no bulk edge
+    view (test doubles), preserving identical semantics.
+    """
+    graph = getattr(engine, "graph", None)
+    feats: dict[str, dict[str, Any]] = {}
+    closed: set[str] = set()
+    if graph is None:
+        return closed, feats
+    try:
+        node_iter = graph.nodes(data=True)
+    except TypeError:  # pragma: no cover
+        return closed, feats
+    wanted = {t.lower() for t in feature_types}  # case-insensitive (live labels)
+    for nid, data in node_iter:
+        if not isinstance(data, dict) or str(data.get("type", "")).lower() not in wanted:
+            continue
+        feats[nid] = data
+        if str(data.get("status", "")).lower() in _CLOSED_STATUS:
+            closed.add(nid)
+
+    edges = iter_all_edges(graph)
+    if edges is not None:  # bulk path — one traversal
+        for src, dst, props in edges:
+            rel = _rel_of(props)
+            if rel in _CLOSING_OUT and src in feats:
+                closed.add(src)
+            elif rel in _CLOSING_IN and dst in feats:
+                closed.add(dst)
+    else:  # per-node fallback (no bulk edge view)
+        for fid, data in feats.items():
+            if fid not in closed and is_closed(
+                engine, fid, str(data.get("status", "open"))
+            ):
+                closed.add(fid)
+    return closed, feats
+
+
 def open_features(
     engine: Any,
     *,
@@ -253,24 +305,48 @@ def open_features(
     This is the durable, queryable answer to "what have we NOT already hit?" — the
     set the golden loop proposes against (everything else is excluded).
     """
-    out: list[str] = []
+    closed, feats = _closed_feature_index(engine, feature_types)
+    return [fid for fid in feats if fid not in closed]
+
+
+def _clear_auto_satisfied(engine: Any, feature_ids: set[str]) -> int:
+    """Remove prior auto-written ``SATISFIED_BY`` edges from ``feature_ids``.
+
+    Makes :func:`auto_satisfy` **idempotent** on a durable graph: a re-run (e.g.
+    with a stricter matcher) REPLACES rather than ACCUMULATES matches, so stale
+    edges from an earlier looser pass don't keep features wrongly closed. Uses the
+    bulk edge view where available; no-ops when the engine can't delete edges.
+    """
     graph = getattr(engine, "graph", None)
-    if graph is None:
-        return out
-    try:
-        node_iter = graph.nodes(data=True)
-    except TypeError:  # pragma: no cover
-        return out
-    wanted = {t.lower() for t in feature_types}  # case-insensitive (live labels)
-    for nid, data in node_iter:
-        if (
-            not isinstance(data, dict)
-            or str(data.get("type", "")).lower() not in wanted
-        ):
-            continue
-        if not is_closed(engine, nid, str(data.get("status", "open"))):
-            out.append(nid)
-    return out
+    deleter = getattr(engine, "delete_edge", None)
+    if graph is None or not callable(deleter):
+        return 0
+    pairs: list[tuple[str, str]] = []
+    edges = iter_all_edges(graph)
+    if edges is not None:
+        for src, dst, props in edges:
+            if src in feature_ids and _rel_of(props) == "SATISFIED_BY" and props.get(
+                "auto"
+            ):
+                pairs.append((src, dst))
+    else:
+        for fid in feature_ids:
+            try:
+                for _s, dst, props in graph.out_edges(fid, data=True):
+                    if (
+                        isinstance(props, dict)
+                        and _rel_of(props) == "SATISFIED_BY"
+                        and props.get("auto")
+                    ):
+                        pairs.append((fid, dst))
+            except (TypeError, AttributeError):  # pragma: no cover
+                continue
+    for src, dst in pairs:
+        try:
+            deleter(src, dst, "SATISFIED_BY")
+        except Exception:  # pragma: no cover - best-effort reconcile
+            pass
+    return len(pairs)
 
 
 __all__ = ["GapReport", "auto_satisfy", "open_features", "is_closed"]

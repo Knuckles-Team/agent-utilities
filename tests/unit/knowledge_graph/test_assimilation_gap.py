@@ -182,3 +182,69 @@ def test_auto_satisfy_matches_declared_identity_not_body():
     matched = {c[0] for c in report.candidates}
     assert "ahe-3.1-in-house-training_spec" in matched  # declared identity → built
     assert "new-paper" not in matched  # body citation only → still a gap
+
+
+class _BulkGraph(_Graph):
+    """Adds an NX-style bulk ``edges`` view so the batched path is exercised."""
+
+    def edges(self, data=False):
+        out = []
+        for lst in self._out.values():
+            for s, d, p in lst:
+                out.append((s, d, p) if data else (s, d))
+        return out
+
+
+class _BulkEngine(_Engine):
+    def __init__(self, nodes):
+        self.graph = _BulkGraph(nodes)
+        self.deleted = []
+
+    def delete_edge(self, src, dst, rel_type=None, ephemeral=False):
+        self.deleted.append((src, dst, rel_type))
+        self.graph._out[src] = [
+            e for e in self.graph._out.get(src, []) if e[1] != dst
+        ]
+        self.graph._in[dst] = [
+            e for e in self.graph._in.get(dst, []) if e[0] != src
+        ]
+
+
+def test_open_features_uses_bulk_edge_view():
+    """Batched closed-index: a SATISFIED_BY edge closes a feature via the bulk view."""
+    eng = _BulkEngine(
+        {
+            "f1": _node("capability"),
+            "f2": _node("capability"),
+            "c1": _node("concept"),
+        }
+    )
+    eng.link_nodes("f1", "c1", "SATISFIED_BY", properties={"_rel": "SATISFIED_BY"})
+    openf = open_features(eng, feature_types=("capability",))
+    assert openf == ["f2"]  # f1 closed via the bulk-scanned edge
+
+
+def test_auto_satisfy_reconciles_stale_edges():
+    """Idempotency: a stricter re-run clears the prior auto-match, not accumulates."""
+    from agent_utilities.knowledge_graph.assimilation.gap_analysis import auto_satisfy
+
+    eng = _BulkEngine(
+        {
+            "spec:foo": {
+                "type": "capability",
+                "status": "open",
+                "embedding": [0.0, 1.0, 0.0],
+                "concept_ids": ["KG-2.7"],
+            },
+            "KG-2.7": {"type": "concept", "status": "live", "concept_id": "KG-2.7"},
+            "KG-9.9": {"type": "concept", "status": "live", "concept_id": "KG-9.9"},
+        }
+    )
+    auto_satisfy(eng)  # matches spec:foo -> KG-2.7
+    assert is_closed(eng, "spec:foo")
+    # Re-point the feature's declared id, then re-run: the OLD KG-2.7 edge must go.
+    eng.graph._n["spec:foo"]["concept_ids"] = ["KG-9.9"]
+    auto_satisfy(eng)
+    assert ("spec:foo", "KG-2.7", "SATISFIED_BY") in eng.deleted  # reconciled away
+    out = {c[1] for c in auto_satisfy(eng, write=False).candidates}
+    assert out == {"KG-9.9"}  # now matches the new declared concept only
