@@ -56,6 +56,34 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
+def iter_all_edges(graph: Any) -> list[tuple[str, str, dict]] | None:
+    """All ``(src, dst, props)`` edges via the graph's BULK edge view.
+
+    The live engine exposes ``graph.edges`` as a single bulk traversal (one
+    round-trip to the Rust daemon); using it replaces the assimilation stages'
+    ``O(features)`` per-node ``out_edges``/``in_edges`` round-trips — the
+    live-backend scaling fix. Returns ``None`` when no usable bulk view exists
+    (minimal test doubles with only per-node ``out_edges``, or a view that yields
+    no edge ``data``) so callers fall back to the per-node path with identical
+    semantics.
+    """
+    view = getattr(graph, "edges", None)
+    if view is None:
+        return None
+    try:
+        seq = view(data=True) if callable(view) else view
+        out: list[tuple[str, str, dict]] = []
+        for e in seq:
+            # Require (src, dst, props-dict); without edge data we can't classify
+            # closing/excluded relationships, so bail to the per-node fallback.
+            if not isinstance(e, tuple | list) or len(e) < 3 or not isinstance(e[2], dict):
+                return None
+            out.append((e[0], e[1], e[2]))
+        return out
+    except Exception:  # pragma: no cover - defensive; any view error → fallback
+        return None
+
+
 def _collect(engine: Any, node_types: tuple[str, ...]) -> dict[str, dict[str, Any]]:
     """Map id → {vec, importance} for embedded nodes of the target types."""
     out: dict[str, dict[str, Any]] = {}

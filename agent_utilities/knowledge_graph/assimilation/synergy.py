@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ...models.knowledge_graph import RegistryEdgeType
+from .dedup import iter_all_edges
 from .gap_analysis import _FEATURE_TYPES, open_features
 
 _EXCLUDED_RELS = {"SUPERSEDES", "SATISFIED_BY"}
@@ -81,23 +82,37 @@ def _feature_nodes(engine: Any, feature_types: tuple[str, ...]) -> dict[str, dic
 
 
 def _adjacency(engine: Any, ids: set[str]) -> dict[str, set[str]]:
-    """Undirected feature-feature adjacency from non-duplicate edges."""
+    """Undirected feature-feature adjacency from non-duplicate edges.
+
+    BATCHED: one bulk edge traversal (:func:`~assimilation.dedup.iter_all_edges`)
+    instead of ``O(ids)`` per-node ``out_edges`` round-trips — the live-backend
+    scaling fix; falls back to per-node when no bulk edge view exists.
+    """
     adj: dict[str, set[str]] = {i: set() for i in ids}
     graph = getattr(engine, "graph", None)
     if graph is None:
         return adj
-    for nid in ids:
+
+    def _link(src: str, dst: str, props: Any) -> None:
+        if dst not in ids or src not in ids:
+            return
+        if isinstance(props, dict) and str(props.get("_rel", "")) in _EXCLUDED_RELS:
+            return
+        adj[src].add(dst)
+        adj[dst].add(src)
+
+    edges = iter_all_edges(graph)
+    if edges is not None:  # bulk path
+        for src, dst, props in edges:
+            _link(src, dst, props)
+        return adj
+    for nid in ids:  # per-node fallback
         try:
             out = graph.out_edges(nid, data=True)
         except (TypeError, AttributeError):  # pragma: no cover
             continue
         for _s, dst, props in out:
-            if dst not in ids:
-                continue
-            if isinstance(props, dict) and str(props.get("_rel", "")) in _EXCLUDED_RELS:
-                continue
-            adj[nid].add(dst)
-            adj[dst].add(nid)
+            _link(nid, dst, props)
     return adj
 
 
