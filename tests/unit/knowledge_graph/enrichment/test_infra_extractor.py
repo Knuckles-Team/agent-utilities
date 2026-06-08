@@ -29,8 +29,11 @@ class FakeBackend:
 SAMPLE_INVENTORY = {
     "all": {
         "hosts": {
-            "r820": {"ansible_host": "10.0.0.13", "roles": ["manager"],
-                     "groups": ["swarm"]},
+            "r820": {
+                "ansible_host": "10.0.0.13",
+                "roles": ["manager"],
+                "groups": ["swarm"],
+            },
             "rw710": {"ip": "10.0.0.14", "role": "worker", "groups": "swarm"},
         }
     }
@@ -88,14 +91,16 @@ def test_extract_from_yaml_file(tmp_path):
     batch = extract(
         {
             "inventory": str(inv),
-            "services": [{"name": "pggraph", "image": "pggraph", "replicas": 1,
-                          "node": "r820"}],
+            "services": [
+                {"name": "pggraph", "image": "pggraph", "replicas": 1, "node": "r820"}
+            ],
         }
     )
     by_id = {n.id: n for n in batch.nodes}
     assert by_id["server:r820"].props["ip"] == "10.0.0.13"
     assert any(
-        e.source == "service:pggraph" and e.target == "server:r820"
+        e.source == "service:pggraph"
+        and e.target == "server:r820"
         and e.rel_type == "RUNS_ON"
         for e in batch.edges
     )

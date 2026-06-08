@@ -86,6 +86,31 @@ class TopologicalAnalysisEngine:
 
         return persist_stable_communities(engine)
 
+    def hierarchical_retrieve(
+        self,
+        query: str,
+        *,
+        top_communities: int = 2,
+        top_entities: int = 10,
+        embedder: Any = None,
+    ) -> Any:
+        """Global→local community retrieval (CONCEPT:KG-2.5, Deep GraphRAG).
+
+        Ranks communities by query relevance, drills into the top-k, and ranks
+        entities within them with a parent-community context boost. Returns a
+        ``HierarchicalResult`` (empty when no graph/communities).
+        """
+        from .hierarchical_retrieval import (
+            HierarchicalCommunityRetriever,
+            HierarchicalResult,
+        )
+
+        if self._graph is None:
+            return HierarchicalResult(query=query)
+        return HierarchicalCommunityRetriever(self._graph, embedder=embedder).retrieve(
+            query, top_communities=top_communities, top_entities=top_entities
+        )
+
     # --- Topological Analogy (KG-2.7) ---
 
     def find_analogous_subgraphs(

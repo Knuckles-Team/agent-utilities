@@ -16,7 +16,6 @@ from agent_utilities.knowledge_graph.ingestion.engine import (
 )
 from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
 
-
 # ── DeltaManifest (SQLite mode) ────────────────────────────────────────
 
 
@@ -44,7 +43,9 @@ class TestDeltaManifest:
 
     def test_durable_across_restart(self, tmp_path):
         db = str(tmp_path / "m.db")
-        DeltaManifest(backend=None, db_path=db).record("__bus__", "codebase", "/a.py", "h9")
+        DeltaManifest(backend=None, db_path=db).record(
+            "__bus__", "codebase", "/a.py", "h9"
+        )
         # Fresh instance over the same store (simulates a process restart).
         m2 = DeltaManifest(backend=None, db_path=db)
         assert m2.seen("__bus__", "codebase", "/a.py", "h9") is True
@@ -62,7 +63,10 @@ class TestDeltaManifest:
         m.record("__bus__", "codebase_file", "/a.py", "h1")
         m.record("__bus__", "codebase_file", "/b.py", "h2")
         m.record("other", "codebase_file", "/c.py", "h3")
-        assert m.load_for_graph("__bus__", "codebase_file") == {"/a.py": "h1", "/b.py": "h2"}
+        assert m.load_for_graph("__bus__", "codebase_file") == {
+            "/a.py": "h1",
+            "/b.py": "h2",
+        }
 
 
 # ── Centralized engine-level delta skip ────────────────────────────────

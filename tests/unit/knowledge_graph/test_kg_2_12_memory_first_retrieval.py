@@ -31,7 +31,9 @@ def test_dual_thresholds_match_quarq_constants():
 
 @pytest.mark.concept(id="KG-2.12")
 def test_parse_hyde_plan_valid_json():
-    raw = '{"vector_queries": ["a", "b"], "keywords": "Foo, Bar", "search_mode": "deep"}'
+    raw = (
+        '{"vector_queries": ["a", "b"], "keywords": "Foo, Bar", "search_mode": "deep"}'
+    )
     plan = parse_hyde_plan(raw, original_query="orig")
     assert plan.vector_queries == ["a", "b"]
     assert plan.keywords == ["Foo", "Bar"]  # comma-string tolerated
@@ -89,7 +91,9 @@ class _FakeRetriever:
     )
 
     plan_and_retrieve = HybridRetriever.plan_and_retrieve
-    usage_telemetry = HybridRetriever.usage_telemetry  # KG-2.18 recall telemetry on the live path
+    usage_telemetry = (
+        HybridRetriever.usage_telemetry
+    )  # KG-2.18 recall telemetry on the live path
 
     def __init__(self, gate_passed: bool = True):
         self._report = _FakeReport(gate_passed)

@@ -80,7 +80,9 @@ def _irrelevant_centroid(cluster: int) -> np.ndarray:
 
 
 def _jitter(base: np.ndarray, scale: float, rng: np.random.Generator) -> np.ndarray:
-    return (base + rng.normal(0.0, scale, size=DIM).astype(np.float32)).astype(np.float32)
+    return (base + rng.normal(0.0, scale, size=DIM).astype(np.float32)).astype(
+        np.float32
+    )
 
 
 def build_index(*, degrade: bool = False) -> tuple[CapabilityIndex, list[dict]]:

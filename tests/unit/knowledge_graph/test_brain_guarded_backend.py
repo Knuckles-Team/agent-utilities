@@ -17,7 +17,7 @@ from agent_utilities.knowledge_graph.core.company_brain_runtime import (
     get_company_brain,
     reset_company_brain,
 )
-from agent_utilities.models.company_brain import ActorType, MergeStrategy
+from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import (
     ActorContext,
     use_actor,
@@ -75,7 +75,10 @@ def _guard():
 
 def test_provenance_attached_on_write():
     g = _guard()
-    with use_actor(ActorContext("agent:x", ActorType.AI_AGENT)), use_source("servicenow"):
+    with (
+        use_actor(ActorContext("agent:x", ActorType.AI_AGENT)),
+        use_source("servicenow"),
+    ):
         g.add_node("incident:1", type="Incident", number="INC1")
     props = g.inner.nodes["incident:1"]
     assert props["type"] == "Incident"

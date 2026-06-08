@@ -1,6 +1,8 @@
-import yaml
-import sys
 import os
+import sys
+
+import yaml
+
 
 def check_ledger():
     ledger_path = "gap_plans/_feature_ledger.yaml"
@@ -8,7 +10,7 @@ def check_ledger():
         print(f"Error: {ledger_path} does not exist.")
         sys.exit(1)
 
-    with open(ledger_path, "r", encoding="utf-8") as f:
+    with open(ledger_path, encoding="utf-8") as f:
         ledger = yaml.safe_load(f)
 
     if not ledger:
@@ -24,15 +26,19 @@ def check_ledger():
         test = entry.get("characterization_test")
 
         if status not in {"live", "migrated"}:
-            errors.append(f"Entry {entry.get('id', idx)} has unresolved status: {status}")
+            errors.append(
+                f"Entry {entry.get('id', idx)} has unresolved status: {status}"
+            )
         else:
             live_or_migrated_count += 1
 
         if target == "TODO":
             errors.append(f"Entry {entry.get('id', idx)} is missing a target symbol.")
-            
+
         if test == "TODO":
-            errors.append(f"Entry {entry.get('id', idx)} is missing a characterization test.")
+            errors.append(
+                f"Entry {entry.get('id', idx)} is missing a characterization test."
+            )
 
     print(f"Capabilities Live/Migrated: {live_or_migrated_count} / {len(ledger)}")
 
@@ -43,8 +49,9 @@ def check_ledger():
         if len(errors) > 20:
             print(f"  ... and {len(errors) - 20} more errors.")
         sys.exit(1)
-        
+
     print("No-Capability-Lost Gate PASSED.")
+
 
 if __name__ == "__main__":
     check_ledger()

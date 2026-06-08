@@ -43,8 +43,16 @@ def _self_test() -> int:
     # A tiny embedded fixture proves the gate logic end-to-end without external data.
     rows = [
         {"answer": "Paris", "gold_answer": "Paris", "question_type": "single-session"},
-        {"answer": "it cost $40", "gold_answer": "40", "question_type": "knowledge-update"},
-        {"answer": "I don't know", "gold_answer": "Tokyo", "question_type": "multi-session"},
+        {
+            "answer": "it cost $40",
+            "gold_answer": "40",
+            "question_type": "knowledge-update",
+        },
+        {
+            "answer": "I don't know",
+            "gold_answer": "Tokyo",
+            "question_type": "multi-session",
+        },
     ]
     report = aggregate_report(_score_rows(rows))
     assert report["total"] == 3, report
@@ -57,9 +65,15 @@ def _self_test() -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="LongMemEval-S CI floor gate (AHE-3.12)")
-    ap.add_argument("--results", help="Path to a results JSON (list of per-question rows)")
-    ap.add_argument("--floor", type=float, default=0.95, help="Minimum accuracy (default 0.95)")
-    ap.add_argument("--self-test", action="store_true", help="Validate the gate logic only")
+    ap.add_argument(
+        "--results", help="Path to a results JSON (list of per-question rows)"
+    )
+    ap.add_argument(
+        "--floor", type=float, default=0.95, help="Minimum accuracy (default 0.95)"
+    )
+    ap.add_argument(
+        "--self-test", action="store_true", help="Validate the gate logic only"
+    )
     args = ap.parse_args()
 
     if args.self_test or not args.results:

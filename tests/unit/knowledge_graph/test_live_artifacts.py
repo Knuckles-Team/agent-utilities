@@ -106,6 +106,7 @@ def test_failed_refresh_preserves_prior():
     svc = RefreshService(store)
     # good refresh first
     svc.refresh(art.artifact_id, lambda a: {"count": 7})
+
     # then a refresh whose source raises → prior (7) must be preserved
     def boom(_a):
         raise RuntimeError("source unavailable")
@@ -154,7 +155,12 @@ def test_artifact_routes_end_to_end():
 
     created = client.post(
         "/api/artifacts",
-        json={"name": "r", "template": "n={{data.n}}", "data": {"n": 1}, "model": "adapter:ollama"},
+        json={
+            "name": "r",
+            "template": "n={{data.n}}",
+            "data": {"n": 1},
+            "model": "adapter:ollama",
+        },
     )
     assert created.status_code == 200
     aid = created.json()["artifact_id"]
@@ -167,9 +173,14 @@ def test_artifact_routes_end_to_end():
     assert refreshed.json()["rendered"] == "n=99"
 
     # forced-fail refresh (bounded violation) preserves prior render
-    bad = client.post(f"/api/artifacts/{aid}/refresh", json={"data": {"items": list(range(MAX_ITEMS + 1))}})
+    bad = client.post(
+        f"/api/artifacts/{aid}/refresh",
+        json={"data": {"items": list(range(MAX_ITEMS + 1))}},
+    )
     assert bad.json()["ok"] is False
     got = client.get(f"/api/artifacts/{aid}")
     assert got.json()["data"]["n"] == 99  # prior preserved
 
-    assert client.post("/api/artifacts/nope/refresh", json={"data": {}}).status_code == 404
+    assert (
+        client.post("/api/artifacts/nope/refresh", json={"data": {}}).status_code == 404
+    )

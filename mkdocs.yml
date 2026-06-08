@@ -61,6 +61,10 @@ nav:
       - C4 Architecture: pillars/architecture_c4.md
       - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
       - Company Brain Runtime: architecture/company_brain_runtime.md
+      - Global Workspace Attention: architecture/global_workspace_attention.md
+      - Multi-Agent Social System: architecture/multi_agent_social_system.md
+      - In-House Training Substrate: architecture/in_house_training_substrate.md
+      - Graph-Native Assimilation Engine: architecture/assimilation_engine.md
   - Concept Registry:
       - Canonical Concept Map: concept_map.md
       - Concept Overview: overview.md

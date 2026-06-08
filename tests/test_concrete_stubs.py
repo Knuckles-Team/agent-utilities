@@ -1,24 +1,42 @@
-import os
-import json
-import pytest
 import asyncio
-from unittest.mock import MagicMock
+import json
+import os
 from typing import Any
-from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
-from agent_utilities.security.zero_day_immunity import ZeroDayImmunity
-from agent_utilities.knowledge_graph.core.ontological_team_sharing import OntologicalTeamExporter
+from unittest.mock import MagicMock
+
+import pytest
+
+from agent_utilities.domains.finance.exchange_bridge import (
+    BinanceExchange,
+    ExchangeBridge,
+)
 from agent_utilities.harness.trace_backend import OTelTraceBackend
+from agent_utilities.knowledge_graph.core.ontological_team_sharing import (
+    OntologicalTeamExporter,
+)
+from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
 from agent_utilities.messaging.backends.imessage import IMessageBackend
-from agent_utilities.messaging.models import MessagingConfig
-from agent_utilities.domains.finance.exchange_bridge import BinanceExchange, ExchangeBridge
+from agent_utilities.security.zero_day_immunity import ZeroDayImmunity
+
 
 class DummyEngine(QueryMixin):
-    def _serialize_node(self, *args, **kwargs): return None
-    def _upsert_node(self, *args, **kwargs): return None
-    def _get_set_clause(self, *args, **kwargs): return None
-    def _get_allowed_columns(self, *args, **kwargs): return None
-    def link_nodes(self, *args, **kwargs): return None
-    def add_node(self, *args, **kwargs): return None
+    def _serialize_node(self, *args, **kwargs):
+        return None
+
+    def _upsert_node(self, *args, **kwargs):
+        return None
+
+    def _get_set_clause(self, *args, **kwargs):
+        return None
+
+    def _get_allowed_columns(self, *args, **kwargs):
+        return None
+
+    def link_nodes(self, *args, **kwargs):
+        return None
+
+    def add_node(self, *args, **kwargs):
+        return None
 
     def __init__(self):
         self.backend: Any = None
@@ -26,18 +44,20 @@ class DummyEngine(QueryMixin):
         self.hybrid_retriever: Any = None
         self.inference_engine: Any = None
 
+
 # 1. Test MAGMA Place View
 def test_magma_place_view():
     backend = MagicMock()
     # Mock return values for backend.execute
     backend.execute.return_value = [
-        {"e": {"id": "entity_1", "type": "Entity"}, "p": {"id": "place_1", "type": "Place"}}
+        {
+            "e": {"id": "entity_1", "type": "Entity"},
+            "p": {"id": "place_1", "type": "Place"},
+        }
     ]
 
     query_engine = DummyEngine()
     query_engine.backend = backend
-
-
 
     # Test retrieve_place_view with place_ids
     res = query_engine.retrieve_place_view(query="test", place_ids=["place_1"])
@@ -48,9 +68,7 @@ def test_magma_place_view():
 
     # Reset mock and test with phase_ids
     backend.execute.reset_mock()
-    backend.execute.return_value = [
-        {"e": {"id": "entity_2"}, "p": {"id": "phase_1"}}
-    ]
+    backend.execute.return_value = [{"e": {"id": "entity_2"}, "p": {"id": "phase_1"}}]
     res2 = query_engine.retrieve_place_view(query="test", phase_ids=["phase_1"])
     assert len(res2) == 1
     assert res2[0]["id"] == "entity_2"
@@ -58,9 +76,7 @@ def test_magma_place_view():
 
     # Reset mock and test general query search
     backend.execute.reset_mock()
-    backend.execute.return_value = [
-        {"e": {"id": "entity_3"}, "p": {"id": "place_3"}}
-    ]
+    backend.execute.return_value = [{"e": {"id": "entity_3"}, "p": {"id": "place_3"}}]
     res3 = query_engine.retrieve_place_view(query="test_q")
     assert len(res3) == 1
     assert res3[0]["id"] == "entity_3"
@@ -139,7 +155,7 @@ async def test_otel_trace_ingestion(tmp_path):
         "status": "success",
         "duration_ms": 150,
         "usageDetails": {"input": 40, "output": 20},
-        "score": 0.88
+        "score": 0.88,
     }
 
     export_dir = str(tmp_path)
@@ -183,7 +199,7 @@ async def test_imessage_inbound_polling():
         # but keeps generator alive.
         await asyncio.wait_for(gen.__anext__(), timeout=0.5)
         pytest.fail("Should have timed out on fallback empty yield")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         # Success: did not crash with NotImplementedError!
         pass
     except StopAsyncIteration:
@@ -195,7 +211,9 @@ def test_binance_exchange_mock():
     exchange = BinanceExchange()
 
     # Submit a market buy order
-    res = exchange.submit_order(symbol="BTC/USDT", side="buy", qty=0.5, order_type="market")
+    res = exchange.submit_order(
+        symbol="BTC/USDT", side="buy", qty=0.5, order_type="market"
+    )
 
     assert "binance-mock" in res.order_id
     assert res.status == "filled"

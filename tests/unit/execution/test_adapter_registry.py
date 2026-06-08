@@ -61,7 +61,9 @@ def test_detect_present_bin_is_available():
     reg = AdapterRegistry(load_builtins=False)
     # ``true`` (or python) is guaranteed present on the test host.
     bin_name = "true" if shutil.which("true") else sys.executable
-    reg.register(AdapterDefinition(id="present", bin=bin_name, version_args=("--version",)))
+    reg.register(
+        AdapterDefinition(id="present", bin=bin_name, version_args=("--version",))
+    )
     detected = reg.detect(force=True)
     assert detected["present"].available is True
     assert detected["present"].path
@@ -109,7 +111,9 @@ def test_jsonl_handler_normalizes_types():
 
 def test_both_formats_share_one_event_schema():
     plain = list(get_stream_handler(StreamFormat.PLAIN)(["a\n"]))
-    jsonl = list(get_stream_handler(StreamFormat.JSONL)(['{"type":"text","text":"a"}\n']))
+    jsonl = list(
+        get_stream_handler(StreamFormat.JSONL)(['{"type":"text","text":"a"}\n'])
+    )
     for ev in plain + jsonl:
         assert isinstance(ev.type, ExecEventType)
 

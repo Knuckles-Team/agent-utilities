@@ -61,7 +61,9 @@ def test_concepts_yaml_total_matches_readme_block():
     count_match = re.search(
         r"\*\*(\d+) canonical concepts\*\* across \*\*(\d+) pillars\*\*", block
     )
-    assert count_match, f"Could not find the count line in the generated block:\n{block}"
+    assert count_match, (
+        f"Could not find the count line in the generated block:\n{block}"
+    )
     assert int(count_match.group(1)) == total, (
         f"README concept count {count_match.group(1)} != concepts.yaml total {total}"
     )

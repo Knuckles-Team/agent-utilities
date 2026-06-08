@@ -21,6 +21,7 @@ def _run(script: str, arg: str) -> int:
 
 # ---- sprawl gate -------------------------------------------------------------
 
+
 def test_sprawl_gate_trips_on_versioned_clone(tmp_path):
     (tmp_path / "router_v2.py").write_text("x = 1\n")
     assert _run("check_sprawl.py", str(tmp_path)) == 1
@@ -43,6 +44,7 @@ def test_sprawl_gate_passes_clean(tmp_path):
 
 # ---- no_stub gate (check_no_stub.py) ----------------------------------------
 
+
 def test_no_stub_gate_trips_on_mock(tmp_path):
     (tmp_path / "m.py").write_text('def f():\n    return "[Mock] nope"\n')
     assert _run("check_no_stub.py", str(tmp_path)) == 1
@@ -54,7 +56,9 @@ def test_no_stub_gate_trips_on_notimplemented(tmp_path):
 
 
 def test_no_stub_gate_allows_abstract_ok(tmp_path):
-    (tmp_path / "m.py").write_text("def f():\n    raise NotImplementedError  # ABSTRACT-OK\n")
+    (tmp_path / "m.py").write_text(
+        "def f():\n    raise NotImplementedError  # ABSTRACT-OK\n"
+    )
     assert _run("check_no_stub.py", str(tmp_path)) == 0
 
 

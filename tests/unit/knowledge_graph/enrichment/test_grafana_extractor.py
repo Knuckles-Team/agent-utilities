@@ -74,9 +74,7 @@ def test_extract_produces_nodes_and_edges():
     assert "panel:dash1:1" in by_id
     assert "panel:dash1:2" in by_id
     assert by_id["panel:dash1:1"].type == "Panel"
-    assert by_id["panel:dash1:1"].props["targets"] == [
-        {"expr": "rate(cpu[5m])"}
-    ]
+    assert by_id["panel:dash1:1"].props["targets"] == [{"expr": "rate(cpu[5m])"}]
 
     # Alert + DataSource
     assert by_id["alert:alertA"].type == "Alert"

@@ -413,18 +413,56 @@ class RewardDecomposer:
                     if is_success:
                         incorrect_in_successes += 1
 
+        # Training-spine signals (CONCEPT:AHE-3.1): group-normalized advantage
+        # spread + localized failure points — surfaced here so they ride the live
+        # distillation-insights path consumed by the EvaluationEngine.
+        advantages = self.batch_advantages()
+        advantage_spread = (
+            round(max(advantages) - min(advantages), 4) if advantages else 0.0
+        )
+        fp_indices = [fp for fp in self.failure_points() if fp is not None]
+        mean_failure_point = (
+            round(sum(fp_indices) / len(fp_indices), 2) if fp_indices else None
+        )
+
         return {
             "correct_in_failures": correct_in_failures,
             "incorrect_in_successes": incorrect_in_successes,
             "overall_step_accuracy": round(total_correct / max(total_steps, 1), 3),
             "records_analyzed": len(self._records),
             "total_steps_analyzed": total_steps,
+            "advantage_spread": advantage_spread,
+            "localized_failures": len(fp_indices),
+            "mean_failure_point": mean_failure_point,
             "insight": (
                 f"{correct_in_failures} correct steps would be wrongly penalized "
                 f"without decomposition. {incorrect_in_successes} incorrect steps "
                 f"in successful trajectories indicate fragile success patterns."
             ),
         }
+
+    def batch_advantages(self) -> list[float]:
+        """Group-normalized advantage over accumulated trajectories (CONCEPT:AHE-3.1).
+
+        Turns the per-trajectory ``total_reward``s into GRPO-style advantages —
+        the reward signal the Wave-C policy trainers consume.
+        """
+        from .training_signals import batch_normalized_advantage
+
+        return batch_normalized_advantage([r.total_reward for r in self._records])
+
+    def failure_points(self) -> list[int | None]:
+        """First-divergence step index per accumulated record (CONCEPT:AHE-3.1).
+
+        ``None`` when a trajectory has no INCORRECT step. Anchors error-attributed
+        preference-pair construction for DPO-style training.
+        """
+        from .training_signals import failure_point
+
+        return [
+            failure_point([s.outcome == StepOutcome.INCORRECT for s in r.step_rewards])
+            for r in self._records
+        ]
 
     def clear(self) -> None:
         """Clear accumulated reward records."""

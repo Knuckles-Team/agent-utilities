@@ -101,9 +101,7 @@ def test_read_with_params(sqlite_db):
 
 def test_write_inserts_rows(sqlite_db):
     conn = UniversalConnector(sqlite_db)
-    affected = conn.write(
-        "INSERT INTO authors(id, name) VALUES (?, ?)", (2, "Grace")
-    )
+    affected = conn.write("INSERT INTO authors(id, name) VALUES (?, ?)", (2, "Grace"))
     assert affected == 1
     rows = conn.read("SELECT name FROM authors WHERE id = 2")
     assert rows[0]["name"] == "Grace"
@@ -111,9 +109,7 @@ def test_write_inserts_rows(sqlite_db):
 
 def test_update_mutates_rows(sqlite_db):
     conn = UniversalConnector(sqlite_db)
-    affected = conn.update(
-        "UPDATE authors SET name = ? WHERE id = ?", ("Ada L.", 1)
-    )
+    affected = conn.update("UPDATE authors SET name = ? WHERE id = ?", ("Ada L.", 1))
     assert affected == 1
     rows = conn.read("SELECT name FROM authors WHERE id = 1")
     assert rows[0]["name"] == "Ada L."
@@ -150,9 +146,7 @@ def test_introspect_emits_kg_schema(sqlite_db):
     assert "Table" in types
     assert "Column" in types
 
-    table_names = {
-        n.props["name"] for n in batch.nodes if n.type == "Table"
-    }
+    table_names = {n.props["name"] for n in batch.nodes if n.type == "Table"}
     assert {"authors", "books"} <= table_names
 
     rel_types = {e.rel_type for e in batch.edges}
@@ -163,8 +157,7 @@ def test_introspect_emits_kg_schema(sqlite_db):
     # FK edge: books.author_id -> authors.id
     fk_edges = [e for e in batch.edges if e.rel_type == "FOREIGN_KEY"]
     assert any(
-        "books:author_id" in e.source and "authors:id" in e.target
-        for e in fk_edges
+        "books:author_id" in e.source and "authors:id" in e.target for e in fk_edges
     )
 
 

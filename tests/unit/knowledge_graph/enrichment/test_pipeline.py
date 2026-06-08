@@ -21,19 +21,48 @@ class FakeBackend:
 
 def _parse_fn_factory():
     """Return a parse_fn that emits a mock-heavy test + covered app fn per file."""
+
     def parse_fn(file_path, source):
         if file_path.endswith("app.py"):
-            return {"nodes": [{
-                "node_id": "symbol:compute", "node_type": "SYMBOL",
-                "properties": {"symbol_type": "Function", "name": "compute",
-                               "line": "1", "ast_hash": "a", "file_path": file_path,
-                               "is_test": "false"}}]}
-        return {"nodes": [{
-            "node_id": "symbol:test_x", "node_type": "SYMBOL",
-            "properties": {"symbol_type": "Function", "name": "test_x", "line": "1",
-                           "ast_hash": "t", "file_path": file_path, "is_test": "true",
-                           "assert_count": "0", "mock_count": "4", "fixture_count": "1",
-                           "marks": "", "is_skipped": "false", "calls": "compute"}}]}
+            return {
+                "nodes": [
+                    {
+                        "node_id": "symbol:compute",
+                        "node_type": "SYMBOL",
+                        "properties": {
+                            "symbol_type": "Function",
+                            "name": "compute",
+                            "line": "1",
+                            "ast_hash": "a",
+                            "file_path": file_path,
+                            "is_test": "false",
+                        },
+                    }
+                ]
+            }
+        return {
+            "nodes": [
+                {
+                    "node_id": "symbol:test_x",
+                    "node_type": "SYMBOL",
+                    "properties": {
+                        "symbol_type": "Function",
+                        "name": "test_x",
+                        "line": "1",
+                        "ast_hash": "t",
+                        "file_path": file_path,
+                        "is_test": "true",
+                        "assert_count": "0",
+                        "mock_count": "4",
+                        "fixture_count": "1",
+                        "marks": "",
+                        "is_skipped": "false",
+                        "calls": "compute",
+                    },
+                }
+            ]
+        }
+
     return parse_fn
 
 
@@ -65,24 +94,64 @@ def test_pipeline_enriches_patterns_features_and_cards(tmp_path):
 
     def parse_fn(file_path, source):
         # Two app functions calling each other + an ABC class → patterns/features.
-        return {"nodes": [
-            {"node_id": "s1", "node_type": "SYMBOL", "properties": {
-                "symbol_type": "Function", "name": "orchestrate", "line": "1",
-                "ast_hash": "a1", "file_path": file_path, "is_test": "false",
-                "calls": "plan,execute"}},
-            {"node_id": "s2", "node_type": "SYMBOL", "properties": {
-                "symbol_type": "Function", "name": "plan", "line": "5",
-                "ast_hash": "a2", "file_path": file_path, "is_test": "false",
-                "calls": "execute"}},
-            {"node_id": "s3", "node_type": "SYMBOL", "properties": {
-                "symbol_type": "Function", "name": "execute", "line": "9",
-                "ast_hash": "a3", "file_path": file_path, "is_test": "false",
-                "calls": ""}},
-            {"node_id": "s4", "node_type": "SYMBOL", "properties": {
-                "symbol_type": "Class", "name": "BaseStrategy", "line": "13",
-                "ast_hash": "a4", "file_path": file_path, "is_abstract": "true",
-                "bases": "ABC", "methods": "run", "decorators": ""}},
-        ]}
+        return {
+            "nodes": [
+                {
+                    "node_id": "s1",
+                    "node_type": "SYMBOL",
+                    "properties": {
+                        "symbol_type": "Function",
+                        "name": "orchestrate",
+                        "line": "1",
+                        "ast_hash": "a1",
+                        "file_path": file_path,
+                        "is_test": "false",
+                        "calls": "plan,execute",
+                    },
+                },
+                {
+                    "node_id": "s2",
+                    "node_type": "SYMBOL",
+                    "properties": {
+                        "symbol_type": "Function",
+                        "name": "plan",
+                        "line": "5",
+                        "ast_hash": "a2",
+                        "file_path": file_path,
+                        "is_test": "false",
+                        "calls": "execute",
+                    },
+                },
+                {
+                    "node_id": "s3",
+                    "node_type": "SYMBOL",
+                    "properties": {
+                        "symbol_type": "Function",
+                        "name": "execute",
+                        "line": "9",
+                        "ast_hash": "a3",
+                        "file_path": file_path,
+                        "is_test": "false",
+                        "calls": "",
+                    },
+                },
+                {
+                    "node_id": "s4",
+                    "node_type": "SYMBOL",
+                    "properties": {
+                        "symbol_type": "Class",
+                        "name": "BaseStrategy",
+                        "line": "13",
+                        "ast_hash": "a4",
+                        "file_path": file_path,
+                        "is_abstract": "true",
+                        "bases": "ABC",
+                        "methods": "run",
+                        "decorators": "",
+                    },
+                },
+            ]
+        }
 
     def fake_llm(prompt):
         return '{"summary": "does a thing", "responsibilities": ["r1"]}'
@@ -91,18 +160,25 @@ def test_pipeline_enriches_patterns_features_and_cards(tmp_path):
         return [[i for i in node_ids if i.endswith(("orchestrate", "plan", "execute"))]]
 
     pipe = EnrichmentPipeline(
-        backend, parse_fn, llm_fn=fake_llm, community_fn=fake_community,
+        backend,
+        parse_fn,
+        llm_fn=fake_llm,
+        community_fn=fake_community,
         min_feature_size=3,
     )
     summary = pipe.enrich(tmp_path)
 
     assert summary.code == 4
-    assert summary.calls_edges == 3            # orchestrate->plan, orchestrate->execute, plan->execute
-    assert summary.patterns_tagged >= 1        # BaseStrategy -> AbstractBaseClass/Strategy
+    assert (
+        summary.calls_edges == 3
+    )  # orchestrate->plan, orchestrate->execute, plan->execute
+    assert summary.patterns_tagged >= 1  # BaseStrategy -> AbstractBaseClass/Strategy
     assert summary.cards_generated == 4
     assert summary.features == 1
     # ABC class carries pattern tags + a card summary
-    abc_node = next(n for n in backend.nodes.values() if n.get("name") == "BaseStrategy")
+    abc_node = next(
+        n for n in backend.nodes.values() if n.get("name") == "BaseStrategy"
+    )
     assert "AbstractBaseClass" in abc_node["patterns"]
     assert abc_node["summary"] == "does a thing"
     # Feature node + PART_OF_FEATURE edges written
@@ -111,20 +187,49 @@ def test_pipeline_enriches_patterns_features_and_cards(tmp_path):
 
 
 def _feature_parse_fn(file_path, source):
-    return {"nodes": [
-        {"node_id": "s1", "node_type": "SYMBOL", "properties": {
-            "symbol_type": "Function", "name": "orchestrate", "line": "1",
-            "ast_hash": "a1", "file_path": file_path, "is_test": "false",
-            "calls": "plan,execute"}},
-        {"node_id": "s2", "node_type": "SYMBOL", "properties": {
-            "symbol_type": "Function", "name": "plan", "line": "5",
-            "ast_hash": "a2", "file_path": file_path, "is_test": "false",
-            "calls": "execute"}},
-        {"node_id": "s3", "node_type": "SYMBOL", "properties": {
-            "symbol_type": "Function", "name": "execute", "line": "9",
-            "ast_hash": "a3", "file_path": file_path, "is_test": "false",
-            "calls": ""}},
-    ]}
+    return {
+        "nodes": [
+            {
+                "node_id": "s1",
+                "node_type": "SYMBOL",
+                "properties": {
+                    "symbol_type": "Function",
+                    "name": "orchestrate",
+                    "line": "1",
+                    "ast_hash": "a1",
+                    "file_path": file_path,
+                    "is_test": "false",
+                    "calls": "plan,execute",
+                },
+            },
+            {
+                "node_id": "s2",
+                "node_type": "SYMBOL",
+                "properties": {
+                    "symbol_type": "Function",
+                    "name": "plan",
+                    "line": "5",
+                    "ast_hash": "a2",
+                    "file_path": file_path,
+                    "is_test": "false",
+                    "calls": "execute",
+                },
+            },
+            {
+                "node_id": "s3",
+                "node_type": "SYMBOL",
+                "properties": {
+                    "symbol_type": "Function",
+                    "name": "execute",
+                    "line": "9",
+                    "ast_hash": "a3",
+                    "file_path": file_path,
+                    "is_test": "false",
+                    "calls": "",
+                },
+            },
+        ]
+    }
 
 
 def _community_all(node_ids, edges):
@@ -168,7 +273,9 @@ def test_pipeline_matches_existing_capability_no_mint(tmp_path):
     backend = FakeBackend()
 
     # Provide an existing capability whose name overlaps the feature members.
-    caps = [{"id": "capability:ORCH", "name": "orchestrate plan execute", "summary": ""}]
+    caps = [
+        {"id": "capability:ORCH", "name": "orchestrate plan execute", "summary": ""}
+    ]
     pipe = EnrichmentPipeline(
         backend,
         _feature_parse_fn,
@@ -181,7 +288,7 @@ def test_pipeline_matches_existing_capability_no_mint(tmp_path):
 
     assert summary.capabilities_minted == 0
     assert summary.realizes_edges == 1
-    assert ("REALIZES" in {rel for _, _, rel in backend.edges})
+    assert "REALIZES" in {rel for _, _, rel in backend.edges}
     assert any(t == "capability:ORCH" for _, t, _ in backend.edges)
 
 

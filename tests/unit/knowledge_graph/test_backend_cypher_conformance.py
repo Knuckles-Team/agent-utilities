@@ -88,7 +88,11 @@ CONTRACT_QUERIES: list[tuple[str, str, dict]] = [
 KNOWN_TABLES = {"Code", "Task", "Article", "Skill", "Agent", "MCPServer", "Concept"}
 
 
-@pytest.mark.parametrize("name,cypher,params", CONTRACT_QUERIES, ids=lambda v: v if isinstance(v, str) else "")
+@pytest.mark.parametrize(
+    "name,cypher,params",
+    CONTRACT_QUERIES,
+    ids=lambda v: v if isinstance(v, str) else "",
+)
 def test_durable_transpiler_recognises_contract(name, cypher, params):
     """pggraph durable tier: no contract query may degrade to UNKNOWN."""
     if not isinstance(name, str):  # pragma: no cover - param id artifact
@@ -129,7 +133,11 @@ def _inprocess_backends():
     return backends
 
 
-@pytest.mark.parametrize("label,backend", _inprocess_backends(), ids=lambda v: v if isinstance(v, str) else "")
+@pytest.mark.parametrize(
+    "label,backend",
+    _inprocess_backends(),
+    ids=lambda v: v if isinstance(v, str) else "",
+)
 def test_inprocess_backend_honours_lifecycle_contract(label, backend):
     """Every in-process backend must honour the Task/node lifecycle semantics."""
     if not isinstance(label, str):  # pragma: no cover - param id artifact
@@ -151,7 +159,8 @@ def test_inprocess_backend_honours_lifecycle_contract(label, backend):
         {"id": "job-1", "props_status": "pending"},
     )
     backend.execute(
-        "MATCH (t:Task {id: $id}) SET t.status = $status", {"id": "job-1", "status": "running"}
+        "MATCH (t:Task {id: $id}) SET t.status = $status",
+        {"id": "job-1", "status": "running"},
     )
     st = backend.execute(
         "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": "job-1"}

@@ -17,7 +17,11 @@ from agent_utilities.security.run_token import (
     mint_token,
     validate_token,
 )
-from agent_utilities.security.sidecar_runtime import ProcessStamp, SidecarRuntime, socket_path
+from agent_utilities.security.sidecar_runtime import (
+    ProcessStamp,
+    SidecarRuntime,
+    socket_path,
+)
 
 pytestmark = pytest.mark.concept(id="ORCH-1.35")
 
@@ -91,7 +95,9 @@ def test_stamp_key_is_filesystem_safe():
 
 
 def test_token_roundtrip():
-    tok = mint_token("run1", project="p", endpoints=("/api/x",), operations=("read", "write"))
+    tok = mint_token(
+        "run1", project="p", endpoints=("/api/x",), operations=("read", "write")
+    )
     decoded = decode_token(tok)
     assert decoded.run_id == "run1"
     assert decoded.project == "p"

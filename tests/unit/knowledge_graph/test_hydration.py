@@ -77,7 +77,6 @@ def test_hydrate_gitlab(mock_engine):
         assert relationships[0]["type"] == "depends_on"  # OWL Native
 
 
-
 @patch.dict(
     os.environ,
     {"TWENTY_URL": "https://twenty.example.com", "TWENTY_TOKEN": "test-twenty-token"},

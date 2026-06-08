@@ -35,14 +35,20 @@ def test_success_rate_breaks_keyword_ties():
 
 def test_cold_skill_neutral_prior():
     picker = SkillPicker()  # default 0.5 prior, no crash on unknown skills
-    best = picker.pick("anything", [SkillCandidate(name="cold", description="cold skill")])
+    best = picker.pick(
+        "anything", [SkillCandidate(name="cold", description="cold skill")]
+    )
     assert best is not None
     assert best.name == "cold"
 
 
 def test_scenario_filter_narrows_candidates():
-    fin = SkillCandidate(name="inv", description="invoice generator", scenario="finance")
-    eng = SkillCandidate(name="dep", description="deploy service", scenario="engineering")
+    fin = SkillCandidate(
+        name="inv", description="invoice generator", scenario="finance"
+    )
+    eng = SkillCandidate(
+        name="dep", description="deploy service", scenario="engineering"
+    )
     picker = SkillPicker()
     ranked = picker.rank("make something", [fin, eng], scenario="finance")
     assert [s.candidate.name for s in ranked] == ["inv"]

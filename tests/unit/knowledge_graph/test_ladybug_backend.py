@@ -5,7 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import LadybugBackend
+from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import (
+    LadybugBackend,
+)
 
 
 @pytest.fixture
@@ -90,10 +92,16 @@ def test_ladybug_backend_self_heal_invalid_lbug(temp_db_dir):
         # Force 'not a valid lbug' error on first 3 calls, then success
         # The first 2 calls will attempt WAL cleanup, the 3rd will trigger renaming the file
         mock_db.side_effect = [
-            Exception("Unable to open database. The file is not a valid Lbug database file!"),
-            Exception("Unable to open database. The file is not a valid Lbug database file!"),
-            Exception("Unable to open database. The file is not a valid Lbug database file!"),
-            MagicMock()
+            Exception(
+                "Unable to open database. The file is not a valid Lbug database file!"
+            ),
+            Exception(
+                "Unable to open database. The file is not a valid Lbug database file!"
+            ),
+            Exception(
+                "Unable to open database. The file is not a valid Lbug database file!"
+            ),
+            MagicMock(),
         ]
 
         backend = LadybugBackend(str(db_path))

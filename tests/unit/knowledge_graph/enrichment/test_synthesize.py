@@ -34,8 +34,11 @@ def fake_capability_search(query, k):
     return [
         {"id": "tool:graph-query", "type": "Tool", "name": "graph_query"},
         {"id": "tool:embed", "type": "Tool", "name": "embed"},
-        {"id": "skill:knowledge-graph-ingest", "type": "Skill",
-         "name": "knowledge-graph-ingest"},
+        {
+            "id": "skill:knowledge-graph-ingest",
+            "type": "Skill",
+            "name": "knowledge-graph-ingest",
+        },
         {"id": "prompt:retriever", "type": "Prompt", "name": "retriever"},
     ]
 
@@ -45,16 +48,19 @@ def test_synthesize_agent_grounds_in_candidates():
     def fake_llm(prompt):
         # candidate tools/skills must be listed for grounding to be meaningful
         assert "graph_query" in prompt and "knowledge-graph-ingest" in prompt
-        return json.dumps({
-            "name": "Retriever Bot",
-            "system_prompt": "You retrieve answers from the KG.",
-            "tools": ["graph_query", "embed"],
-            "skills": ["knowledge-graph-ingest"],
-            "description": "Answers questions from the knowledge graph.",
-        })
+        return json.dumps(
+            {
+                "name": "Retriever Bot",
+                "system_prompt": "You retrieve answers from the KG.",
+                "tools": ["graph_query", "embed"],
+                "skills": ["knowledge-graph-ingest"],
+                "description": "Answers questions from the knowledge graph.",
+            }
+        )
 
-    spec = synthesize_agent("answer questions from the KG",
-                            fake_capability_search, fake_llm)
+    spec = synthesize_agent(
+        "answer questions from the KG", fake_capability_search, fake_llm
+    )
     assert isinstance(spec, AgentSpec)
     assert spec.name == "Retriever Bot"
     assert spec.goal == "answer questions from the KG"
@@ -64,8 +70,10 @@ def test_synthesize_agent_grounds_in_candidates():
 
 def test_synthesize_agent_lenient_parse_and_defaults():
     def fake_llm(prompt):
-        return ('Sure! Here is the agent:\n'
-                '{"name": "Linker", "tools": ["graph_query"]} -- done')
+        return (
+            "Sure! Here is the agent:\n"
+            '{"name": "Linker", "tools": ["graph_query"]} -- done'
+        )
 
     spec = synthesize_agent("link concepts", fake_capability_search, fake_llm)
     assert spec.name == "Linker"
@@ -77,25 +85,28 @@ def test_synthesize_agent_lenient_parse_and_defaults():
 def test_synthesize_team_builds_lead_and_members():
     def fake_llm(prompt):
         if "Decompose this goal" in prompt:
-            return json.dumps({
-                "lead": "Coordinator",
-                "members": [
-                    {"name": "Coordinator", "subgoal": "coordinate the build"},
-                    {"name": "Retriever", "subgoal": "fetch from KG"},
-                    {"name": "Linker", "subgoal": "link concepts"},
-                ],
-            })
+            return json.dumps(
+                {
+                    "lead": "Coordinator",
+                    "members": [
+                        {"name": "Coordinator", "subgoal": "coordinate the build"},
+                        {"name": "Retriever", "subgoal": "fetch from KG"},
+                        {"name": "Linker", "subgoal": "link concepts"},
+                    ],
+                }
+            )
         # per-member agent synthesis
-        return json.dumps({
-            "name": "ignored",
-            "system_prompt": "do the subgoal",
-            "tools": ["graph_query"],
-            "skills": [],
-            "description": "member",
-        })
+        return json.dumps(
+            {
+                "name": "ignored",
+                "system_prompt": "do the subgoal",
+                "tools": ["graph_query"],
+                "skills": [],
+                "description": "member",
+            }
+        )
 
-    team, members = synthesize_team("build the graph",
-                                    fake_capability_search, fake_llm)
+    team, members = synthesize_team("build the graph", fake_capability_search, fake_llm)
     assert isinstance(team, TeamSpec)
     assert team.lead == "Coordinator"
     assert team.members == ["Coordinator", "Retriever", "Linker"]
@@ -109,14 +120,17 @@ def test_synthesize_team_builds_lead_and_members():
 def test_synthesize_team_respects_max_members():
     def fake_llm(prompt):
         if "Decompose this goal" in prompt:
-            return json.dumps({
-                "lead": "L",
-                "members": [{"name": f"M{i}", "subgoal": "s"} for i in range(10)],
-            })
+            return json.dumps(
+                {
+                    "lead": "L",
+                    "members": [{"name": f"M{i}", "subgoal": "s"} for i in range(10)],
+                }
+            )
         return json.dumps({"name": "x", "tools": [], "skills": []})
 
-    team, members = synthesize_team("big goal", fake_capability_search,
-                                    fake_llm, max_members=3)
+    team, members = synthesize_team(
+        "big goal", fake_capability_search, fake_llm, max_members=3
+    )
     assert len(team.members) == 3
     assert len(members) == 3
 
@@ -124,15 +138,20 @@ def test_synthesize_team_respects_max_members():
 # ── evolve_prompts ────────────────────────────────────────────────────────────
 def test_evolve_prompts_records_lineage():
     def fake_llm(prompt):
-        return json.dumps({
-            "content": "You retrieve with grounding.",
-            "rationale": "adds grounding to reduce hallucination",
-        })
+        return json.dumps(
+            {
+                "content": "You retrieve with grounding.",
+                "rationale": "adds grounding to reduce hallucination",
+            }
+        )
 
     specs = evolve_prompts(
         [
-            {"name": "Retriever v2", "problem": "hallucinates",
-             "prior_prompt_id": "prompt:retriever-v1"},
+            {
+                "name": "Retriever v2",
+                "problem": "hallucinates",
+                "prior_prompt_id": "prompt:retriever-v1",
+            },
             {"name": "Fresh Prompt", "problem": "no prompt yet"},
         ],
         fake_llm,
@@ -148,12 +167,21 @@ def test_evolve_prompts_records_lineage():
 
 # ── persist_synthesis ─────────────────────────────────────────────────────────
 def test_persist_synthesis_writes_nodes_and_edges():
-    agent = AgentSpec(name="Retriever Bot", goal="answer from KG",
-                      tools=["graph_query"], skills=["knowledge-graph-ingest"])
-    team = TeamSpec(name="KG Squad", goal="build the graph", lead="Lead",
-                    members=["Lead", "Retriever"])
-    prompt = PromptSpec(name="Retriever v2", content="grounded",
-                        evolved_from="prompt:retriever-v1")
+    agent = AgentSpec(
+        name="Retriever Bot",
+        goal="answer from KG",
+        tools=["graph_query"],
+        skills=["knowledge-graph-ingest"],
+    )
+    team = TeamSpec(
+        name="KG Squad",
+        goal="build the graph",
+        lead="Lead",
+        members=["Lead", "Retriever"],
+    )
+    prompt = PromptSpec(
+        name="Retriever v2", content="grounded", evolved_from="prompt:retriever-v1"
+    )
 
     backend = FakeBackend()
     nodes, edges = persist_synthesis(backend, agent, team, prompt)

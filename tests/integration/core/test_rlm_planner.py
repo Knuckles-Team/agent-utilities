@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_utilities.graph.executor import GraphDeps, GraphState  # type: ignore[attr-defined]
+from agent_utilities.graph.executor import (  # type: ignore[attr-defined]
+    GraphDeps,
+    GraphState,
+)
 from agent_utilities.graph.steps import router_step
 
 
@@ -44,9 +47,7 @@ async def test_router_rlm_trigger():
         mock_config.enabled = True
         mock_config.max_context_threshold = 50000
 
-        with patch(
-            "agent_utilities.rlm.config.RLMConfig", return_value=mock_config
-        ):
+        with patch("agent_utilities.rlm.config.RLMConfig", return_value=mock_config):
             res = await router_step(ctx)
             assert res == "dispatcher"
             mock_rlm.assert_called_once()

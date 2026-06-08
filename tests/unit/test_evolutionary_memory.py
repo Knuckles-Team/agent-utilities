@@ -14,10 +14,8 @@ from agent_utilities.knowledge_graph.core.topological_partition import (
     persist_stable_communities,
 )
 from agent_utilities.knowledge_graph.memory import (
-    check_knowledge_drift,
-)
-from agent_utilities.knowledge_graph.memory import (
     apply_ewc_synthesis,
+    check_knowledge_drift,
     compute_fisher_diagonal_proxy,
 )
 

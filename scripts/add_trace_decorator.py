@@ -43,7 +43,7 @@ for filepath in python_files:
         func_name = match.group(3)
 
         # If @trace is already in the decorators, leave it
-        if "@trace" in decorators or "@trace" in content:
+        if "@trace" in decorators or "@trace" in content:  # noqa: B023
             # We'll just be safe and assume if @trace is before it, we don't double inject
             pass
 

@@ -3,10 +3,13 @@ from __future__ import annotations
 
 """Tests for CONCEPT:ORCH-1.2 — Global Workspace Attention."""
 
+import pytest
 
 from agent_utilities.graph.workspace_attention import (
     Proposal,
     WorkspaceAttention,
+    reset_workspace_attention_telemetry,
+    workspace_attention_telemetry,
 )
 
 
@@ -23,6 +26,36 @@ class FakeEngine:  # type: ignore
 
     def _upsert_node(self, label, node_id, props):
         self.last_upserted = (label, node_id, props)
+
+
+class _LocalGraph:
+    """A truly in-process graph (unlike the rust daemon, which shares state)."""
+
+    def __init__(self):
+        self._n: dict = {}
+
+    def add_node(self, node_id, **attrs):
+        self._n[node_id] = attrs
+
+    def add_edge(self, src, dst, **attrs):  # links are irrelevant to the read path
+        pass
+
+    def nodes(self, data=False):
+        return list(self._n.items()) if data else list(self._n)
+
+    def __contains__(self, key):
+        return key in self._n
+
+
+class LocalEngine:
+    """Isolated engine instance — no shared backend, for mismatch testing."""
+
+    def __init__(self):
+        self.graph = _LocalGraph()
+        self.backend = None
+
+    def _upsert_node(self, *a, **k):  # pragma: no cover
+        pass
 
 
 class TestProposalCollection:
@@ -111,6 +144,137 @@ class TestKGBroadcast:
         assert len(node_ids) == 1
         # Check node was added to NetworkX
         assert node_ids[0] in engine.graph
+
+    def test_broadcast_uses_engine_from_constructor(self):
+        engine = FakeEngine()  # type: ignore
+        gwt = WorkspaceAttention(engine)  # engine via constructor, not arg
+        assert gwt.engine is engine
+        winners = [
+            Proposal(specialist_id="spec:a", output="x", composite_score=0.5),
+        ]
+        node_ids = gwt.broadcast_to_kg(winners)  # no engine arg → uses self.engine
+        assert len(node_ids) == 1
+
+    def test_broadcast_without_engine_is_noop(self):
+        gwt = WorkspaceAttention()  # no engine anywhere
+        node_ids = gwt.broadcast_to_kg(
+            [Proposal(specialist_id="s", output="o", composite_score=0.4)]
+        )
+        assert node_ids == []
+
+
+class TestAttentionScoreReadback:
+    """The GWT loop: broadcast (write) → get_attention_score (read)."""
+
+    def test_get_attention_score_reads_back_broadcast(self):
+        engine = FakeEngine()  # type: ignore
+        gwt = WorkspaceAttention(engine)
+        winners = gwt.select_and_broadcast(
+            {
+                "spec:gitlab": "Here are 5 gitlab projects with details",
+                "spec:weather": "It is sunny today, unrelated",
+            },
+            query="list gitlab projects",
+        )
+        assert winners  # at least one winner broadcast
+        top = winners[0]
+        score = gwt.get_attention_score(top.specialist_id)
+        assert score is not None
+        assert score == pytest.approx(top.composite_score)
+
+    def test_get_attention_score_none_without_history(self):
+        engine = FakeEngine()  # type: ignore
+        gwt = WorkspaceAttention(engine)
+        assert gwt.get_attention_score("spec:never-seen") is None
+
+    def test_get_attention_score_none_without_engine(self):
+        gwt = WorkspaceAttention()
+        assert gwt.get_attention_score("spec:x") is None
+
+    def test_select_and_broadcast_empty_outputs(self):
+        engine = FakeEngine()  # type: ignore
+        gwt = WorkspaceAttention(engine)
+        assert gwt.select_and_broadcast({}, query="q") == []
+
+
+class TestExecutorWiringRegression:
+    """Locks the latent bug: executor imported a non-existent module and called a
+    method that did not exist (both silently swallowed)."""
+
+    def test_executor_imports_the_real_module(self):
+        import inspect
+
+        import agent_utilities.graph.executor as ex
+
+        src = inspect.getsource(ex)
+        # The dead import path must be gone…
+        assert "knowledge_graph.workspace_attention" not in src
+        # …replaced by the real sibling module.
+        assert "from .workspace_attention import WorkspaceAttention" in src
+
+    def test_get_attention_score_exists_on_class(self):
+        # The method the executor calls must actually exist now.
+        assert callable(getattr(WorkspaceAttention, "get_attention_score", None))
+
+
+class TestGwtTelemetry:
+    """Surface the write-but-never-read (engine-mismatch) failure mode."""
+
+    def setup_method(self):
+        reset_workspace_attention_telemetry()
+
+    def teardown_method(self):
+        reset_workspace_attention_telemetry()
+
+    def test_healthy_loop_has_hits_and_no_mismatch(self):
+        engine = LocalEngine()
+        wa = WorkspaceAttention(engine)
+        winners = wa.select_and_broadcast(
+            {
+                "spec:gitlab": "Here are 5 gitlab projects with details",
+                "spec:weather": "sunny and unrelated",
+            },
+            query="list gitlab projects",
+        )
+        # Same engine for read → hits, no mismatch.
+        assert wa.get_attention_score(winners[0].specialist_id) is not None
+        t = workspace_attention_telemetry()
+        assert t["broadcasts_written"] >= 1
+        assert t["attention_hits"] >= 1
+        assert t["suspected_engine_mismatch"] is False
+
+    def test_engine_mismatch_is_detected(self):
+        WorkspaceAttention(LocalEngine()).select_and_broadcast(
+            {
+                "spec:a": "relevant detailed answer about projects",
+                "spec:b": "another relevant answer about tasks",
+            },
+            query="projects and tasks",
+        )
+        reader = WorkspaceAttention(LocalEngine())  # isolated, different engine
+        # Reads against the wrong engine never resolve a broadcast.
+        for _ in range(4):
+            assert reader.get_attention_score("spec:a") is None
+        t = workspace_attention_telemetry()
+        assert t["broadcasts_written"] >= 1
+        assert t["attention_hits"] == 0
+        assert t["suspected_engine_mismatch"] is True
+
+    def test_strict_mode_raises_on_mismatch(self, monkeypatch):
+        import agent_utilities.graph.workspace_attention as wa_mod
+
+        monkeypatch.setattr(wa_mod, "_STRICT", True)
+        WorkspaceAttention(LocalEngine()).select_and_broadcast(
+            {
+                "spec:a": "relevant detailed answer about projects",
+                "spec:b": "another relevant answer about tasks",
+            },
+            query="projects",
+        )
+        reader = WorkspaceAttention(LocalEngine())  # wrong engine
+        with pytest.raises(AssertionError):
+            for _ in range(4):
+                reader.get_attention_score("spec:a")
 
 
 class TestConfidenceExtraction:

@@ -69,6 +69,7 @@ class RLMEnvironment:
         self.config = config or RLMConfig()
         self.depth = depth
         self.max_depth = self.config.max_depth
+        self.max_turns = self.config.max_turns
         self.graph_deps = graph_deps
         self.signature = signature
         self.inputs_keys = inputs_keys or []
@@ -600,7 +601,7 @@ class RLMEnvironment:
         )
 
         history: list[Any] = []
-        max_turns = 5
+        max_turns = self.max_turns
 
         # CONCEPT:ORCH-1.29 — populate a structured RunTrace as the live loop runs, so the GEPA
         # proposer gets classified per-iteration feedback (not just the free-text ReasoningTraceNode).

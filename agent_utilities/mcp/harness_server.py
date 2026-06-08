@@ -352,6 +352,130 @@ def _build_server():
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    @mcp.tool()
+    def eval_reliability(
+        output_text: str,
+        input_text: str = "",
+        context_json: str = "",
+    ) -> str:
+        """Run the reliability / guardrail evaluation suite (AHE-3.1).
+
+        Scores an agent output with the bundled reliability scorers
+        (faithfulness, safety, topic coverage, tool-necessity, deception,
+        citation quality, Brier skill, retrieval recall, and content-injection).
+        Supply scorer inputs (evidence, gold topics, retrieved ids, etc.) via
+        ``context_json`` — a JSON object merged into every scorer's context.
+
+        Args:
+            output_text: The agent output to evaluate.
+            input_text: Optional originating prompt/question.
+            context_json: Optional JSON object of scorer context (evidence,
+                gold, gold_topics, cited_ids, gold_evidence, outcome,
+                forecast_prob, retrieved_ids, gold_ids, content, ...).
+
+        Returns:
+            JSON-serialised :class:`AggregatedEvalResult`.
+        """
+        try:
+            from agent_utilities.harness.reliability_scorers import (
+                build_reliability_suite,
+            )
+
+            context = json.loads(context_json) if context_json.strip() else {}
+            if not isinstance(context, dict):
+                return json.dumps({"error": "context_json must be a JSON object"})
+            suite = build_reliability_suite()
+            aggregated = suite.evaluate(input_text, output_text, context)
+            return aggregated.model_dump_json()
+        except json.JSONDecodeError as e:
+            return json.dumps({"error": f"invalid context_json: {e}"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
+    def red_team_catalog() -> str:
+        """List the agentic red-team attack probe catalog (AHE-3.1).
+
+        Returns the static catalog of adversarial probes (prompt injection,
+        jailbreak, role override, data exfiltration, sandbagging) with their
+        techniques, severities, and OWASP-LLM mappings. Run each probe's
+        ``probe_text`` against a target system, then score the response with
+        ``red_team_assess``.
+
+        Returns:
+            JSON list of attack probes.
+        """
+        try:
+            from agent_utilities.harness.red_team import ATTACK_CATALOG
+
+            return json.dumps([p.model_dump() for p in ATTACK_CATALOG])
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
+    def red_team_assess(probe_id: str, response_text: str) -> str:
+        """Score a target's response to a red-team probe (AHE-3.1).
+
+        Judges whether the response was compromised by the attack — via the
+        probe's success markers plus the safety and deception reliability
+        scorers — and returns a per-probe verdict with reasons.
+
+        Args:
+            probe_id: The probe id from ``red_team_catalog`` (e.g. ``pi-001``).
+            response_text: The target system's response to the probe.
+
+        Returns:
+            JSON-serialised ProbeResult, or an error if the id is unknown.
+        """
+        try:
+            from agent_utilities.harness.red_team import ATTACK_CATALOG, RedTeamRunner
+
+            probe = next((p for p in ATTACK_CATALOG if p.id == probe_id), None)
+            if probe is None:
+                return json.dumps({"error": f"unknown probe_id: {probe_id}"})
+            result = RedTeamRunner().assess(probe, response_text)
+            return result.model_dump_json()
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
+    def provenance_check(
+        answer: str,
+        sources_json: str = "",
+        tool_values_json: str = "",
+        attempt: int = 0,
+    ) -> str:
+        """Provenance-completeness pre-emit gate (AHE-3.13).
+
+        Deterministically checks that an answer's numeric and substantive claims
+        trace to supplied sources/tool values, returning accept / revise /
+        escalate with the ungrounded items.
+
+        Args:
+            answer: The answer text to gate.
+            sources_json: JSON array (or object) of valid citation source ids.
+            tool_values_json: JSON array of values numbers may trace to.
+            attempt: Revise attempts already taken (drives escalation).
+
+        Returns:
+            JSON-serialised ProvenanceVerdict.
+        """
+        try:
+            from agent_utilities.harness.provenance_gate import ProvenanceCriticGate
+
+            sources = json.loads(sources_json) if sources_json.strip() else []
+            tool_values = (
+                json.loads(tool_values_json) if tool_values_json.strip() else []
+            )
+            verdict = ProvenanceCriticGate().evaluate(
+                answer, sources=sources, tool_values=tool_values, attempt=attempt
+            )
+            return verdict.model_dump_json()
+        except json.JSONDecodeError as e:
+            return json.dumps({"error": f"invalid json arg: {e}"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
     return args, mcp, middlewares
 
 

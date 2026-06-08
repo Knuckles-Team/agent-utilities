@@ -4,7 +4,9 @@ Unit tests for RuleSynthesizerDaemon rule compilation and conflict resolution.
 """
 
 from unittest.mock import MagicMock
+
 import pytest
+
 from agent_utilities.knowledge_graph.core.rule_synthesizer import RuleSynthesizerDaemon
 
 

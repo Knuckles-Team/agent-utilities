@@ -8,13 +8,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from agent_utilities.orchestration import ParallelEngine
-
 from agent_utilities.models.execution_manifest import (
     AgentSpec,
     ExecutionManifest,
     SynthesisSpec,
 )
+from agent_utilities.orchestration import ParallelEngine
 from agent_utilities.workflows.skill_compiler import SkillCompiler
 
 # Environment settings for clean integration tests

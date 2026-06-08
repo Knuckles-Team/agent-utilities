@@ -171,16 +171,12 @@ def test_label_match_honours_type_key(backend):
     # A label filter MUST match nodes whose label lives in ``type`` — else the
     # task worker poll finds no pending Task and ingestion stalls indefinitely.
     backend.add_node("job-typed", type="Task", status="pending")
-    rows = backend.execute(
-        "MATCH (t:Task {status: 'pending'}) RETURN t.id as id"
-    )
+    rows = backend.execute("MATCH (t:Task {status: 'pending'}) RETURN t.id as id")
     assert "job-typed" in {r["id"] for r in rows}
 
 
 def test_legacy_id_lookup_still_works(backend):
     # Unrecognised/relationship queries fall back to the legacy reader, which
     # honours a bare id param lookup.
-    rows = backend.execute(
-        "MATCH (a)-[:REL]->(b) RETURN b", {"id": "job-1"}
-    )
+    rows = backend.execute("MATCH (a)-[:REL]->(b) RETURN b", {"id": "job-1"})
     assert rows and rows[0]["id"] == "job-1"

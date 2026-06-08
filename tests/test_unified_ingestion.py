@@ -308,7 +308,9 @@ class TestMCPServerIngestion:
 
     @pytest.mark.anyio
     async def test_local_mcp_config(self, engine, tmp_path):
-        config = {"mcpServers": {"my-srv": {"command": "uvx", "args": ["x"], "env": {}}}}
+        config = {
+            "mcpServers": {"my-srv": {"command": "uvx", "args": ["x"], "env": {}}}
+        }
         config_file = tmp_path / "mcp_config.json"
         config_file.write_text(json.dumps(config))
 

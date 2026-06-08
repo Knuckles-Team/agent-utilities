@@ -77,8 +77,11 @@ def test_rule_correction_persists_and_then_enforced():
     backend = FakeBackend()
     svc = FeedbackService(backend=backend)
     res = svc.record_correction(
-        "rule", "tool:bad", reason="never use in public",
-        rule_scope="source", rule_kind="forbid",
+        "rule",
+        "tool:bad",
+        reason="never use in public",
+        rule_scope="source",
+        rule_kind="forbid",
     )
     assert res.applied
     # A correction node + a source_rule node were written, linked by 'corrects'.
@@ -99,8 +102,10 @@ def test_eval_correction_adds_corpus_case():
     corpus = EvalCorpus()
     svc = FeedbackService(eval_corpus=corpus)
     res = svc.record_correction(
-        "eval", "what is our refund policy?",
-        corrected_value="30-day refund", reason="agent said 14",
+        "eval",
+        "what is our refund policy?",
+        corrected_value="30-day refund",
+        reason="agent said 14",
     )
     assert res.applied
     assert corpus.size == 1

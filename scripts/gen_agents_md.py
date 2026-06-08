@@ -69,9 +69,7 @@ def _render_tree(path: Path, prefix: str, depth: int, lines: list[str]) -> None:
         is_last = i == len(entries) - 1
         connector = "└── " if is_last else "├── "
         if entry.is_dir():
-            child_entries = [
-                c for c in _children(entry) if c.name not in EXCLUDE_DIRS
-            ]
+            child_entries = [c for c in _children(entry) if c.name not in EXCLUDE_DIRS]
             if len(child_entries) > MAX_ENTRIES:
                 lines.append(
                     f"{prefix}{connector}{entry.name}/ ({len(child_entries)} entries)"

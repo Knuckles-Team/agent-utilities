@@ -1,7 +1,7 @@
 import ast
 import json
 import os
-import sys
+
 
 def find_all_python_files(root_dir):
     files = []
@@ -11,10 +11,11 @@ def find_all_python_files(root_dir):
                 files.append(os.path.join(root, filename))
     return files
 
+
 def extract_imports(filepath):
     imports = []
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             content = f.read()
             tree = ast.parse(content)
             for node in ast.walk(tree):
@@ -28,10 +29,11 @@ def extract_imports(filepath):
         pass
     return imports
 
+
 def main():
     root_dir = "agent_utilities"
     all_files = find_all_python_files(root_dir)
-    
+
     callmap = {}
     for filepath in all_files:
         imports = extract_imports(filepath)
@@ -41,14 +43,15 @@ def main():
                 if module not in callmap:
                     callmap[module] = []
                 callmap[module].append(filepath)
-                
+
     if not os.path.exists("gap_plans"):
         os.makedirs("gap_plans")
-        
+
     with open("gap_plans/_callmap.json", "w", encoding="utf-8") as f:
         json.dump(callmap, f, indent=2)
-        
+
     print(f"Generated callmap for {len(callmap)} modules in gap_plans/_callmap.json")
+
 
 if __name__ == "__main__":
     main()

@@ -65,6 +65,46 @@ class VariantPool:
     def __init__(self, engine: IntelligenceGraphEngine) -> None:
         self.engine = engine
         self.ogm = KGMapper(engine)
+        # CONCEPT:AHE-3.2 — per-base population-drift monitors (W1 collapse detection)
+        self._drift_monitors: dict[str, Any] = {}
+
+    def population_health(
+        self,
+        base_id: str,
+        *,
+        collapse_threshold: float = 0.05,
+        patience: int = 2,
+    ) -> dict[str, Any]:
+        """Assess population diversity / collapse for a base's variants (CONCEPT:AHE-3.2).
+
+        Tracks the variant-fitness distribution across calls with a
+        :class:`PopulationDriftMonitor`: ``spread`` (within-generation dispersion),
+        ``drift`` (W1 vs the previous generation), and ``collapsed`` (spread low
+        for ``patience`` consecutive generations) — the diversity-collapse signal
+        that should arm early-stop in verifier-free evolution.
+
+        Returns:
+            ``{population, spread, drift, collapsed, low_streak}``.
+        """
+        from ..graph.population_drift import PopulationDriftMonitor
+
+        scores = [
+            float(v.get("fitness", 0.0) or 0.0) for v in self.get_variants(base_id)
+        ]
+        monitor = self._drift_monitors.get(base_id)
+        if monitor is None:
+            monitor = PopulationDriftMonitor(
+                collapse_threshold=collapse_threshold, patience=patience
+            )
+            self._drift_monitors[base_id] = monitor
+        reading = monitor.update(scores)
+        return {
+            "population": reading.population,
+            "spread": reading.spread,
+            "drift": reading.drift,
+            "collapsed": reading.collapsed,
+            "low_streak": reading.low_streak,
+        }
 
     # ── Registration ──────────────────────────────────────────────────
 
@@ -283,23 +323,31 @@ class VariantPool:
         base_id: str,
         top_k: int = 3,
         tournament_size: int = 2,
+        strategy: str = "tournament",
     ) -> list[str]:
-        """Select the fittest variants using tournament selection.
-
-        Samples ``tournament_size`` variants at a time and keeps the winner.
-        Repeats until ``top_k`` winners are collected.
+        """Select the fittest variants.
 
         Args:
             base_id: The base component node ID.
             top_k: Number of winners to select.
-            tournament_size: Number of competitors per tournament round.
+            tournament_size: Competitors per tournament round (``tournament`` strategy).
+            strategy: Selection operator (CONCEPT:ORCH-1.30). ``"tournament"``
+                (default) keeps the stochastic tournament; ``"score"`` takes the
+                top-k by mean fitness; ``"lcb"`` takes the top-k by the
+                uncertainty-aware lower bound ``fitness − κ·fitness_std`` so a
+                lucky high-variance variant doesn't out-promote a reliable one.
 
         Returns:
-            List of variant IDs (winners), sorted by fitness descending.
+            List of variant IDs (winners), best first.
         """
         variants = self.get_variants(base_id)
         if len(variants) <= top_k:
             return [v["id"] for v in variants]
+
+        if strategy in ("score", "lcb"):
+            from .selection_operators import select_top_k
+
+            return [v["id"] for v in select_top_k(variants, top_k, method=strategy)]
 
         winners: list[dict[str, Any]] = []
         pool = list(variants)

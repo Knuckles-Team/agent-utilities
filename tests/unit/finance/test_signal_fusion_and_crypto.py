@@ -14,8 +14,8 @@ from agent_utilities.domains.finance import crypto_connector as cc
 from agent_utilities.domains.finance.errors import ProviderNotConfigured
 from agent_utilities.domains.finance.signal_fusion import AlphaCombinationEngine
 
-
 # ---- signal_fusion -----------------------------------------------------------
+
 
 def test_alpha_weights_not_uniform_for_distinct_signals():
     eng = AlphaCombinationEngine()
@@ -45,6 +45,7 @@ def test_alpha_weights_reject_degenerate_input():
 
 # ---- crypto_connector --------------------------------------------------------
 
+
 def test_get_tvl_parses_defillama(monkeypatch):
     monkeypatch.setattr(cc, "_http_get_json", lambda url, timeout=10.0: 1234567.5)
     assert cc.OnChainAnalytics().get_tvl("aave") == pytest.approx(1234567.5)
@@ -61,7 +62,10 @@ def test_get_funding_rate_parses_binance(monkeypatch):
     monkeypatch.setattr(
         cc,
         "_http_get_json",
-        lambda url, timeout=10.0: {"lastFundingRate": "0.0001", "time": 1_700_000_000_000},
+        lambda url, timeout=10.0: {
+            "lastFundingRate": "0.0001",
+            "time": 1_700_000_000_000,
+        },
     )
     fr = cc.CryptoDerivatives().get_funding_rate("BTC/USDT")
     assert fr.rate == pytest.approx(0.0001)
@@ -91,7 +95,11 @@ def test_no_notimplemented_or_mock_in_finance_source():
             continue  # the errors module legitimately names the patterns it replaces
         for i, line in enumerate(py.read_text(encoding="utf-8").splitlines(), 1):
             stripped = line.lstrip()
-            if stripped.startswith("#") or stripped.startswith('"') or stripped.startswith("'"):
+            if (
+                stripped.startswith("#")
+                or stripped.startswith('"')
+                or stripped.startswith("'")
+            ):
                 continue  # skip comments / docstring lines
             if '"[Mock]' in line or "Fallback equal-weight" in line:
                 offenders.append(f"{py.name}:{i}:mock")

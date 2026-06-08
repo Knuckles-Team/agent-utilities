@@ -1048,8 +1048,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         if primary_codebase and topic_count > 0:
             try:
                 count_result = self.query_cypher(
-                    "MATCH (n) WHERE n:Document OR n:Codebase "
-                    "RETURN count(n) AS total",
+                    "MATCH (n) WHERE n:Document OR n:Codebase RETURN count(n) AS total",
                 )
                 papers_scored = count_result[0].get("total", 0) if count_result else 0
                 logger.info(
@@ -2225,11 +2224,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                 },
             )
 
-            # Create RELEVANCE_SCORED edge
+            # Create RELEVANCE_SCORED edge (CONCEPT:KG-2.7 — registered edge type)
+            from ...models.knowledge_graph import RegistryEdgeType
+
             self.link_nodes(
                 item_id,
                 target_id,
-                "RELEVANCE_SCORED",
+                RegistryEdgeType.RELEVANCE_SCORED,
                 properties={
                     "score": composite,
                     "semantic": semantic,

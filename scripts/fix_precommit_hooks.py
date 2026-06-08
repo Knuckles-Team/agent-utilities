@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os
-import sys
 import re
+import sys
 
 # Standardized block with 2 spaces of indentation for list items
 STANDARD_BLOCK = """  - id: check-mermaid
@@ -11,8 +11,9 @@ STANDARD_BLOCK = """  - id: check-mermaid
     files: \\.md$
     pass_filenames: true"""
 
+
 def fix_hook_in_file(filepath):
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+    with open(filepath, encoding="utf-8", errors="ignore") as f:
         content = f.read()
 
     if "check-mermaid" not in content:
@@ -20,13 +21,13 @@ def fix_hook_in_file(filepath):
 
     # Regex to match check-mermaid hook block with any indentation
     pattern = re.compile(
-        r'^\s*-\s*id:\s*check-mermaid\n'
-        r'^\s*name:\s*Check Mermaid syntax\n'
-        r'^\s*entry:\s*python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/mermaid_linter\.py\n'
-        r'^\s*language:\s*system\n'
-        r'^\s*files:\s*\\\.md\$\n'
-        r'^\s*pass_filenames:\s*true\n?',
-        re.MULTILINE
+        r"^\s*-\s*id:\s*check-mermaid\n"
+        r"^\s*name:\s*Check Mermaid syntax\n"
+        r"^\s*entry:\s*python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/mermaid_linter\.py\n"
+        r"^\s*language:\s*system\n"
+        r"^\s*files:\s*\\\.md\$\n"
+        r"^\s*pass_filenames:\s*true\n?",
+        re.MULTILINE,
     )
 
     new_content, count = pattern.subn(STANDARD_BLOCK + "\n", content)
@@ -36,8 +37,9 @@ def fix_hook_in_file(filepath):
             f.write(new_content)
         print(f"Successfully fixed indentation in: {filepath}")
         return True
-    
+
     return False
+
 
 def main():
     scan_dir = "/home/apps/workspace/agent-packages"
@@ -55,6 +57,7 @@ def main():
                     count += 1
 
     print(f"\nSuccessfully standardized {count} pre-commit configuration files.")
+
 
 if __name__ == "__main__":
     main()

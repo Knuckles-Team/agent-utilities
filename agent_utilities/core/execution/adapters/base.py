@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-class StreamFormat(str, enum.Enum):
+class StreamFormat(enum.StrEnum):
     """How an adapter's stdout stream is parsed into canonical events.
 
     Mirrors open-design's ``streamFormat`` discriminator; each value maps to a handler in
@@ -34,7 +34,7 @@ class StreamFormat(str, enum.Enum):
     ACP_JSON_RPC = "acp-json-rpc"
 
 
-class PromptDelivery(str, enum.Enum):
+class PromptDelivery(enum.StrEnum):
     """How the composed prompt reaches the spawned process.
 
     ``args`` bakes it into argv; ``stdin-text`` writes it to stdin and closes; ``stdin-jsonl`` writes
@@ -46,7 +46,7 @@ class PromptDelivery(str, enum.Enum):
     STDIN_JSONL = "stdin-jsonl"
 
 
-class ExecEventType(str, enum.Enum):
+class ExecEventType(enum.StrEnum):
     """Canonical event types every stream handler normalises to."""
 
     START = "start"
@@ -93,8 +93,9 @@ class AdapterDefinition:
     bin: str
     version_args: tuple[str, ...] = ("--version",)
     build_args: Callable[[str, str], list[str]] = field(
-        default=lambda model, prompt: ([] if not model else ["-m", model])
-        + ([prompt] if prompt else [])
+        default=lambda model, prompt: (
+            ([] if not model else ["-m", model]) + ([prompt] if prompt else [])
+        )
     )
     stream_format: StreamFormat = StreamFormat.PLAIN
     prompt_delivery: PromptDelivery = PromptDelivery.ARGS

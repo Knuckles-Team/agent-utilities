@@ -89,8 +89,12 @@ async def test_concept_merging():
                 {"id": "c2", "name": "Climate Change", "embedding": [0.11, 0.21, 0.31]},
             ]
         if "RETURN properties(old) AS old_props" in q:
-            return [{"old_props": {"id": "c2", "name": "Climate Change"},
-                     "new_props": {"id": "c1", "name": "Global Warming"}}]
+            return [
+                {
+                    "old_props": {"id": "c2", "name": "Climate Change"},
+                    "new_props": {"id": "c1", "name": "Global Warming"},
+                }
+            ]
         # Edge-enumeration queries, provenance, delete, init checks -> no rows.
         return []
 

@@ -25,10 +25,23 @@ class _Sig(BaseModel):
 @pytest.mark.concept(id="ORCH-1.31")
 def test_frontier_snapshot_roundtrip():
     pool = ParetoCandidatePool(objectives=["accuracy", "efficiency"])
-    pool.update([
-        Candidate(id="a", prompt_text="A", generation=1, scores={"accuracy": 0.9, "efficiency": 0.5}, parent_ids=["base"]),
-        Candidate(id="b", prompt_text="B", generation=2, scores={"accuracy": 0.5, "efficiency": 0.9}),
-    ])
+    pool.update(
+        [
+            Candidate(
+                id="a",
+                prompt_text="A",
+                generation=1,
+                scores={"accuracy": 0.9, "efficiency": 0.5},
+                parent_ids=["base"],
+            ),
+            Candidate(
+                id="b",
+                prompt_text="B",
+                generation=2,
+                scores={"accuracy": 0.5, "efficiency": 0.9},
+            ),
+        ]
+    )
     snap = pool.to_snapshot()
     assert isinstance(snap, list) and {r["id"] for r in snap} >= {"a", "b"}
 

@@ -28,8 +28,10 @@ See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.2
 
 
 import logging
+import os
 import time
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
@@ -43,6 +45,55 @@ if TYPE_CHECKING:
     from ..knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
 logger = logging.getLogger(__name__)
+
+
+# ── GWT loop telemetry ────────────────────────────────────────────────
+# The write side (``broadcast_to_kg``) and the read side (``get_attention_score``)
+# must operate on the *same* engine instance for the loop to reinforce. If they
+# ever hold different engines (e.g. per-subsystem sharding), broadcasts are written
+# but no read ever resolves one — silently. These process-wide counters surface
+# that: ``suspected_engine_mismatch`` flips True when proposals were broadcast yet
+# reads keep missing with zero hits. CONCEPT:ORCH-1.2.
+_MISMATCH_WARN_AFTER_MISSES = 3
+# Strict mode (tests/CI): raise instead of warn when a mismatch is detected.
+_STRICT = os.getenv("AGENT_UTILITIES_GWT_STRICT", "").lower() in ("1", "true", "yes")
+
+
+@dataclass
+class _GwtTelemetry:
+    broadcasts_written: int = 0
+    attention_reads: int = 0
+    attention_hits: int = 0
+    attention_misses: int = 0
+    warned_mismatch: bool = False
+
+
+_TELEMETRY = _GwtTelemetry()
+
+
+def workspace_attention_telemetry() -> dict[str, int | bool]:
+    """Process-wide GWT loop counters (CONCEPT:ORCH-1.2).
+
+    ``suspected_engine_mismatch`` is True when proposals were broadcast and reads
+    have happened but *none* resolved a proposal — the signature of the writer and
+    reader holding different engine instances.
+    """
+    t = _TELEMETRY
+    return {
+        "broadcasts_written": t.broadcasts_written,
+        "attention_reads": t.attention_reads,
+        "attention_hits": t.attention_hits,
+        "attention_misses": t.attention_misses,
+        "suspected_engine_mismatch": (
+            t.broadcasts_written > 0 and t.attention_reads > 0 and t.attention_hits == 0
+        ),
+    }
+
+
+def reset_workspace_attention_telemetry() -> None:
+    """Reset the GWT counters (intended for tests)."""
+    global _TELEMETRY
+    _TELEMETRY = _GwtTelemetry()
 
 
 class Proposal(BaseModel):
@@ -89,11 +140,15 @@ class WorkspaceAttention:
 
     def __init__(
         self,
+        engine: IntelligenceGraphEngine | None = None,
         max_broadcast_slots: int = 5,
         relevance_weight: float = 0.5,
         track_record_weight: float = 0.3,
         confidence_weight: float = 0.2,
     ) -> None:
+        # ``engine`` is the shared knowledge engine the GWT loop reads/writes
+        # proposals through; optional so the pure scoring helpers work standalone.
+        self.engine = engine
         self.max_broadcast_slots = max_broadcast_slots
         self.w_relevance = relevance_weight
         self.w_track_record = track_record_weight
@@ -119,6 +174,7 @@ class WorkspaceAttention:
         Returns:
             List of scored ``Proposal`` objects, sorted by composite score.
         """
+        engine = engine or self.engine
         proposals: list[Proposal] = []
         query_embedding: list[float] | None = None
 
@@ -202,29 +258,53 @@ class WorkspaceAttention:
                 filtered,
             )
 
+        # CONCEPT:ORCH-1.3 — named-aggregation consensus over winners' scores,
+        # via the coordination layer's aggregation registry (STRATEGY synergy #2).
+        if winners:
+            logger.debug(
+                "GWT winner consensus (mean composite) = %.3f",
+                self.consensus_score(winners),
+            )
+
         return winners
+
+    def consensus_score(
+        self, proposals: list[Proposal], operator: str = "mean"
+    ) -> float:
+        """Named-operator consensus over proposals' composite scores (CONCEPT:ORCH-1.3).
+
+        Delegates to the coordination layer's aggregation registry so winner
+        consensus, coordination aggregation, and selection share one taxonomy.
+        """
+        from .coordination import aggregate_scores
+
+        return aggregate_scores([p.composite_score for p in proposals], operator)
 
     # ── KG Broadcast ──────────────────────────────────────────────────
 
     def broadcast_to_kg(
         self,
         winners: list[Proposal],
-        engine: IntelligenceGraphEngine,
+        engine: IntelligenceGraphEngine | None = None,
         task_id: str = "",
     ) -> list[str]:
         """Persist winning proposals to the KG for global visibility.
 
         Creates ``ProposalNode`` entries and links them to their adaptive_agent_router.
-        These serve as training signal for the self-model (CONCEPT:KG-2.1).
+        These serve as training signal for the self-model (CONCEPT:KG-2.1) and are
+        read back by :meth:`get_attention_score`.
 
         Args:
             winners: The selected winning proposals.
-            engine: The engine for KG persistence.
+            engine: The engine for KG persistence (defaults to ``self.engine``).
             task_id: Optional task ID to link proposals to.
 
         Returns:
-            List of persisted proposal node IDs.
+            List of persisted proposal node IDs (empty if no engine is available).
         """
+        engine = engine or self.engine
+        if engine is None:
+            return []
         ogm = KGMapper(engine)
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         node_ids: list[str] = []
@@ -254,8 +334,105 @@ class WorkspaceAttention:
 
             node_ids.append(node_id)
 
+        _TELEMETRY.broadcasts_written += len(node_ids)
         logger.debug("GWT broadcast %d proposals to KG", len(node_ids))
         return node_ids
+
+    def select_and_broadcast(
+        self,
+        specialist_outputs: dict[str, str],
+        query: str,
+        *,
+        engine: IntelligenceGraphEngine | None = None,
+        memory_retriever: MemoryRetriever | None = None,
+        task_id: str = "",
+    ) -> list[Proposal]:
+        """Run the full global-workspace loop on a set of specialist outputs.
+
+        collect → score → select top-K winners → broadcast to the KG. This is the
+        one-call live entry point the orchestrator invokes after a multi-agent wave;
+        the broadcast it produces is what :meth:`get_attention_score` later reads
+        back as each specialist's runtime standing (CONCEPT:ORCH-1.2 / KG-2.1).
+
+        Returns the winning proposals (already persisted).
+        """
+        engine = engine or self.engine
+        proposals = self.collect_proposals(
+            specialist_outputs, query, engine=engine, memory_retriever=memory_retriever
+        )
+        if not proposals:
+            return []
+        winners = self.select_winners(proposals)
+        self.broadcast_to_kg(winners, engine, task_id=task_id)
+        return winners
+
+    def get_attention_score(
+        self, node_id: str, engine: IntelligenceGraphEngine | None = None
+    ) -> float | None:
+        """Runtime attention score for a specialist from prior broadcasts.
+
+        Reads back the ``ProposalNode``\\ s written by :meth:`broadcast_to_kg` and
+        returns the most recent **selected** proposal's composite score (∈[0, 1])
+        for ``node_id`` — i.e. that specialist's current standing in the global
+        workspace — or ``None`` when it has no broadcast history (callers then fall
+        back to a neutral prior). CONCEPT:KG-2.1.
+        """
+        engine = engine or self.engine
+        _TELEMETRY.attention_reads += 1
+        graph = getattr(engine, "graph", None)
+        best_score: float | None = None
+        if graph is not None:
+            try:
+                node_iter = graph.nodes(data=True)
+            except TypeError:  # graph.nodes is not a callable view
+                node_iter = None
+            if node_iter is not None:
+                best_ts = ""
+                for _nid, data in node_iter:
+                    if not isinstance(data, dict):
+                        continue
+                    if (
+                        data.get("specialist_id") != node_id
+                        or "composite_score" not in data
+                    ):
+                        continue
+                    if not data.get("selected", False):
+                        continue
+                    ts = str(data.get("timestamp", ""))
+                    if best_score is None or ts >= best_ts:
+                        best_ts, best_score = ts, float(data["composite_score"])
+        if best_score is None:
+            _TELEMETRY.attention_misses += 1
+            self._maybe_flag_engine_mismatch()
+        else:
+            _TELEMETRY.attention_hits += 1
+        return best_score
+
+    @staticmethod
+    def _maybe_flag_engine_mismatch() -> None:
+        """Surface the write-but-never-read failure mode (CONCEPT:ORCH-1.2).
+
+        When proposals have been broadcast but reads keep missing with zero hits, the
+        writer and reader almost certainly hold different engine instances. Warn once
+        (or raise under ``AGENT_UTILITIES_GWT_STRICT``).
+        """
+        t = _TELEMETRY
+        suspect = (
+            t.broadcasts_written > 0
+            and t.attention_hits == 0
+            and t.attention_misses >= _MISMATCH_WARN_AFTER_MISSES
+        )
+        if not suspect or t.warned_mismatch:
+            return
+        t.warned_mismatch = True
+        msg = (
+            f"WorkspaceAttention: {t.broadcasts_written} proposal(s) broadcast but "
+            f"{t.attention_misses} read(s) all missed with 0 hits — the writer and "
+            "reader likely hold different engine instances (CONCEPT:ORCH-1.2)."
+        )
+        if _STRICT:
+            raise AssertionError(msg)
+        logger.warning(msg)
 
     # ── Scoring Helpers ───────────────────────────────────────────────
 

@@ -184,7 +184,7 @@ def start_epistemic_graph_server():
         for _ in range(60):
             if process.poll() is not None:
                 log_file.flush()
-                with open(log_file.name, "r") as f:
+                with open(log_file.name) as f:
                     logs = f.read()
                 raise RuntimeError(
                     f"epistemic-graph-server crashed on startup.\nLogs:\n{logs}"

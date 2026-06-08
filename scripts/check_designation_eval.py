@@ -85,9 +85,7 @@ def _jitter(base: np.ndarray, scale: float, rng: np.random.Generator) -> np.ndar
     return (base + noise).astype(np.float32)
 
 
-def build_corpus(
-    *, degrade: bool = False
-) -> tuple[CapabilityIndex, list[dict]]:
+def build_corpus(*, degrade: bool = False) -> tuple[CapabilityIndex, list[dict]]:
     """Build the frozen corpus and the labelled query set.
 
     Returns the populated :class:`CapabilityIndex` and a list of queries, each

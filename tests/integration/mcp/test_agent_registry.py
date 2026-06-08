@@ -19,9 +19,7 @@ def test_load_specialized_prompts(tmp_path):
         return_value=mock_registry,
     ):
         # Mock file system
-        with patch(
-            "agent_utilities.core.config.Path.exists", return_value=True
-        ):
+        with patch("agent_utilities.core.config.Path.exists", return_value=True):
             with patch(
                 "agent_utilities.core.config.Path.read_text",
                 return_value=prompt_content,

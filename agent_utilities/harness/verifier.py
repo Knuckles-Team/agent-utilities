@@ -47,9 +47,12 @@ class ManifestVerifier:
         self,
         registry: HarnessComponentRegistry,
         knowledge_engine: Any = None,
+        reliability_multiple: float = 3.0,
     ) -> None:
         self.registry = registry
         self.knowledge_engine = knowledge_engine
+        # Plan b7-04 F7: fix-precision must beat random by this factor to be "reliable".
+        self.reliability_multiple = reliability_multiple
 
     async def verify(
         self,
@@ -108,6 +111,20 @@ class ManifestVerifier:
             else 0.0
         )
 
+        # Self-attribution reliability (CONCEPT:AHE-3.0, plan b7-04 F7): would random
+        # predictions of the same scope do as well? Random precision = base rate of
+        # actual fixes among all evaluated tasks; the harness is only "reliable" when
+        # its fix_precision beats that base rate by ``reliability_multiple``.
+        universe = len(new_outcomes)
+        random_baseline_precision = len(actual_fixes) / universe if universe else 0.0
+        if random_baseline_precision > 0.0:
+            attribution_lift = fix_precision / random_baseline_precision
+        else:
+            attribution_lift = 0.0
+        attribution_reliable = bool(predicted_fixes) and (
+            attribution_lift >= self.reliability_multiple
+        )
+
         # Calculate overall score delta
         overall_delta = new_evidence.benchmark_score - baseline_evidence.benchmark_score
 
@@ -129,6 +146,9 @@ class ManifestVerifier:
             false_positive_fixes=sorted(false_positive_fixes),
             overall_delta=overall_delta,
             recommendation=recommendation,
+            random_baseline_precision=random_baseline_precision,
+            attribution_lift=attribution_lift,
+            attribution_reliable=attribution_reliable,
         )
 
         # Update the manifest

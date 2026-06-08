@@ -18,7 +18,11 @@ from agent_utilities.knowledge_graph.retrieval.hyde_planner import is_trivial_qu
 def test_is_trivial_query():
     for t in ["", "ok", "thanks", "Thanks!", "ok.", "👍", "yep", "bye"]:
         assert is_trivial_query(t) is True, t
-    for t in ["what is the capital of France", "deploy the staging cluster", "fix the bug"]:
+    for t in [
+        "what is the capital of France",
+        "deploy the staging cluster",
+        "fix the bug",
+    ]:
         assert is_trivial_query(t) is False, t
 
 
@@ -75,7 +79,12 @@ def test_trivial_query_skips_retrieval_entirely():
 @pytest.mark.concept(id="KG-2.15")
 def test_lexical_fallback_fires_when_vector_empty():
     # Vector path returns nothing; backend has a lexical match.
-    rows = [{"id": "kb1", "data": {"name": "Staging deploy guide", "content": "deploy staging"}}]
+    rows = [
+        {
+            "id": "kb1",
+            "data": {"name": "Staging deploy guide", "content": "deploy staging"},
+        }
+    ]
     r = _FakeRetriever(hybrid_results=[], backend_rows=rows)
     out = r.plan_and_retrieve("how to deploy staging", mode="standard")  # type: ignore[misc]
     assert out and out[0]["id"] == "kb1"  # type: ignore[index]
@@ -85,7 +94,9 @@ def test_lexical_fallback_fires_when_vector_empty():
 
 @pytest.mark.concept(id="KG-2.15")
 def test_no_fallback_when_vector_returns_results():
-    r = _FakeRetriever(hybrid_results=[{"id": "v1", "_score": 0.8}], backend_rows=[{"id": "x"}])
+    r = _FakeRetriever(
+        hybrid_results=[{"id": "v1", "_score": 0.8}], backend_rows=[{"id": "x"}]
+    )
     out = r.plan_and_retrieve("real query here", mode="standard")  # type: ignore[misc]
     assert [n["id"] for n in out] == ["v1"]  # type: ignore[index]
     assert r.engine.backend.queries == []  # lexical fallback not invoked

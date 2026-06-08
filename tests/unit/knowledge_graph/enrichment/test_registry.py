@@ -41,13 +41,22 @@ def test_write_batch_persists_nodes_and_edges():
     batch = ExtractionBatch(
         category="infra",
         nodes=[
-            GraphNode(id="server:r820", type="Server",
-                      props={"hostname": "r820", "ip": "10.0.0.13"}),
-            GraphNode(id="service:pggraph", type="Service",
-                      props={"image": "pggraph", "replicas": 1}),
+            GraphNode(
+                id="server:r820",
+                type="Server",
+                props={"hostname": "r820", "ip": "10.0.0.13"},
+            ),
+            GraphNode(
+                id="service:pggraph",
+                type="Service",
+                props={"image": "pggraph", "replicas": 1},
+            ),
         ],
-        edges=[EnrichmentEdge(source="service:pggraph", target="server:r820",
-                              rel_type="RUNS_ON")],
+        edges=[
+            EnrichmentEdge(
+                source="service:pggraph", target="server:r820", rel_type="RUNS_ON"
+            )
+        ],
     )
     backend = FakeBackend()
     n, e = write_batch(backend, batch)

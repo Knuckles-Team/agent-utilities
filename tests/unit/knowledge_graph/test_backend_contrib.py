@@ -20,7 +20,6 @@ import pytest
 
 import agent_utilities.knowledge_graph.backends as backends
 
-
 CONTRIB_MODULE_NAMES = (
     "agent_utilities.knowledge_graph.backends.contrib.neo4j_backend",
     "agent_utilities.knowledge_graph.backends.contrib.falkordb_backend",
@@ -93,16 +92,16 @@ def test_factory_default_backend_type_is_not_contrib(monkeypatch):
 
 def test_contrib_backends_importable_via_new_path():
     """(b) Demoted backends remain importable via their new contrib path."""
-    from agent_utilities.knowledge_graph.backends.contrib.neo4j_backend import (
-        Neo4jBackend,
-    )
+    from agent_utilities.knowledge_graph.backends.base import GraphBackend
     from agent_utilities.knowledge_graph.backends.contrib.falkordb_backend import (
         FalkorDBBackend,
     )
     from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import (
         LadybugBackend,
     )
-    from agent_utilities.knowledge_graph.backends.base import GraphBackend
+    from agent_utilities.knowledge_graph.backends.contrib.neo4j_backend import (
+        Neo4jBackend,
+    )
 
     assert issubclass(Neo4jBackend, GraphBackend)
     assert issubclass(FalkorDBBackend, GraphBackend)
@@ -128,9 +127,11 @@ def test_contrib_package_lazy_attribute_access():
 def test_back_compat_shim_resolves_to_same_class(name):
     """(c) Old import path (``backends.<Name>``) resolves to the same class as
     the new ``backends.contrib.*`` path."""
-    from agent_utilities.knowledge_graph.backends.contrib import neo4j_backend
-    from agent_utilities.knowledge_graph.backends.contrib import falkordb_backend
-    from agent_utilities.knowledge_graph.backends.contrib import ladybug_backend
+    from agent_utilities.knowledge_graph.backends.contrib import (
+        falkordb_backend,
+        ladybug_backend,
+        neo4j_backend,
+    )
 
     new_path = {
         "Neo4jBackend": neo4j_backend.Neo4jBackend,
@@ -144,10 +145,10 @@ def test_back_compat_shim_resolves_to_same_class(name):
 
 def test_ladybug_available_shim():
     """LADYBUG_AVAILABLE flag is exposed via both the shim and contrib package."""
+    from agent_utilities.knowledge_graph.backends import contrib
     from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import (
         LADYBUG_AVAILABLE,
     )
-    from agent_utilities.knowledge_graph.backends import contrib
 
     assert backends.LADYBUG_AVAILABLE == LADYBUG_AVAILABLE
     assert contrib.LADYBUG_AVAILABLE == LADYBUG_AVAILABLE

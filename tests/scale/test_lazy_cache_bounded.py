@@ -4,9 +4,9 @@
 import pytest
 
 from agent_utilities.core.config import (
+    _LAZY_CACHE,
     LAZY_CACHE_MAX_SIZE,
     BoundedLRUCache,
-    _LAZY_CACHE,
 )
 
 

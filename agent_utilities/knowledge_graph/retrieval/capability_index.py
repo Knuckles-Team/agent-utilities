@@ -342,8 +342,7 @@ class CapabilityIndex:
         query = np.asarray(prompt_embedding, dtype=np.float32).reshape(-1)
         if self._dim is not None and query.size != self._dim:
             raise ValueError(
-                f"Prompt embedding dim mismatch: expected {self._dim}, "
-                f"got {query.size}"
+                f"Prompt embedding dim mismatch: expected {self._dim}, got {query.size}"
             )
         query = _l2_normalize(query)
 
@@ -363,8 +362,9 @@ class CapabilityIndex:
             ranked = self._rank(query, candidates, oversample)
             ranked = sorted(
                 ranked,
-                key=lambda t: t[1]
-                + reward_weight * (self._reward.get(t[0], 0.5) - 0.5),
+                key=lambda t: (
+                    t[1] + reward_weight * (self._reward.get(t[0], 0.5) - 0.5)
+                ),
                 reverse=True,
             )
         else:

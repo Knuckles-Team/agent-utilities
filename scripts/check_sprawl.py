@@ -30,12 +30,37 @@ MARKER_ALLOWLIST = {
     "tests/unit/graph/test_learned_strategy.py",
 }
 SKIP_DIRS = {
-    ".git", ".venv", "node_modules", "target", "__pycache__",
-    ".hypothesis", ".ruff_cache", ".mypy_cache", ".pytest_cache", "dist", "build",
+    ".git",
+    ".venv",
+    "node_modules",
+    "target",
+    "__pycache__",
+    ".hypothesis",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".pytest_cache",
+    "dist",
+    "build",
 }
 TEXT_SUFFIXES = {
-    ".py", ".rs", ".ts", ".tsx", ".js", ".jsx", ".md", ".txt", ".toml",
-    ".yaml", ".yml", ".json", ".ttl", ".cfg", ".ini", ".sh", ".html", ".css",
+    ".py",
+    ".rs",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".md",
+    ".txt",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".json",
+    ".ttl",
+    ".cfg",
+    ".ini",
+    ".sh",
+    ".html",
+    ".css",
 }
 
 
@@ -45,7 +70,9 @@ def _candidate_files(root: Path):
     try:
         out = subprocess.run(
             ["git", "-C", str(root), "ls-files"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout
         tracked = [root / line for line in out.splitlines() if line]
         if tracked:
@@ -90,7 +117,9 @@ def scan(root: Path) -> list[str]:
 
 
 def main() -> int:
-    root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
+    root = (
+        Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
+    )
     violations = scan(root)
     if violations:
         print("Anti-sprawl gate FAILED:", file=sys.stderr)

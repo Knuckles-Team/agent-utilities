@@ -322,3 +322,26 @@ degrades gracefully. Overridable per-call, via `ModelRegistry.role_routing`, via
 `AgentConfig.role_routing`, or live through `graph_configure(action="set_role_routing")`. This is
 the routing substrate for the memory-first synergy pipeline: the HyDE planner (KG-2.12), the
 background learner (KG-2.13), and the LongMemEval judge all request their role here. Extends ORCH-1.2.
+
+### ORCH-1.2 — Global Workspace Attention loop (revived + instrumented)
+
+After each multi-agent wave, `ParallelEngine` drives a Global Workspace Theory loop:
+`WorkspaceAttention` scores specialist outputs (relevance·track-record·confidence),
+selects the top-K, and **broadcasts** the winners to the KG as `ProposalNode`s.
+`get_attention_score(specialist)` reads those back as each specialist's runtime
+standing, feeding routing/confidence in `pick_specialist_model`. The loop is
+instrumented with write/read counters and a `suspected_engine_mismatch` guard
+(surfaced in `ExecutionResult.telemetry["workspace_attention"]`; strict mode via
+`AGENT_UTILITIES_GWT_STRICT`). Winners are also recorded into the
+`EvolvingMemoryStore` INSIGHT bank. Full design:
+[Global Workspace Attention](../architecture/global_workspace_attention.md).
+
+### ORCH-1.32 — Multi-Agent Social System (MASS)
+
+The swarm is modeled as a social system `S=(f,g,G)`: archetype-tagged agents over
+an explicit interaction graph (built from manifest `depends_on` edges), with
+local-neighborhood observability, a co-evolution edge-update loop, and a P1–P4
+**swarm-health** snapshot (degree-partition heterogeneity, topology variance,
+neighbor co-evolution slope, Wasserstein-1 drift). `ParallelEngine` attaches the
+snapshot to `ExecutionResult.telemetry["social_system"]`. Full design:
+[Multi-Agent Social System](../architecture/multi_agent_social_system.md).

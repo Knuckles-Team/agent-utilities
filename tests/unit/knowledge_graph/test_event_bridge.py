@@ -19,11 +19,10 @@ async def test_graph_compute_event_bridge():
         {"epistemic_graph": MagicMock(), "epistemic_graph.client": mock_client_module},
     ):
         mock_client_instance = mock_sync_client.connect.return_value
+        import agent_utilities.knowledge_graph.core.event_backend as eb_module
         from agent_utilities.knowledge_graph.core.graph_compute import (
             GraphComputeEngine,
         )
-
-        import agent_utilities.knowledge_graph.core.event_backend as eb_module
 
         eb_module._GLOBAL_EVENT_BACKEND = None
         with patch.dict(

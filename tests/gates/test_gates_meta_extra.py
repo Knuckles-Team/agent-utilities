@@ -23,6 +23,7 @@ def _run(args: list[str]) -> subprocess.CompletedProcess:
 
 # ---- coupling gate -----------------------------------------------------------
 
+
 def _make_geniusbot_tree(root: Path) -> Path:
     """Create a minimal geniusbot-shaped package tree under ``root``."""
     pkg = root / "geniusbot"
@@ -54,9 +55,7 @@ def test_coupling_gate_passes_when_only_adapter_imports(tmp_path):
     (pkg / "services" / "backend_adapter.py").write_text(
         "from agent_utilities.graph import run_graph_query\n"
     )
-    (pkg / "services" / "gateway_client.py").write_text(
-        "import agent_utilities\n"
-    )
+    (pkg / "services" / "gateway_client.py").write_text("import agent_utilities\n")
     # A UI module that goes through the adapter, not agent_utilities directly.
     (pkg / "qt" / "widget.py").write_text(
         "from geniusbot.services.backend_adapter import run_graph_query\n"
@@ -73,6 +72,7 @@ def test_coupling_gate_passes_with_no_imports(tmp_path):
 
 
 # ---- retrieval-quality gate --------------------------------------------------
+
 
 def test_retrieval_gate_passes_on_clean_corpus():
     res = _run([str(SCRIPTS / "check_retrieval_quality.py")])

@@ -67,7 +67,9 @@ def test_is_sensitive_tool_normal_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "on")
     # Set up custom patterns
-    monkeypatch.setattr("agent_utilities.core.config.SENSITIVE_TOOL_PATTERNS", [r"^dangerous.*"])
+    monkeypatch.setattr(
+        "agent_utilities.core.config.SENSITIVE_TOOL_PATTERNS", [r"^dangerous.*"]
+    )
     assert tg.is_sensitive_tool("dangerous_op") is True
     assert tg.is_sensitive_tool("safe_op") is False
 

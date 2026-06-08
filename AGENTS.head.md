@@ -141,6 +141,22 @@ cargo run -p epistemic-graph
 - Include descriptive docstrings for all tools (they are used as tool descriptions for LLMs).
 - Check for optional dependencies using `try/except ImportError`.
 
+### Naming — derive from purpose, never from process
+
+Names (modules, classes, functions, MCP tools, vars) MUST describe **what the
+thing is and does in its used context** — never the planning/process vocabulary
+that happened to spawn it. Strip out roadmap/phase scaffolding: no `wave0`,
+`phase2`, `step3`, `v2`, `new`, `milestone_*`, ticket IDs, sprint names, or a
+plan's section title. Those describe *when/why we built it*, not *what it is*,
+and they rot the moment the plan moves on.
+
+- ❌ `wave0_scorers.py`, `build_wave0_suite()`, `phase2_router`, `eval_run_wave0`
+- ✅ `reliability_scorers.py`, `build_reliability_suite()`, `eval_reliability`
+
+Pick the most specific accurate noun for the behavior/domain (a suite of grounding
++ safety + retrieval-quality checks → *reliability* scorers). Provenance (which
+plan/paper it came from) belongs in the docstring/CHANGELOG, not the identifier.
+
 **Good example:**
 ```python
 from agent_utilities import create_mcp_server

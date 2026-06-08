@@ -31,9 +31,11 @@ def test_usage_telemetry_records_and_rates():
     t = UsageTelemetry()
     t.record_recall(["a", "b", "c"])
     t.record_recall(["a"])  # a recalled twice
-    t.record_usage(["a"])   # only a used
+    t.record_usage(["a"])  # only a used
     assert t.trust("a") > t.trust("b")  # used > merely-recalled
-    assert t.usage_rate() == pytest.approx(1 / 3, abs=1e-3)  # 1 of 3 distinct nodes used
+    assert t.usage_rate() == pytest.approx(
+        1 / 3, abs=1e-3
+    )  # 1 of 3 distinct nodes used
     s = t.summary()
     assert s["recalled_nodes"] == 3 and s["used_nodes"] == 1
 

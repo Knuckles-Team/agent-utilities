@@ -8,6 +8,284 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Tool gap-fill resolver for workflow materialization (CONCEPT:ECO-4.0)** — `graph/tool_resolver.py`
+  `resolve_tools`: when a workflow template needs a tool that isn't bound (e.g. a gitlab-pr tool), substitute
+  an available tool providing the same capability (via the capability index) or surface a precise gap
+  (`resolved`/`filled`/`missing`). Pure + testable (inject `available`/`designate_fn`); `resolve_agent_tools`
+  derives them from a live engine best-effort and **passes tools through unchanged when availability is
+  undeterminable** (no hot-path regression). Wired defensively into `ParallelEngine._execute_agent` before
+  `create_agent(tool_tags=…)`. Full live tag↔capability binding is staged (see WORKFLOW_ABSTRACTION_STRATEGY).
+- **Cheap input-scoped cycle watermark (CONCEPT:KG-2.7)** — `golden_loop._state_watermark` now uses an
+  input-scoped node **count** (one Cypher query, no embedding transfer) instead of fetching all ~5k embedded
+  nodes; the unchanged-graph skip path is **~13× faster** (live-measured 92.9s → 7.0s). Falls back to the full
+  `(id,status,content_hash)` hash when `query_cypher` is unavailable. (Caveat: a pure in-place content update
+  with no count change isn't detected by the count alone — use `force_assimilate`.)
+- **Golden-loop breadth ingest + cycle monitoring + live validation (CONCEPT:KG-2.7)** —
+  `run_one_cycle` gains an env-gated `breadth` stage (`KG_GOLDEN_BREADTH` + `KG_BREADTH_*_ROOTS`) that ingests
+  the OSS/repos/docs corpus before assimilate (idempotent), and a `metrics` block (per-stage timings,
+  `error_count`, `open_gaps`, duration) + a structured health log + a persisted `EvolutionCycle`
+  (`orchestration_cycle`) node for monitoring. **Live-validated** against the running engine (5048 nodes): a
+  full `run_one_cycle` completed error-free (`errors: []`), the assimilate watermark made the 2nd/3rd passes
+  idempotently skip (`skipped: true`, unchanged), and the monitoring node persisted. Type matching across the
+  assimilation engine is now **case-insensitive** (live graph stores capitalized labels like `Article`/`Concept`;
+  enum values are lowercase) — caught by the live run.
+- **Breadth-ingest orchestration + acceptance pilot (CONCEPT:KG-2.7, VU-10)** —
+  `knowledge_graph/assimilation/breadth_ingest.py` (`discover_projects`/`classify_project`/
+  `organize_libraries`/`run_breadth_ingest`) brings the whole corpus — OSS library categories, our ~62
+  repos, and a docs batch — into the assimilation graph: pure-filesystem classification (language + target
+  pillars) + injectable codebase/doc ingest (default = the content-addressed `IngestionEngine`, so unchanged
+  sources skip). `knowledge_graph/assimilation/pilot.py` (`run_pilot`/`summarize`) is the acceptance harness:
+  it runs the assimilation pass and asserts the hard invariant — **no already-built feature is re-proposed** —
+  while emitting the ranked gaps for human comparison against the known Waves A/B/C. Thin CLI
+  `scripts/run_assimilation_breadth.py` (`organize`/`ingest`/`pilot`) wires the live engine. Completes the
+  Phase-0 graph-native assimilation substrate.
+- **Assimilation MCP action + public pass entrypoint (CONCEPT:KG-2.7, VU-9)** —
+  `graph_orchestrate(action="assimilate")` runs the graph-native assimilation pass (dedup → gap → synergy →
+  rank; `task="synthesize"` also proposes grounded SDD plans; `task="force"` ignores the watermark), backed by
+  the new `research/golden_loop.run_assimilation_pass`. The background golden-loop tick already runs this each
+  cycle (daemon mode). The `agent-utilities-evolution` skill SOP is updated (separate `universal-skills` repo)
+  to drive the graph-native stages, multi-source ingest, and idempotency.
+- **Plan synthesis from KG neighborhood (CONCEPT:KG-2.7 / KG-2.10, VU-8)** —
+  `knowledge_graph/assimilation/plan_synthesis.py`: `synthesize_plans` turns the top-ranked **open** gaps
+  into grounded SDD plan proposals. `hydrate_feature` pulls each feature's neighborhood (sources, synergy
+  partners, pillar); `synthesize_plan_for_feature` synthesizes a plan (injectable `synth_fn`; default tries
+  the ORCH-1.27 `planner` role, falls back to a deterministic grounded template so it never hard-fails),
+  persists it as an `SDDPlan` proposal + `feature -[ADDRESSED_BY{proposed}]-> plan`, and flips the feature to
+  `proposed` so it is not re-proposed (idempotent). Grounded + deduped by construction — replaces the
+  first attempt's per-paper plan generation. Propose-only (promotion reuses the AHE-3.14 gate at apply time).
+- **Golden-loop assimilation stage + watermark idempotency (CONCEPT:KG-2.7, VU-7)** —
+  `knowledge_graph/research/golden_loop.py` `run_one_cycle` now runs the graph-compute middle
+  (`_run_assimilate`: dedup → auto-satisfy → synergy → rank) before topic intake, and reports the
+  exclusion-filtered, leverage-ranked `ranked_gaps` (only `open_features` — satisfied/superseded/implemented
+  features are never re-proposed). A **state watermark** over the assimilation input nodes
+  ((id, status, content_hash)) makes the stage idempotent — an unchanged graph skips the work, so a re-run
+  over the same corpus is a no-op (`force_assimilate=True` overrides). This turns the substrate into a live,
+  self-running, delta-only loop.
+- **Multi-source ingest adapters + granular idempotency (CONCEPT:KG-2.7, VU-6)** —
+  `knowledge_graph/assimilation/ingest.py`: `ingest_documents` (PRD/BRD/SOW/tasks → `Requirement` nodes; new
+  `RegistryNodeType.REQUIREMENT`) and `ingest_conversations` (chat/SDD transcripts → `Decision` nodes), with
+  content-addressed idempotency — `canonical_source_id` collapses the same source ingested from different URIs
+  (arxiv abs/pdf/version, DOI variants, URL, file path) onto one node, and `content_fingerprint` makes an
+  unchanged re-ingest a no-op (skipped) while changed content updates in place. Granular: each item is hashed
+  independently so a changed batch skips its unchanged members (per-paper skip) — cost grows with the delta,
+  not the corpus.
+- **Feature lifecycle ledger + assimilation close-out (CONCEPT:KG-2.7, VU-5)** —
+  `knowledge_graph/assimilation/ledger.py`: `record_feature`/`set_status` maintain `SDDFeature` lifecycle
+  nodes; `close_out` records an implemented feature by writing `feature -[DERIVED_FROM_RESEARCH]-> source` +
+  `source -[ASSIMILATED_INTO]-> codebase` and flipping status to `implemented` (KG-2.7 US-1/3), closing the
+  research→code provenance loop so it is never re-opened; `promote_feature_ledger` lifts the YAML
+  feature/capability ledger into `SDDFeature` nodes; `ledger_state` gives an open/closed/by-status summary.
+  `is_closed` now also consults the node's stored `status` (self-sufficient) and treats `DERIVED_FROM_RESEARCH`
+  as a closing edge.
+- **Synergy bundles + leverage ranking (CONCEPT:KG-2.7 / KG-2.5, VU-4)** —
+  `knowledge_graph/assimilation/synergy.py`: `synergy_bundles` community-detects the feature graph (engine
+  Louvain `community_detection` fast path, local connected-components fallback) and flags **cross-pillar**
+  communities (spanning ≥2 of ORCH/KG/AHE/ECO/OS) as synergy bundles, linking members with
+  `HAS_SYNERGY_WITH` — where the novel combinations live. `rank_features` scores the **open** gaps by
+  leverage `source_count × (1 + centrality)` (engine PageRank fast path, local degree fallback) so the
+  golden loop spends budget on the highest-impact gaps first. Duplicate (`SUPERSEDES`) edges are excluded
+  from the synergy graph.
+- **Auto gap analysis — `SATISFIED_BY` + `open_features` (CONCEPT:KG-2.7, VU-3)** —
+  `knowledge_graph/assimilation/gap_analysis.py`: `auto_satisfy` embedding-matches every extracted feature
+  (`SDD_FEATURE`/`CAPABILITY`/`ARTICLE`) against existing `CONCEPT` nodes and writes a candidate
+  `feature -[SATISFIED_BY]-> concept` edge above threshold; `open_features` returns the features with no
+  closing edge / closed status — the durable, queryable answer to "what have we NOT already hit?" and the
+  only set the golden loop proposes against. This is the **"stop rediscovering already-built features"** fix.
+  Closing edges are detected backend-portably via a `_rel` property marker (now also stamped on VU-2's
+  `SUPERSEDES` edges) plus the node `status`. Incremental (`restrict_to`) and dry-run capable.
+- **Cross-source feature dedup (CONCEPT:KG-2.7, VU-2)** — `knowledge_graph/assimilation/dedup.py`
+  `dedup_features`: collapses the same capability appearing across a paper + an OSS library + our own code
+  into one node with multi-source provenance. Pairwise cosine over embedded `SDD_FEATURE`/`CAPABILITY`/
+  `ARTICLE` nodes (preferring the engine's batched `compute_similarity_edges`, local-numpy fallback) →
+  `SIMILAR_TO` edges (score); union-find clusters above the duplicate threshold → highest-importance survivor
+  with `survivor -[SUPERSEDES]-> duplicate`. Idempotent (MERGE on write) and incremental (`restrict_to` =
+  newly-ingested ids → O(new·N)). The first graph-compute stage of the assimilation pipeline.
+- **Assimilation engine schema foundation (CONCEPT:KG-2.7, VU-1)** — `models/knowledge_graph.py`: new
+  `RegistryNodeType.SDD_FEATURE` + `SDDFeatureNode` (lifecycle-tracked feature: `concept_ids`,
+  `research_sources`, `status` open→implemented/rejected/superseded, `sdd_path`, `codebase`) and registered
+  assimilation edges `ADDRESSES` / `ADDRESSED_BY` / `RELEVANCE_SCORED` / `ASSIMILATED_INTO` /
+  `DERIVED_FROM_RESEARCH` / `SATISFIED_BY` (UPPER_SNAKE values matching the live Cypher labels the golden-loop
+  / relevance-sweep subsystem already writes — so the enum becomes the source of truth without splitting
+  existing edges). Dedup/synergy/supersede reuse the existing `SIMILAR_TO` / `HAS_SYNERGY_WITH` / `SUPERSEDES`
+  edges (no sprawl). The foundation for the graph-native assimilation pipeline (see
+  `.specify/specs/ecosystem-evolution/PHASE0_IMPLEMENTATION_PLAN.md`).
+- **MASS — Multi-Agent Social System swarm model (CONCEPT:ORCH-1.32)** — `graph/social_system.py`
+  `MultiAgentSocialSystem` models the swarm as ``S=(f,g,G)``: archetype-tagged agents over an explicit
+  interaction graph with local (neighborhood-scoped) observability, a co-evolution edge-update loop, and a
+  P1–P4 **swarm-health** snapshot (degree-partition heterogeneity, topology variance, neighbor co-evolution
+  OLS slope, Wasserstein-1 drift — reusing `population_drift.wasserstein1`). Wired live into
+  `ParallelEngine.execute` (`_social_swarm_health`, built from agent roles + `depends_on` edges; surfaced in
+  `ExecutionResult.telemetry["social_system"]`). Source b2-01.
+- **MEMO — merge-generalize reconciliation + prioritized replay (CONCEPT:KG-2.1 / AHE-3.0)** —
+  `evolving_memory.EvolvingMemoryStore.reconcile_similar` collapses *near-duplicate* insights (not just exact
+  signatures) into a canonical survivor via `merge(..., generalize=True)`, which records absorbed variants under
+  `metadata['generalized_from']`. New `harness/replay_buffer.PrioritizedReplayBuffer` (inverse-frequency
+  priority, seed-faithful sampling, FIFO-tiebreak eviction). Both wired into
+  `AgenticEvolutionEngine.run_evolution_cycle` (per-cycle generalize + replay-state push) with a new
+  `sample_replay` accessor; cycle report gains `insights_generalized` / `replay_buffer_size`. Source b4-03.
+
+### Fixed
+- **`RELEVANCE_SCORED` edge type was written but unregistered (CONCEPT:KG-2.7, VU-1)** — the relevance sweep
+  (`knowledge_graph/core/engine_tasks.py`) wrote a `"RELEVANCE_SCORED"` string literal with no matching
+  `RegistryEdgeType` member (a type-safety gap). Registered the member and switched the write to
+  `RegistryEdgeType.RELEVANCE_SCORED` (value unchanged → no edge/query break).
+- **Revived the Global Workspace Attention loop (CONCEPT:ORCH-1.2 / KG-2.1)** — the GWT loop was entirely
+  dead: `WorkspaceAttention.__init__` took no `engine` (so `executor.py`'s `WorkspaceAttention(engine)`
+  assigned the engine to an int slot), `get_attention_score` was **never implemented**, and `executor.py`
+  imported `knowledge_graph.workspace_attention` which **does not exist** — all three failures silently
+  swallowed by bare `except`. Now: `__init__` accepts `engine`; `collect_proposals`/`broadcast_to_kg`
+  default to it; new `get_attention_score` reads back the most-recent *selected* `ProposalNode` composite
+  score; new `select_and_broadcast` one-call loop (collect→score→select→broadcast). `executor.py` imports
+  the real `.workspace_attention`. `ParallelEngine.execute` now drives `_broadcast_workspace_attention`
+  after each multi-agent wave (≥2 successful outputs, shared engine; non-fatal), closing the write→read
+  loop so specialist standings actually feed routing/confidence. Tests: `tests/test_workspace_attention.py`
+  (+9), `tests/integration/core/test_parallel_engine_advanced.py` (+2).
+- **EvolvingMemoryStore now records workspace winners (CONCEPT:KG-2.1)** — with the GWT loop revived,
+  `ParallelEngine._record_winners_to_memory` routes broadcast winners into the `EvolvingMemoryStore` INSIGHT
+  bank (deduped per specialist → repeat wins reinforce), completing the previously-deferred adoption now
+  that there is a genuine live driver. Best-effort; persisted to the shared engine.
+
+### Added
+- **GWT loop telemetry / engine-mismatch guard (CONCEPT:ORCH-1.2)** — `workspace_attention.py` tracks
+  process-wide write/read counters (`workspace_attention_telemetry()`); `get_attention_score` flags
+  `suspected_engine_mismatch` and warns once (or raises under `AGENT_UTILITIES_GWT_STRICT`) when proposals
+  are broadcast but reads never resolve one — the signature of the writer/reader holding different engine
+  instances. Surfaced in `ExecutionResult.telemetry["workspace_attention"]`.
+
+### Added
+- **LLM plan-synthesizer for executable RAG (CONCEPT:KG-2.12)** — `retrieval/executable_rag.py`
+  `parse_executable_plan` (parse-or-fallback: malformed/partial LLM output degrades to `build_linear_plan`,
+  always yields a runnable plan) + `HybridRetriever._synthesize_executable_plan` (ORCH-1.27 `planner` role).
+  `retrieve_executable(..., use_planner=True)` now optionally synthesizes a richer/non-linear plan with the
+  planner role instead of the deterministic linear plan; a planner failure degrades transparently. Source b2-03.
+- **Self-bootstrapping ontology in the OWL ingest phase (CONCEPT:KG-2.2)** — `pipeline/phases/owl_reasoning.py`
+  `bootstrap_ontology_path` derives the ontology from the graph's own sampled records (plateau-stopped
+  `OntologyBootstrapper`, emits Turtle to a temp file) and `execute_owl_reasoning` reasons over it when the new
+  `PipelineConfig.enable_ontology_bootstrap` flag (env `ENABLE_KG_ONTOLOGY_BOOTSTRAP`, default off) is set and
+  no explicit `owl_ontology_path` is given; falls back to the bundled `ontology.ttl` if nothing is derived.
+  Adds `ontology_bootstrap_plateau_patience` / `ontology_bootstrap_sample_limit` config. Source b7-05.
+- **Hierarchical (global→local) GraphRAG retrieval (CONCEPT:KG-2.5)** — `core/hierarchical_retrieval.py`
+  `HierarchicalCommunityRetriever`: ranks communities by query relevance, drills into the top-k, ranks
+  entities with a parent-community context boost; wired live as `TopologicalAnalysisEngine.hierarchical_retrieve`. Source b2-04.
+- **Quality-budget / fidelity-gated compaction (CONCEPT:KG-2.1)** — `ContextCompactor` gains `fidelity(P)`,
+  `record_processed`, `divergence_report`, and a fidelity gate in `should_compact` (compacts before the
+  cumulative-context cliff; dormant until tokens are recorded → capacity-only callers unaffected). Source b7-01.
+- **LCM convergence guarantee + summary-DAG recovery (CONCEPT:KG-2.20)** — `_guarantee_shorter` makes
+  `compress_to_memento` always shrink the block (deterministic truncation terminal guarantee); `recover_chain`
+  walks the multi-level SUMMARIZES DAG; `link_parent_memento` builds summaries-of-summaries. Source b1-05.
+- **Coordination named-aggregation registry (CONCEPT:ORCH-1.3)** — `AggregationOperator` + `aggregate_scores`
+  (mean/median/max/min/log-pool) + `CoordinationLayer.aggregate`/`rank` (rank delegates to the unified
+  `selection_operators` → synergy #2); consumed live by `WorkspaceAttention.consensus_score`/`select_winners`. Source b1-02.
+- **Self-bootstrapping ontology agent (CONCEPT:KG-2.2)** — `core/ontology_bootstrap.py`
+  `OntologyBootstrapper`: derives classes/typed-properties from a sample corpus with plateau-based
+  stopping, emits RDF/Turtle, and populates grounded (explicit-value, unit-normalised) triples; schema-free
+  KG construction behind a flag. Source b7-05.
+- **RLM long-context selectors (CONCEPT:ORCH-1.12)** — `RLMConfig.max_turns` (configurable; wired into
+  `RLMEnvironment.run_full_rlm`, was hardcoded) + `RLMConfig.select_long_context_strategy()` explicit
+  `rlm_lossless` / `memento_compaction` / `none` decision + `compaction_threshold`. Source b2-05.
+- **Conductor per-step model routing (CONCEPT:ORCH-1.27)** — `Task.model_id` field; `pick_specialist_model`
+  honors a Conductor-assigned `step_model_id` (highest precedence over the per-turn override and tier
+  routing); executor passes `ctx.inputs.model_id`; planner instructed to emit per-step `model_id`. Source b5-07.
+- **Skill evolution routed through EvolvingMemoryStore (CONCEPT:KG-2.1)** — `AgenticEvolutionEngine`
+  skill create/merge now mirror into the unified SKILL bank (`_record_skill`), converging skill memory
+  onto the single graph-native store (synergy #2 adoption).
+- **DW-GRPO dynamic reward weighting (CONCEPT:ORCH-1.30)** — `rlm/dynamic_reward.py`
+  `DynamicRewardWeighter`: tracks each objective's improvement slope across generations and shifts
+  weight toward *lagging* objectives (anti-seesaw), so multi-reward optimization stops collapsing onto
+  the easiest reward. Wired into `ParetoCandidatePool` (`dynamic_weighting=` flag, `observe()`,
+  `weighted_best()`, `reward_weights`) and **default-on in `GEPAOptimizer`** (observes each generation,
+  weighted final selection in the no-held-out branch; falls back to prior behaviour until the slope
+  signal is meaningful). Deterministic core of plan b2-04; STRATEGY synergy #8.
+- **Deterministic reward/dataset training spine (CONCEPT:AHE-3.1)** — `graph/training_signals.py`:
+  `batch_normalized_advantage` (GRPO group-normalized advantage), `failure_point` (first-divergence
+  step index for error-attributed preference pairs), `composite_reward` (weighted + conditionally-gated
+  reward), `difficulty_floor_filter` (b3-02 data-quality floor). Wired into `RewardDecomposer`
+  (`batch_advantages()`/`failure_points()`), surfaced through the live `get_distillation_insights`
+  (`advantage_spread`/`localized_failures`/`mean_failure_point`). The "build-once" signal layer every
+  Wave-C training-gated paper consumes — STRATEGY synergy #10 (sources b6-04/b7-03/b6-01/b3-02).
+- **Executable multi-hop RAG spine (CONCEPT:KG-2.12)** — `retrieval/executable_rag.py`:
+  `ExecutableRagProgram` runs a typed `retrieve`/`answer` plan (with `{{var}}` data-flow) via a
+  deterministic interpreter giving two training-free grounded loops — execution-driven adaptive
+  retrieval (boost `top_k`, then fall back vector→grep) and compiler-grounded self-repair (an
+  insufficient answer re-runs the implicated retrieve) — plus an inspectable `StepTrace`. Wired live as
+  `HybridRetriever.retrieve_executable` dispatching modes to `retrieve_hybrid` (vector) and
+  `direct_search` (grep). Replaces ungrounded NL self-reflection; STRATEGY synergy #3, source b2-03 (PyRAG).
+- **Graph-native CRUD evolving-memory store (CONCEPT:KG-2.1)** — `harness/evolving_memory.py`:
+  `EvolvingMemoryStore` with typed banks (`MemoryBank`: error/skill/tool/guide/insight), full CRUD
+  (add+dedup-by-signature, edit, merge=soft-retire+`MERGED_INTO`, remove=soft-retire), `query`,
+  lexical-or-embedder `resolve`, and `reconcile` (signature de-dup). In-memory authoritative with
+  best-effort durable mirror to the GraphBackend. Wired live into `AgenticEvolutionEngine.run_evolution_cycle`
+  (writes an INSIGHT per cycle → `report["insight_id"]`). The "build-once" unification of plans b4-03
+  (insight bank), b8-06 (skill banks), and b5-02 (typed workspace banks) — STRATEGY synergy #2.
+- **External-verification + provenance on memento compaction (CONCEPT:KG-2.20)** —
+  `memento_compressor.verify_memento` runs a deterministic, *independent* faithfulness check
+  (AHE-3.1 `FaithfulnessScorer`, distinct from the LLM judge-refine loop) of each memento against its
+  source block; the verdict is stamped as `provenance_verified`/`provenance_faithfulness`/
+  `provenance_verifier` on the persisted node. Wired into the live `compress_to_memento` path; a failed
+  gate never blocks persistence (the raw block is retained losslessly via `SUMMARIZES` for re-expansion).
+  STRATEGY synergy #4 (provenanced/verified/recoverable compaction); source b4-04 + b7-01.
+- **Harness self-attribution reliability metric (CONCEPT:AHE-3.0)** — `ManifestVerifier.verify` now
+  reports `random_baseline_precision` (fix base-rate among evaluated tasks), `attribution_lift`
+  (fix_precision ÷ baseline), and `attribution_reliable` (lift ≥ `reliability_multiple`, default 3×) —
+  so a harness whose fix predictions merely match chance is flagged unreliable. Source b7-04 F7 (first
+  Wave B delta).
+
+### Fixed
+- **`MemoryEngine.consolidate()` / `.compact_traces()` were dead (broken imports)** — both imported
+  non-existent modules (`.consolidation`, `.memory_compaction`). Rewired to the real implementations:
+  `consolidate()` → `SynthesisEngine` + the standard rules (Episode→Preference, Decision→Principle,
+  Trace→Skill, KG-2.1); `compact_traces()` → `MemoryHygiene` decay+semantic-merge (KG-2.17). Regression
+  test added.
+
+### Added
+- **Population-drift monitor (CONCEPT:AHE-3.2)** — `graph/population_drift.py`: 1-D Wasserstein-1
+  (`wasserstein1`), `population_spread`, and `PopulationDriftMonitor` (distributional diversity-collapse
+  detection across generations). Wired into `VariantPool.population_health()` and surfaced in the live
+  `AgenticEvolutionEngine.run_evolution_cycle` report (`population_health` + `early_stop_recommended`).
+  STRATEGY synergy #6 — the shared collapse detector for verifier-free evolution (b6-67) / tournaments
+  (b4-03); source b2-01 MASS.
+- **Unified selection / aggregation operators (CONCEPT:ORCH-1.30)** — `harness/selection_operators.py`:
+  `bradley_terry_scores` (verifier-free pairwise→global ranking via MM iteration, previously absent —
+  completes plan b6-67), `conservative_rating` (uncertainty-aware LCB μ−κσ, b4-03 TrueSkill-LCB spirit),
+  `contribution_weighted_vote` (b5-02), and scalar `select_top_k` (score/LCB). Wired into
+  `VariantPool.tournament_select(strategy="score"|"lcb")` (default `"tournament"` unchanged). First
+  build-once foundation from `STRATEGY.md` synergy #1 (one selection registry for VariantPool /
+  EvolutionaryAggregator / CoordinationLayer / TeamConfig promotion).
+- **Direct Corpus Interaction (CONCEPT:KG-2.12)** — `retrieval/direct_corpus.py`:
+  `DirectCorpusSearcher` (literal/regex `grep`, line-range `read`, ranked `search` with term
+  coverage + line-level localization) — a precise, auditable retrieval mode complementing dense
+  vectors. Wired live as `HybridRetriever.direct_search`. Source: research-evolution plan b2-02.
+- **Agentic red-team harness (CONCEPT:AHE-3.1)** — `harness/red_team.py`: static attack catalog
+  (prompt injection, jailbreak, role override, data exfiltration, sandbagging; OWASP-LLM mapped) +
+  `RedTeamRunner` that scores a target's responses (reusing the reliability safety/deception scorers)
+  into a severity-ranked `RedTeamReport`. Wired as `red_team_catalog` / `red_team_assess` MCP tools.
+  Source: plans b8-04 / b7-07.
+- **Provenance-completeness critic gate (CONCEPT:AHE-3.13)** — `harness/provenance_gate.py`:
+  deterministic pre-emit gate that checks numeric claims trace to tool values and substantive
+  sentences carry valid citations, returning accept / revise / escalate under a revise budget
+  (complements the LLM-based `adversarial_verifier`). Wired as the `provenance_check` MCP tool.
+  Source: plan b4-04 (MAKA).
+- **Reasoning-aware reranking (CONCEPT:KG-2.6)** — `retrieval/reasoning_reranker.py`:
+  `ReasoningAwareReranker` reorders an over-fetched candidate pool by a prior-blended,
+  calibrated (five-level), instruction-aware relevance via a pluggable `RerankScorer`
+  (deterministic `LexicalRelevanceScorer` default; cross-encoder seam for later). Wired
+  **default-on** into `HybridRetriever.retrieve_hybrid` (new `_rerank_candidates`: over-fetch →
+  rerank → cap), toggle via `enable_rerank`. Source: research-evolution plan b4-02; retrieval-quality
+  gate unaffected.
+- **Reliability evaluation scorers (CONCEPT:AHE-3.1)** — `harness/reliability_scorers.py`: nine
+  pluggable `EvalScorer`s distilled from recent research (faithfulness/grounding, safety⊥accuracy
+  decoupling, topic-coverage T-P/R/F1, tool-necessity knowing-doing gap, deception/sandbagging/
+  sycophancy probes, citation coverage/precision/recall, abstention-aware Brier skill score,
+  retrieval recall@k/nDCG@k, and content-injection/prompt-trap guardrail). Bundled via
+  `build_reliability_suite()` and exposed on the live harness MCP server as the `eval_reliability`
+  tool. Sources: `.specify/specs/research-evolution-20260606/` (b1-06, b1-01, b4-06, b5-05, b2-06,
+  b5-06, b8-03, b3-01, b7-07).
+- **Reliability seed corpus + gate (CONCEPT:AHE-3.1)** — `harness/reliability_corpus.py` seeds the
+  suite with deterministic grounded/adversarial cases run through the real `EvalCorpus`, scored by
+  `run_reliability_corpus()`. New `scripts/check_reliability_corpus.py` CI gate (registered in
+  `guardrails.yml`, with a `tests/gates` meta-test) fails if the match-rate drops below floor.
+  `EvalCorpus.add_case`/`load_cases` gained backward-compatible `metadata` passthrough so a corpus
+  case can carry per-scorer context (evidence, gold topics, retrieved ids, …).
 - **Sentiment Fusion Signals (CONCEPT:KG-2.29)** — credibility-weighted sentiment fusion
   (lexicon polarity + source-credibility prior + recency decay) emitted as a SENTIMENT_ANALYST
   `AgentSignal` consumed by `SwarmConsensus` and registered into `BayesianSignalFusion`;

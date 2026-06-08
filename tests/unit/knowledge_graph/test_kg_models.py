@@ -980,6 +980,7 @@ def test_edge_json_round_trip() -> None:
 
 def test_retrieve_place_view_stub_returns_empty_list() -> None:
     from unittest.mock import MagicMock
+
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
@@ -992,6 +993,7 @@ def test_retrieve_place_view_stub_returns_empty_list() -> None:
 
 def test_retrieve_epistemic_view_stub_has_expected_shape() -> None:
     from unittest.mock import MagicMock
+
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
@@ -1005,6 +1007,7 @@ def test_retrieve_epistemic_view_stub_has_expected_shape() -> None:
 
 def test_retrieve_orthogonal_context_includes_v2_views_when_requested() -> None:
     from unittest.mock import MagicMock
+
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )
@@ -1027,6 +1030,7 @@ def test_retrieve_orthogonal_context_default_keeps_v1_contract() -> None:
     so existing callers don't break. (§6 backward-compat invariant.)
     """
     from unittest.mock import MagicMock
+
     from agent_utilities.knowledge_graph.core.engine import (
         IntelligenceGraphEngine,
     )

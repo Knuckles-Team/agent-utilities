@@ -12,6 +12,7 @@ corrections via :class:`FeedbackService` and (2) retrieval regressions caught by
 Works with no backend (in-memory) so it is unit-testable in isolation.
 """
 
+import json
 import logging
 import time
 import uuid
@@ -35,8 +36,14 @@ class EvalCorpus:
         *,
         tags: list[str] | None = None,
         reason: str = "",
+        metadata: dict[str, Any] | None = None,
     ) -> str:
-        """Add a regression case; returns its id. Persists to the graph if able."""
+        """Add a regression case; returns its id. Persists to the graph if able.
+
+        ``metadata`` carries arbitrary per-case context (e.g. the evidence,
+        gold topics, or retrieved ids a context-aware scorer needs); it is
+        surfaced on the loaded :class:`TestCase.metadata`.
+        """
         case_id = f"eval_case:{uuid.uuid4().hex[:12]}"
         rec = {
             "id": case_id,
@@ -44,6 +51,7 @@ class EvalCorpus:
             "expected_output": expected_output,
             "tags": list(tags or []),
             "reason": reason,
+            "metadata": dict(metadata or {}),
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         self._mem.append(rec)
@@ -56,6 +64,7 @@ class EvalCorpus:
                     expected_output=expected_output,
                     tags=",".join(rec["tags"]),
                     reason=reason,
+                    metadata=json.dumps(rec["metadata"]) if rec["metadata"] else "",
                     timestamp=rec["timestamp"],
                 )
             except Exception as exc:  # pragma: no cover - persistence best-effort
@@ -88,12 +97,19 @@ class EvalCorpus:
             tags = r.get("tags")
             if isinstance(tags, str):
                 tags = [t for t in tags.split(",") if t]
+            metadata = r.get("metadata")
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata) if metadata else {}
+                except json.JSONDecodeError:  # pragma: no cover - tolerant
+                    metadata = {}
             cases.append(
                 TestCase(
                     id=r.get("id", ""),
                     query=r["query"],
                     expected_output=r.get("expected_output", ""),
                     tags=tags or [],
+                    metadata=metadata or {},
                 )
             )
         return cases

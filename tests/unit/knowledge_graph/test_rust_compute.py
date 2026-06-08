@@ -133,7 +133,6 @@ def test_rust_repository_ast_parsing(engine, tmp_path):
     engine.parse_repository(str(tmp_path))
 
     # Verify classes and functions found
-    from typing import Any, cast
 
     nodes = engine._get_all_nodes()
     assert any("MyAgent" in n for n in nodes)

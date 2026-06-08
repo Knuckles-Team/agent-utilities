@@ -120,7 +120,9 @@ async def test_kg_native_reasoning_escalation():
     import agent_utilities.graph._router_impl
 
     original_logger_error = agent_utilities.graph._router_impl.logger.error
-    agent_utilities.graph._router_impl.logger.error = lambda x: print(f"ROUTER ERROR: {x}")  # type: ignore
+    agent_utilities.graph._router_impl.logger.error = lambda x: print(
+        f"ROUTER ERROR: {x}"
+    )  # type: ignore
 
     try:
         await router_step(ctx)

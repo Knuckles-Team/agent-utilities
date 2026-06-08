@@ -100,6 +100,13 @@ class VerificationResult(BaseModel):
     false_positive_fixes: list[str] = Field(default_factory=list)
     overall_delta: float = 0.0
     recommendation: str = ""  # "confirm", "partial_revert", "full_revert"
+    # Self-attribution reliability (CONCEPT:AHE-3.0, plan b7-04 F7): is the harness's
+    # fix prediction better than chance? random_baseline_precision = (actual fixes /
+    # tasks evaluated); attribution_lift = fix_precision / baseline; the harness is
+    # "reliable" only when its predictions beat random by ``reliability_multiple``.
+    random_baseline_precision: float = 0.0
+    attribution_lift: float = 0.0
+    attribution_reliable: bool = False
 
 
 class ChangeManifest(BaseModel):

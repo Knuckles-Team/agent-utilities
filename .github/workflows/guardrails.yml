@@ -61,6 +61,9 @@ jobs:
       - name: Eval-corpus gate
         run: python3 scripts/check_eval_corpus.py
 
+      - name: Reliability-corpus gate
+        run: python3 scripts/check_reliability_corpus.py
+
       - name: Prod-profile guard
         run: python3 -m pytest tests/scale/test_prod_profile_guard.py -q -p no:cacheprovider -o addopts="" -k "prod or profile"
 

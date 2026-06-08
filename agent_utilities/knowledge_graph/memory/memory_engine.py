@@ -262,34 +262,52 @@ class MemoryEngine:
         if self.engine is None:
             return []
 
-        from .consolidation import ConsolidationEngine
+        from .optimization_engine import (
+            DecisionToPrincipleRule,
+            EpisodeToPreferenceRule,
+            SynthesisEngine,
+            TraceToSkillRule,
+        )
 
-        ce = ConsolidationEngine(engine=self.engine)
-        return ce.run(dry_run=dry_run)
+        se = SynthesisEngine(engine=self.engine)
+        se.register(EpisodeToPreferenceRule())
+        se.register(DecisionToPrincipleRule())
+        se.register(TraceToSkillRule())
+        return se.run(dry_run=dry_run)
 
     # ── Phase 5: Trace Compaction ────────────────────────────────────
 
     def compact_traces(
         self,
-        agent_id: str,
+        agent_id: str = "",
         threshold: int = 10,
     ) -> int:
-        """Compact semantic traces to prevent graph explosion.
+        """Compact memory traces to prevent graph explosion (CONCEPT:KG-2.17).
 
-        Uses ``SemanticCompactor`` to merge or prune trace nodes
-        that exceed the threshold count for a given agent.
+        Delegates to :class:`MemoryHygiene`, which decays stale memory nodes
+        (soft bi-temporal close) and applies semantic-merge of near-duplicate
+        traces — the real "merge or prune trace nodes" mechanism.
 
         Args:
-            agent_id: The agent whose traces to compact.
-            threshold: Maximum number of trace nodes before compaction.
+            agent_id: Advisory scope label (hygiene runs graph-wide); used for logging.
+            threshold: Advisory; the live mechanism is decay+semantic-merge, not a
+                fixed node-count cutoff.
 
         Returns:
-            Number of compacted/removed nodes.
+            Number of compacted nodes (archived + merged).
         """
-        from .memory_compaction import SemanticCompactor
+        if self.engine is None:
+            return 0
 
-        sc = SemanticCompactor(engine=self.engine)
-        return sc.compact_traces(agent_id=agent_id, threshold=threshold)
+        from .hygiene import MemoryHygiene
+
+        logger.debug(
+            "compact_traces(agent=%s, threshold=%s) → KG-2.17 hygiene pass",
+            agent_id,
+            threshold,
+        )
+        report = MemoryHygiene(self.engine).run()
+        return int(report.get("archived", 0)) + int(report.get("merged", 0))
 
     # ── Phase 6: Retrieval ───────────────────────────────────────────
 

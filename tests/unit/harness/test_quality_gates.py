@@ -34,7 +34,9 @@ def test_antipattern_detects_invented_metric():
 
 def test_antipattern_detects_filler():
     reg = AntipatternRegistry()
-    assert any(a.name == "filler-copy" for a in reg.detect("Feature One and lorem ipsum"))
+    assert any(
+        a.name == "filler-copy" for a in reg.detect("Feature One and lorem ipsum")
+    )
 
 
 def test_antipattern_clean_text():
@@ -54,6 +56,7 @@ def test_parse_checklist():
 
 def test_preflight_blocks_on_failing_p0():
     rules = parse_checklist("- [P0] contains TITLE\n- [P1] contains FOOTER")
+
     # predicate: rule passes only if its trailing keyword (upper word) is present in output
     def pred(rule, out):
         kw = rule.text.split()[-1]
@@ -84,7 +87,8 @@ def test_critique_flags_weak_output():
 def test_critique_passes_strong_output():
     crit = MultiDimensionalCritique()
     strong = (
-        "This is a thorough, specific answer. " * 20 + "\nSee source: https://example.com for detail."
+        "This is a thorough, specific answer. " * 20
+        + "\nSee source: https://example.com for detail."
     )
     res = crit.critique(strong)
     assert res.passed is True
@@ -129,13 +133,22 @@ def test_pre_emit_gate_block_blocks_weak():
 async def test_engine_runs_gate_on_adapter_output():
     if not shutil.which("echo"):
         pytest.skip("no echo on PATH")
-    from agent_utilities.core.execution.adapters import AdapterDefinition, AdapterRegistry, StreamFormat
+    from agent_utilities.core.execution.adapters import (
+        AdapterDefinition,
+        AdapterRegistry,
+        StreamFormat,
+    )
     from agent_utilities.core.execution.engine import UnifiedExecutionEngine
     from agent_utilities.models.execution_manifest import AgentSpec, ExecutionManifest
 
     reg = AdapterRegistry(load_builtins=False)
     reg.register(
-        AdapterDefinition(id="echo", bin="echo", build_args=lambda m, p: [p], stream_format=StreamFormat.PLAIN)
+        AdapterDefinition(
+            id="echo",
+            bin="echo",
+            build_args=lambda m, p: [p],
+            stream_format=StreamFormat.PLAIN,
+        )
     )
     eng = UnifiedExecutionEngine(registry=reg)
     m = ExecutionManifest(

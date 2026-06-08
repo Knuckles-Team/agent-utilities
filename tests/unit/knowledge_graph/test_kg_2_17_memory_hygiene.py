@@ -44,37 +44,107 @@ def test_decay_score_monotonic():
 
 @pytest.mark.concept(id="KG-2.17")
 def test_classify_exempt_human_and_procedural():
-    assert classify_node({"id": "h", "source_type": "human", "created_at": _old(9999)}, NOW) == "exempt"
-    assert classify_node({"id": "p", "source_type": "procedural", "created_at": _old(9999)}, NOW) == "exempt"
+    assert (
+        classify_node(
+            {"id": "h", "source_type": "human", "created_at": _old(9999)}, NOW
+        )
+        == "exempt"
+    )
+    assert (
+        classify_node(
+            {"id": "p", "source_type": "procedural", "created_at": _old(9999)}, NOW
+        )
+        == "exempt"
+    )
 
 
 @pytest.mark.concept(id="KG-2.17")
 def test_classify_archive_vs_alert_vs_keep():
     # Fresh AI memory → keep.
-    assert classify_node({"id": "k", "source_type": "ai", "importance_score": 0.2, "created_at": _old(1)}, NOW) == "keep"
+    assert (
+        classify_node(
+            {
+                "id": "k",
+                "source_type": "ai",
+                "importance_score": 0.2,
+                "created_at": _old(1),
+            },
+            NOW,
+        )
+        == "keep"
+    )
     # Very old, low importance, low confidence → archive.
-    assert classify_node({"id": "a", "source_type": "ai", "importance_score": 0.1, "confidence": 0.2, "created_at": _old(400)}, NOW) == "archive"
+    assert (
+        classify_node(
+            {
+                "id": "a",
+                "source_type": "ai",
+                "importance_score": 0.1,
+                "confidence": 0.2,
+                "created_at": _old(400),
+            },
+            NOW,
+        )
+        == "archive"
+    )
     # Very old but high confidence → alert (never silently archived).
-    assert classify_node({"id": "x", "source_type": "ai", "importance_score": 0.1, "confidence": CONFIDENCE_EXEMPT, "created_at": _old(400)}, NOW) == "alert"
+    assert (
+        classify_node(
+            {
+                "id": "x",
+                "source_type": "ai",
+                "importance_score": 0.1,
+                "confidence": CONFIDENCE_EXEMPT,
+                "created_at": _old(400),
+            },
+            NOW,
+        )
+        == "alert"
+    )
 
 
 @pytest.mark.concept(id="KG-2.17")
 def test_plan_decay_buckets():
     nodes = [
         {"id": "h", "source_type": "human", "created_at": _old(999)},
-        {"id": "a", "source_type": "ai", "importance_score": 0.1, "confidence": 0.1, "created_at": _old(400)},
-        {"id": "k", "source_type": "ai", "importance_score": 0.2, "created_at": _old(1)},
+        {
+            "id": "a",
+            "source_type": "ai",
+            "importance_score": 0.1,
+            "confidence": 0.1,
+            "created_at": _old(400),
+        },
+        {
+            "id": "k",
+            "source_type": "ai",
+            "importance_score": 0.2,
+            "created_at": _old(1),
+        },
     ]
     plan = plan_decay(nodes, NOW)  # type: ignore[arg-type]
-    assert plan["exempt"] == ["h"] and plan["archive"] == ["a"] and plan["keep"] == ["k"]
+    assert (
+        plan["exempt"] == ["h"] and plan["archive"] == ["a"] and plan["keep"] == ["k"]
+    )
 
 
 @pytest.mark.concept(id="KG-2.17")
 def test_semantic_merge_groups_and_length_prefilter():
     a = {"id": "a", "content": "x" * 100, "embedding": [1.0, 0.0]}
-    b = {"id": "b", "content": "y" * 100, "embedding": [1.0, 0.0]}  # identical vector → merge
-    c = {"id": "c", "content": "z" * 10, "embedding": [1.0, 0.0]}   # 10x shorter → length pre-filter skips
-    d = {"id": "d", "content": "w" * 100, "embedding": [0.0, 1.0]}  # orthogonal → no merge
+    b = {
+        "id": "b",
+        "content": "y" * 100,
+        "embedding": [1.0, 0.0],
+    }  # identical vector → merge
+    c = {
+        "id": "c",
+        "content": "z" * 10,
+        "embedding": [1.0, 0.0],
+    }  # 10x shorter → length pre-filter skips
+    d = {
+        "id": "d",
+        "content": "w" * 100,
+        "embedding": [0.0, 1.0],
+    }  # orthogonal → no merge
     groups = semantic_merge_groups([a, b, c, d])
     assert groups == [["a", "b"]]
 
@@ -99,8 +169,23 @@ class _FakeEngine:
 @pytest.mark.concept(id="KG-2.17")
 def test_run_archives_via_valid_to_not_delete():
     rows = [
-        {"id": "a", "data": {"source_type": "ai", "importance_score": 0.1, "confidence": 0.1, "created_at": _old(400)}},
-        {"id": "k", "data": {"source_type": "ai", "importance_score": 0.2, "created_at": _old(1)}},
+        {
+            "id": "a",
+            "data": {
+                "source_type": "ai",
+                "importance_score": 0.1,
+                "confidence": 0.1,
+                "created_at": _old(400),
+            },
+        },
+        {
+            "id": "k",
+            "data": {
+                "source_type": "ai",
+                "importance_score": 0.2,
+                "created_at": _old(1),
+            },
+        },
     ]
     eng = _FakeEngine(rows)
     out = MemoryHygiene(eng).run(now=NOW)
@@ -113,7 +198,17 @@ def test_run_archives_via_valid_to_not_delete():
 
 @pytest.mark.concept(id="KG-2.17")
 def test_dry_run_does_not_write():
-    rows = [{"id": "a", "data": {"source_type": "ai", "importance_score": 0.1, "confidence": 0.1, "created_at": _old(400)}}]
+    rows = [
+        {
+            "id": "a",
+            "data": {
+                "source_type": "ai",
+                "importance_score": 0.1,
+                "confidence": 0.1,
+                "created_at": _old(400),
+            },
+        }
+    ]
     eng = _FakeEngine(rows)
     out = MemoryHygiene(eng).run(now=NOW, dry_run=True)
     assert out["archived"] == 1 and out["dry_run"] is True
@@ -163,10 +258,28 @@ class _MergeEngine:
 def test_run_applies_merge_soft_retire_and_edge():
     # Two identical-vector, similar-length AI memories → a merge group.
     rows = [
-        {"id": "a", "data": {"source_type": "ai", "importance_score": 0.4, "created_at": _old(1),
-                             "content": "x" * 50, "tags": ["t1"], "embedding": [1.0, 0.0]}},
-        {"id": "b", "data": {"source_type": "ai", "importance_score": 0.9, "created_at": _old(1),
-                             "content": "y" * 50, "tags": ["t2"], "embedding": [1.0, 0.0]}},
+        {
+            "id": "a",
+            "data": {
+                "source_type": "ai",
+                "importance_score": 0.4,
+                "created_at": _old(1),
+                "content": "x" * 50,
+                "tags": ["t1"],
+                "embedding": [1.0, 0.0],
+            },
+        },
+        {
+            "id": "b",
+            "data": {
+                "source_type": "ai",
+                "importance_score": 0.9,
+                "created_at": _old(1),
+                "content": "y" * 50,
+                "tags": ["t2"],
+                "embedding": [1.0, 0.0],
+            },
+        },
     ]
     eng = _MergeEngine(rows)
     out = MemoryHygiene(eng).run(now=NOW)

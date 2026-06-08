@@ -5,7 +5,7 @@ pydantic[email]>=2.8.2
 pydantic-settings>=2.0.0
 PyYAML>=6.0.0
 python-dotenv>=1.2.1
-epistemic-graph>=0.25.0
+epistemic-graph>=0.26.0
 ladybug>=0.15.3
 numpy
 scipy

@@ -140,7 +140,9 @@ def _default_tier_for(node_id: str) -> str:
     return _SPECIALIST_TIER_HINTS.get(node_id, "medium")
 
 
-def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
+def pick_specialist_model(
+    ctx_deps: Any, node_id: str, step_model_id: str | None = None
+) -> Any:
     """Pick the model to use when spawning the specialist ``node_id``.
 
     Resolution order:
@@ -163,6 +165,38 @@ def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
     registry = getattr(ctx_deps, "model_registry", None)
     if registry is None or not getattr(registry, "models", None):
         return ctx_deps.agent_model
+
+    # CONCEPT:ORCH-1.27 — a Conductor-assigned per-step model_id wins over both the
+    # per-turn header override and tier routing (the Conductor explicitly chose it).
+    if step_model_id:
+        chosen = registry.get_by_id(step_model_id)
+        if chosen is not None:
+            try:
+                from agent_utilities.core.model_factory import create_model
+
+                api_key = os.getenv(chosen.api_key_env) if chosen.api_key_env else None
+                logger.info(
+                    "Spawning specialist '%s' with Conductor-assigned model '%s'",
+                    node_id,
+                    chosen.id,
+                )
+                return create_model(
+                    provider=chosen.provider,
+                    model_id=chosen.model_id,
+                    base_url=chosen.base_url,
+                    api_key=api_key,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Conductor model '%s' failed to build; falling back: %s",
+                    step_model_id,
+                    e,
+                )
+        else:
+            logger.debug(
+                "Conductor model id '%s' not in registry; using override/tier routing",
+                step_model_id,
+            )
 
     requested_id = getattr(ctx_deps, "requested_model_id", None)
     if requested_id:
@@ -251,7 +285,7 @@ def pick_specialist_model(ctx_deps: Any, node_id: str) -> Any:
     runtime_confidence = 0.5
     if knowledge_engine is not None:
         try:
-            from ..knowledge_graph.workspace_attention import WorkspaceAttention as _WA
+            from .workspace_attention import WorkspaceAttention as _WA
 
             _wa = _WA(knowledge_engine)
             _score = _wa.get_attention_score(node_id)
@@ -707,7 +741,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
     attention_score: float | None = None
     if ctx.deps.knowledge_engine:
         try:
-            from ..knowledge_graph.workspace_attention import WorkspaceAttention
+            from .workspace_attention import WorkspaceAttention
 
             wa = WorkspaceAttention(ctx.deps.knowledge_engine)
             attention_score = wa.get_attention_score(agent_name)
@@ -1408,7 +1442,11 @@ async def _execute_specialized_step(
 
     from pydantic_ai import DeferredToolRequests
 
-    specialist_model = pick_specialist_model(ctx.deps, prompt_name)
+    # CONCEPT:ORCH-1.27 — honor a Conductor-assigned per-step model_id (ctx.inputs is
+    # the current ExecutionStep/Task); falls back to override/tier routing when unset.
+    specialist_model = pick_specialist_model(
+        ctx.deps, prompt_name, step_model_id=getattr(ctx.inputs, "model_id", None)
+    )
 
     agent = Agent(
         model=specialist_model,

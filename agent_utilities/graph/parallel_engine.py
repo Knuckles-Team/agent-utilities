@@ -184,6 +184,8 @@ class ParallelEngine:
         )
         # CONCEPT:ORCH-1.32 — schedule metadata (critical-path, parallelism) captured per run
         self._schedule_meta: dict[str, Any] = {}
+        # CONCEPT:ORCH-1.32 — previous run's MASS latent-state distribution, for W1 drift
+        self._prev_social_states: list[float] = []
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -298,6 +300,19 @@ class ParallelEngine:
 
         # 5. Synthesize outputs (RLM-native)
         all_results = [r for w in wave_results for r in w.results]
+
+        # 5a. CONCEPT:ORCH-1.2 — Global Workspace Attention: score the specialists'
+        # outputs, select winners, and broadcast them to the KG. The broadcast is the
+        # training signal `executor.get_attention_score` reads back as each
+        # specialist's runtime standing. Runs only with a shared engine and ≥2
+        # successful outputs (consensus is meaningless for one); non-fatal.
+        self._broadcast_workspace_attention(all_results, resolved)
+
+        # 5b. CONCEPT:ORCH-1.32 — model the wave as a Multi-Agent Social System and
+        # snapshot swarm health (archetype heterogeneity, topology variance,
+        # co-evolution slope, W1 drift vs the previous run); non-fatal telemetry.
+        social_health = self._social_swarm_health(all_results, resolved)
+
         synthesis_output = await self._synthesize(
             all_results, resolved.synthesis, resolved.query, graph_deps
         )
@@ -377,6 +392,16 @@ class ParallelEngine:
             "wave_count": len(wave_results),
             "max_concurrency": int(concurrency),
         }
+        # CONCEPT:ORCH-1.2 — surface GWT loop health (write/read counters +
+        # suspected engine-instance mismatch) for observability.
+        try:
+            from .workspace_attention import workspace_attention_telemetry
+
+            telemetry["workspace_attention"] = workspace_attention_telemetry()
+        except Exception:  # pragma: no cover - telemetry is best-effort
+            pass
+        if social_health:
+            telemetry["social_system"] = social_health
 
         result = ExecutionResult(
             manifest_id=resolved.manifest_id,
@@ -802,6 +827,20 @@ class ParallelEngine:
 
                 checkpoint_store = GraphCheckpointStore(engine=self.engine)
 
+            # CONCEPT:ECO-4.0 — gap-fill the workflow's declared tools against what's
+            # available (substitute by capability, or surface a precise gap). Defensive:
+            # falls back to agent.tools unchanged when availability is undeterminable.
+            from .tool_resolver import resolve_agent_tools
+
+            _tool_res = resolve_agent_tools(self.engine, agent.tools)
+            if _tool_res.filled or _tool_res.missing:
+                logger.info(
+                    "[CONCEPT:ECO-4.0] tool gap-fill for '%s': filled=%s missing=%s",
+                    agent.agent_id,
+                    _tool_res.filled,
+                    _tool_res.missing,
+                )
+
             # Wire up all 8 capabilities natively using factory
             llm_agent, _ = create_agent(
                 provider=provider,
@@ -811,7 +850,7 @@ class ParallelEngine:
                 enable_skills=True,
                 enable_universal_tools=True,
                 mcp_config=metadata.get("mcp_config"),
-                tool_tags=agent.tools,
+                tool_tags=_tool_res.resolved or agent.tools,
                 stuck_loop_detection=metadata.get("stuck_loop_detection", True),
                 stuck_loop_max_repeated=metadata.get("stuck_loop_max_repeated", 3),
                 context_warnings=metadata.get("context_warnings", True),
@@ -1282,6 +1321,118 @@ class ParallelEngine:
             return f"{running_summary}\n\n---\n\n{new_result.output}"
 
     # ── KG Persistence ──────────────────────────────────────────────
+
+    def _broadcast_workspace_attention(
+        self, all_results: list[AgentExecutionResult], manifest: ExecutionManifest
+    ) -> list[str]:
+        """Score + broadcast specialist outputs through Global Workspace Attention.
+
+        CONCEPT:ORCH-1.2. Builds ``{agent_id: output}`` from the successful results
+        and runs :meth:`WorkspaceAttention.select_and_broadcast`, persisting the
+        winning proposals to the shared engine so ``get_attention_score`` can read
+        each specialist's standing on later runs. Best-effort: a missing engine,
+        fewer than two outputs, or any error degrades to a no-op.
+
+        Returns the broadcast specialist ids (empty when it no-ops).
+        """
+        if self.engine is None:
+            return []
+        outputs = {
+            r.agent_id: r.output
+            for r in all_results
+            if r.success and r.output and r.agent_id
+        }
+        if len(outputs) < 2:
+            return []
+        try:
+            from .workspace_attention import WorkspaceAttention
+
+            wa = WorkspaceAttention(self.engine)
+            winners = wa.select_and_broadcast(
+                outputs, manifest.query, task_id=manifest.manifest_id
+            )
+            if winners:
+                logger.info(
+                    "[CONCEPT:ORCH-1.2] GWT broadcast %d/%d specialist proposals "
+                    "(top: %s=%.3f)",
+                    len(winners),
+                    len(outputs),
+                    winners[0].specialist_id,
+                    winners[0].composite_score,
+                )
+                self._record_winners_to_memory(winners)
+            return [w.specialist_id for w in winners]
+        except Exception as e:  # pragma: no cover - non-fatal telemetry path
+            logger.debug("WorkspaceAttention broadcast skipped: %s", e)
+            return []
+
+    def _record_winners_to_memory(self, winners: list[Any]) -> None:
+        """Record GWT winners into the evolving memory store (CONCEPT:KG-2.1).
+
+        The winning specialists are durable signal about *what works*; routing them
+        through :class:`EvolvingMemoryStore` (INSIGHT bank, deduped per specialist so
+        repeat wins reinforce) gives the self-model a live, unified record alongside
+        the skill/insight entries written by the evolution engine. Best-effort.
+        """
+        try:
+            from ..harness.evolving_memory import EvolvingMemoryStore, MemoryBank
+
+            store = EvolvingMemoryStore(engine=self.engine)
+            for w in winners:
+                store.add(
+                    MemoryBank.INSIGHT,
+                    f"Specialist '{w.specialist_id}' won the global workspace "
+                    f"(composite={w.composite_score:.3f}).",
+                    signature=f"gwt-winner:{w.specialist_id}",
+                    importance=float(w.composite_score),
+                    metadata={
+                        "specialist_id": w.specialist_id,
+                        "composite_score": w.composite_score,
+                        "source": "workspace_attention",
+                    },
+                )
+        except Exception as e:  # pragma: no cover - non-fatal
+            logger.debug("EvolvingMemoryStore winner recording skipped: %s", e)
+
+    def _social_swarm_health(
+        self, all_results: list[AgentExecutionResult], manifest: ExecutionManifest
+    ) -> dict:
+        """Snapshot Multi-Agent Social System health for the wave (CONCEPT:ORCH-1.32).
+
+        Builds a MASS from the run: archetype = each agent's role, latent state = a
+        success-weighted output magnitude, and the interaction graph ``G`` from the
+        manifest's ``depends_on`` DAG edges. Returns the P1–P4 swarm-health snapshot
+        (heterogeneity / topology variance / co-evolution slope / W1 drift vs the
+        previous run). Best-effort: <2 agents or any error → ``{}``.
+        """
+        if len(all_results) < 2:
+            return {}
+        try:
+            from .social_system import MultiAgentSocialSystem
+
+            roles = {a.agent_id: (a.role or "worker") for a in manifest.agents}
+            mass = MultiAgentSocialSystem()
+            for r in all_results:
+                # Latent state: output magnitude, zeroed on failure.
+                state = float(len(r.output)) if r.success else 0.0
+                mass.add_agent(
+                    r.agent_id,
+                    archetype=roles.get(r.agent_id, r.role or "worker"),
+                    latent_state=state,
+                )
+            present = {r.agent_id for r in all_results}
+            for a in manifest.agents:
+                for dep in getattr(a, "depends_on", []) or []:
+                    if a.agent_id in present and dep in present:
+                        mass.add_edge(a.agent_id, dep)
+            health = mass.swarm_health(prev_states=self._prev_social_states or None)
+            self._prev_social_states = [
+                float(len(r.output)) if r.success else 0.0 for r in all_results
+            ]
+            return health
+        except Exception as e:  # pragma: no cover - non-fatal telemetry
+            logger.debug("Social-system health snapshot skipped: %s", e)
+            return {}
 
     def _persist_execution(
         self,

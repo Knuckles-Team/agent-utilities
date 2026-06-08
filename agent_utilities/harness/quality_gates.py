@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 # ── Anti-slop antipattern registry (KG-stored in production; in-module default here) ──
 
@@ -71,7 +71,7 @@ class AntipatternRegistry:
 # ── Preflight checklist (P0/P1/P2) ───────────────────────────────────
 
 
-class Priority(str, Enum):
+class Priority(StrEnum):
     P0 = "P0"  # blocking
     P1 = "P1"
     P2 = "P2"

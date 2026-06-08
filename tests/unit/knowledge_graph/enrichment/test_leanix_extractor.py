@@ -39,7 +39,11 @@ class FakeLeanIXClient:
                 {"id": "ic1", "name": "PostgreSQL", "type": "ITComponent"},
             ],
             "BusinessCapability": [
-                {"id": "c1", "name": "Revenue Management", "type": "BusinessCapability"},
+                {
+                    "id": "c1",
+                    "name": "Revenue Management",
+                    "type": "BusinessCapability",
+                },
             ],
             "DataObject": [],
         }

@@ -50,8 +50,11 @@ def test_make_capability_search_uses_designate():
     search = make_capability_search(FakeFacade(), _embed)
     res = search("ingest a codebase", 5)
     assert res[0] == {
-        "id": "tool:graph_query", "type": "Tool", "name": "graph_query",
-        "score": 0.91, "capabilities": ["query"],
+        "id": "tool:graph_query",
+        "type": "Tool",
+        "name": "graph_query",
+        "score": 0.91,
+        "capabilities": ["query"],
     }
     assert res[1]["type"] == "Skill" and res[1]["name"] == "knowledge-graph-ingest"
 
@@ -88,7 +91,9 @@ async def test_execute_team_spec_runs_all_members():
         return f"{name}-done"
 
     team = TeamSpec(name="Squad", lead="Lead", members=["Lead", "Worker"])
-    members = [AgentSpec(name="Lead", goal="coordinate"),
-               AgentSpec(name="Worker", goal="do the work")]
+    members = [
+        AgentSpec(name="Lead", goal="coordinate"),
+        AgentSpec(name="Worker", goal="do the work"),
+    ]
     results = await execute_team_spec(team, members, "ship it", runner=fake_runner)
     assert results == {"Lead": "Lead-done", "Worker": "Worker-done"}

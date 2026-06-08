@@ -15,7 +15,6 @@ import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agent_utilities.orchestration import ParallelEngine
 
 from agent_utilities.capabilities.checkpointing import FileCheckpointStore
 from agent_utilities.models.execution_manifest import (
@@ -23,6 +22,7 @@ from agent_utilities.models.execution_manifest import (
     ExecutionManifest,
     SynthesisSpec,
 )
+from agent_utilities.orchestration import ParallelEngine
 from agent_utilities.workflows.skill_compiler import SkillCompiler
 
 # Setup environment variables for clean testing
@@ -228,3 +228,81 @@ async def test_auto_healing_triggers_on_failures():
         assert len(res.wave_results) == 1
         assert res.wave_results[0].results[0].success is False
         assert "API limit exceeded" in res.wave_results[0].results[0].error
+
+
+class _FakeKGEngine:
+    """Minimal shared knowledge engine for the GWT broadcast wiring test."""
+
+    def __init__(self):
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
+
+        self.graph = GraphComputeEngine(backend_type="rust")
+        self.backend = None
+        self.persisted: list[tuple] = []  # EvolvingMemoryStore._persist calls
+
+    def _upsert_node(self, label, node_id, props):  # pragma: no cover - unused here
+        pass
+
+    def add_node(self, node_id, node_type, properties=None):
+        # EvolvingMemoryStore._persist target.
+        self.persisted.append((node_id, node_type, properties or {}))
+
+
+def test_broadcast_workspace_attention_live_loop():
+    """CONCEPT:ORCH-1.2 — the parallel engine drives the GWT loop and the broadcast
+    is readable back via get_attention_score (the previously-dead loop, now live)."""
+    from types import SimpleNamespace
+
+    from agent_utilities.graph.workspace_attention import WorkspaceAttention
+    from agent_utilities.models.execution_manifest import AgentExecutionResult
+
+    kg = _FakeKGEngine()
+    engine = ParallelEngine(engine=kg)
+    results = [
+        AgentExecutionResult(
+            agent_id="spec:gitlab",
+            output="Here are 5 gitlab projects with full details and tasks",
+            success=True,
+        ),
+        AgentExecutionResult(
+            agent_id="spec:weather",
+            output="It is sunny today, totally unrelated content",
+            success=True,
+        ),
+    ]
+    manifest = SimpleNamespace(query="list gitlab projects", manifest_id="m1")
+
+    broadcast_ids = engine._broadcast_workspace_attention(results, manifest)
+    assert broadcast_ids  # winners were broadcast (≥2 successful outputs)
+
+    # The broadcast is now readable as runtime attention — the loop is closed.
+    score = WorkspaceAttention(kg).get_attention_score(broadcast_ids[0])
+    assert score is not None and 0.0 <= score <= 1.0
+
+    # CONCEPT:KG-2.1 — winners were also routed into the evolving memory store,
+    # persisted to the shared engine (INSIGHT bank, gwt-winner signature).
+    insight_nodes = [
+        props
+        for _id, _t, props in kg.persisted
+        if props.get("bank") == "insight"
+        and str(props.get("signature", "")).startswith("gwt-winner:")
+    ]
+    assert insight_nodes  # the previously-deferred EvolvingMemoryStore site is live
+
+
+def test_broadcast_workspace_attention_noop_without_engine():
+    engine = ParallelEngine()  # no shared engine
+    from types import SimpleNamespace
+
+    from agent_utilities.models.execution_manifest import AgentExecutionResult
+
+    results = [
+        AgentExecutionResult(agent_id="a", output="x", success=True),
+        AgentExecutionResult(agent_id="b", output="y", success=True),
+    ]
+    out = engine._broadcast_workspace_attention(
+        results, SimpleNamespace(query="q", manifest_id="m")
+    )
+    assert out == []

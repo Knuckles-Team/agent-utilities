@@ -4,11 +4,13 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-import pytest
-from typing import Any
 
-from agent_utilities.knowledge_graph.distillation.physical_distiller import PhysicalDistillationEngine
+import pytest
+
 from agent_utilities.harness.evolve_agent import EvolveAgent
+from agent_utilities.knowledge_graph.distillation.physical_distiller import (
+    PhysicalDistillationEngine,
+)
 
 
 @pytest.fixture
@@ -55,11 +57,14 @@ This is the workflow description.
     assert success is True
 
     # 3. Read back and assert values
-    with open(skill_file, "r", encoding="utf-8") as f:
+    with open(skill_file, encoding="utf-8") as f:
         updated_content = f.read()
 
     assert "name: evolved_skill_name" in updated_content
-    assert "description: This is a highly advanced evolved skill description." in updated_content
+    assert (
+        "description: This is a highly advanced evolved skill description."
+        in updated_content
+    )
     assert "tags: ['evolved', 'dns', 'auto']" in updated_content
     assert "requires: ['adguard-home-agent', 'new-dependency']" in updated_content
     assert "# Test Skill Body" in updated_content
@@ -92,7 +97,7 @@ def test_tool(param1: str) -> str:
 
     assert success is True
 
-    with open(py_file, "r", encoding="utf-8") as f:
+    with open(py_file, encoding="utf-8") as f:
         updated_code = f.read()
 
     assert '"""This is a brand new description of the tool."""' in updated_code
@@ -122,7 +127,7 @@ def test_tool_no_doc(param1: str) -> str:
 
     assert success is True
 
-    with open(py_file, "r", encoding="utf-8") as f:
+    with open(py_file, encoding="utf-8") as f:
         updated_code = f.read()
 
     assert '"""Injected tool docstring."""' in updated_code
@@ -141,7 +146,7 @@ def test_distill_system_prompt(temp_workspace):
 
     assert success is True
 
-    with open(prompt_file, "r", encoding="utf-8") as f:
+    with open(prompt_file, encoding="utf-8") as f:
         content = f.read()
 
     assert content == "You are Antigravity, a self-evolving system prompt."
@@ -151,15 +156,14 @@ def test_dspy_dynamic_optimizers_selection(temp_workspace):
     """Verify that EvolveAgent properly instantiates and configures alternate optimizers."""
     # Test MIPROv2 configuration
     agent_mipro = EvolveAgent(
-        workspace_path=temp_workspace,
-        dspy_optimizer_type="MIPROv2"
+        workspace_path=temp_workspace, dspy_optimizer_type="MIPROv2"
     )
     assert agent_mipro.dspy_optimizer_type == "MIPROv2"
 
     # Test BootstrapFewShotWithRandomSearch configuration
     agent_search = EvolveAgent(
         workspace_path=temp_workspace,
-        dspy_optimizer_type="BootstrapFewShotWithRandomSearch"
+        dspy_optimizer_type="BootstrapFewShotWithRandomSearch",
     )
     assert agent_search.dspy_optimizer_type == "BootstrapFewShotWithRandomSearch"
 

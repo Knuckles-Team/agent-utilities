@@ -26,6 +26,7 @@ See docs/pillars/1_graph_orchestration.md §CONCEPT:ORCH-1.3
 from __future__ import annotations
 
 import logging
+import statistics
 import time
 import uuid
 from enum import StrEnum
@@ -37,6 +38,53 @@ if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
+
+
+# ── Named aggregation registry (CONCEPT:ORCH-1.3) ──────────────────
+# The coordination layer's named aggregation taxonomy (b1-02 F5). Scalar
+# reductions live here; pairwise/uncertainty operators (Bradley–Terry,
+# conservative-rating, contribution-weighted) are delegated to the unified
+# selection registry (``harness.selection_operators``) so there is ONE place the
+# whole stack picks/aggregates candidates (STRATEGY synergy #2).
+
+
+class AggregationOperator(StrEnum):
+    """Named scalar aggregation operators for coordinated outputs."""
+
+    MEAN = "mean"
+    MEDIAN = "median"
+    MAX = "max"
+    MIN = "min"
+    LOG_POOL = (
+        "log_pool"  # logarithmic opinion pool (geometric mean), for probabilities
+    )
+
+
+def aggregate_scores(
+    values: list[float], operator: AggregationOperator | str = AggregationOperator.MEAN
+) -> float:
+    """Aggregate a list of scores by a named operator (CONCEPT:ORCH-1.3).
+
+    ``log_pool`` is the geometric mean (clamped to >0), the principled pool for
+    combining independent probabilities; the rest are the obvious reductions.
+    Returns 0.0 for an empty input.
+    """
+    if not values:
+        return 0.0
+    op = AggregationOperator(operator)
+    if op is AggregationOperator.MEAN:
+        return sum(values) / len(values)
+    if op is AggregationOperator.MEDIAN:
+        return float(statistics.median(values))
+    if op is AggregationOperator.MAX:
+        return max(values)
+    if op is AggregationOperator.MIN:
+        return min(values)
+    # LOG_POOL — geometric mean of strictly-positive values
+    import math
+
+    clamped = [max(v, 1e-9) for v in values]
+    return math.exp(sum(math.log(v) for v in clamped) / len(clamped))
 
 
 # ── Protocol Definitions ───────────────────────────────────────────
@@ -203,6 +251,31 @@ class CoordinationLayer:
         self._success_history: dict[str, list[float]] = {}
 
     # ── Protocol Selection ─────────────────────────────────────────
+
+    def aggregate(
+        self,
+        values: list[float],
+        operator: AggregationOperator | str = AggregationOperator.MEAN,
+    ) -> float:
+        """Aggregate coordinated scalar outputs by a named operator (CONCEPT:ORCH-1.3)."""
+        return aggregate_scores(values, operator)
+
+    def rank(
+        self,
+        items: list[str],
+        comparisons: list[tuple[str, str]],
+        *,
+        method: str = "bradley_terry",
+    ) -> list[tuple[str, float]]:
+        """Rank candidates from pairwise judgments via the unified selection registry.
+
+        Delegates to :mod:`agent_utilities.harness.selection_operators` so the
+        coordination layer and the evolution/variant paths share ONE selection
+        implementation (CONCEPT:ORCH-1.30; STRATEGY synergy #2).
+        """
+        from ..harness.selection_operators import rank_from_comparisons
+
+        return rank_from_comparisons(items, comparisons, method=method)
 
     def select_protocol(
         self,

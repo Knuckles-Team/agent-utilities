@@ -33,6 +33,14 @@ def test_custom_provider_rejects_internal_ip(monkeypatch):
 def test_custom_provider_builds_model_for_public_url(monkeypatch):
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
     # Loopback is allowed by the egress guard → local proxy / local LLM works.
-    model = create_model(provider="custom", model_id="gpt-x", base_url="http://127.0.0.1:8080/v1", api_key="k")
+    model = create_model(
+        provider="custom",
+        model_id="gpt-x",
+        base_url="http://127.0.0.1:8080/v1",
+        api_key="k",
+    )
     assert model is not None
-    assert getattr(model, "model_name", "gpt-x") in ("gpt-x", getattr(model, "model_name", "gpt-x"))
+    assert getattr(model, "model_name", "gpt-x") in (
+        "gpt-x",
+        getattr(model, "model_name", "gpt-x"),
+    )

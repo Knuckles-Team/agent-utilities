@@ -38,6 +38,7 @@ def _spec(name, description="d"):
 
 # ---- R2: TeamConfig reuse -----------------------------------------------------
 
+
 def test_r2_select_reusable_team():
     team = types.SimpleNamespace(success_rate=0.9, reuse_threshold=0.7)
     assert select_reusable_team([team]) is team
@@ -48,6 +49,7 @@ def test_r2_select_reusable_team():
 
 
 # ---- R4 / R5: self-model context ---------------------------------------------
+
 
 def test_r4_proficiency_context_top5_sorted():
     rates = {"py": 0.9, "rust": 0.5, "go": 0.7, "js": 0.1, "c": 0.6, "java": 0.95}
@@ -76,12 +78,15 @@ def test_self_model_context_combines_r4_then_r5():
     out = self_model_context(current)
     assert out.index("DOMAIN PROFICIENCY") < out.index("SPECIALIST AFFINITIES")
     # R5 only injected when R4 present (monolith ordering).
-    only_trails = types.SimpleNamespace(domain_success_rates={}, pheromone_trails={"a": {"x": 0.5}})
+    only_trails = types.SimpleNamespace(
+        domain_success_rates={}, pheromone_trails={"a": {"x": 0.5}}
+    )
     assert self_model_context(only_trails) == ""
     assert self_model_context(None) == ""
 
 
 # ---- R6: filtered specialist injection ---------------------------------------
+
 
 def test_r6_step_info_lists_relevant_and_other_names():
     relevant = [_spec("python", "py dev"), _spec("rust", "rust dev")]
@@ -95,6 +100,7 @@ def test_r6_step_info_lists_relevant_and_other_names():
 
 # ---- R7: reward-driven (pheromone) optimization ------------------------------
 
+
 def test_r7_filter_by_pheromone_drops_low_affinity():
     relevant = [_spec("good"), _spec("bad")]
     trails = {"good": {"x": 0.9}, "bad": {"x": 0.05}}  # bad avg < 0.1
@@ -106,6 +112,7 @@ def test_r7_filter_by_pheromone_drops_low_affinity():
 
 # ---- R8: telemetry-driven optimization ---------------------------------------
 
+
 def test_r8_prune_by_telemetry_drops_anomalous():
     relevant = [_spec("healthy"), _spec("flaky")]
     anomalies = {"flaky": 9, "healthy": 1}
@@ -116,6 +123,7 @@ def test_r8_prune_by_telemetry_drops_anomalous():
 
 # ---- R9: subtask + wide-search instructions ----------------------------------
 
+
 def test_r9_instructions_contain_both_sections():
     txt = subtask_and_widesearch_instructions()
     assert "SUBTASK SPECIFICATION (CONCEPT:ORCH-1.1)" in txt
@@ -124,6 +132,7 @@ def test_r9_instructions_contain_both_sections():
 
 
 # ---- R11: complexity detection (text heuristic) ------------------------------
+
 
 def test_r11_is_complex_query():
     assert is_complex_query("architect a distributed system") is True
@@ -135,6 +144,7 @@ def test_r11_is_complex_query():
 
 
 # ---- R10: RLM planning + fallback parser -------------------------------------
+
 
 class _FakePlan:
     def __init__(self, **data):
@@ -158,6 +168,7 @@ def test_r10_rlm_instruction_and_parser():
 
 
 # ---- R13: multi-level fallback chain -----------------------------------------
+
 
 def test_r13_fallback_prompt_and_name_matching():
     prompt = unstructured_fallback_prompt("BASE PROMPT")

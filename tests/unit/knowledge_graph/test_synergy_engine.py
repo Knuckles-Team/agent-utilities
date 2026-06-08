@@ -52,7 +52,7 @@ def sample_registry() -> dict:
             "pillar": "KG-2",
             "module": "knowledge_graph/elastic_context_manager.py",
         },
-        "KG-2.7": {
+        "KG-2.7": {  # noqa: F601 — pre-existing duplicate fixture key (last-wins)
             "name": "Research Pipeline",
             "pillar": "KG-2",
             "module": "automation/research_pipeline.py",

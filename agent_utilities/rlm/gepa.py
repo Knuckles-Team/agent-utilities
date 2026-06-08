@@ -120,10 +120,18 @@ def select_best_on_heldout(
 class ParetoCandidatePool:
     """Maintains a set of non-dominated candidates (the Pareto Frontier)."""
 
-    def __init__(self, objectives: list[str], max_size: int = 10):
+    def __init__(
+        self, objectives: list[str], max_size: int = 10, dynamic_weighting: bool = False
+    ):
         self.objectives = objectives  # e.g., ["accuracy", "efficiency", "error_rate"]
         self.max_size = max_size
         self.pool: list[Candidate] = []
+        # CONCEPT:ORCH-1.30 — DW-GRPO anti-seesaw reward weighting (opt-in).
+        self._weighter: Any = None
+        if dynamic_weighting:
+            from .dynamic_reward import DynamicRewardWeighter
+
+            self._weighter = DynamicRewardWeighter(objectives)
 
     def is_dominated(self, c1: Candidate, c2: Candidate) -> bool:
         """Returns True if c1 is dominated by c2.
@@ -180,6 +188,41 @@ class ParetoCandidatePool:
     def get_frontier(self) -> list[Candidate]:
         """Return the current active Pareto frontier candidates."""
         return self.pool
+
+    def observe(self) -> dict[str, float]:
+        """Record the current best-per-objective into the DW-GRPO weighter.
+
+        No-op (returns ``{}``) when dynamic weighting is disabled. CONCEPT:ORCH-1.30.
+        """
+        if self._weighter is None or not self.pool:
+            return {}
+        best = {
+            obj: max(c.scores.get(obj, 0.0) for c in self.pool)
+            for obj in self.objectives
+        }
+        self._weighter.observe(best)
+        return self._weighter.weights()
+
+    def weighted_best(self) -> Candidate | None:
+        """Best candidate by DW-GRPO weighted scalarization (CONCEPT:ORCH-1.30).
+
+        Falls back to the primary-objective best (identical to ``get_frontier()[0]``)
+        when dynamic weighting is off or there is not yet a slope signal — so
+        behaviour is unchanged until the anti-seesaw signal is meaningful.
+        """
+        if not self.pool:
+            return None
+        if self._weighter is None or not self._weighter.ready:
+            return self.pool[0]
+        return max(self.pool, key=lambda c: self._weighter.scalarize(c.scores))
+
+    @property
+    def reward_weights(self) -> dict[str, float]:
+        """Current DW-GRPO reward weights (uniform when disabled/cold)."""
+        if self._weighter is None:
+            n = len(self.objectives) or 1
+            return {obj: 1.0 / n for obj in self.objectives}
+        return self._weighter.weights()
 
     # ── CONCEPT:ORCH-1.31 — Graph-Native Optimization State (resumable GEPA) ──────────
 
@@ -346,7 +389,10 @@ class GEPAOptimizer:
         self.agent_spec = agent_spec  # CONCEPT:ORCH-1.30 anti-overfit grounding
 
         self.objectives = objectives or ["accuracy", "efficiency"]
-        self.pool = ParetoCandidatePool(objectives=self.objectives)
+        # CONCEPT:ORCH-1.30 — DW-GRPO anti-seesaw weighting on by default for the optimizer.
+        self.pool = ParetoCandidatePool(
+            objectives=self.objectives, dynamic_weighting=True
+        )
         # CONCEPT:ORCH-1.27 — the proposer is the STRONG model (resolved via the rlm-proposer role),
         # decoupled from the cheap executor/sub-LM. Falls back to the configured small model.
         from .roles import rlm_role_model
@@ -479,8 +525,9 @@ class GEPAOptimizer:
                 )
                 new_candidates.append(crossover_child)
 
-            # 3. Update Pool
+            # 3. Update Pool + advance DW-GRPO reward weights (anti-seesaw, CONCEPT:ORCH-1.30)
             self.pool.update(new_candidates)
+            self.pool.observe()
 
         # CONCEPT:ORCH-1.30 — select the final candidate on the HELD-OUT pareto set (generalization),
         # not on the feedback minibatch the candidates were tuned on.
@@ -496,8 +543,14 @@ class GEPAOptimizer:
                 heldout.get(best_candidate.id, 0.0),
             )
         else:
-            best_candidate = frontier[0]
-            logger.info(f"Optimization finished. Best candidate: {best_candidate.id}")
+            # DW-GRPO anti-seesaw selection (falls back to frontier[0] until the
+            # slope signal is meaningful) — CONCEPT:ORCH-1.30.
+            best_candidate = self.pool.weighted_best() or frontier[0]
+            logger.info(
+                "Optimization finished. Best candidate: %s (reward weights=%s)",
+                best_candidate.id,
+                {k: round(v, 3) for k, v in self.pool.reward_weights.items()},
+            )
         return best_candidate
 
     async def _score_candidate_on(

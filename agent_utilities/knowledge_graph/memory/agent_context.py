@@ -164,6 +164,9 @@ class ContextCompactor:
         max_tokens: int = 8000,
         auto_compaction_ratio: float = 0.8,
         tool_summary_max_length: int = 500,
+        degradation_factor: float = 1.0,
+        fidelity_floor: float = 0.5,
+        quality_budget: int = 100_000,
     ) -> None:
         """Initialize the compactor.
 
@@ -173,13 +176,61 @@ class ContextCompactor:
                 this fraction of max_tokens (default 0.8).
             tool_summary_max_length: Max characters for tool output summaries
                 in ``summarize_tools`` strategy.
+            degradation_factor: CONCEPT:KG-2.1 (Root Theorem) ``D`` in the quality
+                budget ``F(P) = 1 − D·P/quality_budget`` — how fast fidelity decays
+                with cumulative processed tokens ``P``.
+            fidelity_floor: Compact once estimated fidelity drops below this (the
+                homeostatic gate that fires *before* the degradation cliff).
+            quality_budget: Cumulative-token scale of the fidelity curve.
         """
         self.max_tokens = max_tokens
         self.auto_compaction_ratio = auto_compaction_ratio
         self.tool_summary_max_length = tool_summary_max_length
+        self.degradation_factor = degradation_factor
+        self.fidelity_floor = fidelity_floor
+        self.quality_budget = max(1, quality_budget)
+        # Homeostatic state — cumulative tokens processed (the naive-append baseline).
+        self._processed_tokens = 0
+
+    def fidelity(self, processed_tokens: int | None = None) -> float:
+        """Estimated fidelity ``F(P) = max(0, 1 − D·P/budget)`` (CONCEPT:KG-2.1)."""
+        p = self._processed_tokens if processed_tokens is None else processed_tokens
+        return max(0.0, 1.0 - self.degradation_factor * p / self.quality_budget)
+
+    def record_processed(self, messages: list[dict[str, Any]]) -> float:
+        """Accumulate processed tokens into the quality budget; returns new fidelity.
+
+        Call as messages flow through so the fidelity gate can fire before the
+        cumulative-context degradation cliff (homeostatic, not capacity-only).
+        """
+        self._processed_tokens += estimate_message_tokens(messages)
+        return self.fidelity()
+
+    def divergence_report(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        """Homeostatic footprint vs naive-append telemetry (CONCEPT:KG-2.1).
+
+        A rising ``divergence`` (1 − current_footprint/naive_cumulative) means
+        compaction is keeping the window far below the naive append baseline.
+        """
+        footprint = estimate_message_tokens(messages)
+        naive = max(self._processed_tokens, footprint)
+        divergence = 1.0 - footprint / naive if naive else 0.0
+        return {
+            "processed_tokens": self._processed_tokens,
+            "current_footprint": footprint,
+            "fidelity": round(self.fidelity(), 4),
+            "below_fidelity_floor": self.fidelity() < self.fidelity_floor,
+            "divergence": round(divergence, 4),
+        }
 
     def should_compact(self, messages: list[dict[str, Any]]) -> bool:
-        """Check if messages exceed the auto-compaction threshold.
+        """Check if compaction is recommended.
+
+        Triggers on the capacity threshold (usage > ``auto_compaction_ratio`` of
+        ``max_tokens``) OR the CONCEPT:KG-2.1 fidelity gate (cumulative-context
+        fidelity below ``fidelity_floor``). The fidelity gate is dormant until
+        :meth:`record_processed` has accumulated tokens, so capacity-only callers
+        are unaffected.
 
         Args:
             messages: Current message list.
@@ -189,7 +240,9 @@ class ContextCompactor:
         """
         current_tokens = estimate_message_tokens(messages)
         threshold = int(self.max_tokens * self.auto_compaction_ratio)
-        return current_tokens > threshold
+        if current_tokens > threshold:
+            return True
+        return self.fidelity() < self.fidelity_floor
 
     def compact(
         self,

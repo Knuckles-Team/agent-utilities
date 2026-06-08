@@ -24,7 +24,9 @@ def test_resolve_relative_dates_absolute():
     now = "2026-06-04T12:00:00+00:00"
     assert "2026-06-03" in resolve_relative_dates("I did it yesterday", now=now)
     assert "2026-06-04" in resolve_relative_dates("happening today", now=now)
-    assert "2026-05-21" in resolve_relative_dates("2 weeks ago", now=now)  # 14 days back
+    assert "2026-05-21" in resolve_relative_dates(
+        "2 weeks ago", now=now
+    )  # 14 days back
     # Vague recency is intentionally left as report-time context.
     assert resolve_relative_dates("recently moved", now=now) == "recently moved"
 
@@ -92,8 +94,14 @@ def test_apply_update_supersedes_content_and_stamps():
     learner = BackgroundLearner(eng)  # type: ignore[arg-type]
     learner.apply_edits([MemoryEdit(action="ADD", id="m1", content="lives in Boston")])
     learner.apply_edits(
-        [MemoryEdit(action="UPDATE", id="m1", content="lives in Denver",
-                    event_time="2026-06-04T00:00:00+00:00")],
+        [
+            MemoryEdit(
+                action="UPDATE",
+                id="m1",
+                content="lives in Denver",
+                event_time="2026-06-04T00:00:00+00:00",
+            )
+        ],
         now="2026-06-04T12:00:00+00:00",
     )
     assert eng.nodes["m1"].content == "lives in Denver"  # type: ignore[attr-defined]
