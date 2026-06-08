@@ -182,7 +182,7 @@ def test_evolution_cycle_records_insight():
 
     eng = AgenticEvolutionEngine(engine=MagicMock())
     eng._lazy_init()
-    # Stub the variant pool so the cycle produces winners + health deterministically.
+    # Patch the variant pool so the cycle produces winners + health deterministically.
     vp = MagicMock()
     vp.tournament_select.return_value = ["v1", "v2"]
     vp.prune_losers.return_value = 1

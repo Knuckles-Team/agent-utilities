@@ -103,7 +103,7 @@ class FaithfulnessScorer:
     ) -> EvalResult:
         context = context or {}
         evidence = context.get("evidence", "")
-        if isinstance(evidence, (list, tuple)):
+        if isinstance(evidence, list | tuple):
             evidence = " ".join(str(e) for e in evidence)
         evidence_tokens = _tokens(evidence)
 

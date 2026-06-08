@@ -29,8 +29,8 @@ stores capitalized labels like `Article`; our enum values are lowercase).
 
 ```mermaid
 flowchart LR
-    ING["ingest (content-addressed)<br/>papers · OSS · repos · docs/chat"] --> DED
-    DED["dedup<br/>SIMILAR_TO + SUPERSEDES"] --> GAP
+    ING["ingest (content-addressed)<br/>papers · OSS · repos · docs/chat"] --> DEDUP
+    DEDUP["dedup<br/>SIMILAR_TO + SUPERSEDES"] --> GAP
     GAP["gap (auto_satisfy)<br/>SATISFIED_BY · open_features()"] --> SYN
     SYN["synergy + rank<br/>HAS_SYNERGY_WITH · PageRank"] --> PLAN
     PLAN["plan synthesis (LLM)<br/>from KG neighborhood"] --> CLOSE
