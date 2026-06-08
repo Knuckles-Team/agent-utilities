@@ -114,8 +114,10 @@ def _ingest_items(
             "source_uri": uri,
             "kind": str(item.get("kind", "") or ""),
             "status": "open",
-            # Capture referenced concept ids so the gap matcher can recognize
-            "concept_ids": sorted(set(_CONCEPT_REF.findall(f"{name} {text}".upper()))),
+            # The concept(s) this item DECLARES (from its title/identity), so the
+            # gap matcher can recognize it as already-built. Title only — not body
+            # prose, which cites many concepts the item merely relates to.
+            "concept_ids": sorted(set(_CONCEPT_REF.findall(name.upper()))),
         }
         engine.add_node(node_id, node_type, properties=props)
         report.node_ids.append(node_id)
