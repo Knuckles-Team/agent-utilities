@@ -459,6 +459,7 @@ def run_assimilation_pass(
     synthesize: bool = False,
     top_n: int = 5,
     force: bool = False,
+    synth_fn: Any = None,
 ) -> dict[str, Any]:
     """Run only the graph-compute assimilation middle (CONCEPT:KG-2.7).
 
@@ -466,6 +467,11 @@ def run_assimilation_pass(
     ``synthesize=True`` also generate grounded SDD plan proposals for the top-N
     open gaps. The MCP ``graph_orchestrate(action="assimilate")`` action and the
     evolution skill call this; the daemon runs it as part of ``run_one_cycle``.
+
+    ``synth_fn`` overrides plan synthesis (e.g. the deterministic offline
+    ``assimilation.plan_synthesis._default_synth``) so a caller/test can run fully
+    offline without the planner LLM; ``None`` keeps the default (timeout-bounded
+    LLM, falling back to the offline synthesizer).
     """
     if engine is None:
         from ..core.engine import IntelligenceGraphEngine
@@ -475,7 +481,7 @@ def run_assimilation_pass(
     if synthesize and not rep.get("skipped"):
         from ..assimilation import synthesize_plans
 
-        plans = synthesize_plans(engine, top_n=top_n)
+        plans = synthesize_plans(engine, top_n=top_n, synth_fn=synth_fn)
         rep["proposed_plans"] = [
             {"plan_id": p.plan_id, "feature_id": p.feature_id, "title": p.title}
             for p in plans

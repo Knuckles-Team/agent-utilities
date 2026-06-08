@@ -104,7 +104,17 @@ def _default_synth(neighborhood: dict[str, Any]) -> dict[str, str]:
 
 
 def _llm_synth(neighborhood: dict[str, Any]) -> dict[str, str] | None:
-    """Best-effort plan synthesis via the ORCH-1.27 ``planner`` role."""
+    """Best-effort plan synthesis via the ORCH-1.27 ``planner`` role.
+
+    Bounded by a hard wall-clock timeout (env ``ASSIMILATION_SYNTH_TIMEOUT_S``,
+    default 30s): an unreachable/slow planner endpoint must NOT hang the caller —
+    a blocking ``run_sync`` cannot be caught by ``try/except``, so we run it on a
+    worker thread and fall back to ``_default_synth`` on timeout. This keeps the
+    golden-loop assimilation tick non-blocking when no model is reachable.
+    """
+    import concurrent.futures
+    import os
+
     try:
         from agent_utilities.agent.factory import Agent
         from agent_utilities.core.model_factory import create_model
@@ -117,11 +127,19 @@ def _llm_synth(neighborhood: dict[str, Any]) -> dict[str, str] | None:
             "Return markdown only."
         )
         agent = Agent(model=model, system_prompt="You are an SDD plan synthesizer.")
-        result: Any = agent.run_sync(prompt)
+        try:
+            timeout_s = float(os.environ.get("ASSIMILATION_SYNTH_TIMEOUT_S", "30"))
+        except ValueError:
+            timeout_s = 30.0
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            result: Any = ex.submit(agent.run_sync, prompt).result(timeout=timeout_s)
+        finally:
+            ex.shutdown(wait=False)  # don't block on a wedged inference thread
         body = str(getattr(result, "output", None) or getattr(result, "data", "") or "")
         if body.strip():
             return {"title": f"Assimilate: {neighborhood['name']}", "body": body}
-    except Exception:  # pragma: no cover - planner is best-effort
+    except Exception:  # pragma: no cover - planner is best-effort (incl. timeout)
         return None
     return None
 
