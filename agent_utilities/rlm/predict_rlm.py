@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from ..graph.state import GraphDeps
 from .config import RLMConfig
 from .repl import RLMEnvironment
+from .schema import SchemaContract
 
 
 def _validate_purity(source: str) -> None:
@@ -137,6 +138,16 @@ class PredictRLM:
         for name in self.outputs:
             field = self.signature.model_fields[name]
             prompt += f"  - `{name}`: {field.description or 'No description'}\n"
+            # CONCEPT:ORCH-1.12 (per-field output schema) — show the exact JSON
+            # Schema for each output field (not just its prose description) so
+            # the model knows the precise shape.
+            annotation = getattr(field, "annotation", None)
+            if annotation is not None and annotation is not str:
+                try:
+                    contract = SchemaContract.from_spec(annotation)
+                    prompt += f"    schema: {contract.json_schema_str}\n"
+                except Exception:  # noqa: BLE001 - best-effort prompt hint
+                    pass
 
         prompt += (
             "\nINSTRUCTIONS:\n"

@@ -101,6 +101,7 @@ C4Component
         Component(mas, "🔬 RecursiveMAS Latent Orchestrator", "Python", "ORCH-1.7: Continuous latent loop or simulated semantic collaboration")
         Component(gwt, "Global Workspace Attention", "Python", "ORCH-1.2: Scores/selects/broadcasts specialist proposals; get_attention_score read-back + engine-mismatch telemetry")
         Component(massys, "Multi-Agent Social System", "Python", "ORCH-1.32: Swarm as S=(f,g,G) — archetypes, local observability, co-evolution, P1–P4 swarm health")
+        Component(rlm, "Recursive Language Model", "Python", "ORCH-1.1/1.12: Persistent REPL over massive context; recursive schema-constrained subagent fan-out with validate-on-FINAL")
     }
 
     Rel(router, planner, "Routes task to planning")
@@ -125,6 +126,8 @@ C4Component
     Rel(dispatcher, gwt, "After each wave: select + broadcast winners")
     Rel(gwt, router, "get_attention_score → runtime specialist standing")
     Rel(dispatcher, massys, "After each wave: swarm-health snapshot → telemetry")
+    Rel(dispatcher, rlm, "Routes oversized output / long-horizon tasks into a REPL pass")
+    Rel(rlm, agentrunner, "Registers recursive REPL trajectories as provenance")
 ```
 
 > **GWT loop & MASS:** see [Global Workspace Attention](../architecture/global_workspace_attention.md)

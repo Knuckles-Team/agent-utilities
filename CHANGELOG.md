@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Structured-output contracts on the RLM subagent fan-out (CONCEPT:ORCH-1.12)** —
+  extends the Predict-RLM runtime so subagents return *schema-constrained, typed* values instead of
+  free-form prose (the "external attention mask" pattern from the RLM-structured-outputs writeup).
+  Previously the contract only existed at the **root** signature; `rlm_query`/`run_parallel_sub_calls`
+  returned bare strings, forcing the parent to re-read and re-classify many unstructured blurbs.
+  - **`SchemaContract` normalizer** (`rlm/schema.py`) — `from_spec()` accepts a Pydantic `BaseModel`,
+    a primitive (`int`/`bool`/`str`/`float`), a typing generic (`list[Model]`, `dict[...]`), or a raw
+    JSON-Schema `dict` (e.g. `{"type": "boolean"}`) and normalizes all to plain JSON Schema via
+    `model_json_schema()`/`TypeAdapter`. `.validate()` returns `(ok, coerced_value, error)` with
+    `path: message` errors; raw-dict validation uses `jsonschema` when present, with a non-silent
+    shallow fallback otherwise.
+  - **Per-subagent `schema=`** — `rlm_query(prompt, context, schema=…)` and a per-call `"schema"` key
+    in `run_parallel_sub_calls` (incl. the depth-floor `pydantic_ai` fallback via `output_type`) now
+    return the **coerced typed value**, letting the parent route on a clean boolean/model/list.
+  - **Validate-on-FINAL with retry-don't-restart** — the existing `run_full_rlm` loop is reused: a
+    sub-RLM whose `FINAL` violates the contract is shown the JSON Schema + specific errors and retries
+    with REPL state intact (`rlm/repl.py`); the contract is injected into the sub-REPL prompt at
+    startup and `schema=` is advertised in the helper docs (Wire-First).
+  - **Root contract generalized** — `run_rlm(..., output_type=…)` (`rlm/runner.py`) and
+    `_generate_instruction_prompt` (`rlm/predict_rlm.py`) accept/show primitive/generic/model output
+    specs, not just a free-form string.
 - **Tool gap-fill resolver for workflow materialization (CONCEPT:ECO-4.0)** — `graph/tool_resolver.py`
   `resolve_tools`: when a workflow template needs a tool that isn't bound (e.g. a gitlab-pr tool), substitute
   an available tool providing the same capability (via the capability index) or surface a precise gap

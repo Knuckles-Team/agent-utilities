@@ -14,6 +14,7 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 from ..graph.client import get_graph_client
 from ..graph.state import GraphDeps
 from .config import RLMConfig
+from .schema import SchemaContract  # CONCEPT:ORCH-1.12 — structured subagent contracts
 from .telemetry import (  # CONCEPT:ORCH-1.29
     RunTrace,
     SandboxFatalError,
@@ -65,6 +66,7 @@ class RLMEnvironment:
         inputs_keys: list[str] | None = None,
         outputs_keys: list[str] | None = None,
         tool_sources: dict[str, str] | None = None,
+        output_contract: Any = None,
     ):
         self.config = config or RLMConfig()
         self.depth = depth
@@ -75,6 +77,10 @@ class RLMEnvironment:
         self.inputs_keys = inputs_keys or []
         self.outputs_keys = outputs_keys or []
         self.tool_sources = tool_sources or {}
+        # CONCEPT:ORCH-1.12 (subagent fan-out) — a single-value structured-output
+        # contract for this (sub)agent. When set, FINAL is validated/coerced
+        # against it and the JSON schema is shown to the model at REPL startup.
+        self.output_contract = output_contract
         self._stdout_counter = 0
 
         self.vars: dict[str, Any] = {"context": context, "depth": depth}
@@ -247,8 +253,17 @@ class RLMEnvironment:
         res = await agent.run(f"Context: {input_data}\n\nTask: {prompt}")
         return res.output
 
-    async def rlm_query(self, prompt: str, sub_context: Any = None) -> str:
-        """Spawn a full recursive RLM at the next depth."""
+    async def rlm_query(
+        self, prompt: str, sub_context: Any = None, schema: Any = None
+    ) -> Any:
+        """Spawn a full recursive RLM at the next depth.
+
+        When ``schema`` is given (a Pydantic model, a primitive/generic type, or a
+        raw JSON-Schema dict), the sub-RLM's ``FINAL`` is validated and coerced
+        against it and a *typed* value is returned — not a free-form string. This
+        lets the parent route on a clean structured value instead of re-parsing
+        prose (CONCEPT:ORCH-1.12, structured subagent contracts).
+        """
         if self.depth >= self.max_depth:
             raise RecursionLimitError(
                 f"RLM recursion depth exceeded (max {self.max_depth})"
@@ -262,13 +277,18 @@ class RLMEnvironment:
             depth=self.depth + 1,
             config=self.config,
             graph_deps=self.graph_deps,
+            output_contract=SchemaContract.from_spec(schema)
+            if schema is not None
+            else None,
         )
         return await sub_env.run_full_rlm(prompt)
 
     async def run_parallel_sub_calls(self, calls: list[dict[str, Any]]) -> list[Any]:
         """
         Run multiple sub-calls in parallel.
-        calls is a list of dicts: {"prompt": "...", "context": Any}
+        calls is a list of dicts: ``{"prompt": "...", "context": Any, "schema": Any}``.
+        ``schema`` is optional and per-call — when present, that sub-agent must
+        return a value conforming to it (structured fan-out, CONCEPT:ORCH-1.12).
         """
         if not self.config.async_enabled:
             results = []
@@ -283,23 +303,27 @@ class RLMEnvironment:
             *[_call(item) for item in calls], return_exceptions=True
         )
 
-    async def _execute_sub_call(self, item: dict[str, Any]) -> str:
+    async def _execute_sub_call(self, item: dict[str, Any]) -> Any:
+        schema = item.get("schema")
+        contract = SchemaContract.from_spec(schema) if schema is not None else None
         if self.depth < self.max_depth:
             sub_env = RLMEnvironment(
                 context=item.get("context"),
                 depth=self.depth + 1,
                 config=self.config,
                 graph_deps=self.graph_deps,
+                output_contract=contract,
             )
             return await sub_env.run_full_rlm(item["prompt"])
         else:
-            # Fallback to normal specialist
-            # ... For simplicity, we just use the router model to answer directly if depth is exhausted
+            # Fallback to normal specialist at the recursion floor. The contract
+            # still holds — pydantic_ai enforces it via ``output_type``.
             from pydantic_ai import Agent
 
             agent = Agent(
                 model=self.config.sub_llm_model_small,
                 system_prompt="Answer the sub-task directly.",
+                **({"output_type": contract.json_schema} if contract else {}),
             )
             res = await agent.run(
                 f"Context: {item.get('context')}\n\nPrompt: {item['prompt']}"
@@ -453,7 +477,31 @@ class RLMEnvironment:
             return self.vars, f"WASM Execution Error: {e}"
 
     def _validate_outputs(self) -> str | None:
-        """Validate gathered variables against the Pydantic signature. Returns error string if invalid, None if valid."""
+        """Validate the agent's output(s). Returns an error string if invalid, None if valid.
+
+        Two modes:
+          * ``output_contract`` (subagent fan-out) — validate the single ``FINAL``
+            value against the structured-output contract and store the *coerced*
+            value back into ``self.vars`` so the parent receives a typed value.
+          * ``signature`` (root Predict-RLM) — validate gathered output variables
+            against the full Pydantic signature.
+        """
+        if self.output_contract is not None:
+            final_name = self.vars.get("__FINAL__")
+            if final_name is None:
+                return None
+            ok, coerced, err = self.output_contract.validate(self.vars.get(final_name))
+            if not ok:
+                return (
+                    f"FINAL value failed schema validation.\n"
+                    f"Required JSON Schema:\n{self.output_contract.json_schema_str}\n\n"
+                    f"Validation errors:\n{err}\n\n"
+                    f"Fix the value and call FINAL_VAR again."
+                )
+            # Persist the coerced (type-correct) value for the parent to consume.
+            self.vars[final_name] = coerced
+            return None
+
         if not self.signature:
             return None
 
@@ -516,8 +564,10 @@ class RLMEnvironment:
             f"  - Get length: `len(context)`\n"
             f"  - Parse JSON: `json.loads(context)`\n"
             f"  - Split lines: `context.splitlines()`\n"
-            f"  - Use `await rlm_query(prompt, sub_context)` to recursively analyze sub-slices.\n"
-            f"  - Use `await run_parallel_sub_calls(calls)` for parallel decomposition."
+            f"  - Use `await rlm_query(prompt, sub_context, schema=...)` to recursively analyze "
+            f"sub-slices (pass `schema` for a typed answer).\n"
+            f"  - Use `await run_parallel_sub_calls(calls)` for parallel decomposition; give each "
+            f"call a `schema` (e.g. a boolean flag) so you filter on typed results, not prose."
         )
 
     def _build_stdout_metadata(self, stdout: str, turn: int) -> str:
@@ -582,9 +632,14 @@ class RLMEnvironment:
                 "Your objective is to write python code to analyze the `context` variable, "
                 "which contains massive amounts of data.\n\n"
                 "AVAILABLE HELPERS:\n"
-                "- `await rlm_query(prompt, context)`: Spawn a full recursive RLM at the next depth.\n"
+                "- `await rlm_query(prompt, context, schema=None)`: Spawn a full recursive RLM at the "
+                "next depth. Pass `schema=` (a type like `bool`/`int`, a Pydantic model, or a raw "
+                "JSON Schema dict e.g. `{'type': 'boolean'}`) to FORCE the sub-agent to return a "
+                "validated, typed value instead of free-form prose — route on that value directly.\n"
                 "- `await run_parallel_sub_calls(calls)`: Run multiple sub-calls in parallel. "
-                "`calls` is a list of `{'prompt': '...', 'context': ...}`.\n"
+                "`calls` is a list of `{'prompt': '...', 'context': ..., 'schema': <optional>}`. "
+                "Prefer a structured `schema` (e.g. a boolean relevance flag per chunk) so you can "
+                "filter on typed results rather than re-reading many text answers.\n"
                 "- `await magma_view(query, views=None)`: Retrieve MAGMA orthogonal context "
                 "(semantic, temporal, causal, entity).\n"
                 "- `await graph_query(cypher, params=None)`: Run a Cypher query against the knowledge graph.\n"
@@ -614,6 +669,17 @@ class RLMEnvironment:
             initial_prompt = f"{prompt}\n\n{context_info}"
         else:
             initial_prompt = prompt
+
+        # CONCEPT:ORCH-1.12 (structured subagent contracts) — show the output
+        # contract before any code is written, so the model knows the exact
+        # shape it must return via FINAL_VAR.
+        if self.output_contract is not None:
+            initial_prompt = (
+                f"{initial_prompt}\n\n"
+                f"REQUIRED OUTPUT CONTRACT:\n"
+                f"You MUST call `FINAL_VAR('result', value)` with a value conforming to "
+                f"this JSON Schema:\n{self.output_contract.json_schema_str}"
+            )
 
         for turn in range(max_turns):
             run_prompt = initial_prompt if turn == 0 else None
@@ -708,7 +774,6 @@ class RLMEnvironment:
 
                 if "__FINAL__" in self.vars:
                     final_var_name = self.vars["__FINAL__"]
-                    val = str(self.vars.get(final_var_name, stdout))
 
                     # Validate in-loop
                     validation_err = self._validate_outputs()
@@ -727,7 +792,7 @@ class RLMEnvironment:
                         continue
 
                     run_trace.final_status = "success"  # CONCEPT:ORCH-1.29
-                    return val
+                    return self._final_value(final_var_name, stdout)
 
                 # Feed stdout back as metadata (Algorithm 1 alignment)
                 if self.config.metadata_only_root and self.depth == 0:
@@ -743,7 +808,6 @@ class RLMEnvironment:
             else:
                 if "__FINAL__" in self.vars:
                     final_var_name = self.vars["__FINAL__"]
-                    val = str(self.vars.get(final_var_name, output_text))
 
                     validation_err = self._validate_outputs()
                     if validation_err:
@@ -759,7 +823,16 @@ class RLMEnvironment:
                         )
                         continue
 
-                    return val
+                    return self._final_value(final_var_name, output_text)
                 break
 
         return str(self.vars.get("__FINAL__", "Max turns reached without FINAL_VAR"))
+
+    def _final_value(self, final_var_name: str, fallback: str) -> Any:
+        """Return the FINAL result — the coerced typed value when a structured
+        ``output_contract`` is set (so the parent gets a real bool/model/list),
+        otherwise the string form for the free-text path (back-compat)."""
+        value = self.vars.get(final_var_name, fallback)
+        if self.output_contract is not None:
+            return value
+        return str(value)
