@@ -44,7 +44,7 @@ def _normalize_value(value: Any) -> str:
     """Unit-normalise a grounded value (strip trailing units, collapse whitespace)."""
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return str(value)
     s = _UNIT_SUFFIX.sub("", str(value)).strip()
     return re.sub(r"\s+", " ", s)

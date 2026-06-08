@@ -74,7 +74,7 @@ class PrioritizedReplayBuffer:
         """
         if not self._items or n <= 0:
             return []
-        rng = random.Random(seed)
+        rng = random.Random(seed)  # nosec B311 - ML replay sampling, not cryptographic
         pool = list(self._items)
         chosen: list[Any] = []
         for _ in range(min(n, len(pool))):

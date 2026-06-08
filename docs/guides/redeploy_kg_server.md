@@ -36,7 +36,7 @@ WORKSPACE_PATH=/home/apps/workspace KG_FILE_WATCH=0 KG_EMBED_BACKFILL_BATCH=1000
    ```bash
    pkill -f "agent_utilities.gateway.daemon"
    ```
-3. **Restart** with the same env (re-uses the live socket; backfill off for a fast
+3. **Restart** with the same env (reuses the live socket; backfill off for a fast
    start):
    ```bash
    cd /home/apps/workspace/agent-packages/agent-utilities
