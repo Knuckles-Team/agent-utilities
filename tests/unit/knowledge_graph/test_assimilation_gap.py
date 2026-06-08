@@ -149,15 +149,26 @@ def test_auto_satisfy_id_reference_beats_embedding():
     assert is_closed(engine, "spec:foo")
 
 
-def test_auto_satisfy_id_from_content_marker():
-    """A CONCEPT:<ID> marker in the node's content text is recognized."""
+def test_auto_satisfy_matches_declared_identity_not_body():
+    """Match a feature's DECLARED identity (id/title); ignore body citations.
+
+    Precision fix: a research plan that merely *cites* a concept in its body
+    (related work) is not that built capability. ``ahe-3.1-...`` declares AHE-3.1
+    by its id and matches; ``new-paper`` only cites AHE-3.1 in prose and must NOT
+    be marked built (it's a genuine gap).
+    """
     engine = _Engine(
         {
-            "spec:bar": {
+            "ahe-3.1-in-house-training_spec": {
                 "type": "capability",
                 "status": "open",
                 "embedding": [0.0, 1.0, 0.0],
-                "content": "This implements CONCEPT:AHE-3.1 in-house training.",
+            },
+            "new-paper": {  # cites the concept in prose only — NOT its identity
+                "type": "capability",
+                "status": "open",
+                "embedding": [0.0, 1.0, 0.0],
+                "content": "We build on CONCEPT:AHE-3.1 as related work.",
             },
             "AHE-3.1": {
                 "type": "concept",
@@ -168,4 +179,6 @@ def test_auto_satisfy_id_from_content_marker():
         }
     )
     report = auto_satisfy(engine)
-    assert ("spec:bar", "AHE-3.1", 1.0) in report.candidates
+    matched = {c[0] for c in report.candidates}
+    assert "ahe-3.1-in-house-training_spec" in matched  # declared identity → built
+    assert "new-paper" not in matched  # body citation only → still a gap

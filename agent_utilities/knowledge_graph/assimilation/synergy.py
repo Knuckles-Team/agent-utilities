@@ -177,15 +177,28 @@ def synergy_bundles(
 def _centrality(
     engine: Any, ids: set[str], adj: dict[str, set[str]]
 ) -> dict[str, float]:
-    """PageRank from the engine if available, else normalized degree centrality."""
-    fn = getattr(engine, "pagerank", None)
-    if callable(fn):
-        try:
-            scores = {nid: float(s) for nid, s in fn() if nid in ids}
-            if scores:
-                return scores
-        except Exception:  # pragma: no cover - engine optional
-            pass
+    """Centrality over the feature subgraph.
+
+    Defaults to fast feature-scoped degree centrality. The engine's global
+    PageRank ranks features across the WHOLE graph (5k+ nodes) — too slow on a
+    live backend to rank a few dozen features — so it is opt-in via
+    ``ASSIMILATION_ENGINE_PAGERANK=1``.
+    """
+    import os
+
+    if os.environ.get("ASSIMILATION_ENGINE_PAGERANK", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        fn = getattr(engine, "pagerank", None)
+        if callable(fn):
+            try:
+                scores = {nid: float(s) for nid, s in fn() if nid in ids}
+                if scores:
+                    return scores
+            except Exception:  # pragma: no cover - engine optional
+                pass
     denom = float(max(1, len(ids) - 1))
     return {i: len(adj.get(i, ())) / denom for i in ids}
 

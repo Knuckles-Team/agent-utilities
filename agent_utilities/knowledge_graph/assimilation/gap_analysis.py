@@ -69,24 +69,31 @@ def _concept_key(nid: str, data: dict[str, Any]) -> str | None:
     return None
 
 
-def _feature_refs(nid: str, data: dict[str, Any]) -> set[str]:
-    """Canonical concept ids a *feature node* explicitly references.
+def _feature_refs(nid: str, data: dict[str, Any]) -> list[str]:
+    """Canonical concept ids a feature **declares as its own identity**, ordered.
 
-    Sourced from an explicit ``concept_ids`` property and from ``CONCEPT:<ID>``
-    markers (or bare ids) in the node's id/name/body text — the high-precision
-    signal embedding similarity throws away.
+    Sourced — in priority order — from the curated ``concept_ids`` property, then
+    the feature's own id, then its name/title. **Body/abstract prose is NOT
+    scanned**: a research plan that *cites* ``ORCH-1.0`` as related work is not the
+    same capability as ORCH-1.0, so scraping body text mis-marks new research as
+    already-built. Matching on declared identity keeps precision high.
     """
-    refs: set[str] = set()
+    refs: list[str] = []
+
+    def _add(s: Any) -> None:
+        for m in _CONCEPT_ID_RE.findall(str(s).upper()):
+            c = _canonical_id(m)
+            if re.match(r"^[A-Z]{2,6}-\d", c) and c not in refs:
+                refs.append(c)
+
     cids = data.get("concept_ids")
     if isinstance(cids, list | tuple):
-        refs.update(_canonical_id(str(c)) for c in cids)
-    blob = " ".join(
-        str(data.get(k, ""))
-        for k in ("name", "title", "body", "text", "summary", "content")
-    )
-    blob = f"{blob} {nid}".upper()
-    refs.update(_canonical_id(m) for m in _CONCEPT_ID_RE.findall(blob))
-    return {r for r in refs if re.match(r"^[A-Z]{2,6}-\d", r)}
+        for c in cids:
+            _add(c)
+    _add(nid)
+    _add(data.get("name", ""))
+    _add(data.get("title", ""))
+    return refs
 
 
 def _collect_rich(

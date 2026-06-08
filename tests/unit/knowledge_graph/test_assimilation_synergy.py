@@ -110,7 +110,11 @@ def test_rank_features_uses_open_only():
     assert ids == {"open1"}  # the implemented one is excluded despite more sources
 
 
-def test_engine_pagerank_fast_path_used():
+def test_engine_pagerank_fast_path_used(monkeypatch):
+    # Engine PageRank is opt-in (a full-graph op, too slow on a live backend for a
+    # few-dozen-feature rank); enable it explicitly to exercise this path.
+    monkeypatch.setenv("ASSIMILATION_ENGINE_PAGERANK", "1")
+
     class _PR(_Engine):
         def pagerank(self):
             return [("a", 0.9), ("b", 0.1)]
