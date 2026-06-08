@@ -21,7 +21,7 @@ RLM enables agents to:
 │  ┌─────────────────────────────┐        │
 │  │  Persistent Globals Dict    │        │
 │  │  - context, depth           │        │
-│  │  - rlm_query()              │        │
+│  │  - rlm_query(schema=)       │        │
 │  │  - magma_view()             │        │
 │  │  - graph_query()            │        │
 │  │  - owl_query()      [NEW]   │        │
@@ -79,6 +79,59 @@ Our implementation aligns with the core algorithm from Zhang et al.:
 
 3. **Recursive Sub-Calls**: `rlm_query()` spawns a full sub-RLM at `depth+1` with independent context.
 
+## Structured Outputs (Subagent Contracts)
+
+> CONCEPT:ORCH-1.12 — Structured Predict-RLM Runtime
+
+A swarm of sub-agents only helps if the parent can *cleanly aggregate* what they return. When sub-agents reply with free-form prose, the parent has to re-read and re-classify dozens of unstructured blurbs and frequently loses the plot — it ends up hand-writing an answer instead of routing on the evidence. The fix is to force each sub-agent to return a **schema-constrained, typed value** that the parent reads directly. The booleans (or models, or lists) act as an **external attention mask** over the original context.
+
+### Passing a schema to sub-agents
+
+Both fan-out helpers accept a schema. The sub-RLM's `FINAL` is validated and **coerced** against it, so the parent receives a real Python value — not a string to parse:
+
+```python
+# Inside an RLM code block — chunk the context, then ask ONE boolean sub-agent
+# per chunk whether it's relevant, in parallel. Filter on the typed result.
+chunks = [context[i:i+5000] for i in range(0, len(context), 5000)]
+
+flags = await run_parallel_sub_calls([
+    {"prompt": "Does this chunk describe where Saltram lives?",
+     "context": c, "schema": {"type": "boolean"}}
+    for c in chunks
+])
+relevant = [c for c, keep in zip(chunks, flags) if keep]   # keep is a real bool
+
+# A single typed sub-call:
+is_relevant = await rlm_query("Relevant to his living situation?",
+                              sub_context=chunk, schema=bool)
+```
+
+### Supported schema forms
+
+`schema=` is normalized by `SchemaContract.from_spec()` (`rlm/schema.py`) and accepts:
+
+| Form | Example | Validated via |
+|---|---|---|
+| Primitive type | `bool`, `int`, `str`, `float` | `pydantic.TypeAdapter` |
+| Typing generic | `list[FindingModel]`, `dict[str, int]` | `pydantic.TypeAdapter` |
+| Pydantic model | `class Finding(BaseModel): ...` | `model_validate` |
+| Raw JSON Schema | `{"type": "boolean"}` | `jsonschema` (shallow fallback if absent) |
+
+### Validate-on-FINAL, retry-don't-restart
+
+When a contract is set, `run_full_rlm` validates the value the sub-agent passes to `FINAL_VAR`. On a mismatch the sub-agent is shown the **required JSON Schema plus the specific validation errors** (`path: message`) and asked to fix the value and call `FINAL_VAR` again — the REPL state is preserved, so it never restarts from scratch. The JSON Schema is also injected into the sub-REPL prompt at startup so the model knows the exact shape before it writes any code.
+
+### Root-level contracts
+
+The same machinery enforces a contract on the **root** agent. Use a `PredictRLM` signature (`InputField`/`OutputField`) for a multi-field contract, or pass a single typed spec to the entry point:
+
+```python
+from agent_utilities.rlm.runner import run_rlm
+
+out = await run_rlm("Is this PR a security risk?", input_text=diff, output_type=bool)
+# out["result"] is a real bool
+```
+
 ## Key Components
 
 ### `RLMEnvironment` (`rlm/repl.py`)
@@ -120,14 +173,14 @@ Functions available inside the RLM execution environment:
 
 | Helper | Signature | Purpose |
 |---|---|---|
-| `rlm_query` | `await rlm_query(prompt, context)` | Spawn a recursive sub-RLM at depth+1 |
+| `rlm_query` | `await rlm_query(prompt, context, schema=None)` | Spawn a recursive sub-RLM at depth+1; pass `schema=` to get a validated, typed return |
 | `magma_view` | `await magma_view(query, views)` | MAGMA orthogonal memory views |
 | `graph_query` | `await graph_query(cypher, params)` | Run Cypher against the knowledge graph |
 | `owl_query` | `await owl_query(sparql)` | Run SPARQL against the OWL reasoner |
 | `kg_bulk_export` | `await kg_bulk_export(node_type, limit)` | Export KG nodes as JSON for bulk analysis |
 | `sub_agent_call` | `await sub_agent_call(prompt, agent_id, data)` | Dispatch to specialist agent |
 | `FINAL_VAR` | `FINAL_VAR("name", value)` | Output the final result |
-| `run_parallel_sub_calls` | `await run_parallel_sub_calls(calls)` | Run multiple sub-calls in parallel |
+| `run_parallel_sub_calls` | `await run_parallel_sub_calls(calls)` | Run multiple sub-calls in parallel; each call dict may carry a per-call `"schema"` |
 
 ### `run_full_rlm()` Loop
 

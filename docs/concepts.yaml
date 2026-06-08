@@ -1160,7 +1160,9 @@ concepts:
   - agent_utilities/graph/_router_impl.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/rlm/predict_rlm.py
+  - agent_utilities/rlm/repl.py
   - agent_utilities/rlm/runner.py
+  - agent_utilities/rlm/schema.py
   doc: run the Predict-RLM runtime on an ad-hoc task
 - id: ORCH-1.13
   name: optimize a skill prompt via the GEPA loop
