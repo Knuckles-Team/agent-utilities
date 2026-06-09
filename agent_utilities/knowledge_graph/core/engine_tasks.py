@@ -602,9 +602,12 @@ class TaskManagerMixin(GraphEngineProtocol):
         # new node type can never silently diverge. Self-healing: runs ~15s after
         # startup then every KG_RECONCILE_INTERVAL. Registered only when a durable
         # reconcile exists (tiered backend); opt-out with KG_RECONCILE_DURABLE=0.
-        if callable(
-            getattr(getattr(self, "backend", None), "reconcile_to_durable", None)
-        ) and os.environ.get("KG_RECONCILE_DURABLE", "1") != "0":
+        if (
+            callable(
+                getattr(getattr(self, "backend", None), "reconcile_to_durable", None)
+            )
+            and os.environ.get("KG_RECONCILE_DURABLE", "1") != "0"
+        ):
             jobs.append(
                 (
                     "reconcile_durable",

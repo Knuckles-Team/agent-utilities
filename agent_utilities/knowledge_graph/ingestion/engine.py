@@ -768,8 +768,16 @@ class IngestionEngine:
 
     # Document file extensions the standardized unit can read verbatim.
     _DOC_EXTENSIONS = {
-        ".md", ".markdown", ".txt", ".rst", ".text",
-        ".pdf", ".html", ".htm", ".org", ".adoc",
+        ".md",
+        ".markdown",
+        ".txt",
+        ".rst",
+        ".text",
+        ".pdf",
+        ".html",
+        ".htm",
+        ".org",
+        ".adoc",
     }
 
     def _ingest_document_dir(
@@ -788,7 +796,8 @@ class IngestionEngine:
         ]
         if not files:
             return IngestionResult(
-                manifest=manifest, status="skipped",
+                manifest=manifest,
+                status="skipped",
                 details={"reason": "no document files found", "root": str(root)},
             )
 
@@ -811,8 +820,11 @@ class IngestionEngine:
             status="success",
             nodes_created=nodes,
             edges_created=edges,
-            details={"documents": docs, "files_seen": len(files),
-                     "summary": _json.dumps({"root": str(root)})},
+            details={
+                "documents": docs,
+                "files_seen": len(files),
+                "summary": _json.dumps({"root": str(root)}),
+            },
         )
 
     async def _ingest_document_url(

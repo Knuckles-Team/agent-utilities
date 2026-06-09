@@ -238,9 +238,7 @@ class ObjectFunctionContext:
         The composition that makes this a Functions-on-Objects primitive:
         traverse 1-hop links, then run :meth:`aggregate` over the neighbors.
         """
-        neighbors = self.neighbors(
-            object_id, rel_type=rel_type, direction=direction
-        )
+        neighbors = self.neighbors(object_id, rel_type=rel_type, direction=direction)
         return self.aggregate(neighbors, property_name, op=op)
 
 

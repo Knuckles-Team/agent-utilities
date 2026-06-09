@@ -2396,8 +2396,11 @@ def _build_server(bootstrap: bool = True):
                                 depth=max_depth,
                                 out_dir=target_path,
                             )
-                            payload = {"kind": "skill-workflow",
-                                       "name": wf["name"], "steps": wf["steps"]}
+                            payload = {
+                                "kind": "skill-workflow",
+                                "name": wf["name"],
+                                "steps": wf["steps"],
+                            }
                         else:
                             manifest = await distiller.distill(
                                 seed=seed,
@@ -2405,8 +2408,10 @@ def _build_server(bootstrap: bool = True):
                                 depth=max_depth,
                                 out_dir=target_path,
                             )
-                            payload = {"kind": "skill-graph",
-                                       "stats": manifest["stats"]}
+                            payload = {
+                                "kind": "skill-graph",
+                                "stats": manifest["stats"],
+                            }
                     finally:
                         await distiller.close()
                     return json.dumps(
@@ -2487,7 +2492,9 @@ def _build_server(bootstrap: bool = True):
                     stats = import_skill_graph_pack(
                         engine, target_path, dedup=(corpus_name == "dedup")
                     )
-                    return json.dumps({"status": "imported", "stats": stats}, default=str)
+                    return json.dumps(
+                        {"status": "imported", "stats": stats}, default=str
+                    )
                 except Exception as e:  # noqa: BLE001
                     return f"Import error: {e}"
 
@@ -3333,8 +3340,12 @@ def _build_server(bootstrap: bool = True):
             default="list",
             description="'list' all type names, 'describe' a type, 'column_type' a type's column DDL string, or 'validate' a value.",
         ),
-        type_ref: str = Field(default="", description="A type ref, e.g. 'array<string>' or 'vector<768>'."),
-        value: str = Field(default="", description="JSON-encoded value for action='validate'."),
+        type_ref: str = Field(
+            default="", description="A type ref, e.g. 'array<string>' or 'vector<768>'."
+        ),
+        value: str = Field(
+            default="", description="JSON-encoded value for action='validate'."
+        ),
     ) -> str:
         """List/describe ontology property types and resolve/validate a type reference."""
         from agent_utilities.knowledge_graph.ontology.property_types import (
@@ -3353,10 +3364,14 @@ def _build_server(bootstrap: bool = True):
                     return json.dumps({"error": f"unknown type: {type_ref!r}"})
                 return json.dumps(pt.model_dump(), default=str)
             if action == "column_type":
-                return json.dumps({"type_ref": type_ref, "column_type": column_type_for(type_ref)})
+                return json.dumps(
+                    {"type_ref": type_ref, "column_type": column_type_for(type_ref)}
+                )
             if action == "validate":
                 parsed = json.loads(value) if value else None
-                return json.dumps({"type_ref": type_ref, "valid": validate_value(type_ref, parsed)})
+                return json.dumps(
+                    {"type_ref": type_ref, "valid": validate_value(type_ref, parsed)}
+                )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
@@ -3369,9 +3384,15 @@ def _build_server(bootstrap: bool = True):
         tags=["graph-os", "ontology"],
     )
     def ontology_value_types(
-        action: str = Field(default="list", description="'list' | 'describe' | 'validate' | 'coerce'."),
-        name: str = Field(default="", description="The value-type name, e.g. 'EmailAddress'."),
-        value: str = Field(default="", description="JSON-encoded value for validate/coerce."),
+        action: str = Field(
+            default="list", description="'list' | 'describe' | 'validate' | 'coerce'."
+        ),
+        name: str = Field(
+            default="", description="The value-type name, e.g. 'EmailAddress'."
+        ),
+        value: str = Field(
+            default="", description="JSON-encoded value for validate/coerce."
+        ),
     ) -> str:
         """List/describe value types and validate or coerce a value through one."""
         from agent_utilities.knowledge_graph.ontology.value_types import (
@@ -3391,9 +3412,14 @@ def _build_server(bootstrap: bool = True):
                 return json.dumps(vt.model_dump(), default=str)
             parsed = json.loads(value) if value else None
             if action == "validate":
-                return json.dumps({"name": name, "valid": validate_value_type(name, parsed)})
+                return json.dumps(
+                    {"name": name, "valid": validate_value_type(name, parsed)}
+                )
             if action == "coerce":
-                return json.dumps({"name": name, "value": coerce_value_type(name, parsed)}, default=str)
+                return json.dumps(
+                    {"name": name, "value": coerce_value_type(name, parsed)},
+                    default=str,
+                )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
@@ -3411,7 +3437,9 @@ def _build_server(bootstrap: bool = True):
             description="'list' interfaces, 'implementers' (resolve an interface/type to concrete types), 'conforms' (check an object), or 'owl'.",
         ),
         name: str = Field(default="", description="Interface or concrete type name."),
-        object_json: str = Field(default="{}", description="JSON object dict for action='conforms'."),
+        object_json: str = Field(
+            default="{}", description="JSON object dict for action='conforms'."
+        ),
     ) -> str:
         """Resolve interface targeting, check conformance, or emit interface OWL/SHACL."""
         from agent_utilities.knowledge_graph.ontology.interfaces import (
@@ -3422,13 +3450,24 @@ def _build_server(bootstrap: bool = True):
         try:
             if action == "list":
                 return json.dumps(
-                    {"interfaces": [i.name for i in DEFAULT_INTERFACE_REGISTRY.list_interfaces()]}
+                    {
+                        "interfaces": [
+                            i.name for i in DEFAULT_INTERFACE_REGISTRY.list_interfaces()
+                        ]
+                    }
                 )
             if action == "implementers":
-                return json.dumps({"target": name, "implementers": target_object_types(name)})
+                return json.dumps(
+                    {"target": name, "implementers": target_object_types(name)}
+                )
             if action == "conforms":
                 obj = json.loads(object_json) if object_json else {}
-                return json.dumps({"interface": name, "conforms": DEFAULT_INTERFACE_REGISTRY.conforms(obj, name)})
+                return json.dumps(
+                    {
+                        "interface": name,
+                        "conforms": DEFAULT_INTERFACE_REGISTRY.conforms(obj, name),
+                    }
+                )
             if action == "owl":
                 return json.dumps({"owl": DEFAULT_INTERFACE_REGISTRY.to_owl()})
             return json.dumps({"error": f"unknown action: {action!r}"})
@@ -3443,11 +3482,18 @@ def _build_server(bootstrap: bool = True):
         tags=["graph-os", "ontology"],
     )
     def ontology_function(
-        action: str = Field(default="list", description="'list' registered functions or 'invoke' one."),
+        action: str = Field(
+            default="list", description="'list' registered functions or 'invoke' one."
+        ),
         name: str = Field(default="", description="Function name for action='invoke'."),
-        params: str = Field(default="{}", description="JSON-encoded typed input params."),
+        params: str = Field(
+            default="{}", description="JSON-encoded typed input params."
+        ),
         version: str = Field(default="", description="Optional pinned semver version."),
-        actor: str = Field(default="mcp:caller", description="Invoking actor id (recorded in the audit entry)."),
+        actor: str = Field(
+            default="mcp:caller",
+            description="Invoking actor id (recorded in the audit entry).",
+        ),
     ) -> str:
         """List registered ontology functions or invoke one with typed params."""
         from agent_utilities.knowledge_graph.ontology.functions import (
@@ -3491,10 +3537,19 @@ def _build_server(bootstrap: bool = True):
         tags=["graph-os", "ontology"],
     )
     def ontology_derive(
-        action: str = Field(default="compute", description="'list' declarations, 'compute' one property, or 'compute_all'."),
-        object_json: str = Field(default="{}", description="JSON object dict the property is computed for."),
-        name: str = Field(default="", description="Derived-property name for action='compute'."),
-        object_type: str = Field(default="", description="Optional object type for declaration resolution."),
+        action: str = Field(
+            default="compute",
+            description="'list' declarations, 'compute' one property, or 'compute_all'.",
+        ),
+        object_json: str = Field(
+            default="{}", description="JSON object dict the property is computed for."
+        ),
+        name: str = Field(
+            default="", description="Derived-property name for action='compute'."
+        ),
+        object_type: str = Field(
+            default="", description="Optional object type for declaration resolution."
+        ),
     ) -> str:
         """Compute derived properties for an object against the live graph."""
         from agent_utilities.knowledge_graph.ontology.derived_properties import (
@@ -3536,11 +3591,18 @@ def _build_server(bootstrap: bool = True):
         tags=["graph-os", "ontology"],
     )
     async def ontology_link_materialize(
-        action: str = Field(default="materialize", description="'types' to list link types, or 'materialize' a junction."),
-        link_name: str = Field(default="", description="The junction link type name, e.g. 'agent_skill'."),
+        action: str = Field(
+            default="materialize",
+            description="'types' to list link types, or 'materialize' a junction.",
+        ),
+        link_name: str = Field(
+            default="", description="The junction link type name, e.g. 'agent_skill'."
+        ),
         source_id: str = Field(default="", description="Source endpoint node id."),
         target_id: str = Field(default="", description="Target endpoint node id."),
-        properties: str = Field(default="{}", description="JSON-encoded junction (link) properties."),
+        properties: str = Field(
+            default="{}", description="JSON-encoded junction (link) properties."
+        ),
     ) -> str:
         """List link types or reify + persist a M:N link via the graph_write path."""
         from agent_utilities.knowledge_graph.ontology.links import DEFAULT_LINK_REGISTRY
@@ -3555,7 +3617,8 @@ def _build_server(bootstrap: bool = True):
                             "target_type": str(link.target_type),
                             "edge_type": str(link.edge_type),
                             "cardinality": str(link.cardinality),
-                            "is_junction": link.name in {j.name for j in DEFAULT_LINK_REGISTRY.junctions()},
+                            "is_junction": link.name
+                            in {j.name for j in DEFAULT_LINK_REGISTRY.junctions()},
                         }
                         for link in DEFAULT_LINK_REGISTRY.list_links()
                     ],
@@ -3572,7 +3635,9 @@ def _build_server(bootstrap: bool = True):
                 action="add_node",
                 node_type=str(node.type),
                 node_id=node.id,
-                properties=json.dumps({"name": node.name, **(node.metadata or {})}, default=str),
+                properties=json.dumps(
+                    {"name": node.name, **(node.metadata or {})}, default=str
+                ),
             )
             for edge in (edge_a, edge_b):
                 await _execute_tool(
@@ -3606,17 +3671,28 @@ def _build_server(bootstrap: bool = True):
             default="history",
             description="'record' an edit | 'revert' an edit by id | 'history' per object | 'as_of' snapshot.",
         ),
-        object_id: str = Field(default="", description="Target object id (record/history/as_of)."),
+        object_id: str = Field(
+            default="", description="Target object id (record/history/as_of)."
+        ),
         edit_type: str = Field(
             default="property_set",
             description="property_set|link_add|link_remove|object_create|object_delete (for action='record').",
         ),
-        properties_json: str = Field(default="{}", description="JSON property map (record property_set/object_create)."),
-        link_target: str = Field(default="", description="Link target id (record link_add/link_remove)."),
-        link_label: str = Field(default="related", description="Link label (record link_add/link_remove)."),
+        properties_json: str = Field(
+            default="{}",
+            description="JSON property map (record property_set/object_create).",
+        ),
+        link_target: str = Field(
+            default="", description="Link target id (record link_add/link_remove)."
+        ),
+        link_label: str = Field(
+            default="related", description="Link label (record link_add/link_remove)."
+        ),
         edit_id: str = Field(default="", description="Edit id (action='revert')."),
         ts: float = Field(default=0.0, description="Unix timestamp (action='as_of')."),
-        actor: str = Field(default="system", description="Acting principal recorded on the edit."),
+        actor: str = Field(
+            default="system", description="Acting principal recorded on the edit."
+        ),
     ) -> str:
         """Record / revert object edits and read per-object edit history or an as_of snapshot."""
         from agent_utilities.knowledge_graph.ontology.edits import (
@@ -3654,11 +3730,17 @@ def _build_server(bootstrap: bool = True):
                 return json.dumps(comp.model_dump(), default=str)
             if action == "history":
                 return json.dumps(
-                    {"object_id": object_id, "history": [e.model_dump() for e in ledger.history(object_id)]},
+                    {
+                        "object_id": object_id,
+                        "history": [e.model_dump() for e in ledger.history(object_id)],
+                    },
                     default=str,
                 )
             if action == "as_of":
-                return json.dumps({"object_id": object_id, "snapshot": ledger.as_of(object_id, ts)}, default=str)
+                return json.dumps(
+                    {"object_id": object_id, "snapshot": ledger.as_of(object_id, ts)},
+                    default=str,
+                )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
@@ -3675,7 +3757,10 @@ def _build_server(bootstrap: bool = True):
             default="status",
             description="'sync' (batch rebuild) | 'reindex' (reconcile stale) | 'status' (live/tombstone counts).",
         ),
-        nodes_json: str = Field(default="[]", description="JSON list of source node mappings (sync/reindex)."),
+        nodes_json: str = Field(
+            default="[]",
+            description="JSON list of source node mappings (sync/reindex).",
+        ),
     ) -> str:
         """Sync / reindex the live object search index and report staleness."""
         try:
@@ -3711,11 +3796,18 @@ def _build_server(bootstrap: bool = True):
             default="restricted_view",
             description="'redact' one object | 'restricted_view' an object set | 'mark' attach a marking.",
         ),
-        objects_json: str = Field(default="[]", description="JSON list of object dicts (restricted_view)."),
-        object_json: str = Field(default="{}", description="JSON object dict (redact)."),
+        objects_json: str = Field(
+            default="[]", description="JSON list of object dicts (restricted_view)."
+        ),
+        object_json: str = Field(
+            default="{}", description="JSON object dict (redact)."
+        ),
         node_id: str = Field(default="", description="Node id (action='mark')."),
         marking: str = Field(default="", description="Marking name (action='mark')."),
-        mask: bool = Field(default=False, description="Mask withheld properties instead of dropping them."),
+        mask: bool = Field(
+            default=False,
+            description="Mask withheld properties instead of dropping them.",
+        ),
     ) -> str:
         """Redact / restrict / mark objects for the AMBIENT actor (no spoofable clearance)."""
         from agent_utilities.knowledge_graph.ontology.permissioning import (
@@ -3735,7 +3827,9 @@ def _build_server(bootstrap: bool = True):
                 return json.dumps(restricted_view(objs, None, mask=mask), default=str)
             if action == "mark":
                 apply_marking(node_id, marking)
-                return json.dumps({"node_id": node_id, "marking": marking, "applied": True})
+                return json.dumps(
+                    {"node_id": node_id, "marking": marking, "applied": True}
+                )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
@@ -3752,15 +3846,30 @@ def _build_server(bootstrap: bool = True):
             default="of_type",
             description="of_type|from_ids|search|filter|search_around|pivot|aggregate|union|intersect|subtract.",
         ),
-        type_or_interface: str = Field(default="", description="Object type / interface (of_type)."),
-        ids_json: str = Field(default="[]", description="JSON list of ids (from_ids / set algebra 'other')."),
+        type_or_interface: str = Field(
+            default="", description="Object type / interface (of_type)."
+        ),
+        ids_json: str = Field(
+            default="[]",
+            description="JSON list of ids (from_ids / set algebra 'other').",
+        ),
         query: str = Field(default="", description="Search query (search)."),
-        link_type: str = Field(default="", description="Link type (search_around/pivot); empty = any."),
+        link_type: str = Field(
+            default="", description="Link type (search_around/pivot); empty = any."
+        ),
         hops: int = Field(default=1, description="Hop count (search_around)."),
-        direction: str = Field(default="out", description="out|in|both (search_around/pivot)."),
-        group_by: str = Field(default="", description="Group-by property (pivot/aggregate)."),
-        metric: str = Field(default="count", description="count|sum|avg|min|max (aggregate)."),
-        field: str = Field(default="", description="Numeric field (aggregate sum/avg/min/max)."),
+        direction: str = Field(
+            default="out", description="out|in|both (search_around/pivot)."
+        ),
+        group_by: str = Field(
+            default="", description="Group-by property (pivot/aggregate)."
+        ),
+        metric: str = Field(
+            default="count", description="count|sum|avg|min|max (aggregate)."
+        ),
+        field: str = Field(
+            default="", description="Numeric field (aggregate sum/avg/min/max)."
+        ),
         limit: int = Field(default=50, description="Result limit (search)."),
     ) -> str:
         """Compute over a Foundry-style object set: search/filter/traverse/pivot/aggregate/algebra."""
@@ -3777,16 +3886,24 @@ def _build_server(bootstrap: bool = True):
                 res = base.search(query, limit=limit)
                 return json.dumps({"ids": res.ids(), "count": res.count()})
             if action == "search_around":
-                res = base.search_around(link_type or None, hops=hops, direction=direction)
+                res = base.search_around(
+                    link_type or None, hops=hops, direction=direction
+                )
                 return json.dumps({"ids": res.ids(), "count": res.count()})
             if action == "pivot":
                 piv = base.pivot(link_type or None, group_by, direction=direction)
                 return json.dumps(
-                    {"link_type": piv.link_type, "group_by": piv.group_by, "groups": piv.groups},
+                    {
+                        "link_type": piv.link_type,
+                        "group_by": piv.group_by,
+                        "groups": piv.groups,
+                    },
                     default=str,
                 )
             if action == "aggregate":
-                agg = base.aggregate(metric, field=field or None, group_by=group_by or None)
+                agg = base.aggregate(
+                    metric, field=field or None, group_by=group_by or None
+                )
                 return json.dumps(
                     {
                         "metric": agg.metric,
@@ -3798,7 +3915,11 @@ def _build_server(bootstrap: bool = True):
                     default=str,
                 )
             if action in ("union", "intersect", "subtract"):
-                other = ont.object_set_of_type(type_or_interface) if type_or_interface else ont.object_set([])
+                other = (
+                    ont.object_set_of_type(type_or_interface)
+                    if type_or_interface
+                    else ont.object_set([])
+                )
                 combined = getattr(base, action)(other)
                 return json.dumps({"ids": combined.ids(), "count": combined.count()})
             return json.dumps({"error": f"unknown action: {action!r}"})
@@ -3813,11 +3934,19 @@ def _build_server(bootstrap: bool = True):
         tags=["graph-os", "ontology"],
     )
     def document_process(
-        document: str = Field(description="A file path or raw text content to process."),
-        text: str = Field(default="", description="Optional pre-extracted text (OCR/external)."),
+        document: str = Field(
+            description="A file path or raw text content to process."
+        ),
+        text: str = Field(
+            default="", description="Optional pre-extracted text (OCR/external)."
+        ),
         source: str = Field(default="", description="Provenance label (path/URL)."),
-        chunk_size: int = Field(default=800, description="Target chunk size in characters."),
-        overlap: int = Field(default=120, description="Overlap characters between chunks."),
+        chunk_size: int = Field(
+            default=800, description="Target chunk size in characters."
+        ),
+        overlap: int = Field(
+            default=120, description="Overlap characters between chunks."
+        ),
     ) -> str:
         """Process a document into Document + Chunk ontology objects through the live graph."""
         from agent_utilities.knowledge_graph.facade import KnowledgeGraph

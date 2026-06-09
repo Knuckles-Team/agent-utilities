@@ -54,7 +54,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent_utilities.observability.audit_logger import AuditLogger
 
-from .functions.registry import FunctionRegistry
 from .functions.runtime import DEFAULT_FUNCTION_RUNTIME, FunctionRuntime
 from .property_types import PropertyType, parse_type_ref
 
@@ -272,7 +271,11 @@ def _first_scalar(rows: list[dict[str, Any]]) -> Any:
         return row
     value = next(iter(row.values()))
     if isinstance(value, dict):
-        inner = value.get("properties") if isinstance(value.get("properties"), dict) else value
+        inner = (
+            value.get("properties")
+            if isinstance(value.get("properties"), dict)
+            else value
+        )
         if inner:
             return next(iter(inner.values()))
         return None
@@ -293,7 +296,9 @@ class DerivedPropertyRegistry:
     def __init__(self) -> None:
         self._by_key: dict[tuple[str | None, str], DerivedProperty] = {}
 
-    def register(self, prop: DerivedProperty, *, replace: bool = False) -> DerivedProperty:
+    def register(
+        self, prop: DerivedProperty, *, replace: bool = False
+    ) -> DerivedProperty:
         """Register a derived-property declaration.
 
         Raises:
@@ -481,9 +486,7 @@ class DerivedPropertyEngine:
             otype = obj.get("type") or obj.get("object_type")
         out: dict[str, Any] = {}
         for prop in self.registry.for_object_type(otype):
-            res = self.compute(
-                obj, prop, graph, object_type=otype, actor_id=actor_id
-            )
+            res = self.compute(obj, prop, graph, object_type=otype, actor_id=actor_id)
             out[prop.name] = res.value
         return out
 
@@ -511,9 +514,7 @@ class DerivedPropertyEngine:
 
         # Auto-supply object id / properties when the spec declares them, so a
         # Functions-on-Objects summarizer can run with no explicit input_map.
-        spec = self.runtime.registry.get(
-            prop.function_name, prop.function_version
-        )
+        spec = self.runtime.registry.get(prop.function_name, prop.function_version)
         if spec is not None:
             declared = {p.name for p in spec.inputs}
             if "object_id" in declared and "object_id" not in params:

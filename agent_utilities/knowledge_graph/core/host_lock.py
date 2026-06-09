@@ -49,7 +49,7 @@ def _lock_path() -> Path:
 
         base = Path(platformdirs.user_runtime_dir("agent-utilities"))
     except Exception:  # pragma: no cover - platformdirs always present in practice
-        base = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "agent-utilities"
+        base = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "agent-utilities"  # nosec B108 — XDG fallback, not a security-sensitive temp path
     base.mkdir(parents=True, exist_ok=True)
     return base / "kg_daemon_host.lock"
 
@@ -87,7 +87,7 @@ def _try_acquire() -> bool:
         "pid": os.getpid(),
         "host": _socket.gethostname(),
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "socket": os.environ.get("EPISTEMIC_GRAPH_SOCKET", "/tmp/epistemic-graph.sock"),
+        "socket": os.environ.get("EPISTEMIC_GRAPH_SOCKET", "/tmp/epistemic-graph.sock"),  # nosec B108 — default UDS path, overridable via env
         "role": os.environ.get("KG_DAEMON_ROLE", "auto"),
     }
     try:

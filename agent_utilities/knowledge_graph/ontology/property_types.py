@@ -44,7 +44,7 @@ from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from agent_utilities.core.config import config
 
@@ -114,14 +114,18 @@ class PropertyType(BaseModel):
         fn = _COERCERS.get(self.name)
         if fn is None:
             # Parameterized (array<T>/vector) types resolve by family.
-            if self.is_complex and self.element_type is not None and self.name.startswith("array"):
+            if (
+                self.is_complex
+                and self.element_type is not None
+                and self.name.startswith("array")
+            ):
                 return _coerce_array(value, self.element_type)
             if self.name in ("vector", "embedding") or self.name.startswith("vector"):
                 return _coerce_vector(value, self.dimension or DEFAULT_VECTOR_DIM)
             raise ValueError(f"No coercer registered for property type {self.name!r}")
         return fn(value)
 
-    def validate(self, value: Any) -> bool:
+    def validate(self, value: Any) -> bool:  # type: ignore[override]  # domain check, not pydantic's deprecated validate
         """Return True iff ``value`` is (or can be coerced to) this type."""
         try:
             self.coerce(value)
@@ -146,7 +150,7 @@ _FALSE = {"false", "0", "no", "n", "f", "off"}
 def _coerce_boolean(value: Any) -> bool:
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)) and value in (0, 1):
+    if isinstance(value, int | float) and value in (0, 1):
         return bool(value)
     if isinstance(value, str):
         low = value.strip().lower()
@@ -186,7 +190,7 @@ def _bounded_int(bits: int, signed: bool = True) -> Callable[[Any], int]:
 def _coerce_float(value: Any) -> float:
     if isinstance(value, bool):
         raise ValueError("bool is not a valid float property")
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     if isinstance(value, str):
         return float(value.strip())
@@ -198,7 +202,7 @@ def _coerce_decimal(value: Any) -> Decimal:
         return value
     if isinstance(value, bool):
         raise ValueError("bool is not a valid decimal property")
-    if isinstance(value, (int, float, str)):
+    if isinstance(value, int | float | str):
         return Decimal(str(value).strip())
     raise ValueError(f"cannot coerce {value!r} to decimal")
 
@@ -218,7 +222,7 @@ def _coerce_timestamp(value: Any) -> _dt.datetime:
         return value if value.tzinfo else value.replace(tzinfo=_dt.UTC)
     if isinstance(value, _dt.date):
         return _dt.datetime(value.year, value.month, value.day, tzinfo=_dt.UTC)
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return _dt.datetime.fromtimestamp(value, tz=_dt.UTC)
     if isinstance(value, str):
         ts = _dt.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
@@ -274,11 +278,14 @@ def _coerce_geo_point(value: Any) -> dict[str, float]:
     pt = value
     if isinstance(value, str):
         pt = json.loads(value)
-    if isinstance(pt, (list, tuple)) and len(pt) == 2:
+    if isinstance(pt, list | tuple) and len(pt) == 2:
         lat, lon = float(pt[0]), float(pt[1])
     elif isinstance(pt, dict):
-        lat = float(pt.get("lat", pt.get("latitude")))
-        lon = float(pt.get("lon", pt.get("lng", pt.get("longitude"))))
+        raw_lat = pt.get("lat", pt.get("latitude"))
+        raw_lon = pt.get("lon", pt.get("lng", pt.get("longitude")))
+        if raw_lat is None or raw_lon is None:
+            raise ValueError("geo point requires latitude and longitude")
+        lat, lon = float(raw_lat), float(raw_lon)
     else:
         raise ValueError(f"cannot coerce {value!r} to geo point")
     if not (-90.0 <= lat <= 90.0):
@@ -304,14 +311,14 @@ def _coerce_timeseries(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         points = value.get("points", [])
         series_id = value.get("series_id")
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, list | tuple):
         points = value
         series_id = None
     else:
         raise ValueError(f"cannot coerce {value!r} to timeseries")
     norm: list[list[Any]] = []
     for p in points:
-        if not isinstance(p, (list, tuple)) or len(p) != 2:
+        if not isinstance(p, list | tuple) or len(p) != 2:
             raise ValueError("timeseries point must be a (timestamp, value) pair")
         ts = _coerce_timestamp(p[0])
         val = _coerce_float(p[1])
@@ -336,14 +343,14 @@ def _coerce_geotimeseries(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         points = value.get("points", [])
         series_id = value.get("series_id")
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, list | tuple):
         points = value
         series_id = None
     else:
         raise ValueError(f"cannot coerce {value!r} to geotimeseries")
     norm: list[dict[str, Any]] = []
     for p in points:
-        if not isinstance(p, (list, tuple)) or len(p) != 2:
+        if not isinstance(p, list | tuple) or len(p) != 2:
             raise ValueError("geotimeseries point must be (timestamp, geo-point)")
         ts = _coerce_timestamp(p[0])
         geo = _coerce_geo_point(p[1])
@@ -421,7 +428,9 @@ def _coerce_media_reference(value: Any) -> dict[str, Any]:
     media_set = inner.get("media_set_rid") or inner.get("mediaSetRid")
     if media_set:
         out["media_set_rid"] = str(media_set)
-    media_type = inner.get("media_type") or inner.get("mimeType") or inner.get("mediaType")
+    media_type = (
+        inner.get("media_type") or inner.get("mimeType") or inner.get("mediaType")
+    )
     if media_type:
         out["media_type"] = str(media_type)
     return out
@@ -439,11 +448,11 @@ def _coerce_marking(value: Any) -> dict[str, Any]:
         ids = [value.strip()] if value.strip() else []
     elif isinstance(value, dict):
         raw = value.get("marking_ids", value.get("markings", []))
-        ids = [str(x) for x in raw] if isinstance(raw, (list, tuple)) else []
+        ids = [str(x) for x in raw] if isinstance(raw, list | tuple) else []
         single = value.get("marking_id") or value.get("id")
         if single:
             ids.append(str(single))
-    elif isinstance(value, (list, tuple, set)):
+    elif isinstance(value, list | tuple | set):
         ids = [str(x) for x in value]
     else:
         raise ValueError(f"cannot coerce {value!r} to marking")
@@ -482,7 +491,7 @@ def _coerce_array(value: Any, element_type: str) -> list[Any]:
         except ValueError as exc:
             raise ValueError(f"array string must be JSON: {exc}") from exc
         value = parsed
-    if not isinstance(value, (list, tuple)):
+    if not isinstance(value, list | tuple):
         raise ValueError(f"cannot coerce {value!r} to array")
     elem_pt = get_property_type(element_type)
     if elem_pt is None:
@@ -497,11 +506,11 @@ def _coerce_vector(value: Any, dim: int) -> list[float]:
     ``create_embedding_model``). Accepts list/tuple, JSON string, or numpy
     array (duck-typed via ``tolist``).
     """
-    if hasattr(value, "tolist") and not isinstance(value, (list, tuple)):
+    if hasattr(value, "tolist") and not isinstance(value, list | tuple):
         value = value.tolist()
     if isinstance(value, str):
         value = json.loads(value)
-    if not isinstance(value, (list, tuple)):
+    if not isinstance(value, list | tuple):
         raise ValueError(f"cannot coerce {value!r} to vector")
     vec = [_coerce_float(v) for v in value]
     if dim and len(vec) != dim:
@@ -567,27 +576,108 @@ PROPERTY_TYPES: dict[str, PropertyType] = {
     # --- Base scalar types (Palantir base property types) ---
     "string": _pt("string", XSD + "string", str, "STRING", description="UTF-8 text."),
     "boolean": _pt("boolean", XSD + "boolean", bool, "BOOLEAN"),
-    "byte": _pt("byte", XSD + "byte", int, "INT64", description="8-bit signed integer."),
-    "short": _pt("short", XSD + "short", int, "INT64", description="16-bit signed integer."),
-    "integer": _pt("integer", XSD + "int", int, "INT64", description="32-bit signed integer."),
-    "long": _pt("long", XSD + "long", int, "INT64", description="64-bit signed integer."),
+    "byte": _pt(
+        "byte", XSD + "byte", int, "INT64", description="8-bit signed integer."
+    ),
+    "short": _pt(
+        "short", XSD + "short", int, "INT64", description="16-bit signed integer."
+    ),
+    "integer": _pt(
+        "integer", XSD + "int", int, "INT64", description="32-bit signed integer."
+    ),
+    "long": _pt(
+        "long", XSD + "long", int, "INT64", description="64-bit signed integer."
+    ),
     "float": _pt("float", XSD + "float", float, "FLOAT"),
     "double": _pt("double", XSD + "double", float, "DOUBLE"),
-    "decimal": _pt("decimal", XSD + "decimal", Decimal, "STRING", description="Exact decimal; stored as string to avoid float drift."),
-    "date": _pt("date", XSD + "date", _dt.date, "STRING", description="ISO-8601 calendar date."),
+    "decimal": _pt(
+        "decimal",
+        XSD + "decimal",
+        Decimal,
+        "STRING",
+        description="Exact decimal; stored as string to avoid float drift.",
+    ),
+    "date": _pt(
+        "date", XSD + "date", _dt.date, "STRING", description="ISO-8601 calendar date."
+    ),
     "timestamp": _pt("timestamp", XSD + "dateTime", _dt.datetime, "TIMESTAMP"),
     # --- Geo types ---
-    "geohash": _pt("geohash", GEO + "asGeoHash", str, "STRING", description="Base-32 geohash."),
-    "geoshape": _pt("geoshape", GEO + "wktLiteral", dict, "STRING", is_complex=True, description="GeoJSON geometry serialised as JSON."),
-    "geo_point": _pt("geo_point", GEO + "Point", dict, "STRING", is_complex=True, description="{lat, lon} point."),
-    "timeseries": _pt("timeseries", KG + "TimeSeries", dict, "STRING", is_complex=True, description="Numeric time-series reference/series."),
-    "geotimeseries": _pt("geotimeseries", KG + "GeoTimeSeries", dict, "STRING", is_complex=True, description="Geo-tagged numeric time-series."),
+    "geohash": _pt(
+        "geohash", GEO + "asGeoHash", str, "STRING", description="Base-32 geohash."
+    ),
+    "geoshape": _pt(
+        "geoshape",
+        GEO + "wktLiteral",
+        dict,
+        "STRING",
+        is_complex=True,
+        description="GeoJSON geometry serialised as JSON.",
+    ),
+    "geo_point": _pt(
+        "geo_point",
+        GEO + "Point",
+        dict,
+        "STRING",
+        is_complex=True,
+        description="{lat, lon} point.",
+    ),
+    "timeseries": _pt(
+        "timeseries",
+        KG + "TimeSeries",
+        dict,
+        "STRING",
+        is_complex=True,
+        description="Numeric time-series reference/series.",
+    ),
+    "geotimeseries": _pt(
+        "geotimeseries",
+        KG + "GeoTimeSeries",
+        dict,
+        "STRING",
+        is_complex=True,
+        description="Geo-tagged numeric time-series.",
+    ),
     # --- Complex / reference types ---
-    "struct": _pt("struct", KG + "Struct", dict, "STRING", is_complex=True, description="Nested object serialised as JSON."),
-    "attachment": _pt("attachment", KG + "Attachment", dict, "STRING", is_complex=True, description="File attachment reference (rid)."),
-    "media_reference": _pt("media_reference", KG + "MediaReference", dict, "STRING", is_complex=True, description="Media-set item reference."),
-    "marking": _pt("marking", KG + "Marking", dict, "STRING[]", is_complex=True, description="Security marking ids gating access."),
-    "bytes": _pt("bytes", XSD + "base64Binary", bytes, "STRING", is_complex=True, description="Raw binary, base64-encoded for storage."),
+    "struct": _pt(
+        "struct",
+        KG + "Struct",
+        dict,
+        "STRING",
+        is_complex=True,
+        description="Nested object serialised as JSON.",
+    ),
+    "attachment": _pt(
+        "attachment",
+        KG + "Attachment",
+        dict,
+        "STRING",
+        is_complex=True,
+        description="File attachment reference (rid).",
+    ),
+    "media_reference": _pt(
+        "media_reference",
+        KG + "MediaReference",
+        dict,
+        "STRING",
+        is_complex=True,
+        description="Media-set item reference.",
+    ),
+    "marking": _pt(
+        "marking",
+        KG + "Marking",
+        dict,
+        "STRING[]",
+        is_complex=True,
+        description="Security marking ids gating access.",
+    ),
+    "bytes": _pt(
+        "bytes",
+        XSD + "base64Binary",
+        bytes,
+        "STRING",
+        is_complex=True,
+        description="Raw binary, base64-encoded for storage.",
+    ),
     # --- Vector / embedding (dim-parameterized, default 768) ---
     "vector": _pt(
         "vector",

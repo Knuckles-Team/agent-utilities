@@ -77,16 +77,6 @@ from .edits import (
     revert_edits,
     revert_object,
 )
-from .indexing import (
-    DataRestriction,
-    FunnelDelta,
-    ObjectIndexFunnel,
-    ObjectVersion,
-    StalenessLedger,
-    StalenessReport,
-    SyncResult,
-    content_hash,
-)
 from .functions import (
     DEFAULT_FUNCTION_REGISTRY,
     DEFAULT_FUNCTION_RUNTIME,
@@ -97,6 +87,16 @@ from .functions import (
     FunctionRuntime,
     FunctionSpec,
     ObjectFunctionContext,
+)
+from .indexing import (
+    DataRestriction,
+    FunnelDelta,
+    ObjectIndexFunnel,
+    ObjectVersion,
+    StalenessLedger,
+    StalenessReport,
+    SyncResult,
+    content_hash,
 )
 from .interfaces import (
     DEFAULT_INTERFACE_REGISTRY,
@@ -205,7 +205,9 @@ class OntologySystem:
         self.derived_registry: DerivedPropertyRegistry = DEFAULT_DERIVED_REGISTRY
         # A runtime bound to THIS graph so ON_OBJECTS functions read the live store.
         self.functions: FunctionRuntime = (
-            FunctionRuntime(graph=graph) if graph is not None else DEFAULT_FUNCTION_RUNTIME
+            FunctionRuntime(graph=graph)
+            if graph is not None
+            else DEFAULT_FUNCTION_RUNTIME
         )
         self.derived: DerivedPropertyEngine = DEFAULT_DERIVED_ENGINE
         # Durable edit ledger (CONCEPT:KG-2.43) — bound to the live graph so
@@ -301,9 +303,7 @@ class OntologySystem:
         """
         link = self.links.get(link_name)
         if link is None or not isinstance(link, JunctionLinkType):
-            raise KeyError(
-                f"no junction link type registered as {link_name!r}"
-            )
+            raise KeyError(f"no junction link type registered as {link_name!r}")
         return link.materialize_junction(source_id, target_id, properties)
 
     # ── Durable edit ledger (CONCEPT:KG-2.43) ────────────────────────────────

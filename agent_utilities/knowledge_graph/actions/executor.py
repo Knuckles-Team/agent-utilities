@@ -346,7 +346,8 @@ class ActionExecutor:
             status=status,
             error=err,
             result_summary=(
-                _summarize(result) if status == ActionStatus.SUCCESS
+                _summarize(result)
+                if status == ActionStatus.SUCCESS
                 else f"handler error: {err}"
             ),
         )
@@ -355,8 +356,11 @@ class ActionExecutor:
         if status == ActionStatus.SUCCESS and action.side_effects:
             try:
                 edits = apply_side_effects(
-                    self.ledger, action, params,
-                    actor=actor_id, invocation_ref=inv.id,
+                    self.ledger,
+                    action,
+                    params,
+                    actor=actor_id,
+                    invocation_ref=inv.id,
                 )
                 inv.edit_ids = [e.id for e in edits]
             except Exception as exc:  # noqa: BLE001 — record, never crash the call
@@ -390,7 +394,7 @@ class ActionExecutor:
         CONCEPT:KG-2.42 — Palantir batch actions.
         """
         targets = params.get("targets") or []
-        if not isinstance(targets, (list, tuple)):
+        if not isinstance(targets, list | tuple):
             targets = [targets]
         envelope = ActionInvocation(
             action_name=action.name,
@@ -435,6 +439,8 @@ class ActionExecutor:
         from agent_utilities.knowledge_graph.ontology.functions import FunctionRuntime
 
         ref = action.function_ref
+        if ref is None:
+            raise RuntimeError("action has no function_ref to invoke")
         runtime = FunctionRuntime(graph=getattr(self.ledger, "_graph", None))
         fn_result = runtime.invoke(
             ref.name,
@@ -467,7 +473,10 @@ class ActionExecutor:
                     action=ACTION_AUDIT,
                     resource_type=RESOURCE_TOOL,
                     resource_id=action.name,
-                    details={"dispatch": rec.get("kind", ""), "transport": rec.get("transport", "")},
+                    details={
+                        "dispatch": rec.get("kind", ""),
+                        "transport": rec.get("transport", ""),
+                    },
                 )
             except Exception as exc:  # noqa: BLE001 — audit of dispatch is best-effort
                 logger.debug("Dispatch audit failed: %s", exc)

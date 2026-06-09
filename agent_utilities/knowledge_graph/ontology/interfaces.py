@@ -59,7 +59,7 @@ from ...models.knowledge_graph import RegistryEdgeType, RegistryNodeType
 from .property_types import PropertyType, parse_type_ref
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from .functions.registry import FunctionRegistry
+    pass
 
 # OWL/SHACL namespaces — identical bindings to the ontology *.ttl files and the
 # owl_bridge RDF materialization, so interface classes/shapes resolve in the same
@@ -206,9 +206,7 @@ class Interface(BaseModel):
             resolved[c.name] = c
         return resolved
 
-    def _iter_ancestors(
-        self, registry: InterfaceRegistry | None
-    ) -> list[Interface]:
+    def _iter_ancestors(self, registry: InterfaceRegistry | None) -> list[Interface]:
         """Return ancestor interfaces (parents first), cycle-safe.
 
         Without a registry, an interface has no resolvable parents (its declared
@@ -260,7 +258,9 @@ class Interface(BaseModel):
         props = self.all_properties(registry)
         for name, iface_prop in props.items():
             if iface_prop.required and name not in object_dict:
-                gaps.append(f"missing required property '{name}' ({iface_prop.type_ref})")
+                gaps.append(
+                    f"missing required property '{name}' ({iface_prop.type_ref})"
+                )
                 continue
             if name in object_dict and not iface_prop.is_satisfied_by_value(
                 object_dict[name]
@@ -304,9 +304,7 @@ class Interface(BaseModel):
         """Return the interface's SHACL ``sh:NodeShape`` IRI."""
         return KG + _camel(self.name) + "Shape"
 
-    def to_owl(
-        self, *, registry: InterfaceRegistry | None = None
-    ) -> str:
+    def to_owl(self, *, registry: InterfaceRegistry | None = None) -> str:
         """Emit the interface as an ``owl:Class`` plus a SHACL ``sh:NodeShape``.
 
         CONCEPT:KG-2.38 — OWL/SHACL projection, reusing the ``owl_bridge``
@@ -357,20 +355,17 @@ class Interface(BaseModel):
         # SHACL NodeShape capturing the contract.
         shape_lines = [f":{local}Shape a sh:NodeShape ;"]
         shape_lines.append(f"    sh:targetClass :{local} ;")
-        shape_lines.append(
-            f'    sh:name "{self.name} Shape" ;'
-        )
+        shape_lines.append(f'    sh:name "{self.name} Shape" ;')
         prop_blocks: list[str] = []
         for name, iface_prop in self.all_properties(registry).items():
             if not iface_prop.required:
                 continue
             xsd_iri = iface_prop.property_type().xsd_iri
             prop_blocks.append(
-                "    sh:property [ sh:path :%s ;\n"
-                "            sh:datatype <%s> ;\n"
+                f"    sh:property [ sh:path :{name} ;\n"
+                f"            sh:datatype <{xsd_iri}> ;\n"
                 "            sh:minCount 1 ;\n"
-                '            sh:message "%s must declare interface-property %s." ]'
-                % (name, xsd_iri, self.name, name)
+                f'            sh:message "{self.name} must declare interface-property {name}." ]'
             )
         for cname, constraint in self.all_link_constraints(registry).items():
             mincount = max(0, int(constraint.min_count))
@@ -378,7 +373,12 @@ class Interface(BaseModel):
                 "    sh:property [ sh:path :%s ;\n"
                 "            sh:minCount %d ;\n"
                 '            sh:message "%s must expose link %s." ]'
-                % (constraint.edge_type.value, mincount, self.name, constraint.edge_type.value)
+                % (
+                    constraint.edge_type.value,
+                    mincount,
+                    self.name,
+                    constraint.edge_type.value,
+                )
             )
         if prop_blocks:
             shape_lines.append(",\n".join(prop_blocks) + " .")
@@ -415,14 +415,14 @@ def _object_link_view(
     counts: dict[str, int] = {}
 
     raw_types = object_dict.get("link_types")
-    if isinstance(raw_types, (list, tuple, set)):
+    if isinstance(raw_types, list | tuple | set):
         for t in raw_types:
             if isinstance(t, str) and t:
                 declared.add(t.lower())
 
     for key in ("links", "edges"):
         raw = object_dict.get(key)
-        if not isinstance(raw, (list, tuple)):
+        if not isinstance(raw, list | tuple):
             continue
         for link in raw:
             if not isinstance(link, dict):
@@ -529,7 +529,9 @@ class InterfaceRegistry:
         ``link_types`` is the set of edge types the type exposes.
         """
         tv = _type_value(object_type)
-        shape = self._type_shapes.setdefault(tv, {"properties": {}, "link_types": set()})
+        shape = self._type_shapes.setdefault(
+            tv, {"properties": {}, "link_types": set()}
+        )
         if properties:
             shape["properties"].update({k: str(v) for k, v in properties.items()})
         if link_types:
@@ -581,11 +583,7 @@ class InterfaceRegistry:
         Raises:
             ValueError: if the interface name is unknown.
         """
-        iface = (
-            interface
-            if isinstance(interface, Interface)
-            else self.get(interface)
-        )
+        iface = interface if isinstance(interface, Interface) else self.get(interface)
         if iface is None:
             raise ValueError(f"unknown interface: {interface!r}")
 
@@ -601,16 +599,10 @@ class InterfaceRegistry:
             gaps=gaps,
         )
 
-    def implementations_of_type(
-        self, object_type: RegistryNodeType | str
-    ) -> list[str]:
+    def implementations_of_type(self, object_type: RegistryNodeType | str) -> list[str]:
         """Return the interface names a given object type implements."""
         tv = _type_value(object_type)
-        return [
-            name
-            for name, impls in self._implementers.items()
-            if tv in impls
-        ]
+        return [name for name, impls in self._implementers.items() if tv in impls]
 
     # ── Programmatic targeting (the headline feature) ──────────────────────
 
@@ -626,11 +618,7 @@ class InterfaceRegistry:
         Raises:
             ValueError: if the interface name is unknown.
         """
-        iface = (
-            interface
-            if isinstance(interface, Interface)
-            else self.get(interface)
-        )
+        iface = interface if isinstance(interface, Interface) else self.get(interface)
         if iface is None:
             raise ValueError(f"unknown interface: {interface!r}")
 
@@ -660,11 +648,7 @@ class InterfaceRegistry:
         Raises:
             ValueError: if the interface name is unknown.
         """
-        iface = (
-            interface
-            if isinstance(interface, Interface)
-            else self.get(interface)
-        )
+        iface = interface if isinstance(interface, Interface) else self.get(interface)
         if iface is None:
             raise ValueError(f"unknown interface: {interface!r}")
         return iface.conforms(object_dict, registry=self)
@@ -702,8 +686,7 @@ class InterfaceRegistry:
             "",
         ]
         for iface_name, impls in self._implementers.items():
-            iface = self._interfaces.get(iface_name)
-            if iface is None:
+            if iface_name not in self._interfaces:
                 continue
             for tv in sorted(impls):
                 type_local = _camel(tv)

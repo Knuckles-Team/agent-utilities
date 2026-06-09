@@ -42,9 +42,9 @@ get tombstone-filtered, restriction-respecting results on the live path.
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from ...retrieval.capability_index import CapabilityIndex, Designation
 from .staleness import StalenessLedger, content_hash
@@ -481,8 +481,7 @@ class ObjectIndexFunnel:
         }
         # Build the source hash view the ledger compares against.
         source_view = {
-            nid: content_hash(index_payload_of(node))
-            for nid, node in admitted.items()
+            nid: content_hash(index_payload_of(node)) for nid, node in admitted.items()
         }
         report = self.ledger.compare(source_view)
 
@@ -501,8 +500,7 @@ class ObjectIndexFunnel:
             and _getter_for(node)("embedding") is not None
         }
         source_view = {
-            nid: content_hash(index_payload_of(node))
-            for nid, node in admitted.items()
+            nid: content_hash(index_payload_of(node)) for nid, node in admitted.items()
         }
         return self.ledger.needs_reindex(source_view)
 

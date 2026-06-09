@@ -258,7 +258,9 @@ class PostgreSQLBackend(GraphBackend):
         try:
             with self._conn() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(f'ALTER TABLE "{t}" ADD COLUMN IF NOT EXISTS "{c}" TEXT')
+                    cur.execute(
+                        f'ALTER TABLE "{t}" ADD COLUMN IF NOT EXISTS "{c}" TEXT'
+                    )
                     conn.commit()
             logger.info("auto-DDL: added column '%s' to durable table '%s'", c, t)
             return True

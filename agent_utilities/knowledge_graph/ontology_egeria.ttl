@@ -34,6 +34,15 @@
     gate routing on it without a separate node lookup.""" ;
     rdfs:range xsd:string .
 
+:dependsOn a owl:ObjectProperty ;
+    rdfs:label "depends on" ;
+    rdfs:comment """Structural cross-layer dependency (not data movement): the
+    source element relies on the target — a service realizing a store, a store
+    hosted on a node, an access policy securing a service, a monitor watching a
+    target. Materialized from Egeria DataFlow edges created by the cross-layer
+    reconciliation pass (egeria-mcp reconcile, CONCEPT:EG-006), so the KG sees the
+    whole estate as one dependency graph alongside :flowsTo lineage.""" .
+
 :derivesFrom a owl:ObjectProperty ;
     rdfs:label "derives from" ;
     rdfs:comment """Data-lineage edge: the target asset is produced/derived by the
@@ -46,15 +55,6 @@
     into the target process. Carries Egeria DataFlow / lineage-relationship
     semantics — the unique payload Egeria contributes that the KG does not model
     natively.""" .
-
-:dependsOn a owl:ObjectProperty ;
-    rdfs:label "depends on" ;
-    rdfs:comment """Structural cross-layer dependency (not data movement): the
-    source element relies on the target — a service realizing a store, a store
-    hosted on a node, an access policy securing a service, a monitor watching a
-    target. Materialized from Egeria DataFlow edges created by the cross-layer
-    reconciliation pass (egeria-mcp reconcile, CONCEPT:EG-006), so the KG sees the
-    whole estate as one dependency graph alongside :flowsTo lineage.""" .
 
 :qualifiedName a owl:DatatypeProperty ;
     rdfs:label "qualified name" ;
