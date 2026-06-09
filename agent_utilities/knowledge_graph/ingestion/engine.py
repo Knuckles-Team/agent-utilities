@@ -771,10 +771,6 @@ class IngestionEngine:
         ".md", ".markdown", ".txt", ".rst", ".text",
         ".pdf", ".html", ".htm", ".org", ".adoc",
     }
-    _DOC_SKIP_DIRS = {
-        ".git", "node_modules", "__pycache__", ".venv", "venv",
-        ".mypy_cache", ".pytest_cache", "site-packages", "dist", "build",
-    }
 
     def _ingest_document_dir(
         self, manifest: IngestionManifest, root: Path
@@ -788,7 +784,7 @@ class IngestionEngine:
             for p in sorted(root.rglob("*"))
             if p.is_file()
             and p.suffix.lower() in self._DOC_EXTENSIONS
-            and not any(part in self._DOC_SKIP_DIRS for part in p.parts)
+            and not any(part in _SKIP_DIRS for part in p.parts)
         ]
         if not files:
             return IngestionResult(

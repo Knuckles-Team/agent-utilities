@@ -189,6 +189,43 @@ async def test_part_of_chunks_are_covered_by_parent_document(tmp_path):
     assert all(c["file"] is None and c.get("covered_by_parent") for c in chunks)
 
 
+async def test_distill_workflow_orders_steps_by_precedes(tmp_path):
+    import re
+
+    nodes = {
+        "proc:a": {"type": "Procedure", "name": "Gather inputs",
+                    "description": "Collect the request inputs."},
+        "proc:b": {"type": "Procedure", "name": "Validate",
+                    "description": "Validate the inputs."},
+        "proc:c": {"type": "Procedure", "name": "Submit",
+                    "description": "Submit the change."},
+    }
+    edges = [
+        ("proc:a", "proc:b", {"rel_type": "PRECEDES"}),
+        ("proc:b", "proc:c", {"rel_type": "PRECEDES"}),
+    ]
+    distiller = SkillGraphDistiller(FakeClient(nodes, edges), graph_name="__t__")
+    result = await distiller.distill_workflow(seed="proc:a", depth=2, out_dir=str(tmp_path))
+
+    assert result["steps"] == 3
+    md = (tmp_path / "SKILL.md").read_text()
+
+    # Validator-compatible step headers, topologically ordered with depends_on.
+    pattern = re.compile(
+        r"^###\s+Step\s+(\d+):\s*([a-zA-Z0-9_-]+)(?:\s*\[depends_on:\s*([^\]]+)\])?",
+        re.MULTILINE,
+    )
+    steps = pattern.findall(md)
+    assert [int(n) for n, _, _ in steps] == [0, 1, 2]
+    tokens = [t for _, t, _ in steps]
+    assert tokens == ["Gather_inputs", "Validate", "Submit"]
+    # Each step depends on its predecessor's step number.
+    assert steps[0][2] == ""
+    assert "Step 0" in steps[1][2]
+    assert "Step 1" in steps[2][2]
+    assert "Expected:" in md
+
+
 async def test_unknown_seed_emits_no_files_but_valid_manifest(tmp_path):
     # A seed with no properties and no neighbours yields a body-less, file-less
     # but still well-formed manifest (deterministic empty-ish output).

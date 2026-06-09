@@ -2034,7 +2034,7 @@ def _build_server(bootstrap: bool = True):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, distill, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, sync, reflect). 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
+            description="Action to perform (ingest, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, sync, reflect). 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -2384,14 +2384,29 @@ def _build_server(bootstrap: bool = True):
                                 "or query (description=text)"
                             }
                         )
+                    # content_type="workflow" → distill a graph-native skill-WORKFLOW
+                    # (procedure step-DAG) instead of a documentation skill-graph.
+                    as_workflow = (content_type or "").strip().lower() == "workflow"
                     distiller = await SkillGraphDistiller.connect()
                     try:
-                        manifest = await distiller.distill(
-                            seed=seed,
-                            query=query,
-                            depth=max_depth,
-                            out_dir=target_path,
-                        )
+                        if as_workflow:
+                            wf = await distiller.distill_workflow(
+                                seed=seed,
+                                query=query,
+                                depth=max_depth,
+                                out_dir=target_path,
+                            )
+                            payload = {"kind": "skill-workflow",
+                                       "name": wf["name"], "steps": wf["steps"]}
+                        else:
+                            manifest = await distiller.distill(
+                                seed=seed,
+                                query=query,
+                                depth=max_depth,
+                                out_dir=target_path,
+                            )
+                            payload = {"kind": "skill-graph",
+                                       "stats": manifest["stats"]}
                     finally:
                         await distiller.close()
                     return json.dumps(
@@ -2399,7 +2414,7 @@ def _build_server(bootstrap: bool = True):
                             "status": "distilled",
                             "out_dir": target_path,
                             "manifest": f"{target_path.rstrip('/')}/kg_manifest.json",
-                            "stats": manifest["stats"],
+                            **payload,
                         },
                         default=str,
                     )
@@ -2452,6 +2467,29 @@ def _build_server(bootstrap: bool = True):
                 await KnowledgePackHydrator.hydrate(bundle)
                 KnowledgePackImporter.seed_into_kg(bundle, engine)
                 return f"Knowledge pack from {target_path} hydrated and ingested."
+
+            elif action == "import_pack":
+                # CONCEPT:AHE-3.9 — Round-trip import of a distilled skill-graph
+                # package (reference/ + kg_manifest.json): reconstruct the original
+                # subgraph here, preserving node ids + edges. The inverse of
+                # 'distill'. ``corpus_name="dedup"`` runs the IdeaBlock dedup-merge.
+                import json
+
+                from agent_utilities.knowledge_graph.distillation import (
+                    import_skill_graph_pack,
+                )
+
+                if not target_path:
+                    return json.dumps(
+                        {"error": "import_pack requires target_path (skill-graph dir)"}
+                    )
+                try:
+                    stats = import_skill_graph_pack(
+                        engine, target_path, dedup=(corpus_name == "dedup")
+                    )
+                    return json.dumps({"status": "imported", "stats": stats}, default=str)
+                except Exception as e:  # noqa: BLE001
+                    return f"Import error: {e}"
 
             else:
                 return f"Error: Unknown ingest action '{action}'"
