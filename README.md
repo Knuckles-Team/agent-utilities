@@ -23,6 +23,10 @@
 
 *Version: 0.46.2*
 
+> **Documentation** — The complete guides, architecture references, and pillar
+> documentation are published as the
+> [official documentation](https://knuckles-team.github.io/agent-utilities/).
+
 ## Table of Contents
 
 - [The Technical Novel: Narrative Journey](docs/journey.md)
@@ -73,6 +77,8 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **[Emergent Architecture](docs/guides/features.md#emergent-architecture-conceptkg-20-through-conceptorch-12)**: Dynamic AgentCapability auto-activation, TeamConfig coalition promotion, and evolutionary skill refinement via self-models.
 - **[Agent OS & Safety](docs/guides/features.md#human-in-the-loop--tool-safety)**: Built-in Universal Tool Guards, structural vulnerability scanning, and transparent process lifecycle management.
 - **[Dynamic Company Brain Ingestion](docs/guides/features.md#company-intelligence-graph)**: Dynamic data ingestion from external platforms like Jira, GitLab/GitHub, enterprise architecture repositories (e.g., Essential Project, Archi), and databases with automatic ontology alignment and GraphQL/REST extraction.
+- **[Document-Source Connector Framework](docs/pillars/4_ecosystem_peripherals/ECO-4.25-Document_Source_Connector_Framework.md)** (CONCEPT:ECO-4.25–4.32): A `load`/`poll`/`slim` connector abstraction (web crawler, filesystem, REST/JSON, **databases — Postgres/MariaDB/MSSQL/Oracle/SQLite/Mongo**, and the entire `agent-packages/agents/*` MCP fleet) with resumable checkpoints, **external permission sync** into the entailment-aware ACL gate, **contextual-retrieval enrichment** (KG-2.50), and query analysis. Ports the Onyx connector surface onto the semantic core — ingested documents become first-class `Document`+`Chunk` ontology objects with OWL semantics, bitemporal slicing, and reified links a flat index can't offer. Includes an explicit **Onyx connector-parity map**.
+- **[Media Generation & Transcription](docs/pillars/4_ecosystem_peripherals/ECO-4.30-Media_Generation_Gateway.md)** (CONCEPT:ECO-4.30/4.31): Self-hosted image (`flux.2` + Stable Diffusion 3.5), video (`hunyuanvideo`), speech synthesis (`xtts`), and transcription (`faster-whisper`) exposed as agent tools under the `MEDIA_TOOLS` gate.
 - **[Company Brain Runtime (Trust, Permissions, Feedback)](docs/architecture/company_brain_runtime.md)**: The 6-layer "Single Company Brain" wired end-to-end behind `KG_BRAIN_ENFORCE` — **source-authority conflict resolution with trust decay** and **field-level survivorship** (durable per-attribute provenance / MDM golden record), **data-level ACLs + tenant scoping + read audit** on the retrieval path, a **human-correction → durable rule → eval** feedback loop, and **token-budgeted, task-scoped retrieval**.
 - **[Vendor-Neutral Enterprise Ontology](docs/architecture/vendor_neutral_enterprise_ontology.md)**: One ArchiMate-aligned upper ontology + crosswalk so ServiceNow↔ERPNext, Camunda↔Archi, etc. are interchangeable — a single query resolves all sources regardless of which vendor tool produced the data.
 - **[Enterprise Agent Governance](docs/pillars/4_ecosystem_peripherals.md#-enterprise-agent-governance-eco-416--eco-422)**: Production-grade mutation governance with risk-scored change proposals, human-in-the-loop approval gates, AGENTS.md self-improvement, lint enforcement hooks, plugin bundle distribution, permission policies, staleness auditing, and unified governance workflow pipeline.

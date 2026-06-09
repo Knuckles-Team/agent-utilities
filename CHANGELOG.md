@@ -7,7 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Ingestion/evolution daemon bugs surfaced by a full re-ingest (CONCEPT:KG-2.7 / KG-2.8 / KG-2.12):**
+  - *Document ingest "No files found"*: the worker's `SimpleDirectoryReader` excluded every file
+    because the research store lives under `~/.local/share/...` (a dot-dir parent makes all files
+    "hidden"). Pass `exclude_hidden=False` (+ `recursive=False`, `required_exts`) so PDFs ingest.
+  - *Parallel multi-repo `enrich_comm` race*: the community-detection step used one shared
+    transient tenant `{graph}__enrich_comm` across all concurrent codebase jobs, so a finishing
+    job deleted a sibling's tenant mid-run → "Graph not found". Now a unique per-job tenant name.
+  - *`deep_analysis` AttributeError*: `search_hybrid` referenced `self.hybrid_retriever` which was
+    unset on the background-task host path. Lazy-ensure it on first use.
+
+### Changed
+- **Faster, throttled codebase ingestion (CONCEPT:KG-2.7 / KG-2.8)** — five changes so
+  large-repo (re-)ingest stays cheap and bulk loads can't saturate the engine:
+  - *Pre-hash skip* (`enrichment/pipeline.py`): files are content-hashed **before** parsing,
+    so an unchanged file costs one local sha256 instead of a Rust-engine `parse_file`
+    round-trip. Re-ingest of an unchanged repo no longer pays the full per-file RPC.
+  - *Git-aware delta* (`ingestion/engine.py`): the codebase adaptor records the repo HEAD sha
+    as a delta watermark and, on re-ingest of a git work-tree, enriches only the `*.py` files
+    `git diff` reports changed — turning a whole-tree walk into a single `git diff` + a handful
+    of parses. First ingest / non-git / git failure fall back to the full walk.
+  - *Lite-model card backfill* (`core/engine_tasks.py`): the background capability-card daemon
+    defaults to the lite chat model (`KG_CARD_MODEL=heavy` to override) and acquires a shared
+    `background_throttle` slot, so card generation can't monopolize the engine.
+  - *Read/ingest plane isolation* (`core/engine_tasks.py`): heavy task types
+    (codebase/document/deep_analysis/synthesize/…) execute inside the shared `background_slot`,
+    yielding to interactive (foreground) work and staying within the global concurrency cap.
+  - *deep_analysis gating* (`core/engine_tasks.py`): while a bulk codebase ingest is draining,
+    `deep_analysis` runs flat (`max_depth=0`) so its recursive, 0-node, blocking-LLM fan-out
+    can't flood the queue ahead of structural ingest.
+  - *Batched parse over the wire (CONCEPT:KG-2.16)*: the engine now has a `ParseFiles` op
+    (epistemic-graph ≥ 0.27.0) that parses N files in one round-trip (rayon-parallel,
+    fault-tolerant per file, ordered results). `enrich_files` sends changed files via
+    `parse_files` in chunks (`KG_PARSE_BATCH`, default 128) instead of one RPC per file.
+    Capability-gated: the client probes `Health.ops` and falls back to per-file `parse_file`
+    against an engine that predates the op, so the cutover is zero-flag-day.
+
 ### Added
+- **Document-source connector framework + Onyx parity (CONCEPT:ECO-4.25–4.29)** — a
+  `load`/`poll`/`slim` connector abstraction (`agent_utilities/protocols/source_connectors/`)
+  that ingests external documents — websites, filesystems, **databases (PostgreSQL, MySQL/
+  MariaDB, MS SQL Server, Oracle, SQLite, MongoDB via `UniversalConnector`)**, and the entire
+  `agent-packages/agents/*` MCP fleet — into the KG as first-class `Document` + `Chunk`
+  ontology objects. Provenance: the Onyx/Danswer connector surface
+  (`LoadConnector`/`PollConnector`/`SlimConnector`), ported onto the *semantic* core so
+  ingested documents inherit OWL semantics, bitemporal slicing, reified `HAS_CHUNK`/`CHUNK_OF`
+  links, and the entailment-aware ACLs of KG-2.46 — capabilities a flat vector index cannot
+  offer. Includes resumable **checkpointed incremental poll** (ECO-4.26) round-tripping through
+  the existing `DeltaManifest` (KG-2.8); a self-registering **registry + factory** (ECO-4.27);
+  **external permission sync** (ECO-4.28) mapping source ACLs onto KG-2.46 markings/`read_roles`;
+  and a generic **MCP agent-package adapter** (ECO-4.29) with a preset catalog that encodes an
+  explicit **Onyx connector-parity map** (every Onyx source routes to a native package or a
+  generic web/rest/database/filesystem connector). Wired end-to-end: `ContentType.CONNECTOR`
+  ingestion adaptor, `kg.ontology.run_connector(...)`, the `source_connector` MCP tool, and
+  `/connector/*` REST routes.
+- **Contextual-retrieval enrichment (CONCEPT:KG-2.50)** — per-chunk situating context computed
+  before embedding and prepended to the embedding input (Anthropic "Contextual Retrieval"),
+  with an LLM path and a deterministic offline heuristic; wired into the KG-2.48
+  `DocumentProcessor` (default OFF; on for connector ingest) and stored on chunk nodes.
+- **Query analysis (CONCEPT:ECO-4.32)** — source-type + time-window filter derivation from a
+  natural-language query (LLM or deterministic fallback) plus a citation processor, wired as an
+  opt-in pre-filter on `HybridRetriever.retrieve_hybrid(query_analysis=True)`.
+- **Media generation + transcription gateway (CONCEPT:ECO-4.30 / ECO-4.31)** — self-hosted
+  image (`flux.2` + Stable Diffusion 3.5), video (`hunyuanvideo`), speech (`xtts`), and
+  transcription (`faster-whisper`) via lazy-`httpx` clients in `agent_utilities/ecosystem/media/`,
+  exposed as agent tools under the `MEDIA_TOOLS` gate. The `flux.2`/`hunyuanvideo` stale
+  compose templates were rewritten and a `stable-diffusion` (SD3.5) service added, all targeting
+  the GB10 host via the swarm-launcher pattern with a light, on-demand footprint.
+
 - **Ontology System — Palantir-Foundry-parity, graph-native (CONCEPT:KG-2.26 / KG-2.38–KG-2.48 + KG-2.42)** —
   a first-class object/link/function/action layer at `agent_utilities/knowledge_graph/ontology/`,
   reached through `kg.ontology` (`KnowledgeGraph.ontology` → `OntologySystem`). It binds real,

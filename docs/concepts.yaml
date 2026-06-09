@@ -2,12 +2,13 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 126
-total_pillars: 12
+total_concepts: 137
+total_pillars: 13
 pillars:
 - AHE-3
 - CTX-1
 - ECO-4
+- EG-009
 - KG-1
 - KG-2
 - LGC-1
@@ -158,6 +159,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/distillation/physical_distiller.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
+  - agent_utilities/knowledge_graph/distillation/skill_graph_importer.py
   - agent_utilities/mcp/kg_server.py
   doc: Distills updated tool description back into Python function docstring
 - id: AHE-3.11
@@ -296,6 +298,7 @@ concepts:
   - agent_utilities/protocols/acp_adapter.py
   - agent_utilities/protocols/acp_providers.py
   - agent_utilities/protocols/data_connector.py
+  - agent_utilities/protocols/source_connectors/base.py
   - agent_utilities/security/permissions_kernel.py
   - agent_utilities/server/app.py
   - agent_utilities/server/routers/__init__.py
@@ -413,6 +416,96 @@ concepts:
   - agent_utilities/observability/langfuse_exporter.py
   - agent_utilities/orchestration/engine.py
   doc: Langfuse exporter for spans, token usage and traces
+- id: ECO-4.25
+  name: Document-Source Connector Framework
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/protocols/source_connectors/__init__.py
+  - agent_utilities/protocols/source_connectors/base.py
+  - agent_utilities/protocols/source_connectors/connectors/__init__.py
+  - agent_utilities/protocols/source_connectors/connectors/database.py
+  - agent_utilities/protocols/source_connectors/connectors/filesystem.py
+  - agent_utilities/protocols/source_connectors/connectors/rest.py
+  - agent_utilities/protocols/source_connectors/connectors/web.py
+  doc: Document-Source Connector Framework
+- id: ECO-4.26
+  name: incremental poll keyed on a crawl-time watermark + seen ids
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/protocols/source_connectors/base.py
+  - agent_utilities/protocols/source_connectors/checkpoint.py
+  - agent_utilities/protocols/source_connectors/connectors/database.py
+  - agent_utilities/protocols/source_connectors/connectors/filesystem.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_package.py
+  - agent_utilities/protocols/source_connectors/connectors/rest.py
+  - agent_utilities/protocols/source_connectors/connectors/web.py
+  doc: incremental poll keyed on a crawl-time watermark + seen ids
+- id: ECO-4.27
+  name: the discovery half of the self-registering pattern. Called
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/protocols/source_connectors/connectors/__init__.py
+  - agent_utilities/protocols/source_connectors/registry.py
+  doc: the discovery half of the self-registering pattern. Called
+- id: ECO-4.28
+  name: External Permission Sync
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/protocols/source_connectors/base.py
+  - agent_utilities/protocols/source_connectors/connectors/filesystem.py
+  - agent_utilities/protocols/source_connectors/permission_sync.py
+  doc: External Permission Sync
+- id: ECO-4.29
+  name: declarative catalog driving the MCP fleet adapter
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/protocols/source_connectors/connectors/mcp_package.py
+  - agent_utilities/protocols/source_connectors/connectors/package_manifest.py
+  doc: declarative catalog driving the MCP fleet adapter
+- id: ECO-4.30
+  name: /4.31 — media generation + transcription tools. Default OFF
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/ecosystem/media/__init__.py
+  - agent_utilities/ecosystem/media/gateway.py
+  - agent_utilities/ecosystem/media/transcription.py
+  - agent_utilities/tools/media_tools.py
+  - agent_utilities/tools/tool_registry.py
+  doc: /4.31 — media generation + transcription tools. Default OFF
+- id: ECO-4.31
+  name: Media Transcription Bridge
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/ecosystem/media/transcription.py
+  - agent_utilities/tools/media_tools.py
+  doc: Media Transcription Bridge
+- id: ECO-4.32
+  name: apply any query-analysis source-type restriction to
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+  - agent_utilities/knowledge_graph/retrieval/query_analysis.py
+  doc: apply any query-analysis source-type restriction to
+- id: EG-009
+  name: then by its node
+  pillar: EG-009
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/standardization/standards.py
+  doc: then by its node
 - id: KG-1.0
   name: Centralized KG Coordination Protocol
   pillar: KG-1
@@ -747,9 +840,11 @@ concepts:
   - agent_utilities/knowledge_graph/core/kafka_graph_sync.py
   - agent_utilities/knowledge_graph/core/kg_versioning.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/enrichment/execute.py
   - agent_utilities/knowledge_graph/enrichment/models.py
   - agent_utilities/knowledge_graph/ingestion/__init__.py
+  - agent_utilities/knowledge_graph/ingestion/__main__.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
   - agent_utilities/knowledge_graph/pipeline/__init__.py
@@ -798,6 +893,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/governance_rules.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/protocols/source_connectors/checkpoint.py
   doc: / OS-5.9 — the KG runs exactly ONE consolidated background daemon
 - id: KG-2.9
   name: Universal DataConnector
@@ -805,15 +901,23 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/archer.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/aris.py
   - agent_utilities/knowledge_graph/enrichment/extractors/camunda.py
   - agent_utilities/knowledge_graph/enrichment/extractors/egeria.py
   - agent_utilities/knowledge_graph/enrichment/extractors/erpnext.py
   - agent_utilities/knowledge_graph/enrichment/extractors/grafana.py
   - agent_utilities/knowledge_graph/enrichment/extractors/infra.py
   - agent_utilities/knowledge_graph/enrichment/extractors/leanix.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/odoo.py
   - agent_utilities/knowledge_graph/enrichment/extractors/servicenow.py
   - agent_utilities/knowledge_graph/enrichment/models.py
   - agent_utilities/knowledge_graph/enrichment/registry.py
+  - agent_utilities/knowledge_graph/infra/__init__.py
+  - agent_utilities/knowledge_graph/infra/inventory_collector.py
+  - agent_utilities/knowledge_graph/infra/placement_optimizer.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/protocols/universal_connector.py
   doc: Universal DataConnector
 - id: KG-2.10
@@ -877,12 +981,16 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
   doc: social-closer / triviality gate
 - id: KG-2.16
-  name: KG-2.16
+  name: else the per-file path. Both yield the
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
-  doc: KG-2.16
+  doc: else the per-file path. Both yield the
 - id: KG-2.17
   name: decay scanner + semantic merge
   pillar: KG-2
@@ -906,6 +1014,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py
   - agent_utilities/knowledge_graph/ingestion/wiki_curator.py
   - agent_utilities/mcp/kg_server.py
   doc: delta-skip continuous ingest of a self-curating wiki dir
@@ -1091,6 +1200,7 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/interfaces.py
   - agent_utilities/knowledge_graph/ontology/object_set.py
+  - agent_utilities/knowledge_graph/standardization/standards.py
   - agent_utilities/mcp/kg_server.py
   doc: the function the A3 functions runtime / object queries call
 - id: KG-2.39
@@ -1203,6 +1313,31 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/mcp/kg_server.py
   doc: the one-call form the ingestion engine / MCP wrapper invokes
+- id: KG-2.49
+  name: populated at import with real built-in standards, never empty
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/standardization/__init__.py
+  - agent_utilities/knowledge_graph/standardization/cohorts.py
+  - agent_utilities/knowledge_graph/standardization/consolidation.py
+  - agent_utilities/knowledge_graph/standardization/drift.py
+  - agent_utilities/knowledge_graph/standardization/standards.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: populated at import with real built-in standards, never empty
+- id: KG-2.50
+  name: situate each chunk within the document and embed context+chunk for better recall
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/ontology/contextual_enrichment.py
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/mcp/kg_server.py
+  doc: situate each chunk within the document and embed context+chunk for better recall
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

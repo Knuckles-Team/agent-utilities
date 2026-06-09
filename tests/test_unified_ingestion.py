@@ -69,6 +69,7 @@ class TestContentType:
             "event",
             "prompt",
             "config",
+            "connector",
         }
         actual = {ct.value for ct in ContentType}
         assert actual == expected
@@ -197,6 +198,9 @@ class TestCodebaseIngestion:
         (tmp_path / "main.py").write_text("def hello():\n    return 1\n")
         # Fake the Rust parser with a benign empty parse so no service is needed.
         engine.kg.graph_compute.parse_file = MagicMock(return_value={})
+        # Pin the per-file path here; the batched ParseFiles routing (CONCEPT:KG-2.16)
+        # is covered separately in test_ingestion_perf_optimizations.py.
+        engine.kg.graph_compute.supports_batch_parse = False
 
         result = await engine.ingest(
             IngestionManifest(

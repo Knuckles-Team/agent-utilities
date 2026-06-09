@@ -315,14 +315,34 @@ class QueryMixin(_Base):
         ``as_of`` (ISO-8601) sets the reference time for pack-driven recency decay,
         enabling knowledge-state-as-of-date-D retrieval (CONCEPT:KG-2.22).
         """
+        # Lazy-ensure the retriever (CONCEPT:KG-2.12): the background-task host and
+        # some engine-construction paths can reach search before ``__init__`` wired
+        # ``hybrid_retriever``, which made deep_analysis / discover_innovations
+        # AttributeError. Build it on first use so the path is always live.
+        if getattr(self, "hybrid_retriever", None) is None:
+            from ..retrieval.hybrid_retriever import HybridRetriever
+
+            # ``self`` is the QueryMixin composed into the live IntelligenceGraphEngine
+            # at runtime; mypy sees only the mixin type.
+            self.hybrid_retriever = HybridRetriever(
+                self,  # type: ignore[arg-type]
+                schema_pack=getattr(self, "active_schema_pack", None),
+            )
+        results: list[dict[str, Any]]
         if mode in ("hyde", "deep") or self_correct:
-            results = self.hybrid_retriever.plan_and_retrieve(
+            planned = self.hybrid_retriever.plan_and_retrieve(
                 query,
                 context_window=top_k * 2,
                 mode=mode if mode in ("hyde", "standard", "deep") else "hyde",
                 self_correct=self_correct,
                 corpus_id=corpus_id,
             )
+            # ``plan_and_retrieve`` may return either the node list or a wrapper
+            # dict ({results|nodes: [...]}); normalize to the node list.
+            if isinstance(planned, list):
+                results = planned
+            else:
+                results = planned.get("results") or planned.get("nodes") or []
         else:
             results = self.hybrid_retriever.retrieve_hybrid(
                 query,

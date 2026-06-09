@@ -38,6 +38,10 @@ _WATERMARK_TYPES = {
     "requirement",
     "decision",
     "concept",
+    # Enterprise standardization inputs (CONCEPT:KG-2.49): new harvested assets or
+    # edited standards re-trigger the standardize stage.
+    "enterprise_resource",
+    "enterprise_standard",
 }
 _WATERMARK_NODE = "assimilation:watermark"
 
@@ -95,6 +99,7 @@ class GoldenLoopController:
         assimilate: bool = True,
         breadth: bool | None = None,
         force_assimilate: bool = False,
+        standardize: bool | None = None,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -112,6 +117,8 @@ class GoldenLoopController:
             distill = os.getenv("KG_GOLDEN_DISTILL", "0") == "1"
         if breadth is None:
             breadth = os.getenv("KG_GOLDEN_BREADTH", "0") == "1"
+        if standardize is None:
+            standardize = os.getenv("KG_GOLDEN_STANDARDIZE", "0") == "1"
 
         report: dict[str, Any] = {
             "propose_only": self.propose_only,
@@ -120,6 +127,7 @@ class GoldenLoopController:
             "sources_linked": 0,
             "breadth": None,
             "assimilate": None,
+            "standardize": None,
             "spec_drafts": [],
             "team": None,
             "errors": [],
@@ -150,6 +158,12 @@ class GoldenLoopController:
             report["assimilate"] = _stage(
                 "assimilate", lambda: self._run_assimilate(force=force_assimilate)
             )
+
+        # 0b. STANDARDIZE — enterprise standardization + consolidation (CONCEPT:KG-2.49),
+        # propose-only. Gated (KG_GOLDEN_STANDARDIZE) since it requires a harvested
+        # enterprise estate; idempotent (CONFORMS_TO/ABSORBED_INTO cleared on re-write).
+        if standardize:
+            report["standardize"] = _stage("standardize", self._run_standardize)
 
         # 1. INTAKE — open topics the loop should address.
         topics = (
@@ -311,6 +325,17 @@ class GoldenLoopController:
             ],
             "watermark": watermark,
         }
+
+    def _run_standardize(self) -> dict[str, Any]:
+        """Run the enterprise standardization + consolidation pass (CONCEPT:KG-2.49).
+
+        Propose-only: materializes enterprise-standard interfaces, scores per-asset
+        conformance drift, and emits ranked consolidation recommendations. No source
+        asset is mutated and nothing auto-merges.
+        """
+        from ..standardization import run_standardization_pass
+
+        return run_standardization_pass(self.engine)
 
     def _run_breadth(self) -> dict[str, Any]:
         """Ingest the OSS/repos/docs corpus from env-configured roots (idempotent).
@@ -478,7 +503,14 @@ def run_assimilation_pass(
 
         engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
     rep = GoldenLoopController(engine)._run_assimilate(force=force)
-    if synthesize and not rep.get("skipped"):
+    # Synthesis is idempotent — plans upsert by ``plan_id`` — so run it whenever a
+    # caller asks for it, even if the rank pass was skipped as "unchanged".
+    # Previously synthesis was gated behind the rank watermark, so a prior bare
+    # ``assimilate()`` bumped the watermark and silently suppressed a follow-up
+    # ``synthesize`` (the only reason ``force`` was ever needed). The watermark's
+    # job is to avoid redundant *re-ranking*, not to block an explicit synthesis
+    # request. (CONCEPT:KG-2.7)
+    if synthesize:
         from ..assimilation import synthesize_plans
 
         plans = synthesize_plans(engine, top_n=top_n, synth_fn=synth_fn)
@@ -486,4 +518,8 @@ def run_assimilation_pass(
             {"plan_id": p.plan_id, "feature_id": p.feature_id, "title": p.title}
             for p in plans
         ]
+        if rep.get("skipped"):
+            # We still did real work (synthesis); reflect that to the caller.
+            rep["skipped"] = False
+            rep.setdefault("reason", "synthesis-only (rank unchanged)")
     return rep

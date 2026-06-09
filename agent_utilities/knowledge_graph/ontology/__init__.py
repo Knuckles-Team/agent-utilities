@@ -200,6 +200,14 @@ class OntologySystem:
         self.property_types: dict[str, PropertyType] = PROPERTY_TYPES
         self.value_types: dict[str, ValueType] = VALUE_TYPES
         self.interfaces: InterfaceRegistry = DEFAULT_INTERFACE_REGISTRY
+        # Enterprise standards (CONCEPT:KG-2.49): a DEDICATED interface registry
+        # of north-star contracts (ManagedApplication/BusinessProcess/DataAsset),
+        # kept separate from the structural interfaces above so authoring an
+        # enterprise standard never pollutes the built-in shape registry. Reached
+        # from the execution plane only through ``kg.ontology.standards``.
+        from ..standardization.standards import ENTERPRISE_STANDARD_REGISTRY
+
+        self.standards: InterfaceRegistry = ENTERPRISE_STANDARD_REGISTRY
         self.links: LinkTypeRegistry = DEFAULT_LINK_REGISTRY
         self.function_registry: FunctionRegistry = DEFAULT_FUNCTION_REGISTRY
         self.derived_registry: DerivedPropertyRegistry = DEFAULT_DERIVED_REGISTRY
@@ -288,6 +296,41 @@ class OntologySystem:
         """Whether a concrete object dict satisfies a named interface's shape."""
         return self.interfaces.conforms(object_dict, interface)
 
+    # ── Enterprise standards (CONCEPT:KG-2.49) ───────────────────────────────
+    def standard_for(self, asset: dict[str, Any]) -> str | None:
+        """Route an asset dict to the enterprise standard that governs it."""
+        from ..standardization.standards import applicable_standard
+
+        return applicable_standard(asset)
+
+    def drift_for(
+        self, asset: dict[str, Any], standard_name: str | None = None
+    ) -> tuple[float, list[str]]:
+        """Return ``(drift, gaps)`` for an asset against its enterprise standard.
+
+        ``standard_name`` defaults to the standard :meth:`standard_for` routes the
+        asset to; raises ``ValueError`` if no standard governs it.
+        """
+        from ..standardization.standards import applicable_standard, drift_score
+
+        name = standard_name or applicable_standard(asset)
+        if name is None:
+            raise ValueError("no enterprise standard governs this asset")
+        return drift_score(asset, name)
+
+    def standardize(
+        self, *, engine: Any = None, top_n: int = 20, write: bool = True
+    ) -> dict[str, Any]:
+        """Run one propose-only standardization + consolidation pass.
+
+        ``engine`` is the :class:`IntelligenceGraphEngine` whose graph is scored;
+        when omitted, ``run_standardization_pass`` resolves the active engine
+        (the singleton daemon model). Returns the JSON-able pass report.
+        """
+        from ..standardization import run_standardization_pass
+
+        return run_standardization_pass(engine, top_n=top_n, write=write)
+
     # ── Links (junction reification) ─────────────────────────────────────────
     def materialize_link(
         self,
@@ -360,6 +403,81 @@ class OntologySystem:
     def process_document(self, document: Any, **kwargs: Any) -> dict[str, Any]:
         """Process a document into Document + Chunk objects through the graph."""
         return process_document(document, self._graph, **kwargs)
+
+    def list_connectors(self) -> list[str]:
+        """List the registered document-source connector types (CONCEPT:ECO-4.27)."""
+        from ...protocols.source_connectors import list_sources
+
+        return list_sources()
+
+    async def run_connector(
+        self,
+        source_type: str,
+        config: dict[str, Any] | None = None,
+        *,
+        connector_id: str | None = None,
+        contextual: bool = True,
+        incremental: bool = True,
+        chunk_size: int = 800,
+        overlap: int = 120,
+    ) -> dict[str, Any]:
+        """Run a document-source connector and ingest its documents into the KG.
+
+        CONCEPT:ECO-4.25/4.29 facade — the single ``kg.ontology.run_connector``
+        seam the MCP tool and REST route call. Builds and drains the connector
+        through the KG-2.7 ``CONNECTOR`` ingestion adaptor, so documents become
+        first-class ``Document`` + ``Chunk`` ontology objects with contextual
+        enrichment (KG-2.50) and external permission sync (ECO-4.28).
+
+        Args:
+            source_type: A registered connector key (``filesystem``/``web``/
+                ``rest``/``database``/``mcp:<package>``).
+            config: Connector configuration.
+            connector_id: Stable id for incremental checkpoint storage.
+            contextual: Enable contextual-retrieval enrichment (default True).
+            incremental: Use the connector's resumable ``poll`` (default True).
+            chunk_size / overlap: Chunking parameters.
+
+        Returns:
+            The ingestion ``details`` mapping (documents ingested, ACLs synced,
+            checkpoint state) plus ``status``.
+        """
+        from ...knowledge_graph.ingestion.engine import (
+            ContentType,
+            IngestionEngine,
+            IngestionManifest,
+        )
+
+        # Resolve a writable backend from the bound facade (``.backend`` on an
+        # engine, ``.store`` on the KnowledgeGraph facade); fall back to the
+        # active engine's backend when unbound.
+        backend = getattr(self._graph, "backend", None) or getattr(
+            self._graph, "store", None
+        )
+        engine = IngestionEngine(backend=backend)
+        metadata: dict[str, Any] = {
+            "connector_config": dict(config or {}),
+            "contextual": contextual,
+            "incremental": incremental,
+            "chunk_size": chunk_size,
+            "overlap": overlap,
+        }
+        if connector_id:
+            metadata["connector_id"] = connector_id
+        result = await engine.ingest(
+            IngestionManifest(
+                content_type=ContentType.CONNECTOR,
+                source_uri=source_type,
+                metadata=metadata,
+            )
+        )
+        return {
+            "status": result.status,
+            "error": result.error,
+            "nodes_created": result.nodes_created,
+            "edges_created": result.edges_created,
+            **(result.details or {}),
+        }
 
 
 def build_ontology_system(graph: Any = None) -> OntologySystem:

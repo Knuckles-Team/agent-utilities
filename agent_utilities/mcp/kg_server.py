@@ -848,6 +848,36 @@ async def graph_ingest_jobs_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def connector_sources_endpoint(request: Request) -> JSONResponse:
+    """List registered document-source connectors (CONCEPT:ECO-4.27)."""
+    try:
+        res = await _execute_tool("source_connector", action="list")
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+async def connector_run_endpoint(request: Request) -> JSONResponse:
+    """Build + drain a document-source connector into the KG (CONCEPT:ECO-4.25–4.29)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "source_connector",
+            action="run",
+            source_type=body.get("source_type", ""),
+            config=body.get("config", {}) or {},
+            connector_id=body.get("connector_id", ""),
+            contextual=bool(body.get("contextual", True)),
+            incremental=bool(body.get("incremental", True)),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_ingest_job_status_endpoint(request: Request) -> JSONResponse:
     try:
         job_id = request.path_params.get("job_id", "")
@@ -2513,7 +2543,7 @@ def _build_server(bootstrap: bool = True):
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -2617,6 +2647,27 @@ def _build_server(bootstrap: bool = True):
                 return f"Action '{action}' executed successfully."
             elif action == "security_scan":
                 return f"Security scan executed on {target}."
+            elif action == "placement_plan":
+                # Multi-objective workload placement over the infra subgraph
+                # (efficiency/security/cost/resilience), propose-only (CONCEPT:KG-2.9).
+                import json as _json
+
+                from agent_utilities.knowledge_graph.infra import optimize_from_graph
+
+                return _json.dumps(optimize_from_graph(engine), indent=2, default=str)
+            elif action == "infra_sweep":
+                # Hardware inventory sweep → KG infra ontology (CONCEPT:KG-2.9).
+                # `target`/`query` carries a comma-separated host id list.
+                import json as _json
+
+                from agent_utilities.knowledge_graph.infra import collect_and_persist
+
+                host_ids = [
+                    h.strip() for h in (target or query or "").split(",") if h.strip()
+                ]
+                return _json.dumps(
+                    collect_and_persist(engine, host_ids), indent=2, default=str
+                )
             else:
                 return f"Error: Unknown analyze action '{action}'"
         except Exception as e:
@@ -2632,7 +2683,7 @@ def _build_server(bootstrap: bool = True):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, list_workflows, execute_workflow, export_workflow). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -2948,6 +2999,25 @@ def _build_server(bootstrap: bool = True):
                     top_n=_mt,
                     force="force" in (task or "").lower(),
                 )
+                return _json.dumps(rep, indent=2, default=str)
+
+            elif action == "standardize":
+                # Enterprise standardization + consolidation pass (CONCEPT:KG-2.49):
+                # materialize enterprise-standard interfaces → score per-asset/org/
+                # domain conformance drift → rank propose-only consolidation
+                # recommendations (collapse projects / retire tools / merge code).
+                import json as _json
+
+                from agent_utilities.knowledge_graph.standardization import (
+                    run_standardization_pass,
+                )
+
+                _tn = (
+                    max_fan_out
+                    if isinstance(max_fan_out, int) and max_fan_out > 0
+                    else 20
+                )
+                rep = run_standardization_pass(_get_engine(), top_n=_tn)
                 return _json.dumps(rep, indent=2, default=str)
 
             else:
@@ -3428,7 +3498,7 @@ def _build_server(bootstrap: bool = True):
 
     @mcp.tool(
         name="ontology_interface",
-        description="Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL (CONCEPT:KG-2.38).",
+        description="Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL (CONCEPT:KG-2.38). Set registry='enterprise' to operate on the enterprise-standard contracts (CONCEPT:KG-2.49).",
         tags=["graph-os", "ontology"],
     )
     def ontology_interface(
@@ -3440,36 +3510,47 @@ def _build_server(bootstrap: bool = True):
         object_json: str = Field(
             default="{}", description="JSON object dict for action='conforms'."
         ),
+        registry: str = Field(
+            default="structural",
+            description="Which interface registry: 'structural' (built-in shapes) or 'enterprise' (enterprise-standard contracts, CONCEPT:KG-2.49).",
+        ),
     ) -> str:
         """Resolve interface targeting, check conformance, or emit interface OWL/SHACL."""
         from agent_utilities.knowledge_graph.ontology.interfaces import (
             DEFAULT_INTERFACE_REGISTRY,
             target_object_types,
         )
+        from agent_utilities.knowledge_graph.standardization.standards import (
+            ENTERPRISE_STANDARD_REGISTRY,
+        )
 
+        reg = (
+            ENTERPRISE_STANDARD_REGISTRY
+            if str(registry).lower() == "enterprise"
+            else DEFAULT_INTERFACE_REGISTRY
+        )
         try:
             if action == "list":
                 return json.dumps(
                     {
-                        "interfaces": [
-                            i.name for i in DEFAULT_INTERFACE_REGISTRY.list_interfaces()
-                        ]
+                        "registry": registry,
+                        "interfaces": [i.name for i in reg.list_interfaces()],
                     }
                 )
             if action == "implementers":
-                return json.dumps(
-                    {"target": name, "implementers": target_object_types(name)}
+                impls = (
+                    reg.resolve_target(name)
+                    if reg is not DEFAULT_INTERFACE_REGISTRY
+                    else target_object_types(name)
                 )
+                return json.dumps({"target": name, "implementers": impls})
             if action == "conforms":
                 obj = json.loads(object_json) if object_json else {}
                 return json.dumps(
-                    {
-                        "interface": name,
-                        "conforms": DEFAULT_INTERFACE_REGISTRY.conforms(obj, name),
-                    }
+                    {"interface": name, "conforms": reg.conforms(obj, name)}
                 )
             if action == "owl":
-                return json.dumps({"owl": DEFAULT_INTERFACE_REGISTRY.to_owl()})
+                return json.dumps({"owl": reg.to_owl()})
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
@@ -3947,6 +4028,10 @@ def _build_server(bootstrap: bool = True):
         overlap: int = Field(
             default=120, description="Overlap characters between chunks."
         ),
+        contextual: bool = Field(
+            default=False,
+            description="Enable contextual-retrieval enrichment (CONCEPT:KG-2.50): situate each chunk within the document and embed context+chunk for better recall.",
+        ),
     ) -> str:
         """Process a document into Document + Chunk ontology objects through the live graph."""
         from agent_utilities.knowledge_graph.facade import KnowledgeGraph
@@ -3966,7 +4051,9 @@ def _build_server(bootstrap: bool = True):
             if backend is not None:
                 kg._store = backend
             proc = DocumentProcessor(
-                kg, chunking=ChunkingConfig(chunk_size=chunk_size, overlap=overlap)
+                kg,
+                chunking=ChunkingConfig(chunk_size=chunk_size, overlap=overlap),
+                contextual=contextual,
             )
             result = proc.process(document, text=text or None, source=source)
             return json.dumps(
@@ -3982,6 +4069,79 @@ def _build_server(bootstrap: bool = True):
             return json.dumps({"error": str(e)})
 
     REGISTERED_TOOLS["document_process"] = document_process
+
+    @mcp.tool(
+        name="source_connector",
+        description="Document-source connectors (CONCEPT:ECO-4.25–4.29): list registered connectors, or run one (filesystem/web/rest/database/mcp:<package>) to ingest its documents into the KG as Document+Chunk objects with contextual enrichment (KG-2.50) and external permission sync (ECO-4.28).",
+        tags=["graph-os", "ecosystem", "connectors"],
+    )
+    async def source_connector(
+        action: str = Field(
+            default="list",
+            description="One of: 'list' (registered connector types), 'run' (build + ingest a connector).",
+        ),
+        source_type: str = Field(
+            default="",
+            description="Connector type for 'run' (filesystem/web/rest/database/mcp:<package>).",
+        ),
+        config: dict = Field(
+            default_factory=dict,
+            description="Connector configuration dict for 'run' (e.g. {'root': '/docs'} or {'base_url': 'https://…'}).",
+        ),
+        connector_id: str = Field(
+            default="",
+            description="Stable id for incremental checkpoint storage (optional).",
+        ),
+        contextual: bool = Field(
+            default=True,
+            description="Enable contextual-retrieval enrichment (CONCEPT:KG-2.50).",
+        ),
+        incremental: bool = Field(
+            default=True,
+            description="Use the connector's resumable poll (CONCEPT:ECO-4.26) vs a full load.",
+        ),
+    ) -> str:
+        """List or run a document-source connector (CONCEPT:ECO-4.25–4.29)."""
+        from agent_utilities.knowledge_graph.facade import KnowledgeGraph
+
+        try:
+            if action == "list":
+                from agent_utilities.protocols.source_connectors import list_sources
+
+                return json.dumps({"connectors": list_sources()})
+
+            if action == "run":
+                if not source_type:
+                    return json.dumps(
+                        {"error": "source_type is required for action='run'"}
+                    )
+                engine = None
+                try:
+                    engine = _get_engine()
+                except Exception:  # pragma: no cover - defensive
+                    engine = None
+                backend = (
+                    getattr(engine, "backend", None) if engine is not None else None
+                )
+                kg = KnowledgeGraph()
+                if backend is not None:
+                    kg._store = backend
+                result = await kg.ontology.run_connector(
+                    source_type,
+                    dict(config or {}),
+                    connector_id=connector_id or None,
+                    contextual=contextual,
+                    incremental=incremental,
+                )
+                return json.dumps(result, default=str)
+
+            return json.dumps(
+                {"error": f"unknown action {action!r}; use 'list' or 'run'"}
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["source_connector"] = source_connector
 
     return args, mcp, middlewares
 
@@ -4287,6 +4447,8 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/ingest/submit", graph_ingest_submit_endpoint, ["POST"])
     route("/graph/ingest/corpus", graph_ingest_corpus_endpoint, ["POST"])
     route("/graph/ingest/jobs", graph_ingest_jobs_endpoint, ["GET"])
+    route("/connector/sources", connector_sources_endpoint, ["GET"])
+    route("/connector/run", connector_run_endpoint, ["POST"])
     route("/graph/ingest/job/{job_id}", graph_ingest_job_status_endpoint, ["GET"])
     route(
         "/graph/ingest/rebuild-indexes", graph_ingest_rebuild_indexes_endpoint, ["POST"]
