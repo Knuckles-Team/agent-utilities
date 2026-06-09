@@ -27,6 +27,9 @@ class ReasoningBudget(BaseModel):
     context_window: int = Field(ge=2)
     enable_decomposition: bool
     max_decomposition_subtasks: int = Field(ge=1)
+    # VPO (CONCEPT:AHE-3.16): width of the *diverse* best-of-k fan-out — harder
+    # queries get a wider, more diverse candidate search to raise best@k/pass@k.
+    diversity_width: int = Field(default=1, ge=1)
 
 
 def get_budget(effort: float) -> ReasoningBudget:
@@ -39,6 +42,7 @@ def get_budget(effort: float) -> ReasoningBudget:
     context_window = max(2, round(5 + 20 * effort))
     enable_decomposition = effort >= 0.3
     max_decomposition_subtasks = max(1, round(2 + 3 * max(0.0, effort - 0.3) / 0.7))
+    diversity_width = max(1, round(1 + 4 * effort))  # VPO: 1 (easy) → 5 (hard)
     return ReasoningBudget(
         effort=effort,
         max_search_calls=max_search_calls,
@@ -46,6 +50,7 @@ def get_budget(effort: float) -> ReasoningBudget:
         context_window=context_window,
         enable_decomposition=enable_decomposition,
         max_decomposition_subtasks=max_decomposition_subtasks,
+        diversity_width=diversity_width,
     )
 
 

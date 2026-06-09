@@ -10,6 +10,7 @@ and optional backlink-density retrieval weighting (CONCEPT:KG-2.2).
 import json
 import logging
 import math
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent
@@ -24,6 +25,23 @@ if TYPE_CHECKING:
     from agent_utilities.models.schema_pack import SchemaPack
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_instant(value: Any) -> datetime | None:
+    """Coerce a timestamp (ISO string or ``datetime``) to a tz-aware UTC instant.
+
+    Returns ``None`` for missing/unparsable values so callers can treat unknown
+    dates as neutral (CONCEPT:KG-2.22 recency, CONCEPT:KG-2.11 bi-temporal).
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    except (ValueError, TypeError):
+        return None
 
 
 class HybridRetriever:
@@ -204,6 +222,51 @@ class HybridRetriever:
         # Longer queries or queries with high density might get a slight bump
         return 1.0 + (len(words) * 0.01)
 
+    def _recency_boost(self, node: dict[str, Any], as_of: str | None = None) -> float:
+        """Pack-driven temporal recency boost for a node (CONCEPT:KG-2.22).
+
+        Reads the active pack's :class:`RecencyDecaySpec` for the node's type/label
+        and decays against the node's bi-temporal ``event_time`` (CONCEPT:KG-2.11),
+        falling back to ``timestamp``/``created_at``. The boost is always ``>= 1.0``;
+        a missing/unparsable date yields a neutral ``1.0`` so unknown-date nodes are
+        never penalised. The ``core`` pack (no ``recency_decay``) is a strict no-op.
+        """
+        if not self._schema_pack or not self._schema_pack.recency_decay:
+            return 1.0
+        spec = self._schema_pack.recency_spec_for(str(node.get("type", "")))
+        if spec is None:
+            return 1.0
+        raw = (
+            node.get("event_time")
+            or node.get("timestamp")
+            or node.get("created_at")
+            or node.get("updated_at")
+        )
+        ts = _parse_instant(raw)
+        if ts is None:
+            return 1.0
+        ref = _parse_instant(as_of) or datetime.now(UTC)
+        age_days = max(0.0, (ref - ts).total_seconds() / 86400.0)
+        if spec.mode == "hyperbolic":
+            decay = spec.half_life_days / (spec.half_life_days + age_days)
+        else:
+            decay = 0.5 ** (age_days / spec.half_life_days)
+        return 1.0 + spec.coefficient * decay
+
+    def _source_trust_boost(self, node: dict[str, Any]) -> float:
+        """Pack-driven source-trust/authority boost for a node (CONCEPT:KG-2.22).
+
+        Looks up the node's source identifier (``source``/``source_id``/``domain``)
+        in the active pack's ``source_trust`` table. Unknown source or ``core`` pack
+        => neutral ``1.0``.
+        """
+        if not self._schema_pack or not self._schema_pack.source_trust:
+            return 1.0
+        src = node.get("source") or node.get("source_id") or node.get("domain")
+        if not src:
+            return 1.0
+        return self._schema_pack.trust_for(str(src))
+
     def retrieve_hybrid(
         self,
         query: str,
@@ -215,6 +278,7 @@ class HybridRetriever:
         relevance_threshold: float | None = None,
         target_paths: list[str] | None = None,
         active_task: str | None = None,
+        as_of: str | None = None,
     ) -> list[dict[str, Any]]:
         """Perform a hybrid search using both vector similarity and graph topology.
 
@@ -226,6 +290,10 @@ class HybridRetriever:
                 (CONCEPT:KG-2.3 — Fixed Corpus Evaluation Mode).
             hard_negatives: Optional set of document IDs to penalize
                 (CONCEPT:KG-2.3 — Hard Negative Mining).
+            as_of: Optional ISO-8601 instant. Pack-driven recency decay is measured
+                relative to this reference time, enabling knowledge-state-as-of-date-D
+                retrieval over bi-temporal ``event_time``. Defaults to now
+                (CONCEPT:KG-2.22, CONCEPT:KG-2.11).
 
         Returns:
             A list of nodes with extended graph context.
@@ -242,6 +310,22 @@ class HybridRetriever:
                     logger.warning("Corpus %s is empty or not found", corpus_id)
             except Exception as e:
                 logger.debug("Corpus resolution failed: %s", e)
+
+        # 0. Relational-intent arm (CONCEPT:KG-2.34): deterministic, zero-LLM.
+        # Parses "which papers support X" / "what contradicts Y" using the active
+        # pack's verb vocabulary and walks typed edges. No-op (empty) for
+        # non-relational queries or when the pack declares no relational verbs.
+        relational_nodes: list[dict[str, Any]] = []
+        if self._schema_pack and self._schema_pack.relational_verbs:
+            try:
+                from .relational_intent import parse_relational_intent, traverse
+
+                rq = parse_relational_intent(query, self._schema_pack.relational_verbs)
+                if rq is not None:
+                    relational_nodes = traverse(self.engine, rq, context_window)
+            except Exception as e:
+                logger.debug("Relational-intent arm failed: %s", e)
+
         # 1. Semantic Search (Vector)
         base_nodes = []
         if self.embed_model and self.engine.backend:
@@ -341,6 +425,21 @@ class HybridRetriever:
                     for node in scored_nodes:
                         node["_score"] *= self._backlink_boost(node["id"])
 
+                # 1b'. Pack-driven retrieval signals (CONCEPT:KG-2.22):
+                # temporal recency decay + source-trust authority weighting. Both
+                # are no-ops under the default ``core`` pack (empty config).
+                if self._schema_pack and (
+                    self._schema_pack.recency_decay or self._schema_pack.source_trust
+                ):
+                    for node in scored_nodes:
+                        rb = self._recency_boost(node, as_of=as_of)
+                        sb = self._source_trust_boost(node)
+                        if rb != 1.0:
+                            node["_recency_boost"] = rb
+                        if sb != 1.0:
+                            node["_source_trust_boost"] = sb
+                        node["_score"] *= rb * sb
+
                 # 1c. Apply Attention-Driven Context Filter (Retrieve query boost on active_task)
                 if active_task:
                     try:
@@ -409,6 +508,26 @@ class HybridRetriever:
         else:
             # Fallback to keyword search
             base_nodes = self.engine._search_keyword(query, top_k=context_window)
+
+        # 1d. Merge the relational-intent arm (CONCEPT:KG-2.34) additively: typed-edge
+        # hits are prepended (high priority) without displacing the vector arm, so
+        # recall never regresses. De-duplicate by node id, keeping the first seen.
+        if relational_nodes:
+            seen_ids = {n.get("id") for n in relational_nodes}
+            base_nodes = relational_nodes + [
+                n for n in base_nodes if n.get("id") not in seen_ids
+            ]
+
+        # 1e. Autocut: trim the long tail at the largest relative score drop. Gated
+        # by the active pack; recall-safe — never trims < min (CONCEPT:KG-2.22).
+        if self._schema_pack and self._schema_pack.autocut_enabled and base_nodes:
+            from .autocut import autocut
+
+            base_nodes = autocut(
+                base_nodes,
+                threshold=self._schema_pack.autocut_threshold,
+                min_results=self._schema_pack.autocut_min_results,
+            )
 
         # 2. Graph Traversal (Multi-hop context assembly)
         assembled_subgraph = []

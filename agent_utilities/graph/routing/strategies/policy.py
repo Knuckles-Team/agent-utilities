@@ -51,10 +51,24 @@ class LearnedAgentPolicy(RoutingPolicy):
 
 
 class SubagentLifecyclePolicy(RoutingPolicy):
-    """Routes based on the 4-tier interaction taxonomy (inline, fan-out, pool, team)."""
+    """Routes based on the 4-tier interaction taxonomy (inline, fan-out, pool, team).
+
+    ARPO (CONCEPT:AHE-3.15): also branches to ``fan_out`` at a high-entropy decision
+    step even when task complexity is only moderate — uncertainty at a tool/decision
+    boundary is where an extra rollout pays off. Bounded by ``ARPO_MAX_BRANCHES`` via
+    the ``branch_count`` carried in the context so it cannot wedge the worker pool.
+    """
 
     def determine_route(self, context: dict[str, Any]) -> str:
         complexity = context.get("task_complexity", 1)
+        # ARPO entropy-gated branching — checked before the complexity tiers so a
+        # genuinely uncertain step escalates from inline to a branched rollout.
+        entropy = float(context.get("step_entropy", 0.0) or 0.0)
+        if complexity > 1 and entropy > 0.0:
+            from agent_utilities.graph.agent_step_po import should_branch
+
+            if should_branch(entropy, branch_count=int(context.get("branch_count", 0))):
+                return "fan_out"
         if complexity > 8:
             return "spawn_team"
         elif complexity > 4:

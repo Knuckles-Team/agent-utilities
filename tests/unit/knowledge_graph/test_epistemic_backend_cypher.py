@@ -180,3 +180,44 @@ def test_legacy_id_lookup_still_works(backend):
     # honours a bare id param lookup.
     rows = backend.execute("MATCH (a)-[:REL]->(b) RETURN b", {"id": "job-1"})
     assert rows and rows[0]["id"] == "job-1"
+
+
+def test_where_or_disjunction_matches_either(backend):
+    # A top-level OR is parsed into DNF (OR of AND-groups): a row matches if
+    # EITHER disjunct holds. Previously OR fell to the read-only legacy reader and
+    # silently returned [] — a debugging footgun this fix removes.
+    rows = backend.execute(
+        "MATCH (t:Task) WHERE t.id = 'job-1' OR t.id = 'job-2' RETURN t.id as id"
+    )
+    assert {r["id"] for r in rows} == {"job-1", "job-2"}
+
+
+def test_where_or_mixed_props_and_label(backend):
+    backend.add_node("code-9", node_type="Code", file_path="/x/y.py", status="hot")
+    # OR across different properties, still constrained by the (c:Code) label.
+    rows = backend.execute(
+        "MATCH (c:Code) WHERE c.status = 'hot' OR c.file_path CONTAINS 'b.py' "
+        "RETURN c.id as id"
+    )
+    assert {r["id"] for r in rows} == {"code-1", "code-9"}
+
+
+def test_where_or_with_param_binding(backend):
+    rows = backend.execute(
+        "MATCH (t:Task) WHERE t.id = $a OR t.id = $b RETURN t.id as id",
+        {"a": "job-1", "b": "job-2"},
+    )
+    assert {r["id"] for r in rows} == {"job-1", "job-2"}
+
+
+def test_rel_match_accepts_inline_literal_anchor_id(backend):
+    # A relationship traversal anchored by an inline quoted literal id (not a
+    # ``$param``) is now resolved by _exec_rel_match instead of falling through to
+    # the legacy reader and returning the wrong rows.
+    backend.add_node("src-1", node_type="Account")
+    backend.add_node("tgt-1", node_type="Plan", title="P-1")
+    backend.add_edge("src-1", "tgt-1", rel_type="OWNS")
+    rows = backend.execute(
+        "MATCH (a:Account {id:'src-1'})-[:OWNS]->(b:Plan) RETURN b.id as id, b.title as title"
+    )
+    assert rows == [{"id": "tgt-1", "title": "P-1"}]

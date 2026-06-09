@@ -1761,6 +1761,10 @@ def _build_server(bootstrap: bool = True):
             default=False,
             description="CONCEPT:KG-2.12 — run a self-correcting second retrieval pass at the deep threshold when the quality gate fails.",
         ),
+        as_of: str = Field(
+            default="",
+            description="Optional ISO-8601 instant. Pack-driven recency decay is measured relative to this time, enabling knowledge-state-as-of-date-D retrieval such as an academic literature state. Defaults to now (CONCEPT:KG-2.22).",
+        ),
     ) -> str:
         """Search the Knowledge Graph using multiple strategies. Useful for finding context, concepts, memories, and capabilities across the ecosystem."""
         engine = _get_engine()
@@ -1773,7 +1777,10 @@ def _build_server(bootstrap: bool = True):
                 )
             elif mode == "hybrid":
                 results = engine.search_hybrid(
-                    query=query, top_k=top_k, self_correct=self_correct
+                    query=query,
+                    top_k=top_k,
+                    self_correct=self_correct,
+                    as_of=as_of or None,
                 )
             elif mode == "concept":
                 results = engine.search_hybrid(query=query, top_k=top_k)
@@ -2027,7 +2034,7 @@ def _build_server(bootstrap: bool = True):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, rebuild_indexes, observe, materialize, sync, reflect).",
+            description="Action to perform (ingest, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, sync, reflect). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -2039,7 +2046,7 @@ def _build_server(bootstrap: bool = True):
         description: str = Field(default="", description="Description of the corpus."),
         content_type: str = Field(
             default="",
-            description="Optional explicit ContentType (codebase, document, config, prompt, skill, mcp_server, kb, conversation, policy). When set, routes synchronously through the unified IngestionEngine for that category. Use 'chats' as target_path with content_type=conversation to auto-discover chat logs.",
+            description="Internal override only — leave empty. The content type (codebase, document, config, prompt, skill, mcp_server, kb, conversation, policy) is auto-detected from the path, and heavy types (codebase/document) always run on the async job queue. Only set this to force a specific category for an ambiguous path.",
         ),
     ) -> str:
         """Smart ingestion tool to populate the Knowledge Graph with codebases, documents, and memory observations. Monitors async ingestion jobs."""
@@ -2057,88 +2064,98 @@ def _build_server(bootstrap: bool = True):
                     IngestionManifest,
                 )
 
-                # Explicit content_type → thin wrapper over the unified engine:
-                # build a manifest per path and run it through IngestionEngine
-                # directly (covers config/prompt/skill/mcp_server/conversation/
-                # kb that the async codebase/document worker doesn't route).
-                # ``isinstance(str)`` guard: when graph_ingest is invoked
-                # directly (bypassing FastMCP's Field-default resolution, e.g. in
-                # tests), an unset ``content_type`` arrives as a ``FieldInfo``,
-                # not a str — treat that as "not provided".
-                if content_type and isinstance(content_type, str):
-                    try:
-                        ct = ContentType(content_type.strip().lower())
-                    except ValueError:
-                        ct = ContentType.classify(target_path.strip())
-                    ing = IngestionEngine(kg_engine=engine)
-                    raw = target_path.strip()
-                    paths = (
-                        json.loads(raw)
-                        if raw.startswith("[")
-                        else [p.strip() for p in raw.split(",") if p.strip()]
-                        if "," in raw
-                        else [raw]
-                    )
-                    out = []
-                    for pth in paths:
+                if not target_path:
+                    return "Error: target_path required for ingest action"
+
+                # Parse one-or-many paths (JSON list, comma-separated, or single).
+                raw = target_path.strip()
+                paths = (
+                    json.loads(raw)
+                    if raw.startswith("[")
+                    else [p.strip() for p in raw.split(",") if p.strip()]
+                    if "," in raw
+                    else [raw]
+                )
+                paths = [p.strip() for p in paths if isinstance(p, str) and p.strip()]
+                if not paths:
+                    return "Error: target_path required for ingest action"
+
+                # ``content_type`` is auto-detected per path and is NOT an
+                # agent-facing concern (CONCEPT:KG-2.7 ContentType.classify is the
+                # single source of truth). It survives only as an internal override
+                # for genuinely ambiguous paths; ``isinstance(str)`` filters out the
+                # unresolved FastMCP ``FieldInfo`` default. Whatever the type, heavy
+                # categories ALWAYS route through the async durable queue so an
+                # ingest call can never block the caller for minutes — the old
+                # "explicit content_type → synchronous IngestionEngine" branch was a
+                # footgun that did exactly that.
+                override = (
+                    content_type.strip().lower()
+                    if (content_type and isinstance(content_type, str))
+                    else ""
+                )
+
+                def resolve_ct(p: str) -> ContentType:
+                    if override:
+                        try:
+                            return ContentType(override)
+                        except ValueError:
+                            pass
+                    return ContentType.classify(p)
+
+                # DOCUMENT/CODEBASE are slow (chunk+embed / tree-sitter parse) and
+                # are handled by the background task worker → enqueue, never block.
+                # The remaining lightweight categories (config/prompt/skill/
+                # mcp_server/kb/conversation/policy/…) are fast and are only routed
+                # by the unified IngestionEngine, so they run inline.
+                async_types = {ContentType.DOCUMENT, ContentType.CODEBASE}
+                async_jobs: list[str] = []
+                sync_out: list[str] = []
+                ing: IngestionEngine | None = None
+                for p in paths:
+                    ct = resolve_ct(p)
+                    if ct in async_types:
+                        t_type = (
+                            "codebase" if ct == ContentType.CODEBASE else "document"
+                        )
+                        jid = engine.submit_task(
+                            target_path=p,
+                            is_codebase=(t_type == "codebase"),
+                            provenance={
+                                "agent_id": agent_id,
+                                "max_depth": max_depth,
+                            },
+                            task_type=t_type,
+                        )
+                        async_jobs.append(jid)
+                    else:
+                        if ing is None:
+                            ing = IngestionEngine(kg_engine=engine)
                         r = await ing.ingest(
                             IngestionManifest(
                                 content_type=ct,
-                                source_uri=pth,
+                                source_uri=p,
                                 max_depth=max_depth,
                                 metadata={"agent_id": agent_id},
                             )
                         )
-                        out.append(
-                            f"{pth}: {r.status} (+{r.nodes_created}n/+{r.edges_created}e"
+                        sync_out.append(
+                            f"[{ct.value}] {p}: {r.status} (+{r.nodes_created}n/+{r.edges_created}e"
                             f"{', ' + str(r.details.get('cards_pending')) + ' cards pending' if r.details.get('cards_pending') else ''}"
                             f"{'; ' + r.error if r.error else ''})"
                         )
-                    return f"[{ct.value}] " + " | ".join(out)
 
-                def get_task_type(p: str) -> str:
-                    # Shared classifier (ContentType.classify) — single source of
-                    # truth for path→type. submit_task's worker routes
-                    # "codebase"/"document"; other types fold into "codebase".
-                    ct = ContentType.classify(p.strip())
-                    return "document" if ct == ContentType.DOCUMENT else "codebase"
-
-                if target_path.startswith("[") or "," in target_path:
-                    try:
-                        paths = (
-                            json.loads(target_path)
-                            if target_path.startswith("[")
-                            else target_path.split(",")
-                        )
-                        job_ids = []
-                        for path in paths:
-                            p_strip = path.strip()
-                            if not p_strip:
-                                continue
-                            t_type = get_task_type(p_strip)
-                            jid = engine.submit_task(
-                                target_path=p_strip,
-                                is_codebase=(t_type == "codebase"),
-                                provenance={
-                                    "agent_id": agent_id,
-                                    "max_depth": max_depth,
-                                },
-                                task_type=t_type,
-                            )
-                            job_ids.append(jid)
-                        return f"Submitted {len(job_ids)} jobs: {', '.join(job_ids)}"
-                    except json.JSONDecodeError:
-                        pass
-                if not target_path:
-                    return "Error: target_path required for ingest action"
-                t_type = get_task_type(target_path)
-                jid = engine.submit_task(
-                    target_path=target_path,
-                    is_codebase=(t_type == "codebase"),
-                    provenance={"agent_id": agent_id, "max_depth": max_depth},
-                    task_type=t_type,
-                )
-                return f"Started ingestion job {jid} for {target_path}"
+                msgs: list[str] = []
+                if async_jobs:
+                    label = (
+                        f"Started ingestion job {async_jobs[0]} for {paths[0]}"
+                        if len(async_jobs) == 1
+                        else f"Submitted {len(async_jobs)} jobs: {', '.join(async_jobs)}"
+                    )
+                    msgs.append(label)
+                if sync_out:
+                    msgs.append(" | ".join(sync_out))
+                return " ; ".join(msgs) if msgs else "Nothing to ingest."
 
             elif action == "corpus":
                 if not corpus_name:
@@ -2222,6 +2239,36 @@ def _build_server(bootstrap: bool = True):
                 }
                 return f"Job {job_id} status: {status}\n" + _json.dumps(
                     metrics, indent=2
+                )
+
+            elif action == "cancel":
+                import json as _json
+
+                if not job_id:
+                    return "Error: job_id required for cancel"
+                return _json.dumps(engine.cancel_task(job_id), indent=2)
+
+            elif action == "clear":
+                # ``target_path`` carries the status filter:
+                # pending|running|completed|failed|cancelled|zombie|all (default
+                # 'completed' — the safe default that never drops queued work).
+                import json as _json
+
+                tp = target_path if isinstance(target_path, str) else ""
+                return _json.dumps(
+                    engine.clear_tasks((tp or "completed").strip().lower()), indent=2
+                )
+
+            elif action == "prioritize":
+                # ``target_path`` carries the level: 'high' (default) | 'normal'.
+                import json as _json
+
+                if not job_id:
+                    return "Error: job_id required for prioritize"
+                tp = target_path if isinstance(target_path, str) else ""
+                return _json.dumps(
+                    engine.prioritize_task(job_id, (tp or "high").strip().lower()),
+                    indent=2,
                 )
 
             elif action == "rebuild_indexes":
@@ -2820,10 +2867,11 @@ def _build_server(bootstrap: bool = True):
     def graph_configure(
         action: str = Field(
             default="register_mcp",
-            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing').",
+            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35).",
         ),
         config_key: str = Field(
-            default="", description="The key or ID of the configuration/secret."
+            default="",
+            description="The key or ID of the configuration/secret (for 'schema_pack', the pack name e.g. 'research-state').",
         ),
         config_value: str = Field(
             default="",
@@ -2945,6 +2993,51 @@ def _build_server(bootstrap: bool = True):
                     )
                 except Exception as e:
                     return json.dumps({"error": f"set_role_routing failed: {e}"})
+            # ── KG-2.35: Schema-Pack lifecycle (get/set the active domain pack) ──
+            if action == "schema_pack":
+                from agent_utilities.models.schema_pack_loader import (
+                    get_active_pack,
+                    set_active_pack,
+                )
+                from agent_utilities.models.schema_packs import list_schema_packs
+
+                if config_key:
+                    pack = set_active_pack(config_key)
+                    return json.dumps(
+                        {
+                            "status": "success",
+                            "action": "schema_pack",
+                            "active": pack.name,
+                            "signature": pack.signature(),
+                        }
+                    )
+                active = get_active_pack()
+                return json.dumps(
+                    {
+                        "status": "success",
+                        "action": "schema_pack",
+                        "active": active.name,
+                        "signature": active.signature(),
+                        "available": list_schema_packs(),
+                    }
+                )
+            # ── KG-2.35: review out-of-pack candidate types seen on write ──
+            if action == "schema_candidates":
+                from agent_utilities.models.schema_pack_audit import (
+                    SchemaCandidateAuditor,
+                )
+
+                try:
+                    limit = int(config_value) if config_value else 100
+                except ValueError:
+                    limit = 100
+                return json.dumps(
+                    {
+                        "status": "success",
+                        "action": "schema_candidates",
+                        "candidates": SchemaCandidateAuditor.instance().review(limit),
+                    }
+                )
             return json.dumps({"error": f"Unknown action: {action}"})
         except Exception as e:
             return json.dumps({"error": str(e)})

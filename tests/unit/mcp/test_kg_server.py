@@ -82,25 +82,28 @@ def mock_engine():
 async def test_graph_ingest_single_codebase(mock_engine, server_tools):
     """Test graph_ingest queues a single codebase (action=ingest)."""
     graph_ingest = server_tools["graph_ingest"]
-    with patch("pathlib.Path.exists", return_value=True):
-        with patch("pathlib.Path.is_dir", return_value=True):
-            with patch("pathlib.Path.iterdir", return_value=[MagicMock(name=".git")]):
-                with patch("pathlib.Path.__truediv__") as mock_div:
-                    mock_joined = MagicMock()
-                    mock_joined.exists.return_value = True
-                    mock_div.return_value = mock_joined
-                    res_str = await graph_ingest(
-                        target_path="/fake/codebase",
-                        agent_id="test_agent",
-                        max_depth=3,
-                        action="ingest",
-                        job_id="",
-                        corpus_name="",
-                        base_path="",
-                        description="",
-                    )
+    # A real codebase directory has no SKILL.md, so ContentType.classify must
+    # resolve it to CODEBASE (→ async submit_task), not SKILL. Mock a directory
+    # whose ``/ "SKILL.md"`` probe reports missing.
+    with patch("pathlib.Path.is_dir", return_value=True):
+        with patch("pathlib.Path.__truediv__") as mock_div:
+            mock_joined = MagicMock()
+            mock_joined.exists.return_value = False
+            mock_div.return_value = mock_joined
+            res_str = await graph_ingest(
+                target_path="/fake/codebase",
+                agent_id="test_agent",
+                max_depth=3,
+                action="ingest",
+                job_id="",
+                corpus_name="",
+                base_path="",
+                description="",
+            )
 
     assert "job-mock123" in res_str
+    _, kwargs = mock_engine.submit_task.call_args
+    assert kwargs["task_type"] == "codebase"
 
 
 @pytest.mark.asyncio
@@ -141,6 +144,51 @@ async def test_graph_ingest_bulk_comma_separated(mock_engine, server_tools):
         )
 
     assert "Submitted 3 jobs" in res_str
+
+
+@pytest.mark.asyncio
+async def test_graph_ingest_document_is_async_not_blocking(mock_engine, server_tools):
+    """A .pdf/.md document must enqueue an async job, never run inline.
+
+    Live-path guard for the param-minimization fix: a document path is
+    auto-classified and routed through ``engine.submit_task`` (the durable
+    queue) with ``task_type='document'`` — it must NOT call the synchronous
+    ``IngestionEngine`` (the old footgun that blocked the caller for minutes).
+    """
+    graph_ingest = server_tools["graph_ingest"]
+    res_str = await graph_ingest(
+        target_path="/papers/2402.03300.pdf",
+        agent_id="test_agent",
+        action="ingest",
+    )
+
+    assert "job-mock123" in res_str
+    mock_engine.submit_task.assert_called_once()
+    _, kwargs = mock_engine.submit_task.call_args
+    assert kwargs["task_type"] == "document"
+    assert kwargs["is_codebase"] is False
+
+
+@pytest.mark.asyncio
+async def test_graph_ingest_explicit_document_content_type_still_async(
+    mock_engine, server_tools
+):
+    """Even an explicit content_type='document' override must stay async.
+
+    The whole point of the fix: passing content_type can no longer force the
+    blocking synchronous path for a heavy (document/codebase) category.
+    """
+    graph_ingest = server_tools["graph_ingest"]
+    res_str = await graph_ingest(
+        target_path="/papers/some_paper.pdf",
+        action="ingest",
+        content_type="document",
+    )
+
+    assert "job-mock123" in res_str
+    mock_engine.submit_task.assert_called_once()
+    _, kwargs = mock_engine.submit_task.call_args
+    assert kwargs["task_type"] == "document"
 
 
 # ── graph_ingest: job management ─────────────────────────────────────

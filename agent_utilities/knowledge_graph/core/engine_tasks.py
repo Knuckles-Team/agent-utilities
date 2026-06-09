@@ -336,18 +336,28 @@ class TaskManagerMixin(GraphEngineProtocol):
         # task workers, per-job maintenance daemons, and the SDD/scholarx file
         # watcher) with one lifecycle.
         self._daemon_role = daemon_role()
-        if (
-            self._daemon_role == "client"
-            or os.environ.get("AGENT_UTILITIES_TESTING")
-            or "--stage-to-queue" in sys.argv
-        ):
-            # client role: never run daemons (host drains the queue). Test /
-            # staging: suppress auto-start only — explicit start_task_workers()
-            # still works (role stays auto).
+        _test_or_staging = bool(
+            os.environ.get("AGENT_UTILITIES_TESTING") or "--stage-to-queue" in sys.argv
+        )
+        # Singleton election (CONCEPT:KG-2.8 / OS-5.9): only the flock holder runs
+        # the consolidated daemon. ``auto`` self-heals to ``client`` when a host
+        # already holds the lock; an explicit ``host`` that loses raises
+        # KGHostAlreadyRunning (descriptive). Test/staging never elect or lock —
+        # they skip auto-start but keep a non-client effective role so explicit
+        # start_task_workers() still works.
+        if _test_or_staging:
+            self._effective_role = "client" if self._daemon_role == "client" else "host"
+        else:
+            from .host_lock import resolve_daemon_role
+
+            self._effective_role = resolve_daemon_role(self._daemon_role)
+        if self._effective_role == "client" or _test_or_staging:
             logger.info(
-                "KG daemon auto-start skipped (role=%s, test/staging aware); "
-                "work is drained by the host daemon when role=client.",
+                "KG daemon auto-start skipped (requested=%s, effective=%s, "
+                "test/staging=%s); the host daemon drains the durable queue.",
                 self._daemon_role,
+                self._effective_role,
+                _test_or_staging,
             )
             return
 
@@ -410,6 +420,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             return bool(t and t.is_alive())
 
         role = getattr(self, "_daemon_role", None) or daemon_role()
+        from .host_lock import effective_daemon_role, host_lock_holder
+
         threads = {
             "submission": _alive("_submission_thread"),
             "graph_writer": _alive("_graph_writer_thread"),
@@ -419,6 +431,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         }
         status: dict[str, Any] = {
             "role": role,
+            "effective_role": getattr(self, "_effective_role", None)
+            or effective_daemon_role(),
+            "host_lock_holder": host_lock_holder(),
             "running": any(threads.values()),
             "threads": threads,
             "maintenance_jobs": [n for n, _, _ in self._maintenance_jobs()],
@@ -617,6 +632,18 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_hygiene,
                 )
             )
+        # Zombie/stuck task reaper: requeue 'running' tasks orphaned by a dead
+        # worker/host so a killed/redeployed host's in-flight ingestions are
+        # recovered within minutes instead of stranding forever. Short interval.
+        # (CONCEPT:KG-2.8 ingestion durability)
+        if os.environ.get("KG_TASK_REAPER_DAEMON", "1") != "0":
+            jobs.append(
+                (
+                    "task_reaper",
+                    float(os.getenv("KG_TASK_REAPER_INTERVAL", "120")),
+                    self._tick_task_reaper,
+                )
+            )
         return jobs
 
     def _tick_hygiene(self) -> None:
@@ -640,6 +667,147 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
             logger.debug("hygiene tick error: %s", e)
+
+    def _get_host_token(self) -> str:
+        """Stable per-process identity for task-claim ownership (zombie reaper).
+
+        Unique across process restarts (hostname + pid + boot second), so a task
+        claimed by a now-dead host is distinguishable from one claimed by the live
+        host. Cached on the engine singleton, so every worker thread + the reaper in
+        this process share one value. (CONCEPT:KG-2.8)
+        """
+        tok = getattr(self, "_host_token_cache", None)
+        if tok is None:
+            import os
+            import socket
+
+            tok = f"{socket.gethostname()}:{os.getpid()}:{int(time.time())}"
+            self._host_token_cache = tok
+        return tok
+
+    def _tick_task_reaper(self) -> None:
+        """Requeue zombie/stuck 'running' tasks (CONCEPT:KG-2.8 ingestion durability).
+
+        A task is marked 'running' when a worker claims it; if that worker/host
+        process dies mid-task (crash / SIGKILL / redeploy) the Task is stranded in
+        'running' forever and never re-claimed, silently wedging that ingestion. The
+        singleton host lock guarantees exactly one host runs workers, so any
+        'running' task whose ``claimed_by`` is NOT this host's live token (after a
+        short grace, to tolerate election hand-off) is an orphan from a dead host →
+        reset to 'pending' for re-claim. A same-host task exceeding an absolute
+        runtime cap is also requeued (backstop for a wedged-but-alive worker). A task
+        requeued more than the cap is marked 'failed' (poison-pill guard) so a task
+        that reliably kills its worker cannot loop forever. Host-only; driven by the
+        consolidated maintenance scheduler.
+        """
+        import os
+
+        from .host_lock import effective_daemon_role
+
+        if effective_daemon_role() != "host":
+            return
+        try:
+            grace = float(os.getenv("KG_TASK_ORPHAN_GRACE_SEC", "90"))
+            max_runtime = float(os.getenv("KG_TASK_MAX_RUNTIME_SEC", "7200"))
+            max_resets = int(os.getenv("KG_TASK_MAX_REQUEUE", "3"))
+            now = time.time()
+            token = self._get_host_token()
+
+            rows = self.query_cypher(
+                "MATCH (t:Task {status: 'running'}) RETURN t.id as id, t.metadata as meta"
+            )
+            requeued = failed = 0
+            for row in rows or []:
+                tid = row.get("id")
+                if not tid:
+                    continue
+                meta = _decode_metadata(row.get("meta")) or {}
+                claimed_by = meta.get("claimed_by")
+                # Claim age: prefer claim_unix, else parse started_at; else unknown.
+                claim_unix = meta.get("claim_unix")
+                if claim_unix is None and meta.get("started_at"):
+                    try:
+                        claim_unix = datetime.fromisoformat(
+                            meta["started_at"]
+                        ).timestamp()
+                    except (ValueError, TypeError):
+                        claim_unix = None
+                try:
+                    age = now - float(claim_unix) if claim_unix is not None else None
+                except (ValueError, TypeError):
+                    age = None
+
+                # Orphan: a 'running' task NOT owned by the live host. The singleton
+                # host lock guarantees exactly one host runs workers, so any running
+                # task whose owner isn't this host's token is being processed by
+                # nobody — its worker died. This covers both a *foreign* token (a
+                # previous host) and an *unstamped* task (claimed before the reaper
+                # existed — the first-deploy case), so a fresh host cleans pre-existing
+                # zombies instead of waiting out the absolute cap. A foreign explicit
+                # token is reaped even if its age is unknown (provably a dead host); an
+                # unstamped task needs a known age past the hand-off grace to avoid
+                # racing any malformed-but-fresh claim.
+                not_live = claimed_by != token  # token is never None
+                orphan = not_live and (
+                    (claimed_by is not None and age is None)
+                    or (age is not None and age >= grace)
+                )
+                # Backstop: this host's own task wedged beyond the absolute cap.
+                backstop = (
+                    claimed_by == token and age is not None and age >= max_runtime
+                )
+                if not (orphan or backstop):
+                    continue
+
+                resets = int(meta.get("reaper_resets", 0)) + 1
+                reason = "orphan(dead-host)" if orphan else "stuck(runtime-cap)"
+                if resets > max_resets:
+                    meta["error"] = (
+                        f"reaper: exceeded {max_resets} requeues ({reason}); "
+                        "failing to break the loop"
+                    )
+                    meta["reaper_resets"] = resets
+                    self.backend.execute(
+                        "MATCH (t:Task {id: $id}) SET t.status = 'failed', t.metadata = $meta",
+                        {"id": tid, "meta": _encode_metadata(meta)},
+                    )
+                    failed += 1
+                    logger.warning(
+                        "TaskReaper: FAILED %s after %d requeues (%s)",
+                        tid,
+                        resets - 1,
+                        reason,
+                    )
+                    continue
+
+                meta["reaper_resets"] = resets
+                meta["reaper_last_reason"] = reason
+                meta["reaper_last_at"] = datetime.now(UTC).isoformat()
+                meta.pop("claimed_by", None)
+                meta.pop("claim_unix", None)
+                # Guard on status='running' so we never clobber a task a worker just
+                # legitimately completed between the scan and this write.
+                self.backend.execute(
+                    "MATCH (t:Task {id: $id, status: 'running'}) SET t.status = 'pending', t.metadata = $meta",
+                    {"id": tid, "meta": _encode_metadata(meta)},
+                )
+                requeued += 1
+                logger.warning(
+                    "TaskReaper: requeued %s (%s, age=%ss, claimed_by=%s)",
+                    tid,
+                    reason,
+                    round(age) if age is not None else "?",
+                    claimed_by,
+                )
+            if requeued or failed:
+                logger.info(
+                    "TaskReaper: requeued=%d failed=%d (running scanned=%d)",
+                    requeued,
+                    failed,
+                    len(rows or []),
+                )
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("task_reaper tick error: %s", e)
 
     def _tick_file_watch(self) -> None:
         """One SDD/skills/scholarx/config file-watch scan (CONCEPT:KG-2.6 / OS-5.0).
@@ -1397,9 +1565,13 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
 
         # Role gate: ``client`` processes never run task workers — the host
-        # daemon (API gateway) drains the shared queue. (CONCEPT:KG-2.8)
-        if daemon_role() == "client":
-            logger.debug("daemon role=client; not starting task workers.")
+        # daemon (the singleton flock holder) drains the shared queue. Uses the
+        # *effective* role so an ``auto`` process that lost the host election also
+        # behaves as a client. (CONCEPT:KG-2.8 / OS-5.9)
+        from .host_lock import effective_daemon_role
+
+        if effective_daemon_role() == "client":
+            logger.debug("effective daemon role=client; not starting task workers.")
             return
 
         if not DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND:
@@ -1470,9 +1642,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._claim_lock = threading.Lock()
 
                 with self._claim_lock:
+                    # Priority-aware poll: claim ``priority='high'`` pending tasks
+                    # first, then any pending. (The L1 interpreter strips ORDER BY,
+                    # so we tier via two queries instead of ORDER BY priority.)
+                    # (CONCEPT:KG-2.8 queue control)
                     results = self.query_cypher(
-                        "MATCH (t:Task {status: 'pending'}) RETURN t.id as id, t.metadata as meta LIMIT 1"
+                        "MATCH (t:Task {status: 'pending', priority: 'high'}) RETURN t.id as id, t.metadata as meta LIMIT 1"
                     )
+                    if not results:
+                        results = self.query_cypher(
+                            "MATCH (t:Task {status: 'pending'}) RETURN t.id as id, t.metadata as meta LIMIT 1"
+                        )
 
                     if results:
                         job_id = results[0]["id"]
@@ -1483,6 +1663,14 @@ class TaskManagerMixin(GraphEngineProtocol):
                             task_type = meta.get("type", "document")
                             is_codebase = task_type == "codebase"
                             meta["started_at"] = datetime.now(UTC).isoformat()
+                            # Ownership stamp for the zombie reaper: the live host's
+                            # unique token + a unix claim time. The singleton host
+                            # lock guarantees exactly one host runs workers, so any
+                            # 'running' task NOT stamped with the live token is an
+                            # orphan from a dead host and is safe to requeue.
+                            # (CONCEPT:KG-2.8 ingestion durability)
+                            meta["claimed_by"] = self._get_host_token()
+                            meta["claim_unix"] = time.time()
                             encoded_meta = _encode_metadata(meta)
 
                         # Immediately claim it while holding the lock
@@ -1774,6 +1962,15 @@ class TaskManagerMixin(GraphEngineProtocol):
                 created = []
                 skipped = 0
                 ingestion_timestamp = datetime.now(UTC).isoformat()
+
+                # Pass 1 — dedup (O(1) id-keyed lookup per chunk) and collect the NEW
+                # chunks. Embeddings are NOT computed here: a per-chunk
+                # ``get_text_embedding`` is one network round-trip to the embedding
+                # service, and doing it inside this loop made a single PDF take
+                # minutes. We gather first, then embed the whole document in one
+                # batched call below. (CONCEPT:KG-2.8 ingestion throughput; see
+                # [[epistemic-graph-transport]] — batch over the wire, never per-element.)
+                pending: list[tuple[str, str, int, dict[str, Any]]] = []
                 for idx, doc in enumerate(docs):
                     chunk_text = doc.text
                     # Sanitize to prevent UnicodeEncodeError (surrogates) when sending to LLM
@@ -1796,12 +1993,30 @@ class TaskManagerMixin(GraphEngineProtocol):
                         )
                         skipped += 1
                         continue
+                    pending.append((nid, chunk_text, idx, doc.metadata))
 
-                    embedding = embed_model.get_text_embedding(chunk_text)
+                # Pass 2 — batch-embed every new chunk in one shot (sub-batched). The
+                # LlamaIndex embedding models expose ``get_text_embedding_batch`` which
+                # packs many chunks into a single request; this replaces N serial
+                # round-trips with ~N/64, the change that takes a document from minutes
+                # to seconds. Fall back to per-chunk only if the model lacks the batch API.
+                texts = [c[1] for c in pending]
+                embeddings: list = []
+                _embed_batch = getattr(embed_model, "get_text_embedding_batch", None)
+                if callable(_embed_batch):
+                    _BATCH = 64
+                    for _i in range(0, len(texts), _BATCH):
+                        embeddings.extend(_embed_batch(texts[_i : _i + _BATCH]))
+                else:
+                    embeddings = [embed_model.get_text_embedding(t) for t in texts]
+
+                for (nid, chunk_text, idx, meta), embedding in zip(
+                    pending, embeddings, strict=False
+                ):
                     props = {
                         "content": chunk_text,
                         "embedding": embedding,
-                        "metadata": json.dumps(doc.metadata),
+                        "metadata": json.dumps(meta),
                         "last_seen_timestamp": ingestion_timestamp,
                         "target_path": str(target),
                         "chunk_index": idx,
@@ -1817,6 +2032,14 @@ class TaskManagerMixin(GraphEngineProtocol):
                     job_id,
                     "completed",
                     {
+                        # ``nodes_added``/``edges_added`` are the canonical keys the
+                        # per-category metrics aggregator reads (see
+                        # aggregate_ingest_metrics). The async document worker writes
+                        # one Article node per new chunk and no edges; surface those
+                        # counts here so completed document jobs no longer report 0
+                        # nodes. ``chunks_added`` is retained as a descriptive alias.
+                        "nodes_added": len(created),
+                        "edges_added": 0,
                         "chunks_added": len(created),
                         "chunks_skipped": skipped,
                         "skip_reason": "Hash match exists in DB",
@@ -2561,3 +2784,106 @@ class TaskManagerMixin(GraphEngineProtocol):
         remaining = rem_results[0]["count"] if rem_results else 0
 
         return {"status": "success", "cleared": cleared, "remaining": remaining}
+
+    def cancel_task(self, job_id: str) -> dict:
+        """Cancel a single queued/running task by id (terminal 'cancelled').
+
+        Removes it from the worker poll and the reaper's view without deleting the
+        record (audit trail). A 'running' task's in-flight thread isn't interrupted,
+        but the task is never re-claimed or requeued. (CONCEPT:KG-2.8 queue control)
+        """
+        if not job_id:
+            return {"status": "error", "error": "job_id required"}
+        rows = self.query_cypher(
+            "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": job_id}
+        )
+        if not rows:
+            return {"status": "error", "error": f"job {job_id} not found"}
+        self.backend.execute(
+            "MATCH (t:Task {id: $id}) SET t.status = 'cancelled'", {"id": job_id}
+        )
+        return {"status": "success", "job_id": job_id, "prev_status": rows[0].get("s")}
+
+    def clear_tasks(self, status: str = "completed") -> dict:
+        """Delete Task nodes from the queue by status filter (CONCEPT:KG-2.8 queue control).
+
+        ``status`` ∈ pending|running|completed|failed|cancelled|zombie|all.
+        ``zombie`` deletes only 'running' tasks NOT owned by the live host token
+        (orphans from a dead host) — a targeted clear that never removes a task this
+        host is actively processing. ``all`` clears every task. Returns counts.
+        """
+        status = (status or "completed").strip().lower()
+        valid = {
+            "pending",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            "zombie",
+            "all",
+        }
+        if status not in valid:
+            return {
+                "status": "error",
+                "error": f"status must be one of {sorted(valid)}",
+            }
+
+        if status == "all":
+            rows = self.query_cypher("MATCH (t:Task) RETURN t.id as id")
+            ids = [r["id"] for r in (rows or []) if r.get("id")]
+        elif status == "zombie":
+            token = self._get_host_token()
+            rows = self.query_cypher(
+                "MATCH (t:Task {status: 'running'}) RETURN t.id as id, t.metadata as meta"
+            )
+            ids = []
+            for r in rows or []:
+                if not r.get("id"):
+                    continue
+                meta = _decode_metadata(r.get("meta")) or {}
+                if meta.get("claimed_by") != token:  # foreign or unstamped → orphan
+                    ids.append(r["id"])
+        else:
+            rows = self.query_cypher(
+                "MATCH (t:Task {status: $s}) RETURN t.id as id", {"s": status}
+            )
+            ids = [r["id"] for r in (rows or []) if r.get("id")]
+
+        for tid in ids:
+            self.backend.execute(
+                "MATCH (t:Task {id: $id}) DETACH DELETE t", {"id": tid}
+            )
+
+        rem = self.query_cypher("MATCH (t:Task) RETURN count(t) as count")
+        remaining = rem[0]["count"] if rem else 0
+        return {
+            "status": "success",
+            "cleared": len(ids),
+            "filter": status,
+            "remaining": remaining,
+        }
+
+    def prioritize_task(self, job_id: str, priority: str = "high") -> dict:
+        """Set a pending task's queue priority ('high' jumps ahead of normal).
+
+        The worker poll claims ``priority='high'`` pending tasks before any other
+        pending task, so a bumped job runs next. (CONCEPT:KG-2.8 queue control)
+        """
+        priority = (priority or "high").strip().lower()
+        if priority not in {"high", "normal"}:
+            return {"status": "error", "error": "priority must be 'high' or 'normal'"}
+        rows = self.query_cypher(
+            "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": job_id}
+        )
+        if not rows:
+            return {"status": "error", "error": f"job {job_id} not found"}
+        self.backend.execute(
+            "MATCH (t:Task {id: $id}) SET t.priority = $p",
+            {"id": job_id, "p": priority},
+        )
+        return {
+            "status": "success",
+            "job_id": job_id,
+            "priority": priority,
+            "task_status": rows[0].get("s"),
+        }

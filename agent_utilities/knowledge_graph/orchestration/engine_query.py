@@ -303,6 +303,7 @@ class QueryMixin(_Base):
         mode: str = "standard",
         self_correct: bool = False,
         corpus_id: str | None = None,
+        as_of: str | None = None,
     ) -> list[dict[str, Any]]:
         """Perform a multi-faceted search using Hybrid GraphRAG.
 
@@ -310,6 +311,9 @@ class QueryMixin(_Base):
         delegates to the memory-first ``plan_and_retrieve`` policy (HyDE multi-query plan, dual
         thresholds, and an evidence-gated second pass). ``mode="standard"`` preserves the prior
         single-query behavior.
+
+        ``as_of`` (ISO-8601) sets the reference time for pack-driven recency decay,
+        enabling knowledge-state-as-of-date-D retrieval (CONCEPT:KG-2.22).
         """
         if mode in ("hyde", "deep") or self_correct:
             results = self.hybrid_retriever.plan_and_retrieve(
@@ -327,6 +331,7 @@ class QueryMixin(_Base):
                 relevance_threshold=relevance_threshold,
                 target_paths=target_paths,
                 corpus_id=corpus_id,
+                as_of=as_of,
             )
         if not include_archived:
             results = [

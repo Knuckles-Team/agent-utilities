@@ -73,8 +73,31 @@ class GraphComputeEngine:
                     server_path = str(
                         Path(sys.executable).parent / "epistemic-graph-server"
                     )
+                    cmd = [server_path]
+                    sock = connect_kwargs.get("socket_path")
+                    if sock:
+                        cmd += ["--socket-path", str(sock)]
+                    # Durable by default (CONCEPT:KG-2.8 / OS-5.9): snapshot the
+                    # graphs to disk so an auto-spawned engine warm-restarts from
+                    # the last checkpoint instead of starting empty. pggraph stays
+                    # the durable system-of-record; this is the fast local cache.
+                    persist_dir = os.environ.get("GRAPH_SERVICE_PERSIST_DIR")
+                    if persist_dir is None:
+                        try:
+                            from agent_utilities.core.paths import data_dir
+
+                            persist_dir = str(data_dir() / "graph_snapshots")
+                        except Exception:
+                            persist_dir = None
+                    if persist_dir:
+                        cmd += [
+                            "--persist-dir",
+                            persist_dir,
+                            "--checkpoint-interval",
+                            os.environ.get("GRAPH_SERVICE_CHECKPOINT_INTERVAL", "60"),
+                        ]
                     subprocess.Popen(
-                        [server_path],
+                        cmd,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         start_new_session=True,

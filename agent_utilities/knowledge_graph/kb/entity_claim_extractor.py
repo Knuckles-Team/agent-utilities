@@ -210,8 +210,19 @@ class EntityClaimExtractor:
         engine: The ``IntelligenceGraphEngine`` to persist results into.
     """
 
-    def __init__(self, engine: IntelligenceGraphEngine) -> None:
+    def __init__(self, engine: IntelligenceGraphEngine, schema_pack=None) -> None:
         self.engine = engine
+        # The active schema pack drives zero-LLM link inference; resolve the
+        # process-active pack when not supplied so ingestion honours it without
+        # every call site threading it (CONCEPT:KG-2.33).
+        if schema_pack is None:
+            try:
+                from agent_utilities.models.schema_pack_loader import get_active_pack
+
+                schema_pack = get_active_pack()
+            except Exception:  # pragma: no cover - never block construction
+                schema_pack = None
+        self.schema_pack = schema_pack
 
     def extract_and_persist(
         self,
@@ -233,6 +244,19 @@ class EntityClaimExtractor:
         """
         # Phase 1: Deterministic extraction
         result = extract_deterministic(content, source_id)
+
+        # Phase 1b: Zero-LLM, pack-driven typed-edge extraction (CONCEPT:KG-2.33).
+        # The active pack's regex link-inference rules (ReDoS-bounded) materialise
+        # domain edges (e.g. research-state supports/weakens/cites/uses_dataset).
+        if self.schema_pack and getattr(self.schema_pack, "link_inference", None):
+            try:
+                from .link_inference import infer_links
+
+                result.relationships.extend(
+                    infer_links(content, source_id, self.schema_pack.link_inference)
+                )
+            except Exception as e:  # pragma: no cover - never block ingestion
+                logger.debug("pack link inference failed: %s", e)
 
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -293,12 +317,25 @@ class EntityClaimExtractor:
             "exemplifies": RegistryEdgeType.EXEMPLIFIES,
             "cites": RegistryEdgeType.CITES,
             "authored_by": RegistryEdgeType.AUTHORED_BY,
+            # Research-state / pack link-inference edges (CONCEPT:KG-2.33 / KG-2.37)
+            "supports_belief": RegistryEdgeType.SUPPORTS_BELIEF,
+            "contradicts_belief": RegistryEdgeType.CONTRADICTS_BELIEF,
+            "weakens": RegistryEdgeType.WEAKENS,
+            "uses_dataset": RegistryEdgeType.USES_DATASET,
+            "cites_source": RegistryEdgeType.CITES_SOURCE,
         }
 
         for rel in result.relationships:
             source = entity_id_map.get(rel.source_name, rel.source_name)
             target = entity_id_map.get(rel.target_name, rel.target_name)
             edge_type = edge_type_map.get(rel.relationship_type)
+            # Generic fallback: any pack-declared edge_type *value* resolves to its
+            # RegistryEdgeType member, so new pack verbs persist without a map edit.
+            if edge_type is None:
+                try:
+                    edge_type = RegistryEdgeType(rel.relationship_type)
+                except ValueError:
+                    edge_type = None
 
             if (
                 edge_type

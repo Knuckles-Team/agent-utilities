@@ -1,0 +1,96 @@
+---
+# Apache Egeria — homelab-stripped, GitOps-deployable stack (CONCEPT:KG-2.9).
+#
+# Egeria is federated as the metadata / governance / lineage SYSTEM-OF-RECORD
+# alongside the epistemic-graph KG (the cognition/orchestration plane). This is
+# the minimal Phase-1 footprint: ONE odpi/egeria-platform JVM hosting all four
+# OMAG servers (metadata-store + view-server are load-bearing; engine-host +
+# integration-daemon are present but run no connectors until Phase 2), reusing
+# the EXISTING Kafka (cohort/event bus) and EXISTING Postgres (XTDB metadata
+# repository) — no bundled Kafka/Postgres, and none of the egeria-workspaces
+# demo extras (Jupyter, Apache web, My-Egeria TUI, Obsidian, Airflow+Marquez,
+# Unity Catalog, Atlas, MLflow, Ollama, Milvus, Spark, OpenLineage proxy).
+#
+# Modeled on:
+#   open-source-libraries/egeria-workspaces/compose-configs/egeria-quickstart
+#   open-source-libraries/egeria-workspaces/compose-configs/shared-infra
+#
+# Deploy (Portainer/GitLab GitOps): commit to the infra repo; the Portainer
+# stack auto-syncs (portainer-sync-agent / pt__stack). Caddy route:
+#   egeria.arpa -> https://egeria-platform:9443   (tls_insecure_skip_verify —
+#   the platform serves a self-signed cert).
+#
+# BEFORE FIRST BOOT — seed ./egeria-servers/ with the metadata-store + view-server
+# OMAG config JSONs (copy the qs-* configs from the clone and retemplate
+# ~{kafkaEndpoint}~ to the existing Kafka and the metadata-store's XTDB repository
+# connection to the existing Postgres). Until that points at Postgres, the repo is
+# in-memory and non-durable across restarts (fine only for the first spike).
+services:
+  egeria-platform:
+    # Pin a published tag for reproducible GitOps; or build from the clone's
+    # Dockerfile-egeria-platform for a locally-patched image.
+    image: "odpi/egeria-platform:${EGERIA_IMAGE_TAG:-stable}"
+    # build:
+    #   context: ../../../open-source-libraries/egeria-workspaces/compose-configs/egeria-quickstart
+    #   dockerfile: Dockerfile-egeria-platform
+    container_name: egeria-platform
+    hostname: egeria-platform
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # XTDB metadata repository tuning (matches the quickstart).
+      XTDB_ENABLE_BYTEUTILS_SHA1: "True"
+      XTDB_DISABLE_LIBCRYPTO: "True"
+      # All four OMAG servers in one JVM; connectors stay idle until Phase 2.
+      startup.server.list: "qs-metadata-store,qs-engine-host,qs-integration-daemon,qs-view-server"
+      server.port: "9443"
+      # Reuse the EXISTING Kafka cohort/event bus (kafka-kraft.compose.yml).
+      KAFKA_BOOTSTRAP_SERVERS: "${EGERIA_KAFKA_ENDPOINT:-kafka:9092}"
+      # The one heavyweight knob — cap heap; size to the host.
+      JAVA_OPTS: "${EGERIA_JAVA_OPTS:--Xms1g -Xmx2g}"
+      # XTDB-on-Postgres connection (consumed by the metadata-store server config
+      # you seed into ./egeria-servers). Point these at the EXISTING Postgres.
+      EGERIA_POSTGRES_HOST: "${EGERIA_POSTGRES_HOST:-pggraph-db}"
+      EGERIA_POSTGRES_PORT: "${EGERIA_POSTGRES_PORT:-5432}"
+      EGERIA_POSTGRES_DB: "${EGERIA_POSTGRES_DB:-egeria_metadata}"
+      EGERIA_POSTGRES_USER: "${EGERIA_POSTGRES_USER:-agent}"
+      EGERIA_POSTGRES_PASSWORD: "${EGERIA_POSTGRES_PASSWORD:-agent}"
+    ports:
+      - "9443:9443"
+    volumes:
+      # Seeded OMAG server configs (metadata-store + view-server, retemplated).
+      - ./egeria-servers:/deployments/data/servers:ro
+      - egeria-data:/deployments/data
+      - egeria-logs:/deployments/logs
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >-
+          curl -k -fsS
+          https://localhost:9443/open-metadata/platform-services/users/garygeeke/server-platform/origin
+          || exit 1
+      interval: 30s
+      timeout: 15s
+      retries: 15
+      start_period: 60s
+    networks:
+      - caddy
+      - internet
+
+volumes:
+  egeria-data:
+  egeria-logs:
+
+# External overlay networks provided by the swarm/ingress (Caddy reverse proxy
+# fronts egeria.arpa; `internet` for egress to the cohort/Kafka/Postgres).
+networks:
+  caddy:
+    external: true
+  internet:
+    external: true

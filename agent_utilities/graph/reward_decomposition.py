@@ -451,6 +451,36 @@ class RewardDecomposer:
 
         return batch_normalized_advantage([r.total_reward for r in self._records])
 
+    def step_advantages(
+        self,
+        record: DecomposedRewardRecord | None = None,
+        *,
+        step_entropies: list[float] | None = None,
+    ) -> list[float]:
+        """Per-step advantage within one trajectory (CONCEPT:AHE-3.15 / AHE-3.1).
+
+        Group-normalizes the step rewards of ``record`` (default: most recent) into
+        per-step advantages — the agent-step credit ARPO writes back into the
+        capability reward-EMA, instead of crediting only the final answer. When
+        ``step_entropies`` is supplied, the advantages are reweighted by EP-GRPO
+        entropy-progress weights so steps that *reduce* uncertainty (advance the
+        solution) carry more credit (arXiv:2605.04960).
+        """
+        from .training_signals import (
+            batch_normalized_advantage,
+            entropy_progress_weights,
+        )
+
+        rec = record or (self._records[-1] if self._records else None)
+        if rec is None or not rec.step_rewards:
+            return []
+        adv = batch_normalized_advantage([s.reward for s in rec.step_rewards])
+        if step_entropies is not None:
+            weights = entropy_progress_weights(step_entropies)
+            n = min(len(adv), len(weights))
+            adv = [round(adv[i] * weights[i], 6) for i in range(n)] + adv[n:]
+        return adv
+
     def failure_points(self) -> list[int | None]:
         """First-divergence step index per accumulated record (CONCEPT:AHE-3.1).
 
