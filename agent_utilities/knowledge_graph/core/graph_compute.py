@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 class GraphComputeEngine:
     """Graph compute engine backed by the epistemic-graph Tokio service.
 
-    All graph operations route through the Tokio service layer via UDS/TCP.
-    The service must be running before this engine is instantiated.
-    Falls back to PyO3 in-process mode only if the service is unavailable
-    and ``GRAPH_COMPUTE_FALLBACK=embedded`` is set.
+    All graph operations route through the Tokio service layer via UDS/TCP
+    (length-prefixed MessagePack, HMAC-authenticated). There is **no PyO3 /
+    in-process mode** — the service is a separate process and must be running
+    before this engine is instantiated.
     """
 
     def __init__(self, graph_name: str = "__bus__", **kwargs: Any) -> None:
