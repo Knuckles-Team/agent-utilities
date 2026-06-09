@@ -345,18 +345,21 @@ class GoldenLoopController:
         """
         from dataclasses import asdict
 
+        from agent_utilities.core.config import config
+
         from ..assimilation import run_breadth_ingest
 
-        libs = [
-            p.strip()
-            for p in os.getenv("KG_BREADTH_LIBRARY_ROOTS", "").split(",")
-            if p.strip()
-        ]
-        repos = [
-            p.strip()
-            for p in os.getenv("KG_BREADTH_REPO_ROOTS", "").split(",")
-            if p.strip()
-        ]
+        # Roots come from env (also populated from .env via load_dotenv) OR the
+        # AgentConfig fields — so a deployment can configure breadth auto-ingest
+        # once and ``golden_loop`` (one call / the daemon) ingests it. (CONCEPT:KG-2.7)
+        libs_raw = os.getenv("KG_BREADTH_LIBRARY_ROOTS") or getattr(
+            config, "kg_breadth_library_roots", ""
+        )
+        repos_raw = os.getenv("KG_BREADTH_REPO_ROOTS") or getattr(
+            config, "kg_breadth_repo_roots", ""
+        )
+        libs = [p.strip() for p in (libs_raw or "").split(",") if p.strip()]
+        repos = [p.strip() for p in (repos_raw or "").split(",") if p.strip()]
         if not libs and not repos:
             return {"skipped": True, "reason": "no roots configured"}
         return asdict(
