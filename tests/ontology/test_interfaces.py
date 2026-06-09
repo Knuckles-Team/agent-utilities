@@ -57,9 +57,7 @@ def test_conforming_and_nonconforming_implementation_gaps():
     reg = _registry()
 
     # Conforming type: declares both lat+lon as double.
-    reg.declare_type_shape(
-        "geo_place", properties={"lat": "double", "lon": "double"}
-    )
+    reg.declare_type_shape("geo_place", properties={"lat": "double", "lon": "double"})
     ok_report = reg.implement("geo_place", "Locatable")
     assert isinstance(ok_report, ImplementationReport)
     assert ok_report.ok is True
@@ -138,12 +136,8 @@ def test_interface_inheritance_extends():
 
 def test_find_implementers_and_targeting():
     reg = _registry()
-    reg.declare_type_shape(
-        "geo_place", properties={"lat": "double", "lon": "double"}
-    )
-    reg.declare_type_shape(
-        "geo_sensor", properties={"lat": "double", "lon": "double"}
-    )
+    reg.declare_type_shape("geo_place", properties={"lat": "double", "lon": "double"})
+    reg.declare_type_shape("geo_sensor", properties={"lat": "double", "lon": "double"})
     reg.implement("geo_place", "Locatable")
     reg.implement("geo_sensor", "Locatable")
 
@@ -166,12 +160,8 @@ def test_find_implementers_and_targeting():
 
 def test_transitive_targeting_through_subinterface():
     reg = _registry()
-    reg.register(
-        Interface(name="PreciseLocatable", extends=["Locatable"])
-    )
-    reg.declare_type_shape(
-        "gps_fix", properties={"lat": "double", "lon": "double"}
-    )
+    reg.register(Interface(name="PreciseLocatable", extends=["Locatable"]))
+    reg.declare_type_shape("gps_fix", properties={"lat": "double", "lon": "double"})
     reg.implement("gps_fix", "PreciseLocatable")
     # An implementer of the sub-interface is a transitive implementer of the parent.
     assert "gps_fix" in reg.find_implementers("Locatable")
@@ -202,9 +192,7 @@ def test_default_registry_live_builtins():
 
 def test_registry_to_owl_emits_implements_assertions():
     reg = _registry()
-    reg.declare_type_shape(
-        "geo_place", properties={"lat": "double", "lon": "double"}
-    )
+    reg.declare_type_shape("geo_place", properties={"lat": "double", "lon": "double"})
     reg.implement("geo_place", "Locatable")
     ttl = reg.to_owl()
     assert ":Locatable a owl:Class" in ttl

@@ -14,7 +14,9 @@ import pytest
 from agent_utilities.models.schema_pack import RecencyDecaySpec, SchemaPack
 from agent_utilities.models.schema_packs import get_schema_pack
 
-_PATCH = "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model"
+_PATCH = (
+    "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model"
+)
 
 
 def _retriever(pack):
@@ -30,8 +32,14 @@ class TestRecencyBoost:
     def test_newer_outranks_older(self, _m):
         r = _retriever(get_schema_pack("research-state"))
         now = datetime.now(UTC)
-        newer = {"type": "document", "event_time": (now - timedelta(days=1)).isoformat()}
-        older = {"type": "document", "event_time": (now - timedelta(days=730)).isoformat()}
+        newer = {
+            "type": "document",
+            "event_time": (now - timedelta(days=1)).isoformat(),
+        }
+        older = {
+            "type": "document",
+            "event_time": (now - timedelta(days=730)).isoformat(),
+        }
         assert r._recency_boost(newer) > r._recency_boost(older)
         # Boost is always a positive amplification (>= 1.0), never a penalty.
         assert r._recency_boost(older) >= 1.0
@@ -50,7 +58,9 @@ class TestRecencyBoost:
     def test_as_of_reference_time(self, _m):
         pack = SchemaPack(
             name="t",
-            recency_decay={"document": RecencyDecaySpec(half_life_days=10, coefficient=1.0)},
+            recency_decay={
+                "document": RecencyDecaySpec(half_life_days=10, coefficient=1.0)
+            },
         )
         r = _retriever(pack)
         node = {"type": "document", "event_time": "2024-01-01T00:00:00+00:00"}

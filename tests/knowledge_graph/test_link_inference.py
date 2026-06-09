@@ -35,7 +35,9 @@ def test_infers_supports_edge_to_wikilink_target():
 
 
 def test_multiple_matches_and_self_loop_dropped():
-    rules = [LinkInferenceRule(pattern=r"links \[\[([^\]|]+)", edge_type="supports_belief")]
+    rules = [
+        LinkInferenceRule(pattern=r"links \[\[([^\]|]+)", edge_type="supports_belief")
+    ]
     rels = infer_links("links [[A]] and links [[B]]", "doc:1", rules)
     assert {r.target_name for r in rels} == {"A", "B"}
 
@@ -52,7 +54,9 @@ def test_redos_pattern_is_bounded():
 
 def test_input_is_truncated():
     # A match placed beyond MAX_INPUT_CHARS must not be seen.
-    rules = [LinkInferenceRule(pattern=r"cites \[\[([^\]|]+)", edge_type="cites_source")]
+    rules = [
+        LinkInferenceRule(pattern=r"cites \[\[([^\]|]+)", edge_type="cites_source")
+    ]
     content = ("x" * (MAX_INPUT_CHARS + 50)) + " cites [[Hidden]]"
     rels = infer_links(content, "doc:1", rules)
     assert rels == []
@@ -60,7 +64,9 @@ def test_input_is_truncated():
 
 def test_empty_rules_or_content_noop():
     assert infer_links("supports [[A]]", "doc:1", []) == []
-    assert infer_links("", "doc:1", get_schema_pack("research-state").link_inference) == []
+    assert (
+        infer_links("", "doc:1", get_schema_pack("research-state").link_inference) == []
+    )
 
 
 def test_live_path_extract_and_persist_creates_edge():
@@ -76,7 +82,9 @@ def test_live_path_extract_and_persist_creates_edge():
 
     engine = MagicMock()
     engine.graph.__contains__ = lambda _self, _k: True  # all ids "present"
-    extractor = EntityClaimExtractor(engine, schema_pack=get_schema_pack("research-state"))
+    extractor = EntityClaimExtractor(
+        engine, schema_pack=get_schema_pack("research-state")
+    )
 
     extractor.extract_and_persist(
         "The result supports [[Smith2020]] strongly.", source_id="paper:1"

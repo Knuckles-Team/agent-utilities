@@ -135,7 +135,9 @@ def score_group(
 
     size = len(group.members)
     breadth = len(group.sources)
-    cost = sum(_to_float(assets.get(m, {}).get("license_cost", 0)) for m in group.members)
+    cost = sum(
+        _to_float(assets.get(m, {}).get("license_cost", 0)) for m in group.members
+    )
     cost += sum(
         _to_float(assets.get(m, {}).get("annual_cost", 0)) for m in group.members
     )
@@ -250,9 +252,7 @@ def recommend_consolidations(
         max_cost = max(max_cost, c)
 
     recs = [
-        score_group(
-            engine, g, drift, lineage, max_cost=max_cost, weights=weights
-        )
+        score_group(engine, g, drift, lineage, max_cost=max_cost, weights=weights)
         for g in groups
     ]
     recs.sort(key=lambda r: r.priority, reverse=True)

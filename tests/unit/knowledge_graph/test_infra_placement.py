@@ -149,10 +149,20 @@ class _Engine:
 def test_optimize_from_graph_writes_plan():
     engine = _Engine(
         {
-            "gw": {"type": "hardwarenode", "cpu_cores": 16, "ram_total_gb": 64,
-                   "ram_available_gb": 64, "swarm_role": "gateway"},
-            "w1": {"type": "hardwarenode", "cpu_cores": 32, "ram_total_gb": 128,
-                   "ram_available_gb": 128, "swarm_role": "worker"},
+            "gw": {
+                "type": "hardwarenode",
+                "cpu_cores": 16,
+                "ram_total_gb": 64,
+                "ram_available_gb": 64,
+                "swarm_role": "gateway",
+            },
+            "w1": {
+                "type": "hardwarenode",
+                "cpu_cores": 32,
+                "ram_total_gb": 128,
+                "ram_available_gb": 128,
+                "swarm_role": "worker",
+            },
             "caddy": {"type": "platform_service", "tier": "T0", "ram_req_gb": 1},
             "app": {"type": "container", "tier": "T3", "ram_req_gb": 2},
         }
@@ -201,8 +211,12 @@ def test_collect_and_persist_idempotent(tmp_path):
 
     def fake_tm(host, action):
         calls["n"] += 1
-        return {"cpu": {"cores": 8}, "memory": {"total_gb": 32, "available_gb": 30},
-                "disk": {"total_gb": 200, "used_pct": 10}, "swarm_role": "worker"}
+        return {
+            "cpu": {"cores": 8},
+            "memory": {"total_gb": 32, "available_gb": 30},
+            "disk": {"total_gb": 200, "used_pct": 10},
+            "swarm_role": "worker",
+        }
 
     engine = _Engine({})
     manifest = DeltaManifest(db_path=str(tmp_path / "m.db"))

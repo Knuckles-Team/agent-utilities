@@ -56,7 +56,9 @@ def _call(client: Any, name: str) -> list:
     except Exception:
         return []
     if isinstance(result, dict):
-        result = result.get("records") or result.get("items") or result.get("data") or []
+        result = (
+            result.get("records") or result.get("items") or result.get("data") or []
+        )
     return list(result) if result else []
 
 

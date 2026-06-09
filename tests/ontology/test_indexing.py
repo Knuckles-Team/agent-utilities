@@ -113,9 +113,7 @@ def test_data_restriction_excludes_objects() -> None:
         denied_types={"secret"},
         predicate=lambda n: n.get("classification") != "restricted",
     )
-    funnel = ObjectIndexFunnel(
-        dim=DIM, prefer_backend="numpy", restriction=restriction
-    )
+    funnel = ObjectIndexFunnel(dim=DIM, prefer_backend="numpy", restriction=restriction)
     nodes = [
         _node("ok", seed=1, caps=["search"], node_type="tool"),
         _node("wrong_type", seed=2, node_type="dataset"),  # not allowed type

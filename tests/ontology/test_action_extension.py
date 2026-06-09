@@ -97,7 +97,9 @@ def _onboard_action() -> OntologyAction:
         ],
         notifications=[
             NotificationSpec(
-                channel="ops", recipient="$owner_id", template="record ${record_id} created"
+                channel="ops",
+                recipient="$owner_id",
+                template="record ${record_id} created",
             )
         ],
         webhooks=[WebhookSpec(url="https://example.invalid/hook")],

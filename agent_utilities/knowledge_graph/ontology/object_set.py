@@ -257,7 +257,7 @@ class PivotResult:
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (
             f"PivotResult(link_type={self.link_type!r}, group_by={self.group_by!r}, "
-            f"groups={ {k: len(v) for k, v in self.groups.items()} !r})"
+            f"groups={ {k: len(v) for k, v in self.groups.items()}!r})"
         )
 
 

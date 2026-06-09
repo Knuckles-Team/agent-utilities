@@ -15,7 +15,9 @@ from agent_utilities.knowledge_graph.retrieval.relational_intent import (
 from agent_utilities.models.schema_packs import get_schema_pack
 
 _VERBS = get_schema_pack("research-state").relational_verbs
-_EMBED = "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model"
+_EMBED = (
+    "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model"
+)
 
 
 class TestParse:
@@ -56,7 +58,9 @@ class TestTraverse:
             RelationalQuery,
         )
 
-        rq = RelationalQuery(verb_edge="supports_belief", direction="out", seed_text="x")
+        rq = RelationalQuery(
+            verb_edge="supports_belief", direction="out", seed_text="x"
+        )
         out = traverse(engine, rq, top_k=5)
         assert [n["id"] for n in out] == ["paper:2"]
         assert out[0]["_relational_hit"] == "supports_belief"
@@ -68,7 +72,9 @@ class TestTraverse:
             RelationalQuery,
         )
 
-        rq = RelationalQuery(verb_edge="supports_belief", direction="out", seed_text="x")
+        rq = RelationalQuery(
+            verb_edge="supports_belief", direction="out", seed_text="x"
+        )
         assert traverse(engine, rq) == []
 
 
@@ -88,13 +94,16 @@ def test_live_path_retrieve_hybrid_invokes_relational_arm(_m):
     r = HybridRetriever(engine, schema_pack=get_schema_pack("research-state"))
 
     sentinel = [{"id": "rel:hit", "_score": 1.0, "_relational_hit": "supports_belief"}]
-    with patch.object(
-        ri_module, "traverse", return_value=sentinel
-    ), patch.object(
-        ri_module,
-        "parse_relational_intent",
-        return_value=ri_module.RelationalQuery("supports_belief", "out", "x"),
+    with (
+        patch.object(ri_module, "traverse", return_value=sentinel),
+        patch.object(
+            ri_module,
+            "parse_relational_intent",
+            return_value=ri_module.RelationalQuery("supports_belief", "out", "x"),
+        ),
     ):
-        results = r.retrieve_hybrid("which papers support transformers", context_window=5)
+        results = r.retrieve_hybrid(
+            "which papers support transformers", context_window=5
+        )
 
     assert any(n.get("id") == "rel:hit" for n in results)

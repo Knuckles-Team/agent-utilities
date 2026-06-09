@@ -116,8 +116,18 @@ def test_object_index_batch_incremental_staleness_reindex(kg: KnowledgeGraph) ->
 
     pre = _p()
     nodes = [
-        {"id": f"{pre}:n1", "type": "tool", "embedding": [0.1] * 8, "capabilities": ["x"]},
-        {"id": f"{pre}:n2", "type": "tool", "embedding": [0.2] * 8, "capabilities": ["y"]},
+        {
+            "id": f"{pre}:n1",
+            "type": "tool",
+            "embedding": [0.1] * 8,
+            "capabilities": ["x"],
+        },
+        {
+            "id": f"{pre}:n2",
+            "type": "tool",
+            "embedding": [0.2] * 8,
+            "capabilities": ["y"],
+        },
     ]
     batch = kg.sync_object_index(nodes)
     assert batch.rebuilt and batch.upserted == 2
@@ -125,14 +135,24 @@ def test_object_index_batch_incremental_staleness_reindex(kg: KnowledgeGraph) ->
     # Incremental upsert of a brand-new object (live delta, no full rebuild).
     from agent_utilities.knowledge_graph.ontology.indexing import FunnelDelta
 
-    n3 = {"id": f"{pre}:n3", "type": "tool", "embedding": [0.3] * 8, "capabilities": ["z"]}
+    n3 = {
+        "id": f"{pre}:n3",
+        "type": "tool",
+        "embedding": [0.3] * 8,
+        "capabilities": ["z"],
+    }
     inc = funnel.incremental_sync(FunnelDelta(upserts=[n3]))
     assert inc.upserted == 1
     assert f"{pre}:n3" in funnel.live_ids()
 
     # Drift detection: mutate n1's embedding => staleness ledger flags reindex.
     changed = [
-        {"id": f"{pre}:n1", "type": "tool", "embedding": [0.9] * 8, "capabilities": ["x"]},
+        {
+            "id": f"{pre}:n1",
+            "type": "tool",
+            "embedding": [0.9] * 8,
+            "capabilities": ["x"],
+        },
         nodes[1],
         n3,
     ]
@@ -161,7 +181,9 @@ def test_query_enforce_filters_marked_passes_public(
 
     kg._store = _Store()
 
-    low = ActorContext(actor_id="analyst:1", actor_type=ActorType.HUMAN, roles=("analyst",))
+    low = ActorContext(
+        actor_id="analyst:1", actor_type=ActorType.HUMAN, roles=("analyst",)
+    )
     with use_actor(low):
         out = kg.query("MATCH (n) RETURN n")
     ids = {r["id"] for r in out}
@@ -293,7 +315,13 @@ def test_action_two_side_effects_write_two_edits_and_undo(kg: KnowledgeGraph) ->
         "agent:writer", role=AgentRole.SPECIALIST, capabilities=["kg_write"]
     )
     approve = make_decision_provider(
-        {"wave2lp.onboard": {"approved": True, "approver": "ops", "approver_role": "operator"}}
+        {
+            "wave2lp.onboard": {
+                "approved": True,
+                "approver": "ops",
+                "approver_role": "operator",
+            }
+        }
     )
     rid, owner = f"{_p()}:record", f"{_p()}:user"
 
