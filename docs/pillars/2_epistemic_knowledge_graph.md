@@ -578,3 +578,18 @@ grows with the delta, not the corpus. Runs via `graph_orchestrate(action="assimi
 the golden-loop daemon tick, or `scripts/run_assimilation_breadth.py`. Each cycle
 emits metrics + a queryable `EvolutionCycle` node for monitoring. Full design:
 [Graph-Native Assimilation Engine](../architecture/assimilation_engine.md). Extends KG-2.7.
+
+### KG-2.7 — Knowledge Distillation → Skill-Graphs
+
+Makes the KG the source of truth for packageable agent knowledge. Document ingestion is
+standardized into **one** verbatim contract regardless of submission form
+(`Document{content}` + `IdeaBlock` chunks `PART_OF` it + `Concept` via `MENTIONS`), so
+`SkillGraphDistiller` (`knowledge_graph/distillation/`) can project a coherent subgraph
+back into a versioned, shareable skill-graph (`reference/` tree + `kg_manifest.json`) — and
+`import_skill_graph_pack` re-ingests one into another KG with dedup-merge. Procedure
+subgraphs (`PRECEDES` edges) distill into graph-native skill-**workflows**; a single batched
+`GetSubgraph` engine read backs the projection. Reachable via
+`graph_ingest(action="distill" | "import_pack")`, `generate_skill.py --from-kg`, and
+`crawl.py --ingest-kg`. Full design:
+[Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md).
+Extends KG-2.7.
