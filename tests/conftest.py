@@ -24,6 +24,14 @@ os.makedirs(_pytest_tmp_dir, exist_ok=True)
 _test_db_dir = tempfile.mkdtemp(prefix="agent_utilities_test_db_", dir=_pytest_tmp_dir)
 os.environ["GRAPH_DB_PATH"] = os.path.join(_test_db_dir, "test_knowledge_graph.db")
 
+# Isolate the workspace root so self-evolution / SDD writers (golden loop,
+# sdd.watcher) emit ``.specify/`` artifacts into a throwaway dir instead of
+# mutating the real repo — keeps the test suite hermetic so the pre-commit
+# pytest hook never reports "files were modified by this hook".
+_test_ws_dir = tempfile.mkdtemp(prefix="agent_utilities_test_ws_", dir=_pytest_tmp_dir)
+os.makedirs(os.path.join(_test_ws_dir, ".specify", "specs"), exist_ok=True)
+os.environ.setdefault("WORKSPACE_PATH", _test_ws_dir)
+
 
 def pytest_configure(config):
     config.addinivalue_line(
