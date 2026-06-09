@@ -24,8 +24,9 @@ class _FakeEngine:
         self._inflight = inflight
         self.backend = None  # forces DeltaManifest into sqlite mode
 
-    def submit_task(self, target_path, is_codebase, provenance, task_type=None,
-                    skip_dedupe=False):
+    def submit_task(
+        self, target_path, is_codebase, provenance, task_type=None, skip_dedupe=False
+    ):
         job = f"job-{len(self.submitted)}"
         self.submitted.append((target_path, is_codebase, task_type, provenance))
         return job

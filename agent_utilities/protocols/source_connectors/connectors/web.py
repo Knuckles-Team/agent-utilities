@@ -134,7 +134,7 @@ class WebCrawlerConnector(LoadConnector, PollConnector):
             seen.add(url)
             try:
                 html = self._fetch(url)
-            except Exception:  # noqa: BLE001 — a dead link must not abort the crawl
+            except Exception:  # noqa: BLE001 — a dead link must not abort the crawl  # nosec B112
                 continue
             text = _html_to_text(html)
             if text.strip() and url not in skip:

@@ -28,7 +28,6 @@ from agent_utilities.models.knowledge_graph import (
     RegistryNodeType,
 )
 
-
 # ── cardinality ──────────────────────────────────────────────────────────────
 
 
@@ -201,11 +200,15 @@ def test_reverse_traversal_bidirectional() -> None:
     assert set(junctions_for("agent:planner", edges)) == {j1.id, j2.id}
 
     # Forward neighbors of the agent => the two skills.
-    planner_skills = {other for other, _ in neighbors_via("agent:planner", junctions, edges)}
+    planner_skills = {
+        other for other, _ in neighbors_via("agent:planner", junctions, edges)
+    }
     assert planner_skills == {"skill:research", "skill:coding"}
 
     # Reverse neighbors of a skill => the agents that have it (M:N reverse walk).
-    coding_agents = {other for other, _ in neighbors_via("skill:coding", junctions, edges)}
+    coding_agents = {
+        other for other, _ in neighbors_via("skill:coding", junctions, edges)
+    }
     assert coding_agents == {"agent:planner", "agent:builder"}
 
 

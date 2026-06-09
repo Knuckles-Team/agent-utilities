@@ -35,7 +35,9 @@ class _DepthAwareFakeAgent:
         _CAPTURED_SYSTEM_PROMPTS.append(sysp)
 
     async def run(self, prompt, message_history=None):
-        if "boolean" in str(prompt):  # the injected output contract reached the sub-agent
+        if "boolean" in str(
+            prompt
+        ):  # the injected output contract reached the sub-agent
             return _Res("```python\nFINAL_VAR('result', True)\n```")
         code = (
             "flags = await run_parallel_sub_calls([\n"

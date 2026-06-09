@@ -202,12 +202,8 @@ class _BulkEngine(_Engine):
 
     def delete_edge(self, src, dst, rel_type=None, ephemeral=False):
         self.deleted.append((src, dst, rel_type))
-        self.graph._out[src] = [
-            e for e in self.graph._out.get(src, []) if e[1] != dst
-        ]
-        self.graph._in[dst] = [
-            e for e in self.graph._in.get(dst, []) if e[0] != src
-        ]
+        self.graph._out[src] = [e for e in self.graph._out.get(src, []) if e[1] != dst]
+        self.graph._in[dst] = [e for e in self.graph._in.get(dst, []) if e[0] != src]
 
 
 def test_open_features_uses_bulk_edge_view():

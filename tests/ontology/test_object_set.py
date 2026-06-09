@@ -87,16 +87,28 @@ def graph() -> FakeGraph:
     g.add_node("author:bob", type="person", name="Bob Analyst")
     # Documents authored by them, with a department + a numeric cost
     g.add_node(
-        "doc:1", type="document", name="Quarterly markets memo",
-        department="research", cost=1000, content="markets and equities outlook",
+        "doc:1",
+        type="document",
+        name="Quarterly markets memo",
+        department="research",
+        cost=1000,
+        content="markets and equities outlook",
     )
     g.add_node(
-        "doc:2", type="document", name="Risk review",
-        department="research", cost=500, content="risk exposure and hedging",
+        "doc:2",
+        type="document",
+        name="Risk review",
+        department="research",
+        cost=500,
+        content="risk exposure and hedging",
     )
     g.add_node(
-        "doc:3", type="document", name="Ops handbook",
-        department="ops", cost=250, content="operational runbook",
+        "doc:3",
+        type="document",
+        name="Ops handbook",
+        department="ops",
+        cost=250,
+        content="operational runbook",
     )
     # A non-document node that must never leak into a type-scoped set
     g.add_node("place:hq", type="place", name="Headquarters")
@@ -142,12 +154,8 @@ def test_dynamic_set_auto_updates(graph: FakeGraph) -> None:
 
 
 def test_filter_with_typed_property_filters(graph: FakeGraph) -> None:
-    docs = dynamic_object_set(
-        graph, filters=[PropertyFilter("type", "eq", "document")]
-    )
-    research = docs.filter(
-        filters=[PropertyFilter("department", "eq", "research")]
-    )
+    docs = dynamic_object_set(graph, filters=[PropertyFilter("type", "eq", "document")])
+    research = docs.filter(filters=[PropertyFilter("department", "eq", "research")])
     assert research.kind is ObjectSetKind.STATIC
     assert sorted(research.ids()) == ["doc:1", "doc:2"]
     expensive = docs.filter(filters=[PropertyFilter("cost", "gte", 1000)])
@@ -164,9 +172,7 @@ def test_filter_with_callable_predicate(graph: FakeGraph) -> None:
 
 
 def test_search_substring_scan(graph: FakeGraph) -> None:
-    docs = dynamic_object_set(
-        graph, filters=[PropertyFilter("type", "eq", "document")]
-    )
+    docs = dynamic_object_set(graph, filters=[PropertyFilter("type", "eq", "document")])
     hits = docs.search("risk hedging")
     assert "doc:2" in hits.ids()
     assert "doc:3" not in hits.ids()
@@ -224,9 +230,7 @@ def test_pivot_across_link_type(graph: FakeGraph) -> None:
 
 
 def test_aggregate_count_global_and_grouped(graph: FakeGraph) -> None:
-    docs = dynamic_object_set(
-        graph, filters=[PropertyFilter("type", "eq", "document")]
-    )
+    docs = dynamic_object_set(graph, filters=[PropertyFilter("type", "eq", "document")])
     total = docs.aggregate("count")
     assert isinstance(total, AggregationResult)
     assert total.value == 3.0
@@ -236,9 +240,7 @@ def test_aggregate_count_global_and_grouped(graph: FakeGraph) -> None:
 
 
 def test_aggregate_sum_and_avg(graph: FakeGraph) -> None:
-    docs = dynamic_object_set(
-        graph, filters=[PropertyFilter("type", "eq", "document")]
-    )
+    docs = dynamic_object_set(graph, filters=[PropertyFilter("type", "eq", "document")])
     total_cost = docs.aggregate("sum", field="cost")
     assert total_cost.value == pytest.approx(1750.0)
     sum_by_dept = docs.aggregate("sum", field="cost", group_by="department")
@@ -277,9 +279,7 @@ def test_set_algebra(graph: FakeGraph) -> None:
 
 
 def test_temporary_set_ttl_resnapshot(graph: FakeGraph) -> None:
-    docs = dynamic_object_set(
-        graph, filters=[PropertyFilter("type", "eq", "document")]
-    )
+    docs = dynamic_object_set(graph, filters=[PropertyFilter("type", "eq", "document")])
     temp = docs.as_temporary(ttl_seconds=1000.0)
     assert temp.kind is ObjectSetKind.TEMPORARY
     snap = sorted(temp.ids())

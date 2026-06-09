@@ -862,6 +862,7 @@ concepts:
   - agent_utilities/gateway/api.py
   - agent_utilities/gateway/daemon.py
   - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/knowledge_graph/backends/__init__.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
   - agent_utilities/knowledge_graph/core/conversation_ingestion.py

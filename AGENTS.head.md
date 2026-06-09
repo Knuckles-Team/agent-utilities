@@ -101,6 +101,30 @@ When implementing any non-trivial feature you MUST verify and test the *invocati
 5. **No silent storage.** A value set in `__init__`/a setter but read nowhere is a bug. Either wire it
    into the behavior or don't add it.
 
+## Branching & isolation — DEFAULT WORKFLOW (never edit `main`'s working tree directly)
+
+This repo is a **shared working checkout**: multiple agent sessions operate on the same on-disk
+clone, and another session switching branches (`git checkout`/`switch`) or resetting the tree
+**reverts every uncommitted change in all sessions** — silently. Editing `main` in place loses work.
+So the default for any non-trivial change is:
+
+1. **Work in a dedicated git worktree**, not the main checkout. The worktree is a *physically
+   separate directory* on its own branch, immune to branch switches in the main clone:
+   ```
+   git worktree add /home/apps/worktrees/<repo>-<topic> -b feat/<topic> main
+   ```
+   Do all edits, builds, and tests under that path. (`/home/apps/worktrees/` is the convention.)
+2. **Commit early and often.** A working-tree reset can only wipe *uncommitted* changes — committing
+   is what protects the work. Commit each coherent step; don't leave a large diff uncommitted.
+3. **Merge to `main` locally at the end, in one go** (fast-forward / no-op-safe), then remove the
+   worktree (`git worktree remove`). Push only when the user asks.
+4. A plain feature branch in the main checkout is **not** sufficient isolation — a sibling session's
+   `git checkout` still mutates the shared tree. Use a worktree for real isolation.
+
+The harness emits "file modified externally — intentional, don't revert" notes when a sibling
+session touches a file; in a worktree those notes should stop for your files. If your edits keep
+vanishing, you're in the shared checkout — move to a worktree.
+
 ## Tech Stack & Architecture
 - Language/Version: Python 3.10+
 - Core Libraries: `agent-utilities`, `fastmcp`, `pydantic-ai`
@@ -260,3 +284,26 @@ breaks the anti-sprawl gate, and erodes a pristine codebase.
 `~/workspace/reports/` (command output); tests go in `tests/` (pytest).
 The `.gitignore` already blocks the scratch dirs above — do not force-add them.
 Before finishing a task, run `git status` and confirm no stray root files were added.
+
+## Working with Git Worktrees (multi-session)
+
+Multiple agents/sessions work the `agent-packages/*` repos concurrently. **Do not
+edit the canonical checkout** (`/home/apps/workspace/agent-packages/<repo>`) — a
+background `repository-manager` sync can reset its working tree and discard
+uncommitted edits. Take your own git worktree on your own branch instead:
+
+```bash
+# preferred — repository-manager MCP:
+rm_worktree add <repo> <your-branch>      # -> /home/apps/worktrees/<repo>/<your-branch>
+
+# raw-git fallback:
+git -C agent-packages/<repo> checkout main
+git -C agent-packages/<repo> worktree add /home/apps/worktrees/<repo>/<branch> -b <branch>
+```
+
+Work in the worktree, **commit often** (commits survive a working-tree reset),
+then merge to main locally (`rm_worktree merge <repo> <branch>`, or `git merge
+--no-ff`). Each session must use a **distinct branch** — git allows a branch in
+only one worktree, which is what keeps concurrent sessions from colliding.
+Worktrees live under `/home/apps/worktrees/` (outside the workspace scan, so the
+sync leaves them alone). Push only when asked.

@@ -263,9 +263,7 @@ def _required_slot_count(standard: Interface) -> int:
     return req_props + links
 
 
-def drift_score(
-    asset: dict[str, Any], standard_name: str
-) -> tuple[float, list[str]]:
+def drift_score(asset: dict[str, Any], standard_name: str) -> tuple[float, list[str]]:
     """Return ``(drift, gaps)`` for an asset against a named enterprise standard.
 
     ``drift`` is ``len(gaps) / required_slots`` — ``0.0`` when the asset fully
@@ -311,9 +309,7 @@ def materialize_standards(engine: Any) -> int:
             "content_hash": standard.signature(),
             "required_properties": sorted(
                 p.name
-                for p in standard.all_properties(
-                    ENTERPRISE_STANDARD_REGISTRY
-                ).values()
+                for p in standard.all_properties(ENTERPRISE_STANDARD_REGISTRY).values()
                 if p.required
             ),
             "link_constraints": sorted(
@@ -334,7 +330,7 @@ def materialize_standards(engine: Any) -> int:
                 properties=props,
             )
             count += 1
-        except Exception:  # noqa: BLE001 - best-effort materialization
+        except Exception:  # noqa: BLE001 - best-effort materialization  # nosec B112
             continue
     return count
 

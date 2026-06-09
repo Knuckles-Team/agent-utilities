@@ -39,7 +39,9 @@ def _clean_state():
 
 def _low_actor() -> ActorContext:
     # Authenticated but only clears INTERNAL; holds no markings.
-    return ActorContext(actor_id="analyst:1", actor_type=ActorType.HUMAN, roles=("analyst",))
+    return ActorContext(
+        actor_id="analyst:1", actor_type=ActorType.HUMAN, roles=("analyst",)
+    )
 
 
 def _cleared_actor() -> ActorContext:
@@ -77,7 +79,12 @@ def test_property_level_redaction_drops_unreadable_columns():
 
 
 def test_property_level_mask_preserves_shape():
-    obj = {"id": "p2", "name": "Bo", "salary": 90000, "__classification__": {"salary": "confidential"}}
+    obj = {
+        "id": "p2",
+        "name": "Bo",
+        "salary": 90000,
+        "__classification__": {"salary": "confidential"},
+    }
     masked = redact_object(obj, _low_actor(), mask=True)
     assert masked["salary"] == MASK_TOKEN
     assert masked["name"] == "Bo"

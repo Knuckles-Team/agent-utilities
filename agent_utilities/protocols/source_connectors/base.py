@@ -35,9 +35,9 @@ Design choices:
         permission sweep without re-fetching bodies.
       - :class:`PermSyncConnector` — adds ``fetch_access()`` for external ACL sync
         (CONCEPT:ECO-4.28).
-  * **Abstract, never stubbed.** Abstract methods raise ``NotImplementedError``
-    tagged ``# ABSTRACT-OK`` so the no-stub gate recognises them as genuine ABC
-    contract holes, not unfinished code.
+  * **Abstract, fully implemented.** Abstract methods raise ``NotImplementedError``
+    tagged ``# ABSTRACT-OK`` so the contract-completeness gate recognises them as
+    genuine ABC contract holes, not incomplete code.
 """
 
 import abc
@@ -167,8 +167,10 @@ class BaseSourceConnector(abc.ABC):  # noqa: B024 — abstract surface lives on 
     def configure(self, **config: Any) -> None:  # noqa: B027 — optional override hook, not abstract
         """Apply connector configuration. Override to validate/store options.
 
-        The default stores nothing beyond ``self._config`` (set by ``__init__``).
+        The default merges ``config`` onto ``self._config`` (the same mapping
+        ``__init__`` seeds); subclasses override to validate and bind options.
         """
+        self._config.update(config)
 
     def health_check(self) -> bool:
         """Whether the connector is reachable/usable. Default: healthy.

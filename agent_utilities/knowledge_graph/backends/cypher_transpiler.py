@@ -570,10 +570,14 @@ def _build_where(
         cypher,
         re.IGNORECASE | re.DOTALL,
     )
-    if not where_match:
-        return "", []
-
-    where_raw = where_match.group(1).strip()
+    # ``where_raw`` is empty when there's no explicit WHERE keyword — but the
+    # MATCH pattern may still carry an inline ``{id: $id}`` property filter, the
+    # form the engine uses for deletes (e.g. ``MATCH (t:Task {id:$id}) DETACH
+    # DELETE t``). Returning early here dropped that filter and produced an empty
+    # WHERE (``DELETE FROM "Task" WHERE`` → syntax error → swallowed L3 mirror
+    # failure → durable row never deleted). The inline-property block below scans
+    # the full Cypher, so it must run even without a WHERE clause. (CONCEPT:KG-2.7)
+    where_raw = where_match.group(1).strip() if where_match else ""
     sql_parts = []
     values: list[Any] = []
 

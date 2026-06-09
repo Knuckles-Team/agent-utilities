@@ -103,7 +103,9 @@ def test_missing_two_of_six_slots_is_one_third_drift():
 
 def test_org_specific_extensions_do_not_count_against_conformance():
     # Extra org property (pci_scope) is ignored by the interface shape.
-    drift, _ = drift_score(_app(pci_scope="level-1", pii_region="eu"), "ManagedApplication")
+    drift, _ = drift_score(
+        _app(pci_scope="level-1", pii_region="eu"), "ManagedApplication"
+    )
     assert drift == 0.0
 
 
@@ -163,9 +165,7 @@ def test_capability_cohort_groups_cross_vendor_redundancy():
 
 
 def test_supersedes_cluster_becomes_merge_candidate():
-    engine = _Engine(
-        {"r1": _app(vendor="gitlab"), "r2": _app(vendor="gitlab")}
-    )
+    engine = _Engine({"r1": _app(vendor="gitlab"), "r2": _app(vendor="gitlab")})
     # dedup wrote a SUPERSEDES edge survivor->dup.
     engine.link_nodes("r1", "r2", "SUPERSEDES", properties={"_rel": "SUPERSEDES"})
     groups = read_cohorts(engine)
@@ -181,7 +181,9 @@ def test_north_star_is_lowest_drift_member():
         {
             # both itsm from different vendors → a cohort; snow conformant, erp drifts.
             "snow": _app(capability="itsm", vendor="servicenow"),
-            "erp": _app(capability="itsm", vendor="erpnext", owner=None, cost_center=None),
+            "erp": _app(
+                capability="itsm", vendor="erpnext", owner=None, cost_center=None
+            ),
         }
     )
     report = recommend_consolidations(engine, top_n=10)
