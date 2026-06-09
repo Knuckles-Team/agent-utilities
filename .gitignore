@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+# Generated SHACL shapes — deterministic projection of the VALUE_TYPES registry
+# (KG-2.39, write_value_shapes_ttl), regenerated on demand by the SHACL gate.
+# The registry is the source of truth; governance.shapes.ttl is hand-authored.
+agent_utilities/knowledge_graph/shapes/value_types.shapes.ttl
+
 scratch/
 
 # Distribution / packaging
