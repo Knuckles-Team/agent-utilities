@@ -313,6 +313,18 @@ def create_backend(
             "postgresql" if has_pg_dsn else "ladybug"
         )
 
+        # Durable-tier opener policy (CONCEPT:KG-2.8 / OS-5.9): the embedded
+        # Ladybug/Kuzu DB is SINGLE-WRITER — if every process (host daemon + each
+        # MCP server / CLI / script) opens it they contend on the file lock and a
+        # host restart can't reacquire it (the "Graph DB locked / std::bad_alloc"
+        # wedge). Gate it so only the singleton HOST (the flock holder) opens it;
+        # other roles run L1-only (the shared epistemic-graph engine already holds
+        # the full node+edge graph). Postgres/pggraph is multi-process (MVCC) and
+        # is intentionally NOT gated — every role may open it concurrently.
+        from ..core.host_lock import effective_daemon_role
+
+        _role = effective_daemon_role()
+
         l3: GraphBackend | None = None
         if l2_type in ("postgres", "postgresql", "pggraph"):
             from .postgresql_backend import PostgreSQLBackend
@@ -337,7 +349,14 @@ def create_backend(
         elif l2_type == "ladybug":
             from .contrib.ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
 
-            if not LADYBUG_AVAILABLE:
+            if _role != "host":
+                logger.info(
+                    "tiered L2=ladybug: role=%s (not host) → L1-only. The singleton "
+                    "host owns the single-writer durable tier; clients read the "
+                    "shared engine. (CONCEPT:KG-2.8)",
+                    _role,
+                )
+            elif not LADYBUG_AVAILABLE:
                 logger.warning(
                     "tiered L2=ladybug requested but the 'ladybug' package is not "
                     "installed; running L1-only (no durable persistence)."
