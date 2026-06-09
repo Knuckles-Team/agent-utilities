@@ -384,6 +384,12 @@ class AgentConfig(BaseSettings):
     graph_backend_l2: str | None = Field(default=None, alias="GRAPH_BACKEND_L2")
     graph_db_uri: str | None = Field(default=None, alias="GRAPH_DB_URI")
     queue_backend: str = Field(default="sqlite", alias="QUEUE_BACKEND")
+    # Golden-loop breadth ingest roots (CONCEPT:KG-2.7): comma-separated paths the
+    # one-shot ``golden_loop`` cycle (and the 60-min daemon) auto-ingests — OSS
+    # libraries and code repos — so evolution runs end-to-end with no manual
+    # ingest. Deployment-specific (set in ``.env``); empty ⇒ breadth is a no-op.
+    kg_breadth_library_roots: str = Field(default="", alias="KG_BREADTH_LIBRARY_ROOTS")
+    kg_breadth_repo_roots: str = Field(default="", alias="KG_BREADTH_REPO_ROOTS")
     nats_url: str | None = Field(default=None, alias="NATS_URL")
     kafka_bootstrap_servers: str | None = Field(
         default=None, alias="KAFKA_BOOTSTRAP_SERVERS"

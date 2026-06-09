@@ -101,6 +101,30 @@ When implementing any non-trivial feature you MUST verify and test the *invocati
 5. **No silent storage.** A value set in `__init__`/a setter but read nowhere is a bug. Either wire it
    into the behavior or don't add it.
 
+## Branching & isolation — DEFAULT WORKFLOW (never edit `main`'s working tree directly)
+
+This repo is a **shared working checkout**: multiple agent sessions operate on the same on-disk
+clone, and another session switching branches (`git checkout`/`switch`) or resetting the tree
+**reverts every uncommitted change in all sessions** — silently. Editing `main` in place loses work.
+So the default for any non-trivial change is:
+
+1. **Work in a dedicated git worktree**, not the main checkout. The worktree is a *physically
+   separate directory* on its own branch, immune to branch switches in the main clone:
+   ```
+   git worktree add /home/apps/worktrees/<repo>-<topic> -b feat/<topic> main
+   ```
+   Do all edits, builds, and tests under that path. (`/home/apps/worktrees/` is the convention.)
+2. **Commit early and often.** A working-tree reset can only wipe *uncommitted* changes — committing
+   is what protects the work. Commit each coherent step; don't leave a large diff uncommitted.
+3. **Merge to `main` locally at the end, in one go** (fast-forward / no-op-safe), then remove the
+   worktree (`git worktree remove`). Push only when the user asks.
+4. A plain feature branch in the main checkout is **not** sufficient isolation — a sibling session's
+   `git checkout` still mutates the shared tree. Use a worktree for real isolation.
+
+The harness emits "file modified externally — intentional, don't revert" notes when a sibling
+session touches a file; in a worktree those notes should stop for your files. If your edits keep
+vanishing, you're in the shared checkout — move to a worktree.
+
 ## Tech Stack & Architecture
 - Language/Version: Python 3.10+
 - Core Libraries: `agent-utilities`, `fastmcp`, `pydantic-ai`
