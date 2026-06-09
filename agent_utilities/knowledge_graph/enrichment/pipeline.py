@@ -9,6 +9,7 @@ staging feedback loop — discovery → Rust parse → classify → upsert, gate
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections.abc import Callable, Iterable
@@ -19,14 +20,20 @@ from pydantic import BaseModel
 
 from .cards import CapabilityCard, LLMFn, generate_symbol_cards
 from .classify import TestThresholds, classify_test
-from .extractors.code_test import ParseFn, extract_python, resolve_covers
+from .extractors.code_test import (
+    BatchParseFn,
+    ParseFn,
+    extract_python,
+    extract_python_files,
+    resolve_covers,
+)
 from .extractors.document import (
     extract_document,
     extract_intelligence,
     read_document_text,
 )
 from .features import CommunityFn, cluster_features, resolve_call_edges
-from .models import Concept, EnrichmentEdge, ExtractionResult, GraphNode
+from .models import Concept, EnrichmentEdge, GraphNode
 from .patterns import detect_patterns
 from .realizes import EmbedFn, resolve_realizes
 
@@ -107,9 +114,13 @@ class EnrichmentPipeline:
         mint_capabilities: bool = True,
         realizes_embed_fn: EmbedFn | None = None,
         writeback_fn: Callable[[list[GraphNode]], Any] | None = None,
+        batch_parse_fn: BatchParseFn | None = None,
     ) -> None:
         self.backend = backend
         self.parse_fn = parse_fn
+        # Optional batched parse (one RPC for N files). When set, changed files
+        # are parsed in a single round-trip instead of per-file. (CONCEPT:KG-2.16)
+        self.batch_parse_fn = batch_parse_fn
         self.thresholds = thresholds or TestThresholds()
         self._hash_seen = hash_seen if hash_seen is not None else {}
         self.llm_fn = llm_fn
@@ -129,21 +140,38 @@ class EnrichmentPipeline:
 
     def enrich_files(self, files: Iterable[Path]) -> EnrichmentSummary:
         summary = EnrichmentSummary()
-        results: list[ExtractionResult] = []
+
+        # Phase 1 — pre-hash filter (CONCEPT:KG-2.8): hash the raw bytes BEFORE
+        # parsing so an unchanged file costs one local sha256, not a Rust-engine
+        # parse round-trip. The hash is byte-identical to ``ExtractionResult.
+        # content_hash`` (same ``surrogatepass`` encoding), so the skip is exact.
+        pending: list[tuple[str, str]] = []  # (file_path, source_text)
         for fp in files:
             summary.files_seen += 1
             try:
                 source = Path(fp).read_text(encoding="utf-8", errors="surrogatepass")
             except (OSError, UnicodeDecodeError):
                 continue
-            res = extract_python(str(fp), source, self.parse_fn)
-            # Incremental: skip writing a file whose content_hash is unchanged.
-            if self._hash_seen.get(str(fp)) == res.content_hash:
+            content_hash = hashlib.sha256(
+                source.encode("utf-8", "surrogatepass")
+            ).hexdigest()
+            if self._hash_seen.get(str(fp)) == content_hash:
                 summary.files_skipped_unchanged += 1
                 continue
-            self._hash_seen[str(fp)] = res.content_hash
+            pending.append((str(fp), source))
+
+        # Phase 2 — parse the changed files. One batched RPC when the engine
+        # supports it (CONCEPT:KG-2.16), else the per-file path. Both yield the
+        # same per-file ``ExtractionResult`` list.
+        if self.batch_parse_fn is not None and pending:
+            results = extract_python_files(pending, self.batch_parse_fn)
+        else:
+            results = [
+                extract_python(fp, source, self.parse_fn) for fp, source in pending
+            ]
+        for res in results:
+            self._hash_seen[res.file_path] = res.content_hash
             summary.files_parsed += 1
-            results.append(res)
 
         all_code = [c for r in results for c in r.code]
         all_tests = [t for r in results for t in r.tests]
@@ -388,3 +416,31 @@ def _writeback_count(result: Any) -> int:
 def make_parse_fn(graph_compute: Any) -> ParseFn:
     """Adapt a GraphComputeEngine into the extractor's ParseFn."""
     return lambda file_path, source: graph_compute.parse_file(file_path, source)
+
+
+def make_batch_parse_fn(graph_compute: Any) -> BatchParseFn | None:
+    """Adapt a GraphComputeEngine into a batched ParseFn — or ``None`` if the
+    engine doesn't support the ``ParseFiles`` op (caller falls back to per-file).
+
+    Files are sent in chunks of ``KG_PARSE_BATCH`` (default 128) so a first ingest
+    of a large repo never builds one giant request. (CONCEPT:KG-2.16)
+    """
+    import os
+
+    try:
+        if not getattr(graph_compute, "supports_batch_parse", False):
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        chunk = max(1, int(os.environ.get("KG_PARSE_BATCH", "128")))
+    except ValueError:
+        chunk = 128
+
+    def _fn(files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for i in range(0, len(files), chunk):
+            out.extend(graph_compute.parse_files(files[i : i + chunk]))
+        return out
+
+    return _fn

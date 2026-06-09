@@ -397,6 +397,15 @@ class RegistryNodeType(StrEnum):
     SDD_FEATURE = "sdd_feature"
     REQUIREMENT = "requirement"  # PRD/BRD/SOW/tasks ingest (reuses DECISION for chat)
 
+    # Enterprise Standardization & Consolidation Engine (CONCEPT:KG-2.49)
+    # An enterprise standard is an interface-type contract per capability domain
+    # (see knowledge_graph/standardization/standards.py); orgs implement it with
+    # their own concrete object types + sanctioned extensions. ENTERPRISE_RESOURCE
+    # / EQUIVALENCE_CLASS / BUSINESS_UNIT are reused for the assets/cohorts/orgs.
+    ENTERPRISE_STANDARD = "enterprise_standard"
+    CONSOLIDATION_RECOMMENDATION = "consolidation_recommendation"
+    DRIFT_ROLLUP = "drift_rollup"
+
 
 class RegistryEdgeType(StrEnum):
     """Enumeration of relationship types in the registry graph."""
@@ -634,6 +643,10 @@ class RegistryEdgeType(StrEnum):
     ASSIMILATED_INTO = "ASSIMILATED_INTO"
     DERIVED_FROM_RESEARCH = "DERIVED_FROM_RESEARCH"
     SATISFIED_BY = "SATISFIED_BY"
+    # Enterprise Standardization & Consolidation Engine (CONCEPT:KG-2.49)
+    # asset -[CONFORMS_TO {drift_score, gaps}]-> EnterpriseStandard. Consolidation
+    # reuses ABSORBED_INTO (member -> north-star) + REFERENCES + SUPERSEDES.
+    CONFORMS_TO = "conforms_to"
     # Spectral Cluster Navigator (CONCEPT:KG-2.5)
     MEMBER_OF_CLUSTER = "member_of_cluster"
     CLUSTER_PARENT = "cluster_parent"

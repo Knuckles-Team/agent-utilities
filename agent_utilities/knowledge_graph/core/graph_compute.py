@@ -374,6 +374,31 @@ class GraphComputeEngine:
         """
         return self._client.graph.parse_file(file_path, source)
 
+    def parse_files(self, files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
+        """Batch-parse many files in ONE engine round-trip (CONCEPT:KG-2.16).
+
+        Returns one ``ParseFile``-shaped result per input file, in input order.
+        Collapses a per-file parse storm into a single RPC. Requires an engine
+        that advertises ``ParseFiles`` — gate on :attr:`supports_batch_parse`.
+        """
+        return self._client.graph.parse_files(files)
+
+    @property
+    def supports_batch_parse(self) -> bool:
+        """Whether the connected engine supports the batched ``ParseFiles`` op.
+
+        Cached. Lets callers fall back to per-file ``parse_file`` against an
+        engine built before ``ParseFiles`` existed (backward-compatible rollout).
+        """
+        cached = getattr(self, "_supports_batch_parse", None)
+        if cached is None:
+            try:
+                cached = bool(self._client.supports("ParseFiles"))
+            except Exception:
+                cached = False
+            self._supports_batch_parse = cached
+        return cached
+
     def vf2_subgraph_match(self, pattern: "GraphComputeEngine") -> list[dict[str, str]]:
         """Find all subgraph isomorphism matches from pattern to target graph."""
         return self._client.graph.vf2_subgraph_match(pattern._client)

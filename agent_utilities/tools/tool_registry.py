@@ -48,6 +48,7 @@ def register_agent_tools(
     from .developer_tools import developer_tools
     from .git_tools import git_tools
     from .mcp_sync_tool import trigger_mcp_sync
+    from .media_tools import media_tools
     from .onboarding_tools import onboarding_tools
     from .scheduler_tools import scheduler_tools
     from .self_improvement_tools import (
@@ -70,6 +71,9 @@ def register_agent_tools(
         string=os.environ.get("DEVELOPER_TOOLS", "True")
     )
     DEFAULT_X_TOOLS = to_boolean(string=os.environ.get("X_TOOLS", "True"))
+    # CONCEPT:ECO-4.30/4.31 — media generation + transcription tools. Default OFF
+    # (the services are optional infra); enable with MEDIA_TOOLS=1.
+    DEFAULT_MEDIA_TOOLS = to_boolean(string=os.environ.get("MEDIA_TOOLS", "False"))
 
     def _is_tool_registered(name: str) -> bool:
         """Check if a tool with the given name is already registered on the agent."""
@@ -192,6 +196,11 @@ def register_agent_tools(
     # 9. Onboarding Tools
     for tool in onboarding_tools:
         _safe_tool(tool)
+
+    # 10. Media Generation + Transcription Tools (CONCEPT:ECO-4.30/4.31)
+    if DEFAULT_MEDIA_TOOLS:
+        for tool in media_tools:
+            _safe_tool(tool)
 
     # 10. MCP Management Tools
     _safe_tool(trigger_mcp_sync)

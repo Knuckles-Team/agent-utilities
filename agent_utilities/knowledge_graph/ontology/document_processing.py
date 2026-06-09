@@ -280,6 +280,7 @@ class DocumentChunk(BaseModel):
     word_count: int
     embedding: list[float] | None = None
     embedding_dim: int = 0
+    context: str = ""
 
 
 class ProcessedDocument(BaseModel):
@@ -348,11 +349,19 @@ class DocumentProcessor:
         chunking: ChunkingConfig | None = None,
         embed_fn: EmbedFn | None = None,
         embedding_dim: int = DEFAULT_EMBEDDING_DIM,
+        contextual: bool = False,
+        enricher: Any = None,
     ) -> None:
         self.graph = graph
         self.chunking = chunking or ChunkingConfig()
         self.embedding_dim = embedding_dim
         self._embed_fn = embed_fn
+        # CONCEPT:KG-2.50 — contextual-retrieval enrichment. Default OFF so the
+        # existing KG-2.48 pipeline is byte-identical; the connector ingestion
+        # path turns it on. The enricher is lazy so importing this module never
+        # requires the enrichment stack.
+        self.contextual = contextual
+        self._enricher = enricher
 
     # ── public API ───────────────────────────────────────────────────────
 
@@ -414,10 +423,23 @@ class DocumentProcessor:
         final_type = doc_type or detected_type or "document"
 
         spans = chunk_text(raw_text, self.chunking)
-        embeddings = self._embed([sp.text for sp in spans])
+
+        # CONCEPT:KG-2.50 — contextual-retrieval enrichment. Situate each chunk
+        # within the whole document and embed ``context + chunk`` (Anthropic
+        # contextual retrieval) so retrieval recall improves; the context is also
+        # stored on the Chunk node for display/lexical match. Computed BEFORE
+        # embedding. Off by default → no behaviour change for existing callers.
+        contexts = self._enrich_contexts(
+            raw_text, [sp.text for sp in spans], final_title
+        )
+        embed_inputs = [
+            f"{ctx}\n\n{sp.text}" if ctx else sp.text
+            for sp, ctx in zip(spans, contexts, strict=False)
+        ]
+        embeddings = self._embed(embed_inputs)
 
         chunks: list[DocumentChunk] = []
-        for sp, emb in zip(spans, embeddings, strict=False):
+        for sp, emb, ctx in zip(spans, embeddings, contexts, strict=False):
             cid = f"{doc_id}::chunk::{sp.index}:{_sha(sp.text)[:12]}"
             chunks.append(
                 DocumentChunk(
@@ -431,6 +453,7 @@ class DocumentProcessor:
                     word_count=len(sp.text.split()),
                     embedding=emb,
                     embedding_dim=len(emb) if emb else 0,
+                    context=ctx,
                 )
             )
 
@@ -572,6 +595,43 @@ class DocumentProcessor:
                 return line.strip()[:200]
         return fallback
 
+    # ── contextual enrichment (KG-2.50) ──────────────────────────────────
+
+    def _enrich_contexts(
+        self, doc_text: str, chunk_texts: list[str], title: str
+    ) -> list[str]:
+        """Return a situating context per chunk (empty strings when disabled).
+
+        CONCEPT:KG-2.50. When ``contextual`` is off, returns ``[""] * n`` so the
+        embedding input and chunk nodes are unchanged. When on, lazily builds a
+        :class:`ContextualEnricher` (LLM if configured, deterministic heuristic
+        otherwise) and situates each chunk. Never raises — enrichment failure
+        degrades to empty context so ingest still completes.
+        """
+        if not self.contextual or not chunk_texts:
+            return [""] * len(chunk_texts)
+        try:
+            enricher = self._enricher
+            if enricher is None:
+                from .contextual_enrichment import ContextualEnricher
+
+                enricher = ContextualEnricher(self._contextual_llm_fn())
+                self._enricher = enricher
+            return enricher.enrich(doc_text, chunk_texts, title=title)
+        except Exception as exc:  # noqa: BLE001 — enrichment must never break ingest
+            logger.warning("[KG-2.50] contextual enrichment failed: %s", exc)
+            return [""] * len(chunk_texts)
+
+    @staticmethod
+    def _contextual_llm_fn() -> Any:
+        """Lazy lite-LLM fn for context summaries, or ``None`` (heuristic path)."""
+        try:
+            from ..enrichment.cards import make_lite_llm_fn
+
+            return make_lite_llm_fn()
+        except Exception:  # noqa: BLE001 — no LLM → deterministic heuristic
+            return None
+
     # ── embedding ────────────────────────────────────────────────────────
 
     def _embed(self, texts: list[str]) -> list[list[float] | None]:
@@ -668,6 +728,12 @@ class DocumentProcessor:
         }
         if chunk.embedding is not None:
             node["embedding"] = chunk.embedding
+        # CONCEPT:KG-2.50 — the situating context is stored on the Chunk node so
+        # it is available for display and lexical match (the HybridRetriever reads
+        # ``content``/``summary``; ``contextual_summary`` extends that surface).
+        if chunk.context:
+            node["context"] = chunk.context
+            node["contextual_summary"] = chunk.context
         return node
 
     def _build_edges(

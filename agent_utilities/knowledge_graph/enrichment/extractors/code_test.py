@@ -17,6 +17,9 @@ from ..models import CodeEntity, EnrichmentEdge, ExtractionResult, TestEntity
 
 # A parse function: (file_path, source_bytes) -> Rust ParseResult dict
 ParseFn = Callable[[str, bytes], dict[str, Any]]
+# A batched parse function: [(file_path, source_bytes), ...] -> [ParseResult dict, ...]
+# (one result per input file, in input order). (CONCEPT:KG-2.16)
+BatchParseFn = Callable[[list[tuple[str, bytes]]], list[dict[str, Any]]]
 
 
 def _is_test_file(file_path: str) -> bool:
@@ -117,6 +120,31 @@ def extract_python(file_path: str, source: str, parse_fn: ParseFn) -> Extraction
     except Exception:
         return ExtractionResult(file_path=file_path, content_hash=content_hash)
     return entities_from_parse_result(file_path, content_hash, parsed or {})
+
+
+def extract_python_files(
+    files: list[tuple[str, str]], batch_parse_fn: BatchParseFn
+) -> list[ExtractionResult]:
+    """Batch variant of :func:`extract_python` — parse N files in ONE RPC.
+
+    ``files`` is ``[(file_path, source_text), ...]``; ``batch_parse_fn`` takes
+    ``[(file_path, source_bytes), ...]`` and returns one ParseResult dict per file
+    in order. Returns one :class:`ExtractionResult` per input file, in input
+    order. A file whose parse failed or is missing from the response degrades to
+    an empty result (its ``content_hash`` is still recorded), mirroring the
+    per-file fault tolerance of :func:`extract_python`. (CONCEPT:KG-2.16)
+    """
+    raw = [(fp, src.encode("utf-8", "surrogatepass")) for fp, src in files]
+    hashes = [hashlib.sha256(b).hexdigest() for _, b in raw]
+    try:
+        parsed_list = batch_parse_fn(raw)
+    except Exception:
+        parsed_list = []
+    out: list[ExtractionResult] = []
+    for i, (fp, _src) in enumerate(files):
+        parsed = parsed_list[i] if i < len(parsed_list) else None
+        out.append(entities_from_parse_result(fp, hashes[i], parsed or {}))
+    return out
 
 
 def resolve_covers(results: list[ExtractionResult]) -> list[EnrichmentEdge]:

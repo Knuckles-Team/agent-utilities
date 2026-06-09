@@ -279,6 +279,7 @@ class HybridRetriever:
         target_paths: list[str] | None = None,
         active_task: str | None = None,
         as_of: str | None = None,
+        query_analysis: bool = False,
     ) -> list[dict[str, Any]]:
         """Perform a hybrid search using both vector similarity and graph topology.
 
@@ -298,6 +299,23 @@ class HybridRetriever:
         Returns:
             A list of nodes with extended graph context.
         """
+        # Query analysis (CONCEPT:ECO-4.32) — opt-in. Derive a time window
+        # (``as_of``) and source-type restriction from the natural-language query.
+        # Default off so existing callers are unaffected; when on, a derived
+        # ``as_of`` only fills an unset one (explicit caller value always wins),
+        # and detected source types post-filter the result.
+        qa_source_types: list[str] = []
+        if query_analysis:
+            try:
+                from .query_analysis import analyze_query
+
+                filters = analyze_query(query)
+                qa_source_types = filters.source_types
+                if as_of is None and filters.as_of:
+                    as_of = filters.as_of
+            except Exception as e:  # noqa: BLE001 — analysis must never break retrieval
+                logger.debug("query analysis failed: %s", e)
+
         # Resolve corpus constraint (CONCEPT:KG-2.3)
         corpus_doc_ids: set[str] | None = None
         if corpus_id:
@@ -615,9 +633,18 @@ class HybridRetriever:
                         visited.add(node_id)
                         assembled_subgraph.append(node)
 
+        # CONCEPT:ECO-4.32 — apply any query-analysis source-type restriction to
+        # the assembled result (no-op when query_analysis is off / no types).
+        def _qa(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            if not qa_source_types:
+                return nodes
+            from .query_analysis import filter_nodes_by_source
+
+            return filter_nodes_by_source(nodes, qa_source_types)
+
         # CONCEPT:KG-2.6 — Assess retrieval quality
         if skip_quality_gate:
-            return assembled_subgraph
+            return _qa(assembled_subgraph)
 
         self._last_quality_report = None
         try:
@@ -637,10 +664,10 @@ class HybridRetriever:
                     "[CONCEPT:KG-2.6] Retrieval quality gate failed: %s",
                     [m.value for m in report.failure_modes_detected],
                 )
-            return filtered if report.gate_passed else assembled_subgraph
+            return _qa(filtered if report.gate_passed else assembled_subgraph)
         except Exception as e:
             logger.debug("Quality gate assessment skipped: %s", e)
-            return assembled_subgraph
+            return _qa(assembled_subgraph)
 
     def _rerank_candidates(
         self,

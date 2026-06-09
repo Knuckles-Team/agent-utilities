@@ -914,7 +914,11 @@ class TaskManagerMixin(GraphEngineProtocol):
         if not hasattr(self, "_enrich_card_cache"):
             self._enrich_card_cache: dict[str, Any] = {}
 
-        from ..enrichment.cards import generate_symbol_cards, make_llm_fn
+        from ..enrichment.cards import (
+            generate_symbol_cards,
+            make_lite_llm_fn,
+            make_llm_fn,
+        )
         from ..enrichment.models import CodeEntity
 
         BATCH = int(os.environ.get("KG_ENRICH_BATCH", "16"))
@@ -941,7 +945,12 @@ class TaskManagerMixin(GraphEngineProtocol):
             if not rows:
                 return
             if llm_fn is None:
-                llm_fn = make_llm_fn()
+                # Card summaries are a structured extraction task — route to the
+                # LITE chat model by default (markedly faster than the heavy KG
+                # model, which is what saturated the engine on a full backfill).
+                # ``KG_CARD_MODEL=heavy`` forces the heavy model. (CONCEPT:KG-2.8)
+                use_heavy = os.environ.get("KG_CARD_MODEL", "lite").lower() == "heavy"
+                llm_fn = make_llm_fn() if use_heavy else make_lite_llm_fn()
                 self._enrich_llm_fn = llm_fn
 
             ents = [
@@ -957,9 +966,22 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
                 for r in rows
             ]
-            cards = generate_symbol_cards(
-                ents, llm_fn, cache=self._enrich_card_cache, max_workers=max_workers
-            )
+            # Respect the global background throttle: skip this tick if foreground
+            # (interactive) work is active, and cap concurrent background LLM load
+            # via the shared semaphore so card backfill can't saturate the engine
+            # (CONCEPT:KG-2.7). The per-batch foreground check above stays as a
+            # fast-path; this adds the concurrency cap shared with other daemons.
+            from agent_utilities.core.background_throttle import get_throttle
+
+            with get_throttle().background_slot(wait_foreground=False) as slot:
+                if not slot:
+                    return
+                cards = generate_symbol_cards(
+                    ents,
+                    llm_fn,
+                    cache=self._enrich_card_cache,
+                    max_workers=max_workers,
+                )
             written = 0
             for card in cards:
                 if not card.summary:
@@ -1565,6 +1587,30 @@ class TaskManagerMixin(GraphEngineProtocol):
         self.start_task_workers()
         return job_id
 
+    def _bulk_ingest_active(self, threshold: int = 1) -> bool:
+        """True if ``threshold``+ codebase ingest tasks are pending/running.
+
+        Used to gate recursive ``deep_analysis`` fan-out: while a bulk codebase
+        ingest is draining, ``deep_analysis`` (0-node, recursive, blocking-LLM)
+        runs flat (no fan-out) so it can't flood the queue ahead of structural
+        ingest. (CONCEPT:KG-2.7 / KG-2.8)
+        """
+        try:
+            rows = self.query_cypher(
+                "MATCH (t:Task) WHERE t.status IN ['pending','running'] "
+                "RETURN t.metadata as meta"
+            )
+        except Exception:  # noqa: BLE001
+            return False
+        n = 0
+        for row in rows or []:
+            meta = _decode_metadata(row.get("meta")) if isinstance(row, dict) else None
+            if meta and meta.get("type") == "codebase":
+                n += 1
+                if n >= threshold:
+                    return True
+        return False
+
     def submit_directory_tasks(
         self, directory: Path, provenance: dict
     ) -> tuple[list[dict[str, str]], list[str]]:
@@ -1750,12 +1796,38 @@ class TaskManagerMixin(GraphEngineProtocol):
                     time.sleep(2.0)
                     continue
 
-                # Execute the task asynchronously inside this thread (lock is released)
-                asyncio.run(
-                    self._run_background_task(
-                        job_id, target_path, is_codebase, task_type
+                # Execute the task asynchronously inside this thread (lock is
+                # released). Heavy task types (parse storms / background LLM /
+                # analysis) run through the shared background throttle so they
+                # yield to interactive (foreground) work and stay within the
+                # global concurrency cap — a bulk ingest can no longer consume the
+                # engine's whole in-flight budget and starve live queries
+                # (CONCEPT:KG-2.7 read/ingest plane isolation). Lightweight types
+                # (diff/conversation/…) run unthrottled.
+                _HEAVY_TASK_TYPES = {
+                    "codebase",
+                    "document",
+                    "deep_analysis",
+                    "synthesize",
+                    "deep_extract",
+                    "background_research",
+                    "relevance_sweep",
+                }
+                if task_type in _HEAVY_TASK_TYPES:
+                    from agent_utilities.core.background_throttle import get_throttle
+
+                    with get_throttle().background_slot():
+                        asyncio.run(
+                            self._run_background_task(
+                                job_id, target_path, is_codebase, task_type
+                            )
+                        )
+                else:
+                    asyncio.run(
+                        self._run_background_task(
+                            job_id, target_path, is_codebase, task_type
+                        )
                     )
-                )
 
                 # Post-ingestion: auto-build HNSW indexes when queue drains
                 self._maybe_build_vector_indexes()
@@ -1869,6 +1941,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                 t_props = res[0]["t"] if res else {}
                 current_depth = int(t_props.get("current_depth", 0))
                 max_depth = int(t_props.get("max_depth", DEFAULT_KG_ANALYSIS_MAX_DEPTH))
+
+                # While a bulk codebase ingest is draining, run deep_analysis flat
+                # (no recursive fan-out) so its 0-node, blocking-LLM jobs don't
+                # flood the queue ahead of structural ingest. (CONCEPT:KG-2.7)
+                if max_depth > 0 and self._bulk_ingest_active():
+                    logger.info(
+                        "deep_analysis: bulk ingest active — capping max_depth to 0 "
+                        "(was %d) to defer recursive fan-out",
+                        max_depth,
+                    )
+                    max_depth = 0
 
                 logger.info(
                     f"Executing deep_analysis for {query} (depth {current_depth}/{max_depth})"
@@ -2007,11 +2090,22 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                 embed_model = create_embedding_model()
                 if target.is_dir():
+                    # exclude_hidden=False is REQUIRED: the research store lives
+                    # under ``~/.local/share/...`` and SimpleDirectoryReader treats
+                    # any file beneath a dot-dir (``.local``) as hidden, excluding
+                    # everything → "No files found" despite PDFs present.
+                    # recursive=False skips the ``.metadata`` sidecar dir;
+                    # required_exts limits to real documents. (CONCEPT:KG-2.8)
                     docs = SimpleDirectoryReader(
-                        input_dir=str(target), recursive=True
+                        input_dir=str(target),
+                        recursive=False,
+                        exclude_hidden=False,
+                        required_exts=sorted(SUPPORTED_EXTENSIONS),
                     ).load_data()
                 else:
-                    docs = SimpleDirectoryReader(input_files=[str(target)]).load_data()
+                    docs = SimpleDirectoryReader(
+                        input_files=[str(target)], exclude_hidden=False
+                    ).load_data()
 
                 created = []
                 skipped = 0

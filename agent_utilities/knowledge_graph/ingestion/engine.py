@@ -68,6 +68,7 @@ class ContentType(StrEnum):
     EVENT_STREAM = "event"
     PROMPT = "prompt"
     CONFIG = "config"
+    CONNECTOR = "connector"
 
     @classmethod
     def classify(cls, source: str) -> ContentType:
@@ -270,6 +271,74 @@ def _default_source_hash(source: str) -> str | None:
         return h.hexdigest()
     # Inline content (JSON / text payload passed as the source string).
     return hashlib.sha256(source.encode()).hexdigest()
+
+
+def _git_head_sha(path: str) -> str | None:
+    """Return the repo's HEAD commit sha, or ``None`` if ``path`` isn't a git
+    work-tree (or git is unavailable). Used as the durable watermark for
+    git-aware delta ingestion (CONCEPT:KG-2.8)."""
+    import subprocess
+
+    try:
+        r = subprocess.run(  # nosec B607 B603
+            ["git", "-C", path, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip() or None
+
+
+def _git_worktree_clean(path: str) -> bool:
+    """True if the git work-tree has no uncommitted/untracked changes.
+
+    Git-delta diffs ``since_sha..HEAD`` (commit-to-commit), which would miss
+    uncommitted edits — so we only trust it on a clean tree; a dirty tree falls
+    back to the full walk (still cheap via the pre-hash skip). (CONCEPT:KG-2.8)
+    """
+    import subprocess
+
+    try:
+        r = subprocess.run(  # nosec B607 B603
+            ["git", "-C", path, "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+    return r.returncode == 0 and not r.stdout.strip()
+
+
+def _changed_python_files(repo_path: str, since_sha: str) -> list[Path] | None:
+    """Python files changed since ``since_sha`` (``git diff``), or ``None`` if
+    git can't answer (caller then falls back to a full walk).
+
+    Only added/modified ``*.py`` files outside vendored/build dirs are returned;
+    deletions are dropped (the unchanged-everything-else case yields ``[]``, which
+    correctly drives a near-empty re-ingest). (CONCEPT:KG-2.8 / KG-2.3)
+    """
+    from ..core.fingerprint import detect_stale_files
+
+    try:
+        changes = detect_stale_files(repo_path, since_commit=since_sha)
+    except Exception:  # noqa: BLE001 — any git failure → full walk
+        return None
+    out: list[Path] = []
+    for ch in changes:
+        if ch.get("status") == "deleted":
+            continue
+        fp = ch.get("full_path") or ""
+        if not fp.endswith(".py"):
+            continue
+        if any(part in _SKIP_DIRS for part in Path(fp).parts):
+            continue
+        out.append(Path(fp))
+    return out
 
 
 # ── IngestionEngine ───────────────────────────────────────────────────────
@@ -606,7 +675,11 @@ class IngestionEngine:
     ) -> IngestionResult:
         """Blocking structural enrichment (runs in a worker thread)."""
         from ..enrichment.features import make_community_fn
-        from ..enrichment.pipeline import EnrichmentPipeline, make_parse_fn
+        from ..enrichment.pipeline import (
+            EnrichmentPipeline,
+            make_batch_parse_fn,
+            make_parse_fn,
+        )
 
         # Enrichment writers need add_node/add_edge; wrap graph_compute if the
         # injected backend doesn't expose them (non-epistemic backends).
@@ -622,7 +695,13 @@ class IngestionEngine:
         # polluted. Best-effort: degrade to no-features on any failure.
         community_fn = None
         comm = None
-        comm_name = f"{self.graph_name}__enrich_comm"
+        # Unique per-job transient tenant (CONCEPT:KG-2.8): parallel codebase
+        # ingests previously shared ``{graph}__enrich_comm`` and deleted each
+        # other's tenant mid-run (→ "Graph not found"). A uuid suffix isolates
+        # each job's community-detection tenant so multi-repo ingest is safe.
+        import uuid as _uuid
+
+        comm_name = f"{self.graph_name}__enrich_comm_{_uuid.uuid4().hex[:8]}"
         if manifest.metadata.get("features", True):
             try:
                 from ..core.graph_compute import GraphComputeEngine
@@ -649,15 +728,59 @@ class IngestionEngine:
             community_fn=community_fn,
             hash_seen=hash_seen,
             writeback_fn=resolve_writeback_fn(backend),
+            # Batched parse (one RPC for N files) when the engine advertises it;
+            # falls back to per-file parse otherwise. (CONCEPT:KG-2.16)
+            batch_parse_fn=make_batch_parse_fn(graph_compute),
         )
+
+        # Git-aware delta (CONCEPT:KG-2.8): when the source is a git work-tree we
+        # already ingested at a prior HEAD, ask ``git diff`` for the changed *.py
+        # files and enrich only those — instead of walking + hashing the whole tree.
+        # On a large repo with a small diff this turns thousands of stat/read/hash
+        # ops into a single ``git diff`` plus a handful of parses. First ingest
+        # (no prior sha), a non-git path, or any git failure falls back to the full
+        # walk; the per-file content_hash skip still guards correctness either way.
+        git_cat = "codebase_git"
+        repo_key = str(Path(source_path).resolve())
+        head_sha = _git_head_sha(source_path)
+        prior_sha: str | None = None
+        if head_sha:
+            try:
+                prior_sha = self.manifest.get(self.graph_name, git_cat, repo_key)
+            except Exception:  # noqa: BLE001
+                prior_sha = None
+        changed_files: list[Path] | None = None
+        if (
+            head_sha
+            and prior_sha
+            and prior_sha != head_sha
+            and _git_worktree_clean(source_path)
+        ):
+            changed_files = _changed_python_files(source_path, prior_sha)
+
         try:
-            summary = pipe.enrich(source_path)
+            if changed_files is not None:
+                logger.info(
+                    "[KG-2.8] git-delta ingest: %d changed .py file(s) since %s",
+                    len(changed_files),
+                    prior_sha[:8] if prior_sha else "?",
+                )
+                summary = pipe.enrich_files(changed_files)
+            else:
+                summary = pipe.enrich(source_path)
         finally:
             if comm is not None:
                 try:
                     comm._client.tenants.delete(comm_name)
                 except Exception:  # noqa: BLE001
                     pass
+
+        # Record the new HEAD as the delta watermark on success (best-effort).
+        if head_sha:
+            try:
+                self.manifest.record(self.graph_name, git_cat, repo_key, head_sha)
+            except Exception:  # noqa: BLE001
+                logger.debug("codebase git-sha manifest persist failed", exc_info=True)
 
         # Persist per-file content hashes back to the durable manifest so the
         # per-file skip survives restarts.
@@ -1010,6 +1133,8 @@ class IngestionEngine:
                         chunk_size=int(manifest.metadata.get("chunk_size", 800)),
                         overlap=int(manifest.metadata.get("overlap", 120)),
                     ),
+                    # CONCEPT:KG-2.50 — opt-in contextual-retrieval enrichment.
+                    contextual=bool(manifest.metadata.get("contextual", False)),
                 )
                 processed = processor.process(
                     text,
@@ -1034,6 +1159,164 @@ class IngestionEngine:
                 "concepts": len(concepts),
                 "chunks": chunks_created,
                 "chunk_objects": chunk_objects_created,
+            },
+        )
+
+    @adaptor(ContentType.CONNECTOR)
+    async def _ingest_connector(self, manifest: IngestionManifest) -> IngestionResult:
+        """Ingest documents from a document-source connector (CONCEPT:KG-2.7).
+
+        Bridges the ECO-4.25 connector framework to the KG: builds a connector
+        from the registry/factory, drains it (incrementally via its checkpoint,
+        ECO-4.26), and runs every :class:`SourceDocument` through the KG-2.48
+        ``DocumentProcessor`` so it becomes first-class ``Document`` + ``Chunk``
+        ontology objects — with contextual-retrieval enrichment (KG-2.50, on by
+        default for connector ingest) and external-permission sync (ECO-4.28).
+
+        Manifest contract:
+          * ``source_uri`` — the connector ``source_type`` (e.g. ``filesystem``,
+            ``web``, ``rest``, ``database``, or ``mcp:<package>``).
+          * ``metadata["connector_config"]`` — the connector's config dict.
+          * ``metadata["connector_id"]`` — stable id for checkpoint storage
+            (defaults to ``source_type`` + a hash of the config).
+          * ``metadata["contextual"]`` — enrichment toggle (default True here).
+          * ``metadata["incremental"]`` — use ``poll`` (default True) vs ``load``.
+
+        Incrementality: the connector's :class:`ConnectorCheckpoint` is persisted
+        in the ``DeltaManifest`` (KG-2.8) under the ``connector_checkpoint``
+        category, so a re-run resumes from the watermark rather than re-fetching.
+        """
+        import json as _json
+
+        from ...protocols.source_connectors import (
+            ConnectorCheckpoint,
+            LoadConnector,
+            PollConnector,
+            build_connector,
+            sync_access,
+        )
+        from ..ontology.document_processing import ChunkingConfig, DocumentProcessor
+
+        source_type = manifest.source_uri
+        config = dict(manifest.metadata.get("connector_config") or {})
+        connector_id = manifest.metadata.get("connector_id") or (
+            f"{source_type}:{hashlib.sha256(_json.dumps(config, sort_keys=True, default=str).encode()).hexdigest()[:12]}"
+        )
+        contextual = bool(manifest.metadata.get("contextual", True))
+        incremental = bool(manifest.metadata.get("incremental", True))
+
+        try:
+            connector = build_connector(source_type, config)
+        except (KeyError, ValueError, TypeError) as exc:
+            return IngestionResult(
+                manifest=manifest,
+                status="failed",
+                error=f"connector build failed: {exc}",
+            )
+
+        # Resume from the stored checkpoint (ECO-4.26 + KG-2.8).
+        prior_raw = self.manifest.get(
+            self.graph_name, "connector_checkpoint", connector_id
+        )
+        prior_cp = ConnectorCheckpoint.from_json(prior_raw)
+
+        processor = DocumentProcessor(
+            self.backend,
+            chunking=ChunkingConfig(
+                chunk_size=int(manifest.metadata.get("chunk_size", 800)),
+                overlap=int(manifest.metadata.get("overlap", 120)),
+            ),
+            contextual=contextual,
+        )
+
+        # Drain the connector → documents + the checkpoint to persist next.
+        documents: list[Any] = []
+        new_cp: ConnectorCheckpoint | None = None
+        try:
+            if incremental and isinstance(connector, PollConnector):
+                for doc in connector.poll_all(prior_cp):
+                    documents.append(doc)
+                new_cp = connector.last_checkpoint
+            elif isinstance(connector, LoadConnector):
+                documents = list(connector.load())
+            elif isinstance(connector, PollConnector):
+                for doc in connector.poll_all(prior_cp):
+                    documents.append(doc)
+                new_cp = connector.last_checkpoint
+            else:
+                return IngestionResult(
+                    manifest=manifest,
+                    status="failed",
+                    error=f"connector {source_type!r} supports neither load nor poll",
+                )
+        except Exception as exc:  # noqa: BLE001 — a failed source is a failed ingest
+            return IngestionResult(
+                manifest=manifest,
+                status="failed",
+                error=f"connector drain failed: {exc}",
+            )
+
+        docs_ok = nodes = edges = acl_synced = 0
+        for doc in documents:
+            if not getattr(doc, "text", "").strip():
+                continue
+            try:
+                processed = processor.process(
+                    doc.text,
+                    document_id=f"doc:{source_type}:{doc.id}",
+                    title=doc.title or doc.id,
+                    doc_type=doc.doc_type,
+                    source=doc.source_uri,
+                    metadata={
+                        **doc.metadata,
+                        "connector": source_type,
+                        "connector_id": connector_id,
+                        "source_url": doc.source_uri,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001 — one bad doc must not abort the batch
+                logger.warning("[KG-2.7] connector doc %s failed: %s", doc.id, exc)
+                continue
+            docs_ok += 1
+            nodes += 1 + processed.chunk_count
+            edges += len(processed.edges)
+            # ECO-4.28 — mirror the source's ACL onto the doc + its chunks.
+            if doc.external_access is not None:
+                chunk_edges = [
+                    (e["source"], e["target"])
+                    for e in processed.edges
+                    if e.get("type") == "HAS_CHUNK"
+                ]
+                if (
+                    sync_access(processed.document_id, doc.external_access, chunk_edges)
+                    is not None
+                ):
+                    acl_synced += 1
+
+        # Persist the advanced checkpoint so the next run is incremental.
+        if new_cp is not None:
+            try:
+                self.manifest.record(
+                    self.graph_name,
+                    "connector_checkpoint",
+                    connector_id,
+                    new_cp.to_json(),
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("connector checkpoint record failed", exc_info=True)
+
+        return IngestionResult(
+            manifest=manifest,
+            status="success",
+            nodes_created=nodes,
+            edges_created=edges,
+            details={
+                "connector": source_type,
+                "connector_id": connector_id,
+                "documents": docs_ok,
+                "acl_synced": acl_synced,
+                "contextual": contextual,
+                "checkpoint_advanced": new_cp is not None,
             },
         )
 
