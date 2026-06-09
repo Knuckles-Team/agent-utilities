@@ -10,13 +10,10 @@ exercised without a live epistemic-graph daemon. A live round-trip belongs in a
 """
 
 import json
-from pathlib import Path
 
 import msgpack
-import pytest
 
 from agent_utilities.knowledge_graph.distillation import SkillGraphDistiller
-
 
 # ── fake client mimicking the namespaced async client ─────────────────────
 
@@ -39,9 +36,7 @@ class _Edges:
 
     async def list(self):
         # Mirror the real client: third element is a msgpack blob.
-        return [
-            (s, d, list(msgpack.packb(props))) for (s, d, props) in self._edges
-        ]
+        return [(s, d, list(msgpack.packb(props))) for (s, d, props) in self._edges]
 
 
 class _Graph:
@@ -56,8 +51,29 @@ class _Graph:
         return self._seed_hits[:n_results]
 
 
+def _make_subgraph_fn(nodes, edges):
+    """Mimics the engine's batched GetSubgraph (decoded nodes + induced edges)."""
+
+    async def get_subgraph(node_ids):
+        idset = set(node_ids)
+        return {
+            "nodes": [
+                {"id": nid, "properties": nodes[nid]}
+                for nid in node_ids
+                if nid in nodes
+            ],
+            "edges": [
+                {"source": s, "target": d, "properties": p}
+                for (s, d, p) in edges
+                if s in idset and d in idset
+            ],
+        }
+
+    return get_subgraph
+
+
 class FakeClient:
-    def __init__(self, nodes, edges, communities=None, seed_hits=None) -> None:
+    def __init__(self, nodes, edges, communities=None, seed_hits=None, batched=False):
         adj: dict = {}
         for s, d, _ in edges:
             adj.setdefault(s, set()).add(d)
@@ -65,6 +81,10 @@ class FakeClient:
         self.nodes = _Nodes(nodes, {k: sorted(v) for k, v in adj.items()})
         self.edges = _Edges(edges)
         self.graph = _Graph(communities or [], seed_hits or [])
+        # When batched, expose the one-round-trip GetSubgraph; otherwise the
+        # distiller falls back to per-node reads (both paths covered by tests).
+        if batched:
+            self.graph.get_subgraph = _make_subgraph_fn(nodes, edges)
 
     async def close(self):
         pass
@@ -72,17 +92,32 @@ class FakeClient:
 
 def _fixture_graph():
     nodes = {
-        "concept:servicenow": {"type": "Concept", "name": "ServiceNow",
-                                "summary": "ServiceNow is an ITSM platform."},
+        "concept:servicenow": {
+            "type": "Concept",
+            "name": "ServiceNow",
+            "summary": "ServiceNow is an ITSM platform.",
+        },
         "doc:1": {"type": "Document", "name": "Incident Management"},  # body-less
-        "ideablock:a": {"type": "idea_block", "name": "Creating an incident",
-                         "trusted_answer": "To create an incident, open the form..."},
-        "ideablock:b": {"type": "idea_block", "name": "Closing an incident",
-                         "trusted_answer": "To close an incident, set state to Closed..."},
-        "concept:incident": {"type": "Concept", "name": "Incident",
-                              "summary": "An incident is an unplanned interruption."},
-        "concept:unrelated": {"type": "Concept", "name": "Unrelated",
-                              "summary": "Out of scope."},
+        "ideablock:a": {
+            "type": "idea_block",
+            "name": "Creating an incident",
+            "trusted_answer": "To create an incident, open the form...",
+        },
+        "ideablock:b": {
+            "type": "idea_block",
+            "name": "Closing an incident",
+            "trusted_answer": "To close an incident, set state to Closed...",
+        },
+        "concept:incident": {
+            "type": "Concept",
+            "name": "Incident",
+            "summary": "An incident is an unplanned interruption.",
+        },
+        "concept:unrelated": {
+            "type": "Concept",
+            "name": "Unrelated",
+            "summary": "Out of scope.",
+        },
     }
     edges = [
         ("doc:1", "concept:servicenow", {"rel_type": "MENTIONS"}),
@@ -123,7 +158,9 @@ async def test_distill_seed_builds_reference_tree_and_manifest(tmp_path):
     # The out-of-scope node is depth-2 reachable, but its edge to itself only
     # matters if selected. With depth=2 from servicenow it IS reachable; assert
     # the unrelated->* edges that leave the selection are excluded.
-    selected = set(raw["clusters"] and [n for ms in raw["clusters"].values() for n in ms])
+    selected = set(
+        raw["clusters"] and [n for ms in raw["clusters"].values() for n in ms]
+    )
     for e in raw["edges"]:
         assert e["src"] in selected and e["dst"] in selected
 
@@ -143,6 +180,30 @@ async def test_distill_seed_builds_reference_tree_and_manifest(tmp_path):
     assert any("## Related" in (tmp_path / f).read_text() for f in files)
 
     assert manifest["stats"]["files"] >= 3
+
+
+async def test_batched_get_subgraph_path_matches_fallback(tmp_path):
+    # Same fixture, but the engine exposes the batched GetSubgraph. Output must
+    # match the per-node fallback: files written, edges restricted to selection.
+    nodes, edges, communities = _fixture_graph()
+    client = FakeClient(nodes, edges, communities, batched=True)
+    distiller = SkillGraphDistiller(client, graph_name="__test__")
+
+    manifest = await distiller.distill(
+        seed="concept:servicenow", depth=2, out_dir=str(tmp_path)
+    )
+    raw = json.loads((tmp_path / "kg_manifest.json").read_text())
+    selected = {n for ms in raw["clusters"].values() for n in ms}
+    assert manifest["stats"]["files"] >= 3
+    assert raw["edges"], "batched path should still surface induced edges"
+    for e in raw["edges"]:
+        assert e["src"] in selected and e["dst"] in selected
+    # The cross-link section proves edges flowed through the batched read.
+    assert any(
+        "## Related" in (tmp_path / n["file"]).read_text()
+        for n in raw["nodes"]
+        if n["file"]
+    )
 
 
 async def test_flat_taxonomy_when_no_communities(tmp_path):
@@ -166,12 +227,21 @@ async def test_part_of_chunks_are_covered_by_parent_document(tmp_path):
     # children (IdeaBlock --PART_OF--> Document). The distiller must emit the
     # Document, not the Document AND its chunks.
     nodes = {
-        "doc:guide": {"type": "Document", "name": "Setup Guide",
-                       "content": "Full verbatim setup guide body..."},
-        "doc:guide:chunk:0": {"type": "idea_block", "name": "Setup Guide §1",
-                               "trusted_answer": "Full verbatim setup guide body..."},
-        "doc:guide:chunk:1": {"type": "idea_block", "name": "Setup Guide §2",
-                               "trusted_answer": "...more body..."},
+        "doc:guide": {
+            "type": "Document",
+            "name": "Setup Guide",
+            "content": "Full verbatim setup guide body...",
+        },
+        "doc:guide:chunk:0": {
+            "type": "idea_block",
+            "name": "Setup Guide §1",
+            "trusted_answer": "Full verbatim setup guide body...",
+        },
+        "doc:guide:chunk:1": {
+            "type": "idea_block",
+            "name": "Setup Guide §2",
+            "trusted_answer": "...more body...",
+        },
     }
     edges = [
         ("doc:guide:chunk:0", "doc:guide", {"rel_type": "PART_OF"}),
@@ -193,19 +263,30 @@ async def test_distill_workflow_orders_steps_by_precedes(tmp_path):
     import re
 
     nodes = {
-        "proc:a": {"type": "Procedure", "name": "Gather inputs",
-                    "description": "Collect the request inputs."},
-        "proc:b": {"type": "Procedure", "name": "Validate",
-                    "description": "Validate the inputs."},
-        "proc:c": {"type": "Procedure", "name": "Submit",
-                    "description": "Submit the change."},
+        "proc:a": {
+            "type": "Procedure",
+            "name": "Gather inputs",
+            "description": "Collect the request inputs.",
+        },
+        "proc:b": {
+            "type": "Procedure",
+            "name": "Validate",
+            "description": "Validate the inputs.",
+        },
+        "proc:c": {
+            "type": "Procedure",
+            "name": "Submit",
+            "description": "Submit the change.",
+        },
     }
     edges = [
         ("proc:a", "proc:b", {"rel_type": "PRECEDES"}),
         ("proc:b", "proc:c", {"rel_type": "PRECEDES"}),
     ]
     distiller = SkillGraphDistiller(FakeClient(nodes, edges), graph_name="__t__")
-    result = await distiller.distill_workflow(seed="proc:a", depth=2, out_dir=str(tmp_path))
+    result = await distiller.distill_workflow(
+        seed="proc:a", depth=2, out_dir=str(tmp_path)
+    )
 
     assert result["steps"] == 3
     md = (tmp_path / "SKILL.md").read_text()
