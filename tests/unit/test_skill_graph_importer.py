@@ -88,16 +88,24 @@ def test_extract_body_strips_frontmatter_heading_and_related():
 
 async def test_distill_then_import_round_trips(tmp_path):
     nodes = {
-        "concept:sn": {"type": "Concept", "name": "ServiceNow",
-                        "summary": "ITSM platform."},
-        "concept:inc": {"type": "Concept", "name": "Incident",
-                         "summary": "Unplanned interruption."},
+        "concept:sn": {
+            "type": "Concept",
+            "name": "ServiceNow",
+            "summary": "ITSM platform.",
+        },
+        "concept:inc": {
+            "type": "Concept",
+            "name": "Incident",
+            "summary": "Unplanned interruption.",
+        },
     }
     edges = [("concept:sn", "concept:inc", {"rel_type": "RELATES_TO"})]
 
     # 1) Distill to a pack.
     distiller = SkillGraphDistiller(FakeClient(nodes, edges), graph_name="__t__")
-    manifest = await distiller.distill(seed="concept:sn", depth=2, out_dir=str(tmp_path))
+    manifest = await distiller.distill(
+        seed="concept:sn", depth=2, out_dir=str(tmp_path)
+    )
     assert manifest["stats"]["files"] >= 2
 
     # 2) Import the pack into a fresh recipient engine.

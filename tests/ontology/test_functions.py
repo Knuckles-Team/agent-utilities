@@ -23,7 +23,6 @@ from agent_utilities.knowledge_graph.ontology.functions import (
     ObjectFunctionContext,
 )
 
-
 # ── Registry: typed registration, versioning, release, lookup ───────────────
 
 
@@ -172,14 +171,25 @@ class _FakeStore:
 
     def execute(self, cypher: str, params: dict[str, Any]) -> list[dict[str, Any]]:
         # Single-object read: MATCH (n {id: $id}) RETURN n
-        if "RETURN n" in cypher and "id: $id" in cypher and "->" not in cypher and "*" not in cypher and "<-" not in cypher and "-[" not in cypher:
+        if (
+            "RETURN n" in cypher
+            and "id: $id" in cypher
+            and "->" not in cypher
+            and "*" not in cypher
+            and "<-" not in cypher
+            and "-[" not in cypher
+        ):
             nid = params.get("id")
             node = self.nodes.get(nid)
             return [{"n": node}] if node else []
         # 1-hop out-neighbors: MATCH (n {id: $id})-[...]->(m) RETURN m
         if "->(m)" in cypher and "RETURN m" in cypher:
             nid = params.get("id")
-            out = [self.nodes[d] for (s, _r, d) in self.edges if s == nid and d in self.nodes]
+            out = [
+                self.nodes[d]
+                for (s, _r, d) in self.edges
+                if s == nid and d in self.nodes
+            ]
             return [{"m": node} for node in out]
         return []
 
@@ -190,7 +200,9 @@ class _FakeFacade:
     def __init__(self, store: _FakeStore) -> None:
         self.store = store
 
-    def query(self, cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    def query(
+        self, cypher: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         return self.store.execute(cypher, params or {})
 
 

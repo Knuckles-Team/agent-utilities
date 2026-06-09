@@ -95,7 +95,8 @@ def extract(config: Any) -> ExtractionBatch:
                 props={
                     "name": _first(rec, "name", "id"),
                     "model_type": mtype,
-                    "capability": "bpm" if label == "BusinessProcess"
+                    "capability": "bpm"
+                    if label == "BusinessProcess"
                     else "enterprise-architecture",
                 },
             )

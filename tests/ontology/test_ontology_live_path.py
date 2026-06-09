@@ -127,8 +127,15 @@ def test_interface_targeting_resolves_implementers(kg: KnowledgeGraph) -> None:
     # A plain concrete-type name passes through unchanged.
     assert ont.resolve_target("place") == ["place"]
     # Conformance check on the live path.
-    doc = {"type": "document", "source": "https://example.org/a", "ingested_at": "2026-01-01T00:00:00Z"}
-    assert ont.conforms(doc, "HasProvenance") in (True, False)  # real evaluation, no raise
+    doc = {
+        "type": "document",
+        "source": "https://example.org/a",
+        "ingested_at": "2026-01-01T00:00:00Z",
+    }
+    assert ont.conforms(doc, "HasProvenance") in (
+        True,
+        False,
+    )  # real evaluation, no raise
 
 
 # ── (d) materialize a junction link on the live path ─────────────────────────
@@ -189,7 +196,13 @@ def test_ontology_system_ttl_parses_with_classes() -> None:
     g.parse(str(ttl), format="turtle")
     KG = rdflib.Namespace("http://knuckles.team/kg#")
     OWL = rdflib.Namespace("http://www.w3.org/2002/07/owl#")
-    for cls in ("Function", "FunctionInvocation", "Interface", "LinkType", "JunctionLink"):
+    for cls in (
+        "Function",
+        "FunctionInvocation",
+        "Interface",
+        "LinkType",
+        "JunctionLink",
+    ):
         assert (KG[cls], rdflib.RDF.type, OWL.Class) in g, cls
     # It also contributes owl:Restriction axioms toward the TTL gate.
     assert len(list(g.subjects(rdflib.RDF.type, OWL.Restriction))) >= 1

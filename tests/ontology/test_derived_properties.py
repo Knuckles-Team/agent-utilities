@@ -32,7 +32,9 @@ class _FakeFacade:
 
     def __init__(self, rows=None, index=None):
         self._rows = rows or []
-        self.retrieval = index if index is not None else CapabilityIndex(prefer_backend="numpy")
+        self.retrieval = (
+            index if index is not None else CapabilityIndex(prefer_backend="numpy")
+        )
         self.queries = []
 
     def query(self, cypher, params=None):

@@ -40,10 +40,20 @@ def test_export_from_normalizes_all_three_sources():
             {"id": "ec2", "query": "no-pair", "expected_output": "x", "metadata": {}},
         ],
         preference_nodes=[
-            {"id": "pn1", "prompt": "best sort?", "chosen": "quicksort", "rejected": "bogosort"}
+            {
+                "id": "pn1",
+                "prompt": "best sort?",
+                "chosen": "quicksort",
+                "rejected": "bogosort",
+            }
         ],
         corrections=[
-            {"id": "co1", "target": "capital?", "corrected_value": "Paris", "original": "Berlin"}
+            {
+                "id": "co1",
+                "target": "capital?",
+                "corrected_value": "Paris",
+                "original": "Berlin",
+            }
         ],
     )
     by_source = {p.source for p in pairs}
@@ -54,9 +64,7 @@ def test_export_from_normalizes_all_three_sources():
 def test_export_dedups_identical_content():
     exp = PreferencePairExporter()
     same = {"prompt": "p", "chosen": "c", "rejected": "r"}
-    pairs = exp.export_from(
-        preference_nodes=[{**same, "id": "a"}, {**same, "id": "b"}]
-    )
+    pairs = exp.export_from(preference_nodes=[{**same, "id": "a"}, {**same, "id": "b"}])
     assert len(pairs) == 1  # identical (prompt, chosen, rejected) collapse
 
 
@@ -66,7 +74,9 @@ def test_export_dedups_identical_content():
 def test_reliability_filter_drops_ambiguous_and_degenerate():
     pairs = [
         PreferencePair(prompt="p1", chosen="good", rejected="bad", margin=0.9),
-        PreferencePair(prompt="p2", chosen="same", rejected="same", margin=1.0),  # degenerate
+        PreferencePair(
+            prompt="p2", chosen="same", rejected="same", margin=1.0
+        ),  # degenerate
         PreferencePair(prompt="p3", chosen="a", rejected="b", margin=0.02),  # ambiguous
     ]
     kept, dropped = reliability_filter(pairs, min_margin=0.1)
@@ -93,16 +103,22 @@ def test_feedback_service_exports_pairs_from_live_backend():
     backend = EpistemicGraphBackend()
 
     # 1) an eval case carrying a rejected output (via the real EvalCorpus path)
-    EvalCorpus(backend=backend).add_case(
-        "2+2?", "4", metadata={"rejected": "5"}
-    )
+    EvalCorpus(backend=backend).add_case("2+2?", "4", metadata={"rejected": "5"})
     # 2) a distilled preference node (as EpisodeToPreferenceRule would write)
     backend.add_node(
-        "pref-1", type="preference", prompt="best sort?", chosen="quicksort", rejected="bogosort"
+        "pref-1",
+        type="preference",
+        prompt="best sort?",
+        chosen="quicksort",
+        rejected="bogosort",
     )
     # 3) a human correction carrying the original (rejected) value
     backend.add_node(
-        "corr-1", type="correction", target="capital?", corrected_value="Paris", original="Berlin"
+        "corr-1",
+        type="correction",
+        target="capital?",
+        corrected_value="Paris",
+        original="Berlin",
     )
     # 4) a degenerate pair that RAPPO must drop
     backend.add_node(

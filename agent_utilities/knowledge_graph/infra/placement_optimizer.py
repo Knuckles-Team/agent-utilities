@@ -367,9 +367,14 @@ def _persist_plan(engine: Any, plan: PlacementPlan) -> None:
         return
     import hashlib
 
-    plan_id = "deployment_plan:" + hashlib.sha256(
-        "|".join(sorted(p.service_id + ">" + p.host_id for p in plan.placements)).encode()
-    ).hexdigest()[:12]
+    plan_id = (
+        "deployment_plan:"
+        + hashlib.sha256(
+            "|".join(
+                sorted(p.service_id + ">" + p.host_id for p in plan.placements)
+            ).encode()
+        ).hexdigest()[:12]
+    )
     try:
         add(
             plan_id,
@@ -404,7 +409,7 @@ def _persist_plan(engine: Any, plan: PlacementPlan) -> None:
             if callable(link):
                 link(pid, p.host_id, "PLACED_ON", properties={"_rel": "PLACED_ON"})
                 link(pid, plan_id, "PART_OF", properties={"_rel": "PART_OF"})
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # nosec B112
             continue
     for m in plan.migrations:
         mid = f"migration_task:{m.service_id}"
@@ -420,7 +425,7 @@ def _persist_plan(engine: Any, plan: PlacementPlan) -> None:
                     "concept": "KG-2.9",
                 },
             )
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # nosec B112
             continue
 
 

@@ -76,7 +76,9 @@ def test_exclusive_pack_flags_out_of_pack_edge():
 def test_additive_core_pack_flags_nothing():
     from agent_utilities.models.schema_packs import get_schema_pack
 
-    _audit(SimpleNamespace(active_schema_pack=get_schema_pack("core")), "edge", "weakens")
+    _audit(
+        SimpleNamespace(active_schema_pack=get_schema_pack("core")), "edge", "weakens"
+    )
     assert SchemaCandidateAuditor.instance().review() == []
 
 

@@ -167,7 +167,7 @@ class InfraInventoryCollector:
                         "concept": "KG-2.9",
                     },
                 )
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001  # nosec B112
                 continue
             for i, gpu in enumerate(p.gpus):
                 gid = f"{p.host_id}:gpu:{i}"
@@ -191,7 +191,9 @@ class InfraInventoryCollector:
                     add(sid, "networksubnet", properties={"cidr": subnet})
                     if callable(link):
                         link(
-                            p.host_id, sid, "HAS_INTERFACE",
+                            p.host_id,
+                            sid,
+                            "HAS_INTERFACE",
                             properties={"_rel": "HAS_INTERFACE"},
                         )
                 except Exception:  # noqa: BLE001
