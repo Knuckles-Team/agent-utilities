@@ -262,3 +262,46 @@ def test_write_value_shapes_ttl_materializes_loadable_file(tmp_path):
         assert len(g) > 0
     else:  # structural fallback
         assert "sh:PropertyShape" in content
+
+
+# --- in-memory shapes validation (Option A: no disk round-trip) --------------
+def test_validator_accepts_in_memory_shapes_graph():
+    """SHACLValidator.validate accepts an rdflib.Graph of shapes directly, so
+    generated value-type shapes are enforced without materializing to disk."""
+    rdflib = pytest.importorskip("rdflib")
+    pytest.importorskip("pyshacl")
+    from agent_utilities.knowledge_graph.core.shacl_validator import SHACLValidator
+
+    KG = rdflib.Namespace("http://knuckles.team/kg#")
+    shapes = rdflib.Graph()
+    shapes.parse(
+        data="""
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        @prefix kg: <http://knuckles.team/kg#> .
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+        kg:PersonShape a sh:NodeShape ;
+            sh:targetClass kg:Person ;
+            sh:property [ sh:path kg:age ; sh:minInclusive 0 ; sh:datatype xsd:integer ] .
+        """,
+        format="turtle",
+    )
+
+    bad = rdflib.Graph()
+    bad.add((KG.alice, rdflib.RDF.type, KG.Person))
+    bad.add((KG.alice, KG.age, rdflib.Literal(-5)))
+    res = SHACLValidator().validate(bad, shapes)  # shapes passed as a Graph
+    assert res["conforms"] is False and res["violations"]
+
+    good = rdflib.Graph()
+    good.add((KG.bob, rdflib.RDF.type, KG.Person))
+    good.add((KG.bob, KG.age, rdflib.Literal(30)))
+    assert SHACLValidator().validate(good, shapes)["conforms"] is True
+
+
+def test_value_type_shapes_render_to_loadable_graph():
+    """The registry renders to a turtle doc that parses into an rdflib.Graph —
+    the in-memory layer validate_kg now appends (no file written)."""
+    rdflib = pytest.importorskip("rdflib")
+    g = rdflib.Graph()
+    g.parse(data=value_types_shapes_ttl(), format="turtle")
+    assert len(g) > 0

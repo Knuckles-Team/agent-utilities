@@ -43,14 +43,17 @@ class SHACLValidator:
     def validate(
         self,
         data_graph: Any,
-        shapes_path: str | Path,
+        shapes_path: str | Path | Any,
         ont_graph: Any | None = None,
     ) -> dict[str, Any]:
         """Validate an RDF graph against SHACL shapes.
 
         Args:
             data_graph: An rdflib.Graph to validate.
-            shapes_path: Path to SHACL shapes file (.ttl).
+            shapes_path: SHACL shapes source — either a path to a ``.ttl`` file,
+                or an already-parsed ``rdflib.Graph`` of shapes (in-memory). The
+                latter lets generated shapes (e.g. the value-type registry, KG-2.39)
+                be validated without round-tripping through disk.
             ont_graph: Optional ontology graph for inference during validation.
 
         Returns:
@@ -69,17 +72,23 @@ class SHACLValidator:
                 "results_text": "SHACL validation skipped: pyshacl not installed.",
             }
 
-        shapes_file = Path(shapes_path)
-        if not shapes_file.exists():
-            return {
-                "conforms": True,
-                "violations": [],
-                "results_text": f"Shapes file not found: {shapes_path}",
-            }
+        import rdflib
+
+        # Resolve the shapes source: an in-memory rdflib.Graph is handed straight
+        # to pyshacl; a path is existence-checked then passed as a file string.
+        if isinstance(shapes_path, rdflib.Graph):
+            shacl_graph: Any = shapes_path
+        else:
+            shapes_file = Path(shapes_path)
+            if not shapes_file.exists():
+                return {
+                    "conforms": True,
+                    "violations": [],
+                    "results_text": f"Shapes file not found: {shapes_path}",
+                }
+            shacl_graph = str(shapes_file)
 
         try:
-            import rdflib
-
             if isinstance(data_graph, rdflib.Graph):
                 mapped_graph = rdflib.Graph()
                 mapped_graph.bind("kg", rdflib.Namespace("http://knuckles.team/kg#"))
@@ -118,7 +127,7 @@ class SHACLValidator:
         try:
             conforms, results_graph, results_text = pyshacl.validate(
                 data_graph=data_graph,
-                shacl_graph=str(shapes_file),
+                shacl_graph=shacl_graph,
                 ont_graph=ont_graph,
                 inference="rdfs",
                 abort_on_first=False,
@@ -147,16 +156,17 @@ class SHACLValidator:
     def validate_layered(
         self,
         data_graph: Any,
-        shapes_paths: list[str | Path],
+        shapes_paths: list[str | Path | Any],
     ) -> dict[str, Any]:
         """Validate against multiple layered SHACL shapes.
 
-        Runs validation against each shapes file in order. Global shapes
+        Runs validation against each shapes layer in order. Global shapes
         are typically applied first, then domain-specific overrides.
 
         Args:
             data_graph: An rdflib.Graph to validate.
-            shapes_paths: Ordered list of SHACL shapes file paths.
+            shapes_paths: Ordered list of SHACL shapes layers — each a file path
+                or an in-memory ``rdflib.Graph`` (see :meth:`validate`).
 
         Returns:
             Combined validation report.
@@ -204,20 +214,21 @@ class SHACLValidator:
                 "results_text": "No governance shapes found.",
             }
 
-        # CONCEPT:KG-2.39 — materialize the ontology value-type SHACL shapes next
-        # to the governance shapes so constrained value types (EmailAddress
-        # sh:pattern, Percentage sh:min/maxInclusive, …) are enforced at graph
-        # write time exactly like the hand-authored governance shapes. The
-        # generator is idempotent; failure to materialize never blocks the gate.
-        layers: list[str | Path] = [governance_shapes]
+        # CONCEPT:KG-2.39 — enforce the ontology value-type SHACL shapes
+        # (EmailAddress sh:pattern, Percentage sh:min/maxInclusive, …) alongside
+        # the hand-authored governance shapes. The shapes are rendered from the
+        # in-memory VALUE_TYPES registry and validated as an rdflib.Graph — no
+        # round-trip through disk, so this works on read-only/packaged installs.
+        # Failure to render never blocks the gate.
+        layers: list[str | Path | Any] = [governance_shapes]
         try:
-            from ..ontology.value_types import write_value_shapes_ttl
+            import rdflib
 
-            value_shapes = Path(
-                write_value_shapes_ttl(str(shapes_dir / "value_types.shapes.ttl"))
-            )
-            if value_shapes.exists():
-                layers.append(value_shapes)
+            from ..ontology.value_types import value_types_shapes_ttl
+
+            vt_graph = rdflib.Graph()
+            vt_graph.parse(data=value_types_shapes_ttl(), format="turtle")
+            layers.append(vt_graph)
         except Exception as exc:  # pragma: no cover - enhancement only
             logger.debug("value-type shapes unavailable: %s", exc)
 
