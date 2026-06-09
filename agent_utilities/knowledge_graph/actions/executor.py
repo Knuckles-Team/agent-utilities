@@ -37,10 +37,17 @@ from agent_utilities.security.permissions_kernel import (
     PermissionsKernel,
 )
 
+from .dispatch import send_notification, send_webhook
+from .effects import (
+    apply_side_effects,
+    evaluate_submission_criteria,
+    resolve_template,
+)
 from .models import ActionInvocation, ActionStatus, OntologyAction
 from .registry import ActionRegistry
 
 if TYPE_CHECKING:
+    from agent_utilities.knowledge_graph.ontology.edits import EditLedger
     from agent_utilities.security.brain_context import ActorContext
 
 logger = logging.getLogger(__name__)
@@ -109,6 +116,13 @@ class ActionExecutor:
             consulted after authorization to decide whether the verb requires
             human approval before its handler runs. Defaults to a gate built on
             the conservative default :class:`EscalationMatrix`.
+        ledger: The C1 :class:`~agent_utilities.knowledge_graph.ontology.edits.EditLedger`
+            through which an action's typed side-effects are applied + journaled
+            (CONCEPT:KG-2.42). A fresh ledger (sharing this executor's audit log)
+            is created when omitted so actions are revertible out of the box.
+        notifier: A registerable
+            :class:`~agent_utilities.knowledge_graph.actions.dispatch.Notifier`
+            for action notifications; the process default is used when omitted.
     """
 
     def __init__(
@@ -118,6 +132,8 @@ class ActionExecutor:
         audit: AuditLogger | None = None,
         persist: bool = True,
         escalation_gate: Any = None,
+        ledger: EditLedger | None = None,
+        notifier: Any = None,
     ) -> None:
         self.registry = registry
         self.kernel = kernel or PermissionsKernel()
@@ -128,6 +144,12 @@ class ActionExecutor:
 
             escalation_gate = EscalationGate(audit=self.audit, persist=persist)
         self.escalation_gate = escalation_gate
+        if ledger is None:
+            from agent_utilities.knowledge_graph.ontology.edits import EditLedger as _EL
+
+            ledger = _EL(audit=self.audit)
+        self.ledger = ledger
+        self.notifier = notifier
 
     # ── Authorization ──────────────────────────────────────────────────
 
@@ -260,38 +282,216 @@ class ActionExecutor:
             self._persist(inv, action)
             return inv
 
-        # (d) Run the handler.
+        # (c2) Submission criteria — Palantir submission-rules gate (KG-2.42).
+        # An action with no criteria always passes (preserves KG-2.25 semantics).
+        crit_failures = evaluate_submission_criteria(action, params, actor_id, _caps)
+        if crit_failures:
+            inv = ActionInvocation(
+                action_name=action_name,
+                actor_id=actor_id,
+                params=params,
+                target_id=target_id,
+                status=ActionStatus.DENIED,
+                error="; ".join(crit_failures),
+                result_summary=(
+                    f"submission criteria failed: {'; '.join(crit_failures)}"
+                ),
+            )
+            self._audit(inv, action=action)
+            self._persist(inv, action)
+            return inv
+
+        # (d) Batch fan-out (KG-2.42): apply the action over a list of targets.
+        # Defaults preserve single-target behaviour when ``batch`` is False.
+        if action.batch:
+            return self._execute_batch(action, actor_id, params, target_id)
+
+        return self._execute_one(action, actor_id, params, target_id)
+
+    def _execute_one(
+        self,
+        action: OntologyAction,
+        actor_id: str,
+        params: dict[str, Any],
+        target_id: str,
+    ) -> ActionInvocation:
+        """Run one fully-validated/authorized invocation against a single target.
+
+        Runs the handler (or the function-backed ref), applies each declared
+        side-effect through the C1 EditLedger (recording one Edit per effect),
+        fires notifications/webhooks, then audits + persists. CONCEPT:KG-2.42.
+        """
+        action_name = action.name
+        # (d) Run the handler — a function_ref backs the action when declared,
+        # otherwise the registered handler runs.
         handler = self.registry.get_handler(action_name)
         try:
-            result = handler(params) if handler else None
-            inv = ActionInvocation(
-                action_name=action_name,
-                actor_id=actor_id,
-                params=params,
-                target_id=target_id,
-                status=ActionStatus.SUCCESS,
-                result_summary=_summarize(result),
-            )
-            inv_result = result
+            if action.function_ref is not None:
+                result = self._invoke_function(action, params, actor_id)
+            else:
+                result = handler(params) if handler else None
+            status = ActionStatus.SUCCESS
+            err = ""
         except Exception as exc:  # noqa: BLE001 — surface as ERROR, never crash
             logger.warning("Action handler %s failed: %s", action_name, exc)
-            inv = ActionInvocation(
-                action_name=action_name,
-                actor_id=actor_id,
-                params=params,
-                target_id=target_id,
-                status=ActionStatus.ERROR,
-                error=str(exc),
-                result_summary=f"handler error: {exc}",
-            )
-            inv_result = None
+            result = None
+            status = ActionStatus.ERROR
+            err = str(exc)
 
-        # (e) Audit + (f) persist.
+        inv = ActionInvocation(
+            action_name=action_name,
+            actor_id=actor_id,
+            params=params,
+            target_id=target_id,
+            status=status,
+            error=err,
+            result_summary=(
+                _summarize(result) if status == ActionStatus.SUCCESS
+                else f"handler error: {err}"
+            ),
+        )
+
+        # (e) Apply typed side-effects through the C1 EditLedger (revertible).
+        if status == ActionStatus.SUCCESS and action.side_effects:
+            try:
+                edits = apply_side_effects(
+                    self.ledger, action, params,
+                    actor=actor_id, invocation_ref=inv.id,
+                )
+                inv.edit_ids = [e.id for e in edits]
+            except Exception as exc:  # noqa: BLE001 — record, never crash the call
+                logger.warning("Side-effects for %s failed: %s", action_name, exc)
+                inv.status = ActionStatus.ERROR
+                inv.error = f"side-effect error: {exc}"
+
+        # (f) Dispatch notifications + webhooks (real, never a silent no-op).
+        if inv.status == ActionStatus.SUCCESS:
+            inv.dispatches = self._dispatch(action, params)
+
+        # (g) Audit + persist.
         self._audit(inv, action=action)
         self._persist(inv, action)
-        # Carry the live result object out-of-band for callers that need it.
-        inv._result = inv_result  # type: ignore[attr-defined]
+        inv._result = result  # type: ignore[attr-defined]
         return inv
+
+    def _execute_batch(
+        self,
+        action: OntologyAction,
+        actor_id: str,
+        params: dict[str, Any],
+        target_id: str,
+    ) -> ActionInvocation:
+        """Apply a batch action across ``params['targets']`` (a list of target ids).
+
+        Each target produces its own :class:`_execute_one` sub-invocation (its own
+        edits + dispatches); the returned envelope aggregates their ids/statuses.
+        ``params`` for each target is the action params with ``target`` bound to
+        the per-item id (so templated side-effects resolve per target).
+        CONCEPT:KG-2.42 — Palantir batch actions.
+        """
+        targets = params.get("targets") or []
+        if not isinstance(targets, (list, tuple)):
+            targets = [targets]
+        envelope = ActionInvocation(
+            action_name=action.name,
+            actor_id=actor_id,
+            params=params,
+            target_id=target_id,
+            status=ActionStatus.SUCCESS,
+            result_summary=f"batch over {len(targets)} target(s)",
+        )
+        for tgt in targets:
+            sub_params = {k: v for k, v in params.items() if k != "targets"}
+            sub_params["target"] = tgt
+            sub = self._execute_one(action, actor_id, sub_params, str(tgt))
+            envelope.edit_ids.extend(sub.edit_ids)
+            envelope.dispatches.extend(sub.dispatches)
+            envelope.batch_results.append(
+                {
+                    "target": tgt,
+                    "invocation_id": sub.id,
+                    "status": str(sub.status),
+                    "edit_ids": list(sub.edit_ids),
+                }
+            )
+            if sub.status != ActionStatus.SUCCESS:
+                envelope.status = ActionStatus.ERROR
+        self._audit(envelope, action=action)
+        self._persist(envelope, action)
+        return envelope
+
+    def _invoke_function(
+        self,
+        action: OntologyAction,
+        params: dict[str, Any],
+        actor_id: str,
+    ) -> Any:
+        """Resolve + run the action's function_ref via the Wave-1 functions runtime.
+
+        Soft import: a function-backed action only hard-depends on the functions
+        runtime at *call* time, so authoring such an action never requires the
+        runtime to be importable. CONCEPT:KG-2.42.
+        """
+        from agent_utilities.knowledge_graph.ontology.functions import FunctionRuntime
+
+        ref = action.function_ref
+        runtime = FunctionRuntime(graph=getattr(self.ledger, "_graph", None))
+        fn_result = runtime.invoke(
+            ref.name,
+            params,
+            version=ref.version or None,
+            actor_id=actor_id,
+        )
+        if not getattr(fn_result, "ok", False):
+            raise RuntimeError(
+                f"function {ref.name!r} failed: {getattr(fn_result, 'error', '')}"
+            )
+        return getattr(fn_result, "value", None)
+
+    def _dispatch(
+        self, action: OntologyAction, params: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Fire all notifications + webhooks for an action; return outcome records."""
+        records: list[dict[str, Any]] = []
+        for note in action.notifications:
+            message = resolve_template(note.template, params) if note.template else ""
+            rec = send_notification(note, message, self.notifier)
+            records.append(rec)
+        for hook in action.webhooks:
+            rec = send_webhook(hook, {"action": action.name, "params": params})
+            records.append(rec)
+        for rec in records:
+            try:
+                self.audit.log(
+                    actor=str(params.get("actor", "system")),
+                    action=ACTION_AUDIT,
+                    resource_type=RESOURCE_TOOL,
+                    resource_id=action.name,
+                    details={"dispatch": rec.get("kind", ""), "transport": rec.get("transport", "")},
+                )
+            except Exception as exc:  # noqa: BLE001 — audit of dispatch is best-effort
+                logger.debug("Dispatch audit failed: %s", exc)
+        return records
+
+    # ── Undo / revert ──────────────────────────────────────────────────────
+    def undo(
+        self,
+        invocation: ActionInvocation,
+        *,
+        actor: str = "system",
+    ) -> list[Any]:
+        """Revert every edit an invocation produced, via the C1 revert path.
+
+        Reverts the invocation's recorded ``edit_ids`` newest-first through the
+        EditLedger, recording compensating edits so the action's effects are
+        cleanly undone and the trail stays append-only. Returns the compensating
+        edits. CONCEPT:KG-2.42 (Palantir action undo/revert).
+        """
+        from agent_utilities.knowledge_graph.ontology.edits import revert_edits
+
+        if not invocation.edit_ids:
+            return []
+        return revert_edits(self.ledger, list(invocation.edit_ids), actor=actor)
 
     # ── Audit + persistence helpers ────────────────────────────────────
 

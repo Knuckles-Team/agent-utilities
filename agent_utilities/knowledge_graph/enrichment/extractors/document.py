@@ -288,6 +288,7 @@ def extract_document(
         doc_type=doc_type,
         file_path=file_path,
         content_hash=content_hash,
+        content=text,
         metadata=metadata,
     )
     concepts = extract_concepts(

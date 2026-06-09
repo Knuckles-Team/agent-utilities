@@ -24,10 +24,12 @@ from .deduplicator import KnowledgeDeduplicator
 from .distillation_engine import DistillationEngine
 from .lsh_index import LSHIndex
 from .physical_distiller import PhysicalDistillationEngine
+from .skill_graph_distiller import SkillGraphDistiller
 
 __all__ = [
     "DistillationEngine",
     "KnowledgeDeduplicator",
     "LSHIndex",
     "PhysicalDistillationEngine",
+    "SkillGraphDistiller",
 ]
