@@ -241,6 +241,31 @@ class PostgreSQLBackend(GraphBackend):
             logger.warning("ensure_label_table(%s) failed: %s", name, e)
             return False
 
+    def ensure_column(self, table: str, column: str) -> bool:
+        """Auto-DDL: ensure ``column`` exists on ``table`` (schema-drift self-heal).
+
+        Schema tables ship with a fixed column set, but a write may reference a
+        column the table lacks (``column ... does not exist``). This adds it as a
+        nullable ``TEXT`` column so the write succeeds instead of being dropped —
+        the column-level companion to :meth:`ensure_label_table`.
+        """
+        import re as _re
+
+        t = _re.sub(r"\W+", "_", str(table or "")).strip("_")
+        c = _re.sub(r"\W+", "_", str(column or "")).strip("_")
+        if not t or not c:
+            return False
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(f'ALTER TABLE "{t}" ADD COLUMN IF NOT EXISTS "{c}" TEXT')
+                    conn.commit()
+            logger.info("auto-DDL: added column '%s' to durable table '%s'", c, t)
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ensure_column(%s,%s) failed: %s", t, c, e)
+            return False
+
     def _translate_columns(self, columns: dict[str, str]) -> str:
         """Translate schema column definitions to PostgreSQL DDL."""
         type_map = {
@@ -406,16 +431,23 @@ class PostgreSQLBackend(GraphBackend):
                     time.sleep(wait)
                     continue
                 # Auto-DDL self-heal: a write to a not-yet-created type table
-                # ("relation X does not exist") creates the table and retries, so a
-                # new node type persists durably instead of being silently dropped.
+                # ("relation X does not exist") creates the table and retries; a
+                # write to a missing column ("column X of relation Y does not
+                # exist") adds the column and retries — so a new node type or a
+                # schema-drifted property persists durably instead of being dropped.
                 import re as _re
 
-                m = _re.search(r'relation "([^"]+)" does not exist', str(e))
-                if (
-                    m
-                    and attempt < max_retries - 1
-                    and self.ensure_label_table(m.group(1))
-                ):
+                healed = False
+                mc = _re.search(
+                    r'column "([^"]+)" of relation "([^"]+)" does not exist', str(e)
+                )
+                if mc and attempt < max_retries - 1:
+                    healed = self.ensure_column(mc.group(2), mc.group(1))
+                else:
+                    mt = _re.search(r'relation "([^"]+)" does not exist', str(e))
+                    if mt and attempt < max_retries - 1:
+                        healed = self.ensure_label_table(mt.group(1))
+                if healed:
                     continue
                 logger.error("PostgreSQL execute error: %s | SQL: %.200s", e, tq.sql)
                 return []
