@@ -22,7 +22,7 @@ Live env (from the running daemon):
 
 ```bash
 GRAPH_BACKEND=tiered GRAPH_BACKEND_L1=epistemic_graph \
-GRAPH_DB_URI="postgresql://postgres:postgres@pggraph.arpa:5432/pggraph" \
+GRAPH_DB_URI="postgresql://agent:agent@pggraph.arpa:5432/agent_kg" \
 GRAPH_SERVICE_SOCKET=/tmp/epistemic-graph.sock \
 AGENT_UTILITIES_CONFIG_DIR=/home/genius/.config/agent-utilities \
 WORKSPACE_PATH=/home/apps/workspace KG_FILE_WATCH=0 KG_EMBED_BACKFILL_BATCH=1000
@@ -41,7 +41,7 @@ WORKSPACE_PATH=/home/apps/workspace KG_FILE_WATCH=0 KG_EMBED_BACKFILL_BATCH=1000
    ```bash
    cd /home/apps/workspace/agent-packages/agent-utilities
    GRAPH_BACKEND=tiered GRAPH_BACKEND_L1=epistemic_graph \
-   GRAPH_DB_URI="postgresql://postgres:postgres@pggraph.arpa:5432/pggraph" \
+   GRAPH_DB_URI="postgresql://agent:agent@pggraph.arpa:5432/agent_kg" \
    GRAPH_SERVICE_SOCKET=/tmp/epistemic-graph.sock \
    AGENT_UTILITIES_CONFIG_DIR=/home/genius/.config/agent-utilities \
    WORKSPACE_PATH=/home/apps/workspace KG_FILE_WATCH=0 KG_EMBED_BACKFILL_BATCH=1000 \
