@@ -29,6 +29,20 @@ Edit THIS file for any narrative / conventions changes, then run:
   is the unified `Planner` facade; `core/execution/` is the `ExecutionEngine`
   Protocol. Consolidated singletons: `core/registry/`, `core/checkpoint/`,
   one `core/config.py`, one `EmbeddingFactory` (`core/embedding_utilities.create_embedding_model`).
+- **Ontology layer (first-class).** `knowledge_graph/ontology/` is the
+  Palantir-Foundry-parity object/link/function/action system, reached **only** through
+  `kg.ontology` (`KnowledgeGraph.ontology` → `OntologySystem`) — never reach into the
+  submodules directly from the execution plane. It binds import-populated registries to the
+  *live* facade (store / `owl_bridge` / retrieval), so interface targeting, derived-property
+  compute, Functions-on-Objects, and ACL enforcement resolve against the real graph. Modules:
+  `interfaces` (KG-2.38), `value_types` (KG-2.39), `derived_properties` (KG-2.40),
+  `functions/` (KG-2.41), `edits/` (KG-2.43), `indexing/` (KG-2.44), `object_set` (KG-2.45),
+  `permissioning` (KG-2.46), `property_types` (KG-2.47), `document_processing` (KG-2.48), and
+  `links` (KG-2.26); action types live in `knowledge_graph/actions/` (KG-2.42). Conventions:
+  registries ship **real built-ins at import** (never an empty shell); cite the Foundry/AIP doc
+  in the module docstring and name from purpose, not the vendor; surface new capability over the
+  `ontology_*` MCP tools (`mcp/kg_server.py`) and the agent-webui `/api/enhanced/ontology/*`
+  routes (ObjectExplorer/Object/Vertex views).
 - **Single source of truth for concepts:** `docs/concepts.yaml` (regenerate via
   `scripts/build_concepts_yaml.py`; README/AGENTS counts come from it).
 - **Guardrail gates (CI + pre-commit, `guardrails.yml`):** `scripts/check_no_stub.py`,

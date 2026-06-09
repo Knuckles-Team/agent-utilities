@@ -85,6 +85,54 @@ We integrated advanced primitives from the MIT Mathematics for Computer Science 
   - **PreemptiveCacheEngine Integration**: `predict_next_states()` satisfies the forecaster contract for predictive context pre-loading.
 - **Structural Causal Reasoning (KG-2.43)**: Utilizes do-calculus and d-separation to perform counterfactual analysis, moving beyond correlation to causal verification.
 
+## Ontology System (Palantir-Foundry-parity)
+
+On top of the epistemic graph sits a **first-class ontology layer**
+(`agent_utilities/knowledge_graph/ontology/`), reached through `kg.ontology`
+(`KnowledgeGraph.ontology` → `OntologySystem`). It mirrors the Palantir Foundry /
+AIP object model — interfaces, value/property types, functions, derived properties,
+action types, durable edits, indexing, object sets, fine-grained permissioning, and
+document processing — but binds those registries to the **same live backend** the
+rest of the KG uses (store / `owl_bridge` semantic / retrieval), so it is not a
+parallel shell: interface targeting, derived-property compute, Functions-on-Objects,
+and ACL enforcement all resolve against the real graph. Provenance for each module
+is cited in its docstring against the Foundry docs; identifiers are named from
+purpose, never the vendor.
+
+- **Interfaces (CONCEPT:KG-2.38)** — abstract shapes a concrete object type implements;
+  the programmatic-targeting resolver expands an interface name to its implementers.
+- **Value types (CONCEPT:KG-2.39)** — constrained semantic types (EmailAddress,
+  Percentage, …) compiled to reusable SHACL `sh:PropertyShape` / named `rdfs:Datatype`
+  and gated by the SHACL validator on write.
+- **Derived properties (CONCEPT:KG-2.40)** — read-time computed properties dispatched
+  across `FUNCTION / CYPHER / SPARQL / EMBEDDING`.
+- **Functions (CONCEPT:KG-2.41)** — typed, versioned, governed user functions
+  (`PLAIN | ON_OBJECTS | QUERY`) over a single audited runtime.
+- **Action types (CONCEPT:KG-2.42, `knowledge_graph/actions/`)** — submission-criteria-gated,
+  typed-side-effecting, batchable, notification/webhook-dispatching, and **revertable**
+  actions over the edit ledger.
+- **Durable object edits (CONCEPT:KG-2.43)** — a bitemporal edit ledger (`EditLedger`,
+  `JsonlEditSink`, `WriteBackRouter`) with per-object history and `revert_edit` / `revert_object`.
+- **Indexing lifecycle (CONCEPT:KG-2.44)** — content-hashed `ObjectIndexFunnel` +
+  `StalenessLedger` driving the same live search index.
+- **Object Set service (CONCEPT:KG-2.45)** — composable handles with
+  `filter` / `search` / `search_around` / `pivot` / `aggregate` and set algebra.
+- **Fine-grained permissioning (CONCEPT:KG-2.46)** — entailment-aware ACL **marking
+  propagation** + `restricted_view` row-drop and `enforce` on the read path.
+- **Property types (CONCEPT:KG-2.47)** — the scalar/geo/vector-embedding/array/struct type
+  vocabulary that drives node-table column DDL and write-path coercion (`column_type_for`).
+- **Document processing (CONCEPT:KG-2.48)** — extract → chunk → embed → link
+  (`DocumentProcessor`, `process_document`).
+- **First-class / reified links (CONCEPT:KG-2.26)** — named directed link types plus
+  many-to-many junction reification onto the existing graph-write path, with reverse traversal.
+
+The layer is exposed over the `ontology_*` MCP tools (`mcp/kg_server.py`) and an operator
+UI in agent-webui — `/api/enhanced/ontology/*` routes plus the **ObjectExplorerView /
+ObjectView / VertexView** views. **Unique value-adds vs Foundry**: OWL/SHACL-backed
+interfaces + value types (reasoning + validation), embedding/cypher/sparql-backed derived
+properties, reified junction links, entailment-aware ACL marking propagation, a bitemporal
+edit history, a self-evolving ontology, and the Rust epistemic engine underneath.
+
 ## Benefits Introduced
 
 - **Provable Safety**: Formal state machines and causal reasoning provide mathematical guarantees against infinite loops and logical paradoxes.
@@ -101,8 +149,10 @@ We integrated advanced primitives from the MIT Mathematics for Computer Science 
 - **KG-2.7**: Rust-Compiled Epistemic Reasoning Backend
 - **KG-2.7**: High-Performance Quant FFI Engine
 - **KG-2.21**: Multi-Timescale Memory
+- **KG-2.26**: First-Class / Reified Junction Links (Ontology System)
 - **KG-2.34**: Spectral Cluster Navigator
-- **KG-2.38**: RAG-KG Unification
+- **KG-2.38**: RAG-KG Unification / Ontology Interfaces
+- **KG-2.39 / 2.40 / 2.41 / 2.42 / 2.43 / 2.44 / 2.45 / 2.46 / 2.47 / 2.48**: Ontology System (value types, derived properties, functions, action types, durable edits, indexing lifecycle, object sets, fine-grained permissioning, property types, document processing) — Palantir-Foundry-parity
 - **KG-2.41–2.49**: Formal Mathematics, Causal Reasoning, and Optimal Execution
 - **KG-2.51**: Multi-Domain Architecture
 - **KG-2.7**: High-Throughput Stream Ingestion & Shared Ephemeral Memory

@@ -79,6 +79,9 @@ class KnowledgeGraph:
         self._compute: Any = ...
         self._semantic: Any = ...
         self._retrieval: CapabilityIndex | None = retrieval
+        self._ontology: Any = ...
+        # Object Index Funnel (CONCEPT:KG-2.44) — lazily built over self.retrieval.
+        self._object_funnel: Any = None
 
     # ------------------------------------------------------------------
     # L0 — store
@@ -194,6 +197,100 @@ class KnowledgeGraph:
         return self._retrieval
 
     # ------------------------------------------------------------------
+    # Ontology layer — Palantir Foundry parity (KG-2.26/2.38/2.39/2.40/2.41/2.47)
+    # ------------------------------------------------------------------
+    @property
+    def ontology(self) -> Any:
+        """The first-class ontology system bound to this graph, or ``None``.
+
+        Composes the property-type / value-type / interface / link / function /
+        derived-property registries (:class:`OntologySystem`) and binds them to
+        *this* facade so Functions-on-Objects, derived-property compute, and
+        interface targeting resolve against the live store/semantic/retrieval
+        layers. Built lazily and defensively — any import failure resolves to
+        ``None`` rather than raising, matching the other layer accessors.
+        """
+        if self._ontology is ...:
+            self._ontology = None
+            try:
+                from .ontology import OntologySystem
+
+                self._ontology = OntologySystem(graph=self)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("KnowledgeGraph: ontology layer unavailable: %s", exc)
+                self._ontology = None
+        return self._ontology
+
+    # ------------------------------------------------------------------
+    # Object Index Lifecycle — the Object Data Funnel (CONCEPT:KG-2.44)
+    # ------------------------------------------------------------------
+    @property
+    def object_index_funnel(self) -> Any:
+        """The Object Data Funnel driving *this* facade's live search index.
+
+        Cached :class:`ObjectIndexFunnel` constructed once over
+        :pyattr:`retrieval` — it drives the SAME :class:`CapabilityIndex`
+        ``designate`` ranks against (never a second index), so batch/incremental
+        sync and staleness tracking apply to the live retrieval plane.
+        """
+        if self._object_funnel is None:
+            from .ontology.indexing import ObjectIndexFunnel
+
+            self._object_funnel = ObjectIndexFunnel(index=self.retrieval)
+        return self._object_funnel
+
+    def sync_object_index(self, nodes: Any) -> Any:
+        """Batch-rebuild the live object index from source-of-truth nodes.
+
+        Routes through :meth:`ObjectIndexFunnel.batch_sync` so staleness is
+        tracked. Returns the funnel's :class:`SyncResult`.
+        """
+        return self.object_index_funnel.batch_sync(nodes)
+
+    def reindex_stale_objects(self, source_nodes: Any) -> Any:
+        """Reconcile the live index against ``source_nodes`` (CONCEPT:KG-2.44).
+
+        Computes content-hash drift via the staleness ledger and applies exactly
+        the needed upsert/delete delta. Returns the funnel's :class:`SyncResult`.
+        """
+        return self.object_index_funnel.reconcile(source_nodes)
+
+    # ------------------------------------------------------------------
+    # Object permissioning — fine-grained read enforcement (CONCEPT:KG-2.46)
+    # ------------------------------------------------------------------
+    def restricted_view(
+        self,
+        objects: list[dict[str, Any]],
+        actor: Any = None,
+        *,
+        mask: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Materialize a permission-filtered VIEW of ``objects`` for an actor.
+
+        Delegates to :func:`ontology.permissioning.restricted_view` (row-drop of
+        marked/ACL-denied objects composed with column redaction).
+        """
+        from .ontology.permissioning import restricted_view as _rv
+
+        return _rv(objects, actor, mask=mask)
+
+    def apply_marking(self, node_id: str, marking: Any) -> None:
+        """Attach a mandatory marking to a node (CONCEPT:KG-2.46)."""
+        from .ontology.permissioning import apply_marking as _am
+
+        _am(node_id, marking)
+
+    def process_document(self, document: Any, **kwargs: Any) -> dict[str, Any]:
+        """Process ``document`` into Document + Chunk objects (CONCEPT:KG-2.48).
+
+        Convenience that runs the document-processing pipeline through this live
+        facade's write path; returns ``{document_node, chunk_nodes, edges}``.
+        """
+        from .ontology.document_processing import process_document as _pd
+
+        return _pd(document, self, **kwargs)
+
+    # ------------------------------------------------------------------
     # Convenience
     # ------------------------------------------------------------------
     def designate(
@@ -258,6 +355,17 @@ class KnowledgeGraph:
 
         rows = store.execute(scope(cypher), params or {}) or []
         rows = filter_rows(rows)
+        # Fine-grained, default-ON object permissioning (CONCEPT:KG-2.46): row-drop
+        # marked/ACL-denied rows + column-redact, allow-by-default for unmarked
+        # rows. Runs regardless of KG_BRAIN_ENFORCE because it is driven by the
+        # data's own mandatory markings/ACLs, so unmarked data passes through
+        # unchanged and existing behaviour is preserved.
+        try:
+            from .ontology.permissioning import enforce as enforce_fine_grained
+
+            rows = enforce_fine_grained(rows)
+        except Exception as exc:  # pragma: no cover - never block a read on infra
+            logger.debug("fine-grained enforce skipped: %s", exc)
         audit_read([], summary="query")
         return rows
 

@@ -142,3 +142,31 @@
             sh:path :capabilityCategory ] ;
     sh:targetClass :Tool .
 
+
+:ObjectEditShape a sh:NodeShape ;
+    sh:description "Durable object edits must carry a valid edit_type and the id of the object they mutate (CONCEPT:KG-2.43)." ;
+    sh:name "Object Edit Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:in ( "property_set" "link_add" "link_remove" "object_create" "object_delete" ) ;
+            sh:maxCount 1 ;
+            sh:message "ObjectEdit.edit_type must be one of the five EditType values." ;
+            sh:minCount 1 ;
+            sh:path :edit_type ],
+        [ sh:datatype xsd:string ;
+            sh:message "ObjectEdit must name the object_id it edits." ;
+            sh:minCount 1 ;
+            sh:path :object_id ] ;
+    sh:targetClass :ObjectEdit .
+
+:ChunkShape a sh:NodeShape ;
+    sh:description "A document Chunk must reference its parent document and carry an ordinal position (CONCEPT:KG-2.48)." ;
+    sh:name "Document Chunk Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Chunk must reference its parent document_id." ;
+            sh:minCount 1 ;
+            sh:path :document_id ],
+        [ sh:datatype xsd:integer ;
+            sh:maxCount 1 ;
+            sh:message "Chunk must carry exactly one ordinal position." ;
+            sh:path :position ] ;
+    sh:targetClass :Chunk .

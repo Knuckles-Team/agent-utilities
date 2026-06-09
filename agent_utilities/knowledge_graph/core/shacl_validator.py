@@ -204,7 +204,26 @@ class SHACLValidator:
                 "results_text": "No governance shapes found.",
             }
 
-        return self.validate(rdf_graph, governance_shapes)
+        # CONCEPT:KG-2.39 — materialize the ontology value-type SHACL shapes next
+        # to the governance shapes so constrained value types (EmailAddress
+        # sh:pattern, Percentage sh:min/maxInclusive, …) are enforced at graph
+        # write time exactly like the hand-authored governance shapes. The
+        # generator is idempotent; failure to materialize never blocks the gate.
+        layers: list[Path] = [governance_shapes]
+        try:
+            from ..ontology.value_types import write_value_shapes_ttl
+
+            value_shapes = Path(
+                write_value_shapes_ttl(str(shapes_dir / "value_types.shapes.ttl"))
+            )
+            if value_shapes.exists():
+                layers.append(value_shapes)
+        except Exception as exc:  # pragma: no cover - enhancement only
+            logger.debug("value-type shapes unavailable: %s", exc)
+
+        if len(layers) == 1:
+            return self.validate(rdf_graph, governance_shapes)
+        return self.validate_layered(rdf_graph, layers)
 
     @staticmethod
     def _parse_violations(results_text: str | bytes) -> list[dict[str, Any]]:
