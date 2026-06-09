@@ -34,6 +34,100 @@ layer. The ontology is the single source of truth; the tools are pluggable.
 
 ---
 
+## Capability matrix — first-party **and** open-source
+
+The thesis in practice: every enterprise **capability** maps to one canonical concept
+set, and each capability has **both a first-party (proprietary) adapter and an
+open-source adapter**. Both emit the same canonical nodes, so reasoning is identical
+regardless of which a deployment runs — you swap the *adapter*, never the *reasoning*.
+The homelab runs the open-source column; client deployments may run the first-party
+column; the federation supports both side-by-side and reconciles them by GUID/key.
+
+A capability is often served by **several products at once** (e.g. ERPNext is the ERP
+*and* the open-source ITSM *and* a project tracker) — each maps to the canonical
+concept for that role, tagged with a `capability` property.
+
+| Capability | First-party | Open-source (run here) | Adapter(s) / harvester(s) | Canonical concept / Egeria type |
+|---|---|---|---|---|
+| Metadata / governance / lineage catalog | Collibra, Alation, Informatica, MS Purview | **Apache Egeria** | *(the SoR itself)* | — (system-of-record) |
+| Enterprise architecture | **LeanIX**, **ARIS**, Ardoq | **Archi / ArchiMate** (+ Egeria) | `leanix`, `archimate` | `:EAFactSheet` / `:ApplicationComponent` |
+| BPM / process | **ARIS**, Pega, Appian | **Camunda** | `camunda` extractor, `processes`, `automation` | `:BusinessProcess` / `Process` |
+| ITSM / service management | **ServiceNow** | **ERPNext** (HelpDesk / Issue) | `servicenow`, `erpnext` (capability=ITSM) | `:Incident` ⊑ `:ApplicationEvent` |
+| ERP | SAP, Oracle, NetSuite | **ERPNext** | `erpnext` (capability=ERP) | `:Employee` / `:Customer` / `DataObject` |
+| CRM | Salesforce, Dynamics | **Twenty** | `crm` | `DataObject` (PII) |
+| Project / work tracking | **Jira** | **Plane**, **ERPNext** (Project/Task) | `projects`, `erpnext` (capability=PM) | `:Project` / `:BusinessTask` |
+| Identity / SSO | Okta, Entra ID | **Keycloak** | `identity` | `Collection` (realm) / Client |
+| Secrets management | CyberArk, Vault Enterprise | **OpenBao** | `secrets` | `:Policy` / component |
+| Knowledge base | **Confluence** | **Nextcloud** / Outline | `knowledge`, `files` | `Collection` |
+| Productivity / files | **Microsoft 365** | **Nextcloud** | `m365`, `files` | `Collection` / `DataObject` |
+| VCS / code | **GitHub** | **GitLab** | `github`, `gitlab` | `DeployedSoftwareComponent` |
+| Chat / collaboration | **Slack** | **Mattermost** | `chat` | `Collection` |
+| Observability | Datadog, Splunk | **Grafana / LGTM** | `observability` | datasource / dashboard |
+| Uptime monitoring | Pingdom | **Uptime Kuma** | `monitoring` | `DeployedSoftwareComponent` |
+| Container orchestration | (cloud consoles) | **Portainer / Swarm** | `containers` | `SoftwareServer` / component |
+| Ingress / reverse proxy | F5, NGINX+ | **Caddy** | `proxy` | route / `Endpoint` |
+| DNS | managed DNS | **Technitium** | `dns` | `Collection` (zone) |
+| Streaming | Confluent | **Apache Kafka** | `kafka` | `DataObject` (topic) |
+| Vector database | Pinecone | **Qdrant** | `vectors` | `DataObject` |
+| RDF / triplestore | GraphDB, Stardog | **Apache Jena** | `semantic` | `DataObject` |
+| Document database | MongoDB Atlas | **MongoDB / DocumentDB** | `documentdb` | `RelationalDatabase` |
+| Automation / config mgmt | Tower SaaS | **Ansible / AWX** | `automation` | `Process` |
+| LLM observability | LangSmith | **Langfuse** | `llmops` | `DataObject` |
+| Mailing / campaigns | Mailchimp | **Listmonk** | `mailing` | `DataObject` (PII) |
+| Quant / market data | Bloomberg, Refinitiv | **emerald-exchange** | `markets` | `DataObject` |
+| Web archive | Archive-It | **ArchiveBox** | `archive` | `Collection` |
+
+Because both columns map to the same concept, a single query — *"every IT service
+event, whoever's tool raised it"* — unifies ServiceNow incidents **and** ERPNext
+issues; *"every catalogued application"* unifies LeanIX fact sheets **and** ArchiMate
+components. The crosswalk axiom that makes this exact (`:Incident owl:equivalentClass
+:ErpNextIssue`) is shown in [§1](#1-the-canonical-crosswalk-keystone).
+
+---
+
+## Egeria — the metadata/governance/lineage system-of-record
+
+Most vendor adapters are **read-only sources**: the extractor lifts their data into
+the KG and stops. **Apache Egeria** is different — it is federated as the
+authoritative **metadata / governance / lineage system-of-record**, and the
+federation is **bidirectional**, under two hard invariants:
+
+- **The KG never becomes the lineage store** — Egeria owns data lineage, the
+  business glossary, and data-governance classifications.
+- **Egeria never orchestrates** — `graph_orchestrate` / the policy router stay the
+  orchestration brain; Egeria is the metadata oracle they *query* and write
+  provenance back to.
+
+| Direction | Mechanism | Code |
+|---|---|---|
+| Egeria → KG | The `egeria` extractor lifts assets/glossary/governance/lineage into canonical nodes (`GlossaryTerm`→`:Concept`, `Asset`/`Connection`→`:DataConnector`, `Policy`→`:Policy`, `DataFlow`→`:flowsTo`). | `knowledge_graph/enrichment/extractors/egeria.py` + `ontology_egeria.ttl` |
+| KG/workflow → Egeria | `governed_route()` turns Egeria `Confidentiality` + downstream lineage into a routing decision (proceed / review / require_approval); the bottom-up harvest populates Egeria from the data estate; run provenance is written back as `DataFlow` lineage. | [`egeria-mcp`](../../../agents/egeria-mcp/docs/overview.md) (`CONCEPT:EG-*`) |
+
+Federation key: every Egeria-sourced node carries `externalToolId` (the Egeria GUID)
++ `domain="egeria"`, so it reconciles with ServiceNow / ERPNext / Camunda / infra
+nodes by GUID/hostname rather than forking parallel untethered nodes. The
+[`egeria-mcp`](../../../agents/egeria-mcp/docs/overview.md) package provides the
+raw-REST OMVS client (`EgeriaApi`), the governed-routing decision, the harvest
+connectors, and the typed MCP tools the policy router calls.
+
+```mermaid
+flowchart LR
+    SRC["34 source systems<br/>(infra · data · ERP/CRM/finance ·<br/>identity · EA · code · observability)"]
+    SRC -->|"egeria-mcp harvest<br/>(config-driven, tolerant)"| EG[("Apache Egeria<br/>metadata / governance /<br/>lineage SoR")]
+    EG -->|"reconcile() — 13 matchers<br/>cross-link layers"| EG
+    EG -->|"list_data_flows()"| EXT["egeria extractor<br/>(extractors/egeria.py)"]
+    EXT -->|":Concept · :DataConnector · :Policy ·<br/>:flowsTo · :dependsOn<br/>(externalToolId = Egeria GUID)"| KG[("epistemic-graph KG<br/>cognition / orchestration")]
+    KG -->|"graph_orchestrate / policy router<br/>governed_route() queries"| EG
+    classDef sor fill:#dae8fe,stroke:#6c8ebf;
+    class EG,KG sor;
+```
+
+Invariants: the **KG never becomes the lineage store**; **Egeria never orchestrates**.
+The full ingester + cross-link + federation map lives in
+[`egeria-mcp/docs/harvesters.md`](../../../agents/egeria-mcp/docs/harvesters.md).
+
+---
+
 ## 1. The canonical crosswalk (keystone)
 
 All ontologies share one namespace (`http://knuckles.team/kg#`), so a class IRI is
