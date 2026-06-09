@@ -568,6 +568,149 @@ class SkillGraphDistiller:
         )
         return manifest
 
+    # ── workflow distillation (paired graph-native procedure skill) ───────
+
+    # Node types whose subgraph reads as an ordered procedure.
+    _PROCEDURE_TYPES = {
+        "procedure", "playbook", "policy", "action", "task", "step", "process",
+    }
+
+    @staticmethod
+    def _token(text: str) -> str:
+        """A single ``[a-zA-Z0-9_-]+`` token (what the workflow validator wants)."""
+        tok = re.sub(r"[^a-zA-Z0-9_-]+", "_", (text or "").strip()).strip("_-")
+        return (tok or "step")[:60]
+
+    @staticmethod
+    def _toposort(nodes: list[str], precedes: list[tuple[str, str]]) -> list[str]:
+        """Kahn topological sort; ``precedes`` = (before, after) pairs. On a cycle,
+        the remaining nodes are appended in their original order (deterministic)."""
+        nset = set(nodes)
+        succ: dict[str, list[str]] = {n: [] for n in nodes}
+        indeg: dict[str, int] = {n: 0 for n in nodes}
+        for a, b in precedes:
+            if a in nset and b in nset:
+                succ[a].append(b)
+                indeg[b] += 1
+        ready = [n for n in nodes if indeg[n] == 0]
+        order: list[str] = []
+        while ready:
+            n = ready.pop(0)
+            order.append(n)
+            for m in succ[n]:
+                indeg[m] -= 1
+                if indeg[m] == 0:
+                    ready.append(m)
+        if len(order) < len(nodes):  # cycle — append the rest deterministically
+            order += [n for n in nodes if n not in set(order)]
+        return order
+
+    async def distill_workflow(
+        self,
+        *,
+        seed: str | None = None,
+        query: str | None = None,
+        depth: int = 2,
+        max_nodes: int = 200,
+        out_dir: str | Path,
+        name: str | None = None,
+    ) -> dict[str, Any]:
+        """Distill a procedure subgraph into a graph-native skill-workflow.
+
+        Maps the KG's procedural structure onto a workflow step-DAG: nodes of a
+        procedure type (or any node participating in a ``PRECEDES`` edge) become
+        steps; ``PRECEDES`` edges become ``depends_on`` ordering. Emits a
+        ``SKILL.md`` consumable/validatable by ``skill-workflow-builder`` plus a
+        ``kg_manifest.json`` for provenance. (CONCEPT:AHE-3.9 / KG-2.7)
+        """
+        selector = {"seed": seed, "query": query, "depth": depth,
+                    "max_nodes": max_nodes, "mode": "workflow"}
+        selection = await self.select_subgraph(
+            seed=seed, query=query, depth=depth, max_nodes=max_nodes
+        )
+        node_ids = selection["node_ids"]
+        props = await self.fetch_props(node_ids)
+        edges = await self._collect_edges(set(node_ids))
+
+        precedes = [(s, d) for (s, d, r) in edges if r.upper() == "PRECEDES"]
+        step_ids: set[str] = set()
+        for s, d in precedes:
+            step_ids.update((s, d))
+        for nid in node_ids:
+            ntype = str(_first(props.get(nid) or {}, _TYPE_KEYS) or "").lower()
+            if ntype in self._PROCEDURE_TYPES:
+                step_ids.add(nid)
+
+        ordered = self._toposort(sorted(step_ids), precedes)
+        pos = {nid: i for i, nid in enumerate(ordered)}
+        # after → [before step numbers]
+        deps: dict[str, list[int]] = {}
+        for before, after in precedes:
+            if before in pos and after in pos:
+                deps.setdefault(after, []).append(pos[before])
+
+        wf_name = name or (seed or query or "kg-workflow")
+        wf_name = self._token(wf_name).lower().replace("_", "-")
+        if not wf_name.endswith("-workflow"):
+            wf_name = f"{wf_name}-workflow"
+
+        lines = [
+            "---",
+            f"name: {wf_name}",
+            "description: >-",
+            f"  Graph-native procedure distilled from the Knowledge Graph "
+            f"({'seed ' + seed if seed else 'query: ' + (query or '')}).",
+            "domain: kg-distilled",
+            "agent: orchestrator",
+            "tags: [kg-distilled, workflow, procedure]",
+            "concept: CONCEPT:KG-2.7",
+            "---",
+            "",
+            f"# {wf_name}",
+            "",
+            "Distilled from KG procedure nodes; `PRECEDES` edges → step ordering.",
+            "",
+        ]
+        for i, nid in enumerate(ordered):
+            p = props.get(nid) or {}
+            token = self._token(_first(p, _TITLE_KEYS) or nid)
+            dep_nums = sorted(set(deps.get(nid, [])))
+            dep_clause = (
+                f" [depends_on: {', '.join(f'Step {n}' for n in dep_nums)}]"
+                if dep_nums else ""
+            )
+            body = str(_first(p, _BODY_KEYS) or _first(p, _TITLE_KEYS) or nid).strip()
+            lines.append(f"### Step {i}: {token}{dep_clause}")
+            lines.append(f"**Agent**: `orchestrator`")
+            lines.append("")
+            lines.append(body)
+            lines.append(f"Expected: {token}_result")
+            lines.append("")
+
+        out = Path(out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "SKILL.md").write_text("\n".join(lines), encoding="utf-8")
+
+        manifest = {
+            "schema": MANIFEST_SCHEMA,
+            "kind": "skill-workflow",
+            "ontology": "agent-utilities",
+            "agent_utilities_version": _pkg_version(),
+            "graph_name": self.graph_name,
+            "selector": selector,
+            "snapshot_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "steps": [
+                {"step": i, "node_id": nid, "depends_on": sorted(set(deps.get(nid, [])))}
+                for i, nid in enumerate(ordered)
+            ],
+            "precedes": [{"before": a, "after": b} for a, b in precedes],
+        }
+        (out / "kg_manifest.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+        logger.info("Distilled workflow %s with %d steps at %s", wf_name, len(ordered), out_dir)
+        return {"name": wf_name, "steps": len(ordered), "manifest": manifest}
+
     async def close(self) -> None:
         try:
             await self.client.close()
@@ -587,14 +730,27 @@ def _pkg_version() -> str:
 async def _amain(args: argparse.Namespace) -> int:
     distiller = await SkillGraphDistiller.connect(graph_name=args.graph_name)
     try:
-        manifest = await distiller.distill(
-            seed=args.seed,
-            query=args.query,
-            depth=args.depth,
-            max_nodes=args.max_nodes,
-            resolution=args.resolution,
-            out_dir=args.out_dir,
-        )
+        if args.workflow:
+            result = await distiller.distill_workflow(
+                seed=args.seed,
+                query=args.query,
+                depth=args.depth,
+                max_nodes=args.max_nodes,
+                out_dir=args.out_dir,
+                name=args.name,
+            )
+            summary = {"kind": "skill-workflow", "name": result["name"],
+                       "steps": result["steps"]}
+        else:
+            manifest = await distiller.distill(
+                seed=args.seed,
+                query=args.query,
+                depth=args.depth,
+                max_nodes=args.max_nodes,
+                resolution=args.resolution,
+                out_dir=args.out_dir,
+            )
+            summary = {"kind": "skill-graph", "stats": manifest["stats"]}
     finally:
         await distiller.close()
     print(
@@ -602,7 +758,7 @@ async def _amain(args: argparse.Namespace) -> int:
             {
                 "out_dir": str(Path(args.out_dir).resolve()),
                 "manifest": str((Path(args.out_dir) / "kg_manifest.json").resolve()),
-                "stats": manifest["stats"],
+                **summary,
             },
             indent=2,
         )
@@ -630,6 +786,15 @@ def main() -> None:
         "--graph-name", default=None, help="Tenant graph (default $KG_GRAPH_NAME or __bus__)."
     )
     parser.add_argument("--out-dir", required=True, help="Output directory.")
+    parser.add_argument(
+        "--workflow",
+        action="store_true",
+        help="Distill a graph-native skill-WORKFLOW (procedure step-DAG from "
+        "PRECEDES edges) instead of a documentation skill-graph.",
+    )
+    parser.add_argument(
+        "--name", default=None, help="Optional name for the distilled workflow."
+    )
     args = parser.parse_args()
     raise SystemExit(asyncio.run(_amain(args)))
 

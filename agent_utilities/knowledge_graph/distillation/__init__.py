@@ -25,6 +25,7 @@ from .distillation_engine import DistillationEngine
 from .lsh_index import LSHIndex
 from .physical_distiller import PhysicalDistillationEngine
 from .skill_graph_distiller import SkillGraphDistiller
+from .skill_graph_importer import import_skill_graph_pack
 
 __all__ = [
     "DistillationEngine",
@@ -32,4 +33,5 @@ __all__ = [
     "LSHIndex",
     "PhysicalDistillationEngine",
     "SkillGraphDistiller",
+    "import_skill_graph_pack",
 ]
