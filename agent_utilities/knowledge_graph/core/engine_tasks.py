@@ -597,6 +597,21 @@ class TaskManagerMixin(GraphEngineProtocol):
                 self._tick_evolution,
             )
         )
+        # Durable-tier autoheal (CONCEPT:KG-2.8): backfill L1 (compute) → L2/L3
+        # (durable Postgres) so the stores converge and an L1-only run / restart /
+        # new node type can never silently diverge. Self-healing: runs ~15s after
+        # startup then every KG_RECONCILE_INTERVAL. Registered only when a durable
+        # reconcile exists (tiered backend); opt-out with KG_RECONCILE_DURABLE=0.
+        if callable(
+            getattr(getattr(self, "backend", None), "reconcile_to_durable", None)
+        ) and os.environ.get("KG_RECONCILE_DURABLE", "1") != "0":
+            jobs.append(
+                (
+                    "reconcile_durable",
+                    float(os.getenv("KG_RECONCILE_INTERVAL", "900")),
+                    self._tick_reconcile_durable,
+                )
+            )
         if os.environ.get("KG_ENRICH_DAEMON", "1") != "0":
             jobs.append(
                 (
@@ -1141,6 +1156,28 @@ class TaskManagerMixin(GraphEngineProtocol):
             except Exception as e:  # noqa: BLE001 — never let the loop die
                 logger.error("EmbeddingBackfillLoop error: %s", e)
                 time.sleep(idle)
+
+    def _tick_reconcile_durable(self) -> None:
+        """Autoheal the L1→L2 durable mirror (CONCEPT:KG-2.8).
+
+        Backfills any nodes/edges present in the L1 compute graph but missing from
+        the durable Postgres tier, so the two stores converge after an L1-only run,
+        a restart, or a newly-introduced node type. Best-effort + idempotent (writes
+        are upserts; auto-DDL creates any missing type table). Logs a drift summary.
+        """
+        backend = getattr(self, "backend", None)
+        fn = getattr(backend, "reconcile_to_durable", None)
+        if not callable(fn):
+            return
+        try:
+            summary = fn()
+            drift = (summary or {}).get("nodes", 0) + (summary or {}).get("edges", 0)
+            if drift or (summary or {}).get("errors"):
+                logger.info("durable reconcile (autoheal): %s", summary)
+            else:
+                logger.debug("durable reconcile: in sync")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("durable reconcile tick failed: %s", e)
 
     def _tick_compaction(self) -> None:
         """One LCM compaction tick (CONCEPT:KG-2.1).
