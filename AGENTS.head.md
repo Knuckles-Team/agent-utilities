@@ -37,6 +37,29 @@ Edit THIS file for any narrative / conventions changes, then run:
 - **Cardinal rules:** no stubs (`raise NotImplementedError` only with `# ABSTRACT-OK`);
   strangler-then-delete (never "v2 beside old"); keep the unit suite green.
 
+## Reward / preference / RL-method primitives (AHE-3.x) — conventions
+
+When adding reward, advantage, preference, or RL-method code (the AHE-3.1 spine and the
+AHE-3.15/3.16/3.17 adaptations), follow these rules — they encode the 2026 reasoning-RL
+work (`.specify/specs/reasoning-rl-2026/`):
+
+- **Opt-in, default-unchanged.** A new parameter on an existing reward primitive MUST default
+  to the prior behaviour (e.g. `batch_normalized_advantage(length_unbiased=False, mode="group")`
+  reproduces GRPO exactly). New behaviour is opted into, never imposed.
+- **Ship primitives WITH a live consumer — never speculatively.** A reward primitive with no
+  caller is dead code (Wire-First). `entropy_progress_weights` ships because
+  `RewardDecomposer.step_advantages` consumes it; ARPO branching ships because
+  `SubagentLifecyclePolicy.determine_route` reads it. Trainer-only micro-mechanics (GSPO
+  sequence-ratio, DPPO rollout pruning) stay **specified, not implemented**, until a
+  policy-gradient trainer consumes them.
+- **We are agentic, not a base-model trainer.** Prefer adaptations that land on live mechanisms —
+  the capability reward-EMA router (`capability_index.record_outcome`), the eval/preference corpus,
+  test-time fan-out — over re-implementing GRPO (already `training_signals.batch_normalized_advantage`).
+- **Cite the paper in the docstring, name from purpose.** Provenance (arXiv id) goes in the
+  docstring/CHANGELOG, never the identifier (`agent_step_po.py`, not `arpo_v1.py`). New
+  `CONCEPT:AHE-3.x` tags are picked up by `scripts/build_concepts_yaml.py`; run
+  `scripts/check_concepts.py` (CI gate) after adding one.
+
 ## Wire-First — reachable ≠ invoked (READ BEFORE shipping a complex feature)
 
 A feature is **not done when its code exists and unit-tests pass** — it is done when a **live call

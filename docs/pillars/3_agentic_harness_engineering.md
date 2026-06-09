@@ -115,3 +115,54 @@ seed-faithful sampling) is wired into `AgenticEvolutionEngine.run_evolution_cycl
 each cycle pushes its outcome keyed by base id so rare/decisive bases resurface
 preferentially via `sample_replay`. Pairs with MEMO merge-generalize (KG-2.1) for
 sample-efficient, weight-free self-evolution (source b4-03). Extends AHE-3.0.
+
+---
+
+## 2026 Reasoning-RL Adaptations (`.specify/specs/reasoning-rl-2026/`)
+
+A comparative analysis of the 2026 reasoning-RL landscape (GRPO, DPO, RLVR, DAPO, Dr.GRPO,
+GSPO, DHPO, EP-GRPO, TR-GRPO, DPPO, ARPO, VPO, InSPO, TI-DPO, RAPPO) found that most of the
+toolkit is *already covered* by the AHE-3.1 reward spine and the capability reward-EMA router.
+The high-leverage gaps are the **agentic adaptations** below, not re-implementing GRPO. See
+[`COMPARATIVE_ANALYSIS.md`](../../.specify/specs/reasoning-rl-2026/COMPARATIVE_ANALYSIS.md) and
+[`ACTIONABLE_PLAN.md`](../../.specify/specs/reasoning-rl-2026/ACTIONABLE_PLAN.md).
+
+### AHE-3.15 — Agent-Step Policy Optimization (ARPO, arXiv:2507.19849)
+For multi-turn tool agents the decisive uncertainty is at *intermediate* tool/decision steps,
+not the final answer. ARPO (a) **branches** extra rollouts at high-entropy agent steps and (b)
+assigns **advantage at the agent-step granularity**, written back into the capability reward-EMA
+so routing learns which intermediate *actions* help — not just which final answers succeed.
+- **Source**: `graph/agent_step_po.py` (`step_entropy`, `should_branch`, `write_back_step_credit`);
+  per-step credit from `graph/reward_decomposition.py::RewardDecomposer.step_advantages`.
+- **Hot Path**: `SubagentLifecyclePolicy.determine_route()` branches to `fan_out` on a
+  high-entropy decision step (bounded by `ARPO_MAX_BRANCHES`).
+
+### AHE-3.16 — Test-Time Diversity (VPO, arXiv:2605.22817)
+Optimizes for a *diverse* candidate set (not a single best) to raise test-time best@k / pass@k.
+The diverse fan-out width is **effort-derived** (`ReasoningBudget.diversity_width`) so harder
+queries fan out wider; MMR selection trades quality vs. embedding-spread diversity. The
+`epistemic-graph` `personalized_pagerank` (seed-diverse propagation) is the optional graph-native
+diversity kernel.
+- **Source**: `graph/test_time_diversity.py` (`diverse_fan_out_width`, `mean_pairwise_distance`,
+  `select_diverse`); `harness/reasoning_effort.py::ReasoningBudget.diversity_width`.
+
+### AHE-3.17 — Preference-Corpus Reliability (RAPPO + TI-DPO + InSPO + DPO)
+A first-class, DPO-ready preference corpus consolidated from the eval corpus, distilled episodes,
+and human corrections — with **RAPPO** ambiguous-pair filtering (keep-the-best-forget-the-rest),
+**TI-DPO** token-importance weights, and **InSPO** reflective conditioning layered on top.
+- **Source**: `harness/preference_pairs.py` (`PreferencePair`, `PreferencePairExporter`,
+  `reliability_filter`, `attach_token_weights`, `with_reflection`).
+- **Hot Path**: `FeedbackService.export_preference_pairs()` — the read-side of the feedback loop.
+
+### AHE-3.1 reward-primitive hardening (Dr.GRPO / DAPO / EP-GRPO / TR-GRPO)
+`graph/training_signals.py` gains opt-in primitives that default to the original GRPO behaviour:
+`batch_normalized_advantage(length_unbiased=…, mode=…, group_ids=…)` (Dr.GRPO σ-bias removal +
+GRPO/REINFORCE++ grouping), `dynamic_sample` (DAPO zero-variance group drop),
+`entropy_progress_weights` (EP-GRPO, consumed by `RewardDecomposer.step_advantages`), and
+`token_regulation` (TR-GRPO). GSPO/DPPO trainer micro-mechanics are deferred until a policy-gradient
+trainer consumes them (Wire-First — no speculative dead code).
+
+## Key Concepts Leveraged (2026 additions)
+- **AHE-3.15**: Agent-Step Policy Optimization (ARPO)
+- **AHE-3.16**: Test-Time Diversity (VPO)
+- **AHE-3.17**: Preference-Corpus Reliability (DPO family)

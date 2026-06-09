@@ -208,6 +208,39 @@ class PostgreSQLBackend(GraphBackend):
             "PostgreSQL schema initialized (%d tables)", len(self._known_tables)
         )
 
+    def ensure_label_table(self, label: str) -> bool:
+        """Auto-DDL: ensure a durable table exists for node ``label`` (self-healing).
+
+        The durable tier ships tables only for types in the static schema; a node
+        of a NEW type (e.g. a freshly-introduced ``SDD_Feature``) would otherwise
+        silently fail to persist (``relation ... does not exist``). This creates a
+        minimal universal node table on demand and registers it with the transpiler
+        so the durable tier **self-extends to any type** instead of dropping it.
+        Idempotent + cheap after the first call (guarded by ``_known_tables``).
+        """
+        import re as _re
+
+        name = _re.sub(r"\W+", "_", str(label or "Node")).strip("_") or "Node"
+        if name in self._known_tables:
+            return True
+        ddl = (
+            f'CREATE TABLE IF NOT EXISTS "{name}" ('
+            "id TEXT PRIMARY KEY, name TEXT, type TEXT, "
+            "properties JSONB DEFAULT '{}'::jsonb, "
+            "created_at TIMESTAMPTZ DEFAULT NOW())"
+        )
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(ddl)
+                    conn.commit()
+            self._known_tables.add(name)
+            logger.info("auto-DDL: ensured durable table for label '%s'", name)
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ensure_label_table(%s) failed: %s", name, e)
+            return False
+
     def _translate_columns(self, columns: dict[str, str]) -> str:
         """Translate schema column definitions to PostgreSQL DDL."""
         type_map = {
@@ -371,6 +404,18 @@ class PostgreSQLBackend(GraphBackend):
                         "PG locked, retrying in %.2fs (attempt %d)", wait, attempt + 1
                     )
                     time.sleep(wait)
+                    continue
+                # Auto-DDL self-heal: a write to a not-yet-created type table
+                # ("relation X does not exist") creates the table and retries, so a
+                # new node type persists durably instead of being silently dropped.
+                import re as _re
+
+                m = _re.search(r'relation "([^"]+)" does not exist', str(e))
+                if (
+                    m
+                    and attempt < max_retries - 1
+                    and self.ensure_label_table(m.group(1))
+                ):
                     continue
                 logger.error("PostgreSQL execute error: %s | SQL: %.200s", e, tq.sql)
                 return []

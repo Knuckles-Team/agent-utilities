@@ -32,7 +32,7 @@ import logging
 import math
 import os
 from enum import Enum, StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from ...core.registry.kg_adapter import FocusedSubgraph, RegistryMixin
 from ..backends import create_backend, get_active_backend
@@ -113,6 +113,7 @@ class IntelligenceGraphEngine(
         db_path: str | None = None,
         external_ontologies: list[str] | None = None,
         graph: Any = None,
+        schema_pack: Any = None,
     ):
         # Use provided backend, or check for an active one, or create one from factory
         if backend is not None:
@@ -172,7 +173,23 @@ class IntelligenceGraphEngine(
         from ..retrieval.hybrid_retriever import HybridRetriever  # type: ignore
         from .inference_engine import InferenceEngine  # type: ignore
 
-        self.hybrid_retriever = HybridRetriever(self)
+        # Resolve the active Schema Pack (explicit > env > config > core) and build
+        # the retriever pack-aware so pack-driven retrieval signals (recency,
+        # source-trust, autocut, relational-intent) are reachable (CONCEPT:KG-2.35).
+        if schema_pack is None:
+            try:
+                from agent_utilities.models.schema_pack_loader import (
+                    get_active_pack,
+                    register_listener,
+                )
+
+                schema_pack = get_active_pack()
+                register_listener(self._on_schema_pack_change)
+            except Exception:  # pragma: no cover - never block engine construction
+                schema_pack = None
+        self.active_schema_pack = schema_pack
+
+        self.hybrid_retriever = HybridRetriever(self, schema_pack=schema_pack)
         self.inference_engine = InferenceEngine(self)
 
         # CONCEPT:ORCH-1.4 — Auto-register service registry
@@ -407,6 +424,9 @@ class IntelligenceGraphEngine(
         as a real-time cache.
         """
         if rel_type:
+            # Flag edge types outside an EXCLUSIVE pack before normalising case
+            # (observe-only; no-op under the default core pack) (CONCEPT:KG-2.35).
+            self._audit_candidate_type("edge", str(rel_type))
             rel_type = rel_type.upper()
         props = properties or {}
         # Inject lightweight provenance/confidence tags for structural memory
@@ -489,6 +509,52 @@ class IntelligenceGraphEngine(
 
         return False
 
+    def _on_schema_pack_change(self, pack: Any) -> None:
+        """Rewire the engine when the active Schema Pack changes (CONCEPT:KG-2.35).
+
+        Rebuilds the retriever so the new pack's retrieval signals take effect
+        immediately; the fresh retriever carries the new ``pack.signature()`` so a
+        prior pack's boosted/cut results can never be served after a switch.
+        """
+        self.active_schema_pack = pack
+        try:
+            from ..retrieval.hybrid_retriever import HybridRetriever
+
+            self.hybrid_retriever = HybridRetriever(self, schema_pack=pack)
+        except Exception:  # pragma: no cover - best-effort rewire
+            logger.debug(
+                "Failed to rewire retriever for new schema pack", exc_info=True
+            )
+
+    def _audit_candidate_type(
+        self, kind: Literal["node", "edge"], type_name: str
+    ) -> None:
+        """Record an out-of-pack node/edge type under an EXCLUSIVE pack (KG-2.35).
+
+        Observe-only: never raises, never blocks the write. A no-op under the
+        default ADDITIVE ``core`` pack (where every type is active).
+        """
+        pack = getattr(self, "active_schema_pack", None)
+        if pack is None:
+            return
+        try:
+            from agent_utilities.models.schema_pack import SchemaPackMode
+
+            if pack.mode != SchemaPackMode.EXCLUSIVE:
+                return
+            if kind == "node":
+                active = {str(t).lower() for t in pack.get_active_node_types()}
+            else:
+                active = {str(t).lower() for t in pack.get_active_edge_types()}
+            if type_name.lower() not in active:
+                from agent_utilities.models.schema_pack_audit import (
+                    SchemaCandidateAuditor,
+                )
+
+                SchemaCandidateAuditor.instance().record(kind, type_name, pack.name)
+        except Exception:  # pragma: no cover - audit must never break writes
+            pass
+
     def add_node(
         self,
         node_id: str,
@@ -506,6 +572,8 @@ class IntelligenceGraphEngine(
         node_type = self._normalize_label(node_type)
         props = properties or {}
         props["type"] = node_type
+        # Flag types outside an EXCLUSIVE pack, observe-only (CONCEPT:KG-2.35).
+        self._audit_candidate_type("node", node_type)
 
         if self.backend and not ephemeral:
             # Tier 1: Backend is source of truth — write here FIRST

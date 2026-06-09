@@ -237,6 +237,9 @@ C4Component
         Component(rewardspine, "Training Reward Spine", "Python", "AHE-3.1: graph/training_signals.py — advantage / failure-point / composite-reward / difficulty-floor")
         Component(replay, "Prioritized Replay Buffer", "Python", "AHE-3.0: harness/replay_buffer.py — inverse-frequency replay of decisive states (b4-03)")
         Component(trainsub, "In-House Training Substrate", "Python+torch+Rust", "AHE-3.1/KG-2.22: data-science-mcp trainers (SFT/DPO/GRPO) + epistemic-graph Rust kernels — see architecture/in_house_training_substrate.md")
+        Component(arpo, "🔬 Agent-Step PO (ARPO)", "Python", "AHE-3.15: graph/agent_step_po.py — entropy-gated branching + per-step credit into the capability reward-EMA (arXiv:2507.19849)")
+        Component(vpo, "🔬 Test-Time Diversity (VPO)", "Python", "AHE-3.16: graph/test_time_diversity.py — effort-derived diverse best-of-k fan-out (arXiv:2605.22817)")
+        Component(prefcorpus, "🔬 Preference-Corpus Reliability", "Python", "AHE-3.17: harness/preference_pairs.py — DPO-ready pair export + RAPPO/TI-DPO/InSPO refinements")
     }
 
     Rel(eval, selfmodel, "Updates self-assessment scores")
@@ -253,6 +256,9 @@ C4Component
     Rel(evolve, replay, "Pushes decisive cycles; sample_replay resurfaces rare states")
     Rel(rewardspine, trainsub, "Feeds reward/advantage signals to trainers")
     Rel(trainsub, eval, "eval_hooks bridge checkpoints into the reliability suite")
+    Rel(arpo, rewardspine, "Per-step advantage via RewardDecomposer.step_advantages")
+    Rel(vpo, eval, "Diverse best-of-k raises test-time pass@k")
+    Rel(prefcorpus, trainsub, "DPO-ready preference pairs feed the trainers")
 ```
 
 > **Training substrate:** the reward spine + replay buffer feed the cross-repo

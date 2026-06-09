@@ -8,6 +8,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **2026 reasoning-RL gap closure (CONCEPT:AHE-3.15 / 3.16 / 3.17 + AHE-3.1)** — implements the
+  high-leverage gaps from `.specify/specs/reasoning-rl-2026/` (the agentic adaptations, not
+  re-implementing GRPO which the AHE-3.1 spine already covers):
+  - **AHE-3.15 Agent-Step Policy Optimization (ARPO, arXiv:2507.19849)** — `graph/agent_step_po.py`
+    (`step_entropy`, `should_branch`, `write_back_step_credit`) + `RewardDecomposer.step_advantages`;
+    `SubagentLifecyclePolicy.determine_route` now branches to `fan_out` on a high-entropy decision
+    step (bounded by `ARPO_MAX_BRANCHES`) and per-step advantage is written back into the capability
+    reward-EMA.
+  - **AHE-3.16 Test-Time Diversity (VPO, arXiv:2605.22817)** — `graph/test_time_diversity.py`
+    (`mean_pairwise_distance`, `select_diverse` MMR best-of-k) + an effort-derived
+    `ReasoningBudget.diversity_width` so harder queries fan out wider/more diverse.
+  - **AHE-3.17 Preference-Corpus Reliability (RAPPO/TI-DPO/InSPO/DPO)** — `harness/preference_pairs.py`
+    (`PreferencePair`, `PreferencePairExporter`, `reliability_filter`, `attach_token_weights`,
+    `with_reflection`) consolidating the eval corpus + distilled episodes + corrections into a
+    DPO-ready pair store; wired live via `FeedbackService.export_preference_pairs`.
+  - **AHE-3.1 reward-primitive hardening** — `graph/training_signals.py`:
+    `batch_normalized_advantage(length_unbiased=…, mode=…, group_ids=…)` (Dr.GRPO σ-bias removal +
+    GRPO/REINFORCE++ grouping), `dynamic_sample` (DAPO), `entropy_progress_weights` (EP-GRPO,
+    consumed by `step_advantages`), `token_regulation` (TR-GRPO). All opt-in, defaults unchanged;
+    GSPO/DPPO trainer mechanics deferred until a trainer consumes them. Docs: AHE pillar page + C4
+    diagram; concepts.yaml regenerated (115 concepts). Tests: `tests/test_training_signals.py`,
+    `tests/test_preference_pairs.py`, `tests/test_agent_step_po.py`, `tests/test_time_diversity.py`.
+- **Job-queue controls on `graph_ingest` (CONCEPT:KG-2.8 queue control)** — operators can now
+  manage the ingestion queue over MCP: `action="cancel"` (job_id → terminal `cancelled`),
+  `action="clear"` (`target_path` = status filter `pending|running|completed|failed|cancelled|
+  zombie|all`, default `completed`; `zombie` clears only `running` tasks not owned by the live
+  host token), and `action="prioritize"` (job_id, `target_path`=`high|normal`). The worker poll
+  is now priority-aware — it claims `priority='high'` pending tasks before others (two-tier poll,
+  since the L1 interpreter strips `ORDER BY`). Backed by `cancel_task`/`clear_tasks`/
+  `prioritize_task` on the task manager + tests in `test_task_queue_controls.py`.
+- **Zombie/stuck task reaper for the KG ingestion queue (CONCEPT:KG-2.8 durability)** —
+  when a worker/host process dies mid-task (crash / SIGKILL / redeploy), the `Task` was
+  stranded in `running` forever and never re-claimed, silently wedging that ingestion (we hit
+  exactly this: 43 `running` vs 8 workers after host hand-offs). The host daemon now runs a
+  `task_reaper` maintenance job (`engine_tasks.py`, default every 120s) that uses the singleton
+  host lock as ground truth: each claim stamps `claimed_by = <host-token>` + `claim_unix`, and
+  since exactly one host runs workers, any `running` task **not** stamped with the *live* token
+  (past a 90s hand-off grace) is an orphan from a dead host → reset to `pending` for re-claim.
+  An absolute-runtime backstop (`KG_TASK_MAX_RUNTIME_SEC`, 2h) catches a wedged-but-alive worker,
+  and a poison-pill cap (`KG_TASK_MAX_REQUEUE`, 3) fails a task that repeatedly kills its worker
+  instead of looping. Host-gated; configurable via `KG_TASK_REAPER_DAEMON`/`_INTERVAL`/
+  `_ORPHAN_GRACE_SEC`. Tests in `tests/unit/knowledge_graph/test_task_reaper.py`.
+
+### Fixed
+- **Document ingestion is ~16–50× faster — embeddings are batched, not per-chunk** —
+  the async document worker (`knowledge_graph/core/engine_tasks.py`) embedded chunks one at a
+  time inside the ingest loop (`embed_model.get_text_embedding(chunk)`), i.e. one network
+  round-trip to the embedding service **per chunk**, which made a single PDF take minutes and
+  contradicted the project's "batch over the wire, never per-element" rule. The loop is now two
+  passes: pass 1 dedups (O(1) id-keyed) and collects new chunks; pass 2 embeds them all via
+  `get_text_embedding_batch` in sub-batches of 64 (with a per-chunk fallback when the model
+  lacks the batch API). Dedup, stale-delete, node properties, and metrics are unchanged.
+- **L1 epistemic-graph Cypher: `WHERE … OR …` and inline-literal relationship ids now work** —
+  the in-memory interpreter's `_parse_where` split only on `AND`, and `_exec_rel_match` required
+  `{id:$param}`; both silently fell through to the read-only legacy reader and returned `[]` for
+  any `OR` clause or a relationship anchored by a quoted literal id — a footgun where "I can't
+  parse this" masqueraded as "no rows". WHERE is now parsed into DNF (OR of AND-groups) via
+  `_parse_where_or`, relationship anchors accept `$param` **or** a quoted literal, and a
+  genuinely unsupported shape is now **logged loudly** before deferring to legacy. Backed by
+  new tests in `tests/unit/knowledge_graph/test_epistemic_backend_cypher.py`. (Note: this was a
+  query-interpreter limitation, **not** a persistence bug — writes always landed; only certain
+  read shapes under-matched.)
+- **`graph_ingest` no longer blocks on document/codebase ingestion (footgun removal)** —
+  passing `content_type` previously routed ingestion through the *synchronous* `IngestionEngine`,
+  so a single PDF/markdown could hang the MCP caller for many minutes with no job id to poll.
+  `graph_ingest(action="ingest")` now **auto-detects** the content type per path via
+  `ContentType.classify` (the single source of truth, CONCEPT:KG-2.7) and **always routes the heavy
+  categories (document, codebase) through the async durable job queue** — even when `content_type`
+  is given explicitly. `content_type` is demoted to an internal override the agent never needs to
+  set; the lightweight special categories (config/prompt/skill/mcp_server/kb/conversation/policy)
+  still fold through the unified engine inline. Live-path tests in `tests/unit/mcp/test_kg_server.py`
+  assert a `.pdf` (and an explicit `content_type="document"`) enqueue an async `submit_task` rather
+  than running inline.
+- **Document ingestion jobs reported `nodes: 0` in per-category metrics** — the async document worker
+  recorded persisted-Article counts under `chunks_added`, but `aggregate_ingest_metrics` reads
+  `nodes_added`/`edges_added`. Completed document jobs therefore always showed 0 nodes despite
+  persisting one Article node per new chunk. The worker now also surfaces `nodes_added`/`edges_added`
+  (`knowledge_graph/core/engine_tasks.py`), so document-ingest node counts are visible.
+
+### Added
 - **Structured-output contracts on the RLM subagent fan-out (CONCEPT:ORCH-1.12)** —
   extends the Predict-RLM runtime so subagents return *schema-constrained, typed* values instead of
   free-form prose (the "external attention mask" pattern from the RLM-structured-outputs writeup).
@@ -29,6 +109,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Root contract generalized** — `run_rlm(..., output_type=…)` (`rlm/runner.py`) and
     `_generate_instruction_prompt` (`rlm/predict_rlm.py`) accept/show primitive/generic/model output
     specs, not just a free-form string.
+- **Schema-Pack 2.0 — domain retrieval+extraction+reasoning profiles (CONCEPT:KG-2.22–KG-2.37)** —
+  turns the domain Schema Pack from a type-selection profile into a fully-wired domain profile,
+  closing gbrain-class gaps while leveraging our OWL reasoner and bi-temporal store for capabilities a
+  flat brain layer cannot match:
+  - **KG-2.22 Pack-Driven Retrieval Signals** — declarative per-type recency decay (over bi-temporal
+    `event_time`, with `graph_search(as_of=…)` for "knowledge state as of date D"), per-source trust
+    weighting, and score-discontinuity **autocut**, applied in `HybridRetriever.retrieve_hybrid`
+    (`retrieval/autocut.py`). No-op under the default `core` pack (bit-for-bit backward compatible).
+  - **KG-2.33 Zero-LLM Pack-Driven Link Inference** — `knowledge_graph/kb/link_inference.py`
+    materialises typed edges (supports/weakens/cites/uses-dataset) from pack-declared **ReDoS-bounded**
+    regex rules on write; wired into `EntityClaimExtractor.extract_and_persist`.
+  - **KG-2.34 Relational-Intent Retrieval** — `knowledge_graph/retrieval/relational_intent.py` parses
+    "which papers support X" / "what is cited by Y" deterministically and walks typed edges; merged
+    additively into hybrid retrieval (no-op for non-relational queries).
+  - **KG-2.35 Schema-Pack Lifecycle & Audit** — `models/schema_pack_loader.py` resolves the active pack
+    (`GRAPH_SCHEMA_PACK` > config > `core`) and threads it into the engine/retriever (previously
+    pack-blind); `models/schema_pack_audit.py` records out-of-pack candidate types under EXCLUSIVE packs
+    (observe-only, privacy-hashed). Exposed via `graph_configure(action="schema_pack"|"schema_candidates")`.
+  - **KG-2.36 Pack-Driven OWL Closure** — packs declare edge types as transitive/symmetric/inverse OWL
+    object-properties, unioned into the `owl_bridge` reasoning sets so multi-hop support chains and
+    `cites`/`cited_by` inverses are inferred **for free** (idempotent fixpoint).
+  - **KG-2.37 Research-State Domain Pack** — flagship `research-state` pack realising the
+    [garrytan/gbrain#587](https://github.com/garrytan/gbrain/issues/587) "academic literature state"
+    use case; adds dedicated `WEAKENS` / `USES_DATASET` edge types.
 - **Tool gap-fill resolver for workflow materialization (CONCEPT:ECO-4.0)** — `graph/tool_resolver.py`
   `resolve_tools`: when a workflow template needs a tool that isn't bound (e.g. a gitlab-pr tool), substitute
   an available tool providing the same capability (via the capability index) or surface a precise gap

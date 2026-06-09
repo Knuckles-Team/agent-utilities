@@ -309,6 +309,10 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "broad_match",
     "creator",
     "cites_source",
+    "cited_by_paper",
+    # Research-state domain edges (CONCEPT:KG-2.37)
+    "weakens",
+    "uses_dataset",
     "has_financial_instrument",
     "executed_transaction",
     "account",
@@ -517,6 +521,24 @@ class OWLBridge:
             self._effective_node_types = PROMOTABLE_NODE_TYPES
             self._effective_edge_types = PROMOTABLE_EDGE_TYPES
 
+        # A pack may declare its edge types as transitive/symmetric/inverse
+        # object-properties; these are unioned into the lightweight reasoning sets
+        # below so the existing promote→reason→downfeed cycle materialises multi-hop
+        # and inverse edges for free — e.g. a research pack's supports_belief
+        # transitive chains and cites_source/cited_by inverses (CONCEPT:KG-2.36).
+        if schema_pack is not None and getattr(
+            schema_pack, "owl_object_properties", None
+        ):
+            (
+                self._pack_transitive,
+                self._pack_symmetric,
+                self._pack_inverse,
+            ) = schema_pack.get_owl_closure_sets()
+        else:
+            self._pack_transitive = set()
+            self._pack_symmetric = set()
+            self._pack_inverse = {}
+
         # Ephemeral Namespaced In-Memory and Shared Cache registries
         self._namespaces: dict[str, dict[str, Any]] = {}
         self._namespace_ttls: dict[str, float] = {}
@@ -603,6 +625,14 @@ class OWLBridge:
             "close_match",
             "broad_match",
         ]
+        # Union pack-declared object-property characteristics so the compiled Datalog
+        # closure also covers the active domain's edges (CONCEPT:KG-2.36).
+        transitive_props = list(
+            dict.fromkeys(transitive_props + sorted(self._pack_transitive))
+        )
+        symmetric_props = list(
+            dict.fromkeys(symmetric_props + sorted(self._pack_symmetric))
+        )
 
         # Run compiled Datalog reasoning
         inferred = eg.infer_transitive(transitive_props, symmetric_props)
@@ -656,6 +686,10 @@ class OWLBridge:
                 }
             )
 
+        # Pack-declared inverse closure — the Rust transitive engine does not handle
+        # owl:inverseOf, so emit it here so both paths agree (CONCEPT:KG-2.36).
+        inferences.extend(self._inverse_inferences())
+
         return inferences
 
     def _python_reasoning(self) -> list[dict[str, Any]]:
@@ -678,6 +712,12 @@ class OWLBridge:
             "close_match",
             "broad_match",
         }
+        # Union pack-declared object-property characteristics (CONCEPT:KG-2.36).
+        transitive_props |= self._pack_transitive
+        symmetric_props |= self._pack_symmetric
+
+        # Pack-declared inverse closure: for every A -rel-> B, emit B -inverse-> A.
+        inferences.extend(self._inverse_inferences())
 
         for u, v, data in self.graph.edges(data=True):
             rel = data.get("type")
@@ -721,6 +761,34 @@ class OWLBridge:
                                 )
 
         return inferences
+
+    def _inverse_inferences(self) -> list[dict[str, Any]]:
+        """Emit inverse-edge facts for pack-declared ``owl:inverseOf`` properties.
+
+        CONCEPT:KG-2.36 — for each edge ``A -rel-> B`` whose ``rel`` has a declared
+        inverse ``inv``, emit ``B -inv-> A`` (deduplicated downstream by
+        ``_downfeed_inferences``, so re-running the cycle is a fixpoint).
+        """
+        if not self._pack_inverse:
+            return []
+        out: list[dict[str, Any]] = []
+        for u, v, data in self.graph.edges(data=True):
+            rel = data.get("type")
+            inv = self._pack_inverse.get(rel) if rel else None
+            if not inv:
+                continue
+            existing = self.graph.get_edge_data(v, u, default={})
+            if any(e.get("type") == inv for e in existing.values()):
+                continue
+            out.append(
+                {
+                    "subject": v,
+                    "predicate": inv,
+                    "object": u,
+                    "inference_type": "inverse_closure",
+                }
+            )
+        return out
 
     def _is_eligible_node(self, node_id: str, attrs: dict[str, Any]) -> bool:
         """Check if a node meets promotion criteria."""

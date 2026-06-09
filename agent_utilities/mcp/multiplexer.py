@@ -84,6 +84,8 @@ SERVER_NICKNAMES = {
     "langfuse-mcp": "lf",
     "portainer-mcp": "pt",
     "legal-peripherals-mcp": "lgl",
+    "egeria-mcp": "eg",
+    "dr-egeria-mcp": "dre",
 }
 
 

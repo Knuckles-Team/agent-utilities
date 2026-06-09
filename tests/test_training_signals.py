@@ -11,7 +11,10 @@ from agent_utilities.graph.training_signals import (
     batch_normalized_advantage,
     composite_reward,
     difficulty_floor_filter,
+    dynamic_sample,
+    entropy_progress_weights,
     failure_point,
+    token_regulation,
 )
 
 pytestmark = pytest.mark.concept("AHE-3.1")
@@ -31,6 +34,70 @@ def test_advantage_degenerate_groups_are_zero():
     assert batch_normalized_advantage([]) == []
     assert batch_normalized_advantage([5.0]) == [0.0]
     assert batch_normalized_advantage([2.0, 2.0, 2.0]) == [0.0, 0.0, 0.0]
+
+
+# --- 2026 reasoning-RL extensions -------------------------------------------
+
+
+def test_advantage_length_unbiased_drops_std_term():
+    # Dr.GRPO: length_unbiased returns centered (r−μ) WITHOUT the /σ division.
+    rewards = [1.0, 2.0, 3.0]
+    mean = 2.0
+    out = batch_normalized_advantage(rewards, length_unbiased=True)
+    assert out == [round(r - mean, 6) for r in rewards]
+    # and it differs from the σ-normalized default
+    assert out != batch_normalized_advantage(rewards)
+
+
+def test_advantage_group_mode_normalizes_within_group():
+    # GRPO per-prompt grouping: two prompts, each normalized independently.
+    rewards = [1.0, 3.0, 10.0, 30.0]
+    group_ids = ["p1", "p1", "p2", "p2"]
+    out = batch_normalized_advantage(rewards, group_ids=group_ids)
+    # within each group the values are symmetric around their own mean
+    assert out[0] == pytest.approx(-out[1])
+    assert out[2] == pytest.approx(-out[3])
+    # global mode normalizes across the whole list → different result
+    glob = batch_normalized_advantage(rewards, mode="global")
+    assert glob != out
+
+
+def test_dynamic_sample_drops_zero_variance_groups():
+    groups = [[1.0, 2.0, 3.0], [5.0, 5.0, 5.0], [0.0, 1.0], [7.0]]
+    kept, dropped = dynamic_sample(groups)
+    assert kept == [[1.0, 2.0, 3.0], [0.0, 1.0]]
+    assert dropped == 2  # the all-equal group and the singleton
+
+
+def test_entropy_progress_weights_emphasize_progress():
+    # entropy decreasing across steps = progress; the biggest drop weights highest.
+    w = entropy_progress_weights([1.0, 0.9, 0.2, 0.25])
+    assert len(w) == 4
+    assert w[0] == 0.0  # no previous step → no progress signal
+    assert w[2] == 1.0  # 0.9→0.2 is the largest drop → max weight
+    assert w[3] == 0.0  # entropy rose → no progress
+    # no progress anywhere → uniform fallback
+    assert entropy_progress_weights([0.1, 0.2, 0.3]) == [1.0, 1.0, 1.0]
+
+
+def test_token_regulation_scales_by_importance():
+    out = token_regulation([1.0, 1.0, 1.0], [2.0, 1.0, 0.0])
+    # normalized importances = [1.0, 0.5, 0.0]
+    assert out == [1.0, 0.5, 0.0]
+    with pytest.raises(ValueError):
+        token_regulation([1.0], [1.0, 2.0])
+
+
+def test_kernel_parity_with_epistemic_graph_group_relative_advantage():
+    # W1.3: the named epistemic-graph kernel must match this Python impl bit-for-bit,
+    # so callers can delegate the batch math to the engine without behaviour drift.
+    from epistemic_graph.quant import group_relative_advantage
+
+    for rewards in ([1.0, 2.0, 3.0, 10.0], [0.5, 0.5, 1.5], [-3.0, 4.0], [7.0]):
+        assert group_relative_advantage(rewards) == batch_normalized_advantage(rewards)
+        assert group_relative_advantage(
+            rewards, length_unbiased=True
+        ) == batch_normalized_advantage(rewards, length_unbiased=True)
 
 
 # --- failure_point ---------------------------------------------------------

@@ -79,6 +79,33 @@ Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planning/` (unified `P
 | `KG-2.18` | Evidence-Weighted Memory 🔬 | 1 | 1 | [KG-2.18](pillars/2_epistemic_knowledge_graph/KG-2.18-Evidence_Weighted_Memory.md) |
 | `KG-2.19` | Self-Curating Wiki 🔬 | 2 | 1 | [KG-2.19](pillars/2_epistemic_knowledge_graph/KG-2.19-Self_Curating_Wiki.md) |
 | `KG-2.20` | Mementified Context Management 🔬 | 4 | 1 | [KG-2.20](pillars/2_epistemic_knowledge_graph/KG-2.20-Mementified_Context_Management.md) |
+| `KG-2.21` | Working Set Eviction & Memory Management | 1 | 1 | [KG-2.21](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.22` | Pack-Driven Retrieval Signals 🔬 | 3 | 2 | [KG-2.22](pillars/2_epistemic_knowledge_graph/KG-2.22-Pack_Driven_Retrieval_Signals.md) |
+| `KG-2.23` | Rust-Accelerated Reasoning | 1 | 1 | [KG-2.23](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.24` | Live Refreshable Artifact models + bounded-JSON + safe interpolation | 1 | 1 | [KG-2.24](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.25` | the default registry is populated at import, not an empty | 1 | 1 | [KG-2.25](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.26` | Trade-Journal Bias Auditor and Shadow Account | 1 | 1 | [KG-2.26](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.27` | Agent Calibration and Reputation Tracking | 1 | 1 | [KG-2.27](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.28` | Persona Decision-Heuristic Enrichment | 1 | 1 | [KG-2.28](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.29` | Sentiment Fusion Signals | 1 | 1 | [KG-2.29](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.30` | Geopolitical Risk Scoring | 1 | 1 | [KG-2.30](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.31` | Dividend Sustainability & Credit/Fixed-Income Quality | 1 | 1 | [KG-2.31](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.32` | Multi-Market Composite Backtester | 1 | 1 | [KG-2.32](pillars/2_epistemic_knowledge_graph.md) |
+| `KG-2.33` | Zero-LLM Pack-Driven Link Inference 🔬 | 2 | 1 | [KG-2.33](pillars/2_epistemic_knowledge_graph/KG-2.33-Zero_LLM_Link_Inference.md) |
+| `KG-2.34` | Relational-Intent Retrieval 🔬 | 2 | 1 | [KG-2.34](pillars/2_epistemic_knowledge_graph/KG-2.34-Relational_Intent_Retrieval.md) |
+| `KG-2.35` | Schema-Pack Lifecycle and Audit 🔬 | 3 | 2 | [KG-2.35](pillars/2_epistemic_knowledge_graph/KG-2.35-Schema_Pack_Lifecycle_And_Audit.md) |
+| `KG-2.36` | Pack-Driven OWL Closure 🔬 | 2 | 1 | [KG-2.36](pillars/2_epistemic_knowledge_graph/KG-2.36-Pack_Driven_OWL_Closure.md) |
+| `KG-2.37` | Research-State Domain Pack 🔬 | 2 | 1 | [KG-2.37](pillars/2_epistemic_knowledge_graph/KG-2.37-Research_State_Domain_Pack.md) |
+
+> **Schema-Pack 2.0 (KG-2.22–KG-2.37)** turns the domain Schema Pack from a
+> type-selection profile into a full domain retrieval+extraction+reasoning profile,
+> closing gbrain-class gaps (recency decay, source-trust, zero-LLM typed-edge
+> extraction, relational recall, autocut, candidate auditing) while leveraging our
+> OWL reasoner and bi-temporal store for closure and `as_of` literature state that a
+> flat brain layer cannot provide. See `models/schema_pack.py`,
+> `models/schema_pack_loader.py`, `models/schema_pack_audit.py`,
+> `knowledge_graph/retrieval/{autocut,relational_intent}.py`,
+> `knowledge_graph/kb/link_inference.py`, and the `research-state` pack.
 
 Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memory.py`, `knowledge_graph/core/engine_tasks.py`, `knowledge_graph/core/graph_compute.py`, `knowledge_graph/core/topological_analysis_engine.py`, `knowledge_graph/research/research_intelligence_engine.py`, `knowledge_graph/memory/synthesis.py`, `knowledge_graph/memory/memory_materializer.py`, `knowledge_graph/memory/observer.py`, `knowledge_graph/memory/reflector.py`, `knowledge_graph/memory/startup_context.py`, `knowledge_graph/ontology.ttl`, `knowledge_graph/retrieval/retrieval_quality.py`, `knowledge_graph/pipeline/document_deletion.py`, `knowledge_graph/pipeline/document_update.py`, `domains/finance/`, `knowledge_graph/orchestration/engine_enterprise.py`, `knowledge_graph/pipeline/phases/external_graphs.py`, `knowledge_graph/ingestion/engine.py`, `scripts/install_git_hooks.py`, `scripts/submit_diff.py`, `mcp/kg_server.py`, `mcp/kg_coordinator.py`, `knowledge_graph/backends/epistemic_graph_backend.py`, `knowledge_graph/backends/postgresql_backend.py`, `knowledge_graph/backends/tiered_backend.py`, `knowledge_graph/backends/contrib/ladybug_backend.py`, 🔬 `knowledge_graph/core/ar_graph.py`, 🔬 `knowledge_graph/core/time_series_graph.py`
 

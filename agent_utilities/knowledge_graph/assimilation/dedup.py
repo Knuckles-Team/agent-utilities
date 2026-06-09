@@ -76,7 +76,11 @@ def iter_all_edges(graph: Any) -> list[tuple[str, str, dict]] | None:
         for e in seq:
             # Require (src, dst, props-dict); without edge data we can't classify
             # closing/excluded relationships, so bail to the per-node fallback.
-            if not isinstance(e, tuple | list) or len(e) < 3 or not isinstance(e[2], dict):
+            if (
+                not isinstance(e, tuple | list)
+                or len(e) < 3
+                or not isinstance(e[2], dict)
+            ):
                 return None
             out.append((e[0], e[1], e[2]))
         return out

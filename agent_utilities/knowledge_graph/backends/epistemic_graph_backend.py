@@ -137,8 +137,10 @@ class EpistemicGraphBackend(GraphBackend):
         """
         import re
 
+        # Anchor id accepts either a ``$param`` placeholder or an inline quoted
+        # literal (``{id:'foo'}``) — interactive callers commonly write the literal.
         m = re.search(
-            r"MATCH\s*\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)"
+            r"MATCH\s*\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*(\$\w+|'[^']*'|\"[^\"]*\")\s*\}\s*\)"
             r"\s*-\s*\[\s*\w*\s*:?\s*(\w+)?[^\]]*\]\s*->\s*"
             r"\(\s*(\w+)\s*(?::(\w+))?\s*\)",
             q,
@@ -146,13 +148,13 @@ class EpistemicGraphBackend(GraphBackend):
         )
         if not m:
             return False, []
-        _src_var, id_param, rel, tgt_var, tgt_label = m.groups()
+        _src_var, id_token, rel, tgt_var, tgt_label = m.groups()
 
         # Only the simple "anchor by id, project the target" shape is supported.
         if re.search(r"\bSET\b|\bDETACH\b", q, re.I):
             return False, []
 
-        anchor_id = params.get(id_param)
+        anchor_id = self._coerce_literal(id_token, params)
         if anchor_id is None or not self._graph.has_node(anchor_id):
             return True, []
 
@@ -352,35 +354,53 @@ class EpistemicGraphBackend(GraphBackend):
         var, label, inline = m.group(1), m.group(2), m.group(3)
         qu = q.upper()
 
-        conds: list[tuple[str, str, Any]] = []
+        inline_conds: list[tuple[str, str, Any]] = []
         if inline:
             for pair in inline.strip("{}").split(","):
                 if ":" not in pair:
                     continue
                 k, v = pair.split(":", 1)
-                conds.append((k.strip(), "=", self._coerce_literal(v, params)))
+                inline_conds.append((k.strip(), "=", self._coerce_literal(v, params)))
 
+        # WHERE is parsed into DNF — a list of AND-groups that are OR-combined (a row
+        # matches if ANY group matches). An inline ``{prop:..}`` pattern ANDs into
+        # every group. A genuinely unsupported shape returns None and is logged
+        # loudly rather than silently returning [] — the old behaviour masqueraded
+        # "I can't parse this" as "no rows", a debugging footgun. (CONCEPT:KG-2.0)
+        where_groups: list[list[tuple[str, str, Any]]] = [inline_conds]
         mw = re.search(
             r"\bWHERE\b(.+?)(?:\bSET\b|\bRETURN\b|\bDETACH\b|\bDELETE\b|$)",
             q,
             re.I | re.S,
         )
         if mw:
-            parsed = self._parse_where(mw.group(1), var, params)
-            if parsed is None:
+            groups = self._parse_where_or(mw.group(1), var, params)
+            if groups is None:
+                logger.warning(
+                    "epistemic_graph backend: unsupported WHERE shape, deferring to "
+                    "legacy reader (may under-match): %s",
+                    mw.group(1).strip()[:200],
+                )
                 return False, []  # unsupported WHERE → defer to legacy
-            conds.extend(parsed)
+            where_groups = [inline_conds + g for g in groups]
 
-        # Gather matching nodes. Fast path: an ``id = <value>`` equality resolves
-        # a single node directly (O(1)) instead of scanning the whole graph
-        # (O(N)). Ingestion issues many id-keyed MATCH/SET upserts, so without
-        # this every write is O(N) → ingestion is O(N²) and degrades as the
-        # graph grows. (CONCEPT:KG-2.8 ingestion throughput)
+        # Gather matching nodes. Fast path: a single AND-group with an ``id = <value>``
+        # equality resolves one node directly (O(1)) instead of scanning the whole
+        # graph (O(N)). Ingestion issues many id-keyed MATCH/SET upserts, so without
+        # this every write is O(N) → ingestion is O(N²) and degrades as the graph
+        # grows. A disjunction (OR) can't use the fast path → full scan.
+        # (CONCEPT:KG-2.8 ingestion throughput)
         matched: list[tuple[str, dict[str, Any]]] = []
-        id_val = next(
-            (v for (p, op, v) in conds if p == "id" and op == "=" and v is not None),
-            None,
-        )
+        id_val = None
+        if len(where_groups) == 1:
+            id_val = next(
+                (
+                    v
+                    for (p, op, v) in where_groups[0]
+                    if p == "id" and op == "=" and v is not None
+                ),
+                None,
+            )
 
         # Fast path: a bare aggregate count (``MATCH (n) RETURN count(n)``) with
         # no label/WHERE/SET/DELETE needs only the node *count* — never per-node
@@ -392,7 +412,7 @@ class EpistemicGraphBackend(GraphBackend):
         cnt_m = re.search(r"\bRETURN\b\s+count\s*\(\s*\*?\s*\w*\s*\)", q, re.I)
         if (
             id_val is None
-            and not conds
+            and not any(where_groups)
             and not label
             and cnt_m
             and "SET" not in qu
@@ -406,8 +426,8 @@ class EpistemicGraphBackend(GraphBackend):
         if id_val is not None:
             if self._graph.has_node(id_val):
                 data = self._graph._get_node_properties(id_val) or {}
-                if (not label or self._label_match(data, label)) and self._eval_conds(
-                    id_val, data, conds
+                if (not label or self._label_match(data, label)) and self._eval_groups(
+                    id_val, data, where_groups
                 ):
                     matched.append((id_val, data))
         else:
@@ -419,7 +439,7 @@ class EpistemicGraphBackend(GraphBackend):
                 data = data or {}
                 if label and not self._label_match(data, label):
                     continue
-                if not self._eval_conds(nid, data, conds):
+                if not self._eval_groups(nid, data, where_groups):
                     continue
                 matched.append((nid, data))
 
@@ -488,6 +508,74 @@ class EpistemicGraphBackend(GraphBackend):
             else:
                 return None
         return conds
+
+    def _parse_where_or(
+        self, text: str, var: str, params: dict[str, Any]
+    ) -> list[list[tuple[str, str, Any]]] | None:
+        """Parse a WHERE clause into DNF — OR of AND-groups.
+
+        Splits on top-level ``OR`` and parses each disjunct with the conjunctive
+        ``_parse_where``. Returns a list of AND-groups (a row matches if ANY group
+        matches), or ``None`` if any disjunct is an unsupported shape. With no
+        top-level ``OR`` this returns a single group, identical to the prior
+        AND-only behaviour.
+        """
+        groups: list[list[tuple[str, str, Any]]] = []
+        for part in self._split_or(text):
+            parsed = self._parse_where(part, var, params)
+            if parsed is None:
+                return None
+            groups.append(parsed)
+        return groups or None
+
+    @staticmethod
+    def _split_or(text: str) -> list[str]:
+        """Split on top-level ``OR`` (case-insensitive), respecting (), [], {}, quotes."""
+        import re
+
+        out: list[str] = []
+        buf: list[str] = []
+        depth = 0
+        quote: str | None = None
+        i, n = 0, len(text)
+        while i < n:
+            ch = text[i]
+            if quote:
+                buf.append(ch)
+                if ch == quote:
+                    quote = None
+                i += 1
+            elif ch in "'\"":
+                quote = ch
+                buf.append(ch)
+                i += 1
+            elif ch in "([{":
+                depth += 1
+                buf.append(ch)
+                i += 1
+            elif ch in ")]}":
+                depth -= 1
+                buf.append(ch)
+                i += 1
+            elif depth == 0 and (m := re.match(r"\s+OR\s+", text[i:], re.I)):
+                out.append("".join(buf))
+                buf = []
+                i += m.end()
+            else:
+                buf.append(ch)
+                i += 1
+        if buf:
+            out.append("".join(buf))
+        return [s for s in out if s.strip()]
+
+    def _eval_groups(
+        self,
+        nid: str,
+        data: dict[str, Any],
+        groups: list[list[tuple[str, str, Any]]],
+    ) -> bool:
+        """DNF evaluation: the row matches if ANY AND-group matches."""
+        return any(self._eval_conds(nid, data, g) for g in groups)
 
     def _eval_conds(
         self, nid: str, data: dict[str, Any], conds: list[tuple[str, str, Any]]

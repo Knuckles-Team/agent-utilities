@@ -480,6 +480,13 @@ class RegistryEdgeType(StrEnum):
     RESULTED_IN = "resulted_in"
     SUPPORTS_BELIEF = "supports_belief"
     CONTRADICTS_BELIEF = "contradicts_belief"
+    # Research-state domain edges (CONCEPT:KG-2.37). WEAKENS is distinct from
+    # CONTRADICTS_BELIEF: it expresses partial/evidential undermining (the X-thread
+    # research-state vocabulary: supports vs weakens), not flat logical contradiction.
+    WEAKENS = "weakens"
+    # USES_DATASET is distinct from WAS_DERIVED_FROM: a method/experiment *consumes*
+    # a dataset as input, rather than a node being provenance-derived from another.
+    USES_DATASET = "uses_dataset"
     GENERALIZES_TO = "generalizes_to"
     INSTANCE_OF_PATTERN = "instance_of_pattern"
     CAUSED_INCIDENT = "caused_incident"

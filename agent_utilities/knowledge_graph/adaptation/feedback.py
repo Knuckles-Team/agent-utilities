@@ -119,6 +119,31 @@ class FeedbackService:
         return self._apply_eval(target_id, corrected_value, reason)
 
     # ------------------------------------------------------------------
+    def export_preference_pairs(self, *, min_margin: float = 0.1) -> list[Any]:
+        """Consolidate eval corpus + distilled episodes + corrections into a
+        reliability-filtered, DPO-ready preference-pair corpus (CONCEPT:AHE-3.17).
+
+        This is the read-side of the feedback loop: every correction/eval recorded
+        through this service flows back out as clean (chosen ≻ rejected) pairs, with
+        RAPPO ambiguous-pair filtering applied. Layers TI-DPO token weights / InSPO
+        reflection are opt-in on the returned pairs.
+        """
+        from agent_utilities.harness.preference_pairs import (
+            PreferencePairExporter,
+            reliability_filter,
+        )
+
+        exporter = PreferencePairExporter(backend=self.backend)
+        kept, dropped = reliability_filter(exporter.export(), min_margin=min_margin)
+        if dropped:
+            logger.info(
+                "[AHE-3.17] preference export: kept=%d dropped=%d (ambiguous/degenerate)",
+                len(kept),
+                dropped,
+            )
+        return kept
+
+    # ------------------------------------------------------------------
     def _apply_outcome(self, target_id, reward, corrected_value, reason):
         if self.capability_index is None or not hasattr(
             self.capability_index, "record_outcome"

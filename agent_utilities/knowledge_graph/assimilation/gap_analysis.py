@@ -181,7 +181,11 @@ def auto_satisfy(
         via = ""
         # 1) explicit id reference (high precision)
         hit = next(
-            (concept_by_key[r] for r in _feature_refs(fid, fdata) if r in concept_by_key),
+            (
+                concept_by_key[r]
+                for r in _feature_refs(fid, fdata)
+                if r in concept_by_key
+            ),
             None,
         )
         if hit is not None:
@@ -272,7 +276,10 @@ def _closed_feature_index(
         return closed, feats
     wanted = {t.lower() for t in feature_types}  # case-insensitive (live labels)
     for nid, data in node_iter:
-        if not isinstance(data, dict) or str(data.get("type", "")).lower() not in wanted:
+        if (
+            not isinstance(data, dict)
+            or str(data.get("type", "")).lower() not in wanted
+        ):
             continue
         feats[nid] = data
         if str(data.get("status", "")).lower() in _CLOSED_STATUS:
@@ -325,8 +332,10 @@ def _clear_auto_satisfied(engine: Any, feature_ids: set[str]) -> int:
     edges = iter_all_edges(graph)
     if edges is not None:
         for src, dst, props in edges:
-            if src in feature_ids and _rel_of(props) == "SATISFIED_BY" and props.get(
-                "auto"
+            if (
+                src in feature_ids
+                and _rel_of(props) == "SATISFIED_BY"
+                and props.get("auto")
             ):
                 pairs.append((src, dst))
     else:
