@@ -282,14 +282,25 @@ def extract(config: Any) -> ExtractionBatch:
             # Ensure both endpoints exist as nodes — reconciled infrastructure assets
             # are not always returned by list_assets — then map the semantic label to
             # flowsTo (data movement) or dependsOn (structural/hosting).
-            for g, nk, tk in ((src, "sourceName", "sourceType"), (tgt, "targetName", "targetType")):
+            for g, nk, tk in (
+                (src, "sourceName", "sourceType"),
+                (tgt, "targetName", "targetType"),
+            ):
                 _add(
                     f"egeria_asset:{g}",
                     _kg_type(_first(rec, tk)),
-                    {"domain": "egeria", "externalToolId": g, "name": _first(rec, nk) or g},
+                    {
+                        "domain": "egeria",
+                        "externalToolId": g,
+                        "name": _first(rec, nk) or g,
+                    },
                 )
             edges.append(
-                _edge(f"egeria_asset:{src}", f"egeria_asset:{tgt}", _flow_rel(_first(rec, "label")))
+                _edge(
+                    f"egeria_asset:{src}",
+                    f"egeria_asset:{tgt}",
+                    _flow_rel(_first(rec, "label")),
+                )
             )
 
     return ExtractionBatch(category=CATEGORY, nodes=nodes, edges=edges)
@@ -302,8 +313,15 @@ def _edge(source: str, target: str, rel_type: str) -> EnrichmentEdge:
 
 # Cross-link labels that denote a structural dependency rather than data movement.
 _STRUCTURAL = {
-    "hosts", "realizes", "secures", "same-as", "means",
-    "deploys", "monitors", "reads", "groups",
+    "hosts",
+    "realizes",
+    "secures",
+    "same-as",
+    "means",
+    "deploys",
+    "monitors",
+    "reads",
+    "groups",
 }
 
 

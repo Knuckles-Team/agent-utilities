@@ -242,9 +242,7 @@ class TieredGraphBackend(GraphBackend):
             fn = getattr(graph, meth, None)
             if callable(fn):
                 try:
-                    return [
-                        (e[0], e[1], e[2] if len(e) > 2 else {}) for e in fn()
-                    ]
+                    return [(e[0], e[1], e[2] if len(e) > 2 else {}) for e in fn()]
                 except Exception:  # noqa: BLE001
                     pass
         try:  # underlying client list()
@@ -287,7 +285,9 @@ class TieredGraphBackend(GraphBackend):
         }
         graph = getattr(self.l1, "graph", None)
         if graph is None:
-            logger.warning("reconcile_to_durable: L1 exposes no compute graph; skipping")
+            logger.warning(
+                "reconcile_to_durable: L1 exposes no compute graph; skipping"
+            )
             return summary
 
         # --- Nodes: write each (auto-DDL on the L3 write path heals new types). ---
@@ -300,7 +300,9 @@ class TieredGraphBackend(GraphBackend):
         for nid in node_ids:
             try:
                 props = dict(graph._get_node_properties(nid) or {})
-                label = _sanitize_label(props.get("type") or props.get("label") or "Node")
+                label = _sanitize_label(
+                    props.get("type") or props.get("label") or "Node"
+                )
                 l1_by_label[label] = l1_by_label.get(label, 0) + 1
                 self.l3.execute(
                     f"CREATE (n:{label} {{id: $id, name: $name, type: $type}})",

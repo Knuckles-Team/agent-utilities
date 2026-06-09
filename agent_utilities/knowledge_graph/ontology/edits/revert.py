@@ -16,7 +16,6 @@ CONCEPT:KG-2.43
 
 import logging
 from copy import deepcopy
-from typing import Any
 
 from agent_utilities.knowledge_graph.core.kg_versioning import (
     KGMutation,
@@ -192,7 +191,7 @@ def revert_edits(
         The compensating edits, in the order they were applied.
     """
     selected = [ledger.get(eid) for eid in edit_ids]
-    missing = [eid for eid, e in zip(edit_ids, selected) if e is None]
+    missing = [eid for eid, e in zip(edit_ids, selected, strict=False) if e is None]
     if missing:
         raise KeyError(f"edits not in ledger: {missing}")
     ordered: list[Edit] = sorted(

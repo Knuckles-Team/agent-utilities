@@ -56,10 +56,10 @@ class PreferencePair(BaseModel):
 
     def model_post_init(self, _ctx: Any) -> None:
         if not self.id:
-            raw = f"{self.prompt}{self.chosen}{self.rejected}".encode(
-                errors="replace"
+            raw = f"{self.prompt}{self.chosen}{self.rejected}".encode(errors="replace")
+            object.__setattr__(
+                self, "id", f"pref-{hashlib.sha256(raw).hexdigest()[:12]}"
             )
-            object.__setattr__(self, "id", f"pref-{hashlib.sha256(raw).hexdigest()[:12]}")
 
 
 def _coerce_str(v: Any) -> str:
@@ -215,9 +215,7 @@ def reliability_filter(
     return kept, dropped
 
 
-def attach_token_weights(
-    pair: PreferencePair, weights: list[float]
-) -> PreferencePair:
+def attach_token_weights(pair: PreferencePair, weights: list[float]) -> PreferencePair:
     """TI-DPO: attach per-token importance weights over the chosen response so a
     downstream DPO loss can focus on the tokens that drive the preference.
     (arXiv:2505.19653)

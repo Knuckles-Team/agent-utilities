@@ -60,7 +60,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from ..facade import KnowledgeGraph
+    pass
 
 
 __all__ = [
@@ -117,7 +117,7 @@ _COMPARATORS: dict[str, Callable[[Any, Any], bool]] = {
 
 
 def _is_container(v: Any) -> bool:
-    return isinstance(v, (list, tuple, set, frozenset, dict, str))
+    return isinstance(v, list | tuple | set | frozenset | dict | str)
 
 
 class PropertyFilter:
@@ -285,7 +285,9 @@ class GraphView:
         compute = getattr(graph, "graph", None)
         if compute is not None and hasattr(compute, "node_ids"):
             self._g = compute
-            self._store = store if store is not None else getattr(graph, "backend", None)
+            self._store = (
+                store if store is not None else getattr(graph, "backend", None)
+            )
         else:
             self._g = graph
             self._store = store
@@ -333,9 +335,7 @@ class GraphView:
         return node_id in set(self.node_ids())
 
     # ── typed traversal ──────────────────────────────────────────────────────
-    def out_neighbors(
-        self, node_id: str, link_type: str | None
-    ) -> list[str]:
+    def out_neighbors(self, node_id: str, link_type: str | None) -> list[str]:
         """Successor ids of ``node_id`` whose edge type matches ``link_type``.
 
         ``link_type`` of ``None`` returns *all* successors. Edge type is read from
@@ -372,9 +372,7 @@ class GraphView:
         # Fallback: plain successor/predecessor ids + per-edge property lookup.
         try:
             succ_fn = "get_successors" if outgoing else "get_predecessors"
-            neigh = (
-                getattr(g, succ_fn)(node_id) if hasattr(g, succ_fn) else []
-            )
+            neigh = getattr(g, succ_fn)(node_id) if hasattr(g, succ_fn) else []
             for other in neigh:
                 if other in seen:
                     continue
@@ -499,7 +497,7 @@ class ObjectSet:
                 try:
                     if pred(self._view.props(nid)):
                         out.append(nid)
-                except Exception:
+                except Exception:  # nosec B112 — a bad predicate skips that node, not the query
                     continue
             return out
         if self.kind is ObjectSetKind.TEMPORARY and self._is_expired():
@@ -737,9 +735,7 @@ class ObjectSet:
         their ``group_by`` property. Returns a :class:`PivotResult` carrying the
         ``{group_value: [ids]}`` buckets plus the full linked :class:`ObjectSet`.
         """
-        linked = self.search_around(
-            link_type, hops=1, direction=direction, cap=cap
-        )
+        linked = self.search_around(link_type, hops=1, direction=direction, cap=cap)
         groups: dict[Any, list[str]] = {}
         for nid in linked.ids():
             key = _prop(self._view.props(nid), group_by)
@@ -789,7 +785,7 @@ class ObjectSet:
             key = _prop(props, group_by) if group_by is not None else None
             counts[key] = counts.get(key, 0) + 1
             if metric != "count":
-                val = _as_number(props.get(field))
+                val = _as_number(props.get(field)) if field is not None else None
                 if val is not None:
                     buckets.setdefault(key, []).append(val)
 
@@ -883,7 +879,7 @@ def _view_for(graph: Any) -> GraphView:
     if compute is not None and hasattr(compute, "node_ids"):
         return GraphView(compute, store=store)
     # IntelligenceGraphEngine: has .graph (+ optional .backend) — GraphView unwraps.
-    if hasattr(graph, "graph") and hasattr(getattr(graph, "graph"), "node_ids"):
+    if hasattr(graph, "graph") and hasattr(graph.graph, "node_ids"):
         return GraphView(graph)
     # Raw GraphComputeEngine / in-memory duck graph.
     return GraphView(graph, store=store)
@@ -963,7 +959,7 @@ def _as_number(value: Any) -> float | None:
     """Coerce a value to float for aggregation, or ``None`` if non-numeric."""
     if isinstance(value, bool):
         return float(value)
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     if isinstance(value, str):
         try:
@@ -1022,9 +1018,7 @@ def dynamic_object_set(
     else:
         merged = predicate or prop_pred  # type: ignore[assignment]
 
-    return ObjectSet(
-        graph, kind=ObjectSetKind.DYNAMIC, predicate=merged, name=name
-    )
+    return ObjectSet(graph, kind=ObjectSetKind.DYNAMIC, predicate=merged, name=name)
 
 
 def object_set_of_type(

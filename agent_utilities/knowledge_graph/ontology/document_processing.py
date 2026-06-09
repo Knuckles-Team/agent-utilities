@@ -237,7 +237,9 @@ def _segment(text: str, cfg: ChunkingConfig) -> list[tuple[str, int, int]]:
     if chosen == "":
         # Hard character windows.
         for i in range(0, len(text), cfg.chunk_size):
-            atoms.append((text[i : i + cfg.chunk_size], i, min(i + cfg.chunk_size, len(text))))
+            atoms.append(
+                (text[i : i + cfg.chunk_size], i, min(i + cfg.chunk_size, len(text)))
+            )
         return atoms
 
     pos = 0
@@ -415,7 +417,7 @@ class DocumentProcessor:
         embeddings = self._embed([sp.text for sp in spans])
 
         chunks: list[DocumentChunk] = []
-        for sp, emb in zip(spans, embeddings):
+        for sp, emb in zip(spans, embeddings, strict=False):
             cid = f"{doc_id}::chunk::{sp.index}:{_sha(sp.text)[:12]}"
             chunks.append(
                 DocumentChunk(
@@ -475,34 +477,51 @@ class DocumentProcessor:
         """
         from ..enrichment.extractors.document import (
             detect_doc_type,
-            read_document_text,
         )
 
         # 1) Explicit pre-extracted text wins (OCR / external extraction).
         if text is not None:
             label = source or "<text>"
-            return text, label, detect_doc_type(label, text), self._first_line(text, label)
+            return (
+                text,
+                label,
+                detect_doc_type(label, text),
+                self._first_line(text, label),
+            )
 
         # 2) A real file on disk → KB/enrichment reader.
-        if isinstance(document, (str, Path)) and self._looks_like_path(document):
+        if isinstance(document, str | Path) and self._looks_like_path(document):
             path = Path(document)
             if path.exists() and path.is_file():
                 label = source or str(path)
                 extracted = self._read_file(path)
-                return extracted, label, detect_doc_type(str(path), extracted), (
-                    self._first_line(extracted, path.name)
+                return (
+                    extracted,
+                    label,
+                    detect_doc_type(str(path), extracted),
+                    (self._first_line(extracted, path.name)),
                 )
 
         # 3) Raw bytes — decode as UTF-8 text (caller pre-extracts binary formats).
         if isinstance(document, bytes):
             label = source or "<bytes>"
             decoded = document.decode("utf-8", errors="replace")
-            return decoded, label, detect_doc_type(label, decoded), self._first_line(decoded, label)
+            return (
+                decoded,
+                label,
+                detect_doc_type(label, decoded),
+                self._first_line(decoded, label),
+            )
 
         # 4) Plain string content treated as the document text itself.
         if isinstance(document, str):
             label = source or "<text>"
-            return document, label, detect_doc_type(label, document), self._first_line(document, label)
+            return (
+                document,
+                label,
+                detect_doc_type(label, document),
+                self._first_line(document, label),
+            )
 
         # 5) Path-like that didn't resolve → empty (process() raises clearly).
         label = source or str(document)
@@ -575,7 +594,9 @@ class DocumentProcessor:
         try:
             vectors = fn(texts)
         except Exception as exc:  # noqa: BLE001 — never let embedding break ingest
-            logger.warning("[KG-2.48] embedding failed, materializing without vectors: %s", exc)
+            logger.warning(
+                "[KG-2.48] embedding failed, materializing without vectors: %s", exc
+            )
             return [None] * len(texts)
         out: list[list[float] | None] = []
         for v in vectors:
@@ -687,7 +708,11 @@ class DocumentProcessor:
         if hasattr(g, "add_node") and hasattr(g, "add_edge"):
             return g
         store = getattr(g, "store", None)
-        if store is not None and hasattr(store, "add_node") and hasattr(store, "add_edge"):
+        if (
+            store is not None
+            and hasattr(store, "add_node")
+            and hasattr(store, "add_edge")
+        ):
             return store
         return None
 
@@ -713,11 +738,18 @@ class DocumentProcessor:
             ok |= self._write_node(writer, cn)
         for e in edges:
             try:
-                props = {k: v for k, v in e.items() if k not in ("source", "target", "type")}
+                props = {
+                    k: v for k, v in e.items() if k not in ("source", "target", "type")
+                }
                 writer.add_edge(e["source"], e["target"], rel_type=e["type"], **props)
                 ok = True
             except Exception as exc:  # noqa: BLE001
-                logger.debug("[KG-2.48] add_edge failed %s->%s: %s", e["source"], e["target"], exc)
+                logger.debug(
+                    "[KG-2.48] add_edge failed %s->%s: %s",
+                    e["source"],
+                    e["target"],
+                    exc,
+                )
         return ok
 
     @staticmethod
@@ -733,7 +765,9 @@ class DocumentProcessor:
                 writer.add_node(node["id"], **props)
                 return True
             except Exception as exc:  # noqa: BLE001
-                logger.debug("[KG-2.48] add_node failed for %s: %s", node.get("id"), exc)
+                logger.debug(
+                    "[KG-2.48] add_node failed for %s: %s", node.get("id"), exc
+                )
                 return False
         except Exception as exc:  # noqa: BLE001
             logger.debug("[KG-2.48] add_node failed for %s: %s", node.get("id"), exc)

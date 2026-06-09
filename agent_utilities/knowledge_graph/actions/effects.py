@@ -24,7 +24,6 @@ from .models import (
     CriterionOp,
     EffectKind,
     OntologyAction,
-    SubmissionCriterion,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,7 +60,9 @@ def resolve_params(raw: dict[str, Any], params: dict[str, Any]) -> dict[str, Any
     return {k: resolve_template(v, params) for k, v in raw.items()}
 
 
-def _scope_value(field: str, params: dict[str, Any], actor_id: str, actor_caps: list[str]) -> Any:
+def _scope_value(
+    field: str, params: dict[str, Any], actor_id: str, actor_caps: list[str]
+) -> Any:
     """Resolve a criterion ``field`` against the params/actor scope."""
     if field == "actor.id":
         return actor_id

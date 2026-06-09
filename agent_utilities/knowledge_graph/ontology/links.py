@@ -293,14 +293,22 @@ class JunctionLinkType(LinkType):
             target=jid,
             type=self.edge_type,
             weight=weight,
-            metadata={"link_type": self.name, "role": self.source_role, "junction": jid},
+            metadata={
+                "link_type": self.name,
+                "role": self.source_role,
+                "junction": jid,
+            },
         )
         edge_b = RegistryEdge(
             source=target_id,
             target=jid,
             type=self.target_edge_type,
             weight=weight,
-            metadata={"link_type": self.name, "role": self.target_role, "junction": jid},
+            metadata={
+                "link_type": self.name,
+                "role": self.target_role,
+                "junction": jid,
+            },
         )
         return node, edge_a, edge_b
 

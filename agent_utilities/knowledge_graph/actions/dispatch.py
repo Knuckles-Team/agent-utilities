@@ -76,7 +76,9 @@ class RecordingNotifier:
         }
         self.records.append(record)
         logger.debug(
-            "Notification recorded: channel=%s recipient=%s", spec.channel, spec.recipient
+            "Notification recorded: channel=%s recipient=%s",
+            spec.channel,
+            spec.recipient,
         )
         return record
 

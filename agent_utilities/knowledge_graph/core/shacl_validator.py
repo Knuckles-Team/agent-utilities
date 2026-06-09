@@ -209,7 +209,7 @@ class SHACLValidator:
         # sh:pattern, Percentage sh:min/maxInclusive, …) are enforced at graph
         # write time exactly like the hand-authored governance shapes. The
         # generator is idempotent; failure to materialize never blocks the gate.
-        layers: list[Path] = [governance_shapes]
+        layers: list[str | Path] = [governance_shapes]
         try:
             from ..ontology.value_types import write_value_shapes_ttl
 

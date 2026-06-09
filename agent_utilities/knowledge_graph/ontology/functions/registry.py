@@ -248,9 +248,7 @@ class FunctionRegistry:
         """
         versions = self._specs.setdefault(spec.name, {})
         if spec.version in versions and not replace:
-            raise ValueError(
-                f"function already registered: {spec.name}@{spec.version}"
-            )
+            raise ValueError(f"function already registered: {spec.name}@{spec.version}")
         versions[spec.version] = spec
         logger.debug(
             "Registered function %s@%s (kind=%s, released=%s)",
@@ -302,7 +300,10 @@ class FunctionRegistry:
     def versions(self, name: str) -> list[str]:
         """Return all registered version strings for ``name``, semver-ascending."""
         versions = self._specs.get(name, {})
-        return [s.version for s in sorted(versions.values(), key=lambda s: s.version_tuple())]
+        return [
+            s.version
+            for s in sorted(versions.values(), key=lambda s: s.version_tuple())
+        ]
 
     def list_functions(self) -> list[FunctionSpec]:
         """Return one spec per name (the resolved latest) for discovery."""
@@ -327,7 +328,9 @@ class FunctionRegistry:
 # ── Built-in functions ──────────────────────────────────────────────────────
 
 
-def _summarize_object(object_id: str = "", properties: dict[str, Any] | None = None) -> str:
+def _summarize_object(
+    object_id: str = "", properties: dict[str, Any] | None = None
+) -> str:
     """Functions-on-Object: a deterministic one-line summary of an object.
 
     Reads the supplied ``properties`` mapping (already materialized by a caller
@@ -351,7 +354,11 @@ def _numeric_aggregate(values: list[Any], op: str = "sum") -> float:
     Non-numeric entries are ignored. An empty (or all-non-numeric) input yields
     ``0.0`` for every op except ``count`` (which counts numeric entries).
     """
-    nums = [float(v) for v in values if isinstance(v, int | float) and not isinstance(v, bool)]
+    nums = [
+        float(v)
+        for v in values
+        if isinstance(v, int | float) and not isinstance(v, bool)
+    ]
     op = (op or "sum").lower()
     if op == "count":
         return float(len(nums))

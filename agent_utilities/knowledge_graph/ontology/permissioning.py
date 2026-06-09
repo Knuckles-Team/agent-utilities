@@ -157,7 +157,9 @@ def _is_privileged(actor: ActorContext) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _property_classification(obj: dict[str, Any], prop: str) -> DataClassification | None:
+def _property_classification(
+    obj: dict[str, Any], prop: str
+) -> DataClassification | None:
     """Resolve a per-property classification from an object's metadata.
 
     A property is classified either by a sibling ``__classification__`` map
@@ -183,7 +185,7 @@ def _property_markings(obj: dict[str, Any], prop: str) -> set[str]:
     mmap = obj.get("__markings__")
     if isinstance(mmap, dict):
         raw = mmap.get(prop)
-        if isinstance(raw, (list, tuple, set)):
+        if isinstance(raw, list | tuple | set):
             return {str(x) for x in raw}
         if isinstance(raw, str) and raw:
             return {raw}
@@ -486,7 +488,7 @@ def build_acl(
         classification=classification,
         read_roles=list(read_roles or []),
         data_owner=data_owner,
-        actor_type=ActorType.SYSTEM,
+        data_owner_type=ActorType.SYSTEM,
     )
     get_company_brain().permissions.set_acl(acl)
     return acl

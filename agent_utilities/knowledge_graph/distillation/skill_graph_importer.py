@@ -44,7 +44,7 @@ def _extract_body(md_text: str) -> str:
     # Drop leading frontmatter block.
     fm = re.match(r"^---\s*\n.*?\n---\s*\n", text, re.DOTALL)
     if fm:
-        text = text[fm.end():]
+        text = text[fm.end() :]
     # Drop a single leading "# Heading" line.
     text = re.sub(r"^\s*#\s+.*\n", "", text, count=1)
     # Truncate at the appended "## Related" section.

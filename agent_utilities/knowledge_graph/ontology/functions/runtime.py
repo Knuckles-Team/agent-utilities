@@ -92,9 +92,7 @@ def coerce_output(value: Any, expected: type) -> Any:
         return float(value)
     if expected is str and isinstance(value, int | float | bool):
         return str(value)
-    raise TypeError(
-        f"output expected {expected.__name__}, got {type(value).__name__}"
-    )
+    raise TypeError(f"output expected {expected.__name__}, got {type(value).__name__}")
 
 
 class FunctionRuntime:
@@ -155,24 +153,19 @@ class FunctionRuntime:
             resolution/validation/handler/output failure (never raises).
         """
         params = dict(params or {})
-        spec = self.registry.get(
-            name, version, released_only=self.released_only
-        )
+        spec = self.registry.get(name, version, released_only=self.released_only)
         if spec is None:
             return self._fail(
                 name,
                 version or "",
                 actor_id,
-                f"unknown function: {name!r}"
-                + (f"@{version}" if version else ""),
+                f"unknown function: {name!r}" + (f"@{version}" if version else ""),
             )
 
         # (b) Validate typed inputs.
         errors = spec.validate_params(params)
         if errors:
-            return self._fail(
-                spec.name, spec.version, actor_id, "; ".join(errors)
-            )
+            return self._fail(spec.name, spec.version, actor_id, "; ".join(errors))
 
         # (c) Inject the object context for Functions-on-Objects.
         call_kwargs = dict(params)
@@ -183,8 +176,12 @@ class FunctionRuntime:
         try:
             raw = spec.handler(**call_kwargs)
         except Exception as exc:  # noqa: BLE001 — surface as a typed error
-            logger.warning("Function handler %s@%s failed: %s", spec.name, spec.version, exc)
-            return self._fail(spec.name, spec.version, actor_id, f"handler error: {exc}")
+            logger.warning(
+                "Function handler %s@%s failed: %s", spec.name, spec.version, exc
+            )
+            return self._fail(
+                spec.name, spec.version, actor_id, f"handler error: {exc}"
+            )
 
         # (e) Validate & coerce the typed output.
         try:

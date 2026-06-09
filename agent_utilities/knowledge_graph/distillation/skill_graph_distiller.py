@@ -122,7 +122,9 @@ class SkillGraphDistiller:
     def __init__(self, client: Any, graph_name: str = "__bus__") -> None:
         self.client = client
         self.graph_name = graph_name
-        self._embed_model: Any | None = None
+        # ``Any`` (not ``Any | None``): a ``False`` sentinel marks "tried & failed"
+        # without mypy inferring a ``bool`` member that lacks ``get_text_embedding``.
+        self._embed_model: Any = None
 
     # ── construction ──────────────────────────────────────────────────────
 
@@ -510,7 +512,7 @@ class SkillGraphDistiller:
             blob = edge[2] if len(edge) > 2 else None
             if blob:
                 try:
-                    if isinstance(blob, (list, tuple)):
+                    if isinstance(blob, list | tuple):
                         blob = bytes(blob)
                     eprops = msgpack.unpackb(blob, raw=False) if blob else {}
                     rel = str(_first(eprops, _REL_KEYS) or rel)

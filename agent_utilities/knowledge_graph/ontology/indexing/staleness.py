@@ -30,8 +30,9 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +53,9 @@ def _canonical(value: Any) -> Any:
     """
     if isinstance(value, Mapping):
         return {str(k): _canonical(value[k]) for k in value}
-    if isinstance(value, (set, frozenset)):
+    if isinstance(value, set | frozenset):
         return sorted(_canonical(v) for v in value)
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [_canonical(v) for v in value]
     if isinstance(value, float):
         return round(value, 9)
@@ -181,9 +182,7 @@ class StalenessLedger:
         source_watermark: float = 0.0,
     ) -> ObjectVersion:
         """Hash ``payload`` and record it as the indexed version of ``object_id``."""
-        return self.record_indexed(
-            object_id, content_hash(payload), source_watermark
-        )
+        return self.record_indexed(object_id, content_hash(payload), source_watermark)
 
     def record_deleted(self, object_id: str) -> bool:
         """Forget the indexed version of a removed object. Returns whether present."""

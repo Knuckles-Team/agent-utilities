@@ -202,7 +202,7 @@ class ValueType(BaseModel):
         self._check_constraints(coerced)
         return coerced
 
-    def validate(self, value: Any) -> bool:
+    def validate(self, value: Any) -> bool:  # type: ignore[override]  # domain check, not pydantic's deprecated validate
         """Return True iff ``value`` coerces and satisfies every constraint."""
         try:
             self.coerce(value)
@@ -237,9 +237,7 @@ class ValueType(BaseModel):
                     f"{type(value).__name__}"
                 )
             if re.fullmatch(c.pattern, value, flags) is None:
-                raise ValueError(
-                    f"{value!r} does not match pattern for {self.name}"
-                )
+                raise ValueError(f"{value!r} does not match pattern for {self.name}")
 
         # Length bounds (string length or array element count).
         if c.min_length is not None or c.max_length is not None:
@@ -264,27 +262,19 @@ class ValueType(BaseModel):
             if c.min_value is not None:
                 if c.exclusive_min:
                     if not num > c.min_value:
-                        raise ValueError(
-                            f"{self.name}: {num} not > min {c.min_value}"
-                        )
+                        raise ValueError(f"{self.name}: {num} not > min {c.min_value}")
                 elif num < c.min_value:
-                    raise ValueError(
-                        f"{self.name}: {num} < min {c.min_value}"
-                    )
+                    raise ValueError(f"{self.name}: {num} < min {c.min_value}")
             if c.max_value is not None:
                 if c.exclusive_max:
                     if not num < c.max_value:
-                        raise ValueError(
-                            f"{self.name}: {num} not < max {c.max_value}"
-                        )
+                        raise ValueError(f"{self.name}: {num} not < max {c.max_value}")
                 elif num > c.max_value:
-                    raise ValueError(
-                        f"{self.name}: {num} > max {c.max_value}"
-                    )
+                    raise ValueError(f"{self.name}: {num} > max {c.max_value}")
 
     @staticmethod
     def _measurable_length(value: Any) -> int | None:
-        if isinstance(value, (str, list, tuple, bytes, set, dict)):
+        if isinstance(value, str | list | tuple | bytes | set | dict):
             return len(value)
         return None
 
@@ -292,9 +282,9 @@ class ValueType(BaseModel):
     def _as_number(value: Any) -> float:
         if isinstance(value, bool):
             raise ValueError("boolean is not a numeric value")
-        if isinstance(value, (int, float, Decimal)):
+        if isinstance(value, int | float | Decimal):
             return float(value)
-        if isinstance(value, (_dt.date, _dt.datetime)):
+        if isinstance(value, _dt.date | _dt.datetime):
             # Allow numeric bounds on temporal values via ordinal/epoch ordering.
             if isinstance(value, _dt.datetime):
                 return value.timestamp()
@@ -342,7 +332,9 @@ class ValueType(BaseModel):
             return f'"{value}"^^xsd:decimal'
         return f'"{_ttl_escape(str(value))}"'
 
-    def to_shacl(self, *, path: str | None = None, target_class: str | None = None) -> str:
+    def to_shacl(
+        self, *, path: str | None = None, target_class: str | None = None
+    ) -> str:
         """Emit a SHACL turtle fragment enforcing this value type.
 
         CONCEPT:KG-2.39 — by default emits a reusable ``sh:PropertyShape``
@@ -382,9 +374,7 @@ class ValueType(BaseModel):
             f'        sh:message "Value violates the {self.name} value type." ;\n'
             "    ] ;"
         )
-        target = (
-            f"    sh:targetClass :{target_class} ;\n" if target_class else ""
-        )
+        target = f"    sh:targetClass :{target_class} ;\n" if target_class else ""
         return (
             f"{node_iri} a sh:NodeShape ;\n"
             f'    sh:name "{self.name} Shape" ;\n'
@@ -414,12 +404,22 @@ class ValueType(BaseModel):
         )
 
         # Pure enumeration → owl:oneOf data range.
-        if c.allowed_values is not None and c.is_empty() is False and not (
-            c.pattern or c.min_value is not None or c.max_value is not None
-            or c.min_length is not None or c.max_length is not None
+        if (
+            c.allowed_values is not None
+            and c.is_empty() is False
+            and not (
+                c.pattern
+                or c.min_value is not None
+                or c.max_value is not None
+                or c.min_length is not None
+                or c.max_length is not None
+            )
         ):
             members = " ".join(self._ttl_value(v) for v in c.allowed_values)
-            return header + f"    owl:equivalentClass [\n        a rdfs:Datatype ;\n        owl:oneOf ( {members} )\n    ] .\n"
+            return (
+                header
+                + f"    owl:equivalentClass [\n        a rdfs:Datatype ;\n        owl:oneOf ( {members} )\n    ] .\n"
+            )
 
         facets: list[str] = []
         if c.pattern is not None:
@@ -439,7 +439,7 @@ class ValueType(BaseModel):
             # No restrictable facet → plain subtype of the base datatype.
             return header + f"    owl:equivalentClass <{base_iri}> .\n"
 
-        restriction = " ".join(facets).strip()
+        " ".join(facets).strip()
         return (
             header
             + "    owl:equivalentClass [\n"
@@ -608,9 +608,11 @@ def value_types_shapes_ttl(
     every value type under the shared prefix header, producing a turtle file the
     SHACL gate (``SHACLValidator``) loads exactly like ``governance.shapes.ttl``.
     """
-    vts = list(value_types) if value_types is not None else [
-        VALUE_TYPES[n] for n in list_value_types()
-    ]
+    vts = (
+        list(value_types)
+        if value_types is not None
+        else [VALUE_TYPES[n] for n in list_value_types()]
+    )
     parts = [SHAPES_PREFIXES, ""]
     for vt in vts:
         parts.append(vt.to_shacl())
@@ -625,9 +627,11 @@ def value_types_owl_ttl(
     CONCEPT:KG-2.39 — each value type becomes a named ``rdfs:Datatype`` restricted
     by its facets, under the shared prefix header, for the ``owl_bridge`` substrate.
     """
-    vts = list(value_types) if value_types is not None else [
-        VALUE_TYPES[n] for n in list_value_types()
-    ]
+    vts = (
+        list(value_types)
+        if value_types is not None
+        else [VALUE_TYPES[n] for n in list_value_types()]
+    )
     parts = [SHAPES_PREFIXES, ""]
     for vt in vts:
         parts.append(vt.to_owl())
