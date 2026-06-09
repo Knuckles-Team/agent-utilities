@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 
 import pytest
 
@@ -103,6 +104,12 @@ def test_durable_transpiler_recognises_contract(name, cypher, params):
         "pggraph would no-op this ingestion write."
     )
     assert tq.sql, f"Empty SQL for contract query '{name}'"
+    # A dangling/empty WHERE is as bad as UNKNOWN: ``DELETE FROM "Task" WHERE``
+    # is a syntax error (swallowed L3 mirror failure → durable row never removed).
+    # Guards the inline-``{id:$id}`` filter being dropped on deletes. (CONCEPT:KG-2.7)
+    assert not re.search(r"\bWHERE\s*$", tq.sql), (
+        f"Contract query '{name}' transpiled to a dangling empty WHERE: {tq.sql!r}"
+    )
 
 
 def _inprocess_backends():
