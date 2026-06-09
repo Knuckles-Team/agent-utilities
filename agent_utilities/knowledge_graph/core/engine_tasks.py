@@ -1170,12 +1170,26 @@ class TaskManagerMixin(GraphEngineProtocol):
         if not callable(fn):
             return
         try:
-            summary = fn()
-            drift = (summary or {}).get("nodes", 0) + (summary or {}).get("edges", 0)
-            if drift or (summary or {}).get("errors"):
-                logger.info("durable reconcile (autoheal): %s", summary)
+            summary = fn() or {}
+            # Exact post-condition drift — what truly remained unmirrored after the
+            # pass (not the always-positive count of best-effort writes).
+            missing = summary.get("nodes_missing", 0) + summary.get("edges_missing", 0)
+            errs = summary.get("errors", 0)
+            if missing or errs:
+                logger.warning(
+                    "durable reconcile: drift remains after sync — "
+                    "%d nodes / %d edges missing, %d write errors (%s)",
+                    summary.get("nodes_missing", 0),
+                    summary.get("edges_missing", 0),
+                    errs,
+                    summary,
+                )
             else:
-                logger.debug("durable reconcile: in sync")
+                logger.debug(
+                    "durable reconcile: in sync (%d nodes, %d edges mirrored)",
+                    summary.get("nodes", 0),
+                    summary.get("edges", 0),
+                )
         except Exception as e:  # noqa: BLE001
             logger.warning("durable reconcile tick failed: %s", e)
 

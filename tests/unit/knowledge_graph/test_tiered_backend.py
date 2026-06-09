@@ -176,9 +176,15 @@ def test_reconcile_to_durable_copies_graph():
     l3 = RecordingBackend("l3")
     t = TieredGraphBackend(l1, l3)
     summary = t.reconcile_to_durable()
-    assert summary["nodes"] == 2
-    assert summary["edges"] == 1
+    assert summary["nodes"] == 2  # node writes attempted
+    assert summary["edges"] == 1  # edge writes attempted
     assert summary["errors"] == 0
-    # L3 received MERGE statements for nodes + edges.
-    merges = [c for c in l3.calls if c[0] == "execute"]
-    assert len(merges) == 3  # 2 nodes + 1 edge
+    # L3 received node CREATE + edge MERGE writes (excluding the drift-count reads).
+    writes = [
+        c
+        for c in l3.calls
+        if c[0] == "execute" and ("CREATE (n:" in c[1] or "MERGE (a)" in c[1])
+    ]
+    assert len(writes) == 3  # 2 node CREATE + 1 edge MERGE
+    # Exact-drift keys present (the recording L3 can't be counted → reported missing).
+    assert "nodes_missing" in summary and "edges_missing" in summary

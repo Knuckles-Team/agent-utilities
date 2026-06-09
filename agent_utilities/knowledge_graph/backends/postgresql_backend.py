@@ -266,6 +266,21 @@ class PostgreSQLBackend(GraphBackend):
             logger.warning("ensure_column(%s,%s) failed: %s", t, c, e)
             return False
 
+    def edge_count(self) -> int | None:
+        """Durable edge count (``kg_edges``) — for exact drift metrics.
+
+        Returns ``None`` if unavailable (the Cypher edge-count form does not
+        transpile, so callers needing an exact figure use this direct count).
+        """
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT count(*) FROM kg_edges")
+                    return int(cur.fetchone()[0])
+        except Exception as e:  # noqa: BLE001
+            logger.debug("edge_count failed: %s", e)
+            return None
+
     def _translate_columns(self, columns: dict[str, str]) -> str:
         """Translate schema column definitions to PostgreSQL DDL."""
         type_map = {

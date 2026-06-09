@@ -53,8 +53,14 @@ run, a restart, or a new type never leaves the durable tier behind.
 - Gateway scheduler now lists `reconcile_durable`; it runs at startup + every 900s.
 
 ## Status
-**IMPLEMENTED** — `backends/postgresql_backend.py` (auto-DDL), `core/engine_tasks.py`
-(reconcile job + tick). **Follow-on:** `reconcile_to_durable` counts an
-`execute()`-swallowed failure as success (it never raises); make it assert the row
-landed (read-back / `RETURNING`) so the drift metric is exact, and reconcile edges
-into `kg_edges` (currently 0 edges mirrored).
+**IMPLEMENTED** — `backends/postgresql_backend.py` (auto-DDL + `edge_count`),
+`backends/tiered_backend.py` (exact reconcile), `core/engine_tasks.py` (reconcile
+job + tick).
+
+**Exact metric + edges (done):** `reconcile_to_durable` now measures **post-condition**
+drift (per-type L1-vs-L3 node counts + `kg_edges` count) instead of trusting the
+swallowing `execute()` — `nodes_missing`/`edges_missing` are honest. Edge writes use
+the transpiler-recognized `MATCH (a {id})… MERGE (a)-[r:REL]->(b)` form (the bare
+`MERGE` was UNKNOWN and silently no-op'd); the tick warns only on real remaining
+drift. Validated live: L1 4,596 → L3 with `nodes_missing=0`, `edges_missing=0`
+(`kg_edges` 46 → 568, incl. `SATISFIED_BY`/`cites`/`belongs_to_kb`).
