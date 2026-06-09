@@ -235,6 +235,20 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "development_standard",
     "ea_fact_sheet",
     "process_model",
+    # Ontology System — Foundry-parity type/link/function layer
+    # (CONCEPT:KG-2.26 links, KG-2.38 interfaces, KG-2.41 functions)
+    "relationship",
+    "function",
+    "function_invocation",
+    "interface",
+    "interface_property",
+    "interface_link_constraint",
+    # Object-edits durable ledger (CONCEPT:KG-2.43)
+    "object_edit",
+    # Object permissioning — mandatory markings (CONCEPT:KG-2.46)
+    "marking",
+    # Document processing pipeline — exploded chunk objects (CONCEPT:KG-2.48)
+    "chunk",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)

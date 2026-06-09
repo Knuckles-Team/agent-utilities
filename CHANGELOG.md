@@ -8,6 +8,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Ontology System — Palantir-Foundry-parity, graph-native (CONCEPT:KG-2.26 / KG-2.38–KG-2.48 + KG-2.42)** —
+  a first-class object/link/function/action layer at `agent_utilities/knowledge_graph/ontology/`,
+  reached through `kg.ontology` (`KnowledgeGraph.ontology` → `OntologySystem`). It binds real,
+  import-populated registries to the *live* epistemic backend the rest of the KG uses (store /
+  semantic / retrieval), so interface targeting, derived-property compute, Functions-on-Objects,
+  and ACL enforcement resolve against the actual graph — not a parallel shell. Provenance: the
+  Palantir Foundry / AIP docs (`ontology/object-types`, `interfaces`, `value-types`,
+  `functions/overview`, `action-types/overview`, `object-edits`, object-set `SEARCH_AROUND`,
+  document-processing), cited per-module in docstrings; identifiers are named from purpose, not
+  the vendor. New concepts:
+  - **Property types (CONCEPT:KG-2.47, `ontology/property_types.py`)** — the scalar/geo/
+    vector-embedding/array/struct type vocabulary that drives node-table column DDL and
+    write-path coercion (`column_type_for`).
+  - **Value types (CONCEPT:KG-2.39, `ontology/value_types.py`)** — constrained semantic types
+    (EmailAddress, Percentage, …) compiled to reusable SHACL `sh:PropertyShape` / named
+    `rdfs:Datatype` and gated by the SHACL validator on write.
+  - **Interfaces (CONCEPT:KG-2.38, `ontology/interfaces.py`)** — abstract shapes a concrete
+    object type implements; the programmatic-targeting resolver expands an interface to its
+    implementers.
+  - **First-class links (CONCEPT:KG-2.26, `ontology/links.py`)** — named directed link types +
+    many-to-many **junction reification** onto the existing graph-write path, with reverse
+    traversal.
+  - **Functions (CONCEPT:KG-2.41, `ontology/functions/`)** — typed, versioned, governed user
+    functions (`PLAIN | ON_OBJECTS | QUERY`) over one audited runtime.
+  - **Derived properties (CONCEPT:KG-2.40, `ontology/derived_properties.py`)** — read-time
+    computed properties dispatched across `FUNCTION / CYPHER / SPARQL / EMBEDDING`.
+  - **Action types (CONCEPT:KG-2.42, `knowledge_graph/actions/`)** — submission-criteria-gated,
+    typed-side-effecting, batchable, notification/webhook-dispatching, and **revertable**
+    actions over the edit ledger.
+  - **Durable object edits (CONCEPT:KG-2.43, `ontology/edits/`)** — a bitemporal edit ledger
+    (`EditLedger`, `JsonlEditSink`, `WriteBackRouter`) with per-object history and
+    `revert_edit`/`revert_object`.
+  - **Indexing lifecycle (CONCEPT:KG-2.44, `ontology/indexing/`)** — content-hashed
+    `ObjectIndexFunnel` + `StalenessLedger` driving the SAME live search index.
+  - **Object Set service (CONCEPT:KG-2.45, `ontology/object_set.py`)** — composable
+    STATIC/derived handles with `filter` / `search` / `search_around` / `pivot` / `aggregate`
+    and set algebra (union/intersection/difference).
+  - **Fine-grained permissioning (CONCEPT:KG-2.46, `ontology/permissioning.py`)** —
+    entailment-aware ACL **marking propagation** + `restricted_view` row-drop and `enforce`
+    on the read path.
+  - **Document processing (CONCEPT:KG-2.48, `ontology/document_processing.py`)** —
+    extract→chunk→embed→link (`DocumentProcessor`, `process_document`).
+
+  Wired into `knowledge_graph/facade.py` (`kg.ontology`), the `ontology_*` MCP tools in
+  `mcp/kg_server.py` (`ontology_property_types`, `ontology_value_types`, `ontology_interface`, …),
+  and an operator **UI** in agent-webui — `/api/enhanced/ontology/*` routes (object-types,
+  property-types, interfaces, object-set search/aggregate/pivot/search-around, object edit/revert,
+  function invoke, derive, document process) plus the **ObjectExplorerView / ObjectView /
+  VertexView** React views. Unique value-adds vs Foundry: OWL/SHACL-backed interfaces + value
+  types (reasoning + validation), embedding/cypher/sparql-backed derived properties, reified
+  junction links, entailment-aware ACL marking propagation, a bitemporal edit history, a
+  self-evolving ontology, and the Rust epistemic engine underneath.
 - **2026 reasoning-RL gap closure (CONCEPT:AHE-3.15 / 3.16 / 3.17 + AHE-3.1)** — implements the
   high-leverage gaps from `.specify/specs/reasoning-rl-2026/` (the agentic adaptations, not
   re-implementing GRPO which the AHE-3.1 spine already covers):

@@ -1,121 +1,137 @@
-# Comparative Analysis: agent-utilities vs. Palantir AIP
+# Comparative Analysis: agent-utilities Ontology vs. Palantir Foundry
 
-> Robust capability-by-capability comparison of **agent-utilities** against
-> **Palantir's Artificial Intelligence Platform (AIP)** "End-to-End Agentic
-> Architecture" (12 capabilities) and the general Agentic AI Reference
-> Architecture (9 layers). Grounded in a code audit of the live codebase, June 2026.
+> Capability-by-capability comparison of the **agent-utilities ontology layer**
+> (`agent_utilities/knowledge_graph/ontology/` + the `actions/` extension) against
+> **Palantir Foundry's Ontology**. Grounded in (a) a code audit of the live
+> `OntologySystem` composition root and its registries, and (b) the marketing-
+> stripped Foundry reference captures in
+> [`reference/palantir-foundry/`](reference/palantir-foundry/README.md).
 >
-> **Bottom line:** agent-utilities already implements **~10/12** Palantir
-> capabilities in full and **architecturally exceeds** AIP on four axes that fall
-> out *for free* from its unique substrate (formal OWL+SHACL ontology,
-> graph-native Rust compute, closed-loop self-evolution, reward-weighted routing).
-> Two genuine, well-scoped gaps were closed in this cycle — the **Ontology Action
-> System** (`CONCEPT:KG-2.25`) and the **declarative Resilience Policy**
-> (`CONCEPT:ORCH-1.36`); the remainder are a documented backlog.
+> **Bottom line:** the ontology layer now implements first-class equivalents of
+> every Foundry ontology primitive in the capability matrix below — object/link/
+> property/value types, interfaces, functions, derived properties, actions, edits,
+> indexing, the object-set service, permissioning, document processing, and the
+> explorer/views/vertex operator surfaces. Because the substrate is a formal
+> OWL2+SHACL knowledge graph over a Rust epistemic engine, several capabilities
+> Foundry charges for fall out **structurally** (reasoned ACLs, validation,
+> embedding/Cypher/SPARQL-backed derived properties, bitemporal history).
+>
+> This supersedes the prior AIP "12-capability" framing; that material is retained
+> in §6 because it is still accurate at the platform level. This document's primary
+> contribution is the **ontology capability gap matrix** (§3).
 
 ---
 
-## 1. Why compare to Palantir at all?
+## 1. Scope of the comparison
 
-Palantir's pitch is that the **Ontology** — a governed, executable model unifying
-*data + logic + actions + security* — is the moat that stops enterprise agents
-from hallucinating and lets them act on real operational state under the same
-governance as humans. That is precisely the thesis agent-utilities is built on
-(the Epistemic Knowledge Graph, Pillar 2). So the comparison is apples-to-apples,
-and the interesting questions are: *where do we already match it, where do we
-genuinely lag, and what do we get that a closed commercial platform structurally
-cannot?*
+Foundry's pitch is that the **Ontology** — a governed, executable model unifying
+*data + logic + actions + security* — is what stops enterprise agents from
+hallucinating and lets them act on real operational state under the same governance
+as humans (see [`why-ontology.md`](reference/palantir-foundry/why-ontology.md)).
+That is precisely the agent-utilities thesis (the Epistemic Knowledge Graph,
+Pillar 2). So the comparison is apples-to-apples. The interesting questions: where
+do we match each ontology primitive, and what do we get that a closed commercial
+platform structurally cannot?
 
-## 2. Palantir AIP 12-Capability Mapping
+## 2. How the ontology layer is composed
 
-| # | Palantir AIP capability | agent-utilities implementation | Status |
+`OntologySystem` (`knowledge_graph/ontology/__init__.py`) is the composition root
+the execution plane reaches through `KnowledgeGraph.ontology`. It binds six
+import-populated registries (property types, value types, interfaces, links,
+functions, derived properties) plus the durable edit ledger, the object-index
+funnel, object-set factories, permissioning, and document processing — and, when
+constructed with a live graph, resolves Functions-on-Objects / derived compute /
+interface targeting against the real store + L2 semantic (OWL/SHACL) + retrieval
+(HNSW) layers. The Action System (`knowledge_graph/actions/`) supplies the verbs.
+
+## 3. Ontology capability gap matrix
+
+Status legend: **FULL** = first-class equivalent implemented and wired;
+**FULL+** = implemented *and* exceeds Foundry via the substrate; **PARTIAL** =
+implemented core with a scoped backlog. Each row cites the concrete module +
+`CONCEPT` id, and the Foundry reference capture it is measured against.
+
+| Foundry capability | Foundry reference | agent-utilities implementation (module · CONCEPT) | Status |
 |---|---|---|---|
-| 1 | Secure LLM Integration & Access | `core/model_factory.py:create_model` (multi-provider, BYOM); `security/permissions_kernel.py` (HMAC identity, roles); `security/guardrails.py:PolicyEngine` (moderation) | **FULL** |
-| 2 | End-to-End Observability | `observability/token_tracker.py` (4-bucket token accounting), `observability/audit_logger.py` (append-only audit), OpenTelemetry tracer in `orchestration/engine.py`, Langfuse widget | **FULL** |
-| 3 | Context Engineering | `knowledge_graph/core/context_builder.py`; CDC via `kafka_graph_sync.py` / `nats_queue_backend.py`; 15-phase enrichment pipeline | **FULL** |
-| 4 | **The Ontology System** | `knowledge_graph/core/owl_bridge.py` (promote→reason→downfeed), `ontology.ttl` + 19 domain modules, `core/shacl_validator.py` (governance gate), `core/ogm.py`. **Nouns** unified; **verbs** were property-only → now first-class via `CONCEPT:KG-2.25` | **FULL+ (gap closed)** |
-| 5 | Vector, Compute, Tool Services | epistemic-graph Rust engine (`core/graph_compute.py`), HNSW `retrieval/capability_index.py`, vendor-neutral `EmbeddingFactory`, ontology-driven tool swap (`providesCapability`/`swappableWith`) | **FULL** |
-| 6 | Security & Governance | `security/permissions_kernel.py` (role/capability), `tool_guard.py`, SHACL gate, `isolation` zero-trust, Eunomia policies, marking via `ActorContext.tenant_id` | **FULL** |
-| 7 | Agent Lifecycle (build→orchestrate→evaluate→iterate) | `harness/` (component registry, evaluation_engine, agentic_evolution_engine + GEPA), `orchestration/durable_execution.py`, golden-loop | **FULL** |
-| 8 | Operational Automation | KG/NATS/Kafka event-sourced automations, `research/golden_loop.py`, durable workflows | **FULL** |
-| 9 | Development Environments | `mcp/kg_server.py` (MCP first-class), CLI, Python SDK, notebook live-artifacts | **FULL** |
-| 10 | Human + AI Applications | `core/company_brain.py` (shared KG, per-actor filtering), topological analytics, multi-tenant `ActorContext` | **FULL** |
-| 11 | Package, Release, Deploy | pip package, CI guardrails, Docker compose templates — **no formal release-channel system** | **PARTIAL** |
-| 12 | Enterprise Automation | agents under identity governance build pipelines/logic; ServiceNow/ERPNext/etc. extractors; `blast_radius.py` impact analysis | **FULL** |
+| **Object types** (entity schema, properties, user edits) | type-reference, ontologies-overview | Object types are KG node types; properties typed/coerced via `ontology/property_types.py` (`PropertyType`, `KG-2.47`); edits via the ledger (`KG-2.43`). | **FULL** |
+| **Property types** (base + composite vocabulary) | type-reference | `ontology/property_types.py` (`KG-2.47`): scalars, `decimal`, `date`/`timestamp`, geo (`geohash`/`geoshape`/`geo_point`), `timeseries`/`geotimeseries`, `struct`, `attachment`, `media_reference`, `marking`, `bytes`, `array<…>`, `vector<dim>`/`embedding`. `column_type_for()` bridges to node-table DDL; `coerce_value`/`validate_value` gate the write path. | **FULL+** (vector/embedding native) |
+| **Value types** (constrained semantic wrappers) | type-reference | `ontology/value_types.py` (`KG-2.39`): `ValueType`+`ValueConstraints` compiling to **SHACL `PropertyShape` + OWL `rdfs:Datatype`**; built-ins `EmailAddress`, `URL`, `ISOCurrencyCode`, `Percentage`, … ; gates writes via the SHACL validator. | **FULL+** (OWL/SHACL-backed) |
+| **Link types** (typed relationships) + many-to-many | type-reference | `ontology/links.py` (`KG-2.26`): `LinkType` (cardinality), `JunctionLinkType` reifying M:N links as first-class junction **objects** + role-keyed edges; reverse traversal (`endpoints_of`, `junctions_for`, `neighbors_via`). | **FULL+** (reified junction = first-class) |
+| **Interfaces** (shared shape, polymorphism, inheritance) | interface-overview | `ontology/interfaces.py` (`KG-2.38`): `Interface` w/ shared properties + link constraints, multi-level inheritance, conformance check, `resolve_target()` programmatic targeting, **OWL `rdfs:subClassOf` + `sh:node` projection**. | **FULL+** (reasoning-aware targeting) |
+| **Functions** (code-authored ontology logic) | functions-overview | `ontology/functions/` (`KG-2.41`): `FunctionSpec`/`FunctionParameter`, three Foundry kinds (`PLAIN \| ON_OBJECTS \| QUERY`), `ObjectFunctionContext` (Functions-on-Objects graph reads), single audited `FunctionRuntime` w/ typed I/O validation + versioned release. | **FULL** |
+| **Derived properties** (computed attributes) | ontologies-overview | `ontology/derived_properties.py` (`KG-2.40`): `DerivedBacking` = `FUNCTION` **+ `CYPHER` + `SPARQL` + `EMBEDDING`** (Foundry has FUNCTION only); read-time compute + audit via the bound engine. | **FULL+** (graph/semantic/vector backings) |
+| **Action types** (transactional verbs) | action-types-overview | `knowledge_graph/actions/` (`KG-2.25` core + `KG-2.42` action-type extension): `OntologyAction` w/ typed parameters, submission criteria, function-backing, side effects (notification/webhook), batched + permission-gated + audited + KG-persisted execution. | **FULL+** (reasoned eligibility) |
+| **Object edits** (property-set / link / create-delete, history, revert) | object-edits-overview (stub), action-types | `ontology/edits/` (`KG-2.43`): `Edit`+`EditLedger` as durable `object_edit` nodes with before/after snapshots, per-object `history()`, point-in-time `as_of()`, inverse `revert_edit`, and `WriteBackRouter`/`JsonlEditSink` writeback. | **FULL+** (bitemporal, durable) |
+| **Object indexing** (batch + streaming, restrictions, staleness) | object-indexing-overview, object-backend | `ontology/indexing/` (`KG-2.44`): `ObjectIndexFunnel` (batch full-rebuild + incremental/streaming deltas) gated by composable `DataRestriction`; `StalenessLedger` (content-hash + watermark drift) — drives the **same** `CapabilityIndex` the router ranks against. | **FULL** |
+| **Object Set Service** (static/dynamic, search-around, aggregate) | object-backend | `ontology/object_set.py` (`KG-2.45`): `ObjectSet` (`STATIC`/`DYNAMIC`), `filter`, `search`, `search_around` (typed N-hop traversal), `aggregate`, `pivot`; factories `object_set_from_ids`/`object_set_of_type`/`dynamic_object_set`. | **FULL** |
+| **Object permissioning** (markings, row/col security) | object-permissioning-overview | `ontology/permissioning.py` (`KG-2.46`): `Marking`, per-property classification, `redact_object`/`restricted_view`, `build_acl`, `enforce`, and **entailment-aware `propagate_markings`/`propagate_over_edges`**. Backed by the `permissions_kernel`. | **FULL+** (entailment propagation) |
+| **Document processing** (media → chunk → embed → objects) | document-processing | `ontology/document_processing.py` (`KG-2.48`): recursive separator-priority `chunk_text` w/ overlap, explode, embed, materialize as first-class `Chunk` objects (`HAS_CHUNK`/`CHUNK_OF` links) with a clear `DocumentExtractionError` degradation path. | **FULL** |
+| **Object Explorer** (search/filter/aggregate, bulk actions, pivot, saved) | object-explorer-overview | webui `ObjectExplorerView.tsx` + `/api/enhanced/ontology/object-set/{search,search-around,pivot,aggregate,save,list}` + `…/actions` bulk apply. | **FULL** |
+| **Object Views** (standard/full/panel, props/links/actions) | object-views-overview | webui `ObjectView.tsx` + `/api/enhanced/ontology/object/{id}`, `…/object-view/{type}` (configurable), edit/revert endpoints. | **FULL** |
+| **Vertex** (graph viz, expand, scenarios) | vertex-overview | webui `VertexView.tsx` over `…/object-set/search-around` + object/link reads. | **PARTIAL** (graph viz + traversal; what-if scenarios are backlog) |
+| **Object backend / OMS** (schema service) | object-backend | Ontology Metadata role played by the import-populated registries + the KG node/link-type catalog; OSS role by `object_set.py`; funnel by `indexing/`. | **FULL** |
 
-## 3. General 9-Layer Reference Architecture (condensed)
+## 4. Unique value-adds — what we get *for free* that Foundry structurally cannot
 
-| Layer | Status | Anchor |
-|---|---|---|
-| User/Client | FULL | MCP / HTTP / CLI / notebooks |
-| Orchestration / Control Plane | FULL | `orchestration/engine.py`, `graph/routing/`, `graph/planning/` |
-| Agent Layer (roles) | FULL | `core/registry/`, `team_composer`, capability protocols |
-| Tools & Integrations | FULL | MCP, ontology-driven tool swap, enterprise extractors |
-| Memory & Knowledge | FULL | short-term `memory_engine`, vector HNSW, KB, episodic, profile/RLM |
-| Monitoring & Observability | FULL | token tracker, audit, OTel |
-| **Reliability & Failure Mgmt** | **PARTIAL → FULL** | circuit breaker + durable checkpoints existed; **declarative retry/backoff/fallback added** (`CONCEPT:ORCH-1.36`) |
-| Governance & Security | FULL | permissions kernel, SHACL gate, zero-trust |
-| Foundation / Infra | FULL | model factory, pluggable backends, Kafka/NATS, secrets |
+These are emergent advantages of the substrate, not catch-up items.
 
-## 4. Hidden value-adds — what we get *for free* that AIP structurally cannot
-
-These are not "catch-up" items; they are emergent advantages of the substrate.
-
-1. **Formal OWL2 + SHACL ontology, not best-practice typing.** Palantir's
-   "ontology" is a governed schema; ours is an *executable logic*. Every fact is
-   either declared or a derived OWL consequence (`owl_bridge.py` HermiT/owlready2),
-   and the SHACL gate (`governance.shapes.ttl`) *quarantines* invalid nodes before
-   they persist. **For free:** the new Action System's permission rules are
-   *reasoned* — `Action requiresCapability X`, `Agent providesCapability X` ⇒
-   `Agent mayInvoke Action` is inferred, not hand-maintained.
-2. **Graph-native Rust compute.** PageRank, spectral, VF2, and the entire quant
-   kernel suite run in the `epistemic-graph` Tokio engine over MessagePack/UDS —
-   no Python overhead, no DB round-trip. AIP leans on backend DB compute.
-3. **Closed-loop self-evolution.** The golden loop (research→synthesize→variant
-   pool→evals→promote) and GEPA prompt optimization mean the system *improves its
-   own skills and prompts from eval failures*. AIP has no architectural
-   self-improvement primitive.
-4. **Reward-weighted routing.** `capability_index.record_outcome()` feeds an EMA
-   back into `designate()`, so routing learns from outcomes with no retraining.
-5. **Vendor-neutral, MCP-first, multi-tenant cohabitation.** Humans and agents
-   share one governed KG; any MCP client (Claude Code, Devin, …) can query/mutate
-   under the same policy fabric. AIP is a closed platform.
+1. **OWL2 + SHACL behind the type system, not just typing.** Value types compile to
+   SHACL `PropertyShape`s + OWL `rdfs:Datatype` (`value_types.py`) and interfaces
+   project to `rdfs:subClassOf` + `sh:node` (`interfaces.py`). Foundry's value types
+   are validation metadata; ours are *reasoning + validation* — invalid nodes are
+   quarantined by the SHACL gate before they persist, and interface conformance is a
+   logical entailment, not a hand-maintained tag.
+2. **Reasoned, entailment-aware ACL marking propagation.** `permissioning.py`
+   propagates markings *over the graph's edges* (`propagate_over_edges`), so a
+   marking on a sensitive node flows to derived/linked nodes by inference rather than
+   manual re-marking. Foundry markings are applied per resource.
+3. **Derived properties backed by embedding / Cypher / SPARQL — not only Functions.**
+   `derived_properties.py` adds `CYPHER`, `SPARQL`, and `EMBEDDING` (nearest-concept
+   vector similarity) backings alongside Foundry's lone `FUNCTION` backing.
+4. **Reified junction links are first-class objects.** `JunctionLinkType` materializes
+   a M:N relationship as a queryable node with role-keyed edges and its own
+   properties/history — the relationship itself can be reasoned over and edited.
+5. **Bitemporal, durable edit history with point-in-time reconstruction.** The edit
+   ledger persists every edit as a graph node and supports `as_of(ts)` reconstruction
+   and inverse-edit revert (`edits/`), going beyond Foundry's action-log/undo.
+6. **Self-evolving ontology over a Rust epistemic engine.** The same KG that hosts the
+   ontology drives the golden-loop self-evolution and reward-weighted routing; the
+   ontology is not a static schema artifact but a live, improvable structure, and all
+   compute (PageRank/spectral/VF2/quant) runs in the `epistemic-graph` engine over
+   MessagePack/UDS rather than a backend DB round-trip.
+7. **Vendor-neutral, MCP-first, multi-tenant cohabitation.** Humans and any MCP client
+   share one governed KG under the same policy fabric; the ontology surfaces are
+   reachable via MCP tools (`ontology_*`) and `/api/enhanced/ontology/*` alike.
 
 ## 5. Genuine gaps (and disposition)
 
 | Gap | Severity | Disposition |
 |---|---|---|
-| **Ontology Actions as first-class verbs** (governed, parameterized, audited) | HIGH | **CLOSED — `CONCEPT:KG-2.25` Ontology Action System** |
-| **Declarative retry/backoff/fallback** (L7 reliability) | MEDIUM | **CLOSED — `CONCEPT:ORCH-1.36` Resilience Policy** |
-| Formal HITL escalation matrix | MEDIUM | Backlog — `approval_manager.py` exists; needs an escalation/cost-benefit policy |
-| Release channels (beta/stable/edge, canary) | MEDIUM | Backlog — packaging/CI exists; release-track system is infra, deferred |
-| Langfuse deep core integration (auto span export) | LOW | Backlog — OTel present; wire a Langfuse exporter |
-| Auto-merge of golden-loop skill proposals | MEDIUM | Backlog (intentional safety choice — propose-only today) |
+| Vertex **what-if scenario** modeling (staged alternate graphs) | MEDIUM | Backlog — graph viz + traversal shipped; scenario staging not yet. |
+| Interface **aggregation** across implementers in the object-set service | LOW | Backlog (Foundry itself lists this "in development"). |
+| Ontology **branching / proposal-review** workflow as a UI primitive | MEDIUM | Backlog — edits are versioned/durable; a branch-and-merge review surface is future. |
+| Release **channels** for functions (beta/stable, canary) | MEDIUM | Backlog — functions are versioned/released; a channel system is infra. |
 
-## 6. Implementation plan
+None of the above are half-implemented in the tree; each is a scoped future concept.
 
-**Delivered this cycle (fully implemented, no stubs, tested, concept-governed):**
+## 6. Prior platform-level framing (still accurate)
 
-- **`CONCEPT:KG-2.25` — Ontology Action System.** First-class `OntologyAction`
-  verbs operating on ontology objects: `ActionRegistry`, permission-gated +
-  audited + KG-persisted `ActionExecutor`, OWL `:Action` class with
-  `actsOn` / `requiresCapability` / `hasParameter` / `producesEffect`, a SHACL
-  shape validating action definitions. Directly realizes Palantir's
-  data+logic+**actions**+security unification — and, because of our substrate,
-  invocation eligibility is *reasoned* and every invocation is a queryable KG node.
-- **`CONCEPT:ORCH-1.36` — Resilience Policy.** Declarative retry (max attempts,
-  exponential backoff + jitter, retry-on exception predicate), fallback chain, and
-  timeout, wired into the live specialist-execution path in `orchestration/`
-  (wire-first, not a sidecar).
-- **Investor-persona debate voices** (`CONCEPT:KG-2.6`) — Bull/Bear `DebateEngine`
-  now loads persona prompt bodies (Buffett vs Burry, any stem); archetype stamped
-  on each argument for the audit trail.
+The earlier AIP 12-capability / 9-layer mapping remains valid at the *platform*
+altitude (it compares agent-utilities to Palantir AIP broadly, not the ontology
+primitives specifically). It is summarized here; the ontology matrix in §3 is the
+authoritative comparison for the ontology layer.
 
-**Backlog (scoped, not stubbed):** HITL escalation matrix, release channels,
-Langfuse exporter, golden-loop auto-merge. Each is tracked as a future concept;
-none are half-implemented in the tree.
+- agent-utilities implements ~10/12 AIP capabilities in full, exceeds on the formal
+  OWL+SHACL ontology, graph-native Rust compute, closed-loop self-evolution, and
+  reward-weighted routing axes, with packaging/release-channels and a formal HITL
+  escalation matrix as documented backlog.
+- Anchors: `core/model_factory.py`, `security/permissions_kernel.py`,
+  `observability/`, `knowledge_graph/core/{owl_bridge,shacl_validator,ogm}.py`,
+  `retrieval/capability_index.py`, `harness/`, `orchestration/`.
 
 ---
 
-*This document is the source of truth for the AIP comparison. Capability claims
-are anchored to concrete modules above; re-audit when pillars change.*
+*Source of truth for the Foundry-ontology comparison. Capability claims are anchored
+to concrete modules + CONCEPT ids above and to the captures in
+[`reference/palantir-foundry/`](reference/palantir-foundry/README.md). Re-audit when
+the ontology layer changes.*

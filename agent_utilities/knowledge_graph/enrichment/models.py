@@ -153,6 +153,10 @@ class Document(BaseModel):
     doc_type: str = "document"
     file_path: str = ""
     content_hash: str = ""
+    # Full verbatim body text — retained so the document is faithfully
+    # re-materialisable from the KG (e.g. distilled back into a skill-graph).
+    # (CONCEPT:KG-2.7 — standardized document ingestion contract.)
+    content: str = ""
     metadata: dict = Field(default_factory=dict)
     concept_ids: list[str] = Field(default_factory=list)
 

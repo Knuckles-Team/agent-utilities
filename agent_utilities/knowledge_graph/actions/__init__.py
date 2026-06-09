@@ -43,13 +43,32 @@ built-in actions (``kg.search``, ``finance.forensic_screen``) and a
 """
 
 from .builtins import register_builtins
+from .dispatch import (
+    Notifier,
+    RecordingNotifier,
+    get_default_notifier,
+    send_notification,
+    send_webhook,
+    set_default_notifier,
+)
+from .effects import (
+    apply_side_effects,
+    evaluate_submission_criteria,
+)
 from .executor import ActionExecutor, reset_persistence_cache
 from .models import (
     ActionEffect,
+    ActionEffectSpec,
     ActionInvocation,
     ActionParameter,
     ActionStatus,
+    CriterionOp,
+    EffectKind,
+    FunctionRef,
+    NotificationSpec,
     OntologyAction,
+    SubmissionCriterion,
+    WebhookSpec,
 )
 from .registry import ActionHandler, ActionRegistry
 
@@ -63,13 +82,28 @@ DEFAULT_EXECUTOR = ActionExecutor(DEFAULT_REGISTRY)
 
 __all__ = [
     "ActionEffect",
+    "ActionEffectSpec",
     "ActionHandler",
     "ActionInvocation",
     "ActionParameter",
     "ActionStatus",
     "ActionExecutor",
     "ActionRegistry",
+    "CriterionOp",
+    "EffectKind",
+    "FunctionRef",
+    "NotificationSpec",
     "OntologyAction",
+    "SubmissionCriterion",
+    "WebhookSpec",
+    "Notifier",
+    "RecordingNotifier",
+    "set_default_notifier",
+    "get_default_notifier",
+    "send_notification",
+    "send_webhook",
+    "apply_side_effects",
+    "evaluate_submission_criteria",
     "DEFAULT_REGISTRY",
     "DEFAULT_EXECUTOR",
     "register_builtins",

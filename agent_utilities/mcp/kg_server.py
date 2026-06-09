@@ -2034,7 +2034,7 @@ def _build_server(bootstrap: bool = True):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, sync, reflect). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
+            description="Action to perform (ingest, distill, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, sync, reflect). 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -2352,6 +2352,59 @@ def _build_server(bootstrap: bool = True):
                     return json.dumps(summary, default=str)
                 except Exception as e:
                     return f"Wiki curation error: {e}"
+
+            elif action == "distill":
+                # CONCEPT:AHE-3.9 — Distill a coherent KG subgraph OUT into a
+                # portable skill-graph: a reference/ markdown tree + a
+                # kg_manifest.json provenance record (round-trippable via the
+                # 'ingest_knowledge_pack' action). The output dir is consumable
+                # verbatim by skill-graph-builder as a local-directory source.
+                # Param overloads (mirroring agent_toolkit's reuse of fields):
+                #   target_path  -> output directory (required)
+                #   corpus_name  -> seed node id      (anchor by id)
+                #   description  -> natural-language query (semantic anchor)
+                #   max_depth    -> BFS hop depth
+                try:
+                    import json
+
+                    from agent_utilities.knowledge_graph.distillation import (
+                        SkillGraphDistiller,
+                    )
+
+                    if not target_path:
+                        return json.dumps(
+                            {"error": "distill requires target_path (output dir)"}
+                        )
+                    seed = corpus_name or None
+                    query = description or None
+                    if not (seed or query):
+                        return json.dumps(
+                            {
+                                "error": "distill requires a seed (corpus_name=node_id) "
+                                "or query (description=text)"
+                            }
+                        )
+                    distiller = await SkillGraphDistiller.connect()
+                    try:
+                        manifest = await distiller.distill(
+                            seed=seed,
+                            query=query,
+                            depth=max_depth,
+                            out_dir=target_path,
+                        )
+                    finally:
+                        await distiller.close()
+                    return json.dumps(
+                        {
+                            "status": "distilled",
+                            "out_dir": target_path,
+                            "manifest": f"{target_path.rstrip('/')}/kg_manifest.json",
+                            "stats": manifest["stats"],
+                        },
+                        default=str,
+                    )
+                except Exception as e:
+                    return f"Distill error: {e}"
 
             elif action == "agent_toolkit":
                 import json
@@ -3202,6 +3255,566 @@ def _build_server(bootstrap: bool = True):
             return json.dumps({"status": "error", "error": str(e)})
 
     REGISTERED_TOOLS["graph_hydrate"] = graph_hydrate
+
+    # ══════════════════════════════════════════════════════════════════
+    # Ontology System — Palantir Foundry parity (type/link/function layer)
+    #   property types  (CONCEPT:KG-2.47)
+    #   value types     (CONCEPT:KG-2.39)
+    #   interfaces      (CONCEPT:KG-2.38)
+    #   links           (CONCEPT:KG-2.26)
+    #   functions       (CONCEPT:KG-2.41)
+    #   derived props   (CONCEPT:KG-2.40)
+    # All handlers are thin — they reach the live `KnowledgeGraph.ontology`
+    # system (bound to the engine's backend) so Functions-on-Objects, derived
+    # compute and interface targeting resolve against the real graph.
+    # ══════════════════════════════════════════════════════════════════
+
+    def _ontology_system():
+        """Return an OntologySystem bound to the live engine store (or offline)."""
+        from agent_utilities.knowledge_graph.facade import KnowledgeGraph
+
+        try:
+            engine = _get_engine()
+        except Exception:  # pragma: no cover - defensive
+            engine = None
+        backend = getattr(engine, "backend", None) if engine is not None else None
+        kg = KnowledgeGraph()
+        # Bind the facade store to the already-initialized engine backend so the
+        # object-aware paths read the same graph the rest of the server uses.
+        if backend is not None:
+            kg._store = backend
+        return kg.ontology
+
+    @mcp.tool(
+        name="ontology_property_types",
+        description="List the ontology property-type registry and resolve/validate a Palantir-style type ref (CONCEPT:KG-2.47).",
+        tags=["graph-os", "ontology"],
+    )
+    def ontology_property_types(
+        action: str = Field(
+            default="list",
+            description="'list' all type names, 'describe' a type, 'column_type' a type's column DDL string, or 'validate' a value.",
+        ),
+        type_ref: str = Field(default="", description="A type ref, e.g. 'array<string>' or 'vector<768>'."),
+        value: str = Field(default="", description="JSON-encoded value for action='validate'."),
+    ) -> str:
+        """List/describe ontology property types and resolve/validate a type reference."""
+        from agent_utilities.knowledge_graph.ontology.property_types import (
+            column_type_for,
+            get_property_type,
+            list_property_types,
+            validate_value,
+        )
+
+        try:
+            if action == "list":
+                return json.dumps({"property_types": list_property_types()})
+            if action == "describe":
+                pt = get_property_type(type_ref)
+                if pt is None:
+                    return json.dumps({"error": f"unknown type: {type_ref!r}"})
+                return json.dumps(pt.model_dump(), default=str)
+            if action == "column_type":
+                return json.dumps({"type_ref": type_ref, "column_type": column_type_for(type_ref)})
+            if action == "validate":
+                parsed = json.loads(value) if value else None
+                return json.dumps({"type_ref": type_ref, "valid": validate_value(type_ref, parsed)})
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["ontology_property_types"] = ontology_property_types
+
+    @mcp.tool(
+        name="ontology_value_types",
+        description="List/describe constrained ontology value types and validate or coerce a value (CONCEPT:KG-2.39).",
+        tags=["graph-os", "ontology"],
+    )
+    def ontology_value_types(
+        action: str = Field(default="list", description="'list' | 'describe' | 'validate' | 'coerce'."),
+        name: str = Field(default="", description="The value-type name, e.g. 'EmailAddress'."),
+        value: str = Field(default="", description="JSON-encoded value for validate/coerce."),
+    ) -> str:
+        """List/describe value types and validate or coerce a value through one."""
+        from agent_utilities.knowledge_graph.ontology.value_types import (
+            coerce_value_type,
+            get_value_type,
+            list_value_types,
+            validate_value_type,
+        )
+
+        try:
+            if action == "list":
+                return json.dumps({"value_types": list_value_types()})
+            if action == "describe":
+                vt = get_value_type(name)
+                if vt is None:
+                    return json.dumps({"error": f"unknown value type: {name!r}"})
+                return json.dumps(vt.model_dump(), default=str)
+            parsed = json.loads(value) if value else None
+            if action == "validate":
+                return json.dumps({"name": name, "valid": validate_value_type(name, parsed)})
+            if action == "coerce":
+                return json.dumps({"name": name, "value": coerce_value_type(name, parsed)}, default=str)
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["ontology_value_types"] = ontology_value_types
+
+    @mcp.tool(
+        name="ontology_interface",
+        description="Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL (CONCEPT:KG-2.38).",
+        tags=["graph-os", "ontology"],
+    )
+    def ontology_interface(
+        action: str = Field(
+            default="list",
+            description="'list' interfaces, 'implementers' (resolve an interface/type to concrete types), 'conforms' (check an object), or 'owl'.",
+        ),
+        name: str = Field(default="", description="Interface or concrete type name."),
+        object_json: str = Field(default="{}", description="JSON object dict for action='conforms'."),
+    ) -> str:
+        """Resolve interface targeting, check conformance, or emit interface OWL/SHACL."""
+        from agent_utilities.knowledge_graph.ontology.interfaces import (
+            DEFAULT_INTERFACE_REGISTRY,
+            target_object_types,
+        )
+
+        try:
+            if action == "list":
+                return json.dumps(
+                    {"interfaces": [i.name for i in DEFAULT_INTERFACE_REGISTRY.list_interfaces()]}
+                )
+            if action == "implementers":
+                return json.dumps({"target": name, "implementers": target_object_types(name)})
+            if action == "conforms":
+                obj = json.loads(object_json) if object_json else {}
+                return json.dumps({"interface": name, "conforms": DEFAULT_INTERFACE_REGISTRY.conforms(obj, name)})
+            if action == "owl":
+                return json.dumps({"owl": DEFAULT_INTERFACE_REGISTRY.to_owl()})
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["ontology_interface"] = ontology_interface
+
+    @mcp.tool(
+        name="ontology_function",
+        description="Typed, versioned ontology functions: list or invoke through the governed runtime (CONCEPT:KG-2.41).",
+        tags=["graph-os", "ontology"],
+    )
+    def ontology_function(
+        action: str = Field(default="list", description="'list' registered functions or 'invoke' one."),
+        name: str = Field(default="", description="Function name for action='invoke'."),
+        params: str = Field(default="{}", description="JSON-encoded typed input params."),
+        version: str = Field(default="", description="Optional pinned semver version."),
+        actor: str = Field(default="mcp:caller", description="Invoking actor id (recorded in the audit entry)."),
+    ) -> str:
+        """List registered ontology functions or invoke one with typed params."""
+        from agent_utilities.knowledge_graph.ontology.functions import (
+            DEFAULT_FUNCTION_REGISTRY,
+        )
+
+        try:
+            if action == "list":
+                return json.dumps(
+                    [
+                        {
+                            "name": s.name,
+                            "version": s.version,
+                            "kind": str(s.kind),
+                            "released": s.released,
+                            "inputs": [p.model_dump() for p in s.inputs],
+                            "output": str(s.output),
+                            "description": s.description,
+                        }
+                        for s in DEFAULT_FUNCTION_REGISTRY.list_functions()
+                    ],
+                    default=str,
+                )
+            if action == "invoke":
+                actor_id = actor or "mcp:caller"
+                ont = _ontology_system()
+                parsed = json.loads(params) if params else {}
+                result = ont.invoke_function(
+                    name, parsed, version or None, actor_id=actor_id
+                )
+                return json.dumps(result.model_dump(), default=str)
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["ontology_function"] = ontology_function
+
+    @mcp.tool(
+        name="ontology_derive",
+        description="Compute derived (function/cypher/sparql/embedding-backed) properties live at read time (CONCEPT:KG-2.40).",
+        tags=["graph-os", "ontology"],
+    )
+    def ontology_derive(
+        action: str = Field(default="compute", description="'list' declarations, 'compute' one property, or 'compute_all'."),
+        object_json: str = Field(default="{}", description="JSON object dict the property is computed for."),
+        name: str = Field(default="", description="Derived-property name for action='compute'."),
+        object_type: str = Field(default="", description="Optional object type for declaration resolution."),
+    ) -> str:
+        """Compute derived properties for an object against the live graph."""
+        from agent_utilities.knowledge_graph.ontology.derived_properties import (
+            DEFAULT_DERIVED_REGISTRY,
+        )
+
+        try:
+            if action == "list":
+                return json.dumps(
+                    [
+                        {
+                            "name": d.name,
+                            "object_type": d.object_type,
+                            "backing": str(d.backing),
+                            "output_type": str(d.output_type),
+                            "description": d.description,
+                        }
+                        for d in DEFAULT_DERIVED_REGISTRY.list_all()
+                    ],
+                    default=str,
+                )
+            ont = _ontology_system()
+            obj = json.loads(object_json) if object_json else {}
+            otype = object_type or None
+            if action == "compute":
+                res = ont.derive(obj, name, object_type=otype)
+                return json.dumps(res.model_dump(), default=str)
+            if action == "compute_all":
+                return json.dumps(ont.derive_all(obj, object_type=otype), default=str)
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["ontology_derive"] = ontology_derive
+
+    @mcp.tool(
+        name="ontology_link_materialize",
+        description="Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple and write it (CONCEPT:KG-2.26).",
+        tags=["graph-os", "ontology"],
+    )
+    async def ontology_link_materialize(
+        action: str = Field(default="materialize", description="'types' to list link types, or 'materialize' a junction."),
+        link_name: str = Field(default="", description="The junction link type name, e.g. 'agent_skill'."),
+        source_id: str = Field(default="", description="Source endpoint node id."),
+        target_id: str = Field(default="", description="Target endpoint node id."),
+        properties: str = Field(default="{}", description="JSON-encoded junction (link) properties."),
+    ) -> str:
+        """List link types or reify + persist a M:N link via the graph_write path."""
+        from agent_utilities.knowledge_graph.ontology.links import DEFAULT_LINK_REGISTRY
+
+        try:
+            if action == "types":
+                return json.dumps(
+                    [
+                        {
+                            "name": link.name,
+                            "source_type": str(link.source_type),
+                            "target_type": str(link.target_type),
+                            "edge_type": str(link.edge_type),
+                            "cardinality": str(link.cardinality),
+                            "is_junction": link.name in {j.name for j in DEFAULT_LINK_REGISTRY.junctions()},
+                        }
+                        for link in DEFAULT_LINK_REGISTRY.list_links()
+                    ],
+                    default=str,
+                )
+            ont = _ontology_system()
+            props = json.loads(properties) if properties else {}
+            node, edge_a, edge_b = ont.materialize_link(
+                link_name, source_id, target_id, props
+            )
+            # Persist via the existing graph_write add_node / add_edge primitives.
+            await _execute_tool(
+                "graph_write",
+                action="add_node",
+                node_type=str(node.type),
+                node_id=node.id,
+                properties=json.dumps({"name": node.name, **(node.metadata or {})}, default=str),
+            )
+            for edge in (edge_a, edge_b):
+                await _execute_tool(
+                    "graph_write",
+                    action="add_edge",
+                    source_id=edge.source,
+                    target_id=edge.target,
+                    rel_type=str(edge.type),
+                    properties=json.dumps(edge.metadata or {}, default=str),
+                )
+            return json.dumps(
+                {
+                    "junction_id": node.id,
+                    "edge_a_type": str(edge_a.type),
+                    "edge_b_type": str(edge_b.type),
+                },
+                default=str,
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["ontology_link_materialize"] = ontology_link_materialize
+
+    @mcp.tool(
+        name="object_edits",
+        description="Durable object-edit ledger (CONCEPT:KG-2.43): record a structured edit (property_set/link_add/link_remove/object_create/object_delete), revert an edit, or read per-object history / as_of snapshot.",
+        tags=["graph-os", "ontology"],
+    )
+    def object_edits(
+        action: str = Field(
+            default="history",
+            description="'record' an edit | 'revert' an edit by id | 'history' per object | 'as_of' snapshot.",
+        ),
+        object_id: str = Field(default="", description="Target object id (record/history/as_of)."),
+        edit_type: str = Field(
+            default="property_set",
+            description="property_set|link_add|link_remove|object_create|object_delete (for action='record').",
+        ),
+        properties_json: str = Field(default="{}", description="JSON property map (record property_set/object_create)."),
+        link_target: str = Field(default="", description="Link target id (record link_add/link_remove)."),
+        link_label: str = Field(default="related", description="Link label (record link_add/link_remove)."),
+        edit_id: str = Field(default="", description="Edit id (action='revert')."),
+        ts: float = Field(default=0.0, description="Unix timestamp (action='as_of')."),
+        actor: str = Field(default="system", description="Acting principal recorded on the edit."),
+    ) -> str:
+        """Record / revert object edits and read per-object edit history or an as_of snapshot."""
+        from agent_utilities.knowledge_graph.ontology.edits import (
+            Edit,
+            EditType,
+            revert_edit,
+        )
+
+        try:
+            ont = _ontology_system()
+            ledger = ont.edits
+            if action == "record":
+                etype = EditType(edit_type)
+                if etype in (EditType.LINK_ADD, EditType.LINK_REMOVE):
+                    edit = Edit(
+                        actor=actor,
+                        edit_type=etype,
+                        object_id=object_id,
+                        link_source=object_id,
+                        link_label=link_label,
+                        link_target=link_target,
+                    )
+                else:
+                    props = json.loads(properties_json) if properties_json else {}
+                    edit = Edit(
+                        actor=actor,
+                        edit_type=etype,
+                        object_id=object_id,
+                        after=dict(props),
+                    )
+                recorded = ledger.record(edit)
+                return json.dumps(recorded.model_dump(), default=str)
+            if action == "revert":
+                comp = revert_edit(ledger, edit_id, actor=actor)
+                return json.dumps(comp.model_dump(), default=str)
+            if action == "history":
+                return json.dumps(
+                    {"object_id": object_id, "history": [e.model_dump() for e in ledger.history(object_id)]},
+                    default=str,
+                )
+            if action == "as_of":
+                return json.dumps({"object_id": object_id, "snapshot": ledger.as_of(object_id, ts)}, default=str)
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["object_edits"] = object_edits
+
+    @mcp.tool(
+        name="object_index",
+        description="Object Index Lifecycle / Object Data Funnel (CONCEPT:KG-2.44): batch/incremental sync of the live search index from source nodes, report staleness, or reindex stale objects.",
+        tags=["graph-os", "ontology"],
+    )
+    def object_index(
+        action: str = Field(
+            default="status",
+            description="'sync' (batch rebuild) | 'reindex' (reconcile stale) | 'status' (live/tombstone counts).",
+        ),
+        nodes_json: str = Field(default="[]", description="JSON list of source node mappings (sync/reindex)."),
+    ) -> str:
+        """Sync / reindex the live object search index and report staleness."""
+        try:
+            ont = _ontology_system()
+            funnel = ont.index_funnel
+            if action == "sync":
+                nodes = json.loads(nodes_json) if nodes_json else []
+                return json.dumps(funnel.batch_sync(nodes).as_dict())
+            if action == "reindex":
+                nodes = json.loads(nodes_json) if nodes_json else []
+                return json.dumps(funnel.reconcile(nodes).as_dict())
+            if action == "status":
+                return json.dumps(
+                    {
+                        "live_size": len(funnel),
+                        "tombstones": funnel.tombstone_count,
+                        "indexed_ids": sorted(funnel.live_ids()),
+                    }
+                )
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["object_index"] = object_index
+
+    @mcp.tool(
+        name="object_permissioning",
+        description="Fine-grained object permissioning (CONCEPT:KG-2.46): redact an object, materialize a restricted view, or attach a mandatory marking. Actor is resolved from the ambient context — never from caller-supplied clearance.",
+        tags=["graph-os", "ontology"],
+    )
+    def object_permissioning(
+        action: str = Field(
+            default="restricted_view",
+            description="'redact' one object | 'restricted_view' an object set | 'mark' attach a marking.",
+        ),
+        objects_json: str = Field(default="[]", description="JSON list of object dicts (restricted_view)."),
+        object_json: str = Field(default="{}", description="JSON object dict (redact)."),
+        node_id: str = Field(default="", description="Node id (action='mark')."),
+        marking: str = Field(default="", description="Marking name (action='mark')."),
+        mask: bool = Field(default=False, description="Mask withheld properties instead of dropping them."),
+    ) -> str:
+        """Redact / restrict / mark objects for the AMBIENT actor (no spoofable clearance)."""
+        from agent_utilities.knowledge_graph.ontology.permissioning import (
+            apply_marking,
+            redact_object,
+            restricted_view,
+        )
+
+        try:
+            # actor=None -> resolved from the ambient ActorContext set by the
+            # dispatcher's use_actor(); callers cannot inject their own clearance.
+            if action == "redact":
+                obj = json.loads(object_json) if object_json else {}
+                return json.dumps(redact_object(obj, None, mask=mask), default=str)
+            if action == "restricted_view":
+                objs = json.loads(objects_json) if objects_json else []
+                return json.dumps(restricted_view(objs, None, mask=mask), default=str)
+            if action == "mark":
+                apply_marking(node_id, marking)
+                return json.dumps({"node_id": node_id, "marking": marking, "applied": True})
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["object_permissioning"] = object_permissioning
+
+    @mcp.tool(
+        name="object_set",
+        description="Object Set Service (CONCEPT:KG-2.45/2.38): search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object sets.",
+        tags=["graph-os", "ontology"],
+    )
+    def object_set(
+        action: str = Field(
+            default="of_type",
+            description="of_type|from_ids|search|filter|search_around|pivot|aggregate|union|intersect|subtract.",
+        ),
+        type_or_interface: str = Field(default="", description="Object type / interface (of_type)."),
+        ids_json: str = Field(default="[]", description="JSON list of ids (from_ids / set algebra 'other')."),
+        query: str = Field(default="", description="Search query (search)."),
+        link_type: str = Field(default="", description="Link type (search_around/pivot); empty = any."),
+        hops: int = Field(default=1, description="Hop count (search_around)."),
+        direction: str = Field(default="out", description="out|in|both (search_around/pivot)."),
+        group_by: str = Field(default="", description="Group-by property (pivot/aggregate)."),
+        metric: str = Field(default="count", description="count|sum|avg|min|max (aggregate)."),
+        field: str = Field(default="", description="Numeric field (aggregate sum/avg/min/max)."),
+        limit: int = Field(default=50, description="Result limit (search)."),
+    ) -> str:
+        """Compute over a Foundry-style object set: search/filter/traverse/pivot/aggregate/algebra."""
+        try:
+            ont = _ontology_system()
+            if action == "from_ids" or action in ("union", "intersect", "subtract"):
+                base = ont.object_set(json.loads(ids_json) if ids_json else [])
+            else:
+                base = ont.object_set_of_type(type_or_interface)
+
+            if action in ("of_type", "from_ids"):
+                return json.dumps({"ids": base.ids(), "count": base.count()})
+            if action == "search":
+                res = base.search(query, limit=limit)
+                return json.dumps({"ids": res.ids(), "count": res.count()})
+            if action == "search_around":
+                res = base.search_around(link_type or None, hops=hops, direction=direction)
+                return json.dumps({"ids": res.ids(), "count": res.count()})
+            if action == "pivot":
+                piv = base.pivot(link_type or None, group_by, direction=direction)
+                return json.dumps(
+                    {"link_type": piv.link_type, "group_by": piv.group_by, "groups": piv.groups},
+                    default=str,
+                )
+            if action == "aggregate":
+                agg = base.aggregate(metric, field=field or None, group_by=group_by or None)
+                return json.dumps(
+                    {
+                        "metric": agg.metric,
+                        "field": agg.field,
+                        "group_by": agg.group_by,
+                        "groups": {str(k): v for k, v in agg.groups.items()},
+                        "total_objects": agg.total_objects,
+                    },
+                    default=str,
+                )
+            if action in ("union", "intersect", "subtract"):
+                other = ont.object_set_of_type(type_or_interface) if type_or_interface else ont.object_set([])
+                combined = getattr(base, action)(other)
+                return json.dumps({"ids": combined.ids(), "count": combined.count()})
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["object_set"] = object_set
+
+    @mcp.tool(
+        name="document_process",
+        description="Document → ontology processing (CONCEPT:KG-2.48): extract → chunk(overlap) → embed → materialize a Document + linked Chunk objects through the live graph write path.",
+        tags=["graph-os", "ontology"],
+    )
+    def document_process(
+        document: str = Field(description="A file path or raw text content to process."),
+        text: str = Field(default="", description="Optional pre-extracted text (OCR/external)."),
+        source: str = Field(default="", description="Provenance label (path/URL)."),
+        chunk_size: int = Field(default=800, description="Target chunk size in characters."),
+        overlap: int = Field(default=120, description="Overlap characters between chunks."),
+    ) -> str:
+        """Process a document into Document + Chunk ontology objects through the live graph."""
+        from agent_utilities.knowledge_graph.facade import KnowledgeGraph
+        from agent_utilities.knowledge_graph.ontology.document_processing import (
+            ChunkingConfig,
+            DocumentProcessor,
+        )
+
+        try:
+            engine = None
+            try:
+                engine = _get_engine()
+            except Exception:  # pragma: no cover - defensive
+                engine = None
+            backend = getattr(engine, "backend", None) if engine is not None else None
+            kg = KnowledgeGraph()
+            if backend is not None:
+                kg._store = backend
+            proc = DocumentProcessor(
+                kg, chunking=ChunkingConfig(chunk_size=chunk_size, overlap=overlap)
+            )
+            result = proc.process(document, text=text or None, source=source)
+            return json.dumps(
+                {
+                    "document_id": result.document_id,
+                    "chunk_count": result.chunk_count,
+                    "persisted": result.persisted,
+                    "edges": len(result.edges),
+                },
+                default=str,
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["document_process"] = document_process
 
     return args, mcp, middlewares
 

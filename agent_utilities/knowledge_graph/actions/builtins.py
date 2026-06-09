@@ -19,7 +19,15 @@ and is audited.
 import logging
 from typing import Any
 
-from .models import ActionEffect, ActionParameter, OntologyAction
+from .models import (
+    ActionEffect,
+    ActionEffectSpec,
+    ActionParameter,
+    EffectKind,
+    OntologyAction,
+    SubmissionCriterion,
+)
+from .models import CriterionOp as _Op
 from .registry import ActionRegistry
 
 logger = logging.getLogger(__name__)
@@ -119,6 +127,74 @@ def _handle_forensic_screen(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ── kg.annotate_concept ─────────────────────────────────────────────────────
+# A REAL mutating built-in (CONCEPT:KG-2.42): it sets a review annotation on a
+# concept object purely via a typed side-effect applied through the C1 Edit
+# Ledger — no bespoke handler write path. Because the mutation is journaled as an
+# ``object_edit``, the action is fully audited and revertible (``executor.undo``).
+
+ANNOTATE_CONCEPT = OntologyAction(
+    name="kg.annotate_concept",
+    verb="annotate",
+    description=(
+        "Attach a reviewer annotation to a concept object. The change is applied "
+        "as a typed MODIFY_OBJECT side-effect journaled in the Edit Ledger, so it "
+        "is durably audited and revertible (undo)."
+    ),
+    parameters=[
+        ActionParameter(
+            name="concept_id",
+            type="string",
+            required=True,
+            description="Id of the concept object to annotate.",
+        ),
+        ActionParameter(
+            name="note",
+            type="string",
+            required=True,
+            description="The annotation text to set on the concept.",
+        ),
+        ActionParameter(
+            name="reviewer",
+            type="string",
+            required=False,
+            description="Optional reviewer attribution.",
+        ),
+    ],
+    acts_on=["concept"],
+    required_capability="kg_write",
+    produces_effect=ActionEffect.MUTATION,
+    idempotent=False,
+    submission_criteria=[
+        SubmissionCriterion(
+            field="params.note",
+            op=_Op.NON_EMPTY,
+            message="annotation note must be non-empty",
+        ),
+    ],
+    side_effects=[
+        ActionEffectSpec(
+            kind=EffectKind.MODIFY_OBJECT,
+            target="$concept_id",
+            params={"review_note": "$note", "reviewer": "$reviewer"},
+        ),
+    ],
+)
+
+
+def _handle_annotate_concept(params: dict[str, Any]) -> dict[str, Any]:
+    """Handler body — the durable mutation is the declarative side-effect.
+
+    The handler returns a small result summary; the actual graph change is the
+    action's typed MODIFY_OBJECT side-effect, applied by the executor through the
+    Edit Ledger (so this action is revertible). Real logic, no shell.
+    """
+    return {
+        "annotated": params["concept_id"],
+        "note_len": len(str(params.get("note", ""))),
+    }
+
+
 def register_builtins(registry: ActionRegistry) -> None:
     """Register all built-in ontology actions into ``registry``.
 
@@ -127,3 +203,4 @@ def register_builtins(registry: ActionRegistry) -> None:
     """
     registry.register(KG_SEARCH, _handle_kg_search)
     registry.register(FORENSIC_SCREEN, _handle_forensic_screen)
+    registry.register(ANNOTATE_CONCEPT, _handle_annotate_concept)
