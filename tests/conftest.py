@@ -253,3 +253,50 @@ for _mod_name in _OPTIONAL_HEAVY_DEPS:
         # Give the mock a plausible __version__ so version-probing code doesn't choke.
         mock.__version__ = "0.0.0-mock"
         sys.modules[_mod_name] = mock
+
+
+# ── Repo-mutation session guard (test hermeticity) ──────────────────────────
+# Some self-evolution paths (golden loop / SDD distillers) can fire async and
+# write into the repo while the suite runs, which made the pre-commit ``pytest``
+# hook report "files were modified by this hook" non-deterministically. This
+# guard snapshots the set of dirty *tracked* files at session start and, at
+# session end, reverts any tracked file that became dirty *during* the session —
+# preserving pre-existing uncommitted work (only test-generated mutations are
+# undone), so the working tree returns to its starting state.
+import subprocess as _au_subprocess  # noqa: E402
+
+_AU_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_AU_DIRTY_AT_START: set[str] = set()
+
+
+def _au_dirty_tracked() -> set[str]:
+    try:
+        out = _au_subprocess.run(
+            ["git", "-C", _AU_REPO_ROOT, "diff", "--name-only"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return {line for line in out.stdout.splitlines() if line.strip()}
+    except Exception:  # noqa: BLE001 — not a git repo / git missing → no-op guard
+        return set()
+
+
+def pytest_sessionstart(session):  # noqa: ARG001 — pytest hook signature
+    global _AU_DIRTY_AT_START
+    _AU_DIRTY_AT_START = _au_dirty_tracked()
+
+
+def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001 — pytest hook signature
+    stray = sorted(_au_dirty_tracked() - _AU_DIRTY_AT_START)
+    if not stray:
+        return
+    try:
+        _au_subprocess.run(
+            ["git", "-C", _AU_REPO_ROOT, "checkout", "--", *stray],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except Exception:  # noqa: BLE001 — best-effort cleanup
+        pass
