@@ -224,80 +224,131 @@ class TieredGraphBackend(GraphBackend):
     # ------------------------------------------------------------------
     # Durability reconciliation
     # ------------------------------------------------------------------
-    def reconcile_to_durable(self) -> dict[str, int]:
-        """Bulk-copy the L1 graph into L3 to close any mirror gaps.
+    def _l1_edges(self, graph: Any) -> list[tuple[str, str, dict]]:
+        """Enumerate L1 edges as ``(src, dst, data)`` via the bulk edge view."""
+        view = getattr(graph, "edges", None)
+        if view is not None:
+            try:
+                seq = view(data=True) if callable(view) else view
+                out = []
+                for e in seq:
+                    if isinstance(e, tuple | list) and len(e) >= 2:
+                        out.append((e[0], e[1], e[2] if len(e) > 2 else {}))
+                if out:
+                    return out
+            except Exception:  # noqa: BLE001
+                pass
+        for meth in ("_get_all_edges",):  # NX-style enumeration (carries data)
+            fn = getattr(graph, meth, None)
+            if callable(fn):
+                try:
+                    return [
+                        (e[0], e[1], e[2] if len(e) > 2 else {}) for e in fn()
+                    ]
+                except Exception:  # noqa: BLE001
+                    pass
+        try:  # underlying client list()
+            return [
+                (e[0], e[1], e[2] if len(e) > 2 else {})
+                for e in graph._client.edges.list()
+            ]
+        except Exception:  # noqa: BLE001
+            return []
 
-        Returns a summary dict with counts of nodes/edges reconciled and the
-        number of L3 errors encountered. Best-effort: individual failures are
-        counted, not raised.
+    def _l3_label_count(self, label: str) -> int | None:
+        """Durable node count for ``label`` (``None`` if it can't be measured)."""
+        try:
+            rows = self.l3.execute(f"MATCH (n:{label}) RETURN count(n) AS c")
+            if rows and isinstance(rows[0], dict):
+                v = rows[0].get("c")
+                return int(v) if v is not None else None
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
+    def reconcile_to_durable(self) -> dict[str, int]:
+        """Mirror the L1 graph into L3 and report **exact** remaining drift.
+
+        Writes every L1 node/edge to the durable tier (auto-DDL self-heals any
+        missing table/column), then measures the *actual* divergence by comparing
+        per-type L1 vs L3 counts — so the metric reflects what truly landed, not
+        the count of best-effort writes (``execute`` swallows failures and returns
+        ``[]``, so per-write counting over-reports). ``nodes_missing`` /
+        ``edges_missing`` are the honest drift after the pass; non-zero means a
+        write was dropped despite auto-DDL.
         """
-        summary = {
+        summary: dict[str, int] = {
             "nodes": 0,
             "edges": 0,
             "errors": 0,
+            "nodes_missing": 0,
+            "edges_missing": 0,
             "prior_l3_failures": self._l3_failures,
         }
         graph = getattr(self.l1, "graph", None)
         if graph is None:
-            logger.warning(
-                "reconcile_to_durable: L1 exposes no compute graph; skipping"
-            )
+            logger.warning("reconcile_to_durable: L1 exposes no compute graph; skipping")
             return summary
 
-        # Nodes
+        # --- Nodes: write each (auto-DDL on the L3 write path heals new types). ---
         try:
             node_ids = list(graph._get_all_nodes())
         except Exception as exc:  # noqa: BLE001
             logger.warning("reconcile_to_durable: cannot enumerate L1 nodes: %s", exc)
             node_ids = []
-
+        l1_by_label: dict[str, int] = {}
         for nid in node_ids:
             try:
                 props = dict(graph._get_node_properties(nid) or {})
-                label = _sanitize_label(
-                    props.get("type") or props.get("label") or "Node"
-                )
-                name = props.get("name") or nid
-                # Backstop only: write the universally-present columns (id/name/type)
-                # so an L1-only node at least EXISTS durably. Full property fidelity
-                # is the engine's backend-first write path's responsibility.
+                label = _sanitize_label(props.get("type") or props.get("label") or "Node")
+                l1_by_label[label] = l1_by_label.get(label, 0) + 1
                 self.l3.execute(
                     f"CREATE (n:{label} {{id: $id, name: $name, type: $type}})",
-                    {"id": nid, "name": str(name), "type": label},
+                    {"id": nid, "name": str(props.get("name") or nid), "type": label},
                 )
                 summary["nodes"] += 1
             except Exception as exc:  # noqa: BLE001
                 summary["errors"] += 1
                 logger.debug("reconcile node %s failed: %s", nid, exc)
 
-        # Edges — prefer the underlying client list() which carries edge data
-        # (``_get_all_edges`` drops it). Fall back to the 2-tuple enumeration.
-        try:
-            edges = list(graph._client.edges.list())
-        except Exception:
+        # --- Edges: mirror into the unified kg_edges table. ---
+        l1_edges = self._l1_edges(graph)
+        for src, dst, edata in l1_edges:
             try:
-                edges = list(graph._get_all_edges())
-            except Exception:
-                edges = []
-        for edge in edges:
-            try:
-                src, dst = edge[0], edge[1]
-                edata = edge[2] if len(edge) > 2 else {}
                 rel = _sanitize_label((edata or {}).get("type", "RELATED_TO"))
-                # Transpiler-recognized edge-upsert form.
+                # The transpiler recognizes UPSERT_EDGE only with the node-MATCH
+                # prefix (→ INSERT INTO kg_edges); the bare ``MERGE (a)-[r]->(b)``
+                # is UNKNOWN and silently no-ops.
                 self.l3.execute(
+                    f"MATCH (a {{id: $source_id}}), (b {{id: $target_id}}) "
                     f"MERGE (a)-[r:{rel}]->(b)",
                     {"source_id": src, "target_id": dst},
                 )
                 summary["edges"] += 1
             except Exception as exc:  # noqa: BLE001
                 summary["errors"] += 1
-                logger.debug("reconcile edge %s->%s failed: %s", edge[0], edge[1], exc)
+                logger.debug("reconcile edge %s->%s failed: %s", src, dst, exc)
+
+        # --- EXACT drift: post-condition L1 vs L3 counts (not per-write trust). ---
+        for label, l1n in l1_by_label.items():
+            l3n = self._l3_label_count(label)
+            if l3n is not None:
+                summary["nodes_missing"] += max(0, l1n - l3n)
+            else:
+                summary["nodes_missing"] += l1n  # couldn't verify → assume unmirrored
+        l3e = getattr(self.l3, "edge_count", lambda: None)()
+        if l3e is not None:
+            summary["edges_missing"] = max(0, len(l1_edges) - l3e)
+        else:
+            summary["edges_missing"] = 0  # not measurable on this backend
 
         logger.info(
-            "TieredGraphBackend reconcile: %d nodes, %d edges, %d errors",
+            "TieredGraphBackend reconcile: %d nodes, %d edges written; "
+            "drift after: %d nodes / %d edges missing; %d write errors",
             summary["nodes"],
             summary["edges"],
+            summary["nodes_missing"],
+            summary["edges_missing"],
             summary["errors"],
         )
         return summary
