@@ -22,11 +22,10 @@ Repo-boundary note: this module knows nothing about the SKILL.md format. The
 seam mirrors how ``generate_skill.py`` already shells out to ``crawl.py``.
 
 The graph is reached over the out-of-process MessagePack/UDS client
-(``epistemic_graph.client``) — there is no PyO3. Reads are intentionally
-batched where the protocol allows (one ``edges.list()`` for the whole edge set);
-per-node property reads are acceptable here because distillation is an *offline*
-operation, not a hot path. A batched ``GetSubgraph`` engine method is a noted
-future optimisation.
+(``epistemic_graph.client``) — there is no PyO3. The node set is selected, then
+its properties + induced edges are pulled in a **single** ``GetSubgraph``
+round-trip (``fetch_subgraph``); a legacy per-node fallback keeps it working
+against engines that predate that batched method.
 
 CLI::
 
@@ -333,6 +332,7 @@ class SkillGraphDistiller:
         selection: dict[str, Any],
         taxonomy: dict[str, list[str]],
         props: dict[str, dict],
+        edges: list[tuple[str, str, str]],
         out_dir: str | Path,
         *,
         selector: dict[str, Any],
@@ -355,7 +355,7 @@ class SkillGraphDistiller:
         # itself materialised, its chunks are redundant — emit the doc, not
         # doc+chunks. Collect such covered children up front so they are recorded
         # in the manifest but never written as separate files.
-        all_edges = await self._collect_edges(set(node_ids))
+        all_edges = edges
         covered_children: set[str] = set()
         for src, dst, rel in all_edges:
             if rel.upper() in ("PART_OF", "CONTAINS"):
@@ -379,8 +379,13 @@ class SkillGraphDistiller:
                 if not body or nid in covered_children:
                     # No body, or a chunk already covered by its parent Document:
                     # recorded in the manifest, but no (empty/duplicate) file.
-                    entry = {"id": nid, "type": ntype, "title": title, "file": None,
-                             "source_url": _first(p, _SOURCE_KEYS)}
+                    entry = {
+                        "id": nid,
+                        "type": ntype,
+                        "title": title,
+                        "file": None,
+                        "source_url": _first(p, _SOURCE_KEYS),
+                    }
                     if nid in covered_children:
                         entry["covered_by_parent"] = True
                     manifest_nodes.append(entry)
@@ -397,8 +402,13 @@ class SkillGraphDistiller:
                 used_rel.add(rel)
                 file_for[nid] = rel
                 manifest_nodes.append(
-                    {"id": nid, "type": ntype, "title": title, "file": f"reference/{rel}",
-                     "source_url": _first(p, _SOURCE_KEYS)}
+                    {
+                        "id": nid,
+                        "type": ntype,
+                        "title": title,
+                        "file": f"reference/{rel}",
+                        "source_url": _first(p, _SOURCE_KEYS),
+                    }
                 )
                 cluster_dir.mkdir(parents=True, exist_ok=True)
 
@@ -423,8 +433,12 @@ class SkillGraphDistiller:
             body = str(_first(p, _BODY_KEYS) or "")
             title = str(_first(p, _TITLE_KEYS) or _slugify(nid))
             src_url = _first(p, _SOURCE_KEYS)
-            fm = ["---", f"title: {title}", f"kg_node_id: {nid}",
-                  f"kg_node_type: {_first(p, _TYPE_KEYS) or 'Node'}"]
+            fm = [
+                "---",
+                f"title: {title}",
+                f"kg_node_id: {nid}",
+                f"kg_node_type: {_first(p, _TYPE_KEYS) or 'Node'}",
+            ]
             if src_url:
                 fm.append(f"source_url: {src_url}")
             fm.append("---")
@@ -472,9 +486,7 @@ class SkillGraphDistiller:
         except ValueError:
             return to_rel
 
-    async def _collect_edges(
-        self, node_ids: set[str]
-    ) -> list[tuple[str, str, str]]:
+    async def _collect_edges(self, node_ids: set[str]) -> list[tuple[str, str, str]]:
         """Return ``(src, dst, rel_type)`` for edges fully inside the selection.
 
         Uses a single ``edges.list()`` and unpacks edge-property blobs locally.
@@ -509,12 +521,46 @@ class SkillGraphDistiller:
 
     # ── orchestration ─────────────────────────────────────────────────────
 
-    async def fetch_props(self, node_ids: list[str]) -> dict[str, dict]:
-        """Fetch user properties for each node (offline; per-node read).
+    async def fetch_subgraph(
+        self, node_ids: list[str]
+    ) -> tuple[dict[str, dict], list[tuple[str, str, str]]]:
+        """Fetch node properties + induced edges in ONE round-trip via the
+        engine's batched ``GetSubgraph``.
 
-        A batched ``GetSubgraph`` engine method would collapse this to one
-        round-trip — noted as a perf follow-up.
+        Returns ``(props_by_id, edge_records)``. Falls back to the legacy path
+        (per-node ``properties`` + full ``edges.list`` scan) when the engine
+        predates the batched method, so the distiller works against any engine.
         """
+        try:
+            sub = await self.client.graph.get_subgraph(list(node_ids))
+            if isinstance(sub, dict) and "nodes" in sub:
+                props: dict[str, dict] = {
+                    n["id"]: (n.get("properties") or {})
+                    for n in sub.get("nodes", [])
+                    if n.get("id")
+                }
+                for nid in node_ids:  # guarantee every requested id is present
+                    props.setdefault(nid, {})
+                edges: list[tuple[str, str, str]] = []
+                for e in sub.get("edges", []):
+                    src, dst = e.get("source"), e.get("target")
+                    if not (src and dst):
+                        continue
+                    rel = str(_first(e.get("properties") or {}, _REL_KEYS) or "RELATED")
+                    edges.append((src, dst, rel))
+                return props, edges
+        except Exception as e:  # noqa: BLE001
+            logger.info(
+                "get_subgraph unavailable (%s); falling back to per-node reads", e
+            )
+        # Legacy fallback.
+        props = await self.fetch_props(node_ids)
+        edges = await self._collect_edges(set(node_ids))
+        return props, edges
+
+    async def fetch_props(self, node_ids: list[str]) -> dict[str, dict]:
+        """Per-node property read (legacy fallback for engines without the
+        batched ``GetSubgraph``)."""
         props: dict[str, dict] = {}
         for nid in node_ids:
             try:
@@ -550,14 +596,14 @@ class SkillGraphDistiller:
             # Still emit an (empty) manifest so callers get a deterministic shape.
             selection = {"anchors": selection.get("anchors", []), "node_ids": []}
             return await self.materialize(
-                selection, {"": []}, {}, out_dir, selector=selector
+                selection, {"": []}, {}, [], out_dir, selector=selector
             )
-        props = await self.fetch_props(selection["node_ids"])
+        props, edges = await self.fetch_subgraph(selection["node_ids"])
         taxonomy = await self.derive_taxonomy(
             selection["node_ids"], props, resolution=resolution
         )
         manifest = await self.materialize(
-            selection, taxonomy, props, out_dir, selector=selector
+            selection, taxonomy, props, edges, out_dir, selector=selector
         )
         logger.info(
             "Distilled %d nodes → %d files in %d clusters at %s",
@@ -572,7 +618,13 @@ class SkillGraphDistiller:
 
     # Node types whose subgraph reads as an ordered procedure.
     _PROCEDURE_TYPES = {
-        "procedure", "playbook", "policy", "action", "task", "step", "process",
+        "procedure",
+        "playbook",
+        "policy",
+        "action",
+        "task",
+        "step",
+        "process",
     }
 
     @staticmethod
@@ -623,14 +675,18 @@ class SkillGraphDistiller:
         ``SKILL.md`` consumable/validatable by ``skill-workflow-builder`` plus a
         ``kg_manifest.json`` for provenance. (CONCEPT:AHE-3.9 / KG-2.7)
         """
-        selector = {"seed": seed, "query": query, "depth": depth,
-                    "max_nodes": max_nodes, "mode": "workflow"}
+        selector = {
+            "seed": seed,
+            "query": query,
+            "depth": depth,
+            "max_nodes": max_nodes,
+            "mode": "workflow",
+        }
         selection = await self.select_subgraph(
             seed=seed, query=query, depth=depth, max_nodes=max_nodes
         )
         node_ids = selection["node_ids"]
-        props = await self.fetch_props(node_ids)
-        edges = await self._collect_edges(set(node_ids))
+        props, edges = await self.fetch_subgraph(node_ids)
 
         precedes = [(s, d) for (s, d, r) in edges if r.upper() == "PRECEDES"]
         step_ids: set[str] = set()
@@ -677,11 +733,12 @@ class SkillGraphDistiller:
             dep_nums = sorted(set(deps.get(nid, [])))
             dep_clause = (
                 f" [depends_on: {', '.join(f'Step {n}' for n in dep_nums)}]"
-                if dep_nums else ""
+                if dep_nums
+                else ""
             )
             body = str(_first(p, _BODY_KEYS) or _first(p, _TITLE_KEYS) or nid).strip()
             lines.append(f"### Step {i}: {token}{dep_clause}")
-            lines.append(f"**Agent**: `orchestrator`")
+            lines.append("**Agent**: `orchestrator`")
             lines.append("")
             lines.append(body)
             lines.append(f"Expected: {token}_result")
@@ -700,7 +757,11 @@ class SkillGraphDistiller:
             "selector": selector,
             "snapshot_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "steps": [
-                {"step": i, "node_id": nid, "depends_on": sorted(set(deps.get(nid, [])))}
+                {
+                    "step": i,
+                    "node_id": nid,
+                    "depends_on": sorted(set(deps.get(nid, []))),
+                }
                 for i, nid in enumerate(ordered)
             ],
             "precedes": [{"before": a, "after": b} for a, b in precedes],
@@ -708,7 +769,9 @@ class SkillGraphDistiller:
         (out / "kg_manifest.json").write_text(
             json.dumps(manifest, indent=2), encoding="utf-8"
         )
-        logger.info("Distilled workflow %s with %d steps at %s", wf_name, len(ordered), out_dir)
+        logger.info(
+            "Distilled workflow %s with %d steps at %s", wf_name, len(ordered), out_dir
+        )
         return {"name": wf_name, "steps": len(ordered), "manifest": manifest}
 
     async def close(self) -> None:
@@ -739,8 +802,11 @@ async def _amain(args: argparse.Namespace) -> int:
                 out_dir=args.out_dir,
                 name=args.name,
             )
-            summary = {"kind": "skill-workflow", "name": result["name"],
-                       "steps": result["steps"]}
+            summary = {
+                "kind": "skill-workflow",
+                "name": result["name"],
+                "steps": result["steps"],
+            }
         else:
             manifest = await distiller.distill(
                 seed=args.seed,
@@ -774,16 +840,25 @@ def main() -> None:
     g = parser.add_mutually_exclusive_group(required=True)
     g.add_argument("--seed", help="Anchor node id to grow the subgraph from.")
     g.add_argument("--query", help="Natural-language seed (semantic search anchor).")
-    parser.add_argument("--depth", type=int, default=2, help="BFS hop depth (default 2).")
     parser.add_argument(
-        "--max-nodes", type=int, default=400, help="Cap on selected nodes (default 400)."
+        "--depth", type=int, default=2, help="BFS hop depth (default 2)."
     )
     parser.add_argument(
-        "--resolution", type=float, default=1.0,
+        "--max-nodes",
+        type=int,
+        default=400,
+        help="Cap on selected nodes (default 400).",
+    )
+    parser.add_argument(
+        "--resolution",
+        type=float,
+        default=1.0,
         help="Community-detection resolution → folder granularity (default 1.0).",
     )
     parser.add_argument(
-        "--graph-name", default=None, help="Tenant graph (default $KG_GRAPH_NAME or __bus__)."
+        "--graph-name",
+        default=None,
+        help="Tenant graph (default $KG_GRAPH_NAME or __bus__).",
     )
     parser.add_argument("--out-dir", required=True, help="Output directory.")
     parser.add_argument(
