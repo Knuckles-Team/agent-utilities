@@ -709,80 +709,192 @@ class IngestionEngine:
 
     @adaptor(ContentType.DOCUMENT)
     async def _ingest_document(self, manifest: IngestionManifest) -> IngestionResult:
-        """Ingest a document through the KB extraction pipeline.
+        """Standardized document ingestion (file / directory / URL → one shape).
 
-        CONCEPT:KG-2.7
+        CONCEPT:KG-2.7 — A document yields the SAME ``Document{content}`` +
+        ``IdeaBlock`` chunks + ``Concept`` shape regardless of submission form;
+        ``_ingest_document_file`` is the canonical per-document unit:
 
-        Routes to ``KBIngestionEngine.ingest_directory()`` or
-        ``ingest_url()`` depending on whether ``source_uri`` is a path or URL.
-        Handles chunking, LLM extraction, embedding, and graph persistence.
+          * file      → one unit.
+          * directory → the unit per discovered document file (NOT KB curation).
+          * URL       → fetch + convert to text, then one unit.
+
+        LLM curation into ``Article`` nodes is the SEPARATE, explicit
+        ``KNOWLEDGE_BASE`` / ``curate_wiki`` path, or opt-in here via
+        ``manifest.metadata["curate"]=True`` as an enrichment layer on top.
         """
         source = manifest.source_uri
-        kb_name = manifest.metadata.get("kb_name")
-        topic = manifest.metadata.get("topic")
-        force = manifest.force
 
-        # Light per-file path: a single document FILE → Document + Concept nodes
-        # via extract_document (1 LLM call, no heavy KB chunking). Subset-friendly,
-        # reuses the unified concept extractor, and is far faster than KB chunking
-        # for papers/markdown/text. Directories + URLs still use the KB pipeline.
-        if not source.startswith(("http://", "https://")) and Path(source).is_file():
-            return self._ingest_document_file(manifest, Path(source))
+        if source.startswith(("http://", "https://")):
+            result = await self._ingest_document_url(manifest, source)
+        else:
+            path = Path(source)
+            if path.is_file():
+                result = self._ingest_document_file(manifest, path)
+            elif path.is_dir():
+                result = self._ingest_document_dir(manifest, path)
+            else:
+                return IngestionResult(
+                    manifest=manifest, status="failed", error=f"Not found: {source}"
+                )
+
+        # Opt-in curation enrichment layer (default off) — adds curated Article
+        # nodes on top of the standardized contract without replacing it.
+        if manifest.metadata.get("curate") and not source.startswith(
+            ("http://", "https://")
+        ):
+            try:
+                from ..kb.ingestion import KBIngestionEngine
+
+                graph_compute = getattr(self.kg, "graph_compute", None)
+                if graph_compute is not None:
+                    kb_engine = KBIngestionEngine(
+                        graph=graph_compute, backend=self.backend
+                    )
+                    p = Path(source)
+                    await kb_engine.ingest_directory(
+                        path=p if p.is_dir() else p.parent,
+                        kb_name=manifest.metadata.get("kb_name")
+                        or (p.name if p.is_dir() else p.stem),
+                        topic=manifest.metadata.get("topic"),
+                        force=manifest.force,
+                    )
+                    if result.details is not None:
+                        result.details["curated"] = True
+            except Exception as e:  # noqa: BLE001 — curation is best-effort
+                logger.warning("Opt-in curation enrichment failed: %s", e)
+
+        return result
+
+    # Document file extensions the standardized unit can read verbatim.
+    _DOC_EXTENSIONS = {
+        ".md", ".markdown", ".txt", ".rst", ".text",
+        ".pdf", ".html", ".htm", ".org", ".adoc",
+    }
+    _DOC_SKIP_DIRS = {
+        ".git", "node_modules", "__pycache__", ".venv", "venv",
+        ".mypy_cache", ".pytest_cache", "site-packages", "dist", "build",
+    }
+
+    def _ingest_document_dir(
+        self, manifest: IngestionManifest, root: Path
+    ) -> IngestionResult:
+        """Ingest every document file under ``root`` via the canonical unit, so a
+        directory yields exactly the same node shape as its files would alone."""
+        import json as _json
+
+        files = [
+            p
+            for p in sorted(root.rglob("*"))
+            if p.is_file()
+            and p.suffix.lower() in self._DOC_EXTENSIONS
+            and not any(part in self._DOC_SKIP_DIRS for part in p.parts)
+        ]
+        if not files:
+            return IngestionResult(
+                manifest=manifest, status="skipped",
+                details={"reason": "no document files found", "root": str(root)},
+            )
+
+        nodes = edges = docs = 0
+        for f in files:
+            sub = IngestionManifest(
+                content_type=manifest.content_type,
+                source_uri=str(f),
+                metadata={**manifest.metadata, "source_url": str(f)},
+                force=manifest.force,
+            )
+            res = self._ingest_document_file(sub, f)
+            if res.status == "success":
+                docs += 1
+                nodes += res.nodes_created or 0
+                edges += res.edges_created or 0
+
+        return IngestionResult(
+            manifest=manifest,
+            status="success",
+            nodes_created=nodes,
+            edges_created=edges,
+            details={"documents": docs, "files_seen": len(files),
+                     "summary": _json.dumps({"root": str(root)})},
+        )
+
+    async def _ingest_document_url(
+        self, manifest: IngestionManifest, url: str
+    ) -> IngestionResult:
+        """Fetch a URL, convert to text, and ingest it as one canonical document.
+
+        Best-effort HTML→markdown via ``markitdown`` (soft dep); falls back to a
+        light tag strip. For bulk web ingestion, prefer crawling to markdown
+        files first and ingesting the directory.
+        """
+        import re
+        import tempfile
 
         try:
-            from ..kb.ingestion import KBIngestionEngine
+            import requests
 
-            graph_compute = getattr(self.kg, "graph_compute", None)
-            if graph_compute is None:
-                return IngestionResult(
-                    manifest=manifest,
-                    status="failed",
-                    error="GraphComputeEngine not available",
-                )
-
-            kb_engine = KBIngestionEngine(graph=graph_compute, backend=self.backend)
-
-            if source.startswith(("http://", "https://")):
-                meta = await kb_engine.ingest_url(
-                    url=source,
-                    kb_name=kb_name or "web",
-                    topic=topic,
-                    force=force,
-                )
-            else:
-                path = Path(source)
-                if path.is_file():
-                    meta = await kb_engine.ingest_directory(
-                        path=path.parent,
-                        kb_name=kb_name or path.stem,
-                        topic=topic,
-                        force=force,
-                    )
-                else:
-                    meta = await kb_engine.ingest_directory(
-                        path=path,
-                        kb_name=kb_name or path.name,
-                        topic=topic,
-                        force=force,
-                    )
-
+            resp = requests.get(url, timeout=60)
+            resp.raise_for_status()
+            raw = resp.text
+        except Exception as e:  # noqa: BLE001
             return IngestionResult(
-                manifest=manifest,
-                status="success",
-                nodes_created=meta.article_count,
-                details={"kb_id": meta.id, "article_count": meta.article_count},
+                manifest=manifest, status="failed", error=f"fetch failed: {e}"
             )
-        except Exception as e:
-            return IngestionResult(manifest=manifest, status="failed", error=str(e))
+
+        text = raw
+        try:
+            from markitdown import MarkItDown
+
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=".html", delete=False, encoding="utf-8"
+            ) as tmp:
+                tmp.write(raw)
+                tmp_path = tmp.name
+            text = MarkItDown().convert(tmp_path).text_content
+            os.unlink(tmp_path)
+        except Exception:  # noqa: BLE001 — fall back to a light tag strip
+            text = re.sub(r"<[^>]+>", " ", raw)
+
+        # Write the materialized text to a temp file so the canonical unit (which
+        # reads from a path) can ingest it, recording the real URL as source.
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".md", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write(text)
+            doc_path = Path(tmp.name)
+        sub = IngestionManifest(
+            content_type=manifest.content_type,
+            source_uri=str(doc_path),
+            metadata={**manifest.metadata, "source_url": url},
+            force=manifest.force,
+        )
+        try:
+            return self._ingest_document_file(sub, doc_path)
+        finally:
+            try:
+                doc_path.unlink()
+            except OSError:
+                pass
 
     def _ingest_document_file(
         self, manifest: IngestionManifest, path_obj: Path
     ) -> IngestionResult:
-        """Light single-file document ingest → Document + Concept + MENTIONS.
+        """Canonical single-document ingest → the standardized contract.
 
-        One LLM call (concept extraction on the excerpt), no KB chunking — fast
-        + subset-friendly. Set ``extract_concepts=False`` to store the Document
-        node only. (CONCEPT:KG-2.8)
+        CONCEPT:KG-2.7 — Standardized document ingestion. One document, however
+        it is submitted (file / dir element / fetched URL), always yields the
+        SAME shape so fidelity never depends on submission form:
+
+            Document{content: <full verbatim>}
+              ├─ IdeaBlock{trusted_answer: <chunk>}   (PART_OF Document)
+              └─ Concept{summary}                      (MENTIONS, from Document)
+
+        Verbatim body is retained on the ``Document`` node (re-materialisable,
+        e.g. distilled back into a skill-graph). Chunks are the retrieval/dedup
+        substrate. No body-rewriting LLM is involved (curation is the separate,
+        explicit KNOWLEDGE_BASE/curate_wiki path). Gates (via manifest.metadata):
+        ``extract_concepts`` (default on), ``chunk`` (default on).
         """
         import json as _json
 
@@ -816,6 +928,7 @@ class IngestionEngine:
             return IngestionResult(
                 manifest=manifest, status="failed", error="backend.add_node unavailable"
             )
+        source_url = manifest.metadata.get("source_url") or doc.file_path
         add_node(
             doc.id,
             type="Document",
@@ -823,6 +936,8 @@ class IngestionEngine:
             doc_type=doc.doc_type,
             file_path=doc.file_path,
             ast_hash=doc.content_hash,
+            content=doc.content,
+            source_url=source_url,
             metadata=_json.dumps(doc.metadata)[:4000],
         )
         for c in concepts:
@@ -841,15 +956,76 @@ class IngestionEngine:
                     add_edge(e.source, e.target, rel_type=e.rel_type)
                 except Exception:  # noqa: BLE001
                     pass
+
+        # Verbatim chunk substrate: deterministic ids keyed to the Document so a
+        # re-ingest overwrites the same chunk nodes instead of duplicating them.
+        chunks_created = 0
+        if manifest.metadata.get("chunk", True):
+            from ..distillation.distillation_engine import chunk_text
+
+            chunks = chunk_text(text)
+            for i, chunk in enumerate(chunks):
+                block_id = f"{doc.id}:chunk:{i}"
+                add_node(
+                    block_id,
+                    type="idea_block",
+                    name=f"{doc.title} §{i + 1}",
+                    description=chunk[:200],
+                    trusted_answer=chunk,
+                    source_document_id=doc.id,
+                    source=source_url,
+                )
+                if callable(add_edge):
+                    try:
+                        add_edge(block_id, doc.id, rel_type="PART_OF")
+                    except Exception:  # noqa: BLE001
+                        pass
+                chunks_created += 1
+
+        # KG-2.48 — opt-in materialization of first-class, embedded ``Chunk``
+        # ontology objects linked to a ``Document`` via HAS_CHUNK / CHUNK_OF.
+        # Default OFF so existing docs ingest unchanged; turned on per-manifest
+        # via metadata["chunk_objects"]. Runs the document_processing pipeline on
+        # the live backend write path.
+        chunk_objects_created = 0
+        chunk_object_edges = 0
+        if manifest.metadata.get("chunk_objects"):
+            try:
+                from ..ontology.document_processing import (
+                    ChunkingConfig,
+                    DocumentProcessor,
+                )
+
+                processor = DocumentProcessor(
+                    self.backend,
+                    chunking=ChunkingConfig(
+                        chunk_size=int(manifest.metadata.get("chunk_size", 800)),
+                        overlap=int(manifest.metadata.get("overlap", 120)),
+                    ),
+                )
+                processed = processor.process(
+                    text,
+                    document_id=doc.id,
+                    title=doc.title,
+                    doc_type=doc.doc_type,
+                    source=source_url,
+                )
+                chunk_objects_created = processed.chunk_count
+                chunk_object_edges = len(processed.edges)
+            except Exception as e:  # noqa: BLE001 — opt-in enrichment never blocks
+                logger.warning("[KG-2.48] chunk-object materialization failed: %s", e)
+
         return IngestionResult(
             manifest=manifest,
             status="success",
-            nodes_created=1 + len(concepts),
-            edges_created=len(edges),
+            nodes_created=1 + len(concepts) + chunks_created + chunk_objects_created,
+            edges_created=len(edges) + chunks_created + chunk_object_edges,
             details={
                 "doc_id": doc.id,
                 "doc_type": doc.doc_type,
                 "concepts": len(concepts),
+                "chunks": chunks_created,
+                "chunk_objects": chunk_objects_created,
             },
         )
 

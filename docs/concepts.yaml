@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 115
+total_concepts: 126
 total_pillars: 12
 pillars:
 - AHE-3
@@ -157,6 +157,8 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/distillation/physical_distiller.py
+  - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
+  - agent_utilities/mcp/kg_server.py
   doc: Distills updated tool description back into Python function docstring
 - id: AHE-3.11
   name: GitOps Git Commit Automation
@@ -746,6 +748,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/kg_versioning.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/enrichment/execute.py
+  - agent_utilities/knowledge_graph/enrichment/models.py
   - agent_utilities/knowledge_graph/ingestion/__init__.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
@@ -975,14 +978,20 @@ concepts:
   - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/core/shacl_validator.py
+  - agent_utilities/knowledge_graph/ontology/functions/__init__.py
+  - agent_utilities/knowledge_graph/ontology/functions/runtime.py
   doc: the default registry is populated at import, not an empty
 - id: KG-2.26
-  name: Trade-Journal Bias Auditor and Shadow Account
+  name: the Palantir *many-to-many link backed by an object type*
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/domains/finance/trade_journal.py
-  doc: Trade-Journal Bias Auditor and Shadow Account
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/links.py
+  - agent_utilities/mcp/kg_server.py
+  doc: the Palantir *many-to-many link backed by an object type*
 - id: KG-2.27
   name: Agent Calibration and Reputation Tracking
   pillar: KG-2
@@ -1056,14 +1065,15 @@ concepts:
   - agent_utilities/models/schema_pack_loader.py
   doc: Schema-Pack Lifecycle and Audit
 - id: KG-2.36
-  name: Pack-Driven OWL Closure
+  name: reuses the pack-driven OWL closure notion. The
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/ontology/links.py
   - agent_utilities/models/schema_pack.py
   - agent_utilities/models/schema_packs/research.py
-  doc: Pack-Driven OWL Closure
+  doc: reuses the pack-driven OWL closure notion. The
 - id: KG-2.37
   name: Research-State Domain Pack
   pillar: KG-2
@@ -1073,6 +1083,126 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_packs/research.py
   doc: Research-State Domain Pack
+- id: KG-2.38
+  name: the function the A3 functions runtime / object queries call
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/interfaces.py
+  - agent_utilities/knowledge_graph/ontology/object_set.py
+  - agent_utilities/mcp/kg_server.py
+  doc: the function the A3 functions runtime / object queries call
+- id: KG-2.39
+  name: the live consumer hook. Writes the combined SHACL document
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/shacl_validator.py
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/value_types.py
+  - agent_utilities/mcp/kg_server.py
+  doc: the live consumer hook. Writes the combined SHACL document
+- id: KG-2.40
+  name: import-populated registry + a default engine bound to it and
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/derived_properties.py
+  - agent_utilities/mcp/kg_server.py
+  doc: import-populated registry + a default engine bound to it and
+- id: KG-2.41
+  name: a default runtime bound to the import-populated registry, so
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/functions/__init__.py
+  - agent_utilities/knowledge_graph/ontology/functions/objects.py
+  - agent_utilities/knowledge_graph/ontology/functions/registry.py
+  - agent_utilities/knowledge_graph/ontology/functions/runtime.py
+  - agent_utilities/mcp/kg_server.py
+  doc: a default runtime bound to the import-populated registry, so
+- id: KG-2.42
+  name: Palantir submission-criteria gate. An action with no
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/actions/builtins.py
+  - agent_utilities/knowledge_graph/actions/dispatch.py
+  - agent_utilities/knowledge_graph/actions/effects.py
+  - agent_utilities/knowledge_graph/actions/executor.py
+  - agent_utilities/knowledge_graph/actions/models.py
+  doc: Palantir submission-criteria gate. An action with no
+- id: KG-2.43
+  name: the write-back leg of the edit ledger. Sinks are registered
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/edits/__init__.py
+  - agent_utilities/knowledge_graph/ontology/edits/ledger.py
+  - agent_utilities/knowledge_graph/ontology/edits/revert.py
+  - agent_utilities/knowledge_graph/ontology/edits/writeback.py
+  - agent_utilities/mcp/kg_server.py
+  doc: the write-back leg of the edit ledger. Sinks are registered
+- id: KG-2.44
+  name: batch/incremental sync of the live search index from source nodes, report staleness, or reindex
+    stale objects
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/facade.py
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/indexing/__init__.py
+  - agent_utilities/knowledge_graph/ontology/indexing/funnel.py
+  - agent_utilities/knowledge_graph/ontology/indexing/staleness.py
+  - agent_utilities/mcp/kg_server.py
+  doc: batch/incremental sync of the live search index from source nodes, report staleness, or reindex
+    stale objects
+- id: KG-2.45
+  name: pivot across a link type. Computes the 1-hop related set
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/object_set.py
+  - agent_utilities/mcp/kg_server.py
+  doc: pivot across a link type. Computes the 1-hop related set
+- id: KG-2.46
+  name: redact an object, materialize a restricted view, or attach a mandatory marking. Actor is resolved
+    from the ambient context — never from caller-supplied clearance
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/facade.py
+  - agent_utilities/knowledge_graph/ontology/permissioning.py
+  - agent_utilities/mcp/kg_server.py
+  doc: redact an object, materialize a restricted view, or attach a mandatory marking. Actor is resolved
+    from the ambient context — never from caller-supplied clearance
+- id: KG-2.47
+  name: bridges the ontology type vocabulary onto the exact
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/property_types.py
+  - agent_utilities/mcp/kg_server.py
+  doc: bridges the ontology type vocabulary onto the exact
+- id: KG-2.48
+  name: the one-call form the ingestion engine / MCP wrapper invokes
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/facade.py
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/document_processing.py
+  - agent_utilities/mcp/kg_server.py
+  doc: the one-call form the ingestion engine / MCP wrapper invokes
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

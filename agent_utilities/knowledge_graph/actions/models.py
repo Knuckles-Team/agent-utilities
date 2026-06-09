@@ -31,6 +31,51 @@ class ActionEffect(StrEnum):
     EXTERNAL = "external"
 
 
+class EffectKind(StrEnum):
+    """The class of typed side-effect an action declares. CONCEPT:KG-2.42.
+
+    Provenance (Palantir AIP doc: *action-types/overview*): an Action Type may
+    apply MULTIPLE typed edits in one logical submission — create/modify/delete
+    an object, or add/remove a link. Each is captured as an
+    :class:`ActionEffectSpec` and, when executed, recorded as a durable C1 Edit
+    (``ontology/edits``) so every action is fully audited and revertible.
+    """
+
+    CREATE_OBJECT = "create_object"
+    MODIFY_OBJECT = "modify_object"
+    DELETE_OBJECT = "delete_object"
+    ADD_LINK = "add_link"
+    REMOVE_LINK = "remove_link"
+
+
+class ActionEffectSpec(BaseModel):
+    """One declared, typed side-effect of an :class:`OntologyAction`. CONCEPT:KG-2.42.
+
+    Provenance (Palantir AIP doc: *action-types/overview* — "Modifying the
+    Ontology"): an action's effects are a typed list of object/link edits applied
+    atomically on submission. This spec is the *declaration*; the executor binds
+    it to live params at run time and applies it through the C1
+    :class:`~agent_utilities.knowledge_graph.ontology.edits.EditLedger` so the
+    mutation is journaled as a revertible ``object_edit``.
+
+    Templating: ``target`` and any string value in ``params`` may reference an
+    invocation parameter with ``"$paramName"`` (or embedded ``"${paramName}"``),
+    resolved against the validated invocation params before the edit is applied.
+
+    Attributes:
+        kind: Which typed edit this effect performs.
+        target: The object id (CREATE/MODIFY/DELETE) or the link *source* id
+            (ADD/REMOVE link). Supports ``$param`` substitution.
+        params: For object edits, the property map to set; for link edits, the
+            keys ``link_target`` (required) and ``link_label`` (default
+            ``"related"``). String values support ``$param`` substitution.
+    """
+
+    kind: EffectKind
+    target: str = ""
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 class ActionStatus(StrEnum):
     """Outcome of an :class:`ActionInvocation`."""
 
@@ -47,6 +92,92 @@ class ActionParameter(BaseModel):
     type: str = "string"
     required: bool = True
     description: str = ""
+
+
+class CriterionOp(StrEnum):
+    """Comparison operator for a :class:`SubmissionCriterion`. CONCEPT:KG-2.42."""
+
+    REQUIRED = "required"  # field must be present + truthy
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    IN = "in"
+    NOT_IN = "not_in"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    NON_EMPTY = "non_empty"
+
+
+class SubmissionCriterion(BaseModel):
+    """A submission rule predicate gating whether an action may run. CONCEPT:KG-2.42.
+
+    Provenance (Palantir AIP doc: *action-types/overview* — "Submission
+    criteria"): before an action's edits are applied, a set of validation rules
+    over the parameters (and the invoking actor) must hold; a failing rule blocks
+    submission with a message. This is a declarative, data-only predicate so a
+    definition stays pure (no engine needed to author one).
+
+    The ``field`` is resolved against a scope object: ``"params.<key>"`` reads an
+    invocation parameter, ``"actor.id"`` / ``"actor.capabilities"`` read the
+    actor, and a bare name is treated as ``params.<name>``.
+    """
+
+    field: str
+    op: CriterionOp = CriterionOp.REQUIRED
+    value: Any = None
+    message: str = ""
+
+    def describe(self) -> str:
+        """Human-readable rendering used in deny messages."""
+        if self.message:
+            return self.message
+        if self.op in (CriterionOp.REQUIRED, CriterionOp.NON_EMPTY):
+            return f"{self.field} {self.op}"
+        return f"{self.field} {self.op} {self.value!r}"
+
+
+class FunctionRef(BaseModel):
+    """Reference to a registered ontology Function backing an action. CONCEPT:KG-2.42.
+
+    Provenance (Palantir AIP doc: *action-types/overview* — "Function-backed
+    actions"): an action may delegate its core logic to a typed, versioned
+    Function. We reference it by ``name`` (+ optional pinned ``version``); the
+    executor resolves it against the Wave-1 functions runtime
+    (``ontology.functions.FunctionRuntime``) via a soft import so authoring a
+    definition never hard-depends on the runtime being importable.
+    """
+
+    name: str
+    version: str = ""
+
+
+class NotificationSpec(BaseModel):
+    """A notification to fire after an action's edits are applied. CONCEPT:KG-2.42.
+
+    Provenance (Palantir AIP doc: *action-types/overview* — "Notifications"):
+    actions can notify recipients on submission. ``template`` supports the same
+    ``$param`` substitution as effects so the message can embed invocation data.
+    """
+
+    channel: str = "default"
+    recipient: str = ""
+    template: str = ""
+
+
+class WebhookSpec(BaseModel):
+    """An outbound webhook to POST after an action's edits are applied. CONCEPT:KG-2.42.
+
+    Provenance (Palantir AIP doc: *action-types/overview* — "Webhooks"): an
+    action can call an external system on submission. Dispatched for real via
+    httpx when available, else recorded as a durable outbound record (never a
+    silent no-op).
+    """
+
+    url: str
+    method: str = "POST"
+    headers: dict[str, str] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class OntologyAction(BaseModel):
@@ -88,6 +219,14 @@ class OntologyAction(BaseModel):
     idempotent: bool = True
     risk_tier: str = ""
     value_tier: str = "low"
+    # ── Action-Type extension (CONCEPT:KG-2.42) — all optional, defaults
+    # preserve existing KG-2.25 semantics (no side-effects, no criteria). ──
+    side_effects: list[ActionEffectSpec] = Field(default_factory=list)
+    submission_criteria: list[SubmissionCriterion] = Field(default_factory=list)
+    function_ref: FunctionRef | None = None
+    notifications: list[NotificationSpec] = Field(default_factory=list)
+    webhooks: list[WebhookSpec] = Field(default_factory=list)
+    batch: bool = False
 
     def model_post_init(self, __context: Any) -> None:
         if not self.id:
@@ -127,6 +266,14 @@ class ActionInvocation(BaseModel):
     error: str = ""
     audit_ref: str = ""
     persisted: bool = False
+    # ── Action-Type extension (CONCEPT:KG-2.42) ──
+    # Ids of the C1 EditLedger edits this invocation produced (drives undo).
+    edit_ids: list[str] = Field(default_factory=list)
+    # Recorded outbound dispatches (notifications + webhooks), each a dict
+    # describing the attempt + outcome so dispatch is never a silent no-op.
+    dispatches: list[dict[str, Any]] = Field(default_factory=list)
+    # Per-target sub-invocation records when this is a batch invocation.
+    batch_results: list[dict[str, Any]] = Field(default_factory=list)
     timestamp: float = Field(default_factory=time.time)
 
     def model_post_init(self, __context: Any) -> None:
