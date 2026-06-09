@@ -141,6 +141,8 @@ def build() -> str:
 
 def main() -> None:
     content = build()
+    if not content.endswith("\n"):
+        content += "\n"  # trailing newline so the end-of-file-fixer hook is a no-op
     OUT_PATH.write_text(content, encoding="utf-8")
     size = len(content.encode("utf-8"))
     has_hypothesis = ".hypothesis" in content

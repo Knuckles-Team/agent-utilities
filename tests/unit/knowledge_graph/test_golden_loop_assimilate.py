@@ -138,6 +138,14 @@ def test_breadth_stage_runs_when_configured(tmp_path, monkeypatch):
     (tmp_path / "memory-os").mkdir()
     (tmp_path / "memory-os" / "pyproject.toml").write_text("x", encoding="utf-8")
     monkeypatch.setenv("KG_BREADTH_LIBRARY_ROOTS", str(tmp_path))
+    # Isolate from any ambient/config-configured roots so only the test's tmp lib
+    # is scanned (the golden loop falls back to AgentConfig.kg_breadth_* when the
+    # env vars are unset, which in a configured workspace points at real repos).
+    monkeypatch.delenv("KG_BREADTH_REPO_ROOTS", raising=False)
+    from agent_utilities.core.config import config as _cfg
+
+    monkeypatch.setattr(_cfg, "kg_breadth_repo_roots", "", raising=False)
+    monkeypatch.setattr(_cfg, "kg_breadth_library_roots", "", raising=False)
     engine = _Engine(_graph_nodes())
     report = GoldenLoopController(engine).run_one_cycle(breadth=True)
     assert report["breadth"] is not None and report["breadth"]["projects"] == 1
