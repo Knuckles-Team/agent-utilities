@@ -21,7 +21,9 @@ def _no_active_engine(monkeypatch):
     # The downfeed step re-embeds via the active engine; keep it None in tests.
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    monkeypatch.setattr(IntelligenceGraphEngine, "get_active", classmethod(lambda cls: None))
+    monkeypatch.setattr(
+        IntelligenceGraphEngine, "get_active", classmethod(lambda cls: None)
+    )
 
 
 def _has_edge(g, u, v, rel):
@@ -30,7 +32,9 @@ def _has_edge(g, u, v, rel):
 
 
 def _bridge(graph, pack):
-    return OWLBridge(graph=graph, owl_backend=MagicMock(), backend=None, schema_pack=pack)
+    return OWLBridge(
+        graph=graph, owl_backend=MagicMock(), backend=None, schema_pack=pack
+    )
 
 
 def _research_graph():

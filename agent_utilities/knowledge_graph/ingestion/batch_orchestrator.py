@@ -131,7 +131,11 @@ class RepoBatchIngestor:
         )
 
     def submit_batch(
-        self, repo_refs: list[RepoRef], *, run_id: str = "", include_archived: bool = False
+        self,
+        repo_refs: list[RepoRef],
+        *,
+        run_id: str = "",
+        include_archived: bool = False,
     ) -> BatchProgress:
         """Submit deep-ingest tasks for the changed repos, respecting backpressure.
 
@@ -166,7 +170,7 @@ class RepoBatchIngestor:
                     ref.provenance(run_id),
                     "codebase",
                 )
-            except Exception:  # noqa: BLE001 - one failed submit never aborts the batch
+            except Exception:  # noqa: BLE001 - one failed submit never aborts the batch  # nosec B112
                 continue
             progress.submitted += 1
             progress.job_ids.append(job_id)

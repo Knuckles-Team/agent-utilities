@@ -107,12 +107,17 @@ def test_geohash():
 def test_geoshape_geojson():
     poly = {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}
     assert coerce_value("geoshape", poly)["type"] == "Polygon"
-    assert coerce_value("geoshape", '{"type":"Point","coordinates":[1,2]}')["type"] == "Point"
+    assert (
+        coerce_value("geoshape", '{"type":"Point","coordinates":[1,2]}')["type"]
+        == "Point"
+    )
     assert not validate_value("geoshape", {"type": "Blob"})
 
 
 def test_timeseries_and_geotimeseries():
-    series = coerce_value("timeseries", [["2026-06-09T00:00:00Z", 1.5], ["2026-06-09T01:00:00Z", 2]])
+    series = coerce_value(
+        "timeseries", [["2026-06-09T00:00:00Z", 1.5], ["2026-06-09T01:00:00Z", 2]]
+    )
     assert len(series["points"]) == 2
     assert series["points"][0][1] == 1.5
     # reference-id form
@@ -124,7 +129,9 @@ def test_timeseries_and_geotimeseries():
     )
     assert gts["points"][0]["geo"] == {"lat": 37.0, "lon": -122.0}
     # latitude out of range rejected
-    assert not validate_value("geotimeseries", [["2026-06-09T00:00:00Z", {"lat": 200, "lon": 0}]])
+    assert not validate_value(
+        "geotimeseries", [["2026-06-09T00:00:00Z", {"lat": 200, "lon": 0}]]
+    )
 
 
 # --- Complex / reference types ----------------------------------------------
@@ -135,14 +142,20 @@ def test_struct():
 
 
 def test_attachment_and_media_reference():
-    att = coerce_value("attachment", {"rid": "ri.att.1", "filename": "x.pdf", "size": "10"})
+    att = coerce_value(
+        "attachment", {"rid": "ri.att.1", "filename": "x.pdf", "size": "10"}
+    )
     assert att == {"rid": "ri.att.1", "filename": "x.pdf", "size": 10}
     assert coerce_value("attachment", "ri.att.2")["rid"] == "ri.att.2"
     assert not validate_value("attachment", {"filename": "no-rid.pdf"})
 
     media = coerce_value(
         "media_reference",
-        {"media_set_rid": "ri.set.1", "media_item_rid": "ri.item.1", "media_type": "image/png"},
+        {
+            "media_set_rid": "ri.set.1",
+            "media_item_rid": "ri.item.1",
+            "media_type": "image/png",
+        },
     )
     assert media["media_item_rid"] == "ri.item.1"
     assert media["media_set_rid"] == "ri.set.1"
@@ -223,7 +236,9 @@ def test_column_types_are_valid_schema_strings():
 
     cols = {name: column_type_for(name) for name in list_property_types()}
     # Constructing a TableDefinition validates the dict[str,str] contract.
-    td = TableDefinition(name="PropTypeProbe", columns={"id": "STRING PRIMARY KEY", **cols})
+    td = TableDefinition(
+        name="PropTypeProbe", columns={"id": "STRING PRIMARY KEY", **cols}
+    )
     assert td.columns["timestamp"] == "TIMESTAMP"
     assert td.columns["embedding"].startswith("FLOAT[")
 

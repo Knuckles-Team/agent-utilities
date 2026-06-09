@@ -194,9 +194,7 @@ def read_cohorts(
                 members=sorted(cluster),
                 kind="merge_codebases",
                 capability=_dominant_capability(cluster, assets),
-                sources={
-                    _asset_source(assets[m]) for m in cluster if m in assets
-                }
+                sources={_asset_source(assets[m]) for m in cluster if m in assets}
                 - {""},
                 origin="dedup",
             )
@@ -207,9 +205,7 @@ def read_cohorts(
                 members=sorted(cluster),
                 kind="build_consolidator",
                 capability=_dominant_capability(cluster, assets),
-                sources={
-                    _asset_source(assets[m]) for m in cluster if m in assets
-                }
+                sources={_asset_source(assets[m]) for m in cluster if m in assets}
                 - {""},
                 origin="synergy",
             )

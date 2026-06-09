@@ -42,7 +42,10 @@ def test_registry_populated_with_real_builtins():
 # --- EmailAddress ------------------------------------------------------------
 def test_email_address_constraints():
     assert validate_value_type("EmailAddress", "ops@knuckles.team")
-    assert coerce_value_type("EmailAddress", "a.b+c@sub.example.co") == "a.b+c@sub.example.co"
+    assert (
+        coerce_value_type("EmailAddress", "a.b+c@sub.example.co")
+        == "a.b+c@sub.example.co"
+    )
     assert not validate_value_type("EmailAddress", "not-an-email")
     assert not validate_value_type("EmailAddress", "missing@tld")
     # max_length enforced
@@ -174,7 +177,9 @@ def test_to_shacl_node_shape_with_path_parses():
     vt = VALUE_TYPES["Percentage"]
     from agent_utilities.knowledge_graph.ontology.value_types import SHAPES_PREFIXES
 
-    turtle = SHAPES_PREFIXES + "\n" + vt.to_shacl(path="completionRate", target_class="Task")
+    turtle = (
+        SHAPES_PREFIXES + "\n" + vt.to_shacl(path="completionRate", target_class="Task")
+    )
     g = _try_rdflib_parse(turtle)
     if g is not None:
         from rdflib.namespace import SH

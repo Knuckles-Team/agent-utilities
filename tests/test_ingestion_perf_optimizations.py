@@ -126,7 +126,9 @@ class TestGitDelta:
         _git(git_repo, "commit", "-q", "-m", "docs")
 
         changed = _changed_python_files(str(git_repo), first)
-        assert changed == []  # functional git, but no .py changed → near-empty re-ingest
+        assert (
+            changed == []
+        )  # functional git, but no .py changed → near-empty re-ingest
 
 
 # ── #5: deep_analysis gating during bulk ingest ─────────────────────────────
