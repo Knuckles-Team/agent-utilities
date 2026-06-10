@@ -341,7 +341,11 @@ class AgentOrchestrationEngine:
                 )
 
         state = GraphState(
-            query=query, query_parts=query_parts or [], mode=mode, topology=topology
+            query=query,
+            query_parts=query_parts or [],
+            mode=mode,
+            topology=topology,
+            invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.38
         )
 
         _custom_headers = config.get("custom_headers")
@@ -403,6 +407,7 @@ class AgentOrchestrationEngine:
             session_id=run_id,
             mode=mode,
             topology=topology,
+            invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.38
         )
 
         if persist:
@@ -765,7 +770,11 @@ class AgentOrchestrationEngine:
         )
 
         state = GraphState(
-            query=query, query_parts=query_parts or [], mode=mode, topology=topology
+            query=query,
+            query_parts=query_parts or [],
+            mode=mode,
+            topology=topology,
+            invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.38
         )
 
         if persist:
@@ -991,7 +1000,11 @@ class AgentOrchestrationEngine:
         )
 
         state = GraphState(
-            query=query, query_parts=query_parts or [], mode=mode, topology=topology
+            query=query,
+            query_parts=query_parts or [],
+            mode=mode,
+            topology=topology,
+            invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.38
         )
 
         # Merge registry tags into deps (same as run_graph)
