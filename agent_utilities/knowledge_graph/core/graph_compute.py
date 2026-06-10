@@ -617,6 +617,31 @@ class GraphComputeEngine:
     def _get_all_edges(self) -> list[tuple[str, str]]:
         return [(src, tgt) for src, tgt, _ in self._client.edges.list()]
 
+    def _get_all_edges_with_properties(
+        self,
+    ) -> list[tuple[str, str, dict[str, Any]]]:
+        """Return every ``(src, tgt, properties)`` triple in a SINGLE round-trip.
+
+        ``edges.list()`` already ships each edge's (msgpack) properties alongside
+        its endpoints, so a full-graph edge scan must decode them locally rather
+        than issuing one ``_get_edge_properties`` round-trip per edge — the same
+        N+1 the bulk node scan avoids. On a 67K-edge graph the per-edge path cost
+        ~100s/scan and was re-run once per assimilation stage.
+        (CONCEPT:KG-2.8 throughput)
+        """
+        import msgpack
+
+        out: list[tuple[str, str, dict[str, Any]]] = []
+        for src, tgt, raw in self._client.edges.list():
+            props: Any = raw
+            if isinstance(raw, bytes | bytearray | list):
+                try:
+                    props = msgpack.unpackb(bytes(raw), raw=False)
+                except Exception:
+                    props = {}
+            out.append((src, tgt, props if isinstance(props, dict) else {}))
+        return out
+
     # ── Rust-native API wrappers ─────────────────────────────────────────
 
     def in_degree(self, node_id: str) -> int:
@@ -949,14 +974,11 @@ class _NodeView:
     def __call__(self, data: bool = False):
         """Support ``graph.nodes(data=True)`` iteration."""
         if data:
+            # One bulk round-trip (props ship with the node list) instead of an
+            # ``_get_node_properties`` round-trip per node. (CONCEPT:KG-2.8)
             return [
-                (
-                    nid,
-                    _NodePropertiesProxy(
-                        self._engine, nid, self._engine._get_node_properties(nid)
-                    ),
-                )
-                for nid in self._engine.node_ids()
+                (nid, _NodePropertiesProxy(self._engine, nid, props))
+                for nid, props in self._engine._get_all_nodes_with_properties()
             ]
         return self._engine.node_ids()
 
@@ -980,8 +1002,9 @@ class _EdgeView:
     ):
         """Support ``graph.edges(data=True, keys=True)`` iteration."""
         result: list[Any] = []
-        for src, tgt in self._engine._get_all_edges():
-            props = self._engine._get_edge_properties(src, tgt)
+        # One bulk round-trip (props ship with the edge list, decoded locally)
+        # instead of an ``_get_edge_properties`` round-trip per edge. (KG-2.8)
+        for src, tgt, props in self._engine._get_all_edges_with_properties():
             proxy = _EdgePropertiesProxy(self._engine, src, tgt, props)
             if data and keys:
                 result.append((src, tgt, 0, proxy))
