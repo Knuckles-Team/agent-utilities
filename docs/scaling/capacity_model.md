@@ -1,12 +1,15 @@
 # Capacity Model (Plan 07: Path to Scale)
 
-> **Status: MODELED, not load-tested.** Exactly one number in this document is
-> *measured*: the epistemic-graph single-connection transport latency. Every
-> sizing figure for 10k residents and above is a **linear extrapolation** from
-> that anchor plus the per-unit planning constants below. **We do not claim that
-> 1M — let alone 100M — residents have been run.** They have not. This is a
-> planning model whose arithmetic lives in
-> [`capacity_model.py`](./capacity_model.py) and is unit-tested in
+> **Status: MODELED, with measured anchors.** Three things are now *measured*
+> (not asserted): the epistemic-graph single-connection transport latency,
+> **per-shard linear write throughput** (1→4 shards ≈ 6.6× at constant wall-time,
+> no shared-state cliff), and the **per-agent working-set footprint (~52 kB)** for
+> a bounded subgraph — all in `epistemic-graph/docs/benchmarks.md` (reproduce with
+> `scripts/bench_scale.py`). Every resident-population sizing figure (10k+) is a
+> **linear extrapolation** from those anchors plus the per-unit constants below.
+> The 100M target follows as a measured projection (~78 hosts @ 64 GB / 52 kB per
+> agent) — **we do not claim 100M has been *run***; it has not. The arithmetic
+> lives in [`capacity_model.py`](./capacity_model.py), unit-tested in
 > `tests/scale/test_capacity_model.py`.
 
 ## The measured anchor
