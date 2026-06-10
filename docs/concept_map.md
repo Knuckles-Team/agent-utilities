@@ -233,6 +233,30 @@ New Feature Request
 
 ---
 
+## Cross-Repo: LLM Trainer (CONCEPT:ML-*)
+
+> A deliberate **cross-repo** concept family (spans `data-science-mcp` +
+> `agent-utilities` + `universal-skills`), so it uses a repo-neutral `ML-*` prefix
+> rather than a single pillar. It expands `AHE-3.1` (in-house training substrate) and
+> `DSCI-004`. **Not** part of the per-pillar contiguity gate. The agent-utilities side
+> is prompt personas + the `train_model` workflow (no in-code `CONCEPT:` markers, so it
+> does not appear in `concepts.yaml`). Canonical registry:
+> [`data-science-mcp/docs/concepts.md`](https://github.com/Knuckles-Team/data-science-mcp/blob/main/docs/concepts.md);
+> design: `.specify/specs/llm-model-trainer/`; deep dive:
+> [`architecture/in_house_training_substrate.md`](architecture/in_house_training_substrate.md).
+
+| ID | Canonical Name | Home repo |
+|----|----------------|-----------|
+| `ML-001` | Trainer Hardening (shared run_loop) | data-science-mcp |
+| `ML-002` | Corpus Curation Engine | data-science-mcp |
+| `ML-003` | Pretrain From Random Init | data-science-mcp |
+| `ML-004` | Experiment Tracking (MLflow + KG mirror) | data-science-mcp |
+| `ML-005` | Distributed Scale-Out (FSDP + DeepSpeed) | data-science-mcp |
+| `ML-006` | Benchmark Evaluation (lm-eval) | data-science-mcp |
+| `ML-007` | Agent-Driven Training (personas + `train_model` workflow) | agent-utilities + universal-skills |
+
+---
+
 ## Concept ID Completeness (registry reconciliation)
 
 > This section keeps the curated narrative map's ID space **contiguous** (the
