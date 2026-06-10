@@ -183,10 +183,19 @@ async def planner_step(
             f"### PREVIOUS EXECUTION RESULTS (for context)\n{previous_results}\n\n"
         )
 
-    from .executor import _get_domain_tools
+    from .executor import _get_domain_tools, agent_deps_from_graph
     from .nodes import find_best_matching_process_flow_via_kg
 
     domain_tools, domain_toolsets = await _get_domain_tools("planner", ctx.deps)
+    # Injected dev/sdd tools are RunContext[AgentDeps]-typed (read ctx.deps.workspace_path);
+    # adapt the graph context so planner tool calls don't fail on GraphDeps.
+    _planner_deps = agent_deps_from_graph(ctx.deps, domain_toolsets)
+    # CONCEPT:ORCH-1.37 (perf) — bound planner requests (default pydantic-ai cap is 50).
+    from pydantic_ai.usage import UsageLimits
+
+    _planner_usage_limits = UsageLimits(
+        request_limit=int(os.environ.get("PLANNER_REQUEST_LIMIT", "6"))
+    )
 
     # 0. Discover Processes and Policies from Knowledge Graph
     policies_context = ""
@@ -278,14 +287,17 @@ async def planner_step(
                     f"RLM output was not valid GraphPlan JSON: {parse_e}. Running fallback parser."
                 )
                 res = await planner.run(
-                    f"Parse this into a GraphPlan:\n{rlm_result}", deps=ctx.deps
+                    f"Parse this into a GraphPlan:\n{rlm_result}",
+                    deps=_planner_deps,
+                    usage_limits=_planner_usage_limits,
                 )
                 ctx.state.plan = res.output
         else:
             res = await planner.run(
                 f"Create a CORRECTED execution plan for: {ctx.state.query}\n\n"
                 f"The previous approach failed. You MUST use a different strategy.",
-                deps=ctx.deps,
+                deps=_planner_deps,
+                usage_limits=_planner_usage_limits,
             )
             ctx.state.plan = res.output
 

@@ -428,12 +428,29 @@ async def _get_domain_tools(
     from ..tools.developer_tools import developer_tools
     from ..tools.sdd_tools import sdd_tools
 
-    tools: list[Any] = list(developer_tools) + list(sdd_tools)
-    toolsets: list[Any] = []
-
     registry = get_discovery_registry()
     agent = next((a for a in registry.agents if a.name == node_id), None)
     skill_tags = agent.capabilities if agent else []
+
+    # CONCEPT:ORCH-1.37 (perf) — capability-gated generic-tool injection.
+    # Previously the 13 developer_tools + 10 sdd_tools were dumped onto EVERY node
+    # unconditionally. For an MCP-server node (e.g. "repository-manager-mcp") that drowns
+    # the server's real tools in 23 irrelevant ones → wrong-tool selection (rg / SDD) and
+    # ~3.5–9K wasted context tokens per call. Only inject the generic toolkits when the
+    # node's name/capabilities indicate it does code/shell work (dev) or spec/planning (sdd).
+    _DEV_TOOL_TAGS = {
+        "code", "coding", "filesystem", "shell", "git", "devops", "python",
+        "typescript", "programmer", "developer", "engineer", "refactor", "debug",
+    }
+    _SDD_TOOL_TAGS = {"sdd", "spec", "plan", "planner", "architect", "tdd", "requirements"}
+    _tag_blob = " ".join([node_id, *skill_tags]).lower()
+    tools: list[Any] = []
+    if any(t in _tag_blob for t in _DEV_TOOL_TAGS):
+        tools += list(developer_tools)
+    if any(t in _tag_blob for t in _SDD_TOOL_TAGS):
+        tools += list(sdd_tools)
+
+    toolsets: list[Any] = []
     if not skill_tags:
         return tools, toolsets
 
@@ -480,6 +497,40 @@ async def _get_domain_tools(
         logger.debug("pydantic-ai-skills not installed; skipping skill injection")
 
     return tools, toolsets
+
+
+def agent_deps_from_graph(deps: GraphDeps, toolsets: list[Any] | None = None) -> Any:
+    """Build an ``AgentDeps`` from the graph-level ``GraphDeps``.
+
+    Dynamic agents spawned inside graph nodes inject ``developer_tools``/``sdd_tools``
+    which are ``RunContext[AgentDeps]``-typed and read ``ctx.deps.workspace_path`` —
+    a field ``GraphDeps`` does not have. Running such an agent without ``deps`` (or with
+    raw ``GraphDeps``) raises ``'NoneType'/'GraphDeps' object has no attribute
+    'workspace_path'``. This adapts the graph context into a valid ``AgentDeps`` so both
+    the injected tools and the MCP toolsets work. (Wire-First: ORCH-1.21 execution path.)
+    """
+    from pathlib import Path
+
+    from ..core.workspace import get_agent_workspace
+    from ..models.agent import AgentDeps
+
+    ws = (
+        Path(deps.project_root)
+        if getattr(deps, "project_root", "")
+        else get_agent_workspace()
+    )
+    return AgentDeps(
+        workspace_path=ws,
+        knowledge_engine=getattr(deps, "knowledge_engine", None),
+        mcp_toolsets=toolsets if toolsets is not None else list(deps.mcp_toolsets),
+        ssl_verify=deps.ssl_verify,
+        provider=deps.provider,
+        base_url=deps.base_url,
+        api_key=deps.api_key,
+        request_id=deps.request_id,
+        approval_timeout=deps.approval_timeout,
+        graph_event_queue=deps.event_queue,
+    )
 
 
 def get_step_descriptions() -> str:
@@ -1491,11 +1542,26 @@ async def _execute_specialized_step(
     # Retrieve cached message history for re-dispatch context
     prev_messages = ctx.deps.message_history_cache.get(prompt_name)
 
+    # Injected dev/sdd tools are RunContext[AgentDeps]-typed (read ctx.deps.workspace_path);
+    # adapt the graph context so specialist tool calls don't NoneType on missing deps.
+    _agent_deps = agent_deps_from_graph(
+        ctx.deps, collected_mcp_toolsets + skill_toolsets
+    )
+
+    # CONCEPT:ORCH-1.37 (perf) — bound per-agent requests. Without this, pydantic-ai's
+    # default request_limit=50 lets a confused agent burn 50 model calls before failing
+    # (we observed this twice). A specialist answering one question needs only a few.
+    from pydantic_ai.usage import UsageLimits
+
+    _req_limit = int(os.environ.get("AGENT_REQUEST_LIMIT", "8"))
+
     try:
         run_input = ctx.state.query_parts if ctx.state.query_parts else ctx.state.query
         async with agent.run_stream(
             run_input,
             message_history=prev_messages,
+            deps=_agent_deps,
+            usage_limits=UsageLimits(request_limit=_req_limit),
         ) as stream:
             async for chunk in stream.stream_text(delta=True):
                 emit_graph_event(
