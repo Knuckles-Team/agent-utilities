@@ -280,3 +280,78 @@ def test_helper_names_cover_repl_namespace():
     # Guard against the HELPER_NAMES set drifting from the REPL's injected helpers.
     assert {"rlm_query", "graph_query", "FINAL_VAR", "sub_agent_call"} <= HELPER_NAMES
     assert len(HELPER_NAMES) == 9
+
+
+# --- DockerSandbox (real, when a docker/podman daemon is reachable) ----------
+
+
+def _docker_or_skip(**kw):
+    from agent_utilities.rlm.sandboxes.docker_backend import DockerSandbox
+
+    sb = DockerSandbox(**kw)
+    if not sb.is_available():
+        pytest.skip("no docker/podman daemon reachable")
+    return sb
+
+
+@pytest.mark.integration
+async def test_docker_runs_class_and_serves_host_bridge_under_no_network():
+    # The escalation tier: code monty can't run (a class) reaches the host helpers over the
+    # UDS bridge even though the container has --network none.
+    sb = _docker_or_skip(timeout_secs=90)
+    calls = {"n": 0}
+    sink = {}
+
+    async def rlm_query(p, c=""):
+        calls["n"] += 1
+        return f"host[{len(c)}]"
+
+    env = SandboxEnv(
+        vars={"context": "Q" * 150, "depth": 0},
+        helpers={
+            "rlm_query": rlm_query,
+            "FINAL_VAR": lambda n, v: sink.__setitem__(n, v),
+        },
+    )
+    code = (
+        "class Acc:\n"
+        "    def __init__(self): self.p = []\n"
+        "acc = Acc()\n"
+        "i = 0\n"
+        "while i < len(context):\n"
+        "    acc.p.append(await rlm_query('s', context[i:i+50]))\n"
+        "    i += 50\n"
+        "FINAL_VAR('answer', {'n': len(acc.p), 'first': acc.p[0]})\n"
+    )
+    res = await sb.execute(code, env)
+    assert res.error is None, res.error
+    assert sink["answer"] == {"n": 3, "first": "host[50]"}
+    assert calls["n"] == 3
+
+
+@pytest.mark.integration
+async def test_docker_network_is_isolated():
+    sb = _docker_or_skip(timeout_secs=60)
+    sink = {}
+    code = (
+        "import socket\n"
+        "try:\n"
+        "    socket.create_connection(('1.1.1.1', 53), timeout=3)\n"
+        "    FINAL_VAR('net', 'REACHED')\n"
+        "except Exception as e:\n"
+        "    FINAL_VAR('net', 'blocked')\n"
+    )
+    env = SandboxEnv(
+        vars={}, helpers={"FINAL_VAR": lambda n, v: sink.__setitem__(n, v)}
+    )
+    await sb.execute(code, env)
+    assert sink.get("net") == "blocked"  # --network none
+
+
+@pytest.mark.integration
+async def test_docker_timeout_is_fatal():
+    from agent_utilities.rlm.telemetry import SandboxFatalError
+
+    sb = _docker_or_skip(timeout_secs=6)
+    with pytest.raises(SandboxFatalError):
+        await sb.execute("while True:\n    pass", SandboxEnv(vars={}))
