@@ -355,3 +355,54 @@ async def test_docker_timeout_is_fatal():
     sb = _docker_or_skip(timeout_secs=6)
     with pytest.raises(SandboxFatalError):
         await sb.execute("while True:\n    pass", SandboxEnv(vars={}))
+
+
+# --- WasmSandbox (real, when wasmtime + a python.wasm payload are present) ----
+
+
+def _wasm_or_skip(**kw):
+    pytest.importorskip("wasmtime")
+    from agent_utilities.rlm.sandboxes.wasm_backend import WasmSandbox
+
+    sb = WasmSandbox(**kw)
+    if not sb.is_available():
+        pytest.skip(
+            "no python.wasm payload (set RLM_WASM_PYTHON or run provision_rlm_wasm.py)"
+        )
+    return sb
+
+
+@pytest.mark.integration
+async def test_wasm_runs_isolated_full_stdlib_compute():
+    # The isolated full-CPython tier: a class + stdlib, on seeded vars, communicating via stdout.
+    sb = _wasm_or_skip(timeout_secs=20)
+    code = (
+        "import json, math\n"
+        "class Stats:\n"
+        "    def __init__(self, d): self.d = d\n"
+        "    def summary(self): return {'n': len(self.d), 'sqrt': round(math.sqrt(len(self.d)), 1)}\n"
+        "print(json.dumps(Stats(context).summary()))\n"
+    )
+    res = await sb.execute(
+        code, SandboxEnv(vars={"context": list(range(144)), "depth": 0})
+    )
+    assert res.error is None, res.error
+    import json as _json
+
+    assert _json.loads(res.stdout.strip()) == {"n": 144, "sqrt": 12.0}
+
+
+@pytest.mark.integration
+async def test_wasm_reports_in_sandbox_error():
+    sb = _wasm_or_skip(timeout_secs=20)
+    res = await sb.execute("x = 1 / 0", SandboxEnv(vars={}))
+    assert res.error and "division" in res.error.lower()
+
+
+@pytest.mark.integration
+async def test_wasm_timeout_is_rejected_not_fatal():
+    # A WASI run has no side effects, so an overrun is a SAFE escalation (SandboxRejected),
+    # unlike Docker where a dead container is fatal.
+    sb = _wasm_or_skip(timeout_secs=3)
+    with pytest.raises(SandboxRejected):
+        await sb.execute("while True:\n    pass", SandboxEnv(vars={}))
