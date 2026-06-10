@@ -173,6 +173,26 @@ def auto_satisfy(
         if emb:
             concept_vecs.append((cid, list(emb)))
 
+    # Pre-normalized concept matrix for a vectorized cosine: one BLAS matvec per
+    # feature instead of an O(concepts) pure-Python ``_cosine`` loop (the embedding
+    # fallback was ~355K cosines / ~334s on the live graph). Falls back to the
+    # per-concept loop if numpy is unavailable. (CONCEPT:KG-2.7)
+    _np = None
+    _cids: list[str] = []
+    _cmat = None
+    try:
+        import numpy as _np_mod
+
+        if concept_vecs:
+            _cids = [cid for cid, _ in concept_vecs]
+            _cmat = _np_mod.asarray([v for _, v in concept_vecs], dtype=_np_mod.float32)
+            _norms = _np_mod.linalg.norm(_cmat, axis=1, keepdims=True)
+            _norms[_norms == 0] = 1.0
+            _cmat = _cmat / _norms
+            _np = _np_mod
+    except Exception:  # noqa: BLE001 — numpy optional → pure-Python fallback
+        _np = None
+
     for fid, fdata in features.items():
         if restrict_to and fid not in restrict_to:
             continue
@@ -194,11 +214,19 @@ def auto_satisfy(
             # 2) embedding fallback
             fvec = fdata.get("embedding")
             if fvec:
-                fv = list(fvec)
-                for cid, cvec in concept_vecs:
-                    s = _cosine(fv, cvec)
-                    if s > best_s:
-                        best_cid, best_s = cid, s
+                if _np is not None and _cmat is not None:
+                    fv = _np.asarray(fvec, dtype=_np.float32)
+                    fnorm = float(_np.linalg.norm(fv))
+                    if fnorm:
+                        sims = _cmat @ (fv / fnorm)
+                        j = int(sims.argmax())
+                        best_cid, best_s = _cids[j], float(sims[j])
+                else:
+                    fv = list(fvec)
+                    for cid, cvec in concept_vecs:
+                        s = _cosine(fv, cvec)
+                        if s > best_s:
+                            best_cid, best_s = cid, s
                 via = "embedding"
         if best_cid is not None and (via == "id" or best_s >= threshold):
             report.satisfied += 1
