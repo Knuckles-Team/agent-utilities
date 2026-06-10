@@ -54,8 +54,8 @@ ingest call) so the concept is queryable.
 workflow → swarm → capture mermaid). Re-run it after item 1 to capture *real* execution-flow diagrams
 and confirm topology counts (the FieldInfo fix makes the counts work).
 
-## 7. Shared invoker→spawned-agent context layer (ORCH-1.38)
-Design: `.specify/design/orch-1.38-invoker-spawned-context-handoff/design.md`.
+## 7. Shared invoker→spawned-agent context layer (ORCH-1.39)
+Design: `.specify/design/orch-1.39-invoker-spawned-context-handoff/design.md`.
 - **MVP (Phase 1) DONE** (merged): `context` param on run_agent/execute_agent/graph_orchestrate →
   `GraphState.invoker_context` → budgeted `### INVOKER CONTEXT` injected into every task-executing
   spawn assembler. Validated (4 unit tests + runtime prompt-capture proof).
@@ -105,13 +105,13 @@ and the 3B executor caused execution flakiness. Decision: **consolidate everythi
 context functionally; message_history is a future evictability optimization.
 
 ## 8. Daemon redeploy for the latest merges
-The dedicated host daemon (tmux session `graphos-host`) was started on merge `b200bbd`; the ORCH-1.38
+The dedicated host daemon (tmux session `graphos-host`) was started on merge `b200bbd`; the ORCH-1.39
 MVP (`0bf18cb`) is merged to canonical `main` + served by the venv but **not yet loaded by the
 running daemon**. Restart the tmux host daemon (or normal supervisor) to make the MVP live on the
 `graph_orchestrate` path. (The host should also move from the ad-hoc tmux session back under the
 normal supervisor for durability.)
 
-## 11. ORCH-1.39 Phases 1–4 — DONE (session-anchored collections + native channels)
+## 11. ORCH-1.40 Phases 1–4 — DONE (session-anchored collections + native channels)
 Robust deferral-remediation pass, all in the worktree, live-validated against the real engine:
 - **P1 (hardening, `09b4484`):** `_legacy_execute` no longer returns the whole graph for an
   unscoped query (opt-in `KG_ALLOW_FULL_SCAN`); regression test.

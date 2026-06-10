@@ -1,5 +1,6 @@
-"""CONCEPT:ORCH-1.39 — invoker↔spawned-agent message channel over the engine's native
-Communication Channels (KG-2.0).
+"""CONCEPT:ORCH-1.40 — Session-anchored collections and native invoker↔spawned-agent message channels
+
+Built on the engine's native Communication Channels (KG-2.0).
 
 The epistemic-graph Tokio server runs in one shared process that both the invoking agent and
 the spawned agent connect to over UDS, so routing messages through its `ChannelManager` gives
@@ -8,7 +9,7 @@ sync wrapper around `engine.graph_compute._client.channels`.
 
 Receive uses a **client-side cursor** (`since` = count already consumed) over `get_messages`,
 so no engine change is required. (A server-side `since_seq` cursor is a deferred scale
-optimization — see the ORCH-1.39 design; per-channel dialogues are small so the O(n) re-read
+optimization — see the ORCH-1.40 design; per-channel dialogues are small so the O(n) re-read
 is fine for now.)
 """
 
@@ -82,7 +83,7 @@ def send(
 ) -> bool:
     """Send a message; returns True on success.
 
-    CONCEPT:ORCH-1.39 (Phase 4) — when ``durable`` is set, dual-write the message as a
+    CONCEPT:ORCH-1.40 (Phase 4) — when ``durable`` is set, dual-write the message as a
     ``Session -[:HAS_MESSAGE]-> AgentMessage`` node so the dialogue survives engine restart and
     is replayable via :func:`history` (the live channel is in-RAM; the graph node is the record).
     """
@@ -185,7 +186,7 @@ _ELICIT_TAG = "__elicit__"
 def send_elicitation(
     engine: Any, channel_id: str, prompt: str, *, sender: str = "agent", durable: bool = True
 ) -> bool:
-    """CONCEPT:ORCH-1.39 (Phase 4) — a spawned agent asks its invoker (→ user) a question.
+    """CONCEPT:ORCH-1.40 (Phase 4) — a spawned agent asks its invoker (→ user) a question.
 
     Encodes a tagged JSON payload the invoker recognises on the channel; durable by default so
     the request is not lost if the invoker is not actively polling. Bridge with

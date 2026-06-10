@@ -52,6 +52,9 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **ORCH-1.12**: [**Structured Predict-RLM Runtime**](1_graph_orchestration/ORCH-1.12-Structured_RLM_Outputs.md) — standard Pydantic signatures and dynamic skill injection wrapper for sandboxed REPL, plus **schema-constrained subagent contracts** so RLM fan-out returns typed values (bool/model/list) instead of free-form prose
 - **ORCH-1.38**: [**Tiered RLM Code Sandbox + Capability Router**](1_graph_orchestration/ORCH-1.38-Tiered_RLM_Sandbox.md) — uniform `Sandbox` contract with four real backends (local / **monty** / wasm / docker) behind a deterministic `ast` capability router that escalates per-snippet (monty→wasm→docker→local); monty is the fast isolated default that still serves the RLM host helpers, Docker serves them over a UDS bridge under `--network none`, and the wasm tier is real CPython-WASI (replacing the ORCH-1.11 stub)
 - **ORCH-1.13**: [**GEPA Reflective Prompt Optimizer**](1_graph_orchestration/ORCH-1.13-GEPA_Optimization.md) — Genetic-Pareto optimization loop with reflective mutation and structural crossover for prompt evolution
+- **ORCH-1.37**: Orchestration execution-flow mermaid-diagram surfacing in `graph_orchestrate` responses (additive, backward-compatible)
+- **ORCH-1.39**: Invoker→spawned-agent handoff of curated context, token budget, tool scope, and credential *reference* (raw secret never persisted/logged) — see [KG-Native Orchestration § Invoker to Spawned Handoff](../guides/kg_native_orchestration.md#invoker-to-spawned-agent-handoff-and-native-channels)
+- **ORCH-1.40**: Session-anchored collections (`Session` node + `HAS_CONTEXT`/`HAS_MESSAGE`/`HAS_RUN` edges) and native cross-process invoker↔spawned message channels with a durable backstop and elicitation bridge (`graph_context`, `graph_message` MCP tools)
 
 ## 🧬 First Principles Architecture
 

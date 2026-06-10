@@ -369,16 +369,11 @@ class Interface(BaseModel):
             )
         for cname, constraint in self.all_link_constraints(registry).items():
             mincount = max(0, int(constraint.min_count))
+            edge = constraint.edge_type.value
             prop_blocks.append(
-                "    sh:property [ sh:path :%s ;\n"
-                "            sh:minCount %d ;\n"
-                '            sh:message "%s must expose link %s." ]'
-                % (
-                    constraint.edge_type.value,
-                    mincount,
-                    self.name,
-                    constraint.edge_type.value,
-                )
+                f"    sh:property [ sh:path :{edge} ;\n"
+                f"            sh:minCount {mincount} ;\n"
+                f'            sh:message "{self.name} must expose link {edge}." ]'
             )
         if prop_blocks:
             shape_lines.append(",\n".join(prop_blocks) + " .")

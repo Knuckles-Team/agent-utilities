@@ -500,7 +500,7 @@ async def _get_domain_tools(
 
 
 def _resolve_invoker_cred(state: Any, deps: GraphDeps) -> str | None:
-    """CONCEPT:ORCH-1.38 (Phase 4) — resolve the invoker's credential REFERENCE to a raw token.
+    """CONCEPT:ORCH-1.39 (Phase 4) — resolve the invoker's credential REFERENCE to a raw token.
 
     The reference (``GraphState.invoker_cred_ref``) names a secret the invoker stored in the
     secrets backend; the raw value is resolved here (deps-build time) and lives only on the
@@ -532,7 +532,7 @@ def agent_deps_from_graph(
     'workspace_path'``. This adapts the graph context into a valid ``AgentDeps`` so both
     the injected tools and the MCP toolsets work. (Wire-First: ORCH-1.21 execution path.)
 
-    CONCEPT:ORCH-1.38 (Phase 4) — when ``state`` carries an invoker credential reference, the
+    CONCEPT:ORCH-1.39 (Phase 4) — when ``state`` carries an invoker credential reference, the
     raw token is resolved here onto the transient AgentDeps.auth_token (never into GraphState).
     """
     from pathlib import Path
@@ -557,12 +557,12 @@ def agent_deps_from_graph(
         approval_timeout=deps.approval_timeout,
         graph_event_queue=deps.event_queue,
         auth_token=_resolve_invoker_cred(state, deps),
-        message_channel_id=getattr(state, "invoker_channel_id", None),  # CONCEPT:ORCH-1.39
+        message_channel_id=getattr(state, "invoker_channel_id", None),  # CONCEPT:ORCH-1.40
     )
 
 
 def invoker_context_section(state: Any, *, window_tokens: int = 32768) -> str:
-    """CONCEPT:ORCH-1.38 — render the invoker's curated context as a budgeted prompt section.
+    """CONCEPT:ORCH-1.39 — render the invoker's curated context as a budgeted prompt section.
 
     Returns an empty string when no invoker context was provided, otherwise an
     ``### INVOKER CONTEXT`` block trimmed to a fraction (~15%) of the target model's context
@@ -584,7 +584,7 @@ def invoker_context_section(state: Any, *, window_tokens: int = 32768) -> str:
 def apply_tool_scope(
     state: Any, tools: list[Any], toolsets: list[Any]
 ) -> tuple[list[Any], list[Any]]:
-    """CONCEPT:ORCH-1.38 — enforce the invoker's least-privilege tool allow-list.
+    """CONCEPT:ORCH-1.39 — enforce the invoker's least-privilege tool allow-list.
 
     When ``GraphState.invoker_allowed_tools`` is set, function tools are filtered by name and
     MCP/skill toolsets are wrapped with a pydantic-ai ``.filtered()`` predicate so the spawned
@@ -606,7 +606,7 @@ def apply_tool_scope(
                 pass
         scoped_toolsets.append(ts)
     logger.info(
-        "[ORCH-1.38] Tool scope enforced: %d→%d function tools; allow-list=%s",
+        "[ORCH-1.39] Tool scope enforced: %d→%d function tools; allow-list=%s",
         len(tools),
         len(scoped_tools),
         sorted(allowed_set)[:8],
@@ -788,7 +788,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         f"IMPORTANT: You are currently asked to: {agent_info.description}\n"
         f"Query: {ctx.state.query}"
     )
-    agent_sys_prompt += invoker_context_section(ctx.state)  # CONCEPT:ORCH-1.38
+    agent_sys_prompt += invoker_context_section(ctx.state)  # CONCEPT:ORCH-1.39
 
     # Include validation feedback if this is a re-dispatch
     if ctx.state.validation_feedback:
@@ -1000,7 +1000,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
 
         from pydantic_ai import DeferredToolRequests
 
-        # CONCEPT:ORCH-1.38 — enforce the invoker's least-privilege tool allow-list (if any).
+        # CONCEPT:ORCH-1.39 — enforce the invoker's least-privilege tool allow-list (if any).
         _scoped_tools, guarded_toolsets = apply_tool_scope(
             ctx.state, [], guarded_toolsets
         )
@@ -1604,7 +1604,7 @@ async def _execute_specialized_step(
         ctx.deps, prompt_name, step_model_id=getattr(ctx.inputs, "model_id", None)
     )
 
-    # CONCEPT:ORCH-1.38 — enforce the invoker's least-privilege tool allow-list (if any).
+    # CONCEPT:ORCH-1.39 — enforce the invoker's least-privilege tool allow-list (if any).
     custom_tools, _scoped_toolsets = apply_tool_scope(
         ctx.state, custom_tools, collected_mcp_toolsets + skill_toolsets
     )
@@ -1617,7 +1617,7 @@ async def _execute_specialized_step(
             f"### TOOL USAGE GUIDANCE\n{tool_guidance}\n\n"
             f"### CONTEXT\n{ctx.state.exploration_notes}"
             f"{feedback_section}"
-            f"{invoker_context_section(ctx.state)}"  # CONCEPT:ORCH-1.38
+            f"{invoker_context_section(ctx.state)}"  # CONCEPT:ORCH-1.39
         ),
         tools=custom_tools,
         toolsets=_scoped_toolsets,
@@ -1668,7 +1668,7 @@ async def _execute_specialized_step(
             run_input,
             message_history=prev_messages,
             deps=_agent_deps,
-            usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:ORCH-1.38 budget
+            usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:ORCH-1.39 budget
         ) as stream:
             async for chunk in stream.stream_text(delta=True):
                 emit_graph_event(

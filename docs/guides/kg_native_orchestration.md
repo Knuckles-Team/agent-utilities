@@ -158,6 +158,88 @@ new_id = engine.import_team_config(bundle)
 - `MATERIALIZED_FROM` — Links executions to templates
 - `COMPOSED_TEAM` — Links compositions to team configs
 
+## Invoker to Spawned-Agent Handoff and Native Channels
+
+> **CONCEPT:ORCH-1.37, ORCH-1.39, ORCH-1.40** — when one agent spawns another via
+> `graph_orchestrate(action="execute_agent")`, three additive capabilities let the invoker shape,
+> observe, and converse with the spawned run. All are backward-compatible: omit the new inputs and
+> behaviour is unchanged.
+
+### ORCH-1.37 — Execution-flow diagram surfacing
+
+The ORCH-1.8 `WorkflowVisualizer` already generates a Mermaid diagram of the routed graph; ORCH-1.37
+**surfaces** it in the `graph_orchestrate` responses instead of only logging it. `swarm`,
+`compile_workflow`, and `execute_workflow` add an additive `mermaid` JSON key (null when
+unavailable); `execute_agent` returns a JSON object `{"output", "mermaid"}` when a diagram was
+produced (otherwise the bare output string, preserving the old contract).
+
+### ORCH-1.39 — Curated context, budget, tool-scope & credential handoff
+
+The invoking agent can hand the spawned agent a curated working set so it starts informed and
+bounded, without leaking secrets:
+
+| Input (`execute_agent`) | Effect on the spawned run | Mechanism |
+|---|---|---|
+| `context` | Injected as an `### INVOKER CONTEXT` system-prompt block | Budgeted to the target model window (`invoker_context_section`) |
+| `context_ref` | Same, but the content is fetched from a persisted `ContextBlob` by id | Cross-process handoff; the run's `RunTrace` links the consumed blob for provenance |
+| `budget_tokens` | Hard `UsageLimits.total_tokens_limit` on the spawned run | `spawn_usage_limits` |
+| `allowed_tools` | Least-privilege allow-list; tools/toolsets are intersected with it | `apply_tool_scope` |
+| `cred_ref` | A **reference** (secret key) resolved to the raw token on the transient `AgentDeps.auth_token` at spawn | `_resolve_invoker_cred` — the raw secret is **never** written to a graph node, `GraphState`, or logs |
+
+> **Security invariant:** only a *reference* to a credential ever travels through the graph or the
+> context. The raw token is resolved from the secrets backend onto the ephemeral `AgentDeps` at
+> spawn time and is never persisted or logged.
+
+`context`/`context_ref` are stored and fetched with the **`graph_context`** MCP tool (`put`/`get`/`list`).
+
+### ORCH-1.40 — Session-anchored collections & native message channels
+
+The epistemic-graph engine is a pure id-addressed store with **no property/label index** — it is
+reliable at id-lookup and traversal-*from-a-known-id*, but unreliable at property scans. ORCH-1.40
+builds on that strength rather than fighting it:
+
+- **Session anchor.** Each session has an id-addressable `Session` node (`session:{sid}`). Its
+  collections hang off single-hop edges — `HAS_CONTEXT → ContextBlob`, `HAS_MESSAGE → AgentMessage`,
+  `HAS_RUN → RunTrace`. "List by session" is then a reliable anchored traversal
+  (`MATCH (s {id:$snode})-[:HAS_CONTEXT]->(c:ContextBlob) RETURN c`), not a property scan. This also
+  hardened a latent bug: an unparsed `WHERE` no longer silently returns the whole graph (opt-in
+  `KG_ALLOW_FULL_SCAN`).
+
+- **Native channels.** The invoker and the spawned agent exchange ordered, cross-process messages
+  over the engine's native Communication Channels (KG-2.0, ~sub-ms/op), via the **`graph_message`**
+  MCP tool and the `messaging/agent_channel.py` helper. The channel id is deterministic —
+  `orch:{session_id}:{run_id}`. `graph_orchestrate(execute_agent, open_channel=True)` opens it and
+  returns the `channel_id`; the spawned agent receives it on `AgentDeps.message_channel_id`.
+
+  Channels are the **`Group`** type (members may join after creation, unlike `PeerToPeer` which locks
+  membership), and `send` auto-joins the sender so any sender label works.
+
+- **Durable backstop.** Live channel messages are in-RAM. `send(durable=True)` additionally
+  dual-writes each message as a `Session -[:HAS_MESSAGE]-> AgentMessage` node, so the dialogue is
+  replayable via `graph_message(action="history")` and survives an engine restart.
+
+- **Elicitation bridge.** A spawned agent can ask its invoker (→ user) a question with
+  `send_elicitation`; the invoker forwards it to its in-process `elicitation_queue`/`ApprovalManager`
+  with `drain_to_elicitation_queue` — a clean cross-process → in-process bridge with no UI change.
+
+```mermaid
+sequenceDiagram
+    participant I as Invoker
+    participant E as epistemic-graph (channels + Session anchor)
+    participant S as Spawned agent
+    I->>E: graph_orchestrate(execute_agent, context_ref, cred_ref, open_channel=True)
+    Note over E,S: spawn with budgeted context, scoped tools,<br/>resolved auth_token, channel_id on AgentDeps
+    I->>E: graph_message(send, "proceed", durable=True)
+    S->>E: graph_message(receive) → ["proceed"]
+    S->>E: send_elicitation("May I write to /etc?")
+    I->>E: graph_message(receive) → forwarded to elicitation_queue
+    S-->>I: {"output", "mermaid", "channel_id"}
+    Note over E: durable messages replayable via graph_message(history)
+```
+
+See [`docs/examples/graph-os-mcp-examples.md`](../examples/graph-os-mcp-examples.md) for `graph_context`
+and `graph_message` tool call examples.
+
 ## Integration with Existing Systems
 
 - **SubagentPatternRouter** (ORCH-1.5): Now uses KG backend for O(1) historical lookups instead of O(N) NX scans; persists decisions via tiered architecture

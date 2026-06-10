@@ -595,7 +595,7 @@ class IntelligenceGraphEngine(
         """Add a generic edge between two nodes (backend-first, then graph_compute).
 
         Convenience for ad-hoc relationships (e.g. provenance links like
-        ``RunTrace -[:HAS_CONTEXT]-> ContextBlob``, CONCEPT:ORCH-1.38) where there is no typed
+        ``RunTrace -[:HAS_CONTEXT]-> ContextBlob``, CONCEPT:ORCH-1.39) where there is no typed
         model. Best-effort: a missing backend/compute method is tolerated.
         """
         if self.backend and not ephemeral:

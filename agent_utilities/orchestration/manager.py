@@ -86,7 +86,7 @@ class Orchestrator:
 
         CONCEPT:ORCH-1.37 — ``return_mermaid`` forwards to :func:`run_agent` so the MCP
         layer can surface the routed-graph diagram (off by default for internal callers).
-        CONCEPT:ORCH-1.38 — ``context`` is the invoking agent's curated context, threaded to
+        CONCEPT:ORCH-1.39 — ``context`` is the invoking agent's curated context, threaded to
         the spawned agent's prompt (budgeted to the model window).
         """
         self._scan_task(task)

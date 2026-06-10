@@ -204,23 +204,24 @@ class GraphState:
     exploration_notes: str = ""
     architectural_decisions: str = ""
     verification_feedback: str = ""
-    # CONCEPT:ORCH-1.38 — curated context the INVOKING agent passes to the spawned agent
-    # (budgeted to the target model's window at the spawn assemblers). One source of truth
-    # read by every spawn path; seeded from config at GraphState construction.
+    # CONCEPT:ORCH-1.39 — Invoker→spawned-agent handoff of curated context, token budget, tool scope and credential reference
+    # The curated context the INVOKING agent passes to the spawned agent, budgeted to the target
+    # model's window at the spawn assemblers. One source of truth read by every spawn path;
+    # seeded from config at GraphState construction.
     invoker_context: str = ""
-    # CONCEPT:ORCH-1.38 — optional token budget the invoker grants the spawned agent;
+    # CONCEPT:ORCH-1.39 — optional token budget the invoker grants the spawned agent;
     # enforced as UsageLimits.total_tokens_limit at the spawn run sites (None = unbounded).
     invoker_budget_tokens: int | None = None
-    # CONCEPT:ORCH-1.38 — optional least-privilege tool allow-list the invoker grants the
+    # CONCEPT:ORCH-1.39 — optional least-privilege tool allow-list the invoker grants the
     # spawned agent; the spawn assemblers intersect resolved tools/toolsets with this set
     # (None/empty = no restriction).
     invoker_allowed_tools: list[str] | None = None
-    # CONCEPT:ORCH-1.38 (Phase 4) — REFERENCE (not the value) to an ephemeral credential the
+    # CONCEPT:ORCH-1.39 (Phase 4) — REFERENCE (not the value) to an ephemeral credential the
     # invoker stored in the secrets backend (e.g. an OAuth/delegated token under "cred:{sid}").
     # Resolved to the raw token ONLY at deps-build time onto the transient AgentDeps.auth_token —
     # the raw secret is NEVER stored in GraphState/graph/logs.
     invoker_cred_ref: str | None = None
-    # CONCEPT:ORCH-1.39 — the invoker↔spawned native message-channel id for this run; set onto
+    # CONCEPT:ORCH-1.40 — the invoker↔spawned native message-channel id for this run; set onto
     # the spawned agent's AgentDeps.message_channel_id so its tools can talk back. Seeded from
     # config["message_channel_id"] (opened by run_agent) at GraphState construction.
     invoker_channel_id: str | None = None

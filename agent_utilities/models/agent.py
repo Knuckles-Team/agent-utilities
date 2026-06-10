@@ -25,7 +25,7 @@ class AgentDeps:
     mcp_toolsets: list[Any] = field(default_factory=list)
     patterns: Any | None = None
     external_ontologies: list[str] = field(default_factory=list)
-    # CONCEPT:ORCH-1.39 — the invoker↔spawned message channel this agent may talk back on.
+    # CONCEPT:ORCH-1.40 — the invoker↔spawned message channel this agent may talk back on.
     message_channel_id: str | None = None
 
     def __post_init__(self):

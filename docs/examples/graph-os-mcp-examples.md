@@ -1,6 +1,6 @@
 # Graph-OS MCP Server Examples
 
-The `graph-os` MCP server is the unified entrypoint for interacting with the Intelligence Graph Engine. It exposes 10 core tools that allow LLMs and automated pipelines to manipulate knowledge, orchestrate agents, and manage the workspace: the 7 documented below plus `graph_sessions` (durable session management), `graph_goals` (autonomous background loops), and `graph_hydrate` (instant KG hydration from external connectors).
+The `graph-os` MCP server is the unified entrypoint for interacting with the Intelligence Graph Engine. It exposes the core tools that allow LLMs and automated pipelines to manipulate knowledge, orchestrate agents, and manage the workspace: the 9 documented below plus `graph_sessions` (durable session management), `graph_goals` (autonomous background loops), and `graph_hydrate` (instant KG hydration from external connectors).
 
 Below are exhaustive examples of every possible tool configuration you can execute.
 
@@ -166,6 +166,22 @@ Run the TradingAgents swarm debate to vet financial hypotheses.
 }
 ```
 
+**Example 3: Spawn an agent with a curated handoff (CONCEPT:ORCH-1.39/1.39)**
+Hand the spawned agent budgeted context, a least-privilege tool allow-list, a credential
+*reference* (resolved to a token at spawn, never logged), and open a message channel. The response
+is `{"output", "mermaid", "channel_id"}`.
+```json
+{
+  "action": "execute_agent",
+  "agent_name": "github-mcp",
+  "task": "List the latest workflow run for Knuckles-Team/agent-utilities",
+  "context_ref": "ctx:sess-42:brief",
+  "allowed_tools": "list_workflow_runs,get_workflow_run",
+  "cred_ref": "cred:sess-42",
+  "open_channel": true
+}
+```
+
 ## 7. `mcp_graph-os_graph_configure`
 
 Manage backend configurations, system credentials, and tool registration.
@@ -187,4 +203,77 @@ Hot-load a new MCP server without restarting the engine.
   "config_key": "custom-server",
   "config_value": "{\"command\": \"node\", \"args\": [\"server.js\"]}"
 }
+```
+
+## 8. `mcp_graph-os_graph_context`
+
+**CONCEPT:ORCH-1.39** — store/fetch curated context for an invoker→spawned-agent handoff,
+persisted in the epistemic-graph so a *separately*-spawned agent can read it by id. Session-anchored
+(ORCH-1.40): `list` is a reliable single-hop traversal from the `Session` node, isolated per session.
+
+**Example 1: Put a context blob**
+```json
+{
+  "action": "put",
+  "session_id": "sess-42",
+  "key": "brief",
+  "content": "Deployment target is R820. Use the 9B model. Read-only task."
+}
+```
+Returns `{"context_id": "ctx:sess-42:brief", "session_id": "sess-42"}`. Pass that `context_id` to
+`graph_orchestrate(action="execute_agent", context_ref="ctx:sess-42:brief")`.
+
+**Example 2: List all context for a session**
+```json
+{ "action": "list", "session_id": "sess-42" }
+```
+
+**Example 3: Fetch one blob's full content by id**
+```json
+{ "action": "get", "context_id": "ctx:sess-42:brief" }
+```
+
+**Example 4: Put an ephemeral blob with a TTL**
+```json
+{ "action": "put", "session_id": "sess-42", "key": "scratch", "content": "transient note", "ttl_s": 600 }
+```
+
+## 9. `mcp_graph-os_graph_message`
+
+**CONCEPT:ORCH-1.40** — a bidirectional, cross-process, ordered message channel between an invoking
+agent and a spawned agent, over the engine's native Communication Channels (KG-2.0). The channel id
+is deterministic: `orch:{session_id}:{run_id}`.
+
+**Example 1: Open a channel**
+```json
+{ "action": "open", "session_id": "sess-42", "run_id": "run-abc1" }
+```
+Returns `{"channel_id": "orch:sess-42:run-abc1"}`. (Or pass `open_channel=true` to
+`graph_orchestrate(action="execute_agent")` and read `channel_id` from its response.)
+
+**Example 2: Send a message (the sender auto-joins)**
+```json
+{ "action": "send", "channel_id": "orch:sess-42:run-abc1", "sender": "invoker", "payload": "proceed with the task" }
+```
+
+**Example 3: Send a durable message (survives engine restart)**
+```json
+{ "action": "send", "channel_id": "orch:sess-42:run-abc1", "sender": "invoker", "payload": "final instruction", "durable": true }
+```
+
+**Example 4: Receive new messages with a cursor**
+`since` is the count already consumed; the response returns `{"messages", "cursor"}` — pass the
+returned `cursor` as `since` on the next poll.
+```json
+{ "action": "receive", "channel_id": "orch:sess-42:run-abc1", "since": 0 }
+```
+
+**Example 5: Replay the durable history (id-anchored, restart-safe)**
+```json
+{ "action": "history", "channel_id": "orch:sess-42:run-abc1" }
+```
+
+**Example 6: Close the channel**
+```json
+{ "action": "close", "channel_id": "orch:sess-42:run-abc1" }
 ```
