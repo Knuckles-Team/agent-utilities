@@ -54,7 +54,20 @@ ingest call) so the concept is queryable.
 workflow → swarm → capture mermaid). Re-run it after item 1 to capture *real* execution-flow diagrams
 and confirm topology counts (the FieldInfo fix makes the counts work).
 
-## 7. Shared invoker→spawned-agent context layer (NEW — separate investigation)
-Investigate whether the invoking agent can curate context, persist it to the KG/epistemic-graph, and
-have the spawned agent reference it (right model+tools+prompt+**context**). See the dedicated
-investigation plan. May add KG schema (consider an OWL layer per the constitution).
+## 7. Shared invoker→spawned-agent context layer (ORCH-1.38)
+Design: `.specify/design/orch-1.38-invoker-spawned-context-handoff/design.md`.
+- **MVP (Phase 1) DONE** (merged): `context` param on run_agent/execute_agent/graph_orchestrate →
+  `GraphState.invoker_context` → budgeted `### INVOKER CONTEXT` injected into every task-executing
+  spawn assembler. Validated (4 unit tests + runtime prompt-capture proof).
+- **Remaining:** Phase 2 cross-process `ContextBlob` node + `graph_context` MCP action + TTL +
+  `context_refs`; Phase 3 swarm `ExecutionManifest.context` + large-context `message_history`;
+  Phase 3.5 budget_tokens→UsageLimits + allowed_tools→toolset intersection (HIGH value, wire next);
+  Phase 4 ephemeral `cred_ref` via SecretsClient; OWL layer for ContextBlob/HAS_CONTEXT.
+- **Message channel: deferred** (elicitation/A2A/EventBus cover realistic needs).
+
+## 8. Daemon redeploy for the latest merges
+The dedicated host daemon (tmux session `graphos-host`) was started on merge `b200bbd`; the ORCH-1.38
+MVP (`0bf18cb`) is merged to canonical `main` + served by the venv but **not yet loaded by the
+running daemon**. Restart the tmux host daemon (or normal supervisor) to make the MVP live on the
+`graph_orchestrate` path. (The host should also move from the ad-hoc tmux session back under the
+normal supervisor for durability.)
