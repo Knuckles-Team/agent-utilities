@@ -27,6 +27,38 @@
 > documentation are published as the
 > [official documentation](https://knuckles-team.github.io/agent-utilities/).
 
+## ⚡ 5-Minute Quickstart
+
+`agent-utilities` is a batteries-included harness for building Pydantic-AI agents.
+The **zero-infra default needs no databases or external services** — the knowledge
+graph runs in-process.
+
+```bash
+pip install agent-utilities
+```
+
+Point it at any model provider (e.g. `OPENAI_API_KEY`, or a local vLLM/Ollama
+endpoint via `.env`), then:
+
+```python
+from agent_utilities.agent.factory import create_agent
+
+# A ready-to-run agent: skills, universal tools, and the in-process knowledge graph.
+agent, toolsets = create_agent(name="assistant")
+result = agent.run_sync("What can you do?")
+print(result.output)
+```
+
+That's the whole "hello world". From there, attach MCP toolsets, swap the graph
+backend, or wire up the full 5-pillar platform — see [Quick Start](#quick-start),
+the [reference agent](examples/reference_agent/), and the [pillar docs](docs/pillars).
+
+> **Heads-up — this is two repos.** The heavy graph compute lives in a **separate**
+> Rust engine, [`epistemic-graph`](https://github.com/Knuckles-Team/epistemic-graph)
+> (reached out-of-process over MessagePack/UDS — **no PyO3**). `agent-utilities`
+> ships a pure-Python client for it, so you don't need Rust to get started.
+> Contributing? See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Table of Contents
 
 - [The Technical Novel: Narrative Journey](docs/journey.md)
