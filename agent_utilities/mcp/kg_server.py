@@ -2927,6 +2927,26 @@ def _build_server(bootstrap: bool = True):
                 manifest = ExecutionManifest.from_graph_plan(
                     plan, name="swarm", query=task
                 )
+                # CONCEPT:ORCH-1.38 (Phase 3) — curated invoker context for the swarm.
+                # ParallelEngine injects manifest.context into EVERY wave agent's task, so the
+                # invoker's context reaches all swarm agents. Resolve context_ref if given.
+                _swarm_ctx = context or ""
+                if not _swarm_ctx and context_ref:
+                    try:
+                        _crows = engine.query_cypher(
+                            "MATCH (c:ContextBlob) WHERE c.id = $id RETURN c.content AS content",
+                            {"id": context_ref},
+                        )
+                        if _crows and _crows[0].get("content"):
+                            _swarm_ctx = str(_crows[0]["content"])
+                    except Exception:  # noqa: BLE001
+                        _swarm_ctx = ""
+                if _swarm_ctx:
+                    manifest.context = (
+                        f"{manifest.context}\n\n{_swarm_ctx}"
+                        if manifest.context
+                        else _swarm_ctx
+                    )
                 # default governance ON: verify each leaf + retry transient failures.
                 manifest.metadata["verify"] = True
                 manifest.metadata["max_retries"] = 2
