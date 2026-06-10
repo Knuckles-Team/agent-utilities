@@ -347,6 +347,7 @@ class AgentOrchestrationEngine:
             topology=topology,
             invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.38
             invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.38
+            invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.38
         )
 
         _custom_headers = config.get("custom_headers")
@@ -410,6 +411,7 @@ class AgentOrchestrationEngine:
             topology=topology,
             invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.38
             invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.38
+            invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.38
         )
 
         if persist:
@@ -778,6 +780,7 @@ class AgentOrchestrationEngine:
             topology=topology,
             invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.38
             invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.38
+            invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.38
         )
 
         if persist:
@@ -1009,6 +1012,7 @@ class AgentOrchestrationEngine:
             topology=topology,
             invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.38
             invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.38
+            invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.38
         )
 
         # Merge registry tags into deps (same as run_graph)

@@ -22,6 +22,7 @@ This module provides deep KG integration rather than a simple passthrough:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import time
@@ -43,6 +44,7 @@ async def run_agent(
     context: str | None = None,
     budget_tokens: int | None = None,
     context_ref: str | None = None,
+    allowed_tools: list[str] | None = None,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -202,12 +204,19 @@ async def run_agent(
             )
             if _rows and _rows[0].get("content"):
                 context = str(_rows[0]["content"])
+                # Provenance: link this run to the context it consumed (CONCEPT:ORCH-1.38).
+                _add_edge = getattr(engine, "add_edge", None)
+                if callable(_add_edge):
+                    with contextlib.suppress(Exception):
+                        _add_edge(f"trace:{run_id}", context_ref, "HAS_CONTEXT")
         except Exception as _ctx_exc:  # noqa: BLE001
             logger.warning("context_ref %s resolution failed: %s", context_ref, _ctx_exc)
     if context:
         config["invoker_context"] = context
     if budget_tokens:
         config["invoker_budget_tokens"] = int(budget_tokens)
+    if allowed_tools:
+        config["invoker_allowed_tools"] = list(allowed_tools)
 
     # Step 4: Materialize and run the graph
     try:

@@ -110,6 +110,65 @@ async def test_run_agent_resolves_context_ref(monkeypatch):
     assert captured["invoker_context"] == "RESOLVED BLOB CONTENT"
 
 
+@pytest.mark.concept("ORCH-1.37")
+def test_plan_output_type_uses_promptedoutput_for_non_json_models(monkeypatch):
+    """FU-2: planner wraps GraphPlan in PromptedOutput when the model can't do native JSON."""
+    from pydantic_ai import PromptedOutput
+
+    from agent_utilities.graph import hierarchical_planner as hp
+
+    class _M:
+        model_name = "qwen-lite"
+
+    monkeypatch.setattr(
+        hp, "get_model_config", lambda mid=None: {"supports_json": False}, raising=False
+    )
+    # ensure the helper imports our patched get_model_config path:
+    import agent_utilities.core.model_factory as mf
+
+    monkeypatch.setattr(mf, "get_model_config", lambda mid=None: {"supports_json": False})
+    out = hp._plan_output_type(_M())
+    assert isinstance(out, PromptedOutput)
+
+    monkeypatch.setattr(mf, "get_model_config", lambda mid=None: {"supports_json": True})
+    assert hp._plan_output_type(_M()) is hp.GraphPlan
+
+
+@pytest.mark.concept("ORCH-1.38")
+def test_apply_tool_scope_filters_to_allow_list():
+    from agent_utilities.graph.executor import apply_tool_scope
+
+    def tool_a():  # noqa: D401
+        pass
+
+    def tool_b():
+        pass
+
+    class _FakeToolset:
+        def __init__(self):
+            self.predicate = None
+
+        def filtered(self, func):
+            self.predicate = func
+            return self  # record the predicate; identity is fine for the test
+
+    # No allow-list → unchanged.
+    ts = _FakeToolset()
+    tools, toolsets = apply_tool_scope(GraphState(query="q"), [tool_a, tool_b], [ts])
+    assert tools == [tool_a, tool_b] and ts.predicate is None
+
+    # Allow-list → function tools filtered by name; toolset gets a filtering predicate.
+    state = GraphState(query="q", invoker_allowed_tools=["tool_a", "list_projects"])
+    tools, toolsets = apply_tool_scope(state, [tool_a, tool_b], [ts])
+    assert tools == [tool_a]
+    assert ts.predicate is not None
+    # predicate admits allowed names, rejects others
+    td_ok = type("TD", (), {"name": "list_projects"})()
+    td_no = type("TD", (), {"name": "delete_everything"})()
+    assert ts.predicate(None, td_ok) is True
+    assert ts.predicate(None, td_no) is False
+
+
 @pytest.mark.concept("ORCH-1.38")
 def test_spawn_usage_limits_enforces_budget():
     from agent_utilities.graph.executor import spawn_usage_limits

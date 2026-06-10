@@ -27,6 +27,7 @@ The engine is composed of focused mixins for maintainability:
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import math
@@ -582,6 +583,28 @@ class IntelligenceGraphEngine(
 
         # Tier 2: Update graph_compute cache after backend succeeds
         self.graph_compute.add_node(node_id, props)
+
+    def add_edge(
+        self,
+        source: str,
+        target: str,
+        rel_type: str = "",
+        ephemeral: bool = False,
+        **properties: Any,
+    ) -> None:
+        """Add a generic edge between two nodes (backend-first, then graph_compute).
+
+        Convenience for ad-hoc relationships (e.g. provenance links like
+        ``RunTrace -[:HAS_CONTEXT]-> ContextBlob``, CONCEPT:ORCH-1.38) where there is no typed
+        model. Best-effort: a missing backend/compute method is tolerated.
+        """
+        if self.backend and not ephemeral:
+            with contextlib.suppress(Exception):
+                self.backend.add_edge(source, target, rel_type, **properties)
+        _ge = getattr(self.graph_compute, "add_edge", None)
+        if callable(_ge):
+            with contextlib.suppress(Exception):
+                _ge(source, target, {"rel_type": rel_type, **properties})
 
     def get_blast_radius(self, node_id: str, depth: int) -> list[dict[str, Any]]:
         """Retrieve the blast radius (dependencies) from a starting node.
