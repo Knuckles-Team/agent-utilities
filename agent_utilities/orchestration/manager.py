@@ -76,6 +76,7 @@ class Orchestrator:
         return_mermaid: bool = False,
         context: str | None = None,
         budget_tokens: int | None = None,
+        context_ref: str | None = None,
     ) -> str:
         """Execute a single agent against a task.
 
@@ -94,6 +95,7 @@ class Orchestrator:
             return_mermaid=return_mermaid,
             context=context,
             budget_tokens=budget_tokens,
+            context_ref=context_ref,
         )
         return result
 

@@ -42,6 +42,7 @@ async def run_agent(
     return_mermaid: bool = False,
     context: str | None = None,
     budget_tokens: int | None = None,
+    context_ref: str | None = None,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -191,6 +192,18 @@ async def run_agent(
     # Step 3: Build execution config from KG metadata
     config = _build_execution_config(engine, agent_name, agent_meta)
     # CONCEPT:ORCH-1.38 — carry the invoker's curated context + token budget into the spawn.
+    # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
+    # from the epistemic-graph and link it to this run's RunTrace for provenance.
+    if context_ref and not context:
+        try:
+            _rows = engine.query_cypher(
+                "MATCH (c:ContextBlob) WHERE c.id = $id RETURN c.content AS content",
+                {"id": context_ref},
+            )
+            if _rows and _rows[0].get("content"):
+                context = str(_rows[0]["content"])
+        except Exception as _ctx_exc:  # noqa: BLE001
+            logger.warning("context_ref %s resolution failed: %s", context_ref, _ctx_exc)
     if context:
         config["invoker_context"] = context
     if budget_tokens:
