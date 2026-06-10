@@ -94,24 +94,57 @@ class ContentType(StrEnum):
             return cls.CONFIG
         if name == "skill.md" or (p.is_dir() and (p / "SKILL.md").exists()):
             return cls.SKILL
-        doc_exts = {
-            ".md",
-            ".txt",
-            ".pdf",
-            ".docx",
-            ".doc",
-            ".pptx",
-            ".csv",
-            ".epub",
-            ".html",
-            ".htm",
-            ".rst",
-            ".rtf",
-            ".ipynb",
-        }
-        if p.suffix.lower() in doc_exts:
+        if p.suffix.lower() in _DOC_EXTS:
             return cls.DOCUMENT
-        # Directories and Python files default to a codebase parse.
+        # A directory is ambiguous: inspect its composition rather than
+        # blindly assuming a codebase. A folder of PDFs/markdown is a
+        # DOCUMENT corpus; a folder with packaging markers or source files
+        # is a CODEBASE. A lone non-document file falls through to a
+        # codebase parse. (CONCEPT:KG-2.7)
+        if p.is_dir():
+            return cls._classify_dir(p)
+        return cls.CODEBASE
+
+    @classmethod
+    def _classify_dir(cls, root: Path) -> ContentType:
+        """Infer a directory's content type from its file composition.
+
+        A packaging/VCS marker (``pyproject.toml``, ``package.json``,
+        ``.git``, …) is a definitive CODEBASE signal. Otherwise the
+        (non-vendored) files are sampled: predominantly document formats →
+        DOCUMENT; any meaningful amount of source code — or nothing
+        recognizable — → CODEBASE. The latter is the safe default that keeps
+        an empty/ambiguous directory a codebase parse, as before.
+
+        Vendored/build/VCS subtrees (``.venv``, ``node_modules``, ``.git``,
+        …) are pruned so a document corpus carrying a bundled virtualenv is
+        not misread as code. Sampling is capped at ``_CLASSIFY_SCAN_BUDGET``
+        files so classification stays cheap on huge trees — the decisive
+        signals surface in the first few hundred entries. (CONCEPT:KG-2.7)
+        """
+        docs = 0
+        code = 0
+        scanned = 0
+        for _dpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [
+                d for d in dirnames if d not in _SKIP_DIRS and d != ".git"
+            ]
+            for fn in filenames:
+                if fn.lower() in _CODE_MARKERS:
+                    return cls.CODEBASE
+                ext = Path(fn).suffix.lower()
+                if ext in _DOC_EXTS:
+                    docs += 1
+                elif ext in _CODE_EXTS:
+                    code += 1
+                scanned += 1
+            if scanned >= _CLASSIFY_SCAN_BUDGET:
+                break
+        # A ``.git`` dir (pruned from the walk above) is a definitive marker.
+        if (root / ".git").exists():
+            return cls.CODEBASE
+        if docs > code:
+            return cls.DOCUMENT
         return cls.CODEBASE
 
 
@@ -212,6 +245,72 @@ _SKIP_DIRS = {
     "target",
     "site",
 }
+
+# Document formats handled by the document adaptor (file suffix or, for a
+# directory, the dominant file type). Shared by ``ContentType.classify`` and
+# its directory-composition heuristic ``_classify_dir``.
+_DOC_EXTS = {
+    ".md",
+    ".txt",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".pptx",
+    ".csv",
+    ".epub",
+    ".html",
+    ".htm",
+    ".rst",
+    ".rtf",
+    ".ipynb",
+}
+
+# Source-code extensions that mark a directory as a codebase.
+_CODE_EXTS = {
+    ".py",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".go",
+    ".rs",
+    ".java",
+    ".rb",
+    ".c",
+    ".h",
+    ".hpp",
+    ".cpp",
+    ".cc",
+    ".cs",
+    ".php",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".sh",
+    ".sql",
+    ".lua",
+}
+
+# Filenames that definitively mark a directory as a codebase (packaging /
+# build / VCS roots), matched case-insensitively.
+_CODE_MARKERS = {
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "package.json",
+    "tsconfig.json",
+    "cargo.toml",
+    "go.mod",
+    "pom.xml",
+    "build.gradle",
+    "gemfile",
+    "composer.json",
+}
+
+# Upper bound on files sampled when inferring a directory's type — keeps
+# classification cheap on huge trees; the decisive markers/extensions surface
+# in the first few hundred entries.
+_CLASSIFY_SCAN_BUDGET = 600
 
 
 def content_hasher(content_type: ContentType) -> Callable:
