@@ -499,7 +499,30 @@ async def _get_domain_tools(
     return tools, toolsets
 
 
-def agent_deps_from_graph(deps: GraphDeps, toolsets: list[Any] | None = None) -> Any:
+def _resolve_invoker_cred(state: Any, deps: GraphDeps) -> str | None:
+    """CONCEPT:ORCH-1.38 (Phase 4) — resolve the invoker's credential REFERENCE to a raw token.
+
+    The reference (``GraphState.invoker_cred_ref``) names a secret the invoker stored in the
+    secrets backend; the raw value is resolved here (deps-build time) and lives only on the
+    transient AgentDeps — never persisted to GraphState/graph/logs. Returns None on miss.
+    """
+    ref = getattr(state, "invoker_cred_ref", None) if state is not None else None
+    if not ref:
+        return None
+    try:
+        client = getattr(deps, "secrets_client", None)
+        if client is None:
+            from ..security.secrets_client import create_secrets_client
+
+            client = create_secrets_client()
+        return client.get(ref)
+    except Exception:  # noqa: BLE001 — a missing/failed secret must not block the spawn
+        return None
+
+
+def agent_deps_from_graph(
+    deps: GraphDeps, toolsets: list[Any] | None = None, state: Any = None
+) -> Any:
     """Build an ``AgentDeps`` from the graph-level ``GraphDeps``.
 
     Dynamic agents spawned inside graph nodes inject ``developer_tools``/``sdd_tools``
@@ -508,6 +531,9 @@ def agent_deps_from_graph(deps: GraphDeps, toolsets: list[Any] | None = None) ->
     raw ``GraphDeps``) raises ``'NoneType'/'GraphDeps' object has no attribute
     'workspace_path'``. This adapts the graph context into a valid ``AgentDeps`` so both
     the injected tools and the MCP toolsets work. (Wire-First: ORCH-1.21 execution path.)
+
+    CONCEPT:ORCH-1.38 (Phase 4) — when ``state`` carries an invoker credential reference, the
+    raw token is resolved here onto the transient AgentDeps.auth_token (never into GraphState).
     """
     from pathlib import Path
 
@@ -530,6 +556,7 @@ def agent_deps_from_graph(deps: GraphDeps, toolsets: list[Any] | None = None) ->
         request_id=deps.request_id,
         approval_timeout=deps.approval_timeout,
         graph_event_queue=deps.event_queue,
+        auth_token=_resolve_invoker_cred(state, deps),
     )
 
 
@@ -1628,7 +1655,7 @@ async def _execute_specialized_step(
     # Injected dev/sdd tools are RunContext[AgentDeps]-typed (read ctx.deps.workspace_path);
     # adapt the graph context so specialist tool calls don't NoneType on missing deps.
     _agent_deps = agent_deps_from_graph(
-        ctx.deps, collected_mcp_toolsets + skill_toolsets
+        ctx.deps, collected_mcp_toolsets + skill_toolsets, state=ctx.state
     )
 
     # CONCEPT:ORCH-1.37 (perf) — bound per-agent requests. Without this, pydantic-ai's
