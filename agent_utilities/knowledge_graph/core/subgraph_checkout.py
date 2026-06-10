@@ -60,7 +60,9 @@ class CheckedOutSubgraph:
     def _version_of(props: dict[str, Any] | None) -> str:
         """Stable short hash of a node's properties (for conflict detection)."""
         blob = json.dumps(props or {}, sort_keys=True, default=str)
-        return hashlib.sha1(blob.encode()).hexdigest()[:16]  # noqa: S324 - not security
+        # Non-cryptographic fingerprint for conflict detection (usedforsecurity=False
+        # satisfies both ruff S324 and bandit B324 — this is not a security hash).
+        return hashlib.sha1(blob.encode(), usedforsecurity=False).hexdigest()[:16]
 
     # ── inner-engine delegation ───────────────────────────────────────────
     @property
@@ -108,9 +110,7 @@ class CheckedOutSubgraph:
         self._dirty_nodes.pop(node_id, None)
         self._deleted_nodes[node_id] = label
 
-    def remove_edge(
-        self, source_id: str, target_id: str, key: Any = None
-    ) -> None:
+    def remove_edge(self, source_id: str, target_id: str, key: Any = None) -> None:
         self._engine.remove_edge(source_id, target_id, key)
         k = (source_id, target_id)
         self._dirty_edges.pop(k, None)
@@ -146,9 +146,7 @@ class CheckedOutSubgraph:
             if rows and isinstance(rows[0], dict):
                 n = rows[0].get("n", rows[0])
                 if isinstance(n, dict):
-                    return self._version_of(
-                        {k: v for k, v in n.items() if k != "id"}
-                    )
+                    return self._version_of({k: v for k, v in n.items() if k != "id"})
         except Exception:  # noqa: BLE001
             return None
         return None
@@ -229,7 +227,7 @@ class CheckedOutSubgraph:
                     k: v
                     for k, v in props.items()
                     if k != "id"
-                    and isinstance(v, (str, int, float, bool))
+                    and isinstance(v, str | int | float | bool)
                     and v is not None
                 }
                 scalars.setdefault("name", str(props.get("name") or nid))
@@ -317,8 +315,6 @@ class CheckedOutSubgraph:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("CheckedOutSubgraph async flush failed: %s", exc)
 
-        t = threading.Thread(
-            target=_worker, name="subgraph-delta-flush", daemon=True
-        )
+        t = threading.Thread(target=_worker, name="subgraph-delta-flush", daemon=True)
         t.start()
         return t
