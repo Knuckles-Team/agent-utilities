@@ -330,6 +330,14 @@ class AgentOrchestrationEngine:
         if run_id is None:
             run_id = uuid4().hex
 
+        # CONCEPT:OS-5.11 — establish a run-wide correlation id so every nested
+        # agent/span/side-effect in this run is joinable. Idempotent: nested
+        # in-process runs inherit the parent's id via the contextvar.
+        with contextlib.suppress(Exception):
+            from ..observability.correlation import ensure_correlation_id
+
+            ensure_correlation_id()
+
         if requested_model_id is None:
             requested_model_id = REQUESTED_MODEL_ID_CTX.get()
 
@@ -707,6 +715,14 @@ class AgentOrchestrationEngine:
         if run_id is None:
             run_id = uuid4().hex
 
+        # CONCEPT:OS-5.11 — establish a run-wide correlation id so every nested
+        # agent/span/side-effect in this run is joinable. Idempotent: nested
+        # in-process runs inherit the parent's id via the contextvar.
+        with contextlib.suppress(Exception):
+            from ..observability.correlation import ensure_correlation_id
+
+            ensure_correlation_id()
+
         if requested_model_id is None:
             requested_model_id = REQUESTED_MODEL_ID_CTX.get()
 
@@ -943,6 +959,14 @@ class AgentOrchestrationEngine:
 
         if run_id is None:
             run_id = uuid4().hex
+
+        # CONCEPT:OS-5.11 — establish a run-wide correlation id so every nested
+        # agent/span/side-effect in this run is joinable. Idempotent: nested
+        # in-process runs inherit the parent's id via the contextvar.
+        with contextlib.suppress(Exception):
+            from ..observability.correlation import ensure_correlation_id
+
+            ensure_correlation_id()
 
         if requested_model_id is None:
             requested_model_id = REQUESTED_MODEL_ID_CTX.get()
