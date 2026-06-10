@@ -170,6 +170,40 @@ def test_apply_tool_scope_filters_to_allow_list():
 
 
 @pytest.mark.concept("ORCH-1.38")
+def test_cred_ref_resolves_to_auth_token_only_on_transient_deps():
+    """Phase 4: cred_ref (a reference) resolves to the raw token onto AgentDeps.auth_token via
+    the secrets client; the raw secret is never placed on GraphState."""
+    from types import SimpleNamespace
+
+    from agent_utilities.graph.executor import agent_deps_from_graph
+
+    secrets = SimpleNamespace(get=lambda key: "SECRET-TOKEN-XYZ" if key == "cred:sess1" else None)
+    deps = SimpleNamespace(
+        project_root="",
+        knowledge_engine=None,
+        mcp_toolsets=[],
+        ssl_verify=True,
+        provider="openai",
+        base_url=None,
+        api_key=None,
+        request_id="",
+        approval_timeout=0.0,
+        event_queue=None,
+        secrets_client=secrets,
+    )
+    state = GraphState(query="q", invoker_cred_ref="cred:sess1")
+    agent_deps = agent_deps_from_graph(deps, [], state=state)
+    assert agent_deps.auth_token == "SECRET-TOKEN-XYZ"
+    # The raw secret must NOT be on GraphState (only the reference).
+    assert "SECRET-TOKEN-XYZ" not in str(vars(state))
+    assert state.invoker_cred_ref == "cred:sess1"
+
+    # No cred_ref → no token.
+    agent_deps2 = agent_deps_from_graph(deps, [], state=GraphState(query="q"))
+    assert agent_deps2.auth_token is None
+
+
+@pytest.mark.concept("ORCH-1.38")
 def test_spawn_usage_limits_enforces_budget():
     from agent_utilities.graph.executor import spawn_usage_limits
 
