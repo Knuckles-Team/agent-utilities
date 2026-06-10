@@ -13,11 +13,17 @@ JSON serialization for persistence.
 
 import json
 import logging
+import re
 from typing import Any
 
 from .base import GraphBackend
 
 logger = logging.getLogger(__name__)
+
+# A variable-length relationship pattern ``-[*lo..hi]-`` / ``-[*]->`` etc. These
+# are bounded multi-hop traversals the L1 engine resolves via a BFS over its
+# native neighbour ops. (CONCEPT:KG-2.7 P1 — L1 native traversal.)
+_VAR_LEN_RE = re.compile(r"\[\s*[A-Za-z_]*\s*:?\s*\w*\s*\*")
 
 
 class EpistemicGraphBackend(GraphBackend):
@@ -96,20 +102,33 @@ class EpistemicGraphBackend(GraphBackend):
             if handled:
                 return result
 
-        # Single-hop relationship traversal read:
-        # ``MATCH (a {id:$x})-[:REL]->(b:Label) RETURN b.prop...``. Without this,
-        # such reads fall to the legacy full-scan and return every node, not the
-        # edge targets (e.g. workflow-step load returned the anchor node too).
+        # Relationship-pattern READ — single-hop outbound ``->``, inbound ``<-``,
+        # or bounded variable-length ``-[*lo..hi]-``. The L1 engine resolves these
+        # natively over its neighbour/BFS ops, so they no longer have to fall back
+        # to L3. Critically, if no traversal interpreter matches we return ``[]``
+        # — NOT the whole graph — so a tiered caller can defer to L3 instead of
+        # silently receiving every node (the old legacy full-scan footgun).
+        # (CONCEPT:KG-2.7 P1 — L1 native traversal.)
         if (
             qu.startswith("MATCH")
-            and "->" in q
+            and ("->" in q or "<-" in q or _VAR_LEN_RE.search(q))
             and "MERGE" not in qu
             and "CREATE" not in qu
             and "DELETE" not in qu
         ):
+            if _VAR_LEN_RE.search(q):
+                handled, result = self._exec_var_length_match(q, params)
+                if handled:
+                    return result
             handled, result = self._exec_rel_match(q, params)
             if handled:
                 return result
+            logger.debug(
+                "epistemic_graph backend: unhandled relationship read; "
+                "returning [] (no full-graph fallback): %s",
+                q[:160],
+            )
+            return []
 
         # Single-node MATCH patterns are interpreted directly; relationship
         # traversals and other write-DDL fall through to the legacy reader.
@@ -129,25 +148,37 @@ class EpistemicGraphBackend(GraphBackend):
     def _exec_rel_match(
         self, q: str, params: dict[str, Any]
     ) -> tuple[bool, list[dict[str, Any]]]:
-        """Interpret a single-hop ``MATCH (a {id:$x})-[:REL]->(b:Label) RETURN b...``.
+        """Interpret an id-anchored single-hop traversal read, in either direction:
 
-        Resolves the anchor ``a`` by id, walks ``REL`` successors, filters the
-        targets ``b`` by label, and projects on ``b``. Returns ``(False, [])``
-        for any shape outside this subset so the caller can fall back.
+          - outbound ``MATCH (a {id:$x})-[:REL]->(b:Label) RETURN b...`` → successors
+          - inbound  ``MATCH (a {id:$x})<-[:REL]-(b:Label) RETURN b...`` → predecessors
+
+        Resolves the anchor ``a`` by id, walks ``REL`` neighbours in the matched
+        direction, filters targets ``b`` by label, and projects on ``b``. Returns
+        ``(False, [])`` for any shape outside this subset so the caller can fall
+        back. (CONCEPT:KG-2.7 P1 — L1 native traversal.)
         """
-        import re
-
+        anchor_re = (
+            r"MATCH\s*\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*"
+            r"(\$\w+|'[^']*'|\"[^\"]*\")\s*\}\s*\)"
+        )
+        tgt_re = r"\(\s*(\w+)\s*(?::(\w+))?\s*\)"
         # Anchor id accepts either a ``$param`` placeholder or an inline quoted
         # literal (``{id:'foo'}``) — interactive callers commonly write the literal.
-        m = re.search(
-            r"MATCH\s*\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*(\$\w+|'[^']*'|\"[^\"]*\")\s*\}\s*\)"
-            r"\s*-\s*\[\s*\w*\s*:?\s*(\w+)?[^\]]*\]\s*->\s*"
-            r"\(\s*(\w+)\s*(?::(\w+))?\s*\)",
-            q,
-            re.I,
+        out = re.search(
+            anchor_re + r"\s*-\s*\[\s*\w*\s*:?\s*(\w+)?[^\]]*\]\s*->\s*" + tgt_re,
+            q, re.I,
         )
-        if not m:
-            return False, []
+        if out:
+            direction, m = "out", out
+        else:
+            inb = re.search(
+                anchor_re + r"\s*<-\s*\[\s*\w*\s*:?\s*(\w+)?[^\]]*\]\s*-\s*" + tgt_re,
+                q, re.I,
+            )
+            if not inb:
+                return False, []
+            direction, m = "in", inb
         _src_var, id_token, rel, tgt_var, tgt_label = m.groups()
 
         # Only the simple "anchor by id, project the target" shape is supported.
@@ -159,9 +190,18 @@ class EpistemicGraphBackend(GraphBackend):
             return True, []
 
         rel_upper = rel.upper() if rel else None
+        step = (
+            self._graph.get_successors if direction == "out"
+            else self._graph.get_predecessors
+        )
         matched: list[tuple[str, dict[str, Any]]] = []
-        for tgt in self._graph.get_successors(anchor_id):
-            edge_props = self._graph._get_edge_properties(anchor_id, tgt) or {}
+        for tgt in step(anchor_id):
+            # Edge ordering follows the arrow direction: outbound is (anchor→tgt),
+            # inbound is (tgt→anchor).
+            if direction == "out":
+                edge_props = self._graph._get_edge_properties(anchor_id, tgt) or {}
+            else:
+                edge_props = self._graph._get_edge_properties(tgt, anchor_id) or {}
             if rel_upper:
                 edge_rel = str(
                     edge_props.get("rel_type") or edge_props.get("type") or ""
@@ -174,7 +214,7 @@ class EpistemicGraphBackend(GraphBackend):
             matched.append((tgt, data))
 
         # Honour ``ORDER BY <tgt>.<prop> [DESC]`` over the projected targets,
-        # since successor order is not guaranteed to be meaningful.
+        # since neighbour order is not guaranteed to be meaningful.
         ob = re.search(
             rf"\bORDER\s+BY\s+{tgt_var}\.(\w+)\s*(DESC|ASC)?",
             q,
@@ -192,6 +232,105 @@ class EpistemicGraphBackend(GraphBackend):
             matched.sort(key=_sort_key, reverse=reverse)
 
         return True, self._project(q, tgt_var, matched, params)
+
+    def _exec_var_length_match(
+        self, q: str, params: dict[str, Any]
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        """Interpret an id-anchored bounded variable-length traversal read:
+
+        ``MATCH (n)-[*1..3]-(t {id:$x}) RETURN n`` and its mirror (anchor on the
+        left) and directed ``->`` / ``<-`` variants. Resolves the anchor by id,
+        runs a bounded BFS over the engine's native neighbour ops to ``hi`` hops,
+        filters the free node by label, and projects on it. Returns ``(False, [])``
+        for shapes outside this subset. (CONCEPT:KG-2.7 P1 — L1 native traversal.)
+        """
+        if re.search(r"\bSET\b|\bDETACH\b|\bDELETE\b", q, re.I):
+            return False, []
+        node = r"\(\s*(\w+)\s*(?::(\w+))?\s*(\{[^}]*\})?\s*\)"
+        rel = r"\s*(<-|-)\s*\[[^\]]*\*\s*(\d*)\s*(\.\.)?\s*(\d*)[^\]]*\]\s*(->|-)\s*"
+        m = re.search(node + rel + node, q, re.I)
+        if not m:
+            return False, []
+        (
+            lvar, llabel, linline, larrow, lo_s, dotdot, hi_s, rarrow,
+            rvar, rlabel, rinline,
+        ) = m.groups()
+
+        def _id_from_inline(inline: str | None) -> Any:
+            if not inline:
+                return None
+            im = re.search(r"id\s*:\s*(\$\w+|'[^']*'|\"[^\"]*\")", inline, re.I)
+            return self._coerce_literal(im.group(1), params) if im else None
+
+        left_id, right_id = _id_from_inline(linline), _id_from_inline(rinline)
+        if left_id is not None and self._graph.has_node(left_id):
+            anchor_id, anchor_on_left = left_id, True
+            free_var, free_label = rvar, rlabel
+        elif right_id is not None and self._graph.has_node(right_id):
+            anchor_id, anchor_on_left = right_id, False
+            free_var, free_label = lvar, llabel
+        else:
+            # Anchor missing or unknown → no rows (but handled — never all-nodes).
+            return True, []
+
+        lo = int(lo_s) if lo_s else 1
+        if hi_s:
+            hi = int(hi_s)
+        elif dotdot:
+            hi = max(lo, 5)  # open upper bound → safe cap
+        else:
+            hi = lo
+        if hi < lo:
+            hi = lo
+
+        # Direction from the anchor's perspective. ``rarrow == '->'`` is outbound,
+        # ``larrow == '<-'`` is inbound; otherwise undirected.
+        if rarrow == "->" and larrow != "<-":
+            direction = "out" if anchor_on_left else "in"
+        elif larrow == "<-" and rarrow != "->":
+            direction = "in" if anchor_on_left else "out"
+        else:
+            direction = "both"
+
+        matched: list[tuple[str, dict[str, Any]]] = []
+        for nid in self._khop(anchor_id, lo, hi, direction):
+            data = self._graph._get_node_properties(nid) or {}
+            if free_label and not self._label_match(data, free_label):
+                continue
+            matched.append((nid, data))
+        return True, self._project(q, free_var, matched, params)
+
+    def _khop(
+        self, anchor: str, lo: int, hi: int, direction: str
+    ) -> list[str]:
+        """Bounded BFS from ``anchor``: node ids first reached in ``[lo, hi]`` hops.
+
+        ``direction``: 'out' (successors), 'in' (predecessors), 'both' (neighbours).
+        Each frontier expansion is one engine round-trip per node; bounded by
+        ``hi`` so an L1 traversal stays a small, fast working set.
+        """
+        if direction == "out":
+            step = self._graph.get_successors
+        elif direction == "in":
+            step = self._graph.get_predecessors
+        else:
+            step = self._graph.get_neighbors
+        visited = {anchor}
+        frontier = [anchor]
+        out: list[str] = []
+        for depth in range(1, hi + 1):
+            nxt: list[str] = []
+            for node in frontier:
+                for nb in step(node):
+                    if nb not in visited:
+                        visited.add(nb)
+                        nxt.append(nb)
+                        if depth >= lo:
+                            out.append(nb)
+            frontier = nxt
+            if not frontier:
+                break
+        return out
 
     def _exec_rel_merge(
         self, q: str, params: dict[str, Any]

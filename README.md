@@ -27,6 +27,38 @@
 > documentation are published as the
 > [official documentation](https://knuckles-team.github.io/agent-utilities/).
 
+## ⚡ 5-Minute Quickstart
+
+`agent-utilities` is a batteries-included harness for building Pydantic-AI agents.
+The **zero-infra default needs no databases or external services** — the knowledge
+graph runs in-process.
+
+```bash
+pip install agent-utilities
+```
+
+Point it at any model provider (e.g. `OPENAI_API_KEY`, or a local vLLM/Ollama
+endpoint via `.env`), then:
+
+```python
+from agent_utilities.agent.factory import create_agent
+
+# A ready-to-run agent: skills, universal tools, and the in-process knowledge graph.
+agent, toolsets = create_agent(name="assistant")
+result = agent.run_sync("What can you do?")
+print(result.output)
+```
+
+That's the whole "hello world". From there, attach MCP toolsets, swap the graph
+backend, or wire up the full 5-pillar platform — see [Quick Start](#quick-start),
+the [reference agent](examples/reference_agent/), and the [pillar docs](docs/pillars).
+
+> **Heads-up — this is two repos.** The heavy graph compute lives in a **separate**
+> Rust engine, [`epistemic-graph`](https://github.com/Knuckles-Team/epistemic-graph)
+> (reached out-of-process over MessagePack/UDS — **no PyO3**). `agent-utilities`
+> ships a pure-Python client for it, so you don't need Rust to get started.
+> Contributing? See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Table of Contents
 
 - [The Technical Novel: Narrative Journey](docs/journey.md)
@@ -72,7 +104,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **[Schema-Pack 2.0 — pluggable domain profiles](docs/pillars/2_epistemic_knowledge_graph/KG-2.37-Research_State_Domain_Pack.md)** (CONCEPT:KG-2.22–KG-2.37): Swap the active domain pack (`research-state`, `finance`, `biomedical`, …) to retune the whole KG — zero-LLM typed-edge extraction (supports/weakens/cites), relational-intent recall, recency/source-trust ranking, autocut, and **transitive/inverse OWL closure** + bi-temporal `as_of` "literature state" that flat brain layers can't provide. Set `GRAPH_SCHEMA_PACK` or `graph_configure(action="schema_pack")`.
 - **[Unified Intelligence Graph](docs/guides/features.md#comprehensive-feature-list)**: A tiered pipeline combining native Rust in-memory processing (`EpistemicGraphBackend`, the default L1 working store) with a durable PostgreSQL/pggraph persistence tier and OWL (Apache Jena Fuseki) semantics. (LadybugDB / Neo4j / FalkorDB Cypher backends remain available under `backends/contrib/`.)
 - **[Centralized Sessions & Goals (API-First Gateway)](docs/centralized_kg_coordination.md#7-centralized-sessions--autonomous-goal-coordination)**: A highly-resilient, centralized REST API gateway running on Port `8100` that handles background goal loops, durable turns, and user session reply orchestration.
-- **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` running over high-speed Unix Sockets, providing fast AST parsing, VF2 subgraph matching, and a Redpanda-backed Reactive State Ledger designed to scale seamlessly up to 100,000,000 concurrent agents.
+- **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` running over high-speed Unix Sockets (length-prefixed MessagePack — **no PyO3/FFI**), providing fast AST parsing, VF2 subgraph matching, and a Redpanda-backed Reactive State Ledger. The architecture is **modeled** to scale toward 100,000,000 concurrent agents — each working a *bounded subgraph*, not one monolithic graph — via a [Capacity Model](docs/scaling/capacity_model.md) whose anchors are now **measured** — per-shard linear write throughput and a ~52 kB/agent working-set footprint (`epistemic-graph/docs/benchmarks.md`). The 100M target is a **measured projection** (~78 hosts at 64 GB/host), **not a full-scale load test** — we do not claim 100M has been run.
 - **[Spec-Driven Development (SDD)](docs/guides/features.md#spec-driven-development-sdd-lifecycle)**: High-fidelity orchestration that decomposes goals into structured specs, implementation plans, and parallel tasks.
 - **[Emergent Architecture](docs/guides/features.md#emergent-architecture-conceptkg-20-through-conceptorch-12)**: Dynamic AgentCapability auto-activation, TeamConfig coalition promotion, and evolutionary skill refinement via self-models.
 - **[Agent OS & Safety](docs/guides/features.md#human-in-the-loop--tool-safety)**: Built-in Universal Tool Guards, structural vulnerability scanning, and transparent process lifecycle management.
