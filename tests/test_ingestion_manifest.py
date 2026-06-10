@@ -148,6 +148,34 @@ class TestClassify:
         assert ContentType.classify(str(tmp_path)) == ContentType.CODEBASE
         assert ContentType.classify("/a/module.py") == ContentType.CODEBASE
 
+    def test_directory_of_documents(self, tmp_path):
+        # A folder of papers/notes is a DOCUMENT corpus, not a codebase.
+        (tmp_path / "paper1.pdf").write_bytes(b"%PDF-1.7 fake")
+        (tmp_path / "paper2.pdf").write_bytes(b"%PDF-1.7 fake")
+        (tmp_path / "notes.md").write_text("# notes")
+        assert ContentType.classify(str(tmp_path)) == ContentType.DOCUMENT
+
+    def test_directory_codebase_marker_wins(self, tmp_path):
+        # Packaging marker is definitive even when docs are also present.
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+        (tmp_path / "README.md").write_text("# x")
+        assert ContentType.classify(str(tmp_path)) == ContentType.CODEBASE
+
+    def test_directory_of_source(self, tmp_path):
+        (tmp_path / "mod.py").write_text("x = 1\n")
+        (tmp_path / "util.py").write_text("y = 2\n")
+        assert ContentType.classify(str(tmp_path)) == ContentType.CODEBASE
+
+    def test_directory_documents_ignore_vendored(self, tmp_path):
+        # A document corpus carrying a bundled virtualenv must still be a
+        # DOCUMENT corpus — vendored dirs are pruned before counting.
+        (tmp_path / "paper.pdf").write_bytes(b"%PDF-1.7 fake")
+        venv = tmp_path / ".venv" / "lib" / "site-packages"
+        venv.mkdir(parents=True)
+        for i in range(25):
+            (venv / f"m{i}.py").write_text("x = 1\n")
+        assert ContentType.classify(str(tmp_path)) == ContentType.DOCUMENT
+
 
 # ── enrichment_coverage gauge ──────────────────────────────────────────
 
