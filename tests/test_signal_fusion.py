@@ -30,6 +30,50 @@ class TestBayesianSignalFusion:
         # RSI has higher accuracy, so we expect the probability of UP to be less than 0.5
         assert post < 0.5
 
+    def test_seed_from_kg_filters_and_weights(self):
+        """CONCEPT:EE-033 — seed fusion from stored MicrostructureSignal priors,
+        dropping overfit (pbo>0.5) and edgeless (sharpe<=0) signals; weight =
+        directional_accuracy * standalone_sharpe."""
+        from agent_utilities.models.domains.finance import MicrostructureSignalNode
+
+        sigs = [
+            MicrostructureSignalNode(
+                id="sig:ofi",
+                name="ofi",
+                directional_accuracy=0.57,
+                standalone_sharpe=1.8,
+                pbo=0.2,
+            ),
+            MicrostructureSignalNode(
+                id="sig:overfit",
+                name="overfit",
+                directional_accuracy=0.6,
+                standalone_sharpe=2.0,
+                pbo=0.7,  # dropped: overfit
+            ),
+            MicrostructureSignalNode(
+                id="sig:noedge",
+                name="noedge",
+                directional_accuracy=0.5,
+                standalone_sharpe=0.0,
+                pbo=0.1,  # dropped: no edge
+            ),
+        ]
+        fusion = BayesianSignalFusion()
+        registered = fusion.seed_from_kg(sigs)
+        assert registered == 1
+        assert set(fusion.sources) == {"ofi"}
+        assert np.isclose(fusion.sources["ofi"].weight, 0.57 * 1.8)
+        # Bullish surviving signal lifts the posterior above the prior.
+        assert fusion.fuse({"ofi": 1}) > 0.5
+
+    def test_seed_from_kg_accepts_plain_mappings(self):
+        fusion = BayesianSignalFusion()
+        n = fusion.seed_from_kg(
+            [{"name": "queue", "directional_accuracy": 0.55, "standalone_sharpe": 1.0, "pbo": 0.1}]
+        )
+        assert n == 1 and "queue" in fusion.sources
+
 
 class TestAlphaCombinationEngine:
     def test_basic_computation(self):
