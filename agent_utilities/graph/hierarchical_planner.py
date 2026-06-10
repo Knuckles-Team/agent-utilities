@@ -123,6 +123,28 @@ async def researcher_step(
         return "error_recovery"
 
 
+def _plan_output_type(model: Any) -> Any:
+    """FU-2 (CONCEPT:ORCH-1.37) — choose how the planner emits its structured GraphPlan.
+
+    Models flagged ``supports_json: false`` (e.g. the deployed qwen pool) are unreliable at
+    schema-constrained/tool-JSON output and frequently emit an EMPTY plan. For those, wrap the
+    output in pydantic-ai ``PromptedOutput`` (instruction-based JSON), which small/non-JSON
+    models handle far better. JSON-capable models keep the native typed output.
+    """
+    try:
+        from agent_utilities.core.model_factory import get_model_config
+
+        mid = getattr(model, "model_name", None) or getattr(model, "_model_name", None)
+        cfg = get_model_config(mid) if mid else None
+        if cfg and cfg.get("supports_json") is False:
+            from pydantic_ai import PromptedOutput
+
+            return PromptedOutput(GraphPlan)
+    except Exception:  # noqa: BLE001 — never block planning on output-mode selection
+        pass
+    return GraphPlan
+
+
 async def planner_step(
     ctx: StepContext,
 ) -> GraphPlan | str:
@@ -159,23 +181,31 @@ async def planner_step(
     planner_prompt = load_specialized_prompts("planner")
     agent_context = await fetch_epistemic_context()
 
-    # Build a rich re-planning context from previous execution
-    previous_results = "\n".join(
-        f"- {node}: {str(val)[:300]}"
-        for node, val in ctx.state.results_registry.items()
-    )
+    # FU-4 (CONCEPT:ORCH-1.37) — bound the accumulated re-plan context so it can't grow
+    # unbounded across attempts and overflow the model window (we observed 32K-limit 400s).
+    _MAX_RESULTS_ENTRIES = 5
+    _MAX_RESULTS_CHARS = 2500
+    _MAX_FEEDBACK_CHARS = 1500
+    _MAX_ERROR_CHARS = 1000
+
+    # Build a rich re-planning context from the MOST RECENT prior results only.
+    _recent = list(ctx.state.results_registry.items())[-_MAX_RESULTS_ENTRIES:]
+    previous_results = "\n".join(f"- {node}: {str(val)[:300]}" for node, val in _recent)
+    if len(previous_results) > _MAX_RESULTS_CHARS:
+        previous_results = previous_results[-_MAX_RESULTS_CHARS:]
 
     feedback_section = ""
     if ctx.state.validation_feedback:
+        _fb = str(ctx.state.validation_feedback)[:_MAX_FEEDBACK_CHARS]
         feedback_section = (
             f"### VERIFICATION FEEDBACK (CRITICAL)\n"
             f"The previous plan was rejected by the verifier. Address this:\n"
-            f"{ctx.state.validation_feedback}\n\n"
+            f"{_fb}\n\n"
         )
 
     error_section = ""
     if ctx.state.error:
-        error_section = f"### PREVIOUS ERROR\n{ctx.state.error}\n\n"
+        error_section = f"### PREVIOUS ERROR\n{str(ctx.state.error)[:_MAX_ERROR_CHARS]}\n\n"
 
     results_section = ""
     if previous_results:
@@ -222,7 +252,7 @@ async def planner_step(
 
     planner = Agent(
         model=ctx.deps.agent_model,
-        output_type=GraphPlan,
+        output_type=_plan_output_type(ctx.deps.agent_model),  # FU-2
         deps_type=GraphDeps,
         tools=domain_tools,
         toolsets=domain_toolsets,
@@ -724,7 +754,7 @@ class LATSPlanner:
                 f"You are a LATS Planning Agent. Generate candidate execution plans "
                 f"and evaluate them based on the context.\n\nContext:\n{context}"
             ),
-            output_type=GraphPlan,
+            output_type=_plan_output_type(model),  # FU-2
         )
         self.evaluator = Agent(
             model=model,
