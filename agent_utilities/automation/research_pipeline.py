@@ -52,10 +52,34 @@ DEFAULT_CATEGORIES = [
     "cs.DC",
     "cs.DB",
     "q-bio",
+    # Quantitative finance (CONCEPT:EE-037) — microstructure, trading, pricing.
+    "q-fin.TR",
+    "q-fin.PM",
+    "q-fin.ST",
+    "q-fin.CP",
+    "q-fin.RM",
 ]
 
 # Relevance taxonomy aligned with agent-utilities domains
 RELEVANCE_TAXONOMY: dict[str, dict[str, Any]] = {
+    "trading": {
+        "keywords": [
+            "market microstructure",
+            "order flow",
+            "limit order book",
+            "statistical arbitrage",
+            "market making",
+            "optimal execution",
+            "realized volatility",
+            "kelly criterion",
+            "regime switching",
+            "deflated sharpe",
+            "backtest overfit",
+            "alpha signal",
+            "price impact",
+        ],
+        "weight": 1.4,
+    },
     "orchestration": {
         "keywords": [
             "multi-agent",

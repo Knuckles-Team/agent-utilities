@@ -19,6 +19,7 @@ from ...models.domains.finance import (
     KellySizingNode,
     MarkovRegimeStateNode,
     MarkovTransitionMatrixNode,
+    MicrostructureSignalNode,
     OrderCommitRecordNode,
     RegimeSignalNode,
     TradingStrategyNode,
@@ -50,6 +51,62 @@ class FinanceEngineMixin(_Base):
             data = self._serialize_node(node, label="TradingStrategy")
             self._upsert_node("TradingStrategy", strategy_id, data)
         return strategy_id
+
+    def record_backtest_outcome(
+        self,
+        signal_id: str,
+        *,
+        deflated_sharpe: float,
+        pbo: float,
+        hit_rate: float,
+        n_trades: int = 0,
+        name: str | None = None,
+        prediction_horizon: str | None = None,
+        provenance: str = "",
+        asset_class: str = "equities",
+    ) -> str:
+        """Write measured backtest results back into a MicrostructureSignal's priors.
+
+        CONCEPT:EE-033 — closes the loop: the backtester's measured
+        ``deflated_sharpe`` / ``pbo`` / ``hit_rate`` become the stored
+        ``standalone_sharpe`` / ``pbo`` / ``directional_accuracy`` priors. Creates
+        the signal node when absent (MERGE semantics) and preserves existing
+        descriptive fields (name, horizon, provenance) when updating. Because
+        ``BayesianSignalFusion.seed_from_kg`` reads these priors live, the fusion
+        weights self-adjust on the next cycle with no extra wiring.
+        """
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        # Preserve any existing descriptive fields when this is an update.
+        existing: dict = {}
+        try:
+            if self.graph.has_node(signal_id):
+                existing = dict(self.graph.nodes[signal_id])
+        except Exception:  # noqa: BLE001 — best-effort read, fall back to create
+            existing = {}
+
+        node = MicrostructureSignalNode(
+            id=signal_id,
+            name=name or existing.get("name") or signal_id,
+            prediction_horizon=(
+                prediction_horizon or existing.get("prediction_horizon") or "1m"
+            ),
+            directional_accuracy=hit_rate,
+            standalone_sharpe=deflated_sharpe,
+            pbo=pbo,
+            decay_regime=existing.get("decay_regime", "stationary"),
+            half_life_days=existing.get("half_life_days", 0.0),
+            provenance=provenance or existing.get("provenance", ""),
+            asset_class=existing.get("asset_class", asset_class),
+            last_validated=ts,
+            timestamp=existing.get("timestamp", ts),
+        )
+        self.graph.add_node(node.id, **node.model_dump())
+
+        if self.backend:
+            data = self._serialize_node(node, label="MicrostructureSignal")
+            self._upsert_node("MicrostructureSignal", signal_id, data)
+        return signal_id
 
     def generate_execution_signal(
         self, strategy_id: str, direction: str, strength: float, target_price: float

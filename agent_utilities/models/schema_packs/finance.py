@@ -69,6 +69,14 @@ class FinanceSchemaPack(SchemaPack):
         # Backtest evaluation (CONCEPT:AHE-3.4)
         RegistryNodeType.BACKTEST_RUN,
         RegistryNodeType.BACKTEST_METRIC,
+        # Microstructure signals + trade journal (CONCEPT:EE-033, EE-034)
+        RegistryNodeType.MICROSTRUCTURE_SIGNAL,
+        RegistryNodeType.TRADE_JOURNAL,
+        # Curated book/PDF trading knowledge taxonomy (CONCEPT:EE-036)
+        RegistryNodeType.TRADING_KNOWLEDGE,
+        RegistryNodeType.STRATEGY_CONCEPT,
+        RegistryNodeType.RISK_CONCEPT,
+        RegistryNodeType.EXECUTION_CONCEPT,
     }
     edge_types: set[RegistryEdgeType] = {
         # Core edges
