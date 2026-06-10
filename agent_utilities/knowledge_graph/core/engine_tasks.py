@@ -60,6 +60,26 @@ SUPPORTED_EXTENSIONS: set[str] = {
 }
 
 
+def _pdf_file_extractor() -> dict[str, Any]:
+    """Map ``.pdf`` to PyMuPDF instead of SimpleDirectoryReader's default (pypdf).
+
+    pypdf's pure-Python ``extract_text`` is pathologically slow on some PDFs — a
+    single 1 MB / 23-page file was observed pinning a core for **5+ minutes** in
+    ``read_from_stream``. Worse, because it never releases the GIL, that one file
+    starves every other KGTaskWorker on the host, so the whole durable queue stalls
+    behind it. PyMuPDF (``fitz``) extracts the same file in ~0.2s and is a C
+    extension that releases the GIL during parsing, so it neither stalls nor
+    serializes other workers. Returns an empty mapping (default reader) if the
+    PyMuPDF reader isn't installed. (CONCEPT:KG-2.8)
+    """
+    try:
+        from llama_index.readers.file import PyMuPDFReader
+
+        return {".pdf": PyMuPDFReader()}
+    except Exception:  # pragma: no cover - optional dependency / import guard
+        return {}
+
+
 def _encode_metadata(data: dict[str, Any]) -> str:
     """Encode metadata dict as base64 JSON for safe Cypher storage."""
     return base64.b64encode(json.dumps(data).encode()).decode()
@@ -2110,6 +2130,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
 
                 embed_model = create_embedding_model()
+                # PyMuPDF for PDFs: C-based, GIL-releasing, ~0.2s vs pypdf's
+                # multi-minute stall that would otherwise wedge the whole host.
+                pdf_extractor = _pdf_file_extractor()
                 if target.is_dir():
                     # exclude_hidden=False is REQUIRED: the research store lives
                     # under ``~/.local/share/...`` and SimpleDirectoryReader treats
@@ -2122,10 +2145,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                         recursive=False,
                         exclude_hidden=False,
                         required_exts=sorted(SUPPORTED_EXTENSIONS),
+                        file_extractor=pdf_extractor,
                     ).load_data()
                 else:
                     docs = SimpleDirectoryReader(
-                        input_files=[str(target)], exclude_hidden=False
+                        input_files=[str(target)],
+                        exclude_hidden=False,
+                        file_extractor=pdf_extractor,
                     ).load_data()
 
                 created = []

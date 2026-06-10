@@ -260,8 +260,18 @@ class KBDocumentParser:
             return re.sub(r"\s+", " ", clean).strip()
 
     def _read_pdf(self, path: Path) -> str:
-        """Extract text from PDF (requires pypdf or pdfminer)."""
-        # Try pypdf first (lightweight)
+        """Extract text from PDF (prefers PyMuPDF, falls back to pypdf)."""
+        # PyMuPDF (fitz) first: a C extension that releases the GIL and extracts
+        # in ~0.2s where pypdf's pure-Python parser can stall for minutes on a
+        # single pathological file and starve every other worker on the host.
+        try:
+            import fitz  # PyMuPDF
+
+            with fitz.open(str(path)) as doc:
+                return "\n".join(page.get_text() for page in doc)
+        except ImportError:
+            pass
+        # pypdf fallback (lightweight, but slow on some PDFs)
         try:
             import pypdf
 
