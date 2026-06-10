@@ -26,6 +26,11 @@ from .lsh_index import LSHIndex
 from .physical_distiller import PhysicalDistillationEngine
 from .skill_graph_distiller import SkillGraphDistiller
 from .skill_graph_importer import import_skill_graph_pack
+from .trading_curator import (
+    build_knowledge_nodes,
+    classify_trading_concept,
+    organize_trading_knowledge,
+)
 
 __all__ = [
     "DistillationEngine",
@@ -33,5 +38,8 @@ __all__ = [
     "LSHIndex",
     "PhysicalDistillationEngine",
     "SkillGraphDistiller",
+    "build_knowledge_nodes",
+    "classify_trading_concept",
     "import_skill_graph_pack",
+    "organize_trading_knowledge",
 ]
