@@ -15,38 +15,27 @@ class _RecordingCompute:
     """Stand-in GraphComputeEngine that records calls (no real engine)."""
 
     def __init__(self):
-        self.batch_ops = None
-        self.per_element = 0
+        self.nodes: list[str] = []
+        self.edges: list[tuple[str, str]] = []
 
-    def batch_update(self, ops):
-        self.batch_ops = ops
+    def add_node(self, nid, props):
+        self.nodes.append(nid)
 
-    def add_node(self, *a, **k):
-        self.per_element += 1
-
-    def add_edge(self, *a, **k):
-        self.per_element += 1
+    def add_edge(self, src, tgt, props):
+        self.edges.append((src, tgt))
 
     def community_detection(self, resolution):
         return [["a", "b"]]
 
 
-def test_make_community_fn_loads_in_one_batch():
-    # The scratch tenant must be loaded with a SINGLE batch_update round-trip,
-    # not per-element add_node/add_edge RPCs (AGENTS "never per-element").
+def test_make_community_fn_loads_then_detects():
+    # The scratch tenant is loaded with the full call graph (every node + edge)
+    # before community detection runs, and the partition is returned.
     gc = _RecordingCompute()
     fn = make_community_fn(gc)
     result = fn(["a", "b", "c"], [("a", "b"), ("b", "c")])
-    assert gc.per_element == 0, "must not use per-element add_node/add_edge"
-    assert gc.batch_ops is not None
-    ops = gc.batch_ops
-    assert sum(o["op"] == "add_node" for o in ops) == 3
-    assert sum(o["op"] == "add_edge" for o in ops) == 2
-    assert ops[0] == {
-        "op": "add_node",
-        "node_id": "a",
-        "properties_json": '{"type": "Code"}',
-    }
+    assert gc.nodes == ["a", "b", "c"]
+    assert gc.edges == [("a", "b"), ("b", "c")]
     assert result == [["a", "b"]]
 
 
