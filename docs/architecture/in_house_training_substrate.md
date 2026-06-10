@@ -1,7 +1,7 @@
 # In-House Training Substrate
 
-> **CONCEPT:AHE-3.1** — Training Substrate (reward decomposition / distillation) · **CONCEPT:KG-2.22** — Rust-Native Data Science
-> **Spans:** `agent-utilities` (reward spine, memory) · `data-science-mcp` (corpora + trainers) · `epistemic-graph` (Rust kernels)
+> **CONCEPT:AHE-3.1** — Training Substrate (reward decomposition / distillation) · **CONCEPT:KG-2.22** — Rust-Native Data Science · **CONCEPT:ML-001…007** — high-caliber LLM trainer (cross-repo)
+> **Spans:** `agent-utilities` (reward spine, memory, training personas) · `data-science-mcp` (corpora + trainers + curation + pretrain) · `universal-skills` (`train_model` workflow) · `epistemic-graph` (Rust kernels)
 
 ## Overview
 
@@ -122,7 +122,53 @@ CPU-smoke-tested end-to-end on a toy model; on the GB10 the only deltas are real
 deps, a real base model, and the GPU. See data-science-mcp `docs/training.md` for
 the OpenSeeker recipe.
 
+## LLM trainer expansion (CONCEPT:ML-001…007)
+
+The substrate above was hardened into a full LLM trainer — **create, pretrain from
+random init, and fine-tune** models, robustly and at scale, driven by agents. The
+`CONCEPT:ML-*` family is a deliberate **cross-repo** id family (it spans the three
+repos below) rather than a single-pillar one; it expands `AHE-3.1` and
+`DSCI-004`. SDD spec: `.specify/specs/llm-model-trainer/`.
+
+| Concept | Capability | Where |
+|---|---|---|
+| `ML-001` | Trainer hardening — shared `run_loop` (precision/accum/clip/scheduler/checkpoint+resume) | `data-science-mcp/trainers/loop.py` |
+| `ML-002` | Corpus curation — stream/dedup/decontaminate/quality-filter/pack/lineage (epistemic-graph HNSW accel.) | `data-science-mcp/data_engine.py` |
+| `ML-003` | Pretrain from random init — BPE tokenizer + `AutoConfig`→`from_config` | `data-science-mcp/{tokenizer_trainer,trainers/pretrain_trainer}.py` |
+| `ML-004` | Experiment tracking — MLflow + epistemic-graph `TrainingRun` mirror | `data-science-mcp/tracking.py` |
+| `ML-005` | Scale-out — FSDP **and** DeepSpeed ZeRO-3 peers + launcher | `data-science-mcp/{trainers/accelerate_launch.py,launch/}` |
+| `ML-006` | Benchmark eval — lm-eval beside the AHE-3.1 reliability suite | `data-science-mcp/trainers/eval_hooks.py` |
+| `ML-007` | **Agent-driven training** — personas + workflow (below) | `agent-utilities` + `universal-skills` |
+
+### Agent layer (CONCEPT:ML-007)
+
+The whole loop is exposed as an agent workflow. Four **prompt personas** live in
+`agent_utilities/prompts/` (auto-discovered by `load_specialized_prompts`):
+
+| Persona | Role | Key tools |
+|---|---|---|
+| `data_curator` | build / quality-filter / dedup / decontaminate corpus + lineage | `curate_corpus`, `dedup_corpus`, `decontaminate_corpus`, `dataset_lineage` |
+| `training_engineer` | plan & launch SFT/DPO/GRPO + from-scratch pretrain | `train_sft`, `train_dpo`, `train_grpo`, `pretrain_model`, `train_tokenizer`, `merge_adapters_ties` |
+| `eval_judge` | reliability + benchmark scoring; gate advance/repeat/abort | `run_interpretability_suite`, `grade_response`, `evaluate_model` |
+| `ml_orchestrator` | own the DAG; delegate; branch on gates; register checkpoint | `graph_orchestrate` |
+
+They are bound into the `model_training_team` and driven by the **`train_model`**
+workflow skill (`universal-skills/.../workflows/ml/train_model/`), a 12-step DAG:
+
+```
+prepare_corpus → curate/dedup/decontaminate → (train_tokenizer) →
+  train(sft|pretrain) → eval → GATE → align(dpo|grpo) → eval → GATE →
+  merge_adapters → final_eval → register_model
+```
+
+Run it with `graph_orchestrate(action="execute_workflow", name="train_model", task=…)`.
+Install dependencies per capability: see data-science-mcp `docs/installation.md`.
+
 ## Related
 
-- data-science-mcp: `docs/training.md` (trainer usage).
+- data-science-mcp: `docs/training.md` (trainer usage + GPU recipes),
+  `docs/installation.md` (capability→dependency matrix), `docs/concepts.md`
+  (`CONCEPT:ML-*` registry).
+- universal-skills: `workflows/ml/train_model/SKILL.md` (the agent workflow).
 - epistemic-graph: `docs/RUST_COMPUTE_GUIDE.md` (kernel pattern).
+- SDD: `.specify/specs/llm-model-trainer/` (spec/plan/tasks).
