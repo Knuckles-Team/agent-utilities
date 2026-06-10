@@ -1793,6 +1793,83 @@ def _build_server(bootstrap: bool = True):
     REGISTERED_TOOLS["graph_query"] = graph_query
 
     # ══════════════════════════════════════════════════════════════════
+    # 1b. graph_context — CONCEPT:ORCH-1.38 cross-process curated-context store
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_context",
+        description=(
+            "CONCEPT:ORCH-1.38 — store/fetch curated context for invoker→spawned-agent "
+            "handoff, persisted in the epistemic-graph so a SEPARATELY-spawned agent can read "
+            "it by id. Actions: 'put' (store content, returns context_id), 'get' (fetch by "
+            "context_id), 'list' (by session_id). Pass the returned context_id to "
+            "graph_orchestrate(action='execute_agent', context_ref=...)."
+        ),
+        tags=["graph-os", "orchestrate", "context"],
+    )
+    async def graph_context(
+        action: str = Field(default="put", description="put | get | list"),
+        content: str = Field(default="", description="Context text to store (action=put)."),
+        context_id: str = Field(default="", description="ContextBlob id (action=get)."),
+        session_id: str = Field(default="", description="Session scope key."),
+        key: str = Field(default="", description="Optional sub-key within the session."),
+        ttl_s: int = Field(
+            default=0, description="Optional time-to-live in seconds (0 = persistent)."
+        ),
+    ) -> str:
+        import time
+        import uuid as _uuid
+
+        engine = _get_engine()
+        if not engine:
+            return json.dumps({"error": "IntelligenceGraphEngine not active."})
+        if action == "put":
+            if not content:
+                return json.dumps({"error": "content required for put"})
+            sid = session_id or _uuid.uuid4().hex[:8]
+            cid = context_id or f"ctx:{sid}:{key or _uuid.uuid4().hex[:6]}"
+            engine.add_node(
+                cid,
+                "ContextBlob",
+                properties={
+                    "id": cid,
+                    "content": content,
+                    "session_id": sid,
+                    "key": key,
+                    "ttl_s": int(ttl_s),
+                    "created_at": time.time(),
+                    "producer": _SESSION_ID,
+                },
+            )
+            return json.dumps({"context_id": cid, "session_id": sid})
+        if action == "get":
+            if not context_id:
+                return json.dumps({"error": "context_id required for get"})
+            try:
+                rows = engine.query_cypher(
+                    "MATCH (c:ContextBlob) WHERE c.id = $id "
+                    "RETURN c.content AS content, c.session_id AS session_id, "
+                    "c.created_at AS created_at, c.ttl_s AS ttl_s",
+                    {"id": context_id},
+                )
+                return json.dumps(rows[0] if rows else {}, default=str)
+            except Exception as exc:  # noqa: BLE001
+                return json.dumps({"error": str(exc)})
+        if action == "list":
+            try:
+                rows = engine.query_cypher(
+                    "MATCH (c:ContextBlob) WHERE c.session_id = $sid "
+                    "RETURN c.id AS context_id, c.key AS key, c.created_at AS created_at "
+                    "ORDER BY c.created_at DESC LIMIT 50",
+                    {"sid": session_id},
+                )
+                return json.dumps(rows, default=str)
+            except Exception as exc:  # noqa: BLE001
+                return json.dumps({"error": str(exc)})
+        return json.dumps({"error": f"unknown action: {action}"})
+
+    REGISTERED_TOOLS["graph_context"] = graph_context
+
+    # ══════════════════════════════════════════════════════════════════
     # 2. kg_search — Unified search (hybrid, concept, analogy, memory)
     # ══════════════════════════════════════════════════════════════════
 
@@ -2744,6 +2821,13 @@ def _build_server(bootstrap: bool = True):
             "spawned agent (action='execute_agent'); enforced as a hard total-tokens limit. "
             "0 = unbounded.",
         ),
+        context_ref: str = Field(
+            default="",
+            description="CONCEPT:ORCH-1.38 — id of a persisted ContextBlob (from "
+            "graph_context put) to hand to the spawned agent (action='execute_agent'); its "
+            "content is resolved from the graph and injected. Use instead of inline 'context' "
+            "for large/shared context.",
+        ),
     ) -> str:
         """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution.
 
@@ -2857,6 +2941,7 @@ def _build_server(bootstrap: bool = True):
                         return_mermaid=True,
                         context=context or None,
                         budget_tokens=budget_tokens or None,
+                        context_ref=context_ref or None,
                     )
                     return agent_result
                 except Exception as exc:
