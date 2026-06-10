@@ -74,11 +74,14 @@ class Orchestrator:
         task: str,
         max_steps: int = 30,
         return_mermaid: bool = False,
+        context: str | None = None,
     ) -> str:
         """Execute a single agent against a task.
 
         CONCEPT:ORCH-1.37 — ``return_mermaid`` forwards to :func:`run_agent` so the MCP
         layer can surface the routed-graph diagram (off by default for internal callers).
+        CONCEPT:ORCH-1.38 — ``context`` is the invoking agent's curated context, threaded to
+        the spawned agent's prompt (budgeted to the model window).
         """
         self._scan_task(task)
         logger.info(f"Executing agent {agent_name} for task: {task[:50]}...")
@@ -88,6 +91,7 @@ class Orchestrator:
             engine=self.engine,
             max_steps=max_steps,
             return_mermaid=return_mermaid,
+            context=context,
         )
         return result
 

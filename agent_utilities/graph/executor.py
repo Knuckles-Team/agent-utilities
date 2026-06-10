@@ -533,6 +533,26 @@ def agent_deps_from_graph(deps: GraphDeps, toolsets: list[Any] | None = None) ->
     )
 
 
+def invoker_context_section(state: Any, *, window_tokens: int = 32768) -> str:
+    """CONCEPT:ORCH-1.38 — render the invoker's curated context as a budgeted prompt section.
+
+    Returns an empty string when no invoker context was provided, otherwise an
+    ``### INVOKER CONTEXT`` block trimmed to a fraction (~15%) of the target model's context
+    window. Defaults to the smaller (32K) window so the section fits BOTH the 9B (64K) and the
+    lite (32K) models without overflow; a future pass can resolve the exact per-model window.
+    """
+    text = (getattr(state, "invoker_context", "") or "").strip()
+    if not text:
+        return ""
+    budget_chars = max(2000, int(window_tokens * 0.15) * 4)  # ~4 chars/token
+    if len(text) > budget_chars:
+        text = text[:budget_chars] + "\n…[invoker context truncated to fit model window]"
+    return (
+        "\n\n### INVOKER CONTEXT (curated by the invoking agent — treat as authoritative "
+        "background for this task)\n" + text + "\n"
+    )
+
+
 def get_step_descriptions() -> str:
     """Generate a formatted catalog of expert capabilities for the LLM planner.
 
@@ -689,6 +709,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         f"IMPORTANT: You are currently asked to: {agent_info.description}\n"
         f"Query: {ctx.state.query}"
     )
+    agent_sys_prompt += invoker_context_section(ctx.state)  # CONCEPT:ORCH-1.38
 
     # Include validation feedback if this is a re-dispatch
     if ctx.state.validation_feedback:
@@ -1507,6 +1528,7 @@ async def _execute_specialized_step(
             f"### TOOL USAGE GUIDANCE\n{tool_guidance}\n\n"
             f"### CONTEXT\n{ctx.state.exploration_notes}"
             f"{feedback_section}"
+            f"{invoker_context_section(ctx.state)}"  # CONCEPT:ORCH-1.38
         ),
         tools=custom_tools,
         toolsets=collected_mcp_toolsets + skill_toolsets,
