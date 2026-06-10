@@ -64,12 +64,27 @@ Design: `.specify/design/orch-1.38-invoker-spawned-context-handoff/design.md`.
 - **Phase 2 DONE** (merged + live): `graph_context` MCP tool (put/get/list) persists a `ContextBlob`
   node in the epistemic-graph; `context_ref` on run_agent/execute_agent/graph_orchestrate resolves a
   blob's content into the spawned agent's context. Validated (unit + live put→get round-trip).
-- **Remaining:** `allowed_tools`→toolset intersection (least-privilege; needs real toolset filtering,
-  not a prompt hint); ContextBlob **TTL pruner** + **RunTrace `HAS_CONTEXT` provenance edge** (engine
-  lacks `add_edge` — add it or use backend); Phase 3 swarm `ExecutionManifest.context` +
-  large-context `message_history`; Phase 4 ephemeral `cred_ref` via SecretsClient; OWL layer for
-  `ContextBlob`/`HAS_CONTEXT`.
+- **allowed_tools DONE** (merged + live): `invoker_allowed_tools` → `executor.apply_tool_scope()`
+  filters function tools by name + wraps toolsets with pydantic-ai `.filtered()` at every spawn site.
+- **ContextBlob TTL + provenance DONE** (merged + live): `engine.add_edge()` added;
+  `RunTrace -[:HAS_CONTEXT]-> ContextBlob` linked on `context_ref` use; `graph_context get` honors
+  TTL (expired→gone); new `graph_context prune` action.
+- **FU-2 DONE** (merged + live): planner/LATS use `PromptedOutput` for `supports_json=false` models.
+- **FU-4 DONE** (merged + live): re-plan context bounded (recent-5 results, char budgets).
+- **Remaining:**
+  - `graph_context list` returns cross-contaminated rows on the epistemic-graph backend (the
+    "unsupported WHERE shape → legacy reader" quirk for label+property filters). put/get-by-id
+    (the primary handoff) are correct. Fix the backend WHERE-shape support or use an id-prefix index.
+  - Phase 3: swarm `ExecutionManifest.context` from entrypoint + large-context `message_history`.
+  - Phase 4: ephemeral `cred_ref` via SecretsClient (Vault, scoped, short-TTL — never raw in graph).
+  - OWL layer for `ContextBlob`/`HAS_CONTEXT` (constitution).
 - **Message channel: deferred** (elicitation/A2A/EventBus cover realistic needs).
+
+## 9. FU-3 — vLLM host-resource rebalance (NOT done — needs your Portainer redeploy)
+Shift `parallel_instances` toward `qwen/qwen3.5-9b` (now carries routing+exec+verify+KG) and shrink
+`qwen-lite` (cheap sub-steps only). Edit `services/vllm/compose.yml` replica counts + config.json
+`parallel_instances`, then redeploy the GPU stack via Portainer. Left for you — I won't redeploy the
+GPU stack unprompted.
 
 ## 8. Daemon redeploy for the latest merges
 The dedicated host daemon (tmux session `graphos-host`) was started on merge `b200bbd`; the ORCH-1.38
