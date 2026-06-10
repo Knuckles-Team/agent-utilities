@@ -1816,6 +1816,7 @@ def _build_server(bootstrap: bool = True):
             default=0, description="Optional time-to-live in seconds (0 = persistent)."
         ),
     ) -> str:
+        import contextlib
         import time
         import uuid as _uuid
 
@@ -1851,7 +1852,35 @@ def _build_server(bootstrap: bool = True):
                     "c.created_at AS created_at, c.ttl_s AS ttl_s",
                     {"id": context_id},
                 )
-                return json.dumps(rows[0] if rows else {}, default=str)
+                if not rows:
+                    return json.dumps({})
+                row = rows[0]
+                # TTL: treat an expired blob as gone (created_at + ttl_s < now).
+                _ttl = row.get("ttl_s") or 0
+                _created = row.get("created_at") or 0
+                if _ttl and _created and (float(_created) + float(_ttl) < time.time()):
+                    return json.dumps({"error": "context expired", "expired": True})
+                return json.dumps(row, default=str)
+            except Exception as exc:  # noqa: BLE001
+                return json.dumps({"error": str(exc)})
+        if action == "prune":
+            # Delete expired ContextBlobs (CONCEPT:ORCH-1.38 lifecycle).
+            try:
+                rows = engine.query_cypher(
+                    "MATCH (c:ContextBlob) WHERE c.ttl_s > 0 AND "
+                    "(c.created_at + c.ttl_s) < $now RETURN c.id AS id",
+                    {"now": time.time()},
+                )
+                pruned = 0
+                _del = getattr(engine, "delete_node", None) or getattr(
+                    getattr(engine, "backend", None), "delete_node", None
+                )
+                for r in rows or []:
+                    if callable(_del):
+                        with contextlib.suppress(Exception):
+                            _del(r["id"])
+                            pruned += 1
+                return json.dumps({"pruned": pruned, "expired": len(rows or [])})
             except Exception as exc:  # noqa: BLE001
                 return json.dumps({"error": str(exc)})
         if action == "list":
@@ -2828,6 +2857,12 @@ def _build_server(bootstrap: bool = True):
             "content is resolved from the graph and injected. Use instead of inline 'context' "
             "for large/shared context.",
         ),
+        allowed_tools: str = Field(
+            default="",
+            description="CONCEPT:ORCH-1.38 — comma-separated least-privilege tool allow-list "
+            "for the spawned agent (action='execute_agent'); its tools/toolsets are filtered "
+            "to ONLY these names. Empty = no restriction.",
+        ),
     ) -> str:
         """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution.
 
@@ -2942,6 +2977,10 @@ def _build_server(bootstrap: bool = True):
                         context=context or None,
                         budget_tokens=budget_tokens or None,
                         context_ref=context_ref or None,
+                        allowed_tools=(
+                            [t.strip() for t in allowed_tools.split(",") if t.strip()]
+                            or None
+                        ),
                     )
                     return agent_result
                 except Exception as exc:
