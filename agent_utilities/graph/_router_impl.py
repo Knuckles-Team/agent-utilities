@@ -42,6 +42,7 @@ from ..models import (
 from .executor import (
     _execute_domain_logic,
     _execute_dynamic_mcp_agent,
+    invoker_context_section,
 )
 from .hsm import StateInvariantError, assert_state_valid
 from .lifecycle import _emit_node_lifecycle
@@ -393,6 +394,7 @@ async def router_step(
                 system_prompt=(
                     f"You are operating the '{_srv}' MCP server. Use its tools to satisfy "
                     f"the user's request directly and return exactly the data requested."
+                    f"{invoker_context_section(ctx.state)}"  # CONCEPT:ORCH-1.38
                 ),
                 toolsets=_ts,
             )
@@ -1262,7 +1264,7 @@ async def expert_executor_step(
 
                 dynamic_agent = Agent(
                     model=ctx.deps.agent_model,
-                    system_prompt=system_prompt,
+                    system_prompt=system_prompt + invoker_context_section(ctx.state),
                     tools=domain_tools,
                     toolsets=domain_toolsets,
                 )
@@ -1461,7 +1463,7 @@ async def mcp_server_step(
 
             agent = Agent(
                 model=ctx.deps.agent_model,
-                system_prompt=system_prompt,
+                system_prompt=system_prompt + invoker_context_section(ctx.state),  # ORCH-1.38
                 toolsets=matched_toolsets,
             )
 
