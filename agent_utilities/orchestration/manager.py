@@ -75,6 +75,7 @@ class Orchestrator:
         max_steps: int = 30,
         return_mermaid: bool = False,
         context: str | None = None,
+        budget_tokens: int | None = None,
     ) -> str:
         """Execute a single agent against a task.
 
@@ -92,6 +93,7 @@ class Orchestrator:
             max_steps=max_steps,
             return_mermaid=return_mermaid,
             context=context,
+            budget_tokens=budget_tokens,
         )
         return result
 
