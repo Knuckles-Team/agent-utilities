@@ -648,6 +648,52 @@ class IntelligenceGraphEngine(
 
         return subgraph
 
+    def checkout_subgraph(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        durable: Any | None = None,
+    ) -> Any:
+        """Check out a bounded subgraph as a write-back-capable working copy.
+
+        Like :meth:`load_subgraph`, but returns a
+        :class:`~agent_utilities.knowledge_graph.core.subgraph_checkout.CheckedOutSubgraph`
+        that tracks mutations and can flush **only the deltas** back to the durable
+        tier — instead of the detached, load-only scratchpad ``load_subgraph``
+        returns. This closes the checkout → mutate → write-back loop without a
+        full-graph enumeration. (CONCEPT:KG-2.7 P2 — bounded checkout + delta
+        write-back.)
+
+        The Cypher query must ``RETURN`` nodes ``n`` (and optionally relationships
+        ``r``). ``durable`` defaults to this engine's backend (the durable tier).
+        """
+        if not self.backend:
+            raise RuntimeError("Backend required for checkout_subgraph")
+
+        from .subgraph_checkout import CheckedOutSubgraph
+
+        inner = GraphComputeEngine(backend_type="rust")
+        baseline: dict[str, str] = {}
+        results = self.backend.execute(query, params or {})
+        for row in results:
+            n = row.get("n")
+            if n and isinstance(n, dict) and "id" in n:
+                props = {k: v for k, v in n.items() if k != "id"}
+                inner.add_node(n["id"], props)
+                baseline[n["id"]] = CheckedOutSubgraph._version_of(props)
+            r = row.get("r")
+            if r and isinstance(r, dict) and "source" in r and "target" in r:
+                inner.add_edge(
+                    r["source"], r["target"], {"type": r.get("type", "UNKNOWN")}
+                )
+
+        return CheckedOutSubgraph(
+            inner,
+            durable=durable if durable is not None else self.backend,
+            baseline=baseline,
+        )
+
     def load_for_centrality(
         self, node_types: list[str] | None = None
     ) -> GraphComputeEngine:
