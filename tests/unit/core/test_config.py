@@ -43,6 +43,39 @@ def test_get_env_file_default():
     assert str(get_env_file()).endswith(".env")
 
 
+@pytest.mark.concept("CONCEPT:KG-2.7")
+def test_kg_golden_loop_flags_default_off():
+    # The golden-loop family is opt-in: every KG_GOLDEN_* flag now lives on
+    # AgentConfig (off bare os.environ) and defaults to the conservative value.
+    for k in (
+        "KG_GOLDEN_LOOP",
+        "KG_GOLDEN_DISTILL",
+        "KG_GOLDEN_BREADTH",
+        "KG_GOLDEN_STANDARDIZE",
+        "KG_GOLDEN_AUTO_MERGE",
+    ):
+        os.environ.pop(k, None)
+    c = AgentConfig()
+    assert c.kg_golden_loop is False
+    assert c.kg_golden_auto_merge is False
+    assert c.kg_golden_loop_interval == 3600.0
+    assert c.kg_golden_loop_topics == 5
+    assert c.kg_golden_merge_threshold is None
+
+
+@pytest.mark.concept("CONCEPT:KG-2.7")
+def test_kg_golden_loop_override_from_env():
+    os.environ["KG_GOLDEN_LOOP"] = "1"
+    os.environ["KG_GOLDEN_LOOP_TOPICS"] = "9"
+    try:
+        c = AgentConfig()
+        assert c.kg_golden_loop is True
+        assert c.kg_golden_loop_topics == 9
+    finally:
+        os.environ.pop("KG_GOLDEN_LOOP", None)
+        os.environ.pop("KG_GOLDEN_LOOP_TOPICS", None)
+
+
 @pytest.mark.concept("CONCEPT:KG-2.8")
 def test_kg_dev_mode_default_off():
     # Production default: background daemons are on (dev mode off). This single

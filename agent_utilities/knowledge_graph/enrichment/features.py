@@ -82,10 +82,25 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
     """
 
     def _fn(node_ids: list[str], edges: list[tuple[str, str]]) -> list[list[str]]:
-        for nid in node_ids:
-            graph_compute.add_node(nid, {"type": "Code"})
-        for src, tgt in edges:
-            graph_compute.add_edge(src, tgt, {"type": "CALLS"})
+        # Load the call graph into the scratch tenant in ONE round-trip. A
+        # per-element add_node/add_edge loop is N+M serialized UDS RPCs — the
+        # "never per-element" anti-pattern (AGENTS); a repo with thousands of
+        # symbols/edges paid thousands of round-trips. (CONCEPT:KG-2.16)
+        ops: list[dict[str, Any]] = [
+            {"op": "add_node", "node_id": nid, "properties_json": '{"type": "Code"}'}
+            for nid in node_ids
+        ]
+        ops += [
+            {
+                "op": "add_edge",
+                "source_id": src,
+                "target_id": tgt,
+                "properties_json": '{"type": "CALLS"}',
+            }
+            for src, tgt in edges
+        ]
+        if ops:
+            graph_compute.batch_update(ops)
         try:
             return graph_compute.community_detection(resolution)
         except Exception:
