@@ -208,6 +208,9 @@ class GraphState:
     # (budgeted to the target model's window at the spawn assemblers). One source of truth
     # read by every spawn path; seeded from config at GraphState construction.
     invoker_context: str = ""
+    # CONCEPT:ORCH-1.38 — optional token budget the invoker grants the spawned agent;
+    # enforced as UsageLimits.total_tokens_limit at the spawn run sites (None = unbounded).
+    invoker_budget_tokens: int | None = None
 
     validation_feedback: str | None = None
     """Feedback from ValidatorNode to DomainNode for self-correction."""

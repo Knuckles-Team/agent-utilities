@@ -262,3 +262,6 @@ trace.txt
 .tmp/
 .pytest_tmp/
 .hypothesis/
+
+# Stray nested repo swept in by another process — never track
+selfconfig-ingest/

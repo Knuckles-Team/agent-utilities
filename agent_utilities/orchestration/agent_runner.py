@@ -41,6 +41,7 @@ async def run_agent(
     engine: IntelligenceGraphEngine | None = None,
     return_mermaid: bool = False,
     context: str | None = None,
+    budget_tokens: int | None = None,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -189,9 +190,11 @@ async def run_agent(
 
     # Step 3: Build execution config from KG metadata
     config = _build_execution_config(engine, agent_name, agent_meta)
-    # CONCEPT:ORCH-1.38 — carry the invoker's curated context into the spawn.
+    # CONCEPT:ORCH-1.38 — carry the invoker's curated context + token budget into the spawn.
     if context:
         config["invoker_context"] = context
+    if budget_tokens:
+        config["invoker_budget_tokens"] = int(budget_tokens)
 
     # Step 4: Materialize and run the graph
     try:
