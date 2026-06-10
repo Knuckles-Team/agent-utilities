@@ -107,7 +107,11 @@ acp = [
 ]
 documents = [
     "llama-index-core>=0.14.15",
-    "llama-index-readers-file>=0.4.1"
+    "llama-index-readers-file>=0.4.1",
+    # PyMuPDF (fitz): GIL-releasing C PDF parser used as the primary PDF reader
+    # (PyMuPDFReader). ~0.2s vs pypdf's multi-minute stall that wedges the host
+    # task queue on pathological PDFs. See engine_tasks._pdf_file_extractor.
+    "pymupdf>=1.24"
 ]
 embeddings = [
     "llama-index-core>=0.14.15"]
