@@ -22,6 +22,7 @@ This module provides deep KG integration rather than a simple passthrough:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import time
@@ -203,6 +204,11 @@ async def run_agent(
             )
             if _rows and _rows[0].get("content"):
                 context = str(_rows[0]["content"])
+                # Provenance: link this run to the context it consumed (CONCEPT:ORCH-1.38).
+                _add_edge = getattr(engine, "add_edge", None)
+                if callable(_add_edge):
+                    with contextlib.suppress(Exception):
+                        _add_edge(f"trace:{run_id}", context_ref, "HAS_CONTEXT")
         except Exception as _ctx_exc:  # noqa: BLE001
             logger.warning("context_ref %s resolution failed: %s", context_ref, _ctx_exc)
     if context:
