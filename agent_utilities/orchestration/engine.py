@@ -433,9 +433,14 @@ class AgentOrchestrationEngine:
                 srv_id = getattr(ts, "id", getattr(ts, "name", repr(ts)))
                 try:
                     logger.debug(f"run_graph: Connecting to MCP server '{srv_id}'...")
-                    connected = await asyncio.wait_for(
-                        stack.enter_async_context(ts), timeout=60.0
-                    )
+                    # Use asyncio.timeout() (not asyncio.wait_for) to bound the connect:
+                    # wait_for runs the coroutine in a NEW task, so a stdio toolset's anyio
+                    # cancel scope would be ENTERED in that child task while the AsyncExitStack
+                    # EXITS it in this (outer) task → "Attempted to exit cancel scope in a
+                    # different task than it was entered in". asyncio.timeout() applies to the
+                    # current task, keeping enter/exit on the same task.
+                    async with asyncio.timeout(60.0):
+                        connected = await stack.enter_async_context(ts)
                     _already_connected.add(id(ts))
                     connected_toolsets.append(connected)
                     logger.info(f"run_graph: ✅ MCP server '{srv_id}' connected")
