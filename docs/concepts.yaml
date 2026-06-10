@@ -2,12 +2,17 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 140
-total_pillars: 13
+total_concepts: 147
+total_pillars: 18
 pillars:
 - AHE-3
 - CTX-1
 - ECO-4
+- EE-033
+- EE-034
+- EE-036
+- EE-037
+- EE-039
 - EG-009
 - KG-1
 - KG-2
@@ -507,6 +512,47 @@ concepts:
   - agent_utilities/tools/db_tools.py
   - agent_utilities/tools/tool_registry.py
   doc: native database traversal tools
+- id: EE-033
+  name: closes the priors→weights loop
+  pillar: EE-033
+  status: live
+  code_paths:
+  - agent_utilities/domains/finance/signal_fusion.py
+  - agent_utilities/knowledge_graph/orchestration/engine_finance.py
+  - agent_utilities/models/domains/finance.py
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/models/schema_packs/finance.py
+  doc: closes the priors→weights loop
+- id: EE-034
+  name: the expert agent writes one per decision; a nightly distill
+  pillar: EE-034
+  status: live
+  code_paths:
+  - agent_utilities/models/domains/finance.py
+  doc: the expert agent writes one per decision; a nightly distill
+- id: EE-036
+  name: concrete subclasses
+  pillar: EE-036
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/trading_curator.py
+  - agent_utilities/models/domains/finance.py
+  - agent_utilities/models/schema_packs/finance.py
+  doc: concrete subclasses
+- id: EE-037
+  name: microstructure, trading, pricing
+  pillar: EE-037
+  status: live
+  code_paths:
+  - agent_utilities/automation/research_pipeline.py
+  doc: microstructure, trading, pricing
+- id: EE-039
+  name: EE-039
+  pillar: EE-039
+  status: live
+  code_paths:
+  - agent_utilities/graph/trading_team_seed.py
+  doc: EE-039
 - id: EG-009
   name: then by its node
   pillar: EG-009
@@ -869,6 +915,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/core/config.py
   - agent_utilities/gateway/api.py
   - agent_utilities/gateway/daemon.py
   - agent_utilities/knowledge_graph/adaptation/feedback.py
@@ -999,6 +1046,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
+  - agent_utilities/knowledge_graph/enrichment/features.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
@@ -1731,7 +1779,7 @@ concepts:
   - agent_utilities/orchestration/resilience.py
   doc: retry_on predicate raised; treating as non-retryable
 - id: ORCH-1.37
-  name: streamdown=True populates GraphResponse.mermaid so the
+  name: Orchestration execution-flow mermaid-diagram surfacing in graph_orchestrate responses
   pillar: ORCH-1
   status: live
   code_paths:
@@ -1742,7 +1790,7 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/manager.py
-  doc: streamdown=True populates GraphResponse.mermaid so the
+  doc: Orchestration execution-flow mermaid-diagram surfacing in graph_orchestrate responses
 - id: ORCH-1.38
   name: Tiered RLM code sandbox with a uniform Sandbox contract and a capability router that escalates
     across local, monty, wasm, and docker backends
@@ -1763,6 +1811,34 @@ concepts:
   - agent_utilities/rlm/telemetry.py
   doc: Tiered RLM code sandbox with a uniform Sandbox contract and a capability router that escalates
     across local, monty, wasm, and docker backends
+- id: ORCH-1.39
+  name: Invoker→spawned-agent handoff of curated context, token budget, tool scope and credential reference
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/_router_impl.py
+  - agent_utilities/graph/executor.py
+  - agent_utilities/graph/state.py
+  - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/engine.py
+  - agent_utilities/orchestration/manager.py
+  doc: Invoker→spawned-agent handoff of curated context, token budget, tool scope and credential reference
+- id: ORCH-1.40
+  name: Session-anchored collections and native invoker↔spawned-agent message channels
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/executor.py
+  - agent_utilities/graph/state.py
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/messaging/agent_channel.py
+  - agent_utilities/models/agent.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/engine.py
+  doc: Session-anchored collections and native invoker↔spawned-agent message channels
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

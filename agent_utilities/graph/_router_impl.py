@@ -389,13 +389,13 @@ async def router_step(
                 "skipping planner/verifier.",
                 _srv,
             )
-            _, _scoped_ts = apply_tool_scope(ctx.state, [], _ts)  # CONCEPT:ORCH-1.38
+            _, _scoped_ts = apply_tool_scope(ctx.state, [], _ts)  # CONCEPT:ORCH-1.39
             _direct_agent = Agent(
                 model=deps.agent_model,
                 system_prompt=(
                     f"You are operating the '{_srv}' MCP server. Use its tools to satisfy "
                     f"the user's request directly and return exactly the data requested."
-                    f"{invoker_context_section(ctx.state)}"  # CONCEPT:ORCH-1.38
+                    f"{invoker_context_section(ctx.state)}"  # CONCEPT:ORCH-1.39
                 ),
                 toolsets=_scoped_ts,
             )
@@ -403,7 +403,7 @@ async def router_step(
             _direct_res = await _direct_agent.run(
                 ctx.state.query,
                 deps=_direct_deps,
-                usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:ORCH-1.38 budget
+                usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:ORCH-1.39 budget
             )
             emit_graph_event(
                 deps.event_queue,
@@ -1261,7 +1261,7 @@ async def expert_executor_step(
                     if filtered_tools:
                         domain_tools = filtered_tools
 
-                domain_tools, domain_toolsets = apply_tool_scope(  # CONCEPT:ORCH-1.38
+                domain_tools, domain_toolsets = apply_tool_scope(  # CONCEPT:ORCH-1.39
                     ctx.state, domain_tools, domain_toolsets
                 )
                 dynamic_agent = Agent(
@@ -1462,7 +1462,7 @@ async def mcp_server_step(
 
             agent = Agent(
                 model=ctx.deps.agent_model,
-                system_prompt=system_prompt + invoker_context_section(ctx.state),  # ORCH-1.38
+                system_prompt=system_prompt + invoker_context_section(ctx.state),  # ORCH-1.39
                 toolsets=matched_toolsets,
             )
 

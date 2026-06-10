@@ -128,19 +128,25 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **106 canonical concepts** across **12 pillars**.
+Synthesized from concept markers in the codebase into **147 canonical concepts** across **18 pillars**.
 
 > This count and the table below are generated from `docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand.
 
 | Pillar | ID Range | Count | Focus |
 |:------|:---------|:---:|:------|
-| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.14 | 11 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, Adversarial verification passed — no issues found, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
+| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.17 | 14 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, Adversarial verification passed — no issues found, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
 | **CTX-1** Context Management | CTX-1.0 | 1 | Nested Subfolder Instructions |
-| **ECO-4** Ecosystem & Peripherals | ECO-4.0 – ECO-4.24 | 14 | Register PlannerGraphSkill when graph_bundle is available, Live MCP server connection for tool metadata caching, Company Infrastructure Orchestration, Infrastructure Blueprint Library, Pluggable Event Queue Backend, Team-Specific Startup Context, Deterministic Lint Enforcement Hook, Plugin Bundle Distribution System |
+| **ECO-4** Ecosystem & Peripherals | ECO-4.0 – ECO-4.33 | 23 | Register PlannerGraphSkill when graph_bundle is available, Live MCP server connection for tool metadata caching, Company Infrastructure Orchestration, Infrastructure Blueprint Library, Pluggable Event Queue Backend, Team-Specific Startup Context, Deterministic Lint Enforcement Hook, Plugin Bundle Distribution System |
+| **EE-033** EE-033 | EE-033 | 1 | closes the priors→weights loop |
+| **EE-034** EE-034 | EE-034 | 1 | the expert agent writes one per decision; a nightly distill |
+| **EE-036** EE-036 | EE-036 | 1 | concrete subclasses |
+| **EE-037** EE-037 | EE-037 | 1 | microstructure, trading, pricing |
+| **EE-039** EE-039 | EE-039 | 1 | EE-039 |
+| **EG-009** EG-009 | EG-009 | 1 | then by its node |
 | **KG-1** Knowledge Graph Core | KG-1.0 | 1 | Centralized KG Coordination Protocol |
-| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.37 | 39 | Provides git-like transactional mutation for KG evolution, Self-Model proficiency + R5 ACO pheromone affinities, Entity-Claim Extraction for MAGMA Epistemic View, Topological Analysis Engine, research assimilation + orchestration synthesis, and **Schema-Pack 2.0** (KG-2.22–KG-2.37): pluggable domain profiles with pack-driven retrieval signals, zero-LLM link inference, relational-intent recall, lifecycle/audit, and pack-driven OWL closure |
+| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.50 | 52 | Provides git-like transactional mutation for KG evolution, routes skill evolution through the single graph-native, the self-bootstrapping ontology agent applied to ingest, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Generates actionable LLM artifacts from KG-ingested research, / KG-2.10 — research assimilation + orchestration synthesis |
 | **LGC-1** Logic & Governance Core | LGC-1.0 | 1 | Logic & Governance Core |
-| **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.36 | 28 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Visibility allow-list of upstream step ids whose results, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
+| **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.40 | 32 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Visibility allow-list of upstream step ids whose results, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
 | **ORCH-2** Orchestration Extensions | ORCH-2.0 | 1 | Orchestration Engine |
 | **ORCH-5** Orchestration Runtime | ORCH-5.0 | 1 | / TUI-20 |
 | **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.13 | 13 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |

@@ -83,36 +83,36 @@
 
 :ContextBlob a owl:Class ;
     rdfs:label "ContextBlob" ;
-    rdfs:comment "CONCEPT:ORCH-1.38 — curated context an invoking agent persists for a spawned agent to reference (session-scoped, optionally TTL'd)." .
+    rdfs:comment "CONCEPT:ORCH-1.39 — curated context an invoking agent persists for a spawned agent to reference (session-scoped, optionally TTL'd)." .
 
 :hasContext a owl:ObjectProperty ;
     rdfs:label "hasContext" ;
-    rdfs:comment "CONCEPT:ORCH-1.38 — links a RunTrace (a spawned run) to the ContextBlob it consumed (provenance)." ;
+    rdfs:comment "CONCEPT:ORCH-1.39 — links a RunTrace (a spawned run) to the ContextBlob it consumed (provenance)." ;
     rdfs:range :ContextBlob .
 
 :Session a owl:Class ;
     rdfs:label "Session" ;
-    rdfs:comment "CONCEPT:ORCH-1.39 — id-addressable anchor (session:{sid}) for a session's collections; lets 'list by session' be a reliable single-hop traversal on a property-index-free engine." .
+    rdfs:comment "CONCEPT:ORCH-1.40 — id-addressable anchor (session:{sid}) for a session's collections; lets 'list by session' be a reliable single-hop traversal on a property-index-free engine." .
 
 :AgentMessage a owl:Class ;
     rdfs:label "AgentMessage" ;
-    rdfs:comment "CONCEPT:ORCH-1.39 — a durable, replayable record of one message exchanged on an invoker↔spawned-agent channel (the live channel is in-RAM; this node is the durable record)." .
+    rdfs:comment "CONCEPT:ORCH-1.40 — a durable, replayable record of one message exchanged on an invoker↔spawned-agent channel (the live channel is in-RAM; this node is the durable record)." .
 
 :hasContextAnchor a owl:ObjectProperty ;
     rdfs:label "hasContext (anchor)" ;
-    rdfs:comment "CONCEPT:ORCH-1.39 — Session -[:HAS_CONTEXT]-> ContextBlob anchor edge." ;
+    rdfs:comment "CONCEPT:ORCH-1.40 — Session -[:HAS_CONTEXT]-> ContextBlob anchor edge." ;
     rdfs:domain :Session ;
     rdfs:range :ContextBlob .
 
 :hasMessage a owl:ObjectProperty ;
     rdfs:label "hasMessage" ;
-    rdfs:comment "CONCEPT:ORCH-1.39 — Session -[:HAS_MESSAGE]-> AgentMessage durable-history edge." ;
+    rdfs:comment "CONCEPT:ORCH-1.40 — Session -[:HAS_MESSAGE]-> AgentMessage durable-history edge." ;
     rdfs:domain :Session ;
     rdfs:range :AgentMessage .
 
 :hasRun a owl:ObjectProperty ;
     rdfs:label "hasRun" ;
-    rdfs:comment "CONCEPT:ORCH-1.39 — Session -[:HAS_RUN]-> RunTrace edge (spawned runs anchored to their session)." ;
+    rdfs:comment "CONCEPT:ORCH-1.40 — Session -[:HAS_RUN]-> RunTrace edge (spawned runs anchored to their session)." ;
     rdfs:domain :Session .
 
 :Skill a owl:Class ;

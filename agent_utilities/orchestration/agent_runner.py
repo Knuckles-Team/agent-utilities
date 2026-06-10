@@ -196,7 +196,7 @@ async def run_agent(
 
     # Step 3: Build execution config from KG metadata
     config = _build_execution_config(engine, agent_name, agent_meta)
-    # CONCEPT:ORCH-1.38 — carry the invoker's curated context + token budget into the spawn.
+    # CONCEPT:ORCH-1.39 — carry the invoker's curated context + token budget into the spawn.
     # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
     # from the epistemic-graph and link it to this run's RunTrace for provenance.
     if context_ref and not context:
@@ -207,7 +207,7 @@ async def run_agent(
             )
             if _rows and _rows[0].get("content"):
                 context = str(_rows[0]["content"])
-                # Provenance: link this run to the context it consumed (CONCEPT:ORCH-1.38).
+                # Provenance: link this run to the context it consumed (CONCEPT:ORCH-1.39).
                 _add_edge = getattr(engine, "add_edge", None)
                 if callable(_add_edge):
                     with contextlib.suppress(Exception):
@@ -222,7 +222,7 @@ async def run_agent(
         config["invoker_allowed_tools"] = list(allowed_tools)
     if cred_ref:
         config["invoker_cred_ref"] = cred_ref
-    # CONCEPT:ORCH-1.39 — open the invoker↔spawned native message channel for this run when
+    # CONCEPT:ORCH-1.40 — open the invoker↔spawned native message channel for this run when
     # requested (or when an explicit session_id is given). The id is stamped into config so
     # GraphState/AgentDeps carry it to the spawned agent, and echoed back in the JSON wrapper
     # so the invoker knows where to send/receive.
@@ -268,7 +268,7 @@ async def run_agent(
         duration_ms=duration_ms,
         result_preview=str(result)[:500],
     )
-    # CONCEPT:ORCH-1.39 — anchor this run to its Session (id-addressable) so "list runs by
+    # CONCEPT:ORCH-1.40 — anchor this run to its Session (id-addressable) so "list runs by
     # session" is a reliable single-hop traversal, mirroring HAS_CONTEXT/HAS_MESSAGE.
     if session_id:
         snode = f"session:{session_id}"
@@ -298,7 +298,7 @@ async def run_agent(
         else:
             output_str = str(result)
         # CONCEPT:ORCH-1.37 — surface the routed-graph diagram when requested.
-        # CONCEPT:ORCH-1.39 — surface the message channel id when one was opened.
+        # CONCEPT:ORCH-1.40 — surface the message channel id when one was opened.
         mermaid = result.get("mermaid")
         if (return_mermaid and mermaid) or channel_id:
             wrapper: dict[str, Any] = {"output": output_str}
@@ -671,8 +671,9 @@ async def _execute_graph(
     )
 
     # Execute the graph
-    # CONCEPT:ORCH-1.37 — streamdown=True populates GraphResponse.mermaid so the
-    # routed-graph diagram can be surfaced to the MCP caller (see run_agent return_mermaid).
+    # CONCEPT:ORCH-1.37 — Orchestration execution-flow mermaid-diagram surfacing in graph_orchestrate responses
+    # streamdown=True populates GraphResponse.mermaid so the routed-graph diagram can be
+    # surfaced to the MCP caller (see run_agent return_mermaid).
     result = await AgentOrchestrationEngine().execute_graph(
         graph=graph,
         config=full_config,

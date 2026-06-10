@@ -1793,12 +1793,12 @@ def _build_server(bootstrap: bool = True):
     REGISTERED_TOOLS["graph_query"] = graph_query
 
     # ══════════════════════════════════════════════════════════════════
-    # 1b. graph_context — CONCEPT:ORCH-1.38 cross-process curated-context store
+    # 1b. graph_context — CONCEPT:ORCH-1.39 cross-process curated-context store
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
         name="graph_context",
         description=(
-            "CONCEPT:ORCH-1.38 — store/fetch curated context for invoker→spawned-agent "
+            "CONCEPT:ORCH-1.39 — store/fetch curated context for invoker→spawned-agent "
             "handoff, persisted in the epistemic-graph so a SEPARATELY-spawned agent can read "
             "it by id. Actions: 'put' (store content, returns context_id), 'get' (fetch by "
             "context_id), 'list' (by session_id). Pass the returned context_id to "
@@ -1841,7 +1841,7 @@ def _build_server(bootstrap: bool = True):
                     "producer": _SESSION_ID,
                 },
             )
-            # CONCEPT:ORCH-1.39 — session-anchored collection: upsert the id-addressable
+            # CONCEPT:ORCH-1.40 — session-anchored collection: upsert the id-addressable
             # Session node and link it, so "list by session" is a reliable id-anchored
             # traversal (the engine has no property index; property scans are unreliable).
             snode = f"session:{sid}"
@@ -1873,7 +1873,7 @@ def _build_server(bootstrap: bool = True):
             except Exception as exc:  # noqa: BLE001
                 return json.dumps({"error": str(exc)})
         if action == "prune":
-            # Delete expired ContextBlobs (CONCEPT:ORCH-1.38 lifecycle).
+            # Delete expired ContextBlobs (CONCEPT:ORCH-1.39 lifecycle).
             try:
                 rows = engine.query_cypher(
                     "MATCH (c:ContextBlob) WHERE c.ttl_s > 0 AND "
@@ -1894,7 +1894,7 @@ def _build_server(bootstrap: bool = True):
                 return json.dumps({"error": str(exc)})
         if action == "list":
             try:
-                # CONCEPT:ORCH-1.39 — id-anchored traversal from the Session node (the engine's
+                # CONCEPT:ORCH-1.40 — id-anchored traversal from the Session node (the engine's
                 # reliable, fast O(degree) path; the index-less backend can't serve property
                 # scans). The traversal reader returns whole nodes (`RETURN c`), so project +
                 # sort + limit client-side.
@@ -1922,12 +1922,12 @@ def _build_server(bootstrap: bool = True):
     REGISTERED_TOOLS["graph_context"] = graph_context
 
     # ══════════════════════════════════════════════════════════════════
-    # 1c. graph_message — CONCEPT:ORCH-1.39 invoker↔spawned-agent message channel
+    # 1c. graph_message — CONCEPT:ORCH-1.40 invoker↔spawned-agent message channel
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(
         name="graph_message",
         description=(
-            "CONCEPT:ORCH-1.39 — bidirectional, cross-process, ordered message channel between "
+            "CONCEPT:ORCH-1.40 — bidirectional, cross-process, ordered message channel between "
             "an invoking agent and a spawned agent, over the epistemic-graph native channels. "
             "Actions: 'open' (session_id+run_id → channel_id), 'send' (channel_id+sender+payload "
             "[+durable]), 'receive' (channel_id [+since cursor] → new messages + cursor), "
@@ -2923,39 +2923,39 @@ def _build_server(bootstrap: bool = True):
         ),
         context: str = Field(
             default="",
-            description="CONCEPT:ORCH-1.38 — curated context the invoking agent passes to the "
+            description="CONCEPT:ORCH-1.39 — curated context the invoking agent passes to the "
             "spawned agent (action='execute_agent'); injected into the spawned agent's prompt, "
             "budgeted to the model's context window.",
         ),
         budget_tokens: int = Field(
             default=0,
-            description="CONCEPT:ORCH-1.38 — optional token budget the invoker grants the "
+            description="CONCEPT:ORCH-1.39 — optional token budget the invoker grants the "
             "spawned agent (action='execute_agent'); enforced as a hard total-tokens limit. "
             "0 = unbounded.",
         ),
         context_ref: str = Field(
             default="",
-            description="CONCEPT:ORCH-1.38 — id of a persisted ContextBlob (from "
+            description="CONCEPT:ORCH-1.39 — id of a persisted ContextBlob (from "
             "graph_context put) to hand to the spawned agent (action='execute_agent'); its "
             "content is resolved from the graph and injected. Use instead of inline 'context' "
             "for large/shared context.",
         ),
         allowed_tools: str = Field(
             default="",
-            description="CONCEPT:ORCH-1.38 — comma-separated least-privilege tool allow-list "
+            description="CONCEPT:ORCH-1.39 — comma-separated least-privilege tool allow-list "
             "for the spawned agent (action='execute_agent'); its tools/toolsets are filtered "
             "to ONLY these names. Empty = no restriction.",
         ),
         cred_ref: str = Field(
             default="",
-            description="CONCEPT:ORCH-1.38 — REFERENCE (secret key, e.g. 'cred:{session}') to "
+            description="CONCEPT:ORCH-1.39 — REFERENCE (secret key, e.g. 'cred:{session}') to "
             "an ephemeral credential the invoker stored in the secrets backend; resolved to the "
             "spawned agent's auth_token at spawn (never logged). Use instead of passing raw "
             "secrets. Empty = none.",
         ),
         open_channel: bool = Field(
             default=False,
-            description="CONCEPT:ORCH-1.39 — when True (action='execute_agent'), open a native "
+            description="CONCEPT:ORCH-1.40 — when True (action='execute_agent'), open a native "
             "bidirectional message channel for this run; the response JSON includes a "
             "'channel_id' to talk to the spawned agent via graph_message(send/receive).",
         ),
@@ -3023,7 +3023,7 @@ def _build_server(bootstrap: bool = True):
                 manifest = ExecutionManifest.from_graph_plan(
                     plan, name="swarm", query=task
                 )
-                # CONCEPT:ORCH-1.38 (Phase 3) — curated invoker context for the swarm.
+                # CONCEPT:ORCH-1.39 (Phase 3) — curated invoker context for the swarm.
                 # ParallelEngine injects manifest.context into EVERY wave agent's task, so the
                 # invoker's context reaches all swarm agents. Resolve context_ref if given.
                 _swarm_ctx = context or ""
@@ -3098,7 +3098,7 @@ def _build_server(bootstrap: bool = True):
                             or None
                         ),
                         cred_ref=cred_ref or None,
-                        open_channel=bool(open_channel),  # CONCEPT:ORCH-1.39
+                        open_channel=bool(open_channel),  # CONCEPT:ORCH-1.40
                     )
                     return agent_result
                 except Exception as exc:

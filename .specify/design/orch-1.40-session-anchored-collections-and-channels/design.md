@@ -1,9 +1,9 @@
-# Design: Session-Anchored Collections + Native Channel Messaging (ORCH-1.39)
+# Design: Session-Anchored Collections + Native Channel Messaging (ORCH-1.40)
 
-> A robust solution to the two ORCH-1.38 deferrals — (a) reliable session-scoped queries
+> A robust solution to the two ORCH-1.39 deferrals — (a) reliable session-scoped queries
 > (`graph_context list`) and (b) a real invoker↔spawned message channel — by attacking their
 > shared root cause and building on a powerful primitive that already ships but is unwired.
-> Extends ORCH-1.38; composes with KG-2.0 (engine Communication Channels).
+> Extends ORCH-1.39; composes with KG-2.0 (engine Communication Channels).
 
 ## Root cause (shared by both deferrals)
 
@@ -39,7 +39,7 @@ Model every session as an id-addressable `Session` node (`id = "session:{sid}"`)
 traversals** — the engine's reliable, fast path.
 - Write path: on ContextBlob/message/run creation, `MERGE (s:Session {id:$sid})` (supported by
   `_exec_merge_node`) + `engine.add_edge(session_id, child_id, "HAS_*")` (O(1) by id, already
-  exists, used by the ORCH-1.38 provenance link).
+  exists, used by the ORCH-1.39 provenance link).
 - Read path: `MATCH (s {id:$sid})-[:HAS_CONTEXT]->(c:ContextBlob) RETURN c ORDER BY c.created_at`
   (`_exec_rel_match`, supports rel-type + label filter + ORDER BY). Replaces the degraded
   `graph_context list` property scan. O(degree), not O(N).
@@ -89,7 +89,7 @@ defer this unless a hot, large-N, non-anchorable property-listing requirement em
 5. **(Defer)** engine property index unless a concrete hot path appears.
 
 ## Concept & wiring
-- **Proposed CONCEPT:ORCH-1.39** — sub-concept of ORCH-1.38; composes with KG-2.0 (channels) and
+- **Proposed CONCEPT:ORCH-1.40** — sub-concept of ORCH-1.39; composes with KG-2.0 (channels) and
   ORCH-1.21 (execution bridge). Wire-First: `graph_orchestrate`/`run_agent` → `agent_channel` /
   session-anchor writes → engine channels/edges (≤2 hops).
 - Schema additions (`Session`, `AgentMessage`, `HAS_MESSAGE`, `HAS_RUN`) → extend the OWL layer in

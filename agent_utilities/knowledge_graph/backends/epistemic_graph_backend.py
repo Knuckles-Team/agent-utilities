@@ -434,7 +434,7 @@ class EpistemicGraphBackend(GraphBackend):
                     results.append(entry)
             return results
 
-        # CONCEPT:ORCH-1.39 (hardening) — NEVER silently return the entire graph for an
+        # CONCEPT:ORCH-1.40 (hardening) — NEVER silently return the entire graph for an
         # unparsed query. That over-match was the `graph_context list` "garbage" bug and a
         # latent correctness/cost hazard for every caller. Default to empty; require an
         # explicit opt-in (KG_ALLOW_FULL_SCAN=true) for a rare deliberate full enumeration.
