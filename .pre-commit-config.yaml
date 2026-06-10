@@ -77,6 +77,12 @@ repos:
     entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_stubs.py
     language: system
     types: [python]
+  - id: check-no-env-sprawl
+    name: Config-flag anti-sprawl (no new bare os.environ KG_/GRAPH_ reads)
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_no_env_sprawl.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-concept-gaps
     name: Check Concept ID Gap contiguousness
     entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_concept_gaps.py
