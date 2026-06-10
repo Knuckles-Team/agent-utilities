@@ -349,6 +349,7 @@ class AgentOrchestrationEngine:
             invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.38
             invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.38
             invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.38
+            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.39
         )
 
         _custom_headers = config.get("custom_headers")
@@ -414,6 +415,7 @@ class AgentOrchestrationEngine:
             invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.38
             invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.38
             invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.38
+            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.39
         )
 
         if persist:
@@ -784,6 +786,7 @@ class AgentOrchestrationEngine:
             invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.38
             invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.38
             invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.38
+            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.39
         )
 
         if persist:
@@ -1017,6 +1020,7 @@ class AgentOrchestrationEngine:
             invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.38
             invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.38
             invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.38
+            invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.39
         )
 
         # Merge registry tags into deps (same as run_graph)

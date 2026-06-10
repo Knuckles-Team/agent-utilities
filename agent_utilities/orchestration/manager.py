@@ -79,6 +79,8 @@ class Orchestrator:
         context_ref: str | None = None,
         allowed_tools: list[str] | None = None,
         cred_ref: str | None = None,
+        session_id: str | None = None,
+        open_channel: bool = False,
     ) -> str:
         """Execute a single agent against a task.
 
@@ -100,6 +102,8 @@ class Orchestrator:
             context_ref=context_ref,
             allowed_tools=allowed_tools,
             cred_ref=cred_ref,
+            session_id=session_id,
+            open_channel=open_channel,
         )
         return result
 

@@ -46,6 +46,8 @@ async def run_agent(
     context_ref: str | None = None,
     allowed_tools: list[str] | None = None,
     cred_ref: str | None = None,
+    session_id: str | None = None,
+    open_channel: bool = False,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -220,6 +222,19 @@ async def run_agent(
         config["invoker_allowed_tools"] = list(allowed_tools)
     if cred_ref:
         config["invoker_cred_ref"] = cred_ref
+    # CONCEPT:ORCH-1.39 — open the invoker↔spawned native message channel for this run when
+    # requested (or when an explicit session_id is given). The id is stamped into config so
+    # GraphState/AgentDeps carry it to the spawned agent, and echoed back in the JSON wrapper
+    # so the invoker knows where to send/receive.
+    channel_id: str | None = None
+    if open_channel or session_id:
+        from agent_utilities.messaging import agent_channel
+
+        channel_id = agent_channel.open_channel(
+            engine, session_id or run_id, run_id
+        )
+        if channel_id:
+            config["message_channel_id"] = channel_id
 
     # Step 4: Materialize and run the graph
     try:
@@ -274,9 +289,15 @@ async def run_agent(
         else:
             output_str = str(result)
         # CONCEPT:ORCH-1.37 — surface the routed-graph diagram when requested.
+        # CONCEPT:ORCH-1.39 — surface the message channel id when one was opened.
         mermaid = result.get("mermaid")
-        if return_mermaid and mermaid:
-            return json.dumps({"output": output_str, "mermaid": mermaid}, default=str)
+        if (return_mermaid and mermaid) or channel_id:
+            wrapper: dict[str, Any] = {"output": output_str}
+            if return_mermaid and mermaid:
+                wrapper["mermaid"] = mermaid
+            if channel_id:
+                wrapper["channel_id"] = channel_id
+            return json.dumps(wrapper, default=str)
         return output_str
 
     return str(result)
