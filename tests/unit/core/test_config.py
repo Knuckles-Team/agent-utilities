@@ -43,6 +43,36 @@ def test_get_env_file_default():
     assert str(get_env_file()).endswith(".env")
 
 
+@pytest.mark.concept("CONCEPT:KG-2.8")
+def test_kg_dev_mode_default_off():
+    # Production default: background daemons are on (dev mode off). This single
+    # switch replaced the per-daemon KG_*_DAEMON env toggles.
+    os.environ.pop("KG_DEV_MODE", None)
+    assert AgentConfig().kg_dev_mode is False
+
+
+@pytest.mark.concept("CONCEPT:KG-2.8")
+def test_kg_dev_mode_override_from_env():
+    os.environ["KG_DEV_MODE"] = "true"
+    try:
+        assert AgentConfig().kg_dev_mode is True
+    finally:
+        os.environ.pop("KG_DEV_MODE", None)
+
+
+@pytest.mark.concept("CONCEPT:KG-2.8")
+def test_kg_dev_mode_helper_reads_config(monkeypatch):
+    # The engine's daemon gate reads the SAME typed config source of truth, so
+    # all KG background daemons collapse behind this one switch.
+    from agent_utilities.core import config as cfg_mod
+    from agent_utilities.knowledge_graph.core import engine_tasks
+
+    monkeypatch.setattr(cfg_mod.config, "kg_dev_mode", False, raising=False)
+    assert engine_tasks._kg_dev_mode() is False
+    monkeypatch.setattr(cfg_mod.config, "kg_dev_mode", True, raising=False)
+    assert engine_tasks._kg_dev_mode() is True
+
+
 @pytest.mark.concept("CONCEPT:OS-5.0")
 def test_tool_guard_mode_override():
     os.environ["TOOL_GUARD_MODE"] = "on"

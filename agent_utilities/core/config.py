@@ -247,6 +247,12 @@ class AgentConfig(BaseSettings):
     # column size is derived from this, so a mismatch breaks node inserts.
     kg_embedding_dim: str | None = Field(default="768", alias="KG_EMBEDDING_DIM")
 
+    # Single dev switch that disables ALL KG background daemons (maintenance
+    # scheduler: enrichment/reconcile/file-watch/hygiene/task-reaper + the
+    # embedding backfill). Production keeps them all on; this replaces the old
+    # per-daemon KG_*_DAEMON env toggles (CONCEPT:KG-2.8, config discipline).
+    kg_dev_mode: bool = Field(default=False, alias="KG_DEV_MODE")
+
     # --- Model registry helpers (derive from chat_models / embedding_models) ---
 
     def _chat_model_by_level(self, level: str) -> ChatModelConfig | None:
