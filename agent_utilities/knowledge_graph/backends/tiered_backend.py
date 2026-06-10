@@ -13,7 +13,9 @@ Composes two :class:`GraphBackend` instances into a two-tier store:
 Writes are applied to L1 first (authoritative for reads), then mirrored to L3.
 **L3 mirror failures are logged and non-fatal** — a transient durability hiccup
 must not abort an ingestion run; the gap is closed by
-:meth:`reconcile_to_durable`. Reads never touch L3.
+:meth:`reconcile_to_durable`. Reads are served from L1, including id-anchored
+relationship traversals (resolved natively on the engine); only traversals L1
+can't anchor fall through to L3.
 
 Selected via ``GRAPH_BACKEND=tiered`` (see ``create_backend``); the L1 type is
 ``GRAPH_BACKEND_L1`` (default ``epistemic_graph``) and L3 is a PostgreSQL DSN
@@ -43,16 +45,32 @@ def _is_write(query: str) -> bool:
     return bool(_WRITE_RE.search(query or ""))
 
 
-# A relationship pattern ``-[...]-`` (single-hop traversal). The L1 epistemic
-# interpreter can't traverse edges (it returns every node), so READ queries with
-# a relationship pattern are served from L3 (durable, relational kg_edges), which
-# transpiles them to JOINs. Node-only reads stay on the fast L1 store.
+# A relationship pattern ``-[...]-`` (single-hop or variable-length traversal).
 _TRAVERSAL_RE = re.compile(r"-\s*\[[^\]]*\]\s*->?|<-\s*\[[^\]]*\]\s*-")
+
+# An ``{id: ...}`` anchor — the entry point the L1 engine needs to walk a
+# traversal natively (single-hop ``->``/``<-`` or bounded ``[*lo..hi]``) over its
+# neighbour/BFS ops. (CONCEPT:KG-2.7 P1 — L1 native traversal.)
+_ID_ANCHOR_RE = re.compile(
+    r"\{\s*id\s*:\s*(\$\w+|'[^']*'|\"[^\"]*\")\s*\}", re.IGNORECASE
+)
 
 
 def _is_traversal(query: str) -> bool:
     """True if the (read) query traverses a relationship pattern."""
     return bool(_TRAVERSAL_RE.search(query or ""))
+
+
+def _l1_can_traverse(query: str) -> bool:
+    """True if the L1 epistemic engine can resolve this traversal natively.
+
+    L1 handles **id-anchored** traversals — single-hop (``->``/``<-``) and bounded
+    variable-length (``[*lo..hi]``) — by walking the engine's neighbour/BFS ops
+    from the anchor. Without an ``{id: ...}`` anchor there is no entry point, so
+    those defer to L3's relational ``kg_edges`` JOINs.
+    """
+    q = query or ""
+    return bool(_ID_ANCHOR_RE.search(q)) and _is_traversal(q)
 
 
 def _sanitize_label(label: str) -> str:
@@ -69,6 +87,8 @@ class TieredGraphBackend(GraphBackend):
         self.l3 = l3
         self._l3_failures = 0
         self._l3_writes = 0
+        self._l1_reads = 0
+        self._l3_reads = 0
         logger.info(
             "TieredGraphBackend initialized (L1=%s, L3=%s)",
             type(l1).__name__,
@@ -99,16 +119,22 @@ class TieredGraphBackend(GraphBackend):
     ) -> list[dict[str, Any]]:
         """Reads → L1; writes → L1 (authoritative) then mirrored to L3.
 
-        Exception: relationship-traversal READS go to L3, because the L1
-        epistemic interpreter cannot traverse edges (it returns all nodes). L3
-        transpiles ``(a)-[:R]->(b)`` to a JOIN over ``kg_edges``. Falls back to
-        L1 if L3 is unavailable. (CONCEPT:KG-2.7 traversal correctness)
+        Traversal reads: an **id-anchored** relationship traversal (single-hop
+        ``->``/``<-`` or bounded ``[*lo..hi]``) is now resolved natively on the
+        fast L1 engine — its reason for existing. Only traversals L1 can't anchor
+        (no ``{id:...}`` entry point) fall through to L3, which transpiles
+        ``(a)-[:R]->(b)`` to a ``kg_edges`` JOIN; that path falls back to L1 if L3
+        is unavailable. (CONCEPT:KG-2.7 P1 — L1 native traversal.)
         """
         if _is_write(query):
             result = self.l1.execute(query, params)
             self._mirror("execute", lambda: self.l3.execute(query, params))
             return result
         if _is_traversal(query):
+            if _l1_can_traverse(query):
+                self._l1_reads += 1
+                return self.l1.execute(query, params)
+            self._l3_reads += 1
             try:
                 return self.l3.execute(query, params)
             except Exception as exc:  # noqa: BLE001 — degrade, never crash a read
@@ -359,5 +385,10 @@ class TieredGraphBackend(GraphBackend):
     # Observability
     # ------------------------------------------------------------------
     def durability_stats(self) -> dict[str, int]:
-        """Mirror counters for monitoring the durable tier."""
-        return {"l3_writes": self._l3_writes, "l3_failures": self._l3_failures}
+        """Mirror counters for monitoring the durable tier + read routing."""
+        return {
+            "l3_writes": self._l3_writes,
+            "l3_failures": self._l3_failures,
+            "l1_reads": self._l1_reads,
+            "l3_reads": self._l3_reads,
+        }

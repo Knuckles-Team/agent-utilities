@@ -175,11 +175,14 @@ def test_label_match_honours_type_key(backend):
     assert "job-typed" in {r["id"] for r in rows}
 
 
-def test_legacy_id_lookup_still_works(backend):
-    # Unrecognised/relationship queries fall back to the legacy reader, which
-    # honours a bare id param lookup.
+def test_unanchored_relationship_read_returns_empty(backend):
+    # CONCEPT:KG-2.7 P1 — previously an unrecognised relationship query fell to the
+    # legacy reader and (with an id param) did an id lookup / returned all nodes.
+    # That footgun is removed: a relationship read L1 can't anchor (no ``{id:...}``
+    # entry point) now returns [] so a tiered caller cleanly defers to L3 — it must
+    # NOT silently resolve to a node or the whole graph.
     rows = backend.execute("MATCH (a)-[:REL]->(b) RETURN b", {"id": "job-1"})
-    assert rows and rows[0]["id"] == "job-1"
+    assert rows == []
 
 
 def test_where_or_disjunction_matches_either(backend):
