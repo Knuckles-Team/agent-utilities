@@ -47,9 +47,41 @@ Edit THIS file for any narrative / conventions changes, then run:
   `scripts/build_concepts_yaml.py`; README/AGENTS counts come from it).
 - **Guardrail gates (CI + pre-commit, `guardrails.yml`):** `scripts/check_no_stub.py`,
   `check_sprawl.py`, `check_concepts.py`, `check_coupling.py`,
-  `check_retrieval_quality.py`, with meta-tests in `tests/gates/`.
+  `check_retrieval_quality.py`, `check_no_env_sprawl.py`, with meta-tests in `tests/gates/`.
 - **Cardinal rules:** no stubs (`raise NotImplementedError` only with `# ABSTRACT-OK`);
   strangler-then-delete (never "v2 beside old"); keep the unit suite green.
+
+## Configuration discipline — an env var is a LAST RESORT (READ before adding any flag)
+
+We were drowning in ~96 `KG_*`/`GRAPH_*` env flags — over-configuration that is
+overwhelming to operate and a frequent source of footguns (a hang that only
+`KG_INGEST_FEATURES=0` avoided). The standing rule: **prefer a system that detects
+and self-configures over one that exposes a knob.** The full inventory + per-flag
+verdict lives in `docs/architecture/configuration.md`.
+
+**Add a new environment variable ONLY if ALL THREE hold:**
+1. **Deployment-varying** — a path / DSN / secret / port / socket whose value genuinely
+   differs per host and cannot be known at code time.
+2. **Not auto-detectable** from the runtime — it cannot be derived from `cpu_count`,
+   available memory, queue depth, or the presence of a file/service.
+3. **No correct universal default** — there is no single value that works everywhere.
+
+**Otherwise, do NOT add a flag:**
+- One correct value → a named module constant.
+- A hardware/load tunable (concurrency, batch size, pool size) → **auto-size** it
+  (reuse the CPU/mem sizer in `knowledge_graph/core/engine_tasks.py`, ~L1683).
+- An always-on behavior → just enable it. A single `KG_DEV_MODE` may gate *all* dev
+  escape hatches; never one env flag per feature/daemon.
+- An experiment → the feature-flag registry; then graduate or delete it. Never a new
+  `KG_<EXPERIMENT>_*` family.
+- "Someone might want to tune this" → YAGNI. Add it when a real second value exists.
+
+**When a flag IS justified:** add a typed field to `AgentConfig` (`core/config.py`)
+with `Field(alias="...")` and read it via the `config` object — **never** a bare
+`os.environ.get()` in a module — give it a default, and document it in
+`docs/architecture/configuration.md`. Enforced by `scripts/check_no_env_sprawl.py`
+(a guardrail gate): a bare `os.environ.get("KG_*"/"GRAPH_*"/"EPISTEMIC_*")` outside
+`core/config.py` fails CI.
 
 ## Reward / preference / RL-method primitives (AHE-3.x) — conventions
 
