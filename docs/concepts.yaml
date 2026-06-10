@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 137
+total_concepts: 138
 total_pillars: 13
 pillars:
 - AHE-3
@@ -499,6 +499,14 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/query_analysis.py
   doc: apply any query-analysis source-type restriction to
+- id: ECO-4.33
+  name: native database traversal tools
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/tools/db_tools.py
+  - agent_utilities/tools/tool_registry.py
+  doc: native database traversal tools
 - id: EG-009
   name: then by its node
   pillar: EG-009
@@ -897,7 +905,7 @@ concepts:
   - agent_utilities/protocols/source_connectors/checkpoint.py
   doc: / OS-5.9 — the KG runs exactly ONE consolidated background daemon
 - id: KG-2.9
-  name: Universal DataConnector
+  name: which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle
   pillar: KG-2
   status: live
   code_paths:
@@ -920,7 +928,8 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/protocols/universal_connector.py
-  doc: Universal DataConnector
+  - agent_utilities/tools/db_tools.py
+  doc: which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle
 - id: KG-2.10
   name: S4c
   pillar: KG-2
@@ -1398,6 +1407,7 @@ concepts:
   - agent_utilities/rlm/__init__.py
   - agent_utilities/rlm/config.py
   - agent_utilities/rlm/repl.py
+  - agent_utilities/tools/db_tools.py
   doc: Current nesting depth for recursive graph orchestration
 - id: ORCH-1.2
   name: Invalidate hot cache so routing reflects new self-knowledge

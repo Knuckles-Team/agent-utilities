@@ -45,6 +45,7 @@ def register_agent_tools(
         share_reasoning,
     )
     from .browser import browser_tools
+    from .db_tools import db_tools
     from .developer_tools import developer_tools
     from .git_tools import git_tools
     from .mcp_sync_tool import trigger_mcp_sync
@@ -74,6 +75,9 @@ def register_agent_tools(
     # CONCEPT:ECO-4.30/4.31 — media generation + transcription tools. Default OFF
     # (the services are optional infra); enable with MEDIA_TOOLS=1.
     DEFAULT_MEDIA_TOOLS = to_boolean(string=os.environ.get("MEDIA_TOOLS", "False"))
+    # CONCEPT:ECO-4.33 — native database traversal tools (live query/introspect over
+    # postgres/mysql-mariadb/mssql/oracle/sqlite/mongo). Default OFF; enable DB_TOOLS=1.
+    DEFAULT_DB_TOOLS = to_boolean(string=os.environ.get("DB_TOOLS", "False"))
 
     def _is_tool_registered(name: str) -> bool:
         """Check if a tool with the given name is already registered on the agent."""
@@ -202,7 +206,12 @@ def register_agent_tools(
         for tool in media_tools:
             _safe_tool(tool)
 
-    # 10. MCP Management Tools
+    # 11. Native Database Traversal Tools (CONCEPT:ECO-4.33)
+    if DEFAULT_DB_TOOLS:
+        for tool in db_tools:
+            _safe_tool(tool)
+
+    # 12. MCP Management Tools
     _safe_tool(trigger_mcp_sync)
 
     # 11. Knowledge Graph & KB Tools

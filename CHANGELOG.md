@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Native database traversal + full Onyx connector parity (CONCEPT:ECO-4.33)** —
+  agent tools (`db_tables` / `db_schema` / `db_query` in `agent_utilities/tools/db_tools.py`,
+  gated `DB_TOOLS`) that let an agent (incl. RLM recursive agents, ORCH-1.1) natively
+  traverse a database — list tables, inspect schema, run live read queries — **universally
+  across PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle, SQLite, and MongoDB** via the one
+  `UniversalConnector` abstraction (KG-2.9); the DSN scheme selects the backend. Read-only by
+  default (DDL/DML deny-list; writes require `DB_TOOLS_ALLOW_WRITE=1` and commit via `write()`),
+  with `{ALIAS}_DSN` secret resolution. A database is thus both an *ingestion* source (the
+  `database` document-source connector, ECO-4.25) and an *interactive* tool — a capability Onyx
+  lacks entirely (Onyx ships **zero** database connectors). Also **completes the Onyx
+  connector-parity catalog to 48/48** (added `blob`, `drupal_wiki`, fixed `google_site`).
+
 ### Fixed
 - **Ingestion/evolution daemon bugs surfaced by a full re-ingest (CONCEPT:KG-2.7 / KG-2.8 / KG-2.12):**
   - *Document ingest "No files found"*: the worker's `SimpleDirectoryReader` excluded every file
