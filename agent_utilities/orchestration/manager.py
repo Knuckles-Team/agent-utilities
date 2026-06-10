@@ -69,13 +69,25 @@ class Orchestrator:
         return f"Job {job_id} approval updated to: {approval_status}"
 
     async def execute_agent(
-        self, agent_name: str, task: str, max_steps: int = 30
+        self,
+        agent_name: str,
+        task: str,
+        max_steps: int = 30,
+        return_mermaid: bool = False,
     ) -> str:
-        """Execute a single agent against a task."""
+        """Execute a single agent against a task.
+
+        CONCEPT:ORCH-1.37 — ``return_mermaid`` forwards to :func:`run_agent` so the MCP
+        layer can surface the routed-graph diagram (off by default for internal callers).
+        """
         self._scan_task(task)
         logger.info(f"Executing agent {agent_name} for task: {task[:50]}...")
         result = await run_agent(
-            agent_name=agent_name, task=task, engine=self.engine, max_steps=max_steps
+            agent_name=agent_name,
+            task=task,
+            engine=self.engine,
+            max_steps=max_steps,
+            return_mermaid=return_mermaid,
         )
         return result
 
