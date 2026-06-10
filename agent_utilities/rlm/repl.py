@@ -1,10 +1,6 @@
 import asyncio
-import io
 import json
 import logging
-import sys
-import tempfile
-import traceback
 from typing import Any
 
 from pydantic_ai.messages import ModelRequest, UserPromptPart
@@ -14,7 +10,12 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 from ..graph.client import get_graph_client
 from ..graph.state import GraphDeps
 from .config import RLMConfig
-from .sandboxes import HELPER_NAMES, SandboxEnv, SandboxRejected  # CONCEPT:ORCH-1.38
+from .sandboxes import (  # CONCEPT:ORCH-1.38
+    HELPER_NAMES,
+    LocalSandbox,
+    SandboxEnv,
+    SandboxRejected,
+)
 from .sandboxes.registry import default_sandboxes
 from .sandboxes.router import SandboxRouter
 from .schema import SchemaContract  # CONCEPT:ORCH-1.12 — structured subagent contracts
@@ -405,143 +406,16 @@ class RLMEnvironment:
             return self.vars, result.stdout
 
         # Unreachable while ``local`` is registered (it accepts everything); defensive only.
+        # Reached only when an explicit ``sandbox`` override pinned a single backend that then
+        # rejected the snippet (auto-routing always anchors the chain with the ``local`` floor).
+        # Fall back to the local floor so a forced-but-incompatible pin never wedges the loop.
         reason = last_reject.reason if last_reject else "no available backend"
-        logger.error("All sandbox backends rejected snippet: %s", reason)
-        return await self._execute_local(code)
-
-    async def _execute_local(self, code: str) -> tuple[dict[str, Any], str]:
-        """Execute LLM-generated code in a restricted local namespace.
-
-        Security Advisory (CWE-94):
-            This method intentionally uses ``exec()`` to implement a persistent
-            Python REPL for Recursive Language Models (RLM).  The execution
-            environment is restricted to an explicit ``globals_dict`` that
-            exposes only approved helpers (``rlm_query``, ``magma_view``,
-            ``graph_query``, ``FINAL_VAR``, ``json``, ``asyncio``, ``nx``).
-
-            For full isolation, set ``RLMConfig.use_container = True`` to
-            delegate execution to a sandboxed Docker/Podman container via
-            ``_execute_container()``.
-        """
-        old_stdout = sys.stdout
-        redirected_output = io.StringIO()
-        sys.stdout = redirected_output
-
-        try:
-            # We want to support 'await' inside the exec, so we wrap it in an async function
-            wrapped_code = "async def __async_exec__():\n"
-
-            # Inject tool sources first
-            for t_name, t_src in self.tool_sources.items():
-                for line in t_src.splitlines():
-                    wrapped_code += f"    {line}\n"
-
-            for line in code.splitlines():
-                wrapped_code += f"    {line}\n"
-
-            exec(wrapped_code, self.globals_dict)  # nosec B102  # RLM REPL - intentional
-            await self.globals_dict["__async_exec__"]()
-
-            # Sync back globals to vars (except builtins and helper functions)
-            for k, v in self.globals_dict.items():
-                if k not in [
-                    "__builtins__",
-                    "GraphComputeEngine",
-                    "rlm_query",
-                    "run_parallel_sub_calls",
-                    "magma_view",
-                    "graph_query",
-                    "owl_query",
-                    "kg_bulk_export",
-                    "sub_agent_call",
-                    "FINAL_VAR",
-                    "json",
-                    "asyncio",
-                    "__async_exec__",
-                ]:
-                    self.vars[k] = v
-        except Exception as e:
-            traceback.print_exc(file=redirected_output)
-            logger.error(f"RLM execute error: {e}")
-        finally:
-            sys.stdout = old_stdout
-
-        return self.vars, redirected_output.getvalue()
-
-    async def _execute_container(self, code: str) -> tuple[dict[str, Any], str]:
-        """Executes the code in a sandboxed container using container-manager-mcp.
-
-        The backend (Docker or Podman) is auto-detected via the ``create_manager``
-        factory.  Override with the ``CONTAINER_MANAGER_TYPE`` env-var
-        (``docker`` | ``podman``) if explicit selection is needed.
-        """
-        from container_manager_mcp.container_manager import create_manager
-
-        manager = create_manager()
-
-        # We need to serialize the context/vars, run a python script, and get output
-        # For full isolation, we'll write the context to a temp json, mount it, run it
-        # Note: Handling complex objects (like callables) is hard in container mode.
-        # This is a simplified version.
-
-        import os
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ctx_path = os.path.join(tmpdir, "context.json")
-            with open(ctx_path, "w") as f:
-                # Best effort serialization
-                try:
-                    json.dump({"context": self.vars.get("context", "")}, f, default=str)
-                except Exception:
-                    json.dump({"context": str(self.vars.get("context", ""))}, f)
-
-            script_path = os.path.join(tmpdir, "script.py")
-            with open(script_path, "w") as f:
-                f.write("import json\n")
-                f.write("with open('/data/context.json') as f:\n")
-                f.write("    context = json.load(f)['context']\n\n")
-                f.write(code)
-                f.write("\n\n")
-
-            try:
-                res = manager.run_container(
-                    image="python:3.11-slim",
-                    command="python /data/script.py",
-                    volumes={tmpdir: {"bind": "/data", "mode": "rw"}},
-                    detach=False,
-                )
-            except Exception as e:  # noqa: BLE001
-                # CONCEPT:ORCH-1.29 — an irreversible sandbox failure (daemon down, container
-                # killed, mount lost) is FATAL: fast-fail instead of iterating on a dead sandbox.
-                raise SandboxFatalError(f"container sandbox died: {e}") from e
-            output = res.get("output", "")
-            return self.vars, output
-
-    async def _execute_wasm(self, code: str) -> tuple[dict[str, Any], str]:
-        """Executes the code securely in a WebAssembly sandbox using WasmAgentRunner.
-
-        Requires a compiled Python-in-WASM payload (e.g. Pyodide or RustPython).
-        """
-        from agent_utilities.core.wasm_runner import WasmAgentRunner
-
-        runner = WasmAgentRunner(limit_memory_pages=32)
-        # In a full implementation, we would load the python.wasm binary here.
-        # runner.load_agent(python_wasm_bytes)
-
-        # We pass the context, tools, and code as JSON input to the WASM payload
-        input_data = {
-            "action": "eval_python",
-            "context": self.vars.get("context", ""),
-            "tool_sources": self.tool_sources,
-            "code": code,
-        }
-
-        try:
-            result = runner.execute(input_data)
-            output = result.get("output", str(result))
-            return self.vars, output
-        except Exception as e:
-            return self.vars, f"WASM Execution Error: {e}"
+        logger.warning(
+            "Pinned sandbox rejected snippet (%s); falling back to the local floor.", reason
+        )
+        result = await LocalSandbox().execute(code, env)
+        self.vars.update(result.updated_vars)
+        return self.vars, result.stdout
 
     def _validate_outputs(self) -> str | None:
         """Validate the agent's output(s). Returns an error string if invalid, None if valid.

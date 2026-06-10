@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Tiered RLM code sandbox with an intelligent capability router (CONCEPT:ORCH-1.38)** —
+  the RLM REPL's hardcoded `use_wasm/use_container/local` if-elif (`agent_utilities/rlm/repl.py`)
+  is replaced by a uniform `Sandbox` contract (`agent_utilities/rlm/sandboxes/`) with **four real
+  backends** and a deterministic, in-process `ast`-based router that picks the cheapest backend a
+  snippet can run on (`monty > wasm > docker > local`) and **escalates on rejection** (a
+  `SandboxRejected` advances to the next tier; `SandboxFatalError` still fast-fails per ORCH-1.29).
+  - **monty** (`pydantic-monty`, new core dep) — the fast (~0.5ms) isolated **default** tier; the
+    only isolating backend that still serves the RLM host helpers (`rlm_query` etc.) natively via
+    pause/resume external functions. No daemon, no root; rejects classes/3rd-party libs → escalate.
+  - **docker/podman** — hardened from the old stub: `--network none`, memory/cpu/pids caps,
+    `--cap-drop ALL`, timeout, full-namespace context, **and a per-run UDS host-callback bridge** so
+    an isolated container can still call the RLM helpers. `SandboxFatalError` on dead container.
+  - **wasm** — real **CPython-on-WASI** under wasmtime (replaces the 3-task emulation stub):
+    isolated full-stdlib compute, epoch-timeout, payload via `scripts/provision_rlm_wasm.py` or
+    `$RLM_WASM_PYTHON` (`[sandbox]` extra). v1 has no host bridge → self-contained compute only.
+  - **local** — the legacy restricted `exec()`, kept as the always-available floor.
+  - Selected via `RLMConfig.sandbox` (`auto`|`local`|`monty`|`wasm`|`docker`) / `RLM_SANDBOX`;
+    legacy `use_monty`/`use_wasm`/`use_container` honored as overrides. Default flips to `auto`,
+    so out-of-the-box RLM gets monty's fast isolated path with helpers instead of raw `exec()`.
 - **Native database traversal + full Onyx connector parity (CONCEPT:ECO-4.33)** —
   agent tools (`db_tables` / `db_schema` / `db_query` in `agent_utilities/tools/db_tools.py`,
   gated `DB_TOOLS`) that let an agent (incl. RLM recursive agents, ORCH-1.1) natively
