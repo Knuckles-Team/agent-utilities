@@ -268,6 +268,15 @@ async def run_agent(
         duration_ms=duration_ms,
         result_preview=str(result)[:500],
     )
+    # CONCEPT:ORCH-1.39 — anchor this run to its Session (id-addressable) so "list runs by
+    # session" is a reliable single-hop traversal, mirroring HAS_CONTEXT/HAS_MESSAGE.
+    if session_id:
+        snode = f"session:{session_id}"
+        with contextlib.suppress(Exception):
+            engine.add_node(
+                snode, "Session", properties={"id": snode, "session_id": session_id}
+            )
+            engine.add_edge(snode, f"trace:{run_id}", "HAS_RUN")
 
     logger.info(
         "[ORCH-1.21] Agent execution complete: agent=%s, run_id=%s, duration=%.0fms",

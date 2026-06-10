@@ -1929,20 +1929,28 @@ def _build_server(bootstrap: bool = True):
         description=(
             "CONCEPT:ORCH-1.39 — bidirectional, cross-process, ordered message channel between "
             "an invoking agent and a spawned agent, over the epistemic-graph native channels. "
-            "Actions: 'open' (session_id+run_id → channel_id), 'send' (channel_id+sender+payload), "
-            "'receive' (channel_id [+since cursor] → new messages + cursor), 'close'. Use the "
-            "channel_id returned by graph_orchestrate(execute_agent) to talk to the spawned agent."
+            "Actions: 'open' (session_id+run_id → channel_id), 'send' (channel_id+sender+payload "
+            "[+durable]), 'receive' (channel_id [+since cursor] → new messages + cursor), "
+            "'history' (durable replay, survives restart), 'close'. Use the channel_id returned "
+            "by graph_orchestrate(execute_agent, open_channel=True) to talk to the spawned agent."
         ),
         tags=["graph-os", "orchestrate", "messaging"],
     )
     async def graph_message(
-        action: str = Field(default="receive", description="open | send | receive | close"),
-        channel_id: str = Field(default="", description="Channel id (send/receive/close)."),
+        action: str = Field(
+            default="receive", description="open | send | receive | history | close"
+        ),
+        channel_id: str = Field(default="", description="Channel id (send/receive/history/close)."),
         session_id: str = Field(default="", description="Session id (open)."),
         run_id: str = Field(default="", description="Spawned run id (open)."),
         sender: str = Field(default="invoker", description="Sender label (send)."),
         payload: str = Field(default="", description="Message text (send)."),
         since: int = Field(default=0, description="Cursor: messages already consumed (receive)."),
+        durable: bool = Field(
+            default=False,
+            description="When True (send), also persist the message as a graph AgentMessage "
+            "node so it survives engine restart and is replayable via action='history'.",
+        ),
     ) -> str:
         from agent_utilities.messaging import agent_channel
 
@@ -1954,11 +1962,19 @@ def _build_server(bootstrap: bool = True):
             return json.dumps({"channel_id": cid})
         if action == "send":
             return json.dumps(
-                {"sent": agent_channel.send(engine, channel_id, sender, payload)}
+                {
+                    "sent": agent_channel.send(
+                        engine, channel_id, sender, payload, durable=bool(durable)
+                    )
+                }
             )
         if action == "receive":
             msgs, cursor = agent_channel.receive(engine, channel_id, since=since)
             return json.dumps({"messages": msgs, "cursor": cursor}, default=str)
+        if action == "history":
+            return json.dumps(
+                {"messages": agent_channel.history(engine, channel_id)}, default=str
+            )
         if action == "close":
             return json.dumps({"closed": agent_channel.close(engine, channel_id)})
         return json.dumps({"error": f"unknown action: {action}"})

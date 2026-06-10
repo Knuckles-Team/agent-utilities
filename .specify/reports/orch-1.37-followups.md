@@ -110,3 +110,38 @@ MVP (`0bf18cb`) is merged to canonical `main` + served by the venv but **not yet
 running daemon**. Restart the tmux host daemon (or normal supervisor) to make the MVP live on the
 `graph_orchestrate` path. (The host should also move from the ad-hoc tmux session back under the
 normal supervisor for durability.)
+
+## 11. ORCH-1.39 Phases 1–4 — DONE (session-anchored collections + native channels)
+Robust deferral-remediation pass, all in the worktree, live-validated against the real engine:
+- **P1 (hardening, `09b4484`):** `_legacy_execute` no longer returns the whole graph for an
+  unscoped query (opt-in `KG_ALLOW_FULL_SCAN`); regression test.
+- **P2 (session anchor, `b4b52ff`):** `graph_context put` upserts a `session:{sid}` Session node +
+  `HAS_CONTEXT` edge; `list` is the id-anchored traversal `MATCH (s {id:$snode})-[:HAS_CONTEXT]->
+  (c:ContextBlob) RETURN c` with client-side project/sort (the engine has no property index;
+  id-anchored traversal is the reliable read).
+- **P3 (channels, `c95fc87`):** `messaging/agent_channel.py` + `graph_message` MCP tool
+  (open/send/receive/history/close) + `AgentDeps.message_channel_id` + `GraphState.invoker_channel_id`
+  threaded onto spawned deps + `run_agent(open_channel=, session_id=)` opens the channel and echoes
+  `channel_id`. **`HAS_RUN`** session anchor on the success trace path.
+- **P4 (durable + bridge):** `send(..., durable=True)` dual-writes `Session -[:HAS_MESSAGE]->
+  AgentMessage`; `history()` replays via the session anchor; `send_elicitation`/
+  `drain_to_elicitation_queue` bridge a spawned agent's question to the invoker's
+  `elicitation_queue`. OWL: `Session`, `AgentMessage`, `hasMessage`, `hasRun`, `hasContextAnchor`.
+
+**Two real engine bugs found + fixed during live validation (not just unit-mocked):**
+1. **PeerToPeer channels lock membership at creation** and reject later joins/senders → switched
+   `open_channel` to the **`Group`** channel type (valid variants are PeerToPeer/Group; not
+   Broadcast/Multicast/PubSub/Topic).
+2. **`send_message` rejects a non-member sender** ("not a member of channel") — this had silently
+   dropped the `invoker` message in the original P3 live check (only 1 of 2 received, misread as a
+   working cursor). Fix: `send` now **auto-joins** the sender (idempotent) before sending. Live
+   round-trip now returns all 3 messages from both senders; durable history returns exactly the 2
+   durable ones in order. Regression covered by `test_arbitrary_sender_auto_joins`.
+
+**Deferred (documented, not blocking):** server-side `since_seq` cursor in the Rust engine (current
+`receive` uses an O(n) client-side cursor — fine for small per-channel dialogues); the optional
+engine property index (Option A) — unneeded while everything anchors to a session id.
+
+**Live-loaded?** Same daemon caveat as FU-1/FU-8: validated in-process via `_build_server`/
+`_execute_tool` against the real socket. The `graph_message`/`graph_context`/`graph_orchestrate`
+MCP path goes live only after merge → reinstall → host-daemon restart.
