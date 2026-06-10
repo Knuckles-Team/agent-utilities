@@ -95,7 +95,12 @@ def test_write_mirrored_to_both():
     assert out[0]["backend"] == "l1"  # L1 result is authoritative
     assert _ops(l1) == ["execute"]
     assert _ops(l3) == ["execute"]
-    assert t.durability_stats() == {"l3_writes": 1, "l3_failures": 0}
+    assert t.durability_stats() == {
+        "l3_writes": 1,
+        "l3_failures": 0,
+        "l1_reads": 0,
+        "l3_reads": 0,
+    }
 
 
 def test_batch_and_embedding_mirror():
@@ -115,7 +120,12 @@ def test_l3_failure_is_non_fatal():
     # Write must still succeed and return L1's result despite L3 raising.
     out = t.execute("CREATE (n:Foo {id:'x'})")
     assert out[0]["backend"] == "l1"
-    assert t.durability_stats() == {"l3_writes": 0, "l3_failures": 1}
+    assert t.durability_stats() == {
+        "l3_writes": 0,
+        "l3_failures": 1,
+        "l1_reads": 0,
+        "l3_reads": 0,
+    }
 
 
 def test_semantic_search_from_l3():
