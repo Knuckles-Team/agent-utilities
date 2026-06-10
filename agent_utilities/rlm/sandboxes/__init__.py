@@ -1,4 +1,4 @@
-"""CONCEPT:ORCH-1.38 — Tiered RLM code-execution sandboxes.
+"""CONCEPT:ORCH-1.38 — Tiered RLM code sandbox with a uniform Sandbox contract and a capability router that escalates across local, monty, wasm, and docker backends.
 
 The RLM REPL runs LLM-generated Python glue code. Historically that was a hardcoded
 ``if use_wasm / elif use_container / else local`` chain in :mod:`agent_utilities.rlm.repl`,

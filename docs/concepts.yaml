@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 138
+total_concepts: 139
 total_pillars: 13
 pillars:
 - AHE-3
@@ -835,6 +835,7 @@ concepts:
   - agent_utilities/knowledge_graph/assimilation/synergy.py
   - agent_utilities/knowledge_graph/backends/base.py
   - agent_utilities/knowledge_graph/backends/cypher_transpiler.py
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
   - agent_utilities/knowledge_graph/backends/sparql/base.py
   - agent_utilities/knowledge_graph/backends/sparql/jena_fuseki_backend.py
@@ -848,6 +849,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/kafka_graph_sync.py
   - agent_utilities/knowledge_graph/core/kg_versioning.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/core/subgraph_checkout.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/enrichment/execute.py
   - agent_utilities/knowledge_graph/enrichment/models.py
@@ -1406,6 +1408,7 @@ concepts:
   - agent_utilities/patterns/prompt_chain.py
   - agent_utilities/rlm/__init__.py
   - agent_utilities/rlm/config.py
+  - agent_utilities/rlm/hook.py
   - agent_utilities/rlm/repl.py
   - agent_utilities/tools/db_tools.py
   doc: Current nesting depth for recursive graph orchestration
@@ -1727,6 +1730,26 @@ concepts:
   - agent_utilities/graph/executor.py
   - agent_utilities/orchestration/resilience.py
   doc: retry_on predicate raised; treating as non-retryable
+- id: ORCH-1.38
+  name: Tiered RLM code sandbox with a uniform Sandbox contract and a capability router that escalates
+    across local, monty, wasm, and docker backends
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/config.py
+  - agent_utilities/rlm/repl.py
+  - agent_utilities/rlm/sandboxes/__init__.py
+  - agent_utilities/rlm/sandboxes/analyzer.py
+  - agent_utilities/rlm/sandboxes/base.py
+  - agent_utilities/rlm/sandboxes/docker_backend.py
+  - agent_utilities/rlm/sandboxes/local_backend.py
+  - agent_utilities/rlm/sandboxes/monty_backend.py
+  - agent_utilities/rlm/sandboxes/registry.py
+  - agent_utilities/rlm/sandboxes/router.py
+  - agent_utilities/rlm/sandboxes/wasm_backend.py
+  - agent_utilities/rlm/telemetry.py
+  doc: Tiered RLM code sandbox with a uniform Sandbox contract and a capability router that escalates
+    across local, monty, wasm, and docker backends
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
