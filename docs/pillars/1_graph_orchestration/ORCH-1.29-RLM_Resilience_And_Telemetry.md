@@ -13,8 +13,9 @@ Assimilated from predict-rlm (`trace.py`, `telemetry.py`, `interpreter.py`). Ext
   (code, output, reasoning, finish reason) + main/sub-LM token usage; `failure_summary()` returns the
   dominant failure class for the proposer.
 - **`FailureClass`** taxonomy (`model_generated_bad_code`, `host_tool_timeout`, `sandbox_exec_timeout`,
-  `sandbox_fatal`, `evaluator_reject`, `unknown`) with precedence ordering; `classify_failure` maps an
-  exception/text to a class.
+  `sandbox_fatal`, `sandbox_escalated`, `evaluator_reject`, `unknown`) with precedence ordering;
+  `classify_failure` maps an exception/text to a class (`sandbox_escalated` = a benign ORCH-1.38
+  router escalation, low precedence).
 - **Recoverable vs fatal** — `with_tool_timeout` gives each host tool a wall-clock budget and returns a
   *recoverable* error on timeout (sandbox survives), while `SandboxFatalError` (raised from `repl.py`'s
   container path on irreversible sandbox death) **fast-fails** the run.
@@ -24,7 +25,7 @@ Assimilated from predict-rlm (`trace.py`, `telemetry.py`, `interpreter.py`). Ext
 | Piece | Location |
 |---|---|
 | Telemetry + resilience | `rlm/telemetry.py` (`RunTrace`, `FailureClass`, `classify_failure`, `dominant_failure`, `with_tool_timeout`, `SandboxFatalError`) |
-| Fatal wiring | `rlm/repl.py` (`_execute_container` raises `SandboxFatalError`) |
+| Fatal wiring | `rlm/sandboxes/docker_backend.py` (`DockerSandbox` raises `SandboxFatalError` on dead container/timeout); the router propagates it without escalating (ORCH-1.38) |
 
 ## Wiring (≤3 hops)
 `graph_orchestrate(rlm_run)` → `runner` → `repl`/`telemetry` (≤3 hops).
