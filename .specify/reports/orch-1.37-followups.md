@@ -80,11 +80,23 @@ Design: `.specify/design/orch-1.38-invoker-spawned-context-handoff/design.md`.
   - OWL layer for `ContextBlob`/`HAS_CONTEXT` (constitution).
 - **Message channel: deferred** (elicitation/A2A/EventBus cover realistic needs).
 
-## 9. FU-3 — vLLM host-resource rebalance (NOT done — needs your Portainer redeploy)
-Shift `parallel_instances` toward `qwen/qwen3.5-9b` (now carries routing+exec+verify+KG) and shrink
-`qwen-lite` (cheap sub-steps only). Edit `services/vllm/compose.yml` replica counts + config.json
-`parallel_instances`, then redeploy the GPU stack via Portainer. Left for you — I won't redeploy the
-GPU stack unprompted.
+## 9. FU-3 — RESOLVED by consolidating onto the 9B (rebalance no longer needed)
+Investigation showed `qwen-lite` was the *executor* model (9B routed/planned/verified, 3B executed),
+and the 3B executor caused execution flakiness. Decision: **consolidate everything onto
+`qwen/qwen3.5-9b`** (simpler, better execution quality, eliminates the rebalance):
+- `config.json`: removed the `qwen-lite` chat model. All roles now resolve to the 9B
+  (`lite_chat_model`→`default_chat_model` fallback). **Live** (daemon restarted; verified).
+- `services/vllm/compose.yml`: `vllm-lite` service removed — **edit left UNCOMMITTED** for your
+  review; **you do the Portainer GitOps redeploy** to free the GPU. Restore from git if cheap
+  parallel fan-out is needed later.
+- Optional tuning: bump the 9B `parallel_instances` / replicas if it becomes a throughput
+  bottleneck now that it carries all roles.
+
+## 10. Phase 3 (swarm context) DONE; message_history seeding deferred
+`graph_orchestrate(action='swarm')` now threads invoker context/context_ref into
+`ExecutionManifest.context` (ParallelEngine injects it into every wave agent). Large-context
+`message_history` seeding deferred — the budgeted system-prompt injection already handles large
+context functionally; message_history is a future evictability optimization.
 
 ## 8. Daemon redeploy for the latest merges
 The dedicated host daemon (tmux session `graphos-host`) was started on merge `b200bbd`; the ORCH-1.38
