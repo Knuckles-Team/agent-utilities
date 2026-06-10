@@ -434,13 +434,25 @@ class EpistemicGraphBackend(GraphBackend):
                     results.append(entry)
             return results
 
-        results = []
-        for nid in self._graph._get_all_nodes():
-            data = self._graph._get_node_properties(nid)
-            entry = dict(data)
-            entry["id"] = nid
-            results.append(entry)
-        return results
+        # CONCEPT:ORCH-1.39 (hardening) — NEVER silently return the entire graph for an
+        # unparsed query. That over-match was the `graph_context list` "garbage" bug and a
+        # latent correctness/cost hazard for every caller. Default to empty; require an
+        # explicit opt-in (KG_ALLOW_FULL_SCAN=true) for a rare deliberate full enumeration.
+        import os as _os
+
+        if _os.environ.get("KG_ALLOW_FULL_SCAN", "").lower() in ("1", "true", "yes"):
+            results = []
+            for nid in self._graph._get_all_nodes():
+                data = self._graph._get_node_properties(nid)
+                entry = dict(data)
+                entry["id"] = nid
+                results.append(entry)
+            return results
+        logger.warning(
+            "epistemic_graph backend: unscoped query (no id/label, no parseable WHERE) — "
+            "refusing full-graph scan, returning []. Set KG_ALLOW_FULL_SCAN=true to override."
+        )
+        return []
 
     @staticmethod
     def _label_match(data: dict[str, Any], label: str) -> bool:
