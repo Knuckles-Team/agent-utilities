@@ -71,14 +71,20 @@ Design: `.specify/design/orch-1.38-invoker-spawned-context-handoff/design.md`.
   TTL (expired→gone); new `graph_context prune` action.
 - **FU-2 DONE** (merged + live): planner/LATS use `PromptedOutput` for `supports_json=false` models.
 - **FU-4 DONE** (merged + live): re-plan context bounded (recent-5 results, char budgets).
-- **Remaining:**
-  - `graph_context list` returns cross-contaminated rows on the epistemic-graph backend (the
-    "unsupported WHERE shape → legacy reader" quirk for label+property filters). put/get-by-id
-    (the primary handoff) are correct. Fix the backend WHERE-shape support or use an id-prefix index.
-  - Phase 3: swarm `ExecutionManifest.context` from entrypoint + large-context `message_history`.
-  - Phase 4: ephemeral `cred_ref` via SecretsClient (Vault, scoped, short-TTL — never raw in graph).
-  - OWL layer for `ContextBlob`/`HAS_CONTEXT` (constitution).
-- **Message channel: deferred** (elicitation/A2A/EventBus cover realistic needs).
+- **Phase 3 DONE** (live): swarm `ExecutionManifest.context` wiring (curated context → every wave agent).
+- **Phase 4 DONE** (live): `cred_ref` — invoker passes a REFERENCE to a secret; resolved to the raw
+  token onto the transient `AgentDeps.auth_token` at spawn (`executor._resolve_invoker_cred`), never
+  stored in GraphState/graph/logs. Threaded through run_agent/execute_agent/graph_orchestrate.
+- **OWL DONE** (live): `:ContextBlob` class + `:hasContext` property in `ontology_orchestration.ttl`.
+- **graph_context list HARDENED**: no more cross-contaminated rows (inline-property match +
+  client-side `ctx:`-prefix filter). NOTE: full session-scan is still backend-limited — the
+  epistemic-graph Cypher reliably matches by node id, not by arbitrary-property scans. The reliable
+  handoff path is **get/context_ref by id**. Real fix = improve backend WHERE-shape support OR
+  maintain a session→blob-id index node.
+- **Message channel: DEFERRED (final)** — existing `elicitation_queue` + A2A + EventBus cover the
+  realistic needs, AND a graph-backed message log would hit the same backend session-scan limitation
+  as `graph_context list`. Not worth a half-working implementation; revisit if a concrete
+  streaming/steering/peer-negotiation pattern emerges (and after the backend Cypher improvement).
 
 ## 9. FU-3 — RESOLVED by consolidating onto the 9B (rebalance no longer needed)
 Investigation showed `qwen-lite` was the *executor* model (9B routed/planned/verified, 3B executed),
