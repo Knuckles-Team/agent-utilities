@@ -66,27 +66,28 @@ Original inventory (for reference):
 Nobody runs these off in production. **Action:** delete the env gates; if a dev escape
 hatch is wanted, a single `KG_DEV_MODE=1` disables *all* background daemons.
 
-## C. Ingest-throughput knobs — AUTO-DETECT (Phase 2)
+## C. Ingest-throughput knobs — REMOVED ✓
 
-| Flag | Default | Purpose | Plan |
-|---|---|---|---|
-| `KG_INGEST_FEATURES` | `1` | per-repo call-graph community detection | auto |
-| `KG_INGEST_PROFILE` | `""` | `structural` defers features | auto |
-| `KG_BULK_INGEST` | off | skip maintenance scheduler during bulk | auto-detect via queue depth |
+**Done.** All three deleted:
+- `KG_INGEST_FEATURES` / `KG_INGEST_PROFILE` → per-repo call-graph community detection is now
+  **always on**. The hang risk that motivated the opt-out is fixed at the source: the engine's
+  `community_detection` is deterministically bounded (15s wall-clock + iteration cap,
+  epistemic-graph `algorithms.rs`), and `make_community_fn` loads its scratch tenant in **one
+  `batch_update` round-trip** instead of per-element RPCs.
+- `KG_BULK_INGEST` → the maintenance scheduler **auto-detects** a bulk ingest from the durable
+  submission-queue depth (`_submission_queue.get_queue_size() > _BULK_QUEUE_THRESHOLD`) and defers
+  its whole-graph passes per-tick, instead of a manual startup flag.
 
-The system already knows when it's bulk-loading (durable queue depth via
-`self._submission_queue.get_queue_size()`, `engine_tasks.py:188`) and already has a
-drain-completion hook (`_maybe_build_vector_indexes`, `engine_tasks.py:2642`). **Caveat
-found during audit:** the per-repo community detection (`enrichment/features.py:90` →
-Rust label-propagation) can *hang* (non-convergence), and `Code` nodes do **not** persist
-`calls` (`pipeline.py:_write_code`), so a naive "defer + reconstruct on drain" would drop
-features. The correct fix is either a convergence bound in the Rust engine's label
-propagation or a `CALLS`-edge-based full-graph pass — tracked as a focused follow-up, not
-a one-line flag swap.
+## D. Performance tunables — keep as constants / deployment config (auto-sizing deferred)
 
-## D. Performance tunables — AUTO-SIZE from CPU/mem/load
-
-Reuse the existing sizer (`engine_tasks.py:1683-1709`: CPU 36% + 3 GB/worker mem cap).
+The one real defect here — the `KG_EMBED_BACKFILL_BATCH` dual-default — is **fixed** (Phase 3:
+two named constants). The rest are left as-is by design: the worker pool **already auto-sizes**
+(`engine_tasks.py` CPU 36% + mem cap), and the remaining batch sizes / intervals have correct
+universal defaults. Per the *Configuration discipline* rule, a tunable with a good default should
+be a constant, not a knob — but mechanically converting every one to a CPU-derived auto-sizer is
+speculative churn with behaviour-change risk and little payoff, so it is **not** pursued. `GRAPH_TIMEOUT`'s
+20-minute default is noted (it made the old community-detection hang look infinite); now moot since
+the engine bounds the call itself.
 
 | Flag | Default | Notes |
 |---|---|---|
@@ -100,12 +101,18 @@ Reuse the existing sizer (`engine_tasks.py:1683-1709`: CPU 36% + 3 GB/worker mem
 | `KG_*_INTERVAL` (enrich/file_watch/embed/evolution/golden) | 20–3600 | constants unless deployment-varying |
 | `GRAPH_TIMEOUT` | 1200000 ms | 20-min RPC timeout — far too long; the root of "hangs look infinite" |
 
-## E. Experiment / feature gates — GRADUATE or DELETE
+## E. Experiment / feature gates
+
+**`KG_GOLDEN_*` (10 flags) — collapsed onto `AgentConfig` ✓.** Every `KG_GOLDEN_*` /
+`KG_BREADTH_*` read was moved off bare `os.environ` onto typed `AgentConfig` fields
+(`kg_golden_loop`, `kg_golden_distill`, `kg_golden_breadth`, `kg_golden_standardize`,
+`kg_golden_auto_merge`, `kg_golden_merge_threshold`, `kg_golden_loop_interval`,
+`kg_golden_loop_topics`, `kg_breadth_library_roots`, `kg_breadth_repo_roots`) — opt-in, all off
+by default, single typed source of truth.
 
 | Family | Count | Notes |
 |---|---|---|
-| `KG_GOLDEN_*` (`LOOP`, `DISTILL`, `BREADTH`, `STANDARDIZE`, `AUTO_MERGE`, `MERGE_THRESHOLD`, `LOOP_INTERVAL`, `LOOP_TOPICS`, `BREADTH_LIBRARY_ROOTS`, `BREADTH_REPO_ROOTS`) | 10 | collapse into one nested `GoldenLoopConfig` |
-| `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_BRAIN_ENFORCE`, `KG_RESEARCH_EXTERNAL` | 4 | graduate (always-on) or delete |
+| `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_BRAIN_ENFORCE`, `KG_RESEARCH_EXTERNAL` | 4 | remaining experiment gates — graduate (always-on) or delete |
 
 ## F. Testing — KEEP
 

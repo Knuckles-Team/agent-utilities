@@ -25,7 +25,6 @@ auto-merge trail is queryable.
 """
 
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -59,20 +58,24 @@ class MergePolicy:
 
     @classmethod
     def from_env(cls, enabled: bool | None = None) -> MergePolicy:
-        """Build a policy from env, defaulting to the conservative propose-only.
+        """Build a policy from config, defaulting to conservative propose-only.
 
-        ``enabled`` (explicit) wins; otherwise ``KG_GOLDEN_AUTO_MERGE=1`` enables
-        it. The threshold reads ``KG_GOLDEN_MERGE_THRESHOLD``.
+        ``enabled`` (explicit) wins; otherwise ``config.kg_golden_auto_merge``.
+        The threshold is ``config.kg_golden_merge_threshold`` (falls back to the
+        default when unset).
         """
+        # Fresh config (reads env at construction) so this reflects the current
+        # environment, as the name implies — routed through the typed
+        # AgentConfig fields rather than bare os.environ.
+        from agent_utilities.core.config import AgentConfig
+
+        cfg = AgentConfig()
         if enabled is None:
-            enabled = os.getenv("KG_GOLDEN_AUTO_MERGE", "0") == "1"
-        try:
-            threshold = float(
-                os.getenv("KG_GOLDEN_MERGE_THRESHOLD", str(DEFAULT_QUALITY_THRESHOLD))
-            )
-        except ValueError:
+            enabled = cfg.kg_golden_auto_merge
+        threshold = cfg.kg_golden_merge_threshold
+        if threshold is None:
             threshold = DEFAULT_QUALITY_THRESHOLD
-        return cls(enabled=bool(enabled), quality_threshold=threshold)
+        return cls(enabled=bool(enabled), quality_threshold=float(threshold))
 
 
 @dataclass

@@ -145,6 +145,12 @@ def _kg_dev_mode() -> bool:
 _EMBED_BACKFILL_BUDGET = 256
 _EMBED_BACKFILL_FETCH = 512
 
+# A bulk ingest is "in progress" when the durable submission queue is at least
+# this deep; the maintenance scheduler auto-defers its whole-graph passes while
+# bulk-loading rather than contending with ingestion. Replaces the manual
+# KG_BULK_INGEST flag — the engine already knows the queue depth. (CONCEPT:KG-2.7)
+_BULK_QUEUE_THRESHOLD = 5
+
 
 class SQLiteTaskQueue(QueueBackend):
     """Thread-safe, persistent SQLite-backed queue for tasks to prevent memory loss on restarts."""
@@ -399,17 +405,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         self._graph_writer_thread.start()
 
-        # Bulk-ingest mode (CONCEPT:KG-2.7 throughput): keep only the queue
-        # submission + graph-writer threads; skip the periodic maintenance
-        # scheduler (analysis/compaction/evolution/enrichment + file-watch)
-        # whose whole-graph passes contend with the ingest. Re-enabled after.
-        if os.environ.get("KG_BULK_INGEST"):
-            logger.info(
-                "KG_BULK_INGEST set — skipping maintenance scheduler during "
-                "bulk ingestion."
-            )
-            return
-
         # KG background daemons are always on in production; the single
         # KG_DEV_MODE switch disables the whole set (it replaced the per-daemon
         # KG_*_DAEMON env toggles). (CONCEPT:KG-2.8 / config discipline)
@@ -609,13 +604,15 @@ class TaskManagerMixin(GraphEngineProtocol):
         # single sequential scheduler thread.
         if DEFAULT_KG_MODEL_ID:
             jobs.append(("analysis", 120.0, self._tick_kg_analysis))
-        # Self-evolution golden loop (propose-only) — always-on but throttled and
-        # OPT-IN (autonomous LLM work). Enable with KG_GOLDEN_LOOP=1. (KG-2.7)
-        if os.environ.get("KG_GOLDEN_LOOP", "0") == "1":
+        # Self-evolution golden loop (propose-only) — throttled and OPT-IN
+        # (autonomous LLM work). Enable with KG_GOLDEN_LOOP=1. (KG-2.7)
+        from agent_utilities.core.config import config as _cfg
+
+        if _cfg.kg_golden_loop:
             jobs.append(
                 (
                     "golden_loop",
-                    float(os.getenv("KG_GOLDEN_LOOP_INTERVAL", "3600")),
+                    _cfg.kg_golden_loop_interval,
                     self._tick_golden_loop,
                 )
             )
@@ -905,6 +902,18 @@ class TaskManagerMixin(GraphEngineProtocol):
                 except ImportError:
                     pass
 
+                # Auto-defer while a bulk ingest drains: the whole-graph passes
+                # contend with ingestion for the single-writer engine. Detected
+                # from the durable submission-queue depth, not a manual flag.
+                q = getattr(self, "_submission_queue", None)
+                if q is not None:
+                    try:
+                        if q.get_queue_size() > _BULK_QUEUE_THRESHOLD:
+                            time.sleep(POLL)
+                            continue
+                    except Exception:  # noqa: BLE001 — queue probe best-effort
+                        pass
+
                 now = time.time()
                 for name, interval, tick in jobs:
                     if now - last_run[name] < interval:
@@ -1140,13 +1149,13 @@ class TaskManagerMixin(GraphEngineProtocol):
         as DRAFTS/proposals). Always propose-only: nothing is auto-merged or
         executed. Throttled + opt-in via ``KG_GOLDEN_LOOP``.
         """
-        import os
-
         try:
+            from agent_utilities.core.config import config as _cfg
+
             from ..research.golden_loop import GoldenLoopController
 
             rep = GoldenLoopController(self).run_one_cycle(
-                max_topics=int(os.getenv("KG_GOLDEN_LOOP_TOPICS", "5"))
+                max_topics=_cfg.kg_golden_loop_topics
             )
             logger.info(
                 "Golden loop cycle: intake=%s resolved=%s sources=%s team=%s",
@@ -2018,28 +2027,24 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # EnrichmentPipeline via IngestionEngine (CONCEPT:KG-2.8). The
                 # old per-repo subprocess (`--maintain --stage-to-queue`) is
                 # gone; LLM enrichment is deferred to the background card daemon.
-                import os
-
                 from ..ingestion.engine import (
                     ContentType,
                     IngestionEngine,
                     IngestionManifest,
                 )
 
-                # Bulk-throughput knob preserved: KG_INGEST_PROFILE=structural
-                # (or KG_INGEST_FEATURES=0) defers call-graph community detection
-                # so per-repo runs stay cheap; features then come from a later
-                # full-graph pass.
-                features = (
-                    os.environ.get("KG_INGEST_FEATURES", "1") != "0"
-                    and os.environ.get("KG_INGEST_PROFILE", "").lower() != "structural"
-                )
+                # Per-repo call-graph community detection is always on. The
+                # engine's community_detection is now deterministically bounded
+                # (15s wall-clock + iteration cap, epistemic-graph KG-2.16) and
+                # loads its scratch tenant in one batch round-trip, so it can no
+                # longer hang or stall a bulk load — the old KG_INGEST_FEATURES /
+                # KG_INGEST_PROFILE opt-out knobs are gone. (CONCEPT:KG-2.7)
                 ing = IngestionEngine(kg_engine=self)
                 cb_res = await ing.ingest(
                     IngestionManifest(
                         content_type=ContentType.CODEBASE,
                         source_uri=str(target),
-                        metadata={"features": features},
+                        metadata={"features": True},
                     )
                 )
                 if cb_res.status == "failed":
