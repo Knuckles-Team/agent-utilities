@@ -2738,6 +2738,12 @@ def _build_server(bootstrap: bool = True):
             "spawned agent (action='execute_agent'); injected into the spawned agent's prompt, "
             "budgeted to the model's context window.",
         ),
+        budget_tokens: int = Field(
+            default=0,
+            description="CONCEPT:ORCH-1.38 — optional token budget the invoker grants the "
+            "spawned agent (action='execute_agent'); enforced as a hard total-tokens limit. "
+            "0 = unbounded.",
+        ),
     ) -> str:
         """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution.
 
@@ -2850,6 +2856,7 @@ def _build_server(bootstrap: bool = True):
                         max_steps=max_steps,
                         return_mermaid=True,
                         context=context or None,
+                        budget_tokens=budget_tokens or None,
                     )
                     return agent_result
                 except Exception as exc:

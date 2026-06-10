@@ -43,6 +43,7 @@ from .executor import (
     _execute_domain_logic,
     _execute_dynamic_mcp_agent,
     invoker_context_section,
+    spawn_usage_limits,
 )
 from .hsm import StateInvariantError, assert_state_valid
 from .lifecycle import _emit_node_lifecycle
@@ -378,8 +379,6 @@ async def router_step(
     )
     if _direct_ok:
         try:
-            from pydantic_ai.usage import UsageLimits
-
             from .executor import agent_deps_from_graph
 
             _ts = deps.mcp_toolsets
@@ -402,9 +401,7 @@ async def router_step(
             _direct_res = await _direct_agent.run(
                 ctx.state.query,
                 deps=_direct_deps,
-                usage_limits=UsageLimits(
-                    request_limit=int(os.environ.get("AGENT_REQUEST_LIMIT", "8"))
-                ),
+                usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:ORCH-1.38 budget
             )
             emit_graph_event(
                 deps.event_queue,
@@ -1278,14 +1275,11 @@ async def expert_executor_step(
 
                 _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets)
 
-                # CONCEPT:ORCH-1.37 (perf) — bound requests (default pydantic-ai cap is 50).
-                from pydantic_ai.usage import UsageLimits
-
-                _req_limit = int(os.environ.get("AGENT_REQUEST_LIMIT", "8"))
+                # CONCEPT:ORCH-1.37/1.38 — bound requests + enforce the invoker's token budget.
                 async with dynamic_agent.run_stream(
                     f"Task context: {step.description}",
                     deps=_agent_deps,
-                    usage_limits=UsageLimits(request_limit=_req_limit),
+                    usage_limits=spawn_usage_limits(ctx.state),
                 ) as stream:
                     res = await asyncio.wait_for(
                         stream.get_output(), timeout=ctx.deps.verifier_timeout

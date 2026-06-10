@@ -553,6 +553,24 @@ def invoker_context_section(state: Any, *, window_tokens: int = 32768) -> str:
     )
 
 
+def spawn_usage_limits(state: Any, *, request_limit: int = 8) -> Any:
+    """CONCEPT:ORCH-1.37/1.38 — UsageLimits for a spawned task agent.
+
+    Always bounds requests (default pydantic-ai cap is 50). When the invoking agent granted a
+    token budget (``GraphState.invoker_budget_tokens``), also enforce it as
+    ``total_tokens_limit`` so the spawned agent cannot exceed the budget the invoker allotted.
+    """
+    import os as _os
+
+    from pydantic_ai.usage import UsageLimits
+
+    req = int(_os.environ.get("AGENT_REQUEST_LIMIT", str(request_limit)))
+    budget = getattr(state, "invoker_budget_tokens", None)
+    if budget and int(budget) > 0:
+        return UsageLimits(request_limit=req, total_tokens_limit=int(budget))
+    return UsageLimits(request_limit=req)
+
+
 def get_step_descriptions() -> str:
     """Generate a formatted catalog of expert capabilities for the LLM planner.
 
@@ -1573,17 +1591,13 @@ async def _execute_specialized_step(
     # CONCEPT:ORCH-1.37 (perf) — bound per-agent requests. Without this, pydantic-ai's
     # default request_limit=50 lets a confused agent burn 50 model calls before failing
     # (we observed this twice). A specialist answering one question needs only a few.
-    from pydantic_ai.usage import UsageLimits
-
-    _req_limit = int(os.environ.get("AGENT_REQUEST_LIMIT", "8"))
-
     try:
         run_input = ctx.state.query_parts if ctx.state.query_parts else ctx.state.query
         async with agent.run_stream(
             run_input,
             message_history=prev_messages,
             deps=_agent_deps,
-            usage_limits=UsageLimits(request_limit=_req_limit),
+            usage_limits=spawn_usage_limits(ctx.state),  # CONCEPT:ORCH-1.38 budget
         ) as stream:
             async for chunk in stream.stream_text(delta=True):
                 emit_graph_event(
