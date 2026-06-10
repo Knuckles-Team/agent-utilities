@@ -14,6 +14,9 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 from ..graph.client import get_graph_client
 from ..graph.state import GraphDeps
 from .config import RLMConfig
+from .sandboxes import HELPER_NAMES, SandboxEnv, SandboxRejected  # CONCEPT:ORCH-1.38
+from .sandboxes.registry import default_sandboxes
+from .sandboxes.router import SandboxRouter
 from .schema import SchemaContract  # CONCEPT:ORCH-1.12 — structured subagent contracts
 from .telemetry import (  # CONCEPT:ORCH-1.29
     RunTrace,
@@ -330,17 +333,81 @@ class RLMEnvironment:
             )
             return res.output
 
+    def _build_sandbox_env(self) -> SandboxEnv:
+        """Snapshot the REPL state into the cross-backend :class:`SandboxEnv` (ORCH-1.38).
+
+        ``helpers`` is the host-callback subset of the REPL namespace (the ``HELPER_NAMES``
+        bound methods); ``local_globals`` are live refs only the in-process ``local`` backend
+        can inject. Isolated backends ignore ``local_globals`` and wire ``helpers`` over their
+        own bridge (monty's ``external_functions``, Docker's UDS).
+        """
+        helpers = {
+            name: self.globals_dict[name]
+            for name in HELPER_NAMES
+            if name in self.globals_dict
+        }
+        local_globals = {
+            "GraphComputeEngine": GraphComputeEngine,
+            "json": json,
+            "asyncio": asyncio,
+        }
+        return SandboxEnv(
+            vars=self.vars,
+            tool_sources=self.tool_sources,
+            helpers=helpers,
+            local_globals=local_globals,
+        )
+
+    def _get_sandbox_router(self) -> SandboxRouter:
+        """Lazily build (and cache) this environment's router over the available backends."""
+        router = getattr(self, "_sandbox_router", None)
+        if router is None:
+            router = SandboxRouter(default_sandboxes())
+            self._sandbox_router = router
+        return router
+
     async def execute(self, code: str) -> tuple[dict[str, Any], str]:
+        """Execute LLM-generated code via the tiered sandbox router (CONCEPT:ORCH-1.38).
+
+        Builds the escalation chain for this snippet (cheapest capable backend first), then
+        runs each in order:
+
+        * :class:`SandboxRejected` — this backend can't run the snippet; escalate to the next
+          tier. Parse-level rejections (classes, unsupported syntax) happen before any host
+          helper fires, so escalation has no side effects.
+        * :class:`SandboxFatalError` — irreversible infra death; propagate to fast-fail the run
+          (ORCH-1.29 semantics, unchanged — deliberately not caught here).
+        * success — sync the namespace back into ``self.vars`` and return ``(vars, stdout)``.
+
+        The ``local`` floor anchors every chain, so there is always a backend that accepts the
+        code. Returns the same ``(updated_vars, stdout)`` shape as the legacy path.
         """
-        Executes Python code in the persistent environment.
-        Returns the updated variables and stdout.
-        """
-        if self.config.use_wasm:
-            return await self._execute_wasm(code)
-        elif self.config.use_container:
-            return await self._execute_container(code)
-        else:
-            return await self._execute_local(code)
+        env = self._build_sandbox_env()
+        forced = self.config.resolved_sandbox()
+        chain = self._get_sandbox_router().select(
+            code, force=None if forced == "auto" else forced
+        )
+
+        last_reject: SandboxRejected | None = None
+        for backend in chain:
+            try:
+                result = await backend.execute(code, env)
+            except SandboxRejected as rej:
+                last_reject = rej
+                logger.info(
+                    "Sandbox %s rejected snippet (%s); escalating.", backend.name, rej.reason
+                )
+                continue
+            # SandboxFatalError is intentionally NOT caught — it fast-fails the run (ORCH-1.29).
+            self.vars.update(result.updated_vars)
+            if backend is not chain[0]:
+                logger.debug("RLM snippet ran on escalated backend %s", backend.name)
+            return self.vars, result.stdout
+
+        # Unreachable while ``local`` is registered (it accepts everything); defensive only.
+        reason = last_reject.reason if last_reject else "no available backend"
+        logger.error("All sandbox backends rejected snippet: %s", reason)
+        return await self._execute_local(code)
 
     async def _execute_local(self, code: str) -> tuple[dict[str, Any], str]:
         """Execute LLM-generated code in a restricted local namespace.
