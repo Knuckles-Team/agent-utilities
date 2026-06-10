@@ -431,6 +431,70 @@ async def toggle_tool_endpoint(request: Request) -> JSONResponse:
     )
 
 
+# ── Canonical tool ⇄ REST parity map ────────────────────────────────────────
+# Single source of truth: every action-routed MCP tool in ``REGISTERED_TOOLS``
+# has exactly one collapsed action-routed REST twin (POST, JSON body carries the
+# ``action`` and its args). Granular CRUD sub-routes (``/graph/write/node`` etc.)
+# are layered on top for fine-grained HTTP clients, but this map guarantees that
+# anything callable over MCP is also callable over REST and vice versa. The
+# parity contract test (tests/unit/test_gateway_mcp_parity.py) asserts this map
+# stays in lockstep with REGISTERED_TOOLS so the two surfaces never drift.
+ACTION_TOOL_ROUTES: dict[str, str] = {
+    "graph_query": "/graph/query",
+    "graph_search": "/graph/search",
+    "graph_write": "/graph/write",
+    "graph_ingest": "/graph/ingest",
+    "graph_analyze": "/graph/analyze",
+    "graph_orchestrate": "/graph/orchestrate",
+    "graph_configure": "/graph/configure",
+    "graph_context": "/graph/context",
+    "graph_feedback": "/graph/feedback",
+    "graph_hydrate": "/graph/hydrate",
+    "graph_sessions": "/graph/sessions",
+    "graph_goals": "/graph/goals",
+    "document_process": "/document/process",
+    "source_connector": "/connector/source",
+    "ontology_property_types": "/ontology/property-types",
+    "ontology_value_types": "/ontology/value-types",
+    "ontology_interface": "/ontology/interface",
+    "ontology_function": "/ontology/function",
+    "ontology_derive": "/ontology/derive",
+    "ontology_link_materialize": "/ontology/link-materialize",
+    "object_edits": "/object/edits",
+    "object_index": "/object/index",
+    "object_permissioning": "/object/permissioning",
+    "object_set": "/object/set",
+}
+
+
+def _make_tool_endpoint(tool_name: str):
+    """Build a thin REST handler that dispatches a JSON body to an MCP tool.
+
+    Both the MCP tool surface and the REST surface funnel through
+    :func:`_execute_tool` against the shared in-process engine, so a handler is
+    just: parse body → execute tool → wrap result. This factory is the canonical
+    adapter; per-tool endpoints below that need bespoke parsing keep their own
+    definitions, but every tool in :data:`ACTION_TOOL_ROUTES` without one is
+    served by this.
+    """
+
+    async def _handler(request: Request) -> JSONResponse:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        try:
+            res = await _execute_tool(tool_name, **body)
+            return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        except Exception as e:
+            return JSONResponse(
+                {"status": "error", "message": str(e)}, status_code=500
+            )
+
+    _handler.__name__ = f"{tool_name}_endpoint"
+    return _handler
+
+
 async def graph_query_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -4795,6 +4859,25 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         ["POST"],
     )
     route("/graph/configure/doctor", graph_configure_doctor_endpoint, ["POST"])
+
+    # ── Collapsed action-routed twins (full MCP⇄REST parity) ──
+    # The seven core graph_* tools above already have bespoke endpoints; every
+    # other MCP tool in ACTION_TOOL_ROUTES (context, feedback, hydrate, sessions,
+    # goals, document_process, source_connector, ontology_*, object_*) is served
+    # by the generic factory so the REST surface reaches everything MCP can.
+    _bespoke_action_tools = {
+        "graph_query",
+        "graph_search",
+        "graph_write",
+        "graph_ingest",
+        "graph_analyze",
+        "graph_orchestrate",
+        "graph_configure",
+    }
+    for _tool, _path in ACTION_TOOL_ROUTES.items():
+        if _tool in _bespoke_action_tools:
+            continue
+        route(_path, _make_tool_endpoint(_tool), ["POST"])
 
 
 def mcp_server() -> None:
