@@ -553,6 +553,39 @@ def invoker_context_section(state: Any, *, window_tokens: int = 32768) -> str:
     )
 
 
+def apply_tool_scope(
+    state: Any, tools: list[Any], toolsets: list[Any]
+) -> tuple[list[Any], list[Any]]:
+    """CONCEPT:ORCH-1.38 — enforce the invoker's least-privilege tool allow-list.
+
+    When ``GraphState.invoker_allowed_tools`` is set, function tools are filtered by name and
+    MCP/skill toolsets are wrapped with a pydantic-ai ``.filtered()`` predicate so the spawned
+    agent can ONLY call the allowed tools. Empty/None allow-list = no restriction.
+    """
+    allowed = getattr(state, "invoker_allowed_tools", None)
+    if not allowed:
+        return tools, toolsets
+    allowed_set = {str(a) for a in allowed}
+    scoped_tools = [t for t in tools if getattr(t, "__name__", None) in allowed_set]
+    scoped_toolsets = []
+    for ts in toolsets:
+        flt = getattr(ts, "filtered", None)
+        if callable(flt):
+            try:
+                scoped_toolsets.append(flt(lambda ctx, td: td.name in allowed_set))
+                continue
+            except Exception:  # noqa: BLE001 — fall back to passing the toolset through
+                pass
+        scoped_toolsets.append(ts)
+    logger.info(
+        "[ORCH-1.38] Tool scope enforced: %d→%d function tools; allow-list=%s",
+        len(tools),
+        len(scoped_tools),
+        sorted(allowed_set)[:8],
+    )
+    return scoped_tools, scoped_toolsets
+
+
 def spawn_usage_limits(state: Any, *, request_limit: int = 8) -> Any:
     """CONCEPT:ORCH-1.37/1.38 — UsageLimits for a spawned task agent.
 
@@ -938,6 +971,11 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         # sensitive tool calls instead of failing.
 
         from pydantic_ai import DeferredToolRequests
+
+        # CONCEPT:ORCH-1.38 — enforce the invoker's least-privilege tool allow-list (if any).
+        _scoped_tools, guarded_toolsets = apply_tool_scope(
+            ctx.state, [], guarded_toolsets
+        )
 
         agent = Agent(
             model=ctx.deps.agent_model,
@@ -1538,6 +1576,11 @@ async def _execute_specialized_step(
         ctx.deps, prompt_name, step_model_id=getattr(ctx.inputs, "model_id", None)
     )
 
+    # CONCEPT:ORCH-1.38 — enforce the invoker's least-privilege tool allow-list (if any).
+    custom_tools, _scoped_toolsets = apply_tool_scope(
+        ctx.state, custom_tools, collected_mcp_toolsets + skill_toolsets
+    )
+
     agent = Agent(
         model=specialist_model,
         system_prompt=(
@@ -1549,7 +1592,7 @@ async def _execute_specialized_step(
             f"{invoker_context_section(ctx.state)}"  # CONCEPT:ORCH-1.38
         ),
         tools=custom_tools,
-        toolsets=collected_mcp_toolsets + skill_toolsets,
+        toolsets=_scoped_toolsets,
         output_type=[str, DeferredToolRequests],
     )
 

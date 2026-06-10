@@ -77,6 +77,7 @@ class Orchestrator:
         context: str | None = None,
         budget_tokens: int | None = None,
         context_ref: str | None = None,
+        allowed_tools: list[str] | None = None,
     ) -> str:
         """Execute a single agent against a task.
 
@@ -96,6 +97,7 @@ class Orchestrator:
             context=context,
             budget_tokens=budget_tokens,
             context_ref=context_ref,
+            allowed_tools=allowed_tools,
         )
         return result
 

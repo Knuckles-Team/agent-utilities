@@ -43,6 +43,7 @@ async def run_agent(
     context: str | None = None,
     budget_tokens: int | None = None,
     context_ref: str | None = None,
+    allowed_tools: list[str] | None = None,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -208,6 +209,8 @@ async def run_agent(
         config["invoker_context"] = context
     if budget_tokens:
         config["invoker_budget_tokens"] = int(budget_tokens)
+    if allowed_tools:
+        config["invoker_allowed_tools"] = list(allowed_tools)
 
     # Step 4: Materialize and run the graph
     try:

@@ -42,6 +42,7 @@ from ..models import (
 from .executor import (
     _execute_domain_logic,
     _execute_dynamic_mcp_agent,
+    apply_tool_scope,
     invoker_context_section,
     spawn_usage_limits,
 )
@@ -388,6 +389,7 @@ async def router_step(
                 "skipping planner/verifier.",
                 _srv,
             )
+            _, _scoped_ts = apply_tool_scope(ctx.state, [], _ts)  # CONCEPT:ORCH-1.38
             _direct_agent = Agent(
                 model=deps.agent_model,
                 system_prompt=(
@@ -395,7 +397,7 @@ async def router_step(
                     f"the user's request directly and return exactly the data requested."
                     f"{invoker_context_section(ctx.state)}"  # CONCEPT:ORCH-1.38
                 ),
-                toolsets=_ts,
+                toolsets=_scoped_ts,
             )
             _direct_deps = agent_deps_from_graph(deps, _ts)
             _direct_res = await _direct_agent.run(
@@ -1259,6 +1261,9 @@ async def expert_executor_step(
                     if filtered_tools:
                         domain_tools = filtered_tools
 
+                domain_tools, domain_toolsets = apply_tool_scope(  # CONCEPT:ORCH-1.38
+                    ctx.state, domain_tools, domain_toolsets
+                )
                 dynamic_agent = Agent(
                     model=ctx.deps.agent_model,
                     system_prompt=system_prompt + invoker_context_section(ctx.state),

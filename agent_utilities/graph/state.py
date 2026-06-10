@@ -211,6 +211,10 @@ class GraphState:
     # CONCEPT:ORCH-1.38 — optional token budget the invoker grants the spawned agent;
     # enforced as UsageLimits.total_tokens_limit at the spawn run sites (None = unbounded).
     invoker_budget_tokens: int | None = None
+    # CONCEPT:ORCH-1.38 — optional least-privilege tool allow-list the invoker grants the
+    # spawned agent; the spawn assemblers intersect resolved tools/toolsets with this set
+    # (None/empty = no restriction).
+    invoker_allowed_tools: list[str] | None = None
 
     validation_feedback: str | None = None
     """Feedback from ValidatorNode to DomainNode for self-correction."""
