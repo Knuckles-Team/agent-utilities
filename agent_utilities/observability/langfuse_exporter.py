@@ -122,6 +122,16 @@ class LangfuseExporter:
         try:
             md = dict(metadata or {})
             md.update({"status": status, "duration_ms": duration_ms})
+            # CONCEPT:OS-5.11 — stamp the run-wide correlation id so every agent's
+            # trace in a multi-agent run is joinable ("which agents touched X?").
+            try:
+                from agent_utilities.observability.correlation import get_correlation_id
+
+                cid = get_correlation_id()
+                if cid and "correlation_id" not in md:
+                    md["correlation_id"] = cid
+            except Exception:  # noqa: BLE001 — never let correlation crash export
+                pass
             trace = self._make_trace(client, run_id=run_id, query=query, metadata=md)
             self.exported_traces += 1
             if token_usage:
