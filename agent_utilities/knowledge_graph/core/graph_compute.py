@@ -718,8 +718,12 @@ class GraphComputeEngine:
 
     def batch_update(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
         """Batch update: apply multiple operations in a single service call."""
-        result_json = self._client.lifecycle.batch_update(operations)
-        return json.loads(result_json)
+        result = self._client.lifecycle.batch_update(operations)
+        # The client already decodes the MessagePack response to a dict; only
+        # decode if a raw JSON string/bytes came back (older transports).
+        if isinstance(result, str | bytes | bytearray):
+            return json.loads(result)
+        return result
 
     def metrics(self) -> dict[str, Any]:
         """Runtime metrics for monitoring and observability."""
