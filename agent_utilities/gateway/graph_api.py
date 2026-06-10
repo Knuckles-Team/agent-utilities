@@ -51,8 +51,14 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
         logger.warning("Could not attach CentralizedCypherMiddleware: %s", exc)
 
     kg_server._mount_rest_routes(app, prefix=prefix)
+
+    # Native swarm supervisory plane (CONCEPT:OS-5.10): /fleet/* + approvals.
+    from agent_utilities.gateway.fleet import mount_fleet_routes
+
+    mount_fleet_routes(app, prefix=prefix)
+
     logger.info(
-        "Mounted centralized Knowledge Graph REST routes under %r (graph-os MCP "
-        "is now a thin wrapper).",
+        "Mounted centralized Knowledge Graph REST routes + fleet supervisory "
+        "plane under %r (graph-os MCP is now a thin wrapper).",
         prefix,
     )
