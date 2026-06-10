@@ -2816,30 +2816,25 @@ class TaskManagerMixin(GraphEngineProtocol):
         return cats
 
     def _checkpoint_db(self) -> None:
-        """Force a WAL checkpoint to ensure data persists across server restarts."""
-        if not self.backend:
-            return
-        backend_name = self.backend.__class__.__name__
-        if backend_name in (
-            "LadybugBackend",
-            "Neo4jBackend",
-            "FalkorDBBackend",
-            "EpistemicGraphBackend",
-        ):
-            logger.debug(f"WAL checkpoint skipped for non-SQL backend: {backend_name}")
+        """Force a WAL checkpoint so a SQLite-backed store persists across restarts.
+
+        Only a backend that exposes an explicit ``wal_checkpoint()`` (a real
+        SQLite WAL) is checkpointed. The graph / tiered / Postgres backends route
+        ``execute()`` through the Cypher engine, so the previous raw
+        ``execute("CHECKPOINT;")`` fallback misparsed that string into a node
+        query and **blocked indefinitely on the engine** — deadlocking every
+        task worker after each ``_update_task_status`` (the live
+        ``TieredGraphBackend`` wasn't in the old skip-list). There is nothing to
+        WAL-checkpoint on those backends, so they are skipped. (CONCEPT:KG-2.8)
+        """
+        wal = getattr(self.backend, "wal_checkpoint", None)
+        if not callable(wal):
             return
         try:
-            # Use native wal_checkpoint if available on the backend
-            if hasattr(self.backend, "wal_checkpoint"):
-                if self.backend.wal_checkpoint():
-                    logger.debug("WAL checkpoint completed (native).")
-                    return
-
-            # Fallback to direct PRAGMA if it's a raw DB handle
-            self.backend.execute("CHECKPOINT;")
-            logger.debug("WAL checkpoint completed (PRAGMA).")
-        except Exception as e:
-            logger.debug(f"WAL checkpoint not supported or skipped: {e}")
+            wal()
+            logger.debug("WAL checkpoint completed (native).")
+        except Exception as e:  # noqa: BLE001 — checkpoint is best-effort
+            logger.debug("WAL checkpoint skipped: %s", e)
 
     def get_task_status(self, job_id: str) -> dict | None:
         """Get the status and decoded metadata for a specific task."""
