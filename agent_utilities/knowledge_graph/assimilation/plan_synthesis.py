@@ -196,21 +196,44 @@ def synthesize_plans(
     synth_fn: SynthFn | None = None,
     write: bool = True,
 ) -> list[PlanProposal]:
-    """Synthesize plans for the top-N **open** (not in-flight) ranked gaps."""
+    """Synthesize plans for the top-N **open** (not in-flight) ranked gaps.
+
+    The per-gap syntheses run **concurrently**: each is an independent,
+    I/O-bound planner LLM call, so a thread pool turns N serial planner round
+    trips into ~one call's wall-time (the dominant cost of the golden-loop
+    synthesize stage). (CONCEPT:KG-2.7)
+    """
     ranked = rank_features(engine)
-    proposals: list[PlanProposal] = []
+    # Select up to top_n open gaps first (cheap; skips already-proposed ones).
+    targets: list[str] = []
     for r in ranked:
-        if len(proposals) >= top_n:
+        if len(targets) >= top_n:
             break
         node = _get_node(engine, r.feature_id) or {}
         if str(node.get("status", "open")) in _INFLIGHT_STATUS:
             continue  # already proposed / in progress — idempotent
-        proposals.append(
+        targets.append(r.feature_id)
+    if not targets:
+        return []
+    if len(targets) == 1:
+        return [
             synthesize_plan_for_feature(
-                engine, r.feature_id, synth_fn=synth_fn, write=write
+                engine, targets[0], synth_fn=synth_fn, write=write
+            )
+        ]
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(len(targets), 8)) as ex:
+        # ``map`` preserves input order, so proposals stay rank-ordered.
+        return list(
+            ex.map(
+                lambda fid: synthesize_plan_for_feature(
+                    engine, fid, synth_fn=synth_fn, write=write
+                ),
+                targets,
             )
         )
-    return proposals
 
 
 __all__ = [
