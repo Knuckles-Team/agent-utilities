@@ -61,6 +61,7 @@ TEXT_SUFFIXES = {
     ".sh",
     ".html",
     ".css",
+    ".lock",  # lockfiles (uv.lock, …) are large text files, not binary sprawl
 }
 
 
