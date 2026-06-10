@@ -2732,6 +2732,12 @@ def _build_server(bootstrap: bool = True):
             default=5,
             description="Maximum number of parallel subagents to spawn during adversarial loop.",
         ),
+        context: str = Field(
+            default="",
+            description="CONCEPT:ORCH-1.38 — curated context the invoking agent passes to the "
+            "spawned agent (action='execute_agent'); injected into the spawned agent's prompt, "
+            "budgeted to the model's context window.",
+        ),
     ) -> str:
         """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution.
 
@@ -2843,6 +2849,7 @@ def _build_server(bootstrap: bool = True):
                         task=task,
                         max_steps=max_steps,
                         return_mermaid=True,
+                        context=context or None,
                     )
                     return agent_result
                 except Exception as exc:
