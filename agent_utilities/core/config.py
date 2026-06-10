@@ -396,6 +396,20 @@ class AgentConfig(BaseSettings):
     # ingest. Deployment-specific (set in ``.env``); empty ⇒ breadth is a no-op.
     kg_breadth_library_roots: str = Field(default="", alias="KG_BREADTH_LIBRARY_ROOTS")
     kg_breadth_repo_roots: str = Field(default="", alias="KG_BREADTH_REPO_ROOTS")
+    # Golden-loop (autonomous research) parameters — opt-in, all off by default.
+    # Typed config replaces the scattered bare KG_GOLDEN_* env reads (CONCEPT:KG-2.7).
+    kg_golden_loop: bool = Field(default=False, alias="KG_GOLDEN_LOOP")
+    kg_golden_distill: bool = Field(default=False, alias="KG_GOLDEN_DISTILL")
+    kg_golden_breadth: bool = Field(default=False, alias="KG_GOLDEN_BREADTH")
+    kg_golden_standardize: bool = Field(default=False, alias="KG_GOLDEN_STANDARDIZE")
+    kg_golden_auto_merge: bool = Field(default=False, alias="KG_GOLDEN_AUTO_MERGE")
+    kg_golden_merge_threshold: float | None = Field(
+        default=None, alias="KG_GOLDEN_MERGE_THRESHOLD"
+    )
+    kg_golden_loop_interval: float = Field(
+        default=3600.0, alias="KG_GOLDEN_LOOP_INTERVAL"
+    )
+    kg_golden_loop_topics: int = Field(default=5, alias="KG_GOLDEN_LOOP_TOPICS")
     nats_url: str | None = Field(default=None, alias="NATS_URL")
     kafka_bootstrap_servers: str | None = Field(
         default=None, alias="KAFKA_BOOTSTRAP_SERVERS"

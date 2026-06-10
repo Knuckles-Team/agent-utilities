@@ -4,10 +4,50 @@ from __future__ import annotations
 
 from agent_utilities.knowledge_graph.enrichment.features import (
     cluster_features,
+    make_community_fn,
     resolve_call_edges,
 )
 from agent_utilities.knowledge_graph.enrichment.models import CodeEntity
 from agent_utilities.knowledge_graph.enrichment.patterns import detect_patterns
+
+
+class _RecordingCompute:
+    """Stand-in GraphComputeEngine that records calls (no real engine)."""
+
+    def __init__(self):
+        self.batch_ops = None
+        self.per_element = 0
+
+    def batch_update(self, ops):
+        self.batch_ops = ops
+
+    def add_node(self, *a, **k):
+        self.per_element += 1
+
+    def add_edge(self, *a, **k):
+        self.per_element += 1
+
+    def community_detection(self, resolution):
+        return [["a", "b"]]
+
+
+def test_make_community_fn_loads_in_one_batch():
+    # The scratch tenant must be loaded with a SINGLE batch_update round-trip,
+    # not per-element add_node/add_edge RPCs (AGENTS "never per-element").
+    gc = _RecordingCompute()
+    fn = make_community_fn(gc)
+    result = fn(["a", "b", "c"], [("a", "b"), ("b", "c")])
+    assert gc.per_element == 0, "must not use per-element add_node/add_edge"
+    assert gc.batch_ops is not None
+    ops = gc.batch_ops
+    assert sum(o["op"] == "add_node" for o in ops) == 3
+    assert sum(o["op"] == "add_edge" for o in ops) == 2
+    assert ops[0] == {
+        "op": "add_node",
+        "node_id": "a",
+        "properties_json": '{"type": "Code"}',
+    }
+    assert result == [["a", "b"]]
 
 
 def _cls(name, bases=None, methods=None, decorators=None, is_abstract=False):

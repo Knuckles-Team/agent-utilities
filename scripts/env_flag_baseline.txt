@@ -34,7 +34,6 @@ agent_utilities/knowledge_graph/core/company_brain_runtime.py	KG_TRUST_HIERARCHY
 agent_utilities/knowledge_graph/core/conversation_ingestion.py	KG_CHAT_CONCURRENCY
 agent_utilities/knowledge_graph/core/conversation_ingestion.py	KG_CONCEPT_CODE_LINK
 agent_utilities/knowledge_graph/core/engine.py	GRAPH_ROUTING_STRATEGY
-agent_utilities/knowledge_graph/core/engine_tasks.py	KG_BULK_INGEST
 agent_utilities/knowledge_graph/core/engine_tasks.py	KG_CARD_MODEL
 agent_utilities/knowledge_graph/core/engine_tasks.py	KG_DAEMON_ROLE
 agent_utilities/knowledge_graph/core/engine_tasks.py	KG_EMBED_BACKFILL_BUSY_SLEEP
@@ -44,12 +43,7 @@ agent_utilities/knowledge_graph/core/engine_tasks.py	KG_ENRICH_INTERVAL
 agent_utilities/knowledge_graph/core/engine_tasks.py	KG_ENRICH_MAX_BATCHES
 agent_utilities/knowledge_graph/core/engine_tasks.py	KG_EVOLUTION_INTERVAL
 agent_utilities/knowledge_graph/core/engine_tasks.py	KG_FILE_WATCH_INTERVAL
-agent_utilities/knowledge_graph/core/engine_tasks.py	KG_GOLDEN_LOOP
-agent_utilities/knowledge_graph/core/engine_tasks.py	KG_GOLDEN_LOOP_INTERVAL
-agent_utilities/knowledge_graph/core/engine_tasks.py	KG_GOLDEN_LOOP_TOPICS
 agent_utilities/knowledge_graph/core/engine_tasks.py	KG_HYGIENE_INTERVAL
-agent_utilities/knowledge_graph/core/engine_tasks.py	KG_INGEST_FEATURES
-agent_utilities/knowledge_graph/core/engine_tasks.py	KG_INGEST_PROFILE
 agent_utilities/knowledge_graph/core/engine_tasks.py	KG_LLM_CONCURRENCY
 agent_utilities/knowledge_graph/core/engine_tasks.py	KG_RECONCILE_INTERVAL
 agent_utilities/knowledge_graph/core/engine_tasks.py	KG_TASK_MAX_REQUEUE
@@ -71,13 +65,6 @@ agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py	KG_INGEST_INFLIG
 agent_utilities/knowledge_graph/ingestion/engine.py	KG_CONCEPT_CODE_LINK
 agent_utilities/knowledge_graph/memory/optimization_engine.py	KG_EVAL_CAPTURE
 agent_utilities/knowledge_graph/pipeline/__init__.py	KG_INGEST_PROFILE
-agent_utilities/knowledge_graph/research/auto_merge.py	KG_GOLDEN_AUTO_MERGE
-agent_utilities/knowledge_graph/research/auto_merge.py	KG_GOLDEN_MERGE_THRESHOLD
-agent_utilities/knowledge_graph/research/golden_loop.py	KG_BREADTH_LIBRARY_ROOTS
-agent_utilities/knowledge_graph/research/golden_loop.py	KG_BREADTH_REPO_ROOTS
-agent_utilities/knowledge_graph/research/golden_loop.py	KG_GOLDEN_BREADTH
-agent_utilities/knowledge_graph/research/golden_loop.py	KG_GOLDEN_DISTILL
-agent_utilities/knowledge_graph/research/golden_loop.py	KG_GOLDEN_STANDARDIZE
 agent_utilities/knowledge_graph/research/search.py	KG_RESEARCH_EXTERNAL
 agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py	KG_ENABLE_HARD_NEGATIVE_MINING
 agent_utilities/knowledge_graph/retrieval/retrieval_quality.py	KG_MIN_RELEVANCE_THRESHOLD

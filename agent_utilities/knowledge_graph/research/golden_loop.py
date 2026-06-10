@@ -113,12 +113,14 @@ class GoldenLoopController:
         """
         import time
 
+        from agent_utilities.core.config import config
+
         if distill is None:
-            distill = os.getenv("KG_GOLDEN_DISTILL", "0") == "1"
+            distill = config.kg_golden_distill
         if breadth is None:
-            breadth = os.getenv("KG_GOLDEN_BREADTH", "0") == "1"
+            breadth = config.kg_golden_breadth
         if standardize is None:
-            standardize = os.getenv("KG_GOLDEN_STANDARDIZE", "0") == "1"
+            standardize = config.kg_golden_standardize
 
         report: dict[str, Any] = {
             "propose_only": self.propose_only,
@@ -349,15 +351,11 @@ class GoldenLoopController:
 
         from ..assimilation import run_breadth_ingest
 
-        # Roots come from env (also populated from .env via load_dotenv) OR the
-        # AgentConfig fields — so a deployment can configure breadth auto-ingest
-        # once and ``golden_loop`` (one call / the daemon) ingests it. (CONCEPT:KG-2.7)
-        libs_raw = os.getenv("KG_BREADTH_LIBRARY_ROOTS") or getattr(
-            config, "kg_breadth_library_roots", ""
-        )
-        repos_raw = os.getenv("KG_BREADTH_REPO_ROOTS") or getattr(
-            config, "kg_breadth_repo_roots", ""
-        )
+        # Roots come from the AgentConfig fields (populated from env/.env) — so a
+        # deployment configures breadth auto-ingest once and ``golden_loop`` (one
+        # call / the daemon) ingests it. (CONCEPT:KG-2.7)
+        libs_raw = config.kg_breadth_library_roots
+        repos_raw = config.kg_breadth_repo_roots
         libs = [p.strip() for p in (libs_raw or "").split(",") if p.strip()]
         repos = [p.strip() for p in (repos_raw or "").split(",") if p.strip()]
         if not libs and not repos:
