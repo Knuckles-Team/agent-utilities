@@ -171,6 +171,7 @@ class PostgreSQLBackend(GraphBackend):
                     except Exception as e:
                         logger.debug("Table %s DDL error: %s", table_def.name, e)
                         conn.rollback()
+                        continue  # don't cache a table whose CREATE failed
                     self._known_tables.add(table_def.name)
 
                 # Create unified edge table
@@ -208,7 +209,7 @@ class PostgreSQLBackend(GraphBackend):
             "PostgreSQL schema initialized (%d tables)", len(self._known_tables)
         )
 
-    def ensure_label_table(self, label: str) -> bool:
+    def ensure_label_table(self, label: str, force: bool = False) -> bool:
         """Auto-DDL: ensure a durable table exists for node ``label`` (self-healing).
 
         The durable tier ships tables only for types in the static schema; a node
@@ -217,11 +218,17 @@ class PostgreSQLBackend(GraphBackend):
         minimal universal node table on demand and registers it with the transpiler
         so the durable tier **self-extends to any type** instead of dropping it.
         Idempotent + cheap after the first call (guarded by ``_known_tables``).
+
+        ``force`` bypasses the ``_known_tables`` cache: the self-heal path calls it
+        with ``force=True`` because the database has just told us the relation does
+        NOT exist, so the in-memory cache is authoritatively stale (it can claim a
+        table whose CREATE silently failed). The ``CREATE TABLE IF NOT EXISTS`` is
+        idempotent, so re-running it when the cache is wrong is safe + cheap.
         """
         import re as _re
 
         name = _re.sub(r"\W+", "_", str(label or "Node")).strip("_") or "Node"
-        if name in self._known_tables:
+        if not force and name in self._known_tables:
             return True
         ddl = (
             f'CREATE TABLE IF NOT EXISTS "{name}" ('
@@ -463,7 +470,9 @@ class PostgreSQLBackend(GraphBackend):
                 else:
                     mt = _re.search(r'relation "([^"]+)" does not exist', str(e))
                     if mt and attempt < max_retries - 1:
-                        healed = self.ensure_label_table(mt.group(1))
+                        # force=True: the DB just told us the table is missing, so
+                        # the _known_tables cache is authoritatively stale here.
+                        healed = self.ensure_label_table(mt.group(1), force=True)
                 if healed:
                     continue
                 logger.error("PostgreSQL execute error: %s | SQL: %.200s", e, tq.sql)
