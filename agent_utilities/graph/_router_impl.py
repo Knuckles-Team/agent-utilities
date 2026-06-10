@@ -399,7 +399,7 @@ async def router_step(
                 ),
                 toolsets=_scoped_ts,
             )
-            _direct_deps = agent_deps_from_graph(deps, _ts)
+            _direct_deps = agent_deps_from_graph(deps, _ts, state=ctx.state)
             _direct_res = await _direct_agent.run(
                 ctx.state.query,
                 deps=_direct_deps,
@@ -1278,7 +1278,7 @@ async def expert_executor_step(
                 # context into a valid AgentDeps so injected tools AND MCP toolsets work.
                 from .executor import agent_deps_from_graph
 
-                _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets)
+                _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets, state=ctx.state)
 
                 # CONCEPT:ORCH-1.37/1.38 — bound requests + enforce the invoker's token budget.
                 async with dynamic_agent.run_stream(

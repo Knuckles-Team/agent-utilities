@@ -215,6 +215,11 @@ class GraphState:
     # spawned agent; the spawn assemblers intersect resolved tools/toolsets with this set
     # (None/empty = no restriction).
     invoker_allowed_tools: list[str] | None = None
+    # CONCEPT:ORCH-1.38 (Phase 4) — REFERENCE (not the value) to an ephemeral credential the
+    # invoker stored in the secrets backend (e.g. an OAuth/delegated token under "cred:{sid}").
+    # Resolved to the raw token ONLY at deps-build time onto the transient AgentDeps.auth_token —
+    # the raw secret is NEVER stored in GraphState/graph/logs.
+    invoker_cred_ref: str | None = None
 
     validation_feedback: str | None = None
     """Feedback from ValidatorNode to DomainNode for self-correction."""

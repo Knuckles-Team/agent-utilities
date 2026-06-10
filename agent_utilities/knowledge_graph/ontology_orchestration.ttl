@@ -81,6 +81,15 @@
 :Goal a owl:Class ;
     rdfs:label "Goal" .
 
+:ContextBlob a owl:Class ;
+    rdfs:label "ContextBlob" ;
+    rdfs:comment "CONCEPT:ORCH-1.38 — curated context an invoking agent persists for a spawned agent to reference (session-scoped, optionally TTL'd)." .
+
+:hasContext a owl:ObjectProperty ;
+    rdfs:label "hasContext" ;
+    rdfs:comment "CONCEPT:ORCH-1.38 — links a RunTrace (a spawned run) to the ContextBlob it consumed (provenance)." ;
+    rdfs:range :ContextBlob .
+
 :Skill a owl:Class ;
     rdfs:label "Skill" .
 

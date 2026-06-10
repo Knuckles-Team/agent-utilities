@@ -219,7 +219,7 @@ async def planner_step(
     domain_tools, domain_toolsets = await _get_domain_tools("planner", ctx.deps)
     # Injected dev/sdd tools are RunContext[AgentDeps]-typed (read ctx.deps.workspace_path);
     # adapt the graph context so planner tool calls don't fail on GraphDeps.
-    _planner_deps = agent_deps_from_graph(ctx.deps, domain_toolsets)
+    _planner_deps = agent_deps_from_graph(ctx.deps, domain_toolsets, state=ctx.state)
     # CONCEPT:ORCH-1.37 (perf) — bound planner requests (default pydantic-ai cap is 50).
     from pydantic_ai.usage import UsageLimits
 
