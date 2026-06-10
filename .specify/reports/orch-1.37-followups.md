@@ -59,10 +59,16 @@ Design: `.specify/design/orch-1.38-invoker-spawned-context-handoff/design.md`.
 - **MVP (Phase 1) DONE** (merged): `context` param on run_agent/execute_agent/graph_orchestrate →
   `GraphState.invoker_context` → budgeted `### INVOKER CONTEXT` injected into every task-executing
   spawn assembler. Validated (4 unit tests + runtime prompt-capture proof).
-- **Remaining:** Phase 2 cross-process `ContextBlob` node + `graph_context` MCP action + TTL +
-  `context_refs`; Phase 3 swarm `ExecutionManifest.context` + large-context `message_history`;
-  Phase 3.5 budget_tokens→UsageLimits + allowed_tools→toolset intersection (HIGH value, wire next);
-  Phase 4 ephemeral `cred_ref` via SecretsClient; OWL layer for ContextBlob/HAS_CONTEXT.
+- **Phase 3.5 DONE** (merged): `budget_tokens` → `GraphState.invoker_budget_tokens` → enforced as
+  `UsageLimits.total_tokens_limit` via `executor.spawn_usage_limits()` at every spawn run site.
+- **Phase 2 DONE** (merged + live): `graph_context` MCP tool (put/get/list) persists a `ContextBlob`
+  node in the epistemic-graph; `context_ref` on run_agent/execute_agent/graph_orchestrate resolves a
+  blob's content into the spawned agent's context. Validated (unit + live put→get round-trip).
+- **Remaining:** `allowed_tools`→toolset intersection (least-privilege; needs real toolset filtering,
+  not a prompt hint); ContextBlob **TTL pruner** + **RunTrace `HAS_CONTEXT` provenance edge** (engine
+  lacks `add_edge` — add it or use backend); Phase 3 swarm `ExecutionManifest.context` +
+  large-context `message_history`; Phase 4 ephemeral `cred_ref` via SecretsClient; OWL layer for
+  `ContextBlob`/`HAS_CONTEXT`.
 - **Message channel: deferred** (elicitation/A2A/EventBus cover realistic needs).
 
 ## 8. Daemon redeploy for the latest merges
