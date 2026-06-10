@@ -1885,12 +1885,18 @@ def _build_server(bootstrap: bool = True):
                 return json.dumps({"error": str(exc)})
         if action == "list":
             try:
+                # Inline-property match (the form the backend reliably supports; the
+                # `WHERE c.prop = $x` shape falls back to a legacy over-matching reader).
                 rows = engine.query_cypher(
-                    "MATCH (c:ContextBlob) WHERE c.session_id = $sid "
+                    "MATCH (c:ContextBlob {session_id: $sid}) "
                     "RETURN c.id AS context_id, c.key AS key, c.created_at AS created_at "
                     "ORDER BY c.created_at DESC LIMIT 50",
                     {"sid": session_id},
                 )
+                # Defensive client-side filter in case the backend still over-matches.
+                rows = [
+                    r for r in (rows or []) if str(r.get("context_id", "")).startswith("ctx:")
+                ]
                 return json.dumps(rows, default=str)
             except Exception as exc:  # noqa: BLE001
                 return json.dumps({"error": str(exc)})
@@ -2863,6 +2869,13 @@ def _build_server(bootstrap: bool = True):
             "for the spawned agent (action='execute_agent'); its tools/toolsets are filtered "
             "to ONLY these names. Empty = no restriction.",
         ),
+        cred_ref: str = Field(
+            default="",
+            description="CONCEPT:ORCH-1.38 — REFERENCE (secret key, e.g. 'cred:{session}') to "
+            "an ephemeral credential the invoker stored in the secrets backend; resolved to the "
+            "spawned agent's auth_token at spawn (never logged). Use instead of passing raw "
+            "secrets. Empty = none.",
+        ),
     ) -> str:
         """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution.
 
@@ -3001,6 +3014,7 @@ def _build_server(bootstrap: bool = True):
                             [t.strip() for t in allowed_tools.split(",") if t.strip()]
                             or None
                         ),
+                        cred_ref=cred_ref or None,
                     )
                     return agent_result
                 except Exception as exc:
