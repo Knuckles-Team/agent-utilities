@@ -111,6 +111,41 @@ async def test_run_agent_resolves_context_ref(monkeypatch):
 
 
 @pytest.mark.concept("ORCH-1.38")
+def test_apply_tool_scope_filters_to_allow_list():
+    from agent_utilities.graph.executor import apply_tool_scope
+
+    def tool_a():  # noqa: D401
+        pass
+
+    def tool_b():
+        pass
+
+    class _FakeToolset:
+        def __init__(self):
+            self.predicate = None
+
+        def filtered(self, func):
+            self.predicate = func
+            return self  # record the predicate; identity is fine for the test
+
+    # No allow-list → unchanged.
+    ts = _FakeToolset()
+    tools, toolsets = apply_tool_scope(GraphState(query="q"), [tool_a, tool_b], [ts])
+    assert tools == [tool_a, tool_b] and ts.predicate is None
+
+    # Allow-list → function tools filtered by name; toolset gets a filtering predicate.
+    state = GraphState(query="q", invoker_allowed_tools=["tool_a", "list_projects"])
+    tools, toolsets = apply_tool_scope(state, [tool_a, tool_b], [ts])
+    assert tools == [tool_a]
+    assert ts.predicate is not None
+    # predicate admits allowed names, rejects others
+    td_ok = type("TD", (), {"name": "list_projects"})()
+    td_no = type("TD", (), {"name": "delete_everything"})()
+    assert ts.predicate(None, td_ok) is True
+    assert ts.predicate(None, td_no) is False
+
+
+@pytest.mark.concept("ORCH-1.38")
 def test_spawn_usage_limits_enforces_budget():
     from agent_utilities.graph.executor import spawn_usage_limits
 

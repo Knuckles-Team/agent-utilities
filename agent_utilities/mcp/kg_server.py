@@ -2828,6 +2828,12 @@ def _build_server(bootstrap: bool = True):
             "content is resolved from the graph and injected. Use instead of inline 'context' "
             "for large/shared context.",
         ),
+        allowed_tools: str = Field(
+            default="",
+            description="CONCEPT:ORCH-1.38 — comma-separated least-privilege tool allow-list "
+            "for the spawned agent (action='execute_agent'); its tools/toolsets are filtered "
+            "to ONLY these names. Empty = no restriction.",
+        ),
     ) -> str:
         """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution.
 
@@ -2942,6 +2948,10 @@ def _build_server(bootstrap: bool = True):
                         context=context or None,
                         budget_tokens=budget_tokens or None,
                         context_ref=context_ref or None,
+                        allowed_tools=(
+                            [t.strip() for t in allowed_tools.split(",") if t.strip()]
+                            or None
+                        ),
                     )
                     return agent_result
                 except Exception as exc:
