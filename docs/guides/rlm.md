@@ -31,13 +31,20 @@ RLM enables agents to:
 │  │  - run_parallel_sub_calls() │        │
 │  └─────────────────────────────┘        │
 │                                         │
-│  ┌──────────────┐  ┌──────────────────┐ │
-│  │ _execute_     │  │ _execute_        │ │
-│  │ local()       │  │ container()      │ │
-│  │ (exec-based)  │  │ (Docker sandbox) │ │
-│  └──────────────┘  └──────────────────┘ │
+│  execute(code)                          │
+│      │                                  │
+│      ▼  SandboxRouter (ORCH-1.38)        │
+│  ┌─────────────────────────────────────┐│
+│  │ ast-analyze → cheapest capable tier ││
+│  │ monty → wasm → docker → local        ││
+│  │ (escalate on SandboxRejected)        ││
+│  └─────────────────────────────────────┘│
 └─────────────────────────────────────────┘
 ```
+
+Code execution is no longer a hardcoded `local`/`container` switch: `execute()` routes each
+snippet through the **tiered sandbox router** (CONCEPT:ORCH-1.38) — see
+[ORCH-1.38 — Tiered RLM Sandbox](../pillars/1_graph_orchestration/ORCH-1.38-Tiered_RLM_Sandbox.md).
 
 ## Invocation Triggers
 
@@ -155,7 +162,10 @@ Configuration for RLM behavior:
 | Parameter | Default | Description |
 |---|---|---|
 | `max_depth` | `3` | Maximum recursion depth |
-| `use_container` | `False` | Use Docker sandbox instead of local exec |
+| `sandbox` | `"auto"` | Sandbox selection (ORCH-1.38): `auto` routes per-snippet (monty→wasm→docker→local); or pin `local`/`monty`/`wasm`/`docker`. Env `RLM_SANDBOX`. |
+| `use_monty` | `False` | Legacy override: force the monty sandbox (maps onto `sandbox`) |
+| `use_wasm` | `False` | Legacy override: force the wasm sandbox |
+| `use_container` | `False` | Legacy override: force the Docker sandbox |
 | `async_enabled` | `True` | Enable parallel sub-call execution |
 | `sub_llm_model_large` | Provider default | Model for depth-0 reasoning |
 | `sub_llm_model_small` | Provider default | Model for deeper recursion levels |

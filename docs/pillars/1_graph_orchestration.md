@@ -48,8 +48,9 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **ORCH-1.8**: RLM-Native Hierarchical Synthesis — flat/hierarchical/progressive/rlm output merging strategies
 - **ORCH-1.9**: Autonomous Department Orchestration — OWL-materialized company departments with `reportsTo` hierarchy
 - **ORCH-1.10**: Reactive Event Sourcing — reactive event-driven state and graph staging dispatcher
-- **ORCH-1.11**: WASM Micro-Agent Execution — isolated WebAssembly sandbox runner with gas/memory limits and Python emulation fallback
+- **ORCH-1.11**: WASM Micro-Agent Execution — isolated WebAssembly sandbox runner with gas/memory limits and Python emulation fallback (the RLM execution tier is now realized by **ORCH-1.38**)
 - **ORCH-1.12**: [**Structured Predict-RLM Runtime**](1_graph_orchestration/ORCH-1.12-Structured_RLM_Outputs.md) — standard Pydantic signatures and dynamic skill injection wrapper for sandboxed REPL, plus **schema-constrained subagent contracts** so RLM fan-out returns typed values (bool/model/list) instead of free-form prose
+- **ORCH-1.38**: [**Tiered RLM Code Sandbox + Capability Router**](1_graph_orchestration/ORCH-1.38-Tiered_RLM_Sandbox.md) — uniform `Sandbox` contract with four real backends (local / **monty** / wasm / docker) behind a deterministic `ast` capability router that escalates per-snippet (monty→wasm→docker→local); monty is the fast isolated default that still serves the RLM host helpers, Docker serves them over a UDS bridge under `--network none`, and the wasm tier is real CPython-WASI (replacing the ORCH-1.11 stub)
 - **ORCH-1.13**: [**GEPA Reflective Prompt Optimizer**](1_graph_orchestration/ORCH-1.13-GEPA_Optimization.md) — Genetic-Pareto optimization loop with reflective mutation and structural crossover for prompt evolution
 
 ## 🧬 First Principles Architecture
