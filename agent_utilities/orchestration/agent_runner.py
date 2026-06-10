@@ -39,6 +39,7 @@ async def run_agent(
     task: str,
     max_steps: int = 30,
     engine: IntelligenceGraphEngine | None = None,
+    return_mermaid: bool = False,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -59,9 +60,16 @@ async def run_agent(
         max_steps: Maximum graph execution steps (guards against loops).
         engine: Optional pre-initialized IntelligenceGraphEngine instance.
             If not provided, one will be created from the environment.
+        return_mermaid: CONCEPT:ORCH-1.37 — when True and the routed graph produced a
+            Mermaid diagram, return a JSON string ``{"output", "mermaid"}`` instead of the
+            bare output string. Default False preserves the bare-string contract relied on
+            by internal callers (e.g. the dynamic-workflow fan-out in
+            ``engine.execute_workflow``, which filters on ``isinstance(r, str)``).
 
     Returns:
-        The synthesized result string from the graph execution.
+        The synthesized result string from the graph execution, or (when
+        ``return_mermaid`` is set and a diagram exists) a JSON string with ``output`` and
+        ``mermaid`` keys.
 
     """
     run_id = f"run:{uuid.uuid4().hex[:8]}"
@@ -227,9 +235,17 @@ async def run_agent(
         results = result.get("results", {})
         output = results.get("output", "")
         if output:
-            return str(output)
-        # Fallback to full results dict
-        return str(results) if results else str(result)
+            output_str = str(output)
+        elif results:
+            # Fallback to full results dict
+            output_str = str(results)
+        else:
+            output_str = str(result)
+        # CONCEPT:ORCH-1.37 — surface the routed-graph diagram when requested.
+        mermaid = result.get("mermaid")
+        if return_mermaid and mermaid:
+            return json.dumps({"output": output_str, "mermaid": mermaid}, default=str)
+        return output_str
 
     return str(result)
 
@@ -593,6 +609,8 @@ async def _execute_graph(
     )
 
     # Execute the graph
+    # CONCEPT:ORCH-1.37 — streamdown=True populates GraphResponse.mermaid so the
+    # routed-graph diagram can be surfaced to the MCP caller (see run_agent return_mermaid).
     result = await AgentOrchestrationEngine().execute_graph(
         graph=graph,
         config=full_config,
@@ -601,6 +619,7 @@ async def _execute_graph(
         persist=False,
         mode="ask",
         topology="basic",
+        streamdown=True,
         mcp_toolsets=config.get("mcp_toolsets"),
     )
 

@@ -195,7 +195,13 @@ def create_model(
     if model_info:
         if "provider" in model_info:
             _provider = model_info["provider"]
-        if "base_url" in model_info and base_url is None:
+        # The model registry is the source of truth for WHERE a model is served:
+        # a registered per-model base_url MUST win over a graph-level default that
+        # the caller threads through for all roles. Otherwise a split deployment
+        # (e.g. router 'qwen-lite' on vllm-lite.arpa vs KG model on vllm.arpa) collapses
+        # onto one endpoint and the lite model 404s. Only honor a caller's base_url for
+        # models the registry doesn't know about.
+        if model_info.get("base_url"):
             base_url = model_info["base_url"]
         if "api_key" in model_info and api_key is None:
             api_key = model_info["api_key"]

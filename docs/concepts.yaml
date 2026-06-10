@@ -1727,6 +1727,15 @@ concepts:
   - agent_utilities/graph/executor.py
   - agent_utilities/orchestration/resilience.py
   doc: retry_on predicate raised; treating as non-retryable
+- id: ORCH-1.37
+  name: Orchestration Flow Diagram Surfacing
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/manager.py
+  doc: Surface the ORCH-1.8 WorkflowVisualizer execution-flow mermaid diagram in the graph_orchestrate MCP responses (swarm/execute_agent/compile_workflow/execute_workflow), additively and backward-compatibly.
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

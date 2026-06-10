@@ -208,36 +208,68 @@ async def verifier_step(
         [f"### {node}: {val}" for node, val in ctx.state.results_registry.items()]
     )
 
+    # CONCEPT:ORCH-1.37 (perf) — proportional verification. A trivial, single-step
+    # (or plan-less direct-dispatch) read produces a result that doesn't warrant the full
+    # LLM quality gate + re-plan machinery — which was scoring correct answers 0.00 for not
+    # volunteering fields the query never asked for, then looping until context overflow.
+    # Trust a non-empty result for low-risk runs and go straight to synthesis.
+    _plan = getattr(ctx.state, "plan", None)
+    _plan_steps = len(_plan.steps) if _plan and getattr(_plan, "steps", None) else 0
+    _direct = bool(getattr(ctx.state, "direct_dispatch", False))
+    if (_plan_steps <= 1 or _direct) and results_summary.strip():
+        logger.info(
+            "[LAYER:GRAPH:VERIFIER] Low-risk run (%s) with results — skipping full "
+            "quality gate, routing to synthesizer.",
+            "direct-dispatch" if _direct else f"{_plan_steps}-step plan",
+        )
+        return "synthesizer"
+
     # Structured Validation (quality gate)
     if ctx.state.verification_attempts < 2 and results_summary.strip():
         try:
-            from .executor import _get_domain_tools
+            from .executor import _get_domain_tools, agent_deps_from_graph
 
             domain_tools, domain_toolsets = await _get_domain_tools(
                 "verifier", ctx.deps
             )
+            # Injected dev/sdd tools are RunContext[AgentDeps]-typed (read
+            # ctx.deps.workspace_path); adapt the graph context so they don't NoneType.
+            _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets)
 
             validation_agent = Agent(
                 model=ctx.deps.agent_model,
                 output_type=ValidationResult,
-                deps_type=GraphDeps,
                 tools=domain_tools,
                 toolsets=domain_toolsets,
                 system_prompt=(
-                    f"You are a quality gate. Evaluate whether the execution results "
-                    f"fully and accurately answer the original query with specific data findings.\n\n"
+                    f"You are a quality gate. Score ONLY whether the results answer what "
+                    f"the query LITERALLY asked — nothing more.\n\n"
                     f"Original Query: {ctx.state.query}\n\n"
                     f"Execution Results:\n{results_summary}\n\n"
-                    f"CRITICAL: If the query asks for a list, status, or specific info, the results MUST contain "
-                    f"the actual data records, not just a summary that the task was completed.\n"
-                    f"## TESTING MINDSET CRITERIA\n"
-                    f"1. Did the agent run tests first to baseline or verify changes? (Check for 'pytest' or 'test' tool calls).\n"
-                    f"2. Did the agent produce relevant artifacts? (e.g. ExecutionNotes, walkthroughs, HTML explanations).\n"
-                    f"Score 0.0-1.0. If data is missing, testing protocol was ignored, or results are non-responsive, score < 0.7 and "
-                    f"provide EXACT feedback on what is missing (e.g. 'Missing the list of container names', 'Failed to run tests before implementing')."
+                    f"RULES:\n"
+                    f"- If the query asks for a list/status/info, the results must contain the "
+                    f"actual data records (not just 'task completed').\n"
+                    f"- Do NOT penalize for missing fields, extra detail, or context the query "
+                    f"did NOT explicitly request.\n"
+                    f"- Do NOT require tests/pytest/artifacts UNLESS the query asked to modify, "
+                    f"build, or test code. For read-only/list/get queries, testing is irrelevant.\n"
+                    f"Score 0.0-1.0: high if the literal ask is satisfied. Only score < 0.7 when "
+                    f"the data the query asked for is genuinely missing or wrong, and give EXACT "
+                    f"feedback on what literal requirement is unmet."
                 ),
             )
-            async with validation_agent.run_stream("Evaluate the results") as stream:
+            # CONCEPT:ORCH-1.37 (perf) — a verifier needs few requests; cap it (default 50).
+            import os as _os
+
+            from pydantic_ai.usage import UsageLimits
+
+            async with validation_agent.run_stream(
+                "Evaluate the results",
+                deps=_agent_deps,
+                usage_limits=UsageLimits(
+                    request_limit=int(_os.environ.get("VERIFIER_REQUEST_LIMIT", "4"))
+                ),
+            ) as stream:
                 validation = await asyncio.wait_for(
                     stream.get_output(), timeout=ctx.deps.verifier_timeout
                 )
@@ -258,14 +290,21 @@ async def verifier_step(
                 ctx.state.validation_feedback = validation.feedback
 
                 # Distinguish plan-level failures from execution-level failures.
-                # Very low scores (< 0.4) suggest the approach itself was wrong
-                # and a fresh plan is needed; moderate scores suggest the right
-                # plan was executed poorly and can be re-dispatched.
-                if validation.score < 0.4 and ctx.state.verification_attempts <= 2:
+                # Very low scores (< 0.4) suggest the approach itself was wrong and a fresh
+                # plan is needed; moderate scores suggest the right plan was executed poorly
+                # and can be re-dispatched.
+                # CONCEPT:ORCH-1.37 (perf) — re-planning is the most expensive action
+                # (rebuilds the whole plan + context). Only do it ONCE, and only when there
+                # are NO partial results to salvage; otherwise prefer cheap re-dispatch.
+                # This stops the score-0.00 → full-replan storm that overflowed context.
+                if (
+                    validation.score < 0.4
+                    and ctx.state.verification_attempts < 1
+                    and not ctx.state.results_registry
+                ):
                     logger.warning(
-                        f"Verifier: Score {validation.score:.2f} < 0.4. "
-                        f"Feedback: {validation.feedback[:200]}. "
-                        f"Re-planning (attempt {ctx.state.verification_attempts})."
+                        f"Verifier: Score {validation.score:.2f} < 0.4 and no partial "
+                        f"results. Feedback: {validation.feedback[:200]}. Re-planning once."
                     )
                     ctx.state.needs_replan = True
                     ctx.state.error = f"Plan-level failure: {validation.feedback[:300]}"
@@ -411,11 +450,16 @@ async def verifier_step(
                 ctx.state.verification_attempts += 1
                 ctx.state.validation_feedback = validation.feedback
 
-                if validation.score < 0.4 and ctx.state.verification_attempts <= 2:
+                # CONCEPT:ORCH-1.37 (perf) — re-plan once, only when nothing salvageable
+                # (mirrors the structured path; prevents the re-plan storm).
+                if (
+                    validation.score < 0.4
+                    and ctx.state.verification_attempts < 1
+                    and not ctx.state.results_registry
+                ):
                     logger.warning(
-                        f"Verifier: Score {validation.score:.2f} < 0.4. "
-                        f"Feedback: {validation.feedback[:200]}. "
-                        f"Re-planning (attempt {ctx.state.verification_attempts})."
+                        f"Verifier: Score {validation.score:.2f} < 0.4 and no partial "
+                        f"results. Feedback: {validation.feedback[:200]}. Re-planning once."
                     )
                     ctx.state.needs_replan = True
                     ctx.state.error = f"Plan-level failure: {validation.feedback[:300]}"

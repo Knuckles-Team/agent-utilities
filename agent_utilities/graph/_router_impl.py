@@ -11,6 +11,7 @@ Extracted from the monolithic steps.py for maintainability.
 import asyncio
 import contextlib
 import logging
+import os
 import re
 from typing import Any
 
@@ -361,6 +362,72 @@ async def router_step(
                 discovery_context += self_model_context(current)
             except Exception as e:
                 logger.debug(f"Self-Model proficiency injection failed: {e}")
+    # CONCEPT:ORCH-1.37 (perf) — DIRECT-DISPATCH FAST PATH.
+    # When the task resolves to a single connected MCP server (the common single-server
+    # deployment), skip the planner + memory_selection + verifier entirely: build an agent
+    # with just that server's toolset and run it ONCE. Collapses the ~5-call
+    # plan→execute→verify loop (which, with both models at supports_json=false, also churns
+    # on empty plans) down to a single execution call. First attempt only — re-plans keep
+    # the full pipeline. Disable with GRAPH_DIRECT_DISPATCH=false.
+    _direct_ok = (
+        os.environ.get("GRAPH_DIRECT_DISPATCH", "true").lower() != "false"
+        and not ctx.state.error
+        and ctx.state.verification_attempts == 0
+        and len(deps.mcp_toolsets) == 1
+    )
+    if _direct_ok:
+        try:
+            from pydantic_ai.usage import UsageLimits
+
+            from .executor import agent_deps_from_graph
+
+            _ts = deps.mcp_toolsets
+            _srv = getattr(_ts[0], "id", getattr(_ts[0], "name", "mcp-server"))
+            logger.info(
+                "[LAYER:GRAPH:ROUTER] Direct-dispatch fast-path: single server '%s' — "
+                "skipping planner/verifier.",
+                _srv,
+            )
+            _direct_agent = Agent(
+                model=deps.agent_model,
+                system_prompt=(
+                    f"You are operating the '{_srv}' MCP server. Use its tools to satisfy "
+                    f"the user's request directly and return exactly the data requested."
+                ),
+                toolsets=_ts,
+            )
+            _direct_deps = agent_deps_from_graph(deps, _ts)
+            _direct_res = await _direct_agent.run(
+                ctx.state.query,
+                deps=_direct_deps,
+                usage_limits=UsageLimits(
+                    request_limit=int(os.environ.get("AGENT_REQUEST_LIMIT", "8"))
+                ),
+            )
+            emit_graph_event(
+                deps.event_queue,
+                "routing_completed",
+                plan={},
+                reasoning=f"direct-dispatch: single server '{_srv}'",
+            )
+            return End(
+                GraphResponse(
+                    status="completed",
+                    results={"output": str(_direct_res.output)},
+                    metadata={
+                        "direct_dispatch": True,
+                        "server": _srv,
+                        "domain": _srv,
+                    },
+                )
+            )
+        except Exception as e:  # noqa: BLE001 — fall back to full planning on any failure
+            logger.warning(
+                "[LAYER:GRAPH:ROUTER] Direct-dispatch failed (%s); "
+                "falling back to full planning.",
+                e,
+            )
+
     # Reset cursor for the new plan
     ctx.state.step_cursor = 0
 
@@ -1200,8 +1267,23 @@ async def expert_executor_step(
                     toolsets=domain_toolsets,
                 )
 
+                # The injected developer_tools/sdd_tools are RunContext[AgentDeps]-typed and
+                # read ctx.deps.workspace_path; the graph context is GraphDeps (no
+                # workspace_path). Running without deps left ctx.deps=None →
+                # "'NoneType' object has no attribute 'workspace_path'". Adapt the graph
+                # context into a valid AgentDeps so injected tools AND MCP toolsets work.
+                from .executor import agent_deps_from_graph
+
+                _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets)
+
+                # CONCEPT:ORCH-1.37 (perf) — bound requests (default pydantic-ai cap is 50).
+                from pydantic_ai.usage import UsageLimits
+
+                _req_limit = int(os.environ.get("AGENT_REQUEST_LIMIT", "8"))
                 async with dynamic_agent.run_stream(
-                    f"Task context: {step.description}"
+                    f"Task context: {step.description}",
+                    deps=_agent_deps,
+                    usage_limits=UsageLimits(request_limit=_req_limit),
                 ) as stream:
                     res = await asyncio.wait_for(
                         stream.get_output(), timeout=ctx.deps.verifier_timeout
