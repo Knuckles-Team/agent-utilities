@@ -202,19 +202,19 @@ def test_task_submit_and_list(engine):
     assert job_id.startswith("job-")
 
     # The background worker thread is disabled during tests (AGENT_UTILITIES_TESTING),
-    # so we manually process the queue item to add the task node to the graph.
-    item = engine._submission_queue.get()
-    if item:
+    # so we manually process the queue to add the task node(s) to the graph.
+    #
+    # The submission queue is sqlite-backed and persists across runs, so a single
+    # FIFO ``get()`` may return an OLD queued item rather than the task we just
+    # submitted — leaving ours in the queue and flaking the assertion below. Drain
+    # the queue fully so the just-submitted task is always materialised.
+    while True:
+        item = engine._submission_queue.get()
+        if not item:
+            break
         item_id, task_data = item
-        print(f"DEBUG: add_node calling with {task_data}")
         engine.add_node(task_data["job_id"], "Task", properties=task_data["props"])
         engine._submission_queue.ack(item_id)
-
-    try:
-        res = engine.backend.execute("MATCH (t:Task) RETURN t")
-        print(f"DEBUG: MATCH (t:Task) RETURN t => {res}")
-    except Exception as e:
-        print(f"DEBUG: MATCH (t:Task) RETURN t ERROR => {e}")
 
     tasks = engine.list_tasks()
     print(f"DEBUG: tasks => {tasks}")
