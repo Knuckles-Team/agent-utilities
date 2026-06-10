@@ -58,6 +58,7 @@ async def test_run_agent_threads_context_into_config(monkeypatch):
 
     async def _fake_execute_graph(*, config, **kwargs):
         captured["invoker_context"] = config.get("invoker_context")
+        captured["invoker_budget_tokens"] = config.get("invoker_budget_tokens")
         return {"results": {"output": "ok"}}
 
     monkeypatch.setattr(agent_runner, "_execute_graph", _fake_execute_graph)
@@ -67,5 +68,21 @@ async def test_run_agent_threads_context_into_config(monkeypatch):
         task="do it",
         engine=object(),
         context="INVOKER SAYS: use the staging cluster only.",
+        budget_tokens=12345,
     )
     assert captured["invoker_context"] == "INVOKER SAYS: use the staging cluster only."
+    assert captured["invoker_budget_tokens"] == 12345
+
+
+@pytest.mark.concept("ORCH-1.38")
+def test_spawn_usage_limits_enforces_budget():
+    from agent_utilities.graph.executor import spawn_usage_limits
+
+    # No budget → request-bounded only, no token cap.
+    ul = spawn_usage_limits(GraphState(query="q"))
+    assert ul.request_limit is not None
+    assert ul.total_tokens_limit is None
+
+    # Budget set → enforced as a hard total-tokens limit.
+    ul2 = spawn_usage_limits(GraphState(query="q", invoker_budget_tokens=9000))
+    assert ul2.total_tokens_limit == 9000
