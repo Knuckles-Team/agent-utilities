@@ -320,6 +320,13 @@ def create_agent(
 
     """
 
+    # When the database-traversal tools are enabled for this agent, default RLM
+    # on so a db_query returning millions of rows is recursively processed by the
+    # rlm_large_output_hook instead of overflowing the context window (CONCEPT:
+    # ORCH-1.1 + ECO-4.33). An explicit ``use_rlm=`` always wins.
+    if not use_rlm and to_boolean(os.getenv("DB_TOOLS", "False")):
+        use_rlm = True
+
     # Centralized Knowledge Graph Coordination
     import sys
 
