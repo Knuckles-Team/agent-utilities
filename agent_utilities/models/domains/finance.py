@@ -113,3 +113,71 @@ class StrategyCardEntityNode(RegistryNode):
     author: str = ""
     status: str = "draft"
     review_score: float = 0.0
+
+
+class MicrostructureSignalNode(RegistryNode):
+    """A short-horizon microstructure alpha with measured statistical priors.
+
+    CONCEPT:EE-033 — the priors (directional accuracy, standalone Sharpe, decay)
+    are written back by the backtester and drive signal-fusion weights, so the
+    fusion self-adjusts as evidence accumulates. ``provenance`` cites the backtest
+    run id or the book/paper the signal was distilled from.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.MICROSTRUCTURE_SIGNAL
+    prediction_horizon: str = "1m"  # e.g. "30s", "1m", "5m"
+    directional_accuracy: float = 0.5  # measured prior ∈ [0, 1]
+    standalone_sharpe: float = 0.0  # measured prior (deflated Sharpe)
+    pbo: float = 0.0  # probability of backtest overfit (last validation)
+    decay_regime: str = "stationary"  # stationary | decaying | regime_dependent
+    half_life_days: float = 0.0
+    provenance: str = ""  # backtest run id / book citation
+    asset_class: str = "equities"
+    last_validated: str | None = None  # ISO timestamp of last priors write-back
+
+
+class _TradingKnowledgeBase(RegistryNode):
+    """Shared shape for knowledge distilled & classified from books/PDFs/notes.
+
+    CONCEPT:EE-036 — concrete subclasses (Strategy/Risk/Execution concept)
+    organise curated knowledge into typed, queryable nodes with citations and an
+    extraction-confidence score, rather than leaving it as a verbatim document.
+    """
+
+    topic: str = ""
+    source: str = ""  # book / paper / PDF title
+    chapter: str = ""
+    page_span: str = ""
+    confidence: float = 0.5  # extraction confidence ∈ [0, 1]
+
+
+class StrategyConceptNode(_TradingKnowledgeBase):
+    type: RegistryNodeType = RegistryNodeType.STRATEGY_CONCEPT
+
+
+class RiskConceptNode(_TradingKnowledgeBase):
+    type: RegistryNodeType = RegistryNodeType.RISK_CONCEPT
+
+
+class ExecutionConceptNode(_TradingKnowledgeBase):
+    type: RegistryNodeType = RegistryNodeType.EXECUTION_CONCEPT
+
+
+class TradeJournalNode(RegistryNode):
+    """A single trade decision recorded for the feedback loop.
+
+    CONCEPT:EE-034 — the expert agent writes one per decision; a nightly distill
+    pass promotes recurring profitable patterns into reusable strategy concepts.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.TRADE_JOURNAL
+    instrument: str = ""
+    stage: str = "paper"  # paper | advisory | bounded_autonomous
+    direction: str = "hold"  # buy | sell | hold
+    size: float = 0.0
+    signals_used: list[str] = []  # MicrostructureSignal ids fused for this decision
+    priors_snapshot: str = "{}"  # JSON of the priors at decision time
+    rationale: str = ""
+    regime_id: str = ""
+    outcome_pnl: float = 0.0
+    status: str = "open"  # open | closed | cancelled

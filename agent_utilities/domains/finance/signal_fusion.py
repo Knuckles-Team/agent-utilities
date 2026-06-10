@@ -32,6 +32,54 @@ class BayesianSignalFusion:
         """Register a new signal source with its historical accuracy."""
         self.sources[name] = SignalSource(name, weight, accuracy)
 
+    def seed_from_kg(
+        self,
+        signals: object,
+        *,
+        min_sharpe: float = 0.0,
+        max_pbo: float = 0.5,
+    ) -> int:
+        """Seed fusion sources from stored MicrostructureSignal priors.
+
+        CONCEPT:EE-033 — closes the priors→weights loop. ``signals`` is an
+        iterable of records (``MicrostructureSignalNode`` instances or plain
+        mappings) carrying ``directional_accuracy``, ``standalone_sharpe``, and
+        ``pbo``. Each surviving signal is registered with
+        ``weight = directional_accuracy * standalone_sharpe`` (the ``fusionWeight``
+        prior) and ``accuracy = directional_accuracy``. Signals that are overfit
+        (``pbo > max_pbo``) or carry no edge (``standalone_sharpe <= min_sharpe``)
+        are skipped, so the backtester's measured results drive the weights
+        automatically on the next cycle. Returns the number registered.
+        """
+
+        def _get(rec: object, key: str, default: float) -> float:
+            if isinstance(rec, dict):
+                val = rec.get(key, default)
+            else:
+                val = getattr(rec, key, default)
+            try:
+                return float(val) if val is not None else default
+            except (TypeError, ValueError):
+                return default
+
+        def _name(rec: object) -> str:
+            if isinstance(rec, dict):
+                return str(rec.get("name") or rec.get("id") or "")
+            return str(getattr(rec, "name", "") or getattr(rec, "id", ""))
+
+        registered = 0
+        for rec in signals or []:
+            sharpe = _get(rec, "standalone_sharpe", 0.0)
+            pbo = _get(rec, "pbo", 0.0)
+            acc = _get(rec, "directional_accuracy", 0.5)
+            name = _name(rec)
+            if not name or pbo > max_pbo or sharpe <= min_sharpe:
+                continue
+            self.register_source(name, weight=max(0.0, acc * sharpe), accuracy=acc)
+            registered += 1
+        logger.debug("seed_from_kg registered %d signal sources", registered)
+        return registered
+
     def update(
         self, current_prior: float, signal_direction: int, source_name: str
     ) -> float:
