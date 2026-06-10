@@ -1,4 +1,4 @@
-# Design: Invoker→Spawned-Agent Shared Context Handoff (ORCH-1.38)
+# Design: Invoker→Spawned-Agent Shared Context Handoff (ORCH-1.39)
 
 > A capability so an invoking agent can **curate context, persist it to the epistemic-graph,
 > and have the spawned agent reference it** — giving the spawned agent the right model + tools +
@@ -143,7 +143,7 @@ speculatively; lean on `elicitation_queue` + A2A + EventBus until a concrete str
 pattern justifies a thin session-scoped `Message` relation.
 
 ## Concept & wiring
-- **Proposed CONCEPT:ORCH-1.38** — sub-concept of ORCH-1.21 (execution bridge); composes with
+- **Proposed CONCEPT:ORCH-1.39** — sub-concept of ORCH-1.21 (execution bridge); composes with
   KG-2.1 (memory) + KG-2.12 (memory-first retrieval). Wire-First: ≤2 hops from
   `graph_orchestrate(execute_agent)` → `run_agent(context=...)` → spawn assembler.
 - Schema addition (`ContextBlob`, `HAS_CONTEXT`) → consider OWL ontology entry (constitution).
