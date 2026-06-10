@@ -206,12 +206,14 @@ ONYX_CONNECTOR_PARITY: dict[str, dict[str, str]] = {
     "asana": {"route": "mcp", "via": "native", "package": "plane-agent"},
     "clickup": {"route": "mcp", "via": "native", "package": "plane-agent"},
     "productboard": {"route": "mcp", "via": "native", "package": "plane-agent"},
-    # On-disk + crawlable routes.
+    # On-disk + object-store + crawlable routes.
     "file": {"route": "filesystem", "via": "filesystem", "package": ""},
+    "blob": {"route": "filesystem", "via": "filesystem", "package": ""},
     "web": {"route": "web", "via": "web", "package": ""},
     "wikipedia": {"route": "web", "via": "web", "package": ""},
     "mediawiki": {"route": "web", "via": "web", "package": ""},
-    "google_sites": {"route": "web", "via": "web", "package": ""},
+    "drupal_wiki": {"route": "web", "via": "web", "package": ""},
+    "google_site": {"route": "web", "via": "web", "package": ""},
     "gitbook": {"route": "web", "via": "web", "package": ""},
     "bookstack": {"route": "web", "via": "web", "package": ""},
     "document360": {"route": "web", "via": "web", "package": ""},
