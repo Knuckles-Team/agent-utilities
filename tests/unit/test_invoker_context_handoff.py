@@ -110,6 +110,30 @@ async def test_run_agent_resolves_context_ref(monkeypatch):
     assert captured["invoker_context"] == "RESOLVED BLOB CONTENT"
 
 
+@pytest.mark.concept("ORCH-1.37")
+def test_plan_output_type_uses_promptedoutput_for_non_json_models(monkeypatch):
+    """FU-2: planner wraps GraphPlan in PromptedOutput when the model can't do native JSON."""
+    from pydantic_ai import PromptedOutput
+
+    from agent_utilities.graph import hierarchical_planner as hp
+
+    class _M:
+        model_name = "qwen-lite"
+
+    monkeypatch.setattr(
+        hp, "get_model_config", lambda mid=None: {"supports_json": False}, raising=False
+    )
+    # ensure the helper imports our patched get_model_config path:
+    import agent_utilities.core.model_factory as mf
+
+    monkeypatch.setattr(mf, "get_model_config", lambda mid=None: {"supports_json": False})
+    out = hp._plan_output_type(_M())
+    assert isinstance(out, PromptedOutput)
+
+    monkeypatch.setattr(mf, "get_model_config", lambda mid=None: {"supports_json": True})
+    assert hp._plan_output_type(_M()) is hp.GraphPlan
+
+
 @pytest.mark.concept("ORCH-1.38")
 def test_apply_tool_scope_filters_to_allow_list():
     from agent_utilities.graph.executor import apply_tool_scope
