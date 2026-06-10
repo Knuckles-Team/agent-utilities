@@ -38,7 +38,18 @@ These genuinely vary per host and aren't derivable. **Action:** ensure each is a
 `AgentConfig` field; remove duplicate bare reads (`GRAPH_DB_URI` is read in 4 places,
 `AGENT_UTILITIES_CONFIG_DIR` in 5).
 
-## B. Daemon on/off toggles, all default ON — REMOVE (always-on; one `KG_DEV_MODE`)
+## B. Daemon on/off toggles, all default ON — REMOVED (Phase 3) ✓
+
+**Done.** The six always-on toggles below were deleted and collapsed behind a single
+`KG_DEV_MODE` switch on `AgentConfig`, read through one `engine_tasks._kg_dev_mode()` helper
+that gates the maintenance scheduler + embedding-backfill startup. Production keeps every daemon
+on; `KG_DEV_MODE=1` silences the lot. Removed: `KG_EMBED_BACKFILL`, `KG_ENRICH_DAEMON`,
+`KG_FILE_WATCH`, `KG_HYGIENE_DAEMON`, `KG_TASK_REAPER_DAEMON`, `KG_RECONCILE_DURABLE`. Also fixed
+the `KG_EMBED_BACKFILL_BATCH` dual-default bug → two named constants
+(`_EMBED_BACKFILL_BUDGET=256`, `_EMBED_BACKFILL_FETCH=512`). Sprawl baseline 95 → 88. (The
+`KG_CONCEPT_CODE_LINK` toggle lives in another module and is still pending.)
+
+Original inventory (for reference):
 
 | Flag | Default | Gated thread/job (`engine_tasks.py`) |
 |---|---|---|

@@ -121,6 +121,31 @@ import sqlite3
 from .queue_backend import QueueBackend
 
 
+def _kg_dev_mode() -> bool:
+    """True when ``KG_DEV_MODE`` disables all KG background daemons.
+
+    One switch replaces the per-daemon ``KG_*_DAEMON`` env toggles (which all
+    defaulted on): production runs every daemon; dev can silence the lot. Read
+    via ``AgentConfig`` so there's a single typed source of truth, not scattered
+    ``os.environ`` reads. (CONCEPT:KG-2.8 / config discipline)
+    """
+    try:
+        from agent_utilities.core.config import config
+
+        return bool(getattr(config, "kg_dev_mode", False))
+    except Exception:  # noqa: BLE001 — config unavailable → daemons on (prod default)
+        return False
+
+
+# Embedding-backfill sizing. Previously the single overloaded
+# ``KG_EMBED_BACKFILL_BATCH`` env was read in two places with CONFLICTING
+# defaults (256 vs 512) for two genuinely different knobs — a config bug. They
+# are now two named constants: the per-tick node budget and the per-query DB
+# fetch size. (CONCEPT:KG-2.8 / config discipline)
+_EMBED_BACKFILL_BUDGET = 256
+_EMBED_BACKFILL_FETCH = 512
+
+
 class SQLiteTaskQueue(QueueBackend):
     """Thread-safe, persistent SQLite-backed queue for tasks to prevent memory loss on restarts."""
 
@@ -385,6 +410,12 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
             return
 
+        # KG background daemons are always on in production; the single
+        # KG_DEV_MODE switch disables the whole set (it replaced the per-daemon
+        # KG_*_DAEMON env toggles). (CONCEPT:KG-2.8 / config discipline)
+        if _kg_dev_mode():
+            return
+
         # Single consolidated maintenance scheduler (CONCEPT:KG-2.8): runs ALL
         # periodic KG jobs (analysis, compaction, evolution, enrichment, AND the
         # SDD/skills/scholarx file-watch scan — see ``_maintenance_jobs``) in ONE
@@ -399,13 +430,12 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         # Dedicated vector-embedding backfill drain (separate from the periodic
         # scheduler so it is never starved behind slow LLM ticks). (KG-2.8)
-        if os.environ.get("KG_EMBED_BACKFILL", "1") != "0":
-            self._embed_backfill_thread = threading.Thread(
-                target=self._embedding_backfill_loop,
-                daemon=True,
-                name="KG-Embedding-Backfill",
-            )
-            self._embed_backfill_thread.start()
+        self._embed_backfill_thread = threading.Thread(
+            target=self._embedding_backfill_loop,
+            daemon=True,
+            name="KG-Embedding-Backfill",
+        )
+        self._embed_backfill_thread.start()
 
     def unified_daemon_status(self) -> dict[str, Any]:
         """Status of the single consolidated background daemon (CONCEPT:KG-2.8).
@@ -601,12 +631,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         # (durable Postgres) so the stores converge and an L1-only run / restart /
         # new node type can never silently diverge. Self-healing: runs ~15s after
         # startup then every KG_RECONCILE_INTERVAL. Registered only when a durable
-        # reconcile exists (tiered backend); opt-out with KG_RECONCILE_DURABLE=0.
-        if (
-            callable(
-                getattr(getattr(self, "backend", None), "reconcile_to_durable", None)
-            )
-            and os.environ.get("KG_RECONCILE_DURABLE", "1") != "0"
+        # reconcile exists (tiered backend). Disabled wholesale via KG_DEV_MODE.
+        if callable(
+            getattr(getattr(self, "backend", None), "reconcile_to_durable", None)
         ):
             jobs.append(
                 (
@@ -615,14 +642,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_reconcile_durable,
                 )
             )
-        if os.environ.get("KG_ENRICH_DAEMON", "1") != "0":
-            jobs.append(
-                (
-                    "enrichment",
-                    float(os.getenv("KG_ENRICH_INTERVAL", "20")),
-                    self._tick_enrichment,
-                )
+        jobs.append(
+            (
+                "enrichment",
+                float(os.getenv("KG_ENRICH_INTERVAL", "20")),
+                self._tick_enrichment,
             )
+        )
         # SDD/skills/scholarx/config file-watch as a periodic scan job — folded
         # in here instead of its own KGPlanWatcherThread + watchdog. Gated by
         # ``config.enable_sdd_watcher``. (CONCEPT:KG-2.6 / OS-5.0)
@@ -632,7 +658,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             watch_enabled = getattr(_cfg, "enable_sdd_watcher", True)
         except Exception:  # noqa: BLE001
             watch_enabled = True
-        if watch_enabled and os.environ.get("KG_FILE_WATCH", "1") != "0":
+        if watch_enabled:
             jobs.append(
                 (
                     "file_watch",
@@ -641,27 +667,25 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
             )
         # Memory hygiene: decay-archive stale AI memory + semantic-merge dedup (CONCEPT:KG-2.17).
-        # Long interval (default daily) — bounded maintenance, gated by KG_HYGIENE_DAEMON.
-        if os.environ.get("KG_HYGIENE_DAEMON", "1") != "0":
-            jobs.append(
-                (
-                    "hygiene",
-                    float(os.getenv("KG_HYGIENE_INTERVAL", "86400")),
-                    self._tick_hygiene,
-                )
+        # Long interval (default daily) — bounded maintenance.
+        jobs.append(
+            (
+                "hygiene",
+                float(os.getenv("KG_HYGIENE_INTERVAL", "86400")),
+                self._tick_hygiene,
             )
+        )
         # Zombie/stuck task reaper: requeue 'running' tasks orphaned by a dead
         # worker/host so a killed/redeployed host's in-flight ingestions are
         # recovered within minutes instead of stranding forever. Short interval.
         # (CONCEPT:KG-2.8 ingestion durability)
-        if os.environ.get("KG_TASK_REAPER_DAEMON", "1") != "0":
-            jobs.append(
-                (
-                    "task_reaper",
-                    float(os.getenv("KG_TASK_REAPER_INTERVAL", "120")),
-                    self._tick_task_reaper,
-                )
+        jobs.append(
+            (
+                "task_reaper",
+                float(os.getenv("KG_TASK_REAPER_INTERVAL", "120")),
+                self._tick_task_reaper,
             )
+        )
         return jobs
 
     def _tick_hygiene(self) -> None:
@@ -1024,8 +1048,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         bounded batches with the configured model, behind the shared foreground
         gate. Idempotent (only ``embedding IS NULL`` rows). (CONCEPT:KG-2.8)
         """
-        import os
-
         l3 = getattr(self.backend, "l3", self.backend)
         conn_factory = getattr(l3, "_conn", None)
         get_tables = getattr(l3, "_get_embedding_tables", None)
@@ -1036,10 +1058,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         ):
             return 0  # not a pgvector-backed L3
 
-        try:
-            budget = int(os.getenv("KG_EMBED_BACKFILL_BATCH", "256"))
-        except ValueError:
-            budget = 256
+        budget = _EMBED_BACKFILL_BUDGET
 
         tables = get_tables()
         if not tables:
@@ -1151,10 +1170,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         import os
         import time
 
-        try:
-            batch = int(os.getenv("KG_EMBED_BACKFILL_BATCH", "512"))
-        except ValueError:
-            batch = 512
+        batch = _EMBED_BACKFILL_FETCH
         try:
             idle = float(os.getenv("KG_EMBED_BACKFILL_INTERVAL", "30"))
         except ValueError:
