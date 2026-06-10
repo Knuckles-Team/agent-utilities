@@ -11,6 +11,40 @@ Edit THIS file for any narrative / conventions changes, then run:
 > Claude Code loads this file via `CLAUDE.md` (`@AGENTS.md` import) — the two stay
 > in sync. Edit `AGENTS.head.md` (then regenerate), never `CLAUDE.md`.
 
+## Working Discipline — think, simplify, stay surgical, verify (READ FIRST)
+
+These four habits cut the most common LLM coding mistakes. The deeper, domain-specific
+sections below (*Configuration discipline*, *Wire-First*, *Naming*, *Quality Bar*) are
+**applications** of them — read those as the concrete enforcement of these defaults.
+For trivial tasks, use judgment; the bias here is correctness over speed.
+
+- **Think before coding.** State your assumptions explicitly. If a request has more than
+  one reasonable reading, surface the options instead of silently picking one. If a
+  simpler approach exists, say so and push back when warranted. When something is
+  genuinely unclear, stop and name what's confusing — ask, don't guess. (Cf. *When Stuck*.)
+- **Simplicity first.** Write the minimum code that solves the *stated* problem — no
+  speculative features, no abstraction for single-use code, no configurability that
+  wasn't requested, no error handling for impossible states. If you wrote 200 lines and
+  it could be 50, rewrite it. Ask: "would a senior engineer call this overcomplicated?"
+  This is the general form of two rules we already enforce: **Configuration discipline**
+  (an env flag is a last resort — YAGNI) and **Wire-First** (no code ships without a live
+  caller).
+- **Stay surgical.** Every changed line should trace directly to the task. Don't refactor,
+  reformat, or "improve" working code adjacent to your change; match the existing style
+  even where you'd do it differently. Remove only the imports/symbols your *own* change
+  orphaned; if you spot unrelated dead code, mention it rather than deleting it inline.
+  **Two deliberate exceptions — both already standing rules here:** the **Quality Bar**
+  (lint/format/type errors the pre-commit gate flags get fixed regardless of who
+  introduced them) and **strangler-then-delete** (a planned migration removes the old
+  path once the new one is live). In short: **surgical on behavior; clean on lint; delete
+  only on a planned strangle.**
+- **Verify against a goal.** Turn the task into a checkable outcome *before* you start:
+  "fix the bug" → "write a failing test that reproduces it, then make it pass"; "add
+  validation" → "tests for the invalid inputs pass"; "refactor X" → "the suite is green
+  before and after". For multi-step work, state the short plan and the check for each
+  step, then loop until the checks pass. **"Done" means a live path actually invokes it**
+  (see *Wire-First*) **and the unit suite is green** — not merely that the code compiles.
+
 ## Architecture Reference (current)
 
 - **Engine transport.** Python talks to the Rust `epistemic-graph` engine **only**
@@ -148,8 +182,11 @@ So the default for any non-trivial change is:
    Do all edits, builds, and tests under that path. (`/home/apps/worktrees/` is the convention.)
 2. **Commit early and often.** A working-tree reset can only wipe *uncommitted* changes — committing
    is what protects the work. Commit each coherent step; don't leave a large diff uncommitted.
-3. **Merge to `main` locally at the end, in one go** (fast-forward / no-op-safe), then remove the
-   worktree (`git worktree remove`). Push only when the user asks.
+3. **Merge to `main` locally at the end, in one go** (fast-forward / no-op-safe), then **clean
+   up**: remove the worktree and delete the now-merged branch
+   (`git worktree remove <path> && git branch -d <topic>`, or `rm_worktree remove <repo>
+   <branch> --delete-branch`; `git worktree prune` clears stale entries). Push only when
+   the user asks. See *Finishing work in a worktree* below for the full sequence.
 4. A plain feature branch in the main checkout is **not** sufficient isolation — a sibling session's
    `git checkout` still mutates the shared tree. Use a worktree for real isolation.
 
@@ -351,12 +388,21 @@ git -C agent-packages/<repo> checkout main
 git -C agent-packages/<repo> worktree add /home/apps/worktrees/<repo>/<branch> -b <branch>
 ```
 
-Work in the worktree, **commit often** (commits survive a working-tree reset),
-then merge to main locally (`rm_worktree merge <repo> <branch>`, or `git merge
---no-ff`). Each session must use a **distinct branch** — git allows a branch in
-only one worktree, which is what keeps concurrent sessions from colliding.
-Worktrees live under `/home/apps/worktrees/` (outside the workspace scan, so the
-sync leaves them alone). Push only when asked.
+Work in the worktree and **commit often** (commits survive a working-tree reset).
+Each session must use a **distinct branch** — git allows a branch in only one
+worktree, which is what keeps concurrent sessions from colliding. Worktrees live
+under `/home/apps/worktrees/` (outside the workspace scan, so the sync leaves them
+alone).
+
+**Finishing work in a worktree** — run this sequence before calling it done:
+1. **Pre-commit green** — `pre-commit run --all-files`; resolve every issue per the
+   *Quality Bar* above (including pre-existing), no `--no-verify`.
+2. **Commit** in the worktree.
+3. **Merge to main locally** — `rm_worktree merge <repo> <branch> --into main`
+   (or `git merge --no-ff`). Push only when the user asks.
+4. **Clean up** — remove the worktree and delete the merged branch:
+   `rm_worktree remove <repo> <branch> --delete-branch`; `rm_worktree prune` clears
+   stale entries. (Raw-git: `git worktree remove <path> && git branch -d <branch>`.)
 
 ## Project Structure (generated)
 
