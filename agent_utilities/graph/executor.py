@@ -557,6 +557,7 @@ def agent_deps_from_graph(
         approval_timeout=deps.approval_timeout,
         graph_event_queue=deps.event_queue,
         auth_token=_resolve_invoker_cred(state, deps),
+        message_channel_id=getattr(state, "invoker_channel_id", None),  # CONCEPT:ORCH-1.39
     )
 
 

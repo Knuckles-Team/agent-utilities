@@ -1922,6 +1922,50 @@ def _build_server(bootstrap: bool = True):
     REGISTERED_TOOLS["graph_context"] = graph_context
 
     # ══════════════════════════════════════════════════════════════════
+    # 1c. graph_message — CONCEPT:ORCH-1.39 invoker↔spawned-agent message channel
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_message",
+        description=(
+            "CONCEPT:ORCH-1.39 — bidirectional, cross-process, ordered message channel between "
+            "an invoking agent and a spawned agent, over the epistemic-graph native channels. "
+            "Actions: 'open' (session_id+run_id → channel_id), 'send' (channel_id+sender+payload), "
+            "'receive' (channel_id [+since cursor] → new messages + cursor), 'close'. Use the "
+            "channel_id returned by graph_orchestrate(execute_agent) to talk to the spawned agent."
+        ),
+        tags=["graph-os", "orchestrate", "messaging"],
+    )
+    async def graph_message(
+        action: str = Field(default="receive", description="open | send | receive | close"),
+        channel_id: str = Field(default="", description="Channel id (send/receive/close)."),
+        session_id: str = Field(default="", description="Session id (open)."),
+        run_id: str = Field(default="", description="Spawned run id (open)."),
+        sender: str = Field(default="invoker", description="Sender label (send)."),
+        payload: str = Field(default="", description="Message text (send)."),
+        since: int = Field(default=0, description="Cursor: messages already consumed (receive)."),
+    ) -> str:
+        from agent_utilities.messaging import agent_channel
+
+        engine = _get_engine()
+        if not engine:
+            return json.dumps({"error": "IntelligenceGraphEngine not active."})
+        if action == "open":
+            cid = agent_channel.open_channel(engine, session_id, run_id)
+            return json.dumps({"channel_id": cid})
+        if action == "send":
+            return json.dumps(
+                {"sent": agent_channel.send(engine, channel_id, sender, payload)}
+            )
+        if action == "receive":
+            msgs, cursor = agent_channel.receive(engine, channel_id, since=since)
+            return json.dumps({"messages": msgs, "cursor": cursor}, default=str)
+        if action == "close":
+            return json.dumps({"closed": agent_channel.close(engine, channel_id)})
+        return json.dumps({"error": f"unknown action: {action}"})
+
+    REGISTERED_TOOLS["graph_message"] = graph_message
+
+    # ══════════════════════════════════════════════════════════════════
     # 2. kg_search — Unified search (hybrid, concept, analogy, memory)
     # ══════════════════════════════════════════════════════════════════
 
@@ -2893,6 +2937,12 @@ def _build_server(bootstrap: bool = True):
             "spawned agent's auth_token at spawn (never logged). Use instead of passing raw "
             "secrets. Empty = none.",
         ),
+        open_channel: bool = Field(
+            default=False,
+            description="CONCEPT:ORCH-1.39 — when True (action='execute_agent'), open a native "
+            "bidirectional message channel for this run; the response JSON includes a "
+            "'channel_id' to talk to the spawned agent via graph_message(send/receive).",
+        ),
     ) -> str:
         """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution.
 
@@ -3032,6 +3082,7 @@ def _build_server(bootstrap: bool = True):
                             or None
                         ),
                         cred_ref=cred_ref or None,
+                        open_channel=bool(open_channel),  # CONCEPT:ORCH-1.39
                     )
                     return agent_result
                 except Exception as exc:

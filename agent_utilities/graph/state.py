@@ -220,6 +220,10 @@ class GraphState:
     # Resolved to the raw token ONLY at deps-build time onto the transient AgentDeps.auth_token —
     # the raw secret is NEVER stored in GraphState/graph/logs.
     invoker_cred_ref: str | None = None
+    # CONCEPT:ORCH-1.39 — the invoker↔spawned native message-channel id for this run; set onto
+    # the spawned agent's AgentDeps.message_channel_id so its tools can talk back. Seeded from
+    # config["message_channel_id"] (opened by run_agent) at GraphState construction.
+    invoker_channel_id: str | None = None
 
     validation_feedback: str | None = None
     """Feedback from ValidatorNode to DomainNode for self-correction."""
