@@ -167,14 +167,16 @@ class EpistemicGraphBackend(GraphBackend):
         # literal (``{id:'foo'}``) — interactive callers commonly write the literal.
         out = re.search(
             anchor_re + r"\s*-\s*\[\s*\w*\s*:?\s*(\w+)?[^\]]*\]\s*->\s*" + tgt_re,
-            q, re.I,
+            q,
+            re.I,
         )
         if out:
             direction, m = "out", out
         else:
             inb = re.search(
                 anchor_re + r"\s*<-\s*\[\s*\w*\s*:?\s*(\w+)?[^\]]*\]\s*-\s*" + tgt_re,
-                q, re.I,
+                q,
+                re.I,
             )
             if not inb:
                 return False, []
@@ -191,7 +193,8 @@ class EpistemicGraphBackend(GraphBackend):
 
         rel_upper = rel.upper() if rel else None
         step = (
-            self._graph.get_successors if direction == "out"
+            self._graph.get_successors
+            if direction == "out"
             else self._graph.get_predecessors
         )
         matched: list[tuple[str, dict[str, Any]]] = []
@@ -252,8 +255,17 @@ class EpistemicGraphBackend(GraphBackend):
         if not m:
             return False, []
         (
-            lvar, llabel, linline, larrow, lo_s, dotdot, hi_s, rarrow,
-            rvar, rlabel, rinline,
+            lvar,
+            llabel,
+            linline,
+            larrow,
+            lo_s,
+            dotdot,
+            hi_s,
+            rarrow,
+            rvar,
+            rlabel,
+            rinline,
         ) = m.groups()
 
         def _id_from_inline(inline: str | None) -> Any:
@@ -300,9 +312,7 @@ class EpistemicGraphBackend(GraphBackend):
             matched.append((nid, data))
         return True, self._project(q, free_var, matched, params)
 
-    def _khop(
-        self, anchor: str, lo: int, hi: int, direction: str
-    ) -> list[str]:
+    def _khop(self, anchor: str, lo: int, hi: int, direction: str) -> list[str]:
         """Bounded BFS from ``anchor``: node ids first reached in ``[lo, hi]`` hops.
 
         ``direction``: 'out' (successors), 'in' (predecessors), 'both' (neighbours).
