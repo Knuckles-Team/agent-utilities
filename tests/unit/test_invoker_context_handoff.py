@@ -74,6 +74,42 @@ async def test_run_agent_threads_context_into_config(monkeypatch):
     assert captured["invoker_budget_tokens"] == 12345
 
 
+@pytest.mark.asyncio
+@pytest.mark.concept("ORCH-1.38")
+async def test_run_agent_resolves_context_ref(monkeypatch):
+    """context_ref resolves a persisted ContextBlob's content into invoker_context
+    (Phase 2 cross-process handoff)."""
+    from agent_utilities.orchestration import agent_runner
+
+    captured = {}
+
+    class _FakeEngine:
+        backend = None
+
+        def query_cypher(self, cypher, params=None, **kw):
+            params = params or {}
+            if "ContextBlob" in cypher and params.get("id") == "ctx:abc:1":
+                return [{"content": "RESOLVED BLOB CONTENT"}]
+            return []
+
+    monkeypatch.setattr(agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"})
+    monkeypatch.setattr(
+        agent_runner, "_build_execution_config", lambda e, n, m: {"tag_prompts": {}}
+    )
+    monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
+
+    async def _fake_execute_graph(*, config, **kwargs):
+        captured["invoker_context"] = config.get("invoker_context")
+        return {"results": {"output": "ok"}}
+
+    monkeypatch.setattr(agent_runner, "_execute_graph", _fake_execute_graph)
+
+    await agent_runner.run_agent(
+        agent_name="stub", task="t", engine=_FakeEngine(), context_ref="ctx:abc:1"
+    )
+    assert captured["invoker_context"] == "RESOLVED BLOB CONTENT"
+
+
 @pytest.mark.concept("ORCH-1.38")
 def test_spawn_usage_limits_enforces_budget():
     from agent_utilities.graph.executor import spawn_usage_limits
