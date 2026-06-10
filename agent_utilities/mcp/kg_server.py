@@ -1841,6 +1841,15 @@ def _build_server(bootstrap: bool = True):
                     "producer": _SESSION_ID,
                 },
             )
+            # CONCEPT:ORCH-1.39 — session-anchored collection: upsert the id-addressable
+            # Session node and link it, so "list by session" is a reliable id-anchored
+            # traversal (the engine has no property index; property scans are unreliable).
+            snode = f"session:{sid}"
+            with contextlib.suppress(Exception):
+                engine.add_node(
+                    snode, "Session", properties={"id": snode, "session_id": sid}
+                )
+                engine.add_edge(snode, cid, "HAS_CONTEXT")
             return json.dumps({"context_id": cid, "session_id": sid})
         if action == "get":
             if not context_id:
@@ -1885,19 +1894,27 @@ def _build_server(bootstrap: bool = True):
                 return json.dumps({"error": str(exc)})
         if action == "list":
             try:
-                # Inline-property match (the form the backend reliably supports; the
-                # `WHERE c.prop = $x` shape falls back to a legacy over-matching reader).
+                # CONCEPT:ORCH-1.39 — id-anchored traversal from the Session node (the engine's
+                # reliable, fast O(degree) path; the index-less backend can't serve property
+                # scans). The traversal reader returns whole nodes (`RETURN c`), so project +
+                # sort + limit client-side.
                 rows = engine.query_cypher(
-                    "MATCH (c:ContextBlob {session_id: $sid}) "
-                    "RETURN c.id AS context_id, c.key AS key, c.created_at AS created_at "
-                    "ORDER BY c.created_at DESC LIMIT 50",
-                    {"sid": session_id},
+                    "MATCH (s {id: $snode})-[:HAS_CONTEXT]->(c:ContextBlob) RETURN c",
+                    {"snode": f"session:{session_id}"},
                 )
-                # Defensive client-side filter in case the backend still over-matches.
-                rows = [
-                    r for r in (rows or []) if str(r.get("context_id", "")).startswith("ctx:")
-                ]
-                return json.dumps(rows, default=str)
+                items = []
+                for r in rows or []:
+                    c = r.get("c") if isinstance(r, dict) else None
+                    if isinstance(c, dict) and str(c.get("id", "")).startswith("ctx:"):
+                        items.append(
+                            {
+                                "context_id": c.get("id"),
+                                "key": c.get("key"),
+                                "created_at": c.get("created_at"),
+                            }
+                        )
+                items.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
+                return json.dumps(items[:50], default=str)
             except Exception as exc:  # noqa: BLE001
                 return json.dumps({"error": str(exc)})
         return json.dumps({"error": f"unknown action: {action}"})
