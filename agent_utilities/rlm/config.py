@@ -71,6 +71,21 @@ class RLMConfig(BaseModel):
         description="Whether to run the REPL in a high-performance WASM sandbox (WasmAgentRunner). Overrides use_container.",
     )
 
+    use_monty: bool = Field(
+        default_factory=lambda: to_boolean(os.getenv("RLM_USE_MONTY", "False")),
+        description="Force the monty sandbox (fast in-process isolation with host callbacks). Overrides use_wasm/use_container.",
+    )
+
+    sandbox: Literal["auto", "local", "monty", "wasm", "docker"] = Field(
+        default_factory=lambda: os.getenv("RLM_SANDBOX", "auto"),  # type: ignore[arg-type]
+        description=(
+            "CONCEPT:ORCH-1.38 — sandbox selection. 'auto' engages the capability-driven "
+            "router (cheapest capable backend, escalate on reject); any explicit value pins "
+            "that one backend. The legacy use_monty/use_wasm/use_container booleans are "
+            "honored as overrides for back-compat and map onto this field."
+        ),
+    )
+
     max_context_threshold: int = Field(
         default=50_000,
         description="Character threshold for tool outputs to auto-trigger RLM routing.",
@@ -150,6 +165,23 @@ class RLMConfig(BaseModel):
         default="process_flow",
         description="How to store RLM trajectories in the Knowledge Graph.",
     )
+
+    def resolved_sandbox(self) -> str:
+        """Collapse the ``sandbox`` field + legacy boolean overrides into one selection.
+
+        CONCEPT:ORCH-1.38. Precedence (first wins): explicit ``sandbox`` != 'auto' →
+        ``use_monty`` → ``use_wasm`` → ``use_container`` → 'auto'. Returns 'auto' (engage the
+        router) or a concrete backend name (the router treats it as a forced pin).
+        """
+        if self.sandbox != "auto":
+            return self.sandbox
+        if self.use_monty:
+            return "monty"
+        if self.use_wasm:
+            return "wasm"
+        if self.use_container:
+            return "docker"
+        return "auto"
 
     def should_trigger(
         self,

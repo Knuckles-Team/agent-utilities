@@ -37,17 +37,22 @@ FailureClass = Literal[
     "host_tool_timeout",
     "sandbox_exec_timeout",
     "sandbox_fatal",
+    "sandbox_escalated",
     "evaluator_reject",
     "unknown",
 ]
 
 # Precedence: a fatal sandbox failure dominates a tool timeout dominates a code error, etc.
+# ``sandbox_escalated`` (a backend rejected the snippet and the router moved to the next tier,
+# CONCEPT:ORCH-1.38) sits near the bottom — it is a benign routing event, not a run failure,
+# and is dominated by any real failure that co-occurred.
 _PRECEDENCE: tuple[FailureClass, ...] = (
     "sandbox_fatal",
     "sandbox_exec_timeout",
     "host_tool_timeout",
     "model_generated_bad_code",
     "evaluator_reject",
+    "sandbox_escalated",
     "unknown",
 )
 
@@ -58,6 +63,11 @@ def classify_failure(exc: BaseException | str) -> FailureClass:
         return "sandbox_fatal"
     if isinstance(exc, asyncio.TimeoutError):
         return "host_tool_timeout"
+    # ORCH-1.38: a router escalation (SandboxRejected). Matched by class name to avoid a
+    # circular import (this module is imported by the sandboxes layer). Must precede the
+    # generic "reject" text match below so it is not mis-bucketed as ``evaluator_reject``.
+    if type(exc).__name__ == "SandboxRejected" and not isinstance(exc, str):
+        return "sandbox_escalated"
     text = str(exc).lower()
     if (
         "sandboxfatal" in text

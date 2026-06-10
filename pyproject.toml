@@ -41,6 +41,10 @@ dependencies = [
     "llama-index-embeddings-openai>=0.6.0",
     "pydantic-acp>=0.1.0",
     "defusedxml>=0.7.1",
+    # CONCEPT:ORCH-1.38 — monty is the default fast/isolated RLM sandbox tier. Small pure-Rust
+    # wheel, no transitive deps; the backend import is guarded so absence degrades to the local
+    # floor. Experimental 0.0.x: pinned below 0.1 to avoid surprise API breaks.
+    "pydantic-monty>=0.0.18,<0.1.0",
 ]
 
 [[project.authors]]
@@ -51,6 +55,11 @@ email = "knucklessg1@gmail.com"
 text = "MIT"
 
 [project.optional-dependencies]
+# CONCEPT:ORCH-1.38 — heavier sandbox tiers. monty (core dep) needs nothing here; the
+# CPython-WASI/wasm tier needs wasmtime, kept optional so the base install stays light.
+sandbox = [
+    "wasmtime>=21.0.0"
+]
 kafka = [
     "aiokafka>=0.10.0"
 ]
