@@ -16,7 +16,12 @@ async def rlm_large_output_hook(input: HookInput) -> HookResult | None:
         return None
 
     config = RLMConfig()
-    if not config.enabled:
+    # Honor the documented trigger hierarchy (CONCEPT:ORCH-1.1): route oversized
+    # outputs to RLM when globally enabled OR when ``trigger_on_large_output`` is
+    # set (the default) — so a db_query (or any tool) returning millions of rows
+    # is recursively processed instead of flooding the context window, without
+    # requiring a global ENABLE_RLM.
+    if not (config.enabled or config.trigger_on_large_output):
         return None
 
     result_str = str(input.result)
