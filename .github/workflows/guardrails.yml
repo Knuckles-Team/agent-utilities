@@ -75,6 +75,11 @@ jobs:
       - name: Anti-sprawl gate
         run: python3 scripts/check_sprawl.py
 
+      # BLOCKING: config-flag anti-sprawl — no NEW bare os.environ.get("KG_/GRAPH_/
+      # EPISTEMIC_...") outside core/config.py (ratchet vs scripts/env_flag_baseline.txt).
+      - name: Config-flag anti-sprawl gate
+        run: python3 scripts/check_no_env_sprawl.py
+
       # ADVISORY: the coupling gate enforces that geniusbot imports
       # agent_utilities only via the allowlisted adapter seam. Kept advisory so
       # in-flight decoupling churn cannot red the build. Flip continue-on-error

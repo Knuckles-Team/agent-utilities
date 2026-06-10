@@ -1,0 +1,96 @@
+# Trading microstructure + curated-knowledge ontology (CONCEPT:EE-033, EE-036).
+#
+# Extends the quant ontology (ontology_quant.ttl) with:
+#   * MicrostructureSignal — short-horizon alpha carrying measured priors that
+#     drive signal-fusion weights.
+#   * TradingKnowledge — the interface for knowledge distilled & ORGANISED from
+#     books/PDFs/notes, specialised into Strategy/Risk/Execution concepts so the
+#     agent can reason over curated knowledge instead of a verbatim document dump.
+# Auto-loaded via the owl backend's glob("ontology*.ttl"). Never redefines the
+# :TradingSignal / :TradingStrategy / :MarketRegime classes it builds on.
+
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+# ── Microstructure signal with measured priors ──────────────────────────────
+:MicrostructureSignal a owl:Class ;
+    rdfs:label "Microstructure Signal" ;
+    rdfs:comment "A short-horizon order-flow / microstructure alpha whose measured priors (directional accuracy, standalone Sharpe, PBO, decay) drive signal-fusion weights." ;
+    rdfs:subClassOf :TradingSignal .
+
+:predictionHorizon a owl:DatatypeProperty ;
+    rdfs:label "prediction horizon" ;
+    rdfs:domain :MicrostructureSignal ;
+    rdfs:range xsd:string .
+
+:directionalAccuracy a owl:DatatypeProperty ;
+    rdfs:label "directional accuracy" ;
+    rdfs:comment "Measured fraction of correct directional calls, in [0, 1]." ;
+    rdfs:domain :MicrostructureSignal ;
+    rdfs:range xsd:double .
+
+:standaloneSharpe a owl:DatatypeProperty ;
+    rdfs:label "standalone Sharpe" ;
+    rdfs:comment "Deflated Sharpe of the signal traded alone (measured prior)." ;
+    rdfs:domain :MicrostructureSignal ;
+    rdfs:range xsd:double .
+
+:probabilityBacktestOverfit a owl:DatatypeProperty ;
+    rdfs:label "PBO" ;
+    rdfs:domain :MicrostructureSignal ;
+    rdfs:range xsd:double .
+
+:halfLifeDays a owl:DatatypeProperty ;
+    rdfs:label "half-life (days)" ;
+    rdfs:domain :MicrostructureSignal ;
+    rdfs:range xsd:double .
+
+# ── Curated trading knowledge (book/PDF/notes) ──────────────────────────────
+:TradingKnowledge a owl:Class ;
+    rdfs:label "Trading Knowledge" ;
+    rdfs:comment "Curated, classified knowledge distilled from books, papers, PDFs, or notes — organised into typed concepts with citations and confidence rather than stored as a verbatim document." ;
+    rdfs:subClassOf :Concept .
+
+:topic a owl:DatatypeProperty ; rdfs:domain :TradingKnowledge ; rdfs:range xsd:string .
+:sourceTitle a owl:DatatypeProperty ; rdfs:domain :TradingKnowledge ; rdfs:range xsd:string .
+:chapter a owl:DatatypeProperty ; rdfs:domain :TradingKnowledge ; rdfs:range xsd:string .
+:pageSpan a owl:DatatypeProperty ; rdfs:domain :TradingKnowledge ; rdfs:range xsd:string .
+:extractionConfidence a owl:DatatypeProperty ; rdfs:domain :TradingKnowledge ; rdfs:range xsd:double .
+
+:StrategyConcept a owl:Class ;
+    rdfs:label "Strategy Concept" ;
+    rdfs:comment "A strategy idea distilled from curated knowledge (entry/exit logic, edge thesis)." ;
+    rdfs:subClassOf :TradingKnowledge .
+
+:RiskConcept a owl:Class ;
+    rdfs:label "Risk Concept" ;
+    rdfs:comment "A risk-management principle distilled from curated knowledge (sizing, drawdown, regime risk)." ;
+    rdfs:subClassOf :TradingKnowledge .
+
+:ExecutionConcept a owl:Class ;
+    rdfs:label "Execution Concept" ;
+    rdfs:comment "An execution / microstructure principle distilled from curated knowledge (order flow, queueing, slippage)." ;
+    rdfs:subClassOf :TradingKnowledge .
+
+# ── Link types ──────────────────────────────────────────────────────────────
+:DERIVED_FROM a owl:ObjectProperty ;
+    rdfs:label "derived from" ;
+    rdfs:comment "A microstructure signal was derived from a piece of curated knowledge." ;
+    rdfs:domain :MicrostructureSignal ;
+    rdfs:range :TradingKnowledge .
+
+:INFORMS a owl:ObjectProperty ;
+    rdfs:label "informs" ;
+    rdfs:comment "Curated knowledge informs a trading strategy." ;
+    rdfs:domain :TradingKnowledge ;
+    rdfs:range :TradingStrategy .
+
+:VALID_IN a owl:ObjectProperty ;
+    rdfs:label "valid in regime" ;
+    rdfs:comment "A trading strategy is applicable in a given market regime." ;
+    rdfs:domain :TradingStrategy ;
+    rdfs:range :MarketRegime .
