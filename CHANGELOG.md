@@ -30,6 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     job deleted a sibling's tenant mid-run → "Graph not found". Now a unique per-job tenant name.
   - *`deep_analysis` AttributeError*: `search_hybrid` referenced `self.hybrid_retriever` which was
     unset on the background-task host path. Lazy-ensure it on first use.
+- **Directory-of-documents misclassified as a codebase (CONCEPT:KG-2.7)** —
+  `ContentType.classify` blindly mapped *every* directory to `CODEBASE`, so ingesting a folder
+  of papers (`~/.local/share/.../research/papers`, a ScholarX corpus) routed through the codebase
+  adaptor and produced no `Document`/`Concept` nodes — the only workaround was forcing
+  `content_type="document"`. Detection is now composition-aware (`ContentType._classify_dir`): a
+  packaging/VCS marker (`pyproject.toml`, `package.json`, `.git`, …) is a definitive codebase
+  signal, otherwise the directory's non-vendored files are sampled and a document-dominant folder
+  classifies as `DOCUMENT`. Vendored/build subtrees (`.venv`, `node_modules`, …) are pruned so a
+  doc corpus carrying a bundled virtualenv isn't misread as code, and sampling is capped for huge
+  trees. Empty/ambiguous dirs still default to `CODEBASE` (unchanged). A paper directory now
+  ingests correctly out of the box — no `content_type` override needed.
 
 ### Changed
 - **Faster, throttled codebase ingestion (CONCEPT:KG-2.7 / KG-2.8)** — five changes so
