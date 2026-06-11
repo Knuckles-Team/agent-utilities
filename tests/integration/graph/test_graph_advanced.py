@@ -112,10 +112,22 @@ async def test_verifier_step_success(mock_deps):
 
 @pytest.mark.asyncio
 async def test_verifier_step_retry(mock_deps):
-    """Test verifier_step triggers re-planning when validation score is very low."""
+    """A very low validation score with partial results re-dispatches cheaply.
+
+    CONCEPT:ORCH-1.37 (perf): re-planning is the most expensive action and is
+    reserved for runs with NO salvageable partial results; with partial output
+    in the registry a failing quality gate re-dispatches the existing plan
+    instead. The plan needs >1 step so the proportional-verification fast-path
+    doesn't skip the quality gate outright.
+    """
     state = GraphState(query="test query")
     state.results_registry["node1"] = "poor result"
-    state.plan = GraphPlan(steps=[ExecutionStep(id="node1", parallel=False)])
+    state.plan = GraphPlan(
+        steps=[
+            ExecutionStep(id="node1", parallel=False),
+            ExecutionStep(id="node2", parallel=False),
+        ]
+    )
 
     ctx = MagicMock()
     ctx.state = state
@@ -141,9 +153,10 @@ async def test_verifier_step_retry(mock_deps):
     with patch("pydantic_ai.Agent.run_stream") as mock_run_stream:
         mock_run_stream.return_value = create_mock_stream(validation_result)
         res = await verifier_step(ctx)
-        assert res == "planner"
+        assert res == "dispatcher"
         assert state.verification_attempts == 1
         assert state.validation_feedback == "Too short"
+        assert state.needs_replan is False
 
 
 @pytest.mark.asyncio

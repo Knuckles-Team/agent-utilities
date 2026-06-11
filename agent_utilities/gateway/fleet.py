@@ -258,11 +258,15 @@ async def fleet_grant_approval(request: Request) -> JSONResponse:
 
 def mount_fleet_routes(app, prefix: str = "") -> None:
     """Mount the supervisory plane onto a Starlette/FastAPI ``app``."""
+    # Webhook ingress for monitoring events (CONCEPT:OS-5.15) — sibling module
+    # so alert normalization/persistence stays out of the supervisory handlers.
+    from agent_utilities.gateway.fleet_events import fleet_events_receive
 
     def route(path: str, handler, methods: list[str]) -> None:
         app.add_route(prefix + path, handler, methods=methods)
 
     route("/fleet/health", fleet_health, ["GET"])
+    route("/fleet/events", fleet_events_receive, ["POST"])
     route("/fleet/topology", fleet_topology, ["GET"])
     route("/fleet/pause", fleet_pause, ["POST"])
     route("/fleet/kill", fleet_kill, ["POST"])

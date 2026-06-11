@@ -38,6 +38,21 @@ AUDIT_AUTO_MERGE = "golden_loop.auto_merge"
 DEFAULT_QUALITY_THRESHOLD = 0.85
 
 
+def _probe_production_validator(engine: Any, policy: MergePolicy) -> Any:
+    """Build the default production governance validator (CONCEPT:AHE-3.20).
+
+    Best-effort: returns ``None`` when the validator cannot be constructed, in
+    which case the merger falls back to its hold-when-required behaviour.
+    """
+    try:
+        from .promotion_governance import PromotionGovernanceValidator
+
+        return PromotionGovernanceValidator(engine, policy=policy)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("production governance validator unavailable: %s", exc)
+        return None
+
+
 @dataclass
 class MergePolicy:
     """The governance policy for auto-merging a proposal. CONCEPT:AHE-3.14.
@@ -110,9 +125,13 @@ class GovernedAutoMerger:
         Audit logger for the promotion/rejection trail.
     governance_validator:
         Optional ``(spec) -> bool`` validity check (SHACL/governance). When
-        ``None``, a best-effort validator is probed; if none is reachable,
-        governance validity defaults to ``True`` only when the policy does not
-        *require* it (otherwise the proposal is held).
+        ``None`` and an ``engine`` is available, the production
+        :class:`~agent_utilities.knowledge_graph.research.promotion_governance.PromotionGovernanceValidator`
+        is constructed as the default (CONCEPT:AHE-3.20): SHACL shapes,
+        recorded regression-gate verdicts, MergePolicy thresholds, and
+        constitution rules. If no validator can be built, governance validity
+        defaults to ``True`` only when the policy does not *require* it
+        (otherwise the proposal is held).
     regression_check:
         Optional ``(spec) -> bool`` returning ``True`` when promoting does NOT
         regress a tracked metric. Defaults to ``True`` (no regression known).
@@ -134,6 +153,12 @@ class GovernedAutoMerger:
         self.engine = engine
         self.policy = policy or MergePolicy.from_env()
         self.audit = audit or AuditLogger()
+        if governance_validator is None and engine is not None:
+            # Default to the PRODUCTION validator (CONCEPT:AHE-3.20) — the
+            # daemon/golden-loop path previously had no validator at all, so a
+            # governance-required policy held everything and a non-required one
+            # validated nothing.
+            governance_validator = _probe_production_validator(engine, self.policy)
         self._governance_validator = governance_validator
         self._regression_check = regression_check
         self._promoter = promoter

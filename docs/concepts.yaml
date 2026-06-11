@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 149
+total_concepts: 152
 total_pillars: 18
 pillars:
 - AHE-3
@@ -201,14 +201,15 @@ concepts:
   - agent_utilities/knowledge_graph/research/golden_loop.py
   doc: consider promoting the team
 - id: AHE-3.15
-  name: also branches to
+  name: this is the read-back half of agent-step policy
   pillar: AHE-3
   status: live
   code_paths:
   - agent_utilities/graph/agent_step_po.py
   - agent_utilities/graph/reward_decomposition.py
   - agent_utilities/graph/routing/strategies/policy.py
-  doc: also branches to
+  - agent_utilities/orchestration/agent_runner.py
+  doc: this is the read-back half of agent-step policy
 - id: AHE-3.16
   name: width of the *diverse* best-of-k fan-out — harder
   pillar: AHE-3
@@ -237,6 +238,25 @@ concepts:
   - agent_utilities/knowledge_graph/research/golden_loop.py
   - agent_utilities/mcp/kg_server.py
   doc: Failure-Driven Evolution
+- id: AHE-3.19
+  name: Performance Anomaly Consumer
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/adaptation/anomaly_consumer.py
+  - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: Performance Anomaly Consumer
+- id: AHE-3.20
+  name: Promotion Governance Validator
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+  - agent_utilities/knowledge_graph/research/auto_merge.py
+  - agent_utilities/knowledge_graph/research/promotion_governance.py
+  doc: Promotion Governance Validator
 - id: CTX-1.0
   name: Nested Subfolder Instructions
   pillar: CTX-1
@@ -1179,6 +1199,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/domains/finance/calibration_tracker.py
+  - agent_utilities/domains/finance/trading_swarm.py
   doc: Agent Calibration and Reputation Tracking
 - id: KG-2.28
   name: Persona Decision-Heuristic Enrichment
@@ -2065,6 +2086,18 @@ concepts:
   - agent_utilities/security/brain_context.py
   - agent_utilities/security/request_identity.py
   doc: an ACL-check exception denies, and nodes without an ACL are
+- id: OS-5.15
+  name: Fleet Event Ingress
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/gateway/fleet.py
+  - agent_utilities/gateway/fleet_events.py
+  - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+  - agent_utilities/knowledge_graph/adaptation/fleet_event_triage.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: Fleet Event Ingress
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

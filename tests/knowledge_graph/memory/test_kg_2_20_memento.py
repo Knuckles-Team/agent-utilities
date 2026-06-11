@@ -51,7 +51,12 @@ def test_compress_refines_until_threshold(monkeypatch):
         return "STATE: x=5; next=verify"
 
     monkeypatch.setattr(mc, "_memento_llm", fake)
-    out = compress_to_memento(None, [{"role": "user", "content": "do x"}], dry_run=True)  # type: ignore[arg-type]
+    # Long enough that the F4 shrink-guarantee never truncates the memento.
+    out = compress_to_memento(
+        None,  # type: ignore[arg-type]
+        [{"role": "user", "content": "do x, then verify it and record state " * 2}],
+        dry_run=True,
+    )
     assert out == "STATE: x=5; next=verify"
     # 1 compress + (judge-fail + recompress) + judge-pass = 4 calls
     assert calls["n"] == 4

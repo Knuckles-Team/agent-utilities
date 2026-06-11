@@ -361,6 +361,17 @@ class AgentConfig(BaseSettings):
     True restores allow-on-missing-ACL while keeping exception→deny. Ignored
     when enforcement is off (legacy default-allow)."""
 
+    # --- Fleet events webhook ingress (CONCEPT:OS-5.15) ---
+
+    fleet_events_token: str | None = Field(default=None, alias="FLEET_EVENTS_TOKEN")
+    """Optional shared secret for the ``POST /api/fleet/events`` webhook
+    receiver. Monitoring senders (Prometheus Alertmanager, Uptime Kuma,
+    Portainer) cannot mint JWTs, so when this is set every event POST must
+    carry a matching ``X-Fleet-Events-Token`` header or it is rejected (401).
+    Default ``None`` = no token required (the endpoint is then as open as the
+    other fleet routes; the OS-5.14 identity middleware still applies when
+    ``KG_AUTH_REQUIRED`` is on)."""
+
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
 
     oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")
@@ -451,9 +462,17 @@ class AgentConfig(BaseSettings):
     kg_failure_regression_dataset: bool = Field(
         default=False, alias="KG_FAILURE_REGRESSION_DATASET"
     )
+    # PerformanceAnomaly consumer (CONCEPT:AHE-3.19) — drains unconsumed
+    # PerformanceAnomaly nodes into failure_gap topics for the golden loop.
+    # Default ON: it is LLM-free, bounded, and propose-only (it writes topic
+    # nodes; nothing merges without the AHE-3.20 governed auto-merge chain).
+    kg_anomaly_consumer: bool = Field(default=True, alias="KG_ANOMALY_CONSUMER")
 
     @field_validator(
-        "kg_failure_evolution", "kg_failure_regression_dataset", mode="before"
+        "kg_failure_evolution",
+        "kg_failure_regression_dataset",
+        "kg_anomaly_consumer",
+        mode="before",
     )
     @classmethod
     def _coerce_failure_flags(cls, v: Any) -> bool:
