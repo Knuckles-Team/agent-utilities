@@ -118,7 +118,7 @@ def test_create_task_queue_explicit_postgres_fails_loud(tmp_path, monkeypatch):
         create_task_queue(cfg, str(tmp_path / "q.db"))
 
 
-# ── confluent_kafka stub (no install / no broker needed) ────────────────
+# ── confluent_kafka test double (no install / no broker needed) ────────────────
 
 
 class _FakeFuture:
