@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 from pydantic_ai import RunContext
 
+from agent_utilities.core.http_client import create_http_client
 from agent_utilities.harness.tracing import trace
 from agent_utilities.models import AgentDeps
 from agent_utilities.security.xai_auth import XaiAuthManager
@@ -245,7 +246,7 @@ async def x_search(
 
     for attempt in range(max_retries + 1):
         try:
-            with httpx.Client(timeout=float(timeout)) as client:
+            with create_http_client(timeout=float(timeout)) as client:
                 resp = client.post(
                     f"{base_url}/responses", headers=headers, json=payload
                 )
