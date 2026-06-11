@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from agent_utilities.knowledge_graph.enrichment.extractors.code_test import (
-    extract_python_files,
+    extract_source_files,
 )
 from agent_utilities.knowledge_graph.enrichment.pipeline import (
     EnrichmentPipeline,
@@ -172,7 +172,7 @@ class TestBatchExtract:
             calls["count"] = calls.get("count", 0) + 1
             return [{} for _ in raw]
 
-        out = extract_python_files(files, batch_parse_fn)
+        out = extract_source_files(files, batch_parse_fn)
         assert [r.file_path for r in out] == ["a.py", "b.py"]
         for (fp, src), r in zip(files, out, strict=True):
             want = hashlib.sha256(src.encode("utf-8", "surrogatepass")).hexdigest()
@@ -181,7 +181,7 @@ class TestBatchExtract:
 
     def test_missing_slot_degrades_to_empty(self):
         files = [("a.py", "x = 1\n"), ("b.py", "y = 2\n")]
-        out = extract_python_files(files, lambda raw: [{}])  # only 1 result for 2
+        out = extract_source_files(files, lambda raw: [{}])  # only 1 result for 2
         assert len(out) == 2
         assert out[1].code == [] and out[1].tests == []
 
@@ -189,7 +189,7 @@ class TestBatchExtract:
         def boom(raw):
             raise RuntimeError("engine down")
 
-        out = extract_python_files([("a.py", "x = 1\n")], boom)
+        out = extract_source_files([("a.py", "x = 1\n")], boom)
         assert len(out) == 1 and out[0].file_path == "a.py"
 
 

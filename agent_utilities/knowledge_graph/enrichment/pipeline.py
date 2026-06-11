@@ -23,8 +23,8 @@ from .classify import TestThresholds, classify_test
 from .extractors.code_test import (
     BatchParseFn,
     ParseFn,
-    extract_python,
-    extract_python_files,
+    extract_source,
+    extract_source_files,
     resolve_covers,
 )
 from .extractors.document import (
@@ -51,9 +51,46 @@ _SKIP_DIRS = {
     ".mypy_cache",
     ".pytest_cache",
     ".tox",
-    "target",
+    "target",  # Rust/Java build output
     "site",
+    "vendor",  # Go/PHP vendored deps
+    ".gradle",
+    "bin",  # C#/Java/general build output
+    "obj",  # C#/MSBuild
+    ".next",
+    "out",
+    "third_party",
+    "Pods",
 }
+
+# Source extensions the Rust engine can parse — kept in sync with
+# ``parser::tree_sitter::SUPPORTED_EXTENSIONS``. (CONCEPT:KG-2.8)
+SOURCE_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".py",
+        ".pyi",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".ts",
+        ".mts",
+        ".cts",
+        ".tsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".c",
+        ".h",
+        ".cpp",
+        ".cc",
+        ".cxx",
+        ".hpp",
+        ".hxx",
+        ".hh",
+        ".cs",
+    }
+)
 
 
 class EnrichmentSummary(BaseModel):
@@ -77,13 +114,20 @@ class EnrichmentSummary(BaseModel):
     intelligence_nodes: int = 0
 
 
-def discover_python_files(root: str | Path) -> list[Path]:
-    """Find Python files under root, skipping vendored/build dirs."""
+def discover_source_files(root: str | Path) -> list[Path]:
+    """Find source files of any engine-supported language under root.
+
+    Covers Python/JS/TS/Go/Rust/Java/C/C++/C# (see :data:`SOURCE_EXTENSIONS`),
+    skipping vendored/build dirs. The Rust parser dispatches on extension, so a
+    repo in any of these languages produces ``Code`` nodes. (CONCEPT:KG-2.8)
+    """
     root = Path(root)
     if root.is_file():
-        return [root] if root.suffix == ".py" else []
+        return [root] if root.suffix.lower() in SOURCE_EXTENSIONS else []
     out: list[Path] = []
-    for p in root.rglob("*.py"):
+    for p in root.rglob("*"):
+        if p.suffix.lower() not in SOURCE_EXTENSIONS:
+            continue
         if any(part in _SKIP_DIRS for part in p.parts):
             continue
         out.append(p)
@@ -135,7 +179,7 @@ class EnrichmentPipeline:
         self.writeback_fn = writeback_fn
 
     def enrich(self, target_path: str | Path) -> EnrichmentSummary:
-        files = discover_python_files(target_path)
+        files = discover_source_files(target_path)
         return self.enrich_files(files)
 
     def enrich_files(self, files: Iterable[Path]) -> EnrichmentSummary:
@@ -164,10 +208,10 @@ class EnrichmentPipeline:
         # supports it (CONCEPT:KG-2.16), else the per-file path. Both yield the
         # same per-file ``ExtractionResult`` list.
         if self.batch_parse_fn is not None and pending:
-            results = extract_python_files(pending, self.batch_parse_fn)
+            results = extract_source_files(pending, self.batch_parse_fn)
         else:
             results = [
-                extract_python(fp, source, self.parse_fn) for fp, source in pending
+                extract_source(fp, source, self.parse_fn) for fp, source in pending
             ]
         for res in results:
             self._hash_seen[res.file_path] = res.content_hash
@@ -258,6 +302,7 @@ class EnrichmentPipeline:
             name=c.name,
             qualname=c.qualname,
             kind=c.kind,
+            language=c.language,
             file_path=c.file_path,
             line=c.line,
             ast_hash=c.ast_hash,
