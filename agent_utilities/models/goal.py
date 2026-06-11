@@ -47,6 +47,10 @@ class GoalStatus(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     PAUSED = "paused"
+    # A non-terminal goal whose owning process died (detected at restart
+    # rehydration, CONCEPT:ORCH-1.44): visible + explicitly resumable, never
+    # silently lost.
+    ORPHANED = "orphaned"
 
 
 class GoalSpec(BaseModel):

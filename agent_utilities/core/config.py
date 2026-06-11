@@ -430,6 +430,15 @@ class AgentConfig(BaseSettings):
     graph_backend_l2: str | None = Field(default=None, alias="GRAPH_BACKEND_L2")
     graph_db_uri: str | None = Field(default=None, alias="GRAPH_DB_URI")
     queue_backend: str = Field(default="sqlite", alias="QUEUE_BACKEND")
+    # Durable-state externalization (CONCEPT:OS-5.16): ONE flag selects where the
+    # platform's durable state lives — durable-execution checkpoints, sessions/
+    # turns/goals, and the KG task queue. Unset (default) keeps the zero-infra
+    # per-host SQLite files; a postgresql:// URI moves them all onto a shared
+    # Postgres (one psycopg pool) so a second host can safely participate and
+    # the gateway becomes stateless.
+    state_db_uri: str | None = Field(default=None, alias="STATE_DB_URI")
+    # Max connections in the shared state-store pool (min is always 1).
+    state_db_pool_size: int = Field(default=8, alias="STATE_DB_POOL_SIZE")
     # Golden-loop breadth ingest roots (CONCEPT:KG-2.7): comma-separated paths the
     # one-shot ``golden_loop`` cycle (and the 60-min daemon) auto-ingests — OSS
     # libraries and code repos — so evolution runs end-to-end with no manual

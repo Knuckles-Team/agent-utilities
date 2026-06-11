@@ -3,16 +3,29 @@ from __future__ import annotations
 
 """Durable Session & Autonomous Goal persistence.
 
-CONCEPT:ORCH-5.0 / TUI-20
+CONCEPT:ORCH-5.0 — Durable session and autonomous goal persistence with iterative background goal loops
+CONCEPT:ORCH-1.44 — Durable goal registry — goals persist across restarts and stranded runs rehydrate as orphaned instead of silently vanishing
 
 This module houses the schema initialization, memory maps, background runner thread,
 and Starlette REST handlers for durable agent sessions and iterative goals.
+
+State backends (CONCEPT:OS-5.16): by default sessions/turns/goals live in the
+per-host SQLite file; with ``state_db_uri`` set they live on the shared
+Postgres state store, so the gateway is stateless and any host can see the
+whole fleet's sessions.
+
+Goal durability (CONCEPT:ORCH-1.44): ``active_goals``/``background_goal_runs``
+are an in-memory *cache* over the durable ``goals`` table. Every status change
+is persisted; on restart, this host's non-terminal goals are rehydrated as
+``orphaned`` (visible + resumable-by-hand) instead of silently vanishing.
 """
 
 import asyncio
 import logging
 import os
+import socket
 import sqlite3
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -30,9 +43,22 @@ logger = logging.getLogger(__name__)
 DEFAULT_AGENT_DIR = Path(os.getenv("AGENT_WORKSPACE", "workspace"))
 DEFAULT_AGENT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Memory mappings for active runs
+# In-memory cache of active runs (durable source of truth is the goals table).
 active_goals: dict[str, dict[str, Any]] = {}
 background_goal_runs: dict[str, dict[str, Any]] = {}
+
+# Goal statuses that are still "in flight" (rehydration targets on restart).
+_NON_TERMINAL_GOAL_STATUSES = ("pending", "running", "validating")
+
+_HOSTNAME = socket.gethostname()
+
+
+def _owner_token() -> str:
+    """Stable owner identity for goal runs: ``hostname:pid``.
+
+    A restart changes the pid, so a goal row carrying this host's name with a
+    dead pid is provably orphaned (CONCEPT:ORCH-1.44)."""
+    return f"{_HOSTNAME}:{os.getpid()}"
 
 
 class StartGoalPayload(BaseModel):
@@ -40,6 +66,107 @@ class StartGoalPayload(BaseModel):
     max_iterations: int = 20
     validation_cmd: str = ""
     constraints: list[str] = []
+
+
+_SQLITE_DDL = """
+    CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT DEFAULT '',
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        model TEXT DEFAULT '',
+        mode TEXT DEFAULT 'ask',
+        workspace TEXT DEFAULT '',
+        turn_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active',
+        background INTEGER DEFAULT 0,
+        needs_input INTEGER DEFAULT 0,
+        last_response_preview TEXT DEFAULT '',
+        goal_id TEXT DEFAULT '',
+        metadata_json TEXT DEFAULT '{}'
+    );
+
+    CREATE TABLE IF NOT EXISTS turns (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        turn_number INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT DEFAULT '',
+        created_at REAL NOT NULL,
+        status TEXT DEFAULT 'completed',
+        usage_json TEXT DEFAULT '{}',
+        duration_ms INTEGER DEFAULT 0,
+        FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS goals (
+        goal_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        objective TEXT DEFAULT '',
+        owner_host TEXT DEFAULT '',
+        total_iterations INTEGER DEFAULT 0,
+        total_duration_ms INTEGER DEFAULT 0,
+        total_tool_calls INTEGER DEFAULT 0,
+        summary TEXT DEFAULT '',
+        error TEXT DEFAULT '',
+        iterations_json TEXT DEFAULT '[]',
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+"""
+
+# Same logical schema on Postgres (CONCEPT:OS-5.16). REAL epoch timestamps
+# become DOUBLE PRECISION; everything else maps 1:1 so the handlers' SQL works
+# on both backends through the state-store placeholder adapter.
+_PG_DDL = """
+    CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT DEFAULT '',
+        created_at DOUBLE PRECISION NOT NULL,
+        updated_at DOUBLE PRECISION NOT NULL,
+        model TEXT DEFAULT '',
+        mode TEXT DEFAULT 'ask',
+        workspace TEXT DEFAULT '',
+        turn_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active',
+        background INTEGER DEFAULT 0,
+        needs_input INTEGER DEFAULT 0,
+        last_response_preview TEXT DEFAULT '',
+        goal_id TEXT DEFAULT '',
+        metadata_json TEXT DEFAULT '{}'
+    );
+    CREATE TABLE IF NOT EXISTS turns (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        turn_number INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT DEFAULT '',
+        created_at DOUBLE PRECISION NOT NULL,
+        status TEXT DEFAULT 'completed',
+        usage_json TEXT DEFAULT '{}',
+        duration_ms INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS goals (
+        goal_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        objective TEXT DEFAULT '',
+        owner_host TEXT DEFAULT '',
+        total_iterations INTEGER DEFAULT 0,
+        total_duration_ms INTEGER DEFAULT 0,
+        total_tool_calls INTEGER DEFAULT 0,
+        summary TEXT DEFAULT '',
+        error TEXT DEFAULT '',
+        iterations_json TEXT DEFAULT '[]',
+        created_at DOUBLE PRECISION NOT NULL,
+        updated_at DOUBLE PRECISION NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions (updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions (status);
+    CREATE INDEX IF NOT EXISTS idx_turns_session ON turns (session_id, turn_number);
+    CREATE INDEX IF NOT EXISTS idx_goals_status ON goals (status);
+"""
 
 
 def _get_db_path() -> Path:
@@ -55,39 +182,7 @@ def _get_db_path() -> Path:
     # Initialize the SQLite schema defensively
     try:
         conn = sqlite3.connect(str(db_path))
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                title TEXT DEFAULT '',
-                created_at REAL NOT NULL,
-                updated_at REAL NOT NULL,
-                model TEXT DEFAULT '',
-                mode TEXT DEFAULT 'ask',
-                workspace TEXT DEFAULT '',
-                turn_count INTEGER DEFAULT 0,
-                status TEXT DEFAULT 'active',
-                background INTEGER DEFAULT 0,
-                needs_input INTEGER DEFAULT 0,
-                last_response_preview TEXT DEFAULT '',
-                goal_id TEXT DEFAULT '',
-                metadata_json TEXT DEFAULT '{}'
-            );
-
-            CREATE TABLE IF NOT EXISTS turns (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                turn_number INTEGER NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT DEFAULT '',
-                created_at REAL NOT NULL,
-                status TEXT DEFAULT 'completed',
-                usage_json TEXT DEFAULT '{}',
-                duration_ms INTEGER DEFAULT 0,
-                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
-            );
-        """
-        )
+        conn.executescript(_SQLITE_DDL)
         conn.commit()
         conn.close()
     except Exception as e:
@@ -96,21 +191,219 @@ def _get_db_path() -> Path:
     return db_path
 
 
+def _connect_db():
+    """Open a connection to the selected sessions backend (CONCEPT:OS-5.16).
+
+    SQLite default → the per-host ``agent_terminal_ui.db`` (path resolved late
+    so tests can monkeypatch :func:`_get_db_path`); ``state_db_uri`` set → the
+    shared Postgres pool. Same ``?``-placeholder SQL works on both.
+    """
+    from agent_utilities.core.state_store import open_state_connection
+
+    return open_state_connection("sessions", _get_db_path, _PG_DDL)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Durable goal registry (CONCEPT:ORCH-1.44)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _status_value(status: Any) -> str:
+    return getattr(status, "value", None) or str(status)
+
+
+def _persist_goal(goal_id: str) -> None:
+    """Upsert the in-memory goal entry into the durable ``goals`` table."""
+    entry = active_goals.get(goal_id)
+    if not entry:
+        return
+    import json as _json
+
+    try:
+        conn = _connect_db()
+        cursor = conn.cursor()
+        now = time.time()
+        cursor.execute(
+            """
+            INSERT INTO goals (goal_id, session_id, status, objective, owner_host,
+                               total_iterations, total_duration_ms, total_tool_calls,
+                               summary, error, iterations_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(goal_id) DO UPDATE SET
+                status = excluded.status,
+                total_iterations = excluded.total_iterations,
+                total_duration_ms = excluded.total_duration_ms,
+                total_tool_calls = excluded.total_tool_calls,
+                summary = excluded.summary,
+                error = excluded.error,
+                iterations_json = excluded.iterations_json,
+                owner_host = excluded.owner_host,
+                updated_at = excluded.updated_at
+            """,
+            (
+                goal_id,
+                entry.get("session_id", ""),
+                _status_value(entry.get("status", "pending")),
+                str(entry.get("objective", "")),
+                entry.get("owner_host", _owner_token()),
+                int(entry.get("total_iterations", 0)),
+                int(entry.get("total_duration_ms", 0)),
+                int(entry.get("total_tool_calls", 0)),
+                str(entry.get("summary", "")),
+                str(entry.get("error", "")),
+                _json.dumps(make_serializable(entry.get("iterations", []))),
+                float(entry.get("created_at", now)),
+                now,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error persisting goal {goal_id}: {e}")
+
+
+def _goal_row_to_entry(row: dict[str, Any]) -> dict[str, Any]:
+    """Deserialize a ``goals`` row into the ``active_goals`` entry shape."""
+    import json as _json
+
+    try:
+        iterations = _json.loads(row.get("iterations_json") or "[]")
+    except (TypeError, ValueError):
+        iterations = []
+    return {
+        "goal_id": row.get("goal_id", ""),
+        "session_id": row.get("session_id", ""),
+        "status": row.get("status", "pending"),
+        "objective": row.get("objective", ""),
+        "owner_host": row.get("owner_host", ""),
+        "iterations": iterations,
+        "total_iterations": row.get("total_iterations", 0),
+        "total_duration_ms": row.get("total_duration_ms", 0),
+        "total_tool_calls": row.get("total_tool_calls", 0),
+        "summary": row.get("summary", ""),
+        "error": row.get("error", ""),
+    }
+
+
+_rehydrated = False
+_rehydrate_lock = threading.Lock()
+
+
+def rehydrate_goals() -> int:
+    """Surface goals stranded by a process restart (CONCEPT:ORCH-1.44).
+
+    Scans the durable ``goals`` table for non-terminal goals that belong to
+    this host (same hostname) but have no live run in this process — i.e. a
+    previous pid died mid-loop. Those are marked ``orphaned`` (visible and
+    explicitly resumable, never silently lost) and loaded into the in-memory
+    cache. Goals owned by *other* hostnames (shared Postgres state) are left
+    to their owning host's loop. Runs once per process, lazily.
+    """
+    global _rehydrated
+    if _rehydrated:
+        return 0
+    with _rehydrate_lock:
+        if _rehydrated:
+            return 0
+        _rehydrated = True
+        orphaned = 0
+        try:
+            conn = _connect_db()
+            cursor = conn.cursor()
+            placeholders = ", ".join("?" for _ in _NON_TERMINAL_GOAL_STATUSES)
+            cursor.execute(
+                "SELECT goal_id, session_id, status, objective, owner_host, "
+                "summary, total_iterations, total_duration_ms, total_tool_calls, "
+                f"iterations_json FROM goals WHERE status IN ({placeholders})",  # nosec B608 — placeholders, not values
+                _NON_TERMINAL_GOAL_STATUSES,
+            )
+            rows = [dict(r) for r in cursor.fetchall()]
+            me = _owner_token()
+            now = time.time()
+            for row in rows:
+                gid = row.get("goal_id")
+                if not gid or gid in background_goal_runs:
+                    continue  # live in this process
+                owner = str(row.get("owner_host") or "")
+                if owner == me:
+                    continue
+                if owner and owner.split(":", 1)[0] != _HOSTNAME:
+                    # Another host owns this goal — leave it to that host.
+                    continue
+                summary = (
+                    "Orphaned by a host restart while "
+                    f"'{row.get('status')}' (owner {owner or 'unknown'}); "
+                    "resume or cancel explicitly."
+                )
+                cursor.execute(
+                    "UPDATE goals SET status = ?, summary = ?, updated_at = ? "
+                    "WHERE goal_id = ?",
+                    (GoalStatus.ORPHANED.value, summary, now, gid),
+                )
+                entry = _goal_row_to_entry(row)
+                entry["status"] = GoalStatus.ORPHANED
+                entry["summary"] = summary
+                active_goals[gid] = entry
+                orphaned += 1
+                logger.warning(
+                    "Rehydrated goal %s as orphaned (session=%s, was %s, owner=%s)",
+                    gid,
+                    row.get("session_id"),
+                    row.get("status"),
+                    owner,
+                )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Goal rehydration failed: {e}")
+        return orphaned
+
+
+def _desired_session_action(session_id: str) -> str | None:
+    """Read a pending fleet desired-state request for this session (OS-5.18).
+
+    The supervisory plane writes ``pause_requested``/``kill_requested`` into
+    the sessions store; the owning host's goal loop honors it here.
+    """
+    try:
+        conn = _connect_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT status FROM sessions WHERE id = ?", (session_id,))
+        row = cursor.fetchone()
+        conn.close()
+    except Exception as e:  # noqa: BLE001 — reconciliation is best-effort
+        logger.debug(f"desired-state probe failed for {session_id}: {e}")
+        return None
+    if not row:
+        return None
+    status = row[0]
+    if status == "pause_requested":
+        return "pause"
+    if status == "kill_requested":
+        return "kill"
+    return None
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Starlette HTTP Route Handlers
 # ─────────────────────────────────────────────────────────────────────────
 
 
 async def get_all_sessions(request: Request) -> JSONResponse:
-    """Retrieve all durable sqlite-backed agent sessions."""
-    db_path = _get_db_path()
-    if not db_path.exists():
-        return JSONResponse([])
+    """Retrieve durable agent sessions (newest first, paginated)."""
     try:
-        conn = sqlite3.connect(str(db_path))
-        conn.row_factory = sqlite3.Row
+        params = getattr(request, "query_params", {}) or {}
+        limit = max(1, min(int(params.get("limit", 500)), 2000))
+        offset = max(0, int(params.get("offset", 0)))
+    except (TypeError, ValueError):
+        limit, offset = 500, 0
+    try:
+        conn = _connect_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM sessions ORDER BY updated_at DESC")
+        cursor.execute(
+            "SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
         rows = cursor.fetchall()
         res = []
         for row in rows:
@@ -132,10 +425,8 @@ async def get_session_details(request: Request) -> JSONResponse:
         return JSONResponse(
             {"error": "session_id path parameter is required"}, status_code=400
         )
-    db_path = _get_db_path()
     try:
-        conn = sqlite3.connect(str(db_path))
-        conn.row_factory = sqlite3.Row
+        conn = _connect_db()
         cursor = conn.cursor()
 
         cursor.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
@@ -169,9 +460,8 @@ async def delete_session(request: Request) -> JSONResponse:
         return JSONResponse(
             {"error": "session_id path parameter is required"}, status_code=400
         )
-    db_path = _get_db_path()
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = _connect_db()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM turns WHERE session_id = ?", (session_id,))
         cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
@@ -200,9 +490,8 @@ async def submit_session_reply(request: Request) -> JSONResponse:
     if not content:
         return JSONResponse({"error": "Reply content cannot be empty"}, status_code=400)
 
-    db_path = _get_db_path()
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = _connect_db()
         cursor = conn.cursor()
 
         cursor.execute("SELECT turn_count FROM sessions WHERE id = ?", (session_id,))
@@ -268,11 +557,11 @@ async def cancel_session_run(request: Request) -> JSONResponse:
             background_goal_runs.pop(goal_id, None)
             if goal_id in active_goals:
                 active_goals[goal_id]["status"] = GoalStatus.CANCELLED
+                _persist_goal(goal_id)
             cancelled = True
 
-    db_path = _get_db_path()
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = _connect_db()
         cursor = conn.cursor()
         cursor.execute(
             "UPDATE sessions SET status = 'cancelled', updated_at = ? WHERE id = ?",
@@ -281,7 +570,7 @@ async def cancel_session_run(request: Request) -> JSONResponse:
         conn.commit()
         conn.close()
     except Exception as e:
-        logger.error(f"Error updating SQLite session to cancelled: {e}")
+        logger.error(f"Error updating session to cancelled: {e}")
 
     return JSONResponse({"status": "success", "cancelled": cancelled})
 
@@ -295,13 +584,13 @@ async def run_goal_loop(
     constraints: list[str],
 ):
     """Background asyncio worker loop implementing Concept ORCH-5.0."""
-    db_path = _get_db_path()
-    time.time()
-
     active_goals[goal_id] = {
         "goal_id": goal_id,
         "session_id": session_id,
         "status": GoalStatus.RUNNING,
+        "objective": objective,
+        "owner_host": _owner_token(),
+        "created_at": time.time(),
         "iterations": [],
         "total_iterations": 0,
         "total_duration_ms": 0,
@@ -309,15 +598,19 @@ async def run_goal_loop(
         "summary": "",
         "error": "",
     }
+    _persist_goal(goal_id)
 
     iterations_run = 0
     success = False
 
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = _connect_db()
         cursor = conn.cursor()
+        # Never clobber a supervisor's pending desired-state request (OS-5.18):
+        # the loop-top reconciliation below must still observe it.
         cursor.execute(
-            "UPDATE sessions SET status = 'running', updated_at = ? WHERE id = ?",
+            "UPDATE sessions SET status = 'running', updated_at = ? "
+            "WHERE id = ? AND status NOT IN ('pause_requested', 'kill_requested')",
             (time.time(), session_id),
         )
         conn.commit()
@@ -326,6 +619,34 @@ async def run_goal_loop(
         logger.error(f"Error updating session status: {e}")
 
     while iterations_run < max_iterations and not success:
+        # Honor fleet desired-state requests (CONCEPT:OS-5.18): a supervisor
+        # on any host writes pause_requested/kill_requested into the sessions
+        # store; this owning loop reconciles it here.
+        desired = _desired_session_action(session_id)
+        if desired:
+            final = GoalStatus.PAUSED if desired == "pause" else GoalStatus.CANCELLED
+            active_goals[goal_id]["status"] = final
+            active_goals[goal_id][
+                "summary"
+            ] = f"Goal {final.value} by fleet supervisor request."
+            _persist_goal(goal_id)
+            try:
+                conn = _connect_db()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
+                    (final.value, time.time(), session_id),
+                )
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logger.error(f"Error applying desired state to session: {e}")
+            background_goal_runs.pop(goal_id, None)
+            logger.info(
+                "Goal %s reconciled to %s by supervisor request", goal_id, final.value
+            )
+            return
+
         iterations_run += 1
         iter_start = time.time()
 
@@ -386,10 +707,11 @@ async def run_goal_loop(
         active_goals[goal_id]["total_iterations"] = iterations_run
         active_goals[goal_id]["total_duration_ms"] += iter_duration
         active_goals[goal_id]["total_tool_calls"] += tool_calls_count
+        _persist_goal(goal_id)
 
-        # Synchronize back to SQLite turns to show dynamic console progress
+        # Synchronize back to the sessions store to show dynamic console progress
         try:
-            conn = sqlite3.connect(str(db_path))
+            conn = _connect_db()
             cursor = conn.cursor()
 
             cursor.execute(
@@ -426,7 +748,7 @@ async def run_goal_loop(
             conn.commit()
             conn.close()
         except Exception as e:
-            logger.error(f"Error appending turn to SQLite: {e}")
+            logger.error(f"Error appending turn to sessions store: {e}")
 
         if cmd_success:
             success = True
@@ -439,9 +761,10 @@ async def run_goal_loop(
     active_goals[goal_id][
         "summary"
     ] = f"Goal finished with status: {final_status.value}. Iterations run: {iterations_run}."
+    _persist_goal(goal_id)
 
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = _connect_db()
         cursor = conn.cursor()
         cursor.execute(
             "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
@@ -450,7 +773,7 @@ async def run_goal_loop(
         conn.commit()
         conn.close()
     except Exception as e:
-        logger.error(f"Error finalizing SQLite session status: {e}")
+        logger.error(f"Error finalizing session status: {e}")
 
 
 async def create_goal(request: Request) -> JSONResponse:
@@ -481,10 +804,8 @@ async def create_goal(request: Request) -> JSONResponse:
     if consts:
         spec.constraints = consts
 
-    db_path = _get_db_path()
-
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = _connect_db()
         cursor = conn.cursor()
 
         cursor.execute(
@@ -526,7 +847,7 @@ async def create_goal(request: Request) -> JSONResponse:
         conn.commit()
         conn.close()
     except Exception as e:
-        logger.error(f"Error initializing SQLite goal session: {e}")
+        logger.error(f"Error initializing goal session: {e}")
         return JSONResponse(
             {"error": f"Database initialization failed: {e}"}, status_code=500
         )
@@ -554,6 +875,9 @@ async def create_goal(request: Request) -> JSONResponse:
         "goal_id": goal_id,
         "session_id": session_id,
         "status": GoalStatus.RUNNING,
+        "objective": spec.objective,
+        "owner_host": _owner_token(),
+        "created_at": time.time(),
         "iterations": [],
         "total_iterations": 0,
         "total_duration_ms": 0,
@@ -561,6 +885,7 @@ async def create_goal(request: Request) -> JSONResponse:
         "summary": "Goal loop initialized...",
         "error": "",
     }
+    _persist_goal(goal_id)
 
     return JSONResponse(
         {
@@ -589,16 +914,44 @@ def make_serializable(o: Any) -> Any:
 
 
 async def list_goals(request: Request) -> JSONResponse:
-    """Retrieve lists of active and completed autonomous goals."""
-    return JSONResponse(make_serializable(list(active_goals.values())))
+    """Retrieve active + durable goals (in-memory cache overlays the store)."""
+    rehydrate_goals()
+    merged: dict[str, Any] = {}
+    try:
+        conn = _connect_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM goals ORDER BY updated_at DESC LIMIT 200")
+        for row in cursor.fetchall():
+            entry = _goal_row_to_entry(dict(row))
+            merged[entry["goal_id"]] = entry
+        conn.close()
+    except Exception as e:  # noqa: BLE001 — degrade to the in-memory view
+        logger.debug(f"durable goal list unavailable: {e}")
+    for gid, entry in active_goals.items():
+        merged[gid] = make_serializable(entry)
+    return JSONResponse(list(merged.values()))
 
 
 async def get_goal_iterations(request: Request) -> JSONResponse:
     """Retrieve live-updating iteration steps for a specific goal run."""
     goal_id = request.path_params.get("goal_id")
-    if not goal_id or goal_id not in active_goals:
+    if not goal_id:
         return JSONResponse({"error": "Goal run not found"}, status_code=404)
-    return JSONResponse(make_serializable(active_goals[goal_id]))
+    rehydrate_goals()
+    if goal_id in active_goals:
+        return JSONResponse(make_serializable(active_goals[goal_id]))
+    # Fall back to the durable registry (goal from a previous run / other host).
+    try:
+        conn = _connect_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM goals WHERE goal_id = ?", (goal_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return JSONResponse(_goal_row_to_entry(dict(row)))
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"durable goal lookup failed: {e}")
+    return JSONResponse({"error": "Goal run not found"}, status_code=404)
 
 
 async def cancel_goal(request: Request) -> JSONResponse:
@@ -618,10 +971,10 @@ async def cancel_goal(request: Request) -> JSONResponse:
     if goal_id in active_goals:
         active_goals[goal_id]["status"] = GoalStatus.CANCELLED
         active_goals[goal_id]["summary"] = "Goal cancelled by user."
+        _persist_goal(goal_id)
 
-    db_path = _get_db_path()
     try:
-        conn = sqlite3.connect(str(db_path))
+        conn = _connect_db()
         cursor = conn.cursor()
         cursor.execute(
             "UPDATE sessions SET status = 'cancelled', updated_at = ? WHERE id = ?",
@@ -630,7 +983,7 @@ async def cancel_goal(request: Request) -> JSONResponse:
         conn.commit()
         conn.close()
     except Exception as e:
-        logger.error(f"Error cancelling goal session in SQLite: {e}")
+        logger.error(f"Error cancelling goal session: {e}")
 
     return JSONResponse(
         {"status": "success", "message": "Goal cancelled successfully."}
