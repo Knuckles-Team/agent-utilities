@@ -1,5 +1,12 @@
 # Recipe — Single-node prod
 
+> Ladder position: this recipe combines **rung (b) — Secured single node** and
+> **rung (c) — Durable single node** of the
+> [supported deployment configurations](../guides/deployment-configurations.md#rung-b-secured-single-node)
+> guide. The ladder has the complete `.env` for each rung (JWT identity,
+> brain enforcement, `STATE_DB_URI` state externalization) — this page is the
+> docker-compose walkthrough.
+
 One host, durable, no swarm. Good for a small team or a staging box: a durable
 Postgres/pggraph KG, the REST gateway, a core slice of the `*-mcp` fleet, and
 optional Langfuse/OpenBao — all via `docker compose` on a single machine.
@@ -8,8 +15,10 @@ optional Langfuse/OpenBao — all via `docker compose` on a single machine.
 
 | Component | How |
 |---|---|
-| agent-utilities + REST gateway (`:8100`) | container or host process (`graph-os-daemon`) |
-| Knowledge graph | `tiered` with **Postgres/pggraph L2** (`GRAPH_DB_URI`) |
+| REST gateway (`python -m agent_utilities`, `:9000` via `HOST`/`PORT`) | container or host process; hosts the KG daemon (flock-elected) and serves `/api/graph/*`, `/api/fleet/*`, `/metrics` |
+| KG host daemon | inside the gateway process; headless alternative: `graph-os-daemon` (no HTTP) |
+| Knowledge graph | `tiered` with a durable **Postgres/pggraph tier** (`GRAPH_DB_URI`) |
+| Durable platform state | sessions/goals/checkpoints/task queue on the same Postgres (`STATE_DB_URI`) |
 | Core `*-mcp` connectors | the `single-node-prod` profile from `mcp-fleet.registry.yml` (openbao, technitium, container-manager, vector, caddy, …) |
 | Caddy | HTTPS reverse proxy in front of the gateway + connectors |
 | OpenBao | optional secrets store |
@@ -19,13 +28,17 @@ optional Langfuse/OpenBao — all via `docker compose` on a single machine.
 ## Steps
 
 ```bash
-# 1. Bring up Postgres/pggraph (durable KG L2)
+# 1. Bring up Postgres/pggraph (publishes host port 5433, db agent_kg,
+#    user/password agent/agent)
 docker compose -f docker/pggraph.compose.yml up -d
+docker exec agent-pggraph psql -U agent -d agent_kg -c 'CREATE DATABASE agent_state'
 
-# 2. Start the REST gateway pointed at it
+# 2. Start the REST gateway pointed at it (also hosts the KG daemon)
 export GRAPH_BACKEND=tiered
-export GRAPH_DB_URI=postgresql://agent:REDACTED@localhost:5432/agent_kg
-uv run graph-os-daemon          # REST API on :8100, hosts the KG daemon
+export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
+export STATE_DB_URI=postgresql://agent:agent@localhost:5433/agent_state
+python -m agent_utilities       # REST API on :9000 (HOST/PORT)
+# Headless alternative (no REST surface): uv run graph-os-daemon
 
 # 3. Deploy the core connector slice (single-node-prod profile)
 #    Build/run each from its docker/compose.yml, or use portainer-sync-agent.
@@ -35,8 +48,20 @@ uv run graph-os-daemon          # REST API on :8100, hosts the KG daemon
 
 ```dotenv
 GRAPH_BACKEND=tiered
-GRAPH_DB_URI=postgresql://agent:REDACTED@localhost:5432/agent_kg
+GRAPH_DB_URI=postgresql://agent:REDACTED@localhost:5433/agent_kg
+
+# Durable platform state: sessions/goals, durable-exec checkpoints, and the
+# KG task queue all move onto Postgres; the task queue auto-resolves to
+# `postgres` when this is set (rung c of the ladder)
+STATE_DB_URI=postgresql://agent:REDACTED@localhost:5433/agent_state
+
 KG_DAEMON_ROLE=host                 # this process owns the single KG daemon
+
+# Identity & enforcement (rung b of the ladder — see the guide for details)
+KG_AUTH_REQUIRED=1
+AUTH_JWT_JWKS_URI=https://idp.example.internal/realms/agents/protocol/openid-connect/certs
+AUTH_JWT_ISSUER=https://idp.example.internal/realms/agents
+KG_BRAIN_ENFORCE=1
 
 # Optional — secrets
 SECRETS_VAULT_URL=http://localhost:8200
@@ -61,12 +86,17 @@ host port (`8200+`) so they coexist on one machine. Front them with Caddy
 ## Verify
 
 ```bash
-curl -s localhost:8100/api/graph/query -d '{"cypher":"MATCH (n) RETURN count(n)"}'
-# Restart the gateway — the KG state persists (it's in Postgres now).
+curl -s -X POST localhost:9000/api/graph/query \
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"cypher":"MATCH (n) RETURN count(n) AS n"}'
+# Restart the gateway — KG state, sessions, and goals persist (Postgres now).
+# Without a Bearer token the same call returns 401 (KG_AUTH_REQUIRED=1).
 ```
 
 ## Graduate to enterprise
 
 Add a swarm, Keycloak SSO, the Kafka event backbone, LGTM observability, and the
 full connector fleet — see [Enterprise](enterprise.md), driven by the
-`day0_bootstrap_orchestrator` skill-workflow.
+`day0_bootstrap_orchestrator` skill-workflow. The flag-level path is rungs
+(d) and (e) of the
+[deployment configurations ladder](../guides/deployment-configurations.md#rung-d-scaled-multi-host).

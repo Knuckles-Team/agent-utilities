@@ -1,7 +1,12 @@
 # Recipe — Tiny (all-local, zero-infra)
 
+> Ladder position: this recipe is **rung (a) — Zero-infra dev** of the
+> [supported deployment configurations](../guides/deployment-configurations.md#rung-a-zero-infra-dev)
+> guide, which lists every default this tier relies on.
+
 For a laptop, a dev box, or an edge node. **No databases, no external services.**
-The knowledge graph runs in-process; the only thing you need is a model provider
+The knowledge graph runs entirely on this machine (the Rust engine as a local
+daemon plus embedded LadybugDB); the only thing you need is a model provider
 (a hosted API key, or a local vLLM/Ollama endpoint).
 
 ## What runs
@@ -34,11 +39,18 @@ cp .env.example .env            # then edit the model provider line
 # --- Knowledge graph: zero-infra default (this is already the default) ---
 GRAPH_BACKEND=tiered
 
+# --- Engine: auto-spawn the local Rust engine on first connect ---
+# Off by default; without it the `epistemic-graph-server` daemon (ships with
+# the epistemic-graph wheel) must already be running. Autostart only ever
+# applies to the local endpoint.
+EPISTEMIC_GRAPH_AUTOSTART=1
+
 # --- Model provider: pick ONE ---
 OPENAI_API_KEY=sk-REDACTED
 # ...or a local OpenAI-compatible endpoint (vLLM/Ollama):
 # OPENAI_BASE_URL=http://localhost:8000/v1
 
+# Optional identity label for MCP/harness client processes
 AGENT_ID=local-developer
 ```
 
@@ -60,4 +72,6 @@ Or via MCP — register `graph-os` in your IDE's `mcp_config.json`:
 
 The moment you want the KG to survive restarts on a server, or to share it across
 processes/containers, move to [Single-node prod](single-node-prod.md) — it's a
-one-line `GRAPH_DB_URI` change.
+one-line `GRAPH_DB_URI` change. The full progression (auth, durable state,
+multi-host scale-out, autonomy) is the
+[deployment configurations ladder](../guides/deployment-configurations.md).
