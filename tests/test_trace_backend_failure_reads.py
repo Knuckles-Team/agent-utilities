@@ -28,8 +28,8 @@ class _FakeApi:
     def __init__(self):
         self.calls = {}
 
-    def observations_get_many(self, **kwargs):
-        self.calls["observations_get_many"] = kwargs
+    def legacy_observations_v1_get_many(self, **kwargs):
+        self.calls["legacy_observations_v1_get_many"] = kwargs
         return {
             "data": [{"id": "o1", "traceId": "t1", "name": "loop", "level": "ERROR"}]
         }
@@ -38,8 +38,8 @@ class _FakeApi:
         self.calls["scores_get_many"] = kwargs
         return {"data": [{"traceId": "t2", "name": "accuracy", "value": 0.2}]}
 
-    def metrics_metrics(self, query):
-        self.calls["metrics_metrics"] = query
+    def legacy_metrics_v1_metrics(self, query):
+        self.calls["legacy_metrics_v1_metrics"] = query
         return {
             "data": [
                 {
@@ -59,13 +59,12 @@ def _backend_with_fake():
 
 
 class TestLangfuseFailureReads:
-    def test_error_observations_uses_level_and_fields(self):
+    def test_error_observations_uses_legacy_endpoint_with_level(self):
         b = _backend_with_fake()
         rows = asyncio.run(b.get_error_observations(since="2026-01-01T00:00:00Z"))
-        call = b._api.calls["observations_get_many"]
+        call = b._api.calls["legacy_observations_v1_get_many"]
         assert call["level"] == "ERROR"
         assert call["from_start_time"] == "2026-01-01T00:00:00Z"
-        assert "basic" in call["fields"]
         assert rows and rows[0]["traceId"] == "t1"
 
     def test_low_score_traces_filters_below_threshold(self):
@@ -83,15 +82,16 @@ class TestLangfuseFailureReads:
             b.get_cost_latency_anomalies(p95_latency_ms=1000, p95_cost_usd=1.0)
         )
         # query is a JSON string with the observations view
-        q = json.loads(b._api.calls["metrics_metrics"])
+        q = json.loads(b._api.calls["legacy_metrics_v1_metrics"])
         assert q["view"] == "observations"
+        assert q["toTimestamp"]  # both timestamps required by the metrics API
         assert rows and rows[0]["over_latency"] is True
         assert rows[0]["over_cost"] is True
         assert rows[0]["p95_latency_ms"] == 9000.0
 
     def test_api_failure_degrades_to_empty(self):
         class _Boom:
-            def observations_get_many(self, **k):
+            def legacy_observations_v1_get_many(self, **k):
                 raise RuntimeError("down")
 
         b = LangfuseTraceBackend()
