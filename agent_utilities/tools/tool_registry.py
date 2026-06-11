@@ -71,7 +71,9 @@ def register_agent_tools(
     DEFAULT_DEVELOPER_TOOLS = to_boolean(
         string=os.environ.get("DEVELOPER_TOOLS", "True")
     )
-    DEFAULT_X_TOOLS = to_boolean(string=os.environ.get("X_TOOLS", "True"))
+    # CONCEPT:OS-5.2 — X/Grok social search needs xAI credentials (optional
+    # infra, like MEDIA_TOOLS/DB_TOOLS). Default OFF; enable with X_TOOLS=1.
+    DEFAULT_X_TOOLS = to_boolean(string=os.environ.get("X_TOOLS", "False"))
     # CONCEPT:ECO-4.30/4.31 — media generation + transcription tools. Default OFF
     # (the services are optional infra); enable with MEDIA_TOOLS=1.
     DEFAULT_MEDIA_TOOLS = to_boolean(string=os.environ.get("MEDIA_TOOLS", "False"))

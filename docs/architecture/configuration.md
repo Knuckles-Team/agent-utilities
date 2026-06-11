@@ -500,6 +500,20 @@ when next touched; the baseline only prevents NEW sprawl. `MCP_CHILD_*` flags ar
 NOT in this category — they are fully typed on `AgentConfig` with no bare reads
 (`mcp/child_resilience.py` consumes the config object).
 
+The agent toolset gates in `tools/tool_registry.py` are also bare reads (not
+KG-prefixed, so outside the ratchet). The optional-infra toolsets all default
+OFF and are opt-in:
+
+| Flag | Default | What it gates |
+|---|---|---|
+| `X_TOOLS` | `False` | X/Grok social search + post browsing via xAI (needs `XAI_API_KEY`); production X/Grok deployments must set `X_TOOLS=1` explicitly |
+| `MEDIA_TOOLS` | `False` | Media generation / transcription services (ECO-4.30/4.31) |
+| `DB_TOOLS` | `False` | Native database traversal tools (ECO-4.33) |
+
+(The always-available local toolsets — `WORKSPACE_TOOLS`, `GIT_TOOLS`,
+`A2A_TOOLS`, `SCHEDULER_TOOLS`, `BROWSER_TOOLS`, `DEVELOPER_TOOLS` — default
+ON in the same registry.)
+
 ## Coverage statement
 
 Verified against `agent_utilities/core/config.py` on this branch by extracting

@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Resilience/HTTP unification** — forked circuit breakers, hand-rolled retry
+  loops, and inline httpx client constructions collapsed onto the canonical
+  primitives, behavior-preserving per site:
+  - **One HTTP client factory** (`agent_utilities/core/http_client.py`):
+    `create_http_client` / `create_async_http_client` with unified defaults —
+    finite timeout always (30s default; `timeout=None` rejected), `verify=True`
+    default, a standard `agent-utilities/<version>` User-Agent (caller headers
+    win), and optional `ResiliencePolicy`-backed transport retry
+    (`http_retry_policy()`). The 9 inline construction sites from the
+    consolidation audit now build through it: `core/embedding_utilities`,
+    `server/dependencies`, `knowledge_graph/backends/contrib/ladybug_backend`
+    (keepalive pool), `protocols/a2a` (×3), `knowledge_graph/core/engine_ingestion`
+    (×2), `server/routers/proxy`, `tools/x_search_tool`, `security/auth` (JWKS),
+    `orchestration/scaling_signals` (Prometheus).
+  - **Breaker unification (CONCEPT:ORCH-1.8)** — the parallel engine's forked
+    per-agent-type `_CircuitBreaker` is deleted; `AgentTypeCircuitBreaker` now
+    subclass-parameterizes the canonical OS-5.23 `engine_breaker.CircuitBreaker`
+    (the ECO-4.34 per-child-breaker pattern) with infinite cooldown to preserve
+    the historical open-until-success semantics. One deliberate divergence:
+    `CIRCUIT_BREAKER_THRESHOLD=0` now disables the breaker (canonical
+    convention) instead of permanently disabling every agent.
+  - **Retry loops onto `ResiliencePolicy` (CONCEPT:ORCH-1.36)** with
+    byte-identical per-site delays: LadybugDB `execute` lock contention
+    (exponential + additive jitter), PostgreSQL `execute` (lock backoff + the
+    zero-delay auto-DDL heal retry via the new `RetryableError` delay hint),
+    background-learning `with_backoff`, `x_search` (new linear backoff
+    strategy; retry sleep is now non-blocking `asyncio.sleep` instead of
+    `time.sleep` inside an async tool), prompt-chain steps, the specialist
+    dispatch outer loop in `graph/executor`, and the parallel engine's in-wave
+    SWARM-5 retry. The multiplexer child restart backoff
+    (`mcp/child_resilience`) is intentionally left distinct.
+  - **`ResiliencePolicy` extensions**: `backoff_strategy="linear"`,
+    `jitter_strategy="additive"`, and `RetryableError(backoff_s=...)`
+    per-exception delay hints — minimal additions so migrated sites keep
+    identical timing rather than leaving forks.
+- **`X_TOOLS` now defaults OFF** — the X/Grok social-search toolset requires
+  xAI credentials (optional infra), so it joins `MEDIA_TOOLS`/`DB_TOOLS` as an
+  explicit opt-in: production X/Grok deployments must set `X_TOOLS=1`.
+  Documented in `.env.example` and `docs/architecture/configuration.md`; full
+  extraction to a fleet `x-mcp` service remains the audit's preferred
+  long-term home.
+
+### Security
+- **TLS verification is centrally governed** — the two `verify=False` client
+  constructions flagged by the audit (`core/embedding_utilities`,
+  `server/dependencies.get_http_client`) were in fact already gated behind the
+  `SSL_VERIFY` / `ssl_verify` opt-out (default secure); they now construct via
+  the canonical factory whose default is `verify=True`, so an accidental
+  insecure default can no longer be introduced at a call site.
+
 ### Added
 - **Fleet-scale MCP multiplexer hardening (CONCEPT:ECO-4.34)** — every aggregated
   child server now runs behind a per-child `ChildRuntime`
