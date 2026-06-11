@@ -1226,33 +1226,16 @@ class TaskManagerMixin(GraphEngineProtocol):
         those failures. Opt-in via KG_FAILURE_EVOLUTION (CONCEPT:AHE-3.18).
         """
         try:
-            from ..adaptation.failure_analyzer import FailureAnalyzer
+            from ..adaptation.failure_analyzer import run_failure_ingest
 
-            analyzer = FailureAnalyzer.from_engine(self)
-            report = analyzer.run_once()
-            gaps = report.get("gap_concepts", [])
+            report = run_failure_ingest(self)
             logger.info(
                 "Failure ingest: pulled=%s patterns=%s gaps=%s anomalies=%s",
                 report.get("records_pulled"),
                 report.get("patterns"),
-                len(gaps),
+                len(report.get("gap_concepts", [])),
                 report.get("anomalies"),
             )
-            if gaps:
-                from ..research.golden_loop import GoldenLoopController
-
-                check = analyzer.make_regression_check(gaps)
-                # Address the just-materialized failure_gap concepts directly
-                # (not via the generic unresolved_topics scan, which an arbitrary
-                # limit can exclude a new gap from). (CONCEPT:AHE-3.18)
-                gap_topics = [{"id": g["id"], "name": g["name"]} for g in gaps]
-                GoldenLoopController(self, regression_check=check).run_one_cycle(
-                    max_topics=min(len(gaps), 5),
-                    topics=gap_topics,
-                    assimilate=False,
-                    breadth=False,
-                    standardize=False,
-                )
         except Exception as e:  # noqa: BLE001
             logger.error("failure_ingest tick error: %s", e)
 

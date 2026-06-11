@@ -191,6 +191,32 @@ class TestDaemonRegistration:
         assert match[0][1] == ms._tick_failure_ingest
 
 
+class TestRunFailureIngest:
+    """run_failure_ingest (shared by the daemon tick + the MCP action)."""
+
+    def test_no_failures_is_clean_noop(self):
+        from agent_utilities.knowledge_graph.adaptation.failure_analyzer import (
+            run_failure_ingest,
+        )
+
+        # No telemetry -> no gaps -> no remediation cycle attempted.
+        eng = _FakeEngine()
+        import agent_utilities.knowledge_graph.adaptation.failure_analyzer as fa
+
+        orig = fa.FailureAnalyzer.from_engine
+        fa.FailureAnalyzer.from_engine = staticmethod(
+            lambda engine: fa.FailureAnalyzer(
+                engine, trace_backend=_FakeBackend(), feedback=None
+            )
+        )
+        try:
+            rep = run_failure_ingest(eng)
+        finally:
+            fa.FailureAnalyzer.from_engine = orig
+        assert rep["gap_concepts"] == []
+        assert "remediation" not in rep
+
+
 class TestGoldenLoopTopicsOverride:
     """The failure tick addresses its just-created gaps directly, not via the
     generic (limited, arbitrarily-ordered) unresolved_topics scan."""
