@@ -25,6 +25,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agent_utilities.orchestration.resilience import (
+    ResiliencePolicy,
+    run_with_resilience,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -181,20 +186,35 @@ class PromptChainExecutor:
         retries = 0
         output = ""
 
-        for attempt in range(step.max_retries + 1):
+        async def _call_once() -> str:
+            nonlocal retries
             try:
                 if self._llm_call is not None:
-                    output = await self._llm_call(prompt)
-                else:
-                    output = f"[mock] Step '{step.name}' executed"
-                break
+                    return await self._llm_call(prompt)
+                return f"[mock] Step '{step.name}' executed"
             except Exception:
-                retries = attempt + 1
+                retries += 1
                 logger.warning(
                     "Step '%s' attempt %d failed, retrying...",
                     step.name,
-                    attempt + 1,
+                    retries,
                 )
+                raise
+
+        # Historical semantics, declaratively (CONCEPT:ORCH-1.36): retry ANY
+        # Exception up to max_retries extra attempts with NO delay between
+        # attempts; exhaustion leaves output == "" rather than raising.
+        policy = ResiliencePolicy(
+            max_attempts=step.max_retries + 1,
+            backoff_base_s=0.0,
+            jitter=False,
+            retry_on=lambda exc: isinstance(exc, Exception),
+            name=f"prompt-chain:{step.name}",
+        )
+        try:
+            output = await run_with_resilience(_call_once, policy)
+        except Exception:  # noqa: BLE001 - exhausted retries keep output == ""
+            pass
 
         latency_ms = (time.monotonic() - t0) * 1000
 
