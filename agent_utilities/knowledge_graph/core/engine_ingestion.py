@@ -1041,14 +1041,16 @@ class IngestionMixin(_Base):
             Parsed JSON dict, or None if the fetch fails.
 
         """
-        import httpx
-
-        url = base_url.rstrip("/") + path
         import os
 
+        from agent_utilities.core.http_client import create_async_http_client
+
+        url = base_url.rstrip("/") + path
         verify_ssl = os.environ.get("AGENTS_INSECURE_SSL", "0") != "1"
         try:
-            async with httpx.AsyncClient(timeout=15.0, verify=verify_ssl) as client:
+            async with create_async_http_client(
+                timeout=15.0, verify=verify_ssl
+            ) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 return resp.json()
@@ -1069,11 +1071,13 @@ class IngestionMixin(_Base):
         """Fetch a remote JSON file and determine if it's an MCP config or A2A card."""
         import os
 
-        import httpx
+        from agent_utilities.core.http_client import create_async_http_client
 
         verify_ssl = os.environ.get("AGENTS_INSECURE_SSL", "0") != "1"
         try:
-            async with httpx.AsyncClient(timeout=15.0, verify=verify_ssl) as client:
+            async with create_async_http_client(
+                timeout=15.0, verify=verify_ssl
+            ) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 data = resp.json()
