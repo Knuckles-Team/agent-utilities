@@ -44,6 +44,8 @@ __all__ = [
     "GATEWAY_REQUESTS",
     "ENGINE_BREAKER_STATE",
     "ENGINE_REQUESTS",
+    "KG_INGEST_CONSUMER_LAG",
+    "KG_INGEST_QUEUE_DEPTH",
     "PROMETHEUS_AVAILABLE",
     "GatewayMetricsMiddleware",
     "metrics_asgi_endpoint",
@@ -154,6 +156,20 @@ ENGINE_BREAKER_STATE = _gauge(
     "agent_utilities_gateway_engine_breaker_state",
     "Engine circuit-breaker state per endpoint (0=closed, 1=half-open, 2=open).",
     ("endpoint",),
+)
+# Ingest scale-out backpressure visibility (CONCEPT:KG-2.57): sampled by the
+# KG maintenance scheduler on the leader host. Depth is uniform across queue
+# backends (sqlite/postgres row count, kafka = kg-ingest consumer-group lag);
+# the lag series exists separately so Kafka dashboards/alerts read naturally.
+KG_INGEST_QUEUE_DEPTH = _gauge(
+    "agent_utilities_kg_ingest_queue_depth",
+    "Pending KG ingest tasks in the selected durable task queue.",
+    ("backend",),
+)
+KG_INGEST_CONSUMER_LAG = _gauge(
+    "agent_utilities_kg_ingest_consumer_lag",
+    "Total kg-ingest consumer-group lag (unconsumed messages) per topic.",
+    ("topic", "group"),
 )
 
 
