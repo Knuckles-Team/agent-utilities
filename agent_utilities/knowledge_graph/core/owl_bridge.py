@@ -361,6 +361,9 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     # BPMN process structure lift (CONCEPT:KG-2.53) — sequence flows between
     # BusinessTask elements; matches :flowsTo in the ontology.
     "flows_to",
+    # Process lineage close-out (CONCEPT:ORCH-1.43) — RunTrace → the
+    # BusinessProcess its workflow realizes; matches :executedProcess.
+    "executed_process",
     # Market Data Connector Protocol (CONCEPT:ECO-4.0)
     "fetched_from",
     "falls_back_to",
