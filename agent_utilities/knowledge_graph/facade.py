@@ -360,12 +360,18 @@ class KnowledgeGraph:
         # rows. Runs regardless of KG_BRAIN_ENFORCE because it is driven by the
         # data's own mandatory markings/ACLs, so unmarked data passes through
         # unchanged and existing behaviour is preserved.
-        try:
-            from .ontology.permissioning import enforce as enforce_fine_grained
+        from .core.company_brain_runtime import brain_enforcement_enabled
+        from .ontology.permissioning import enforce as enforce_fine_grained
 
+        if brain_enforcement_enabled():
+            # Fail CLOSED (CONCEPT:OS-5.14): with enforcement on, an
+            # enforcement error must never widen into an allow — propagate.
             rows = enforce_fine_grained(rows)
-        except Exception as exc:  # pragma: no cover - never block a read on infra
-            logger.debug("fine-grained enforce skipped: %s", exc)
+        else:
+            try:
+                rows = enforce_fine_grained(rows)
+            except Exception as exc:  # pragma: no cover - never block a legacy read
+                logger.debug("fine-grained enforce skipped: %s", exc)
         audit_read([], summary="query")
         return rows
 

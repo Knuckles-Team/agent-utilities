@@ -30,12 +30,21 @@ markings — so it is correct to call on the live read path **regardless of**
 ``KG_BRAIN_ENFORCE``. (The legacy ``secured_reads`` helpers stay gated on that
 flag for backward compatibility; the marking-mandatory layer here does not.)
 
+With ``KG_BRAIN_ENFORCE`` on, the gate additionally fails **closed**
+(CONCEPT:OS-5.14): an ACL-check exception denies, and nodes without an ACL are
+denied by policy default (escape hatch: ``KG_ACL_DEFAULT_ALLOW``). Mandatory
+markings are durably persisted as ``mandatory_marking`` graph nodes (loaded on
+first use, written through on registration) so separate processes agree; the
+in-process ``MARKING_REGISTRY`` dict is a cache of that store.
+
 Reuses :class:`PermissionsKernel` semantics, :class:`ActorContext`, and
 :class:`DataLevelPermissions` (``DataClassification``) — no new permission
 engine is introduced.
 """
 
+import json
 import logging
+import os
 from typing import Any
 
 from ...models.company_brain import (
@@ -44,7 +53,10 @@ from ...models.company_brain import (
     NodeACL,
 )
 from ...security.brain_context import ActorContext, current_actor
-from ..core.company_brain_runtime import get_company_brain
+from ..core.company_brain_runtime import (
+    brain_enforcement_enabled,
+    get_company_brain,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,28 +127,127 @@ class Marking:
         return f"Marking({self.name!r})"
 
 
-# Process-wide registry of node_id -> set of marking names. Markings live here
-# (not on the ACL) because they are mandatory controls applied across the graph;
+# Process-wide CACHE of node_id -> set of marking names, durably backed by
+# ``mandatory_marking`` graph nodes (CONCEPT:OS-5.14) so separate processes
+# agree on mandatory controls: hydrated from the store on first use,
+# written through on every registration. Markings live here (not on the ACL)
+# because they are mandatory controls applied across the graph;
 # DataLevelPermissions keeps the per-object discretionary ACL/classification.
 MARKING_REGISTRY: dict[str, set[str]] = {}
 
+# Durable node type for persisted markings (one node per marked graph node).
+MARKING_NODE_TYPE = "mandatory_marking"
+
+_marking_store: Any = None
+_marking_store_resolved = False
+_markings_hydrated = False
+
+
+def _resolve_marking_store() -> Any:
+    """Resolve (once) the durable graph store backing the marking registry.
+
+    Mirrors the EditLedger's lazy, degrade-cleanly probe: a missing/unreachable
+    backend leaves the in-process cache authoritative. Under
+    ``AGENT_UTILITIES_TESTING`` no live store is probed (tests inject one via
+    :func:`set_marking_store`).
+    """
+    global _marking_store, _marking_store_resolved  # noqa: PLW0603
+    if _marking_store_resolved:
+        return _marking_store
+    _marking_store_resolved = True
+    if os.environ.get("AGENT_UTILITIES_TESTING"):
+        return None
+    try:
+        from ..facade import KnowledgeGraph
+
+        _marking_store = KnowledgeGraph().store
+    except Exception as exc:  # noqa: BLE001 — degrade to in-process cache
+        logger.debug("marking store unavailable: %s", exc)
+        _marking_store = None
+    return _marking_store
+
+
+def set_marking_store(store: Any) -> None:
+    """Inject the durable marking store (DI/test seam); forces re-hydration."""
+    global _marking_store, _marking_store_resolved, _markings_hydrated  # noqa: PLW0603
+    _marking_store = store
+    _marking_store_resolved = True
+    _markings_hydrated = False
+
+
+def _hydrate_markings() -> None:
+    """Load persisted markings into the cache (once per process, best-effort)."""
+    global _markings_hydrated  # noqa: PLW0603
+    if _markings_hydrated:
+        return
+    _markings_hydrated = True
+    store = _resolve_marking_store()
+    if store is None:
+        return
+    try:
+        rows = (
+            store.execute(
+                "MATCH (m) WHERE m.type = $t "
+                "RETURN m.node_id AS node_id, m.markings AS markings",
+                {"t": MARKING_NODE_TYPE},
+            )
+            or []
+        )
+        for row in rows:
+            nid = row.get("node_id")
+            raw = row.get("markings")
+            names = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            if isinstance(nid, str) and nid:
+                MARKING_REGISTRY.setdefault(nid, set()).update(
+                    str(n) for n in names if n
+                )
+    except Exception as exc:  # noqa: BLE001 — cache stays authoritative
+        logger.debug("marking hydration skipped: %s", exc)
+
+
+def _persist_markings(node_id: str) -> None:
+    """Write-through ``node_id``'s markings as a durable graph node."""
+    store = _resolve_marking_store()
+    if store is None:
+        return
+    try:
+        store.execute(
+            "MERGE (m {id: $id}) SET m.type = $t, m.node_id = $n, "
+            "m.markings = $marks",
+            {
+                "id": f"marking::{node_id}",
+                "t": MARKING_NODE_TYPE,
+                "n": node_id,
+                "marks": json.dumps(sorted(MARKING_REGISTRY.get(node_id, set()))),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — cache stays authoritative
+        logger.debug("marking persist failed for %s: %s", node_id, exc)
+
 
 def apply_marking(node_id: str, marking: Marking | str) -> None:
-    """Attach a marking to a node (idempotent)."""
+    """Attach a marking to a node (idempotent; written through to the graph)."""
     name = marking.name if isinstance(marking, Marking) else str(marking)
     if not name:
         return
+    _hydrate_markings()
     MARKING_REGISTRY.setdefault(node_id, set()).add(name)
+    _persist_markings(node_id)
 
 
 def markings_for(node_id: str) -> set[str]:
     """Return the set of marking names carried by ``node_id``."""
+    _hydrate_markings()
     return set(MARKING_REGISTRY.get(node_id, ()))
 
 
 def clear_markings() -> None:
-    """Drop all markings (test helper; not used on production paths)."""
+    """Drop all in-process marking state (test helper; not a production path)."""
+    global _marking_store, _marking_store_resolved, _markings_hydrated  # noqa: PLW0603
     MARKING_REGISTRY.clear()
+    _marking_store = None
+    _marking_store_resolved = False
+    _markings_hydrated = False
 
 
 def _actor_marking_tokens(actor: ActorContext) -> set[str]:
@@ -290,6 +401,7 @@ def propagate_markings(
     src_marks = markings_for(source_id)
     if src_marks:
         MARKING_REGISTRY.setdefault(target_id, set()).update(src_marks)
+        _persist_markings(target_id)
 
     if propagate_classification:
         try:
@@ -365,16 +477,35 @@ def _node_id_of(obj: Any) -> str | None:
     return None
 
 
+def _acl_default_allow() -> bool:
+    """The enforced-mode policy for ACL-less nodes (``KG_ACL_DEFAULT_ALLOW``).
+
+    Read fresh from a typed :class:`AgentConfig` field (Configuration
+    discipline — no bare env reads); any failure resolves to deny.
+    """
+    try:
+        from agent_utilities.core.config import AgentConfig
+
+        return bool(AgentConfig().kg_acl_default_allow)
+    except Exception:  # noqa: BLE001 — fail closed
+        return False
+
+
 def _acl_permits(node_id: str, actor: ActorContext) -> bool:
     """Discretionary ACL read-check via the existing DataLevelPermissions.
 
-    Default-allow when no ACL exists (matches DataLevelPermissions semantics),
-    so this is safe to call on every read regardless of KG_BRAIN_ENFORCE.
+    Legacy mode (``KG_BRAIN_ENFORCE`` off): default-allow when no ACL exists
+    and allow on infra error — byte-identical to historic behaviour.
+
+    Enforced mode (CONCEPT:OS-5.14, fail CLOSED): an infra exception denies,
+    and a node WITHOUT an ACL is denied by policy default unless the
+    ``KG_ACL_DEFAULT_ALLOW`` escape hatch is set.
     """
+    enforced = brain_enforcement_enabled()
     try:
         perms = get_company_brain().permissions
         if perms.get_acl(node_id) is None:
-            return True
+            return _acl_default_allow() if enforced else True
         return perms.check_permission(
             node_id,
             actor.actor_id,
@@ -382,7 +513,14 @@ def _acl_permits(node_id: str, actor: ActorContext) -> bool:
             action="read",
             actor_roles=list(actor.roles),
         ).allowed
-    except Exception as exc:  # pragma: no cover - fail-open on infra error
+    except Exception as exc:
+        if enforced:
+            logger.warning(
+                "ACL check failed for %s — denying (fail-closed): %s",
+                node_id,
+                exc,
+            )
+            return False
         logger.debug("acl check failed for %s: %s", node_id, exc)
         return True
 
@@ -461,7 +599,8 @@ def enforce(
     that carries a mandatory marking or a discretionary ACL is row-filtered and
     column-redacted for ``actor``. Because the gate is *driven by the data's own
     controls*, it is correct to call unconditionally — it does **not** depend on
-    ``KG_BRAIN_ENFORCE`` being on.
+    ``KG_BRAIN_ENFORCE`` being on. (With ``KG_BRAIN_ENFORCE`` on the row gate
+    tightens to fail-closed: see :func:`_acl_permits`.)
 
     This is the property+row composition of :func:`restricted_view`; kept as a
     named entry point so the facade read path has one stable call.
@@ -496,11 +635,13 @@ def build_acl(
 
 __all__ = [
     "MASK_TOKEN",
+    "MARKING_NODE_TYPE",
     "MARKING_REGISTRY",
     "Marking",
     "apply_marking",
     "markings_for",
     "clear_markings",
+    "set_marking_store",
     "redact_object",
     "propagate_markings",
     "propagate_over_edges",
