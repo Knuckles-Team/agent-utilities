@@ -1,0 +1,51 @@
+# Supervised ActionPolicy posture (CONCEPT:OS-5.24).
+#
+# Use when: you trust the platform with low-risk, self-healing actions
+# (service restarts proposed by remediation playbooks / the reconciler) but
+# want a human decision on anything that changes what is running (deploys,
+# rollbacks, scaling). Every autonomous restart still notifies operators
+# (auto_notify) and is budgeted by tight rate/blast limits.
+#
+# Load with: ACTION_POLICY_PATH=examples/action-policies/supervised.yml
+# Schema reference: deploy/action-policy.default.yml +
+# agent_utilities/orchestration/action_policy.py (the loader).
+version: 1
+
+defaults:
+  # Unmatched kinds queue for a human — the same conservative default as the
+  # shipped policy.
+  tier: approval_required
+  rate_limit: {max: 3, window_s: 3600}
+  blast_radius: {max_targets: 3, window_s: 3600}
+
+rules:
+  # ── No-op / read-only kinds stay automatic. ──
+  - {kind: diagnose, target: "*", tier: auto}
+  - {kind: observe, target: "*", tier: auto}
+  - {kind: notify, target: "*", tier: auto}
+  - {kind: record_dry_run, target: "*", tier: auto}
+
+  # Playbook dispatch announces itself; its mutating steps re-enter the gate
+  # with their concrete kinds and are judged by the rules below.
+  - {kind: run_playbook, target: "*", tier: auto_notify}
+
+  # ── Low-risk self-healing: restarts run autonomously WITH notification.
+  #    rate_limit: at most 2 restarts of the SAME service per hour — a third
+  #    inside the window is DENIED (a looping remediation is broken; denying
+  #    beats flooding the approval queue).
+  #    blast_radius: restarts touching a 3rd DISTINCT service inside an hour
+  #    are queued for approval (wide failure wave = human decision). ──
+  - kind: restart_service
+    target: "*"
+    tier: auto_notify
+    rate_limit: {max: 2, window_s: 3600}
+    blast_radius: {max_targets: 2, window_s: 3600}
+
+  # ── Anything that changes WHAT is running needs a human grant
+  #    (GET /api/fleet/approvals → POST /api/fleet/approvals/grant). ──
+  - {kind: scale_service, target: "*", tier: approval_required}
+  - {kind: rollback_service, target: "*", tier: approval_required}
+  - {kind: deploy_service, target: "*", tier: approval_required}
+  - {kind: redeploy_stack, target: "*", tier: approval_required}
+  - {kind: stop_service, target: "*", tier: approval_required}
+  - {kind: merge_promotion, target: "*", tier: approval_required}

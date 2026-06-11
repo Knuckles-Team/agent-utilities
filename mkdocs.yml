@@ -51,14 +51,28 @@ nav:
   - Ecosystem: ecosystem.md
   - The Narrative Journey: journey.md
   - Deployment:
+      - Supported Configurations (the ladder): guides/deployment-configurations.md
       - Day-0 Deployment: guides/day0.md
       - Recipe — Tiny (all-local): recipes/tiny.md
       - Recipe — Single-node prod: recipes/single-node-prod.md
       - Recipe — Enterprise: recipes/enterprise.md
       - Deploying agent-utilities: guides/deployment.md
       - Configuration: guides/configuration.md
+      - Configuration Reference & Flag Audit: architecture/configuration.md
       - Enabling Autonomous Evolution: guides/autonomous-evolution.md
       - Tiered Graph Engine: guides/tiered_graph_engine.md
+  - Worked Examples:
+      - Ontology → Workflow End-to-End: examples/ontology-to-workflow.md
+      - Queue-Driven Dispatch Walkthrough: examples/queue-dispatch-walkthrough.md
+      - Engine Sharding Walkthrough: examples/sharding-walkthrough.md
+      - Fleet Events Wiring: examples/fleet-events-wiring.md
+      - ActionPolicy Postures: examples/action-policy-postures.md
+      - Autoscaling Signals & Math: examples/autoscaling-signals.md
+      - Evolution Publication: examples/evolution-publication.md
+      - Observability Setup: examples/observability.md
+      - Identity & JWT Auth: examples/identity-jwt.md
+      - MCP Consumption & Multiplexer Tuning: examples/mcp-consumption.md
+      - MCP Orchestration Examples: examples/mcp-orchestration-examples.md
   - Technical Documentation:
       - Graph Orchestration Engine: pillars/1_graph_orchestration.md
       - KG-Native Orchestration: guides/kg_native_orchestration.md
@@ -84,6 +98,11 @@ nav:
       - Tenant-Partitioned Engine Sharding: architecture/engine_sharding.md
       - Queue-Driven Agent Dispatch: architecture/agent_dispatch.md
       - Fleet Autonomy Control Plane: architecture/fleet_autonomy.md
+      - Event Backbone (Kafka): architecture/event_backbone_architecture.md
+      - Ontology System: architecture/ontology_system.md
+      - Capacity Model: scaling/capacity_model.md
+  - Reference:
+      - Metrics Reference: reference/metrics.md
   - Concept Registry:
       - Canonical Concept Map: concept_map.md
       - Concept Overview: overview.md

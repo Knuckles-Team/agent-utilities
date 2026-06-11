@@ -593,3 +593,72 @@ subgraphs (`PRECEDES` edges) distill into graph-native skill-**workflows**; a si
 `crawl.py --ingest-kg`. Full design:
 [Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md).
 Extends KG-2.7.
+
+### KG-2.52 / KG-2.53 — Published TBox + BPMN Process Lift
+
+The ontology the platform ships is published, not just held in memory: a
+background daemon tick (`knowledge_graph/core/ontology_publisher.py`) publishes
+the authoritative TBox to the Fuseki SPARQL endpoint, so external reasoners and
+the execution gate (ORCH-1.42) validate against the same source of truth.
+Alongside it, the descriptive process world gains step-level shape (KG-2.53):
+the Camunda extractor (`enrichment/extractors/camunda.py`) and `owl_bridge`
+model BPMN processes down to their steps, which is what makes
+`compile_process` (ORCH-1.41) and lineage close-out (ORCH-1.43) possible — see
+[pillar 1](1_graph_orchestration.md) and the
+[ontology-to-workflow example](../examples/ontology-to-workflow.md).
+
+### KG-2.54 — Cross-Host Task Queue (SKIP LOCKED)
+
+With `STATE_DB_URI` set (OS-5.16), the KG task + staging queue moves onto the
+shared Postgres state store (`knowledge_graph/core/postgres_queue_backend.py`):
+claims are atomic `FOR UPDATE SKIP LOCKED` selections, so any number of hosts
+can poll the same queue without double-firing, and visibility-timeout recovery
+re-queues tasks whose claimant died. This is the durable substrate the ingest
+workers (KG-2.57) and dispatch workers (ORCH-1.45) stand on. Full design:
+[State Externalization](../architecture/state_externalization.md).
+
+### KG-2.55 / KG-2.56 / KG-2.57 — Kafka Ingest Scale-Out
+
+The durable ingest queue is a selectable, fail-loud, horizontally scalable
+system:
+
+- **KG-2.55 — fail-loud backend selection**: `TASK_QUEUE_BACKEND`
+  (`sqlite` | `postgres` | `kafka`; default auto = postgres when `STATE_DB_URI`
+  is set, else sqlite). An explicitly selected backend that is unreachable
+  raises `TaskQueueUnavailable` at startup with the endpoint and remediation —
+  never a silent SQLite degrade. One construction path (`create_task_queue`)
+  serves the engine and the staging CLI.
+- **KG-2.56 — keyed partitions**: Kafka `kg_tasks` messages carry a partition
+  key (tenant → repo/corpus identifier → task type), giving per-tenant and
+  per-repo ordering without global serialization. Startup idempotently
+  ensures/grows the topic to `KG_TASKS_PARTITIONS` (default 6).
+- **KG-2.57 — decoupled consumer group**: the `kg-ingest-worker` console
+  script (`knowledge_graph/ingest_worker.py`) runs ingest workers as engine
+  *clients* (UDS/TCP + the OS-5.14 HMAC secret, no host flock) in the
+  `kg-ingest` consumer group; the host engine's own pool joins the same group,
+  so partitions spread across the host and any number of external workers.
+  At-least-once delivery with idempotent `job_id`-keyed claims.
+
+Backpressure is visible: `agent_utilities_kg_ingest_queue_depth{backend}` and
+`agent_utilities_kg_ingest_consumer_lag{topic,group}` gauges on the gateway
+metrics registry (OS-5.23). Full design:
+[Event Backbone — Ingest Task Queue Scale-Out](../architecture/event_backbone_architecture.md).
+
+### KG-2.58 — Tenant-Partitioned Engine Sharding
+
+With 2+ `GRAPH_SERVICE_ENDPOINTS`, `GraphComputeEngine` routes each named graph
+to its owning engine shard via HRW (rendezvous) hashing — the exact
+`epistemic_graph.pool.ShardRouter` hash, so sync and async callers agree by
+construction. The routing key resolves explicit graph name → ambient
+`ActorContext` tenant (through `tenant_graph_name(tenant, base)` in
+`knowledge_graph/core/shard_topology.py`) → `KG_DEFAULT_GRAPH`. An unreachable
+remote shard is a fail-loud `ConnectionError` naming the shard, its graph, and
+the remediation; autostart applies only to the local `unix://` endpoint.
+Topology is observable (OS-5.28): `shard_topology_status()` on the daemon
+status, the gateway dashboard's `daemon/shards` route, and
+`agent_utilities_engine_shard_up{endpoint}` /
+`agent_utilities_engine_shard_requests_total{endpoint,outcome}` metrics. A
+worked 3-shard recipe ships in `docker/engine-shards.compose.yml`.
+Single-endpoint deployments are byte-for-byte unchanged. Full design:
+[Engine Sharding](../architecture/engine_sharding.md); walkthrough:
+[sharding example](../examples/sharding-walkthrough.md).

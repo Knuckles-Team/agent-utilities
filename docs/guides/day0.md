@@ -38,8 +38,8 @@ See [Installation](installation.md).
 uv run graph-os                                            # stdio
 uv run graph-os --transport streamable-http --host 0.0.0.0 --port 8004
 
-# Or the REST gateway (one shared KG host, :8100) for UIs/scripts/fleet supervisor
-uv run graph-os-daemon
+# Or the REST gateway (one shared KG host, default :9000) for UIs/scripts/fleet supervisor
+python -m agent_utilities
 
 # The multiplexer federates graph-os + the whole *-mcp fleet into one endpoint
 uv run mcp-multiplexer --config ./mcp_config.json --transport stdio
