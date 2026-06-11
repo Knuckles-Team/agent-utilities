@@ -266,9 +266,7 @@ class ProcessPlanCompiler:
         while remaining:
             ready = sorted(tid for tid, d in remaining.items() if not d)
             if not ready:
-                names = sorted(
-                    str(tasks[tid].get("name") or tid) for tid in remaining
-                )
+                names = sorted(str(tasks[tid].get("name") or tid) for tid in remaining)
                 raise ProcessCompilationError(
                     "BusinessProcess contains a cycle among tasks "
                     f"{names} — BPMN loop-backs cannot be compiled into a "
@@ -344,8 +342,8 @@ class ProcessPlanCompiler:
                 unresolved.append(label)
                 step_id = f"manual:{element}"
             else:
-                step_id = agent_id if agent_id not in used_ids else (
-                    f"{agent_id}:{element}"
+                step_id = (
+                    agent_id if agent_id not in used_ids else (f"{agent_id}:{element}")
                 )
             used_ids.add(step_id)
             step_ids[tid] = step_id
