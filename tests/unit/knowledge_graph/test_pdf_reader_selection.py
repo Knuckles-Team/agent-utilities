@@ -11,7 +11,7 @@ PyMuPDF isn't installed.
 """
 
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from agent_utilities.knowledge_graph.core import engine_tasks
 

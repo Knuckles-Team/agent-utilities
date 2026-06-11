@@ -707,6 +707,20 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_fuseki_publish,
                 )
             )
+        # Desired-state fleet reconciler (CONCEPT:OS-5.25) — opt-in
+        # (FLEET_RECONCILER=1). Leader-only like every job in this scheduler:
+        # one host fleet-wide diffs registry-desired vs observed state and
+        # converges through the ActionPolicy gate (CONCEPT:OS-5.24). Default
+        # off until a deployment wires real actuators; with the default
+        # dry-run actuator it records intended actions without mutating.
+        if _cfg.fleet_reconciler:
+            jobs.append(
+                (
+                    "fleet_reconciler",
+                    _cfg.fleet_reconciler_interval,
+                    self._tick_fleet_reconciler,
+                )
+            )
         jobs.append(("compaction", 1800.0, self._tick_compaction))
         jobs.append(
             (
@@ -797,6 +811,33 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
             logger.debug("hygiene tick error: %s", e)
+
+    def _tick_fleet_reconciler(self) -> None:
+        """One desired-state fleet reconcile pass (CONCEPT:OS-5.25).
+
+        Diffs the fleet registry (+ optional desired-state override) against
+        the pluggable FleetObserver and converges each divergence through the
+        ActionPolicy decision point (CONCEPT:OS-5.24) and the FleetActuator
+        seam; also drains human-granted ActionApproval entries. Storm-guarded
+        (FLEET_RECONCILER_MAX_ACTIONS per tick); leader-only via the
+        consolidated maintenance scheduler.
+        """
+        try:
+            from agent_utilities.orchestration.fleet_reconciler import reconcile_fleet
+
+            report = reconcile_fleet(self)
+            if report.get("divergences") or report.get("approved_drained"):
+                logger.info(
+                    "[OS-5.25] fleet reconcile: divergences=%s processed=%s "
+                    "deferred=%s approved_drained=%s actuator=%s",
+                    report.get("divergences"),
+                    report.get("processed"),
+                    len(report.get("deferred") or []),
+                    len(report.get("approved_drained") or []),
+                    report.get("actuator"),
+                )
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("fleet_reconciler tick error: %s", e)
 
     def _get_host_token(self) -> str:
         """Stable per-process identity for task-claim ownership (zombie reaper).
@@ -2374,12 +2415,34 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # FleetEvent node id enqueued by the gateway's
                 # POST /api/fleet/events webhook receiver, not a filesystem
                 # path. Correlates the event to known KG entities and files a
-                # failure_gap topic when severity warrants.
+                # failure_gap topic when severity warrants. Remediation
+                # playbooks (CONCEPT:OS-5.26) register on the dispatch seam
+                # here, so wherever triage runs they are live.
                 from agent_utilities.knowledge_graph.adaptation.fleet_event_triage import (
                     triage_fleet_event,
                 )
+                from agent_utilities.knowledge_graph.adaptation.remediation_playbooks import (
+                    ensure_registered as _ensure_playbooks,
+                )
 
+                _ensure_playbooks()
                 result = triage_fleet_event(self, str(target))
+                self._update_task_status(
+                    job_id,
+                    "completed",
+                    {"target": str(target), "type": task_type, **result},
+                )
+            elif task_type == "deploy_watch":
+                # Health-gated deploy watch (CONCEPT:OS-5.27): 'target' is the
+                # watched service name; the watch spec (window, deadline,
+                # rollback params) rides on this Task node, so a watch
+                # requeued by the zombie reaper resumes against its ORIGINAL
+                # deadline. Failure invokes the policy-gated rollback.
+                from agent_utilities.orchestration.deploy_watch import (
+                    run_deploy_watch,
+                )
+
+                result = run_deploy_watch(self, str(target), job_id)
                 self._update_task_status(
                     job_id,
                     "completed",

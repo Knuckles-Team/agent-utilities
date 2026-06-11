@@ -14,7 +14,7 @@ from agent_utilities.knowledge_graph.enrichment.registry import (
     write_batch,
 )
 
-from .bpmn_fixtures import BPMN_FIXTURE, XmlCapableClient
+from .bpmn_fixtures import XmlCapableClient
 
 
 class FakeBackend:

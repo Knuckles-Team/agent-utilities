@@ -1,0 +1,41 @@
+# Shipped conservative ActionPolicy (CONCEPT:OS-5.24).
+#
+# The single autonomy decision point (orchestration/action_policy.py) loads
+# this file when ACTION_POLICY_PATH is unset. Philosophy: every mutating
+# operational action is approval_required out of the box; only no-op /
+# diagnostic kinds run automatically. Deployments relax this with their own
+# YAML (ACTION_POLICY_PATH) or with KG `governance_rule` overrides
+# (scope: action_policy), which always win over file rules.
+#
+# Rule fields:
+#   kind:                action kind glob (restart_service, scale_service, ...)
+#   target:              target selector glob (service name)
+#   tier:                auto | auto_notify | approval_required | forbidden
+#   rate_limit:          {max, window_s} — per action+target; exceeded => deny
+#   blast_radius:        {max_targets, window_s} — per action kind; exceeded
+#                        => queue for approval
+#   maintenance_window:  "HH:MM-HH:MM" UTC — auto tiers outside the window are
+#                        queued for approval
+#
+# NOTE: agent_utilities/orchestration/action_policy.py embeds this exact
+# policy as DEFAULT_POLICY for installed wheels without a repo checkout —
+# keep the two in lock-step (tests/unit/test_action_policy.py asserts parity).
+version: 1
+defaults:
+  tier: approval_required
+  rate_limit: {max: 3, window_s: 3600}
+  blast_radius: {max_targets: 3, window_s: 3600}
+rules:
+  - {kind: diagnose, target: "*", tier: auto}
+  - {kind: observe, target: "*", tier: auto}
+  - {kind: notify, target: "*", tier: auto}
+  - {kind: record_dry_run, target: "*", tier: auto}
+  # Playbook dispatch is auto+notify: a playbook's mutating steps re-enter
+  # the gate individually with their concrete kinds.
+  - {kind: run_playbook, target: "*", tier: auto_notify}
+  - {kind: restart_service, target: "*", tier: approval_required}
+  - {kind: rollback_service, target: "*", tier: approval_required}
+  - {kind: scale_service, target: "*", tier: approval_required}
+  - {kind: deploy_service, target: "*", tier: approval_required}
+  - {kind: redeploy_stack, target: "*", tier: approval_required}
+  - {kind: merge_promotion, target: "*", tier: approval_required}

@@ -44,6 +44,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Compose: `docker/kafka-kraft.compose.yml` provisions `kg_tasks`
     (`${KG_TASKS_PARTITIONS:-6}`) + `kg_staging`; docs: new "Ingest Task Queue
     Scale-Out" section in `docs/architecture/event_backbone_architecture.md`.
+- **Fleet autonomy control plane (CONCEPT:OS-5.24 — OS-5.27)** — the Tranche-3 build that
+  lets the platform act on its fleet without ever acting outside policy
+  (`docs/architecture/fleet_autonomy.md`):
+  - **ActionPolicy decision point** (`orchestration/action_policy.py`, OS-5.24): the single
+    gate consulted before ANY autonomous mutating operational action. Per-action tiers
+    (`auto` / `auto_notify` / `approval_required` / `forbidden`), durable per-action+target
+    rate limits, blast-radius caps, and UTC maintenance windows — replacing the binary
+    env-flag autonomy cliff. Policies load from YAML (`ACTION_POLICY_PATH`, default = the
+    shipped conservative `deploy/action-policy.default.yml`: everything mutating requires
+    approval) plus runtime KG `governance_rule` overrides (scope `action_policy`) that win
+    over file rules. Decisions fail CLOSED, are audit-logged as `ActionDecision` nodes (also
+    the durable rate/blast ledger), and queue-approval reuses the existing fleet approvals
+    flow via `ActionApproval` nodes (`GET /api/fleet/approvals` lists them, `.../grant`
+    resolves them in place).
+  - **Desired-state fleet reconciler** (`orchestration/fleet_reconciler.py`, OS-5.25):
+    opt-in leader-only maintenance tick (`FLEET_RECONCILER`, default off) that diffs
+    `deploy/mcp-fleet.registry.yml` (+ optional `FLEET_DESIRED_STATE_PATH` override) against
+    a pluggable `FleetObserver` (default: OS-5.15 FleetEvent stream + docker CLI when
+    present) and converges each divergence through the ActionPolicy gate and the injectable
+    `FleetActuator` protocol (`orchestration/fleet_actuation.py`). The default actuator is
+    DRY-RUN — it records intended actions as `ActionExecution` nodes and notifies, mutating
+    nothing; `FLEET_ACTUATOR=docker` selects the reference docker actuator; Portainer/Swarm
+    actuation is deployment-wired via `set_fleet_actuator()`. Storm guard
+    (`FLEET_RECONCILER_MAX_ACTIONS`/tick), human-granted approval drain, and a
+    `ReconcileReport` node per pass.
+  - **Remediation playbooks** (`knowledge_graph/adaptation/remediation_playbooks.py`,
+    OS-5.26) on the OS-5.15 `register_playbook()` seam: `service_down` (confirm via observer
+    → policy-gated restart → durable verification watch → escalate on deny/failure),
+    `service_flapping` (back off + escalate to a human), and `resource_pressure`
+    (notify + propose, never auto-act). Every step outcome lands on the originating
+    FleetEvent node (`remediation_log` / `remediation_status`); escalation = approval-queue
+    entry + notification through the KG-2.42 notifier seam.
+  - **Health-gated deploy + rollback** (`orchestration/deploy_watch.py`, OS-5.27):
+    `watch_deploy()` schedules a durable `deploy_watch` task after every autonomy-triggered
+    deploy/restart; the worker probes the FleetObserver until the recorded deadline
+    (`DEPLOY_WATCH_WINDOW` / `DEPLOY_WATCH_POLL`; a reaper-requeued watch resumes its
+    ORIGINAL window). Sustained green ⇒ `DeployWatch` success node; failure ⇒ default
+    `on_fail` = ActionPolicy-gated `rollback_service` + operator escalation; zero
+    observations ⇒ notify only (never roll back on zero evidence).
+  - **Strangled `capabilities/auto_healing.py`** — the dormant `AutoHealingEngine` shell
+    (disabled by default, never-wired skill_evolver/fallback_router hooks) is deleted. Its
+    useful bit — threshold-counted repeated-failure escalation — is absorbed into
+    `graph/parallel_engine.py::_escalate_repeated_failure`, which files a `failure_gap`
+    Concept topic through the live AHE-3.18 propose-only remediation chain.
 - **Gateway middle-tier hardening (CONCEPT:OS-5.23)** — Python-tier observability and
   backpressure for the API gateway (Tranche 2):
   - **Prometheus metrics** (`observability/gateway_metrics.py`): pure-ASGI middleware +

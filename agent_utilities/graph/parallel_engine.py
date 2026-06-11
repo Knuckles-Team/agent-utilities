@@ -175,13 +175,12 @@ class ParallelEngine:
         self._circuit_breaker = _CircuitBreaker(
             threshold=getattr(config, "circuit_breaker_threshold", 3)
         )
-        from ..capabilities.auto_healing import AutoHealingEngine
-
-        self.auto_healing = AutoHealingEngine(
-            skill_evolver=None,
-            fallback_router=None,
-            enabled=getattr(config, "enable_auto_healing", False),
-        )
+        # Repeated-failure escalation — absorbed from the dormant
+        # AutoHealingEngine shell (strangler-then-delete): the per-agent
+        # failure threshold survives; at threshold the failure enters the
+        # LIVE propose-only remediation chain — a failure_gap Concept topic
+        # instead of never-wired skill_evolver hooks (CONCEPT:AHE-3.18).
+        self._agent_failure_counts: dict[str, int] = {}
         # CONCEPT:ORCH-1.32 — schedule metadata (critical-path, parallelism) captured per run
         self._schedule_meta: dict[str, Any] = {}
         # CONCEPT:ORCH-1.32 — previous run's MASS latent-state distribution, for W1 drift
@@ -922,14 +921,11 @@ class ParallelEngine:
                 agent.agent_id,
                 e,
             )
-            # Register failure with Auto-Healing retry engine
+            # Threshold-counted escalation into the failure_gap remediation chain
             try:
-                self.auto_healing.report_failure(
-                    task_name=agent.agent_id,
-                    error_context=str(e),
-                )
+                self._escalate_repeated_failure(agent.agent_id, str(e))
             except Exception as ah_err:
-                logger.debug("Auto-healing trigger failed: %s", ah_err)
+                logger.debug("Failure escalation skipped: %s", ah_err)
 
             return AgentExecutionResult(
                 agent_id=agent.agent_id,
@@ -939,6 +935,42 @@ class ParallelEngine:
                 duration_ms=duration_ms,
                 model_id=model_id,
             )
+
+    _FAILURE_ESCALATION_THRESHOLD = 3
+
+    def _escalate_repeated_failure(self, agent_id: str, error_context: str) -> None:
+        """File a ``failure_gap`` topic once an agent fails repeatedly.
+
+        Strangled replacement for the dormant ``AutoHealingEngine`` shell: its
+        useful bit (threshold-counted failure registry) is kept; the dead
+        skill-synthesis hooks (never wired) are gone. At the threshold the
+        recurring failure enters the shared gap-topic path the golden loop
+        already remediates — propose-only, no LLM here (CONCEPT:AHE-3.18).
+        """
+        count = self._agent_failure_counts.get(agent_id, 0) + 1
+        self._agent_failure_counts[agent_id] = count
+        if count < self._FAILURE_ESCALATION_THRESHOLD or self.engine is None:
+            return
+        self._agent_failure_counts[agent_id] = 0
+        from agent_utilities.knowledge_graph.adaptation.failure_analyzer import (
+            ANOMALY_ERROR,
+            FailurePattern,
+            _normalize_detail,
+            _sig,
+            file_gap_topic,
+        )
+
+        pattern = FailurePattern(
+            signature=_sig(
+                agent_id, "agent_execution", _normalize_detail(error_context)
+            ),
+            name=agent_id,
+            kind="agent_execution",
+            anomaly_type=ANOMALY_ERROR,
+            count=count,
+            sample_detail=error_context[:500],
+        )
+        file_gap_topic(self.engine, pattern, source="parallel_engine")
 
     # ── Verification (SWARM-2: planner → execute → verify loop) ──────
 
