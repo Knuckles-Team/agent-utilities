@@ -113,9 +113,11 @@ _HTTP_CLIENT: httpx.Client | None = None
 
 def _get_http_client(timeout: float = 30.0) -> httpx.Client:
     """Get or create a persistent httpx client with connection pooling."""
+    from agent_utilities.core.http_client import create_http_client
+
     global _HTTP_CLIENT
     if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
-        _HTTP_CLIENT = httpx.Client(
+        _HTTP_CLIENT = create_http_client(
             timeout=timeout,
             limits=httpx.Limits(
                 max_connections=100,
@@ -124,6 +126,10 @@ def _get_http_client(timeout: float = 30.0) -> httpx.Client:
             ),
         )
     return _HTTP_CLIENT
+
+
+class LadybugLockContentionError(ConnectionError):
+    """LadybugDB file/lock contention — retryable after connection self-heal."""
 
 
 class CombinedLock:
@@ -606,12 +612,16 @@ class LadybugBackend(GraphBackend):
         if routed is not None:
             return routed
 
-        import time
+        import random
+
+        from agent_utilities.orchestration.resilience import (
+            ResiliencePolicy,
+            run_with_resilience_sync,
+        )
 
         max_retries = self.max_retries
-        last_error = None
 
-        for attempt in range(max_retries):
+        def _attempt() -> list[dict[str, Any]]:
             try:
                 with self._get_lock():
                     self._ensure_connection()
@@ -661,20 +671,14 @@ class LadybugBackend(GraphBackend):
                     or "busy" in msg
                     or "database is locked" in msg
                 ):
-                    import secrets
-
-                    # Trigger self-healing recovery before retrying
+                    # Trigger self-healing recovery before the policy retries
+                    # (exponential backoff with additive jitter, see below).
                     self._recover_connection()
-
-                    wait_time = (
-                        2**attempt
-                    ) * 0.1 + secrets.SystemRandom().random() * 0.1
                     logger.warning(
-                        f"Database locked or timeout (e={e}), healed connection. Retrying execute in {wait_time:.2f}s... (attempt {attempt + 1}/{max_retries})"
+                        f"Database locked or timeout (e={e}), healed connection. "
+                        f"Retrying execute... (max {max_retries} attempts)"
                     )
-                    time.sleep(wait_time)
-                    last_error = e
-                    continue
+                    raise LadybugLockContentionError(str(e)) from e
                 elif (
                     "already has property" in msg
                     or "duplicate" in msg
@@ -701,11 +705,27 @@ class LadybugBackend(GraphBackend):
                     )
                 return []
 
-        if last_error:
+        # Historical lock-contention backoff, expressed declaratively:
+        # (2**n)*0.1 + rand()*0.1 seconds, uncapped, one attempt per
+        # self.max_retries (CONCEPT:ORCH-1.36).
+        policy = ResiliencePolicy(
+            max_attempts=max_retries,
+            backoff_base_s=0.1,
+            backoff_factor=2.0,
+            max_backoff_s=float("inf"),
+            jitter=True,
+            jitter_strategy="additive",
+            retry_on=(LadybugLockContentionError,),
+            name="ladybug-execute",
+        )
+        try:
+            return run_with_resilience_sync(_attempt, policy, rng=random.SystemRandom())
+        except LadybugLockContentionError as exc:
             logger.error(
-                f"Failed to execute query after {max_retries} retries due to locking: {last_error}"
+                f"Failed to execute query after {max_retries} retries due to "
+                f"locking: {exc.__cause__ or exc}"
             )
-        return []
+            return []
 
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]], chunk_size: int = 500

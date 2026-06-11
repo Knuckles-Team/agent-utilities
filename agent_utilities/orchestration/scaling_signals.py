@@ -144,11 +144,13 @@ class PrometheusHttpProvider:
         return signal.replace("{service}", service)
 
     def signal_value(self, service: str, signal: str) -> float | None:
-        import httpx
+        from agent_utilities.core.http_client import create_http_client
 
         query = self._query_for(service, signal)
         try:
-            with httpx.Client(timeout=self.timeout, transport=self.transport) as client:
+            with create_http_client(
+                timeout=self.timeout, transport=self.transport
+            ) as client:
                 resp = client.get(
                     f"{self.base_url}/api/v1/query", params={"query": query}
                 )

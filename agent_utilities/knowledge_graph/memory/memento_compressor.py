@@ -100,14 +100,11 @@ def _memento_llm(system_prompt: str, user_content: str) -> str | None:
         )
         agent = Agent(model, system_prompt=system_prompt)
 
-        # nest_asyncio is only needed to run_sync from inside an already-running event loop;
-        # apply it best-effort so a missing optional dep never kills compression.
-        try:
-            import nest_asyncio
+        # Survive being called from inside an already-running event loop —
+        # strict no-op (and no global asyncio patching) otherwise.
+        from agent_utilities.core.event_loop import allow_nested_run_sync
 
-            nest_asyncio.apply()
-        except Exception:  # noqa: BLE001 - optional; run_sync still works outside a loop
-            pass
+        allow_nested_run_sync()
 
         result = agent.run_sync(user_content)
         return str(getattr(result, "data", result)).strip()
