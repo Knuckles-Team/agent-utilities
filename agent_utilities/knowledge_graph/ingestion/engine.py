@@ -833,6 +833,9 @@ class IngestionEngine:
             # Batched parse (one RPC for N files) when the engine advertises it;
             # falls back to per-file parse otherwise. (CONCEPT:KG-2.16)
             batch_parse_fn=make_batch_parse_fn(graph_compute),
+            # The engine itself enables concurrent parse + entity-build across
+            # sibling connections for large repos (CONCEPT:KG-2.16, #1+#2).
+            graph_compute=graph_compute,
         )
 
         # Git-aware delta (CONCEPT:KG-2.8): when the source is a git work-tree we

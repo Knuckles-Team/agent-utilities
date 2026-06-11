@@ -141,6 +141,9 @@ class GraphComputeEngine:
             connect_kwargs["socket_path"] = endpoint[7:]
         else:
             connect_kwargs["socket_path"] = endpoint
+        # Kept so sibling parse connections (CONCEPT:KG-2.16, concurrent parse) can
+        # be opened to the same endpoint/auth without re-resolving the topology.
+        self._connect_kwargs = dict(connect_kwargs)
 
         # Circuit breaker — ONE shared breaker per endpoint (CONCEPT:OS-5.23).
         # When the engine is down, N consecutive connect/timeout failures open
@@ -530,6 +533,28 @@ class GraphComputeEngine:
         that advertises ``ParseFiles`` — gate on :attr:`supports_batch_parse`.
         """
         return self._client.graph.parse_files(files)
+
+    def make_parse_clients(self, n: int) -> list[Any]:
+        """Open ``n`` sibling connections to the same engine endpoint for
+        CONCURRENT parsing. ``_send`` holds a per-connection lock for the full
+        round-trip, so one connection serializes parse RPCs; N connections let N
+        parse RPCs run at once and the 24-core engine actually saturates (each
+        ``parse_files`` already fans out across cores via rayon). Best-effort —
+        returns however many connected; the caller MUST ``.close()`` them.
+        (CONCEPT:KG-2.16)
+        """
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        clients: list[Any] = []
+        for _ in range(max(0, n)):
+            try:
+                clients.append(
+                    SyncEpistemicGraphClient.connect(**self._connect_kwargs)
+                )
+            except Exception as e:  # noqa: BLE001 - degrade to fewer/serial
+                logger.debug("sibling parse client connect failed: %s", e)
+                break
+        return clients
 
     @property
     def supports_batch_parse(self) -> bool:
