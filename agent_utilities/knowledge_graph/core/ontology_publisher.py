@@ -12,6 +12,13 @@ Supports:
 - Stardog push via pystardog
 - Apache Jena Fuseki push via REST API
 - Versioned publishing with timestamps
+
+CONCEPT:KG-2.52 — Fuseki publish daemon tick: :func:`publish_ontology_to_fuseki`
+collects every bundled ``ontology*.ttl`` module into one rdflib graph and pushes
+it through :meth:`OntologyPublisher.push_to_jena_fuseki`, so the engine's
+maintenance scheduler (``fuseki_publish`` tick, gated by ``KG_FUSEKI_PUBLISH``)
+keeps an optional enterprise Fuseki deployment in sync with the evolving
+authoritative ontology.
 """
 
 from __future__ import annotations
@@ -258,3 +265,62 @@ class OntologyPublisher:
         except Exception as e:
             logger.error("Fuseki push failed: %s", e)
             return {"status": "error", "error": str(e)}
+
+
+def collect_bundled_ontology_graph() -> Any:
+    """Parse every bundled ``ontology*.ttl`` module into one rdflib graph.
+
+    CONCEPT:KG-2.52 — the authoritative TBox the platform ships (core
+    ``ontology.ttl`` plus all domain modules under ``knowledge_graph/``) merged
+    into a single graph for distribution. Unparseable modules are skipped with
+    a warning so one bad file never blocks the publish of the rest.
+
+    Returns:
+        An ``rdflib.Graph`` with the merged ontology (empty if rdflib is
+        unavailable or no module parses).
+    """
+    import rdflib
+
+    graph = rdflib.Graph()
+    modules_dir = Path(__file__).parent.parent  # .../knowledge_graph
+    for ttl_path in sorted(modules_dir.glob("ontology*.ttl")):
+        try:
+            graph.parse(str(ttl_path), format="turtle")
+        except Exception as exc:  # noqa: BLE001 — one bad module never blocks the rest
+            logger.warning("Skipping unparseable ontology module %s: %s", ttl_path, exc)
+    return graph
+
+
+def publish_ontology_to_fuseki(
+    endpoint: str | None = None,
+    dataset: str = "agent_kg",
+    named_graph: str | None = None,
+    publisher: OntologyPublisher | None = None,
+) -> dict[str, Any]:
+    """Push the bundled ontology modules to Apache Jena Fuseki.
+
+    CONCEPT:KG-2.52 — the callable the ``fuseki_publish`` daemon tick runs
+    (and tests exercise with an injected ``publisher``). Resolution of a
+    ``None`` ``endpoint`` is delegated to
+    :meth:`OntologyPublisher.push_to_jena_fuseki` (``FUSEKI_ENDPOINT`` env,
+    then localhost) so endpoint config lives in exactly one place.
+
+    Args:
+        endpoint: Fuseki server URL; ``None`` defers to the publisher.
+        dataset: Fuseki dataset name.
+        named_graph: Optional named-graph URI for the upload.
+        publisher: Injected publisher (tests/mocks); default builds one.
+
+    Returns:
+        The publisher's push report dict (``status``/``triple_count``/...).
+    """
+    try:
+        graph = collect_bundled_ontology_graph()
+    except ImportError:
+        return {"status": "error", "error": "rdflib not installed."}
+    if len(graph) == 0:
+        return {"status": "skipped", "reason": "no ontology triples collected"}
+    publisher = publisher or OntologyPublisher()
+    return publisher.push_to_jena_fuseki(
+        graph, endpoint=endpoint, dataset=dataset, named_graph=named_graph
+    )

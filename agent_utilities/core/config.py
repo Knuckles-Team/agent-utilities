@@ -467,16 +467,28 @@ class AgentConfig(BaseSettings):
     # Default ON: it is LLM-free, bounded, and propose-only (it writes topic
     # nodes; nothing merges without the AHE-3.20 governed auto-merge chain).
     kg_anomaly_consumer: bool = Field(default=True, alias="KG_ANOMALY_CONSUMER")
+    # Fuseki ontology distribution (CONCEPT:KG-2.52) — opt-in daemon tick that
+    # pushes the bundled ontology modules to an Apache Jena Fuseki triplestore
+    # (KG-2.6 distribution, operationalized). Off by default because a Fuseki
+    # deployment is optional infrastructure.
+    kg_fuseki_publish: bool = Field(default=False, alias="KG_FUSEKI_PUBLISH")
+    kg_fuseki_endpoint: str | None = Field(default=None, alias="KG_FUSEKI_ENDPOINT")
+    """Fuseki server URL (e.g. ``http://jena_fuseki:3030``). ``None`` defers to
+    the publisher's own resolution (``FUSEKI_ENDPOINT`` env, then localhost)."""
+    kg_fuseki_publish_interval: float = Field(
+        default=3600.0, alias="KG_FUSEKI_PUBLISH_INTERVAL"
+    )
 
     @field_validator(
         "kg_failure_evolution",
         "kg_failure_regression_dataset",
         "kg_anomaly_consumer",
+        "kg_fuseki_publish",
         mode="before",
     )
     @classmethod
     def _coerce_failure_flags(cls, v: Any) -> bool:
-        """Parse failure-evolution toggles via the canonical ``to_boolean``
+        """Parse daemon/gate toggles via the canonical ``to_boolean``
         ({t,true,y,yes,1}) so ``"True"``/``"False"`` mcp_config strings behave
         consistently with the rest of the fleet's boolean flags."""
         return to_boolean(v)
