@@ -97,14 +97,14 @@ def _find_workflow(
     if graph is not None:
         try:
             wid = None
-            props: dict[str, Any] = {}
+            nx_props: dict[str, Any] = {}
             for nid, data in graph.nodes(data=True):
                 if (
                     data.get("type") == "WorkflowDefinition"
                     and data.get("name") == name
                 ):
                     wid = nid
-                    props = {
+                    nx_props = {
                         "name": data.get("name"),
                         "step_count": data.get("step_count"),
                     }
@@ -126,7 +126,7 @@ def _find_workflow(
                         "step_order": sdata.get("step_order"),
                     }
                 )
-            return wid, props, steps
+            return wid, nx_props, steps
         except Exception as exc:  # noqa: BLE001 — absent mirror → not stored
             logger.debug("[ORCH-1.42] compute-graph workflow lookup failed: %s", exc)
 
