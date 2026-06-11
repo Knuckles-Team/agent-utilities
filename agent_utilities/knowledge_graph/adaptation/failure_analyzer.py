@@ -478,11 +478,16 @@ class FailureAnalyzer:
         def _check(_spec: Any) -> bool:
             self._record_feedback(gaps)
             if self.trace_backend is None:
-                return True  # cannot observe → conservatively allow (no tracked regression)
+                # cannot observe → conservatively allow (no tracked regression)
+                self._record_gate_result(
+                    _spec, True, "no trace backend — no tracked regression"
+                )
+                return True
             try:
                 current = _run_coro(self._current_counts(list(baselines)))
             except Exception as e:  # noqa: BLE001
                 logger.debug("regression re-query failed: %s", e)
+                self._record_gate_result(_spec, True, f"re-query failed: {e}")
                 return True
             for name, base in baselines.items():
                 if current.get(name, 0) > base:
@@ -492,10 +497,43 @@ class FailureAnalyzer:
                         current.get(name, 0),
                         base,
                     )
+                    self._record_gate_result(
+                        _spec,
+                        False,
+                        f"{name} spiking ({current.get(name, 0)} > baseline {base})",
+                    )
                     return False
+            self._record_gate_result(_spec, True, "no spike above ingest baseline")
             return True
 
         return _check
+
+    def _record_gate_result(self, spec: Any, passed: bool, detail: str) -> None:
+        """Persist the gate verdict as a ``RegressionGateResult`` node.
+
+        This is the durable record the promotion-governance validator
+        (CONCEPT:AHE-3.20) consults: a recorded ``hold`` for a proposal blocks
+        its auto-merge until the failure stabilizes and a later gate run
+        records a ``pass``.
+        """
+        try:
+            from ..research.auto_merge import GovernedAutoMerger
+
+            pid = GovernedAutoMerger._spec_id(spec)
+            ts = _now_iso()
+            node_id = f"regression_gate:{_sig(pid, 'gate', str(time.time()))}"
+            self.engine.add_node(
+                node_id,
+                "RegressionGateResult",
+                properties={
+                    "proposal_id": pid,
+                    "result": "pass" if passed else "hold",
+                    "detail": str(detail)[:300],
+                    "timestamp": ts,
+                },
+            )
+        except Exception as e:  # noqa: BLE001 — recording must never gate the gate
+            logger.debug("regression gate record failed: %s", e)
 
     async def _current_counts(self, names: list[str]) -> dict[str, int]:
         """Re-query recent error occurrences per workflow name."""

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 151
+total_concepts: 152
 total_pillars: 18
 pillars:
 - AHE-3
@@ -244,6 +244,15 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
   doc: The Concept carries NO
+- id: AHE-3.20
+  name: Promotion Governance Validator
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+  - agent_utilities/knowledge_graph/research/auto_merge.py
+  - agent_utilities/knowledge_graph/research/promotion_governance.py
+  doc: Promotion Governance Validator
 - id: CTX-1.0
   name: Nested Subfolder Instructions
   pillar: CTX-1
