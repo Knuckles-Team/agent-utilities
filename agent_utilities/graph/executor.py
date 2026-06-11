@@ -439,10 +439,29 @@ async def _get_domain_tools(
     # ~3.5–9K wasted context tokens per call. Only inject the generic toolkits when the
     # node's name/capabilities indicate it does code/shell work (dev) or spec/planning (sdd).
     _DEV_TOOL_TAGS = {
-        "code", "coding", "filesystem", "shell", "git", "devops", "python",
-        "typescript", "programmer", "developer", "engineer", "refactor", "debug",
+        "code",
+        "coding",
+        "filesystem",
+        "shell",
+        "git",
+        "devops",
+        "python",
+        "typescript",
+        "programmer",
+        "developer",
+        "engineer",
+        "refactor",
+        "debug",
     }
-    _SDD_TOOL_TAGS = {"sdd", "spec", "plan", "planner", "architect", "tdd", "requirements"}
+    _SDD_TOOL_TAGS = {
+        "sdd",
+        "spec",
+        "plan",
+        "planner",
+        "architect",
+        "tdd",
+        "requirements",
+    }
     _tag_blob = " ".join([node_id, *skill_tags]).lower()
     tools: list[Any] = []
     if any(t in _tag_blob for t in _DEV_TOOL_TAGS):
@@ -557,7 +576,9 @@ def agent_deps_from_graph(
         approval_timeout=deps.approval_timeout,
         graph_event_queue=deps.event_queue,
         auth_token=_resolve_invoker_cred(state, deps),
-        message_channel_id=getattr(state, "invoker_channel_id", None),  # CONCEPT:ORCH-1.40
+        message_channel_id=getattr(
+            state, "invoker_channel_id", None
+        ),  # CONCEPT:ORCH-1.40
     )
 
 
@@ -574,7 +595,9 @@ def invoker_context_section(state: Any, *, window_tokens: int = 32768) -> str:
         return ""
     budget_chars = max(2000, int(window_tokens * 0.15) * 4)  # ~4 chars/token
     if len(text) > budget_chars:
-        text = text[:budget_chars] + "\n…[invoker context truncated to fit model window]"
+        text = (
+            text[:budget_chars] + "\n…[invoker context truncated to fit model window]"
+        )
     return (
         "\n\n### INVOKER CONTEXT (curated by the invoking agent — treat as authoritative "
         "background for this task)\n" + text + "\n"

@@ -26,9 +26,10 @@ import logging
 import os
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from agent_utilities.orchestration.resilience import (
     DEFAULT_POLICY,
@@ -58,7 +59,7 @@ _initialized_paths: set[str] = set()
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _default_db_path() -> Path:
@@ -66,9 +67,10 @@ def _default_db_path() -> Path:
     override = os.environ.get("DURABLE_EXECUTION_DB")
     if override:
         return Path(override)
-    base = Path(
-        os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")
-    ) / "agent_utilities"
+    base = (
+        Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+        / "agent_utilities"
+    )
     base.mkdir(parents=True, exist_ok=True)
     return base / "durable_execution.db"
 
@@ -226,7 +228,9 @@ class DurableExecutionManager:
             )
             return prior
 
-        self.save_checkpoint(node_id, state or {}, status="PENDING", idempotency_key=key)
+        self.save_checkpoint(
+            node_id, state or {}, status="PENDING", idempotency_key=key
+        )
         result = run_with_resilience_sync(action, policy or DEFAULT_POLICY)
         self.mark_completed(node_id, result=result)
         return result

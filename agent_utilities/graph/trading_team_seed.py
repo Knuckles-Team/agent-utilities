@@ -60,7 +60,11 @@ def build_trading_team_config() -> TeamConfigNode:
                 "emerald_prediction_markets",
                 "emerald_market_making",
             ],
-            "attribution-analyst": ["emerald_portfolio", "emerald_debate", "graph_write"],
+            "attribution-analyst": [
+                "emerald_portfolio",
+                "emerald_debate",
+                "graph_write",
+            ],
         },
         prompt_template_ids=[
             "prompt:trading.market_analyst",

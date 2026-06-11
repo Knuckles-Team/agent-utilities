@@ -396,7 +396,9 @@ class RLMEnvironment:
             except SandboxRejected as rej:
                 last_reject = rej
                 logger.info(
-                    "Sandbox %s rejected snippet (%s); escalating.", backend.name, rej.reason
+                    "Sandbox %s rejected snippet (%s); escalating.",
+                    backend.name,
+                    rej.reason,
                 )
                 continue
             # SandboxFatalError is intentionally NOT caught — it fast-fails the run (ORCH-1.29).
@@ -411,7 +413,8 @@ class RLMEnvironment:
         # Fall back to the local floor so a forced-but-incompatible pin never wedges the loop.
         reason = last_reject.reason if last_reject else "no available backend"
         logger.warning(
-            "Pinned sandbox rejected snippet (%s); falling back to the local floor.", reason
+            "Pinned sandbox rejected snippet (%s); falling back to the local floor.",
+            reason,
         )
         result = await LocalSandbox().execute(code, env)
         self.vars.update(result.updated_vars)

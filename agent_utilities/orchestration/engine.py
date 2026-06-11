@@ -354,8 +354,12 @@ class AgentOrchestrationEngine:
             mode=mode,
             topology=topology,
             invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.39
-            invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.39
-            invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.39
+            invoker_budget_tokens=config.get(
+                "invoker_budget_tokens"
+            ),  # CONCEPT:ORCH-1.39
+            invoker_allowed_tools=config.get(
+                "invoker_allowed_tools"
+            ),  # CONCEPT:ORCH-1.39
             invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.39
             invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.40
         )
@@ -420,8 +424,12 @@ class AgentOrchestrationEngine:
             mode=mode,
             topology=topology,
             invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.39
-            invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.39
-            invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.39
+            invoker_budget_tokens=config.get(
+                "invoker_budget_tokens"
+            ),  # CONCEPT:ORCH-1.39
+            invoker_allowed_tools=config.get(
+                "invoker_allowed_tools"
+            ),  # CONCEPT:ORCH-1.39
             invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.39
             invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.40
         )
@@ -799,8 +807,12 @@ class AgentOrchestrationEngine:
             mode=mode,
             topology=topology,
             invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.39
-            invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.39
-            invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.39
+            invoker_budget_tokens=config.get(
+                "invoker_budget_tokens"
+            ),  # CONCEPT:ORCH-1.39
+            invoker_allowed_tools=config.get(
+                "invoker_allowed_tools"
+            ),  # CONCEPT:ORCH-1.39
             invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.39
             invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.40
         )
@@ -1041,8 +1053,12 @@ class AgentOrchestrationEngine:
             mode=mode,
             topology=topology,
             invoker_context=config.get("invoker_context", ""),  # CONCEPT:ORCH-1.39
-            invoker_budget_tokens=config.get("invoker_budget_tokens"),  # CONCEPT:ORCH-1.39
-            invoker_allowed_tools=config.get("invoker_allowed_tools"),  # CONCEPT:ORCH-1.39
+            invoker_budget_tokens=config.get(
+                "invoker_budget_tokens"
+            ),  # CONCEPT:ORCH-1.39
+            invoker_allowed_tools=config.get(
+                "invoker_allowed_tools"
+            ),  # CONCEPT:ORCH-1.39
             invoker_cred_ref=config.get("invoker_cred_ref"),  # CONCEPT:ORCH-1.39
             invoker_channel_id=config.get("message_channel_id"),  # CONCEPT:ORCH-1.40
         )
