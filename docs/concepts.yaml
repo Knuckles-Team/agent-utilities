@@ -2051,16 +2051,20 @@ concepts:
   - agent_utilities/graph/routing/enrichers/capability_designation.py
   doc: resolve the active channel once;
 - id: OS-5.14
-  name: with KG_AUTH_REQUIRED on, an unauthenticated caller
+  name: an ACL-check exception denies, and nodes without an ACL are
   pillar: OS-5
   status: live
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/gateway/graph_api.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
+  - agent_utilities/knowledge_graph/facade.py
+  - agent_utilities/knowledge_graph/ontology/permissioning.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/security/brain_context.py
   - agent_utilities/security/request_identity.py
-  doc: with KG_AUTH_REQUIRED on, an unauthenticated caller
+  doc: an ACL-check exception denies, and nodes without an ACL are
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
