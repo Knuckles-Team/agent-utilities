@@ -1,0 +1,54 @@
+# Locked-down ActionPolicy posture (CONCEPT:OS-5.24).
+#
+# Use when: regulated environments, incident lockdown, or any fleet where
+# autonomy must observe and propose but NEVER mutate on its own. Read-only
+# diagnostics still run; every restart goes to the human approval queue;
+# everything wider than a restart is refused outright (not even queued).
+#
+# Load with: ACTION_POLICY_PATH=examples/action-policies/locked-down.yml
+# Schema reference: deploy/action-policy.default.yml +
+# agent_utilities/orchestration/action_policy.py (the loader).
+version: 1
+
+defaults:
+  # Anything not matched by a rule below is refused outright. The loader
+  # fails closed anyway (internal errors deny), but an explicit forbidden
+  # default makes the posture legible.
+  tier: forbidden
+  # Defaults for rules that omit their own limits. Largely moot here (the
+  # only non-forbidden mutating tier is approval_required, which short-
+  # circuits before rate/blast checks), but kept tight for clarity.
+  rate_limit: {max: 1, window_s: 3600}
+  blast_radius: {max_targets: 1, window_s: 3600}
+
+rules:
+  # ── No-op / read-only kinds: always safe, keep them automatic so the
+  #    platform can still observe, correlate and explain incidents. ──
+  - {kind: diagnose, target: "*", tier: auto}
+  - {kind: observe, target: "*", tier: auto}
+  - {kind: notify, target: "*", tier: auto}
+  - {kind: record_dry_run, target: "*", tier: auto}
+
+  # Playbook DISPATCH needs a human here too: even though a playbook's
+  # mutating steps re-enter this gate with their concrete kinds, a locked-
+  # down fleet wants the whole remediation flow human-acknowledged.
+  - {kind: run_playbook, target: "*", tier: approval_required}
+
+  # ── The single mutating action a human may push through the queue.
+  #    approval_required = the gate files an ActionApproval node; nothing
+  #    happens until POST /api/fleet/approvals/grant. ──
+  - {kind: restart_service, target: "*", tier: approval_required}
+
+  # ── Everything wider than one restart is refused outright. forbidden
+  #    means deny, NOT queue: operators perform these by hand through their
+  #    normal change process, outside the autonomy plane. ──
+  - {kind: rollback_service, target: "*", tier: forbidden}
+  - {kind: scale_service, target: "*", tier: forbidden}
+  - {kind: deploy_service, target: "*", tier: forbidden}
+  - {kind: redeploy_stack, target: "*", tier: forbidden}
+  - {kind: stop_service, target: "*", tier: forbidden}
+  - {kind: merge_promotion, target: "*", tier: forbidden}
+
+  # Explicit catch-all (mirrors the forbidden default): any new action kind
+  # introduced by a future module is refused until this file names it.
+  - {kind: "*", target: "*", tier: forbidden}

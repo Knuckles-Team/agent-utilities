@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Order-fulfillment sample process for the ontology-to-workflow walkthrough
+  (docs/examples/ontology-to-workflow.md).
+
+  Topology:
+    start -> validate_order (serviceTask)
+          -> stock_check (exclusiveGateway "In stock?")
+            -> [in stock]      pack_order (userTask)    -> ship_order
+            -> [out of stock]  backorder  (serviceTask) -> ship_order
+          -> ship_order (serviceTask) -> end
+
+  The start/end events are pass-through elements: the KG-2.53 lift collapses
+  them so FLOWS_TO ordering survives between the lifted tasks/gateway.
+-->
+<bpmn2:definitions xmlns:bpmn2="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                   id="order_fulfillment_defs"
+                   targetNamespace="http://example.test/bpmn">
+  <bpmn2:process id="order_fulfillment" name="Order Fulfillment" isExecutable="true">
+    <bpmn2:startEvent id="start1"/>
+    <bpmn2:serviceTask id="validate_order" name="Validate Order"/>
+    <bpmn2:exclusiveGateway id="stock_check" name="In stock?"/>
+    <bpmn2:userTask id="pack_order" name="Pack Order"/>
+    <bpmn2:serviceTask id="backorder" name="Create Backorder"/>
+    <bpmn2:serviceTask id="ship_order" name="Ship Order"/>
+    <bpmn2:endEvent id="end1"/>
+    <bpmn2:sequenceFlow id="f1" sourceRef="start1" targetRef="validate_order"/>
+    <bpmn2:sequenceFlow id="f2" sourceRef="validate_order" targetRef="stock_check"/>
+    <bpmn2:sequenceFlow id="f3" sourceRef="stock_check" targetRef="pack_order">
+      <bpmn2:conditionExpression>${inStock == true}</bpmn2:conditionExpression>
+    </bpmn2:sequenceFlow>
+    <bpmn2:sequenceFlow id="f4" sourceRef="stock_check" targetRef="backorder">
+      <bpmn2:conditionExpression>${inStock == false}</bpmn2:conditionExpression>
+    </bpmn2:sequenceFlow>
+    <bpmn2:sequenceFlow id="f5" sourceRef="pack_order" targetRef="ship_order"/>
+    <bpmn2:sequenceFlow id="f6" sourceRef="backorder" targetRef="ship_order"/>
+    <bpmn2:sequenceFlow id="f7" sourceRef="ship_order" targetRef="end1"/>
+  </bpmn2:process>
+</bpmn2:definitions>
