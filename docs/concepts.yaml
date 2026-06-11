@@ -559,16 +559,17 @@ concepts:
   - agent_utilities/tools/tool_registry.py
   doc: native database traversal tools
 - id: ECO-4.34
-  name: Fleet-Scale MCP Multiplexer Hardening
+  name: Profile differences from the engine-client breaker
   pillar: ECO-4
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/graph/parallel_engine.py
   - agent_utilities/knowledge_graph/core/engine_breaker.py
   - agent_utilities/mcp/child_resilience.py
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/observability/gateway_metrics.py
-  doc: Fleet-Scale MCP Multiplexer Hardening
+  doc: Profile differences from the engine-client breaker
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -1927,8 +1928,15 @@ concepts:
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/core/http_client.py
   - agent_utilities/graph/executor.py
+  - agent_utilities/graph/parallel_engine.py
+  - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
+  - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+  - agent_utilities/knowledge_graph/memory/learning_engine.py
   - agent_utilities/orchestration/resilience.py
+  - agent_utilities/patterns/prompt_chain.py
+  - agent_utilities/tools/x_search_tool.py
   doc: retry_on predicate raised; treating as non-retryable
 - id: ORCH-1.37
   name: Orchestration execution-flow mermaid-diagram surfacing in graph_orchestrate responses
@@ -2141,6 +2149,7 @@ concepts:
   - agent_utilities/security/permissions_kernel.py
   - agent_utilities/security/tool_guard.py
   - agent_utilities/tools/scheduler_tools.py
+  - agent_utilities/tools/tool_registry.py
   - agent_utilities/tools/x_search_tool.py
   doc: MaintenanceCron — scheduled autonomous maintenance
 - id: OS-5.3
