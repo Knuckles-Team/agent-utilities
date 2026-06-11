@@ -699,3 +699,144 @@ def test_orchestrator_task_claim_execute_writeback(fake_queue, monkeypatch):
     assert node["executed_by"].endswith(":agent-dispatch")
     # Redelivery is an idempotent skip.
     assert worker.execute_agent_turn(env, engine) == "skipped"
+
+
+# ── fleet-visible placement: heartbeats, topology, metrics ────────────────
+
+
+def test_worker_heartbeat_upserts_and_lists(dispatch_db):
+    agent_dispatch.record_dispatch_worker_heartbeat(
+        "hostA:1:agent-dispatch:0",
+        host="hostA",
+        capacity=2,
+        active_sessions=["sess-1"],
+        queue_backend="SQLiteTaskQueue",
+    )
+    # Second beat updates in place (no duplicate row).
+    agent_dispatch.record_dispatch_worker_heartbeat(
+        "hostA:1:agent-dispatch:0",
+        host="hostA",
+        capacity=2,
+        active_sessions=[],
+        queue_backend="SQLiteTaskQueue",
+    )
+    workers = agent_dispatch.list_dispatch_workers()
+    assert len(workers) == 1
+    w = workers[0]
+    assert w["worker_id"] == "hostA:1:agent-dispatch:0"
+    assert w["host"] == "hostA"
+    assert w["capacity"] == 2
+    assert w["active_sessions"] == []
+    assert w["queue_backend"] == "SQLiteTaskQueue"
+
+
+def test_stale_workers_drop_out_of_topology(dispatch_db):
+    agent_dispatch.record_dispatch_worker_heartbeat("dead:1:agent-dispatch:0")
+    conn = sqlite3.connect(str(dispatch_db))
+    conn.execute(
+        "UPDATE dispatch_workers SET last_heartbeat = ?",
+        (time.time() - 10 * agent_dispatch.WORKER_HEARTBEAT_TTL_S,),
+    )
+    conn.commit()
+    conn.close()
+    assert agent_dispatch.list_dispatch_workers() == []
+
+
+@pytest.mark.asyncio
+async def test_fleet_topology_surfaces_dispatch_workers(dispatch_db):
+    from agent_utilities.gateway import fleet
+
+    agent_dispatch.record_dispatch_worker_heartbeat(
+        "hostB:7:agent-dispatch:0", host="hostB", active_sessions=["sess-9"]
+    )
+    resp = await fleet.fleet_topology(_FakeRequest({}))
+    body = json.loads(resp.body)
+    assert body["totals"]["dispatch_workers"] == 1
+    assert body["dispatch_workers"][0]["host"] == "hostB"
+    assert body["dispatch_workers"][0]["active_sessions"] == ["sess-9"]
+
+
+def test_dispatch_metrics_registered_on_gateway_registry():
+    from agent_utilities.observability import gateway_metrics as gm
+
+    assert "DISPATCH_QUEUE_DEPTH" in gm.__all__
+    assert "DISPATCH_TURNS" in gm.__all__
+    assert "DISPATCH_WORKERS" in gm.__all__
+    # Usable regardless of whether prometheus_client is installed.
+    gm.DISPATCH_QUEUE_DEPTH.labels(backend="FakeDispatchQueue").set(3.0)
+    gm.DISPATCH_TURNS.labels(outcome="completed").inc()
+    gm.DISPATCH_WORKERS.set(2.0)
+
+
+def test_consumer_loop_heartbeats_into_registry(dispatch_db, fake_queue):
+    import threading
+
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    stop = threading.Event()
+    real_get = fake_queue.get
+
+    def _get():
+        item = real_get()
+        if item is None:
+            stop.set()
+        return item
+
+    fake_queue.get = _get
+    worker.run_dispatch_consumer_loop(
+        fake_queue, stop, worker_id="hostC:3:agent-dispatch:0", idle_sleep_s=0.01
+    )
+    workers = agent_dispatch.list_dispatch_workers()
+    assert [w["worker_id"] for w in workers] == ["hostC:3:agent-dispatch:0"]
+    assert workers[0]["queue_backend"] == "FakeDispatchQueue"
+
+
+def test_job_status_reports_executing_worker_and_host(fake_queue, monkeypatch):
+    """graph_orchestrate job/{id}: the Task node carries the claim/exec stamps."""
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    class _TaskEngine(_FakeOrchEngine):
+        def query_cypher(self, q, params=None):
+            node = self.graph.nodes.get((params or {}).get("id"))
+            if node is None:
+                return []
+            return [
+                {
+                    "s": node.get("status"),
+                    "d": node.get("description"),
+                    "cu": node.get("claim_unix"),
+                }
+            ]
+
+        def _update_task_status(self, job_id, status, meta=None):
+            node = self.graph.nodes.setdefault(job_id, {})
+            node["status"] = status
+            node.update(meta or {})
+
+    engine = _TaskEngine()
+    engine.add_node(
+        "orch-xyz", "Task", properties={"status": "pending", "description": "task"}
+    )
+
+    async def _fake_execute_agent(self, **kw):
+        return "done"
+
+    from agent_utilities.orchestration.manager import Orchestrator
+
+    monkeypatch.setattr(Orchestrator, "execute_agent", _fake_execute_agent)
+    monkeypatch.setattr(Orchestrator, "__init__", lambda self, engine: None)
+
+    env = AgentTurnEnvelope(
+        session_id="orch-xyz", kind=KIND_ORCHESTRATOR_TASK, payload_ref="orch-xyz"
+    )
+    worker.execute_agent_turn(env, engine)
+
+    # The existing job/{id} surface (Orchestrator.get_task_status) reads this node.
+    from agent_utilities.orchestration.manager import Orchestrator as RealOrch
+
+    status = RealOrch.get_task_status(SimpleNamespace(engine=engine), "orch-xyz")
+    assert status["status"] == "completed"
+    assert status["executed_by"].endswith(":agent-dispatch")
+    import socket as _socket
+
+    assert engine.graph.nodes["orch-xyz"]["dispatch_host"] == _socket.gethostname()

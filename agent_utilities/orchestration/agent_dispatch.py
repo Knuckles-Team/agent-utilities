@@ -291,3 +291,96 @@ def session_execution_guard(session_id: str) -> Iterator[None]:
 
     with _session_lock(session_id), state_claim_guard(f"agent-session:{session_id}"):
         yield
+
+
+# ── fleet-visible worker registry ──────────────────────────────────────────
+
+#: A worker whose last heartbeat is older than this is presumed gone and is
+#: excluded from topology/metrics (its in-flight claim recovers separately via
+#: the stale-claim re-claim path).
+WORKER_HEARTBEAT_TTL_S = 90.0
+
+
+def record_dispatch_worker_heartbeat(
+    worker_id: str,
+    *,
+    host: str = "",
+    capacity: int = 1,
+    active_sessions: list[str] | tuple[str, ...] = (),
+    queue_backend: str = "",
+) -> None:
+    """Upsert this worker's liveness row in the fleet registry.
+
+    CONCEPT:ORCH-1.45 — the registry lives in the SAME sessions store the
+    OS-5.18 supervisory plane already reads (per-host SQLite, or the shared
+    Postgres under ``STATE_DB_URI`` — where every gateway sees every host's
+    workers). ``/api/fleet/topology`` surfaces these rows.
+    """
+    import json as _json
+    import socket as _socket
+
+    from agent_utilities.core import sessions as _sessions
+
+    now = time.time()
+    conn = _sessions._connect_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO dispatch_workers
+                (worker_id, host, capacity, active_sessions, queue_backend,
+                 started_at, last_heartbeat)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(worker_id) DO UPDATE SET
+                host = excluded.host,
+                capacity = excluded.capacity,
+                active_sessions = excluded.active_sessions,
+                queue_backend = excluded.queue_backend,
+                last_heartbeat = excluded.last_heartbeat
+            """,
+            (
+                worker_id,
+                host or _socket.gethostname(),
+                int(capacity),
+                _json.dumps(list(active_sessions)),
+                queue_backend,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_dispatch_workers(
+    ttl_s: float = WORKER_HEARTBEAT_TTL_S,
+) -> list[dict[str, Any]]:
+    """Live dispatch workers (heartbeat within ``ttl_s``), newest first."""
+    import json as _json
+
+    from agent_utilities.core import sessions as _sessions
+
+    cutoff = time.time() - ttl_s
+    conn = _sessions._connect_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT worker_id, host, capacity, active_sessions, queue_backend, "
+            "started_at, last_heartbeat FROM dispatch_workers "
+            "WHERE last_heartbeat >= ? ORDER BY last_heartbeat DESC",
+            (cutoff,),
+        )
+        workers: list[dict[str, Any]] = []
+        for row in cursor.fetchall():
+            entry = dict(row)
+            try:
+                entry["active_sessions"] = _json.loads(
+                    entry.get("active_sessions") or "[]"
+                )
+            except (TypeError, ValueError):
+                entry["active_sessions"] = []
+            workers.append(entry)
+        return workers
+    finally:
+        conn.close()

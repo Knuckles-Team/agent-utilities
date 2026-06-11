@@ -114,6 +114,16 @@ _SQLITE_DDL = """
         created_at REAL NOT NULL,
         updated_at REAL NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS dispatch_workers (
+        worker_id TEXT PRIMARY KEY,
+        host TEXT DEFAULT '',
+        capacity INTEGER DEFAULT 1,
+        active_sessions TEXT DEFAULT '[]',
+        queue_backend TEXT DEFAULT '',
+        started_at REAL NOT NULL,
+        last_heartbeat REAL NOT NULL
+    );
 """
 
 # Same logical schema on Postgres (CONCEPT:OS-5.16). REAL epoch timestamps
@@ -162,10 +172,21 @@ _PG_DDL = """
         created_at DOUBLE PRECISION NOT NULL,
         updated_at DOUBLE PRECISION NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS dispatch_workers (
+        worker_id TEXT PRIMARY KEY,
+        host TEXT DEFAULT '',
+        capacity INTEGER DEFAULT 1,
+        active_sessions TEXT DEFAULT '[]',
+        queue_backend TEXT DEFAULT '',
+        started_at DOUBLE PRECISION NOT NULL,
+        last_heartbeat DOUBLE PRECISION NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions (updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions (status);
     CREATE INDEX IF NOT EXISTS idx_turns_session ON turns (session_id, turn_number);
     CREATE INDEX IF NOT EXISTS idx_goals_status ON goals (status);
+    CREATE INDEX IF NOT EXISTS idx_dispatch_workers_hb
+        ON dispatch_workers (last_heartbeat DESC);
 """
 
 

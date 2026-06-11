@@ -343,6 +343,43 @@ def execute_agent_turn(
 # ── consumer loop / pool ───────────────────────────────────────────────────
 
 
+#: Seconds between fleet-registry heartbeats (and metric gauge refreshes).
+HEARTBEAT_INTERVAL_S = 30.0
+
+
+def _heartbeat(queue: Any, worker_id: str, active_sessions: list[str]) -> None:
+    """Register liveness + refresh the ORCH-1.45 gauges (never load-bearing)."""
+    from agent_utilities.orchestration.agent_dispatch import (
+        dispatch_queue_depth,
+        list_dispatch_workers,
+        record_dispatch_worker_heartbeat,
+    )
+
+    backend = type(queue).__name__
+    try:
+        record_dispatch_worker_heartbeat(
+            worker_id,
+            capacity=1,
+            active_sessions=active_sessions,
+            queue_backend=backend,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("dispatch worker heartbeat failed: %s", e)
+        return
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            DISPATCH_QUEUE_DEPTH,
+            DISPATCH_WORKERS,
+        )
+
+        DISPATCH_QUEUE_DEPTH.labels(backend=backend).set(
+            float(dispatch_queue_depth(queue))
+        )
+        DISPATCH_WORKERS.set(float(len(list_dispatch_workers())))
+    except Exception as e:  # noqa: BLE001
+        logger.debug("dispatch metrics refresh failed: %s", e)
+
+
 def run_dispatch_consumer_loop(
     queue: Any,
     stop_event: threading.Event,
@@ -350,16 +387,26 @@ def run_dispatch_consumer_loop(
     *,
     worker_id: str | None = None,
     idle_sleep_s: float = 0.5,
+    heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
 ) -> None:
     """Drain ``agent_turns`` until ``stop_event``: claim → execute → ack.
 
     The ack/commit happens strictly AFTER the turn is processed or durably
     marked failed (at-least-once); a poisonous envelope is acked after its
     failure is recorded so it never wedges the loop, exactly like the
-    ingest consumer (KG-2.57).
+    ingest consumer (KG-2.57). Between turns the worker heartbeats into the
+    fleet registry, so ``/api/fleet/topology`` shows it (placement is
+    queue-pull: workers claim work when they have capacity — no central
+    placer to fail or rebalance; see ``orchestration/agent_dispatch.py``).
     """
     token = worker_id or worker_token()
+    active: list[str] = []
+    next_heartbeat = 0.0
     while not stop_event.is_set():
+        if time.monotonic() >= next_heartbeat:
+            _heartbeat(queue, token, active)
+            next_heartbeat = time.monotonic() + heartbeat_interval_s
+
         try:
             item = queue.get()
         except Exception as e:  # noqa: BLE001 — transport hiccup: back off, retry
@@ -374,9 +421,14 @@ def run_dispatch_consumer_loop(
         outcome = "failed"
         try:
             envelope = AgentTurnEnvelope.from_item(payload)
+            active[:] = [envelope.session_id]
+            _heartbeat(queue, token, active)
+            next_heartbeat = time.monotonic() + heartbeat_interval_s
             outcome = execute_agent_turn(envelope, engine, token=token)
         except Exception as e:  # noqa: BLE001 — record + keep consuming
             logger.error("agent-dispatch worker error: %s", e)
+        finally:
+            active.clear()
         _record_turn_outcome(outcome)
         try:
             queue.ack(item_id)

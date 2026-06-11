@@ -207,6 +207,17 @@ async def fleet_topology(request: Request) -> JSONResponse:
     finally:
         conn.close()
 
+    # Queue-driven dispatch placement (CONCEPT:ORCH-1.45): live agent-dispatch
+    # workers (fresh heartbeats in this same store) — which host runs what.
+    try:
+        from agent_utilities.orchestration.agent_dispatch import (
+            list_dispatch_workers,
+        )
+
+        dispatch_workers = list_dispatch_workers()
+    except Exception:  # noqa: BLE001 — topology must answer without the registry
+        dispatch_workers = []
+
     active_goals = getattr(_sessions, "active_goals", {})
     return JSONResponse(
         {
@@ -214,7 +225,12 @@ async def fleet_topology(request: Request) -> JSONResponse:
             "goals": _sessions.make_serializable(list(active_goals.values()))
             if hasattr(_sessions, "make_serializable")
             else [],
-            "totals": {"domains": len(domains), "sessions": total_sessions},
+            "dispatch_workers": dispatch_workers,
+            "totals": {
+                "domains": len(domains),
+                "sessions": total_sessions,
+                "dispatch_workers": len(dispatch_workers),
+            },
             "page": {"limit": limit, "offset": offset, "returned": len(rows)},
         }
     )

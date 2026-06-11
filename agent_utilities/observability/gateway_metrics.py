@@ -42,6 +42,9 @@ __all__ = [
     "GATEWAY_RATE_LIMITED",
     "GATEWAY_REQUEST_DURATION",
     "GATEWAY_REQUESTS",
+    "DISPATCH_QUEUE_DEPTH",
+    "DISPATCH_TURNS",
+    "DISPATCH_WORKERS",
     "ENGINE_BREAKER_STATE",
     "ENGINE_REQUESTS",
     "ENGINE_SHARD_REQUESTS",
@@ -189,6 +192,26 @@ KG_INGEST_CONSUMER_LAG = _gauge(
     "agent_utilities_kg_ingest_consumer_lag",
     "Total kg-ingest consumer-group lag (unconsumed messages) per topic.",
     ("topic", "group"),
+)
+# Queue-driven agent dispatch visibility (CONCEPT:ORCH-1.45): sampled by the
+# dispatch workers on their heartbeat tick. Depth is uniform across queue
+# transports (kafka = agent-dispatch consumer-group lag, postgres/sqlite =
+# row count); the workers gauge counts fresh heartbeats in the fleet
+# registry; the turns counter splits processed turns by outcome
+# (completed | failed | skipped | expired).
+DISPATCH_QUEUE_DEPTH = _gauge(
+    "agent_utilities_dispatch_queue_depth",
+    "Unclaimed dispatched agent turns in the agent_turns queue.",
+    ("backend",),
+)
+DISPATCH_TURNS = _counter(
+    "agent_utilities_dispatch_turns_total",
+    "Dispatched agent turns processed by this worker process, by outcome.",
+    ("outcome",),
+)
+DISPATCH_WORKERS = _gauge(
+    "agent_utilities_dispatch_workers",
+    "Live agent-dispatch workers (fresh heartbeats in the fleet registry).",
 )
 
 
