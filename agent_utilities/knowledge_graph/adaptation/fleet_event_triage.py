@@ -161,7 +161,11 @@ def triage_fleet_event(engine: Any, event_node_id: str) -> dict[str, Any]:
     """
     event = _load_event(engine, event_node_id)
     if event is None:
-        return {"triaged": False, "event_id": event_node_id, "reason": "event not found"}
+        return {
+            "triaged": False,
+            "event_id": event_node_id,
+            "reason": "event not found",
+        }
 
     playbook = _resolve_playbook(
         str(event.get("source") or "generic"), str(event.get("severity") or "info")

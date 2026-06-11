@@ -762,7 +762,7 @@ _NON_STEP_RESULT_KEYS = {"output", "mermaid", "usage", "error", "metadata", "sta
 
 def _extract_steps(
     result: Any, agent_name: str, success: bool
-) -> tuple[list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[str | None]]:
     """Derive ARPO (step, agent-id) pairs from a GraphResponse-shaped result.
 
     Each non-bookkeeping key in ``results`` is one completed agent/specialist
@@ -772,7 +772,7 @@ def _extract_steps(
     invoked agent.
     """
     steps: list[dict[str, Any]] = []
-    agent_ids: list[str] = []
+    agent_ids: list[str | None] = []
     results = result.get("results") if isinstance(result, dict) else None
     if isinstance(results, dict):
         for key, value in results.items():
