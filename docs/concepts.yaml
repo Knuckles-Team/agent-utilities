@@ -2,11 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-<<<<<<< HEAD
-total_concepts: 175
-=======
-total_concepts: 174
->>>>>>> feat/queue-driven-dispatch
+total_concepts: 176
 total_pillars: 18
 pillars:
 - AHE-3
