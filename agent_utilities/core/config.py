@@ -412,6 +412,58 @@ class AgentConfig(BaseSettings):
     """Seconds an open engine circuit breaker waits before allowing a single
     half-open probe; the probe's outcome closes or re-opens the circuit."""
 
+    # --- MCP multiplexer child resilience (CONCEPT:ECO-4.34) ---
+
+    mcp_child_max_concurrency: int = Field(default=8, alias="MCP_CHILD_MAX_CONCURRENCY")
+    """Maximum in-flight tool calls per multiplexer child server. Excess calls
+    queue (bounded by ``MCP_CHILD_QUEUE_TIMEOUT``) instead of piling onto the
+    child unbounded. Per-server override: the ``max_concurrency`` key on the
+    server's ``mcp_config.json`` entry. ``0`` disables the limit."""
+
+    mcp_child_queue_timeout: float = Field(
+        default=30.0, alias="MCP_CHILD_QUEUE_TIMEOUT"
+    )
+    """Seconds a tool call may wait for a free per-child concurrency slot
+    before failing with the typed ``MCPChildBusyError`` (no silent hangs).
+    Per-server override: the ``queue_timeout`` key on the server entry."""
+
+    mcp_child_pool_size: int = Field(default=1, alias="MCP_CHILD_POOL_SIZE")
+    """Session-pool size for remote (streamable-http/SSE) multiplexer
+    children: N independent connections per child, round-robin dispatched,
+    enabling parallel in-flight calls. Default 1 preserves the historical
+    one-connection resource profile. Stdio children are single-pipe and
+    always keep exactly one session. Per-server override: the ``pool_size``
+    key on the server entry."""
+
+    mcp_child_max_restarts: int = Field(default=5, alias="MCP_CHILD_MAX_RESTARTS")
+    """How many automatic restarts a crashed multiplexer child may consume
+    within ``MCP_CHILD_RESTART_WINDOW`` before it is marked ``failed`` (calls
+    then fail fast with the typed ``MCPChildUnavailableError`` instead of
+    retry-looping forever). ``0`` disables auto-restart entirely."""
+
+    mcp_child_restart_window: float = Field(
+        default=300.0, alias="MCP_CHILD_RESTART_WINDOW"
+    )
+    """Sliding window (seconds) over which ``MCP_CHILD_MAX_RESTARTS`` is
+    counted. Restarts older than the window are forgiven, so a child that
+    crashes rarely keeps restarting indefinitely while a crash-looping child
+    is parked as ``failed``."""
+
+    mcp_child_breaker_threshold: int = Field(
+        default=5, alias="MCP_CHILD_BREAKER_THRESHOLD"
+    )
+    """Consecutive transport failures/timeouts on one multiplexer child
+    before its circuit breaker opens (fast, typed
+    ``MCPChildCircuitOpenError`` instead of hammering a dead child). ``0``
+    disables the breaker. Per-server override: ``breaker_threshold``."""
+
+    mcp_child_breaker_cooldown: float = Field(
+        default=15.0, alias="MCP_CHILD_BREAKER_COOLDOWN"
+    )
+    """Seconds an open per-child circuit breaker waits before allowing a
+    single half-open probe call; the probe's outcome closes or re-opens the
+    circuit. Per-server override: ``breaker_cooldown``."""
+
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
 
     oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")

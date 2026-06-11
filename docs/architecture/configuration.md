@@ -50,6 +50,13 @@ enforces that flags are declared on `AgentConfig` (`core/config.py`), not read w
 | `GATEWAY_WORKERS` | `1` | Pre-forked gateway worker processes on one shared listen socket; the flock host-lock elects ONE KG host among them (CONCEPT:OS-5.23) |
 | `ENGINE_BREAKER_THRESHOLD` | `5` | Consecutive engine connect/timeout failures before the client circuit opens (0 = off) (CONCEPT:OS-5.23) |
 | `ENGINE_BREAKER_COOLDOWN` | `15` | Seconds an open engine circuit waits before the half-open probe (CONCEPT:OS-5.23) |
+| `MCP_CHILD_MAX_CONCURRENCY` | `8` | Max in-flight tool calls per multiplexer child (0 = unlimited); per-server `max_concurrency` override in `mcp_config.json` (CONCEPT:ECO-4.34) |
+| `MCP_CHILD_QUEUE_TIMEOUT` | `30` | Seconds an excess call queues for a child slot before the typed `MCPChildBusyError`; per-server `queue_timeout` override (CONCEPT:ECO-4.34) |
+| `MCP_CHILD_POOL_SIZE` | `1` | Session-pool size for remote (streamable-http/SSE) children — N round-robin connections for parallel calls; stdio stays single-pipe; per-server `pool_size` override (CONCEPT:ECO-4.34) |
+| `MCP_CHILD_MAX_RESTARTS` | `5` | Auto-restarts a crashed child may consume inside the window before being parked `failed` (0 = no auto-restart); per-server `max_restarts` override (CONCEPT:ECO-4.34) |
+| `MCP_CHILD_RESTART_WINDOW` | `300` | Sliding window (s) for the restart budget; older restarts are forgiven; per-server `restart_window` override (CONCEPT:ECO-4.34) |
+| `MCP_CHILD_BREAKER_THRESHOLD` | `5` | Consecutive transport failures/timeouts before a child's circuit opens (typed `MCPChildCircuitOpenError`, 0 = off); per-server `breaker_threshold` override (CONCEPT:ECO-4.34) |
+| `MCP_CHILD_BREAKER_COOLDOWN` | `15` | Seconds an open child circuit waits before the half-open probe; per-server `breaker_cooldown` override (CONCEPT:ECO-4.34) |
 | `ACTION_POLICY_PATH` | shipped default | Operational ActionPolicy YAML; empty → conservative `deploy/action-policy.default.yml` (everything mutating = approval_required). KG `governance_rule` overrides win (CONCEPT:OS-5.24) |
 | `FLEET_RECONCILER` | `false` | Opt-in leader-only desired-state fleet reconciler tick — diff registry vs observed, converge through the ActionPolicy gate + actuator seam (CONCEPT:OS-5.25) |
 | `FLEET_RECONCILER_INTERVAL` | `120` | Seconds between fleet-reconciler ticks (CONCEPT:OS-5.25) |

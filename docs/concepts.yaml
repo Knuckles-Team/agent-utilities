@@ -560,6 +560,17 @@ concepts:
   - agent_utilities/tools/db_tools.py
   - agent_utilities/tools/tool_registry.py
   doc: native database traversal tools
+- id: ECO-4.34
+  name: Fleet-Scale MCP Multiplexer Hardening
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/engine_breaker.py
+  - agent_utilities/mcp/child_resilience.py
+  - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: Fleet-Scale MCP Multiplexer Hardening
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
