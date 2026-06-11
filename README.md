@@ -46,7 +46,7 @@ graph runs in-process. Use it three ways:
 ## ⚡ 5-Minute Quickstart
 
 ```bash
-pip install agent-utilities          # zero external deps to start
+pip install agent-utilities          # zero external *service* deps to start
 ```
 
 Point it at any model provider (`OPENAI_API_KEY`, or a local vLLM/Ollama endpoint
@@ -129,6 +129,12 @@ improvements compound across agents. The building blocks that exist now (unified
 KG, capability auto-activation, cross-agent protocols) are the substrate; the
 "agents improving each other at scale" end-state is roadmap.
 
+Designed-but-not-yet-running roadmap items (designs/specs exist; do not expect
+these to work out of the box today):
+
+- **[Media Generation & Transcription](docs/pillars/4_ecosystem_peripherals/ECO-4.30-Media_Generation_Gateway.md)** (CONCEPT:ECO-4.30/4.31): Self-hosted image (`flux.2` + Stable Diffusion 3.5), video (`hunyuanvideo`), speech synthesis (`xtts`), and transcription (`faster-whisper`) exposed as agent tools under the `MEDIA_TOOLS` gate — requires the corresponding self-hosted model services to be deployed.
+- **[In-House Training Substrate](docs/architecture/in_house_training_substrate.md)**: Fine-tune the framework's own open-weight models end-to-end — a deterministic reward/data engine, torch/PEFT SFT/DPO/GRPO trainers (`data-science-mcp[training]`), a pure-Rust loss/optimizer performance path (`epistemic-graph`), checkpoint→reliability-suite eval hooks, and a model-registry role deploy seam. Build-now / run-later on the GB10 (first run: OpenSeeker SFT).
+
 ## Key Features
 
 - **[Multi-Domain Expert System](docs/guides/features.md#comprehensive-feature-list)**: Scale across finance, medical, and scientific domains using Temporally-Aware Epistemic Memory (TKG) and specialized MCP tools.
@@ -141,13 +147,19 @@ KG, capability auto-activation, cross-agent protocols) are the substrate; the
 - **[Agent OS & Safety](docs/guides/features.md#human-in-the-loop--tool-safety)**: Built-in Universal Tool Guards, structural vulnerability scanning, and transparent process lifecycle management.
 - **[Dynamic Company Brain Ingestion](docs/guides/features.md#company-intelligence-graph)**: Dynamic data ingestion from external platforms like Jira, GitLab/GitHub, enterprise architecture repositories (e.g., Essential Project, Archi), and databases with automatic ontology alignment and GraphQL/REST extraction.
 - **[Document-Source Connector Framework](docs/pillars/4_ecosystem_peripherals/ECO-4.25-Document_Source_Connector_Framework.md)** (CONCEPT:ECO-4.25–4.32): A `load`/`poll`/`slim` connector abstraction (web crawler, filesystem, REST/JSON, **databases — Postgres/MariaDB/MSSQL/Oracle/SQLite/Mongo**, and the entire `agent-packages/agents/*` MCP fleet) with resumable checkpoints, **external permission sync** into the entailment-aware ACL gate, **contextual-retrieval enrichment** (KG-2.50), and query analysis. Ports the Onyx connector surface onto the semantic core — ingested documents become first-class `Document`+`Chunk` ontology objects with OWL semantics, bitemporal slicing, and reified links a flat index can't offer. Includes an explicit **Onyx connector-parity map**.
-- **[Media Generation & Transcription](docs/pillars/4_ecosystem_peripherals/ECO-4.30-Media_Generation_Gateway.md)** (CONCEPT:ECO-4.30/4.31): Self-hosted image (`flux.2` + Stable Diffusion 3.5), video (`hunyuanvideo`), speech synthesis (`xtts`), and transcription (`faster-whisper`) exposed as agent tools under the `MEDIA_TOOLS` gate.
 - **[Company Brain Runtime (Trust, Permissions, Feedback)](docs/architecture/company_brain_runtime.md)**: The 6-layer "Single Company Brain" wired end-to-end behind `KG_BRAIN_ENFORCE` — **source-authority conflict resolution with trust decay** and **field-level survivorship** (durable per-attribute provenance / MDM golden record), **data-level ACLs + tenant scoping + read audit** on the retrieval path, a **human-correction → durable rule → eval** feedback loop, and **token-budgeted, task-scoped retrieval**.
 - **[Vendor-Neutral Enterprise Ontology](docs/architecture/vendor_neutral_enterprise_ontology.md)**: One ArchiMate-aligned upper ontology + crosswalk so ServiceNow↔ERPNext, Camunda↔Archi, etc. are interchangeable — a single query resolves all sources regardless of which vendor tool produced the data.
 - **[Enterprise Agent Governance](docs/pillars/4_ecosystem_peripherals.md#-enterprise-agent-governance-eco-416--eco-422)**: Production-grade mutation governance with risk-scored change proposals, human-in-the-loop approval gates, AGENTS.md self-improvement, lint enforcement hooks, plugin bundle distribution, permission policies, staleness auditing, and unified governance workflow pipeline.
 - **[Global Workspace Attention & Social-System Swarm](docs/architecture/global_workspace_attention.md)**: After every multi-agent wave the parallel engine scores, selects, and broadcasts winning specialist proposals (read back as runtime standing, with an engine-mismatch telemetry guard) and snapshots [Multi-Agent Social System](docs/architecture/multi_agent_social_system.md) health (archetype heterogeneity, co-evolution, Wasserstein drift) into `ExecutionResult.telemetry`.
-- **[In-House Training Substrate](docs/architecture/in_house_training_substrate.md)**: Fine-tune the framework's own open-weight models end-to-end — a deterministic reward/data engine, torch/PEFT SFT/DPO/GRPO trainers (`data-science-mcp[training]`), a pure-Rust loss/optimizer performance path (`epistemic-graph`), checkpoint→reliability-suite eval hooks, and a model-registry role deploy seam that goes live with no hot-path edit. Build-now / run-later on the GB10 (first run: OpenSeeker SFT).
 - **[Ontology System — Palantir-Foundry-parity, graph-native](docs/pillars/2_epistemic_knowledge_graph.md#ontology-system-palantir-foundry-parity)** (`agent_utilities/knowledge_graph/ontology/`, `kg.ontology`): A first-class object/link/function/action layer reaching the *same* epistemic backend the rest of the KG uses — **interfaces** (CONCEPT:KG-2.38, abstract shapes + implementer resolution), **value types** (KG-2.39, constrained semantic types compiled to SHACL/OWL), **property types** (KG-2.47, the scalar/geo/vector/struct type vocabulary that drives column DDL + write coercion), **derived properties** (KG-2.40, read-time FUNCTION/CYPHER/SPARQL/EMBEDDING compute), **functions** (KG-2.41, typed/versioned/governed PLAIN/ON_OBJECTS/QUERY runtime), **action types** (KG-2.42, submission-criteria-gated, side-effecting, batchable, revertable), **durable object edits** (KG-2.43, bitemporal edit ledger with revert), **indexing lifecycle** (KG-2.44, content-hashed object funnel + staleness ledger), **object sets** (KG-2.45, composable filter/search/search-around/pivot/aggregate handles), **fine-grained permissioning** (KG-2.46, entailment-aware ACL marking propagation + row-drop enforcement), and **document processing** (KG-2.48, chunk→embed→link) over **reified junction links** (KG-2.26). Unique value-adds vs Foundry: OWL/SHACL-backed interfaces+value-types, embedding/cypher/sparql-backed derived properties, reified many-to-many links, entailment-aware marking propagation, bitemporal edit history, a self-evolving ontology, and the Rust epistemic engine. Exposed over the `ontology_*` MCP tools and the operator **Object Explorer / Object / Vertex** views in the [web UI](docs/pillars/4_ecosystem_peripherals.md) (`/api/enhanced/ontology/*`).
+
+Shipped but lightly documented (real code, importable today):
+
+- **Causal reasoning**: structural-causal-model types, d-separation, and formal reasoning over KG subgraphs — `agent_utilities/knowledge_graph/core/formal_reasoning_core.py`.
+- **Skill compiler** (CONCEPT:ORCH-1.8): compiles `SKILL.md` prose (+ optional `references/team.yaml`) into executable `GraphPlan` workflows — `agent_utilities/workflows/skill_compiler.py`.
+- **Evolutionary memory & aggregation** (CONCEPT:KG-2.1): the self-curating CRUD insight/skill memory banks (`agent_utilities/harness/evolving_memory.py`) plus the global-workspace score→select→broadcast aggregation over multi-agent waves (`agent_utilities/graph/workspace_attention.py`).
+- **KG auto-routing**: the strategy-based router (`agent_utilities/graph/routing/` — fast-path, workflow-context, and policy strategies) backed by capability designation + reward write-back (`agent_utilities/knowledge_graph/retrieval/capability_index.py`).
+- **Reactive framework** (CONCEPT:ORCH-1.10): graph-native event sourcing, dynamic behavioral dispatch, and multi-axis budget guardrails — `agent_utilities/graph/reactive/`.
 
 > 📖 **[View the Comprehensive Feature List & Architecture Deep Dives](docs/guides/features.md)**
 
@@ -159,13 +171,13 @@ KG, capability auto-activation, cross-agent protocols) are the substrate; the
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **147 canonical concepts** across **18 pillars**.
+Synthesized from concept markers in the codebase into **149 canonical concepts** across **18 pillars**.
 
 > This count and the table below are generated from `docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand.
 
 | Pillar | ID Range | Count | Focus |
 |:------|:---------|:---:|:------|
-| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.17 | 14 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, Adversarial verification passed — no issues found, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
+| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.18 | 15 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, Adversarial verification passed — no issues found, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
 | **CTX-1** Context Management | CTX-1.0 | 1 | Nested Subfolder Instructions |
 | **ECO-4** Ecosystem & Peripherals | ECO-4.0 – ECO-4.33 | 23 | Register PlannerGraphSkill when graph_bundle is available, Live MCP server connection for tool metadata caching, Company Infrastructure Orchestration, Infrastructure Blueprint Library, Pluggable Event Queue Backend, Team-Specific Startup Context, Deterministic Lint Enforcement Hook, Plugin Bundle Distribution System |
 | **EE-033** EE-033 | EE-033 | 1 | closes the priors→weights loop |
@@ -180,7 +192,7 @@ Synthesized from concept markers in the codebase into **147 canonical concepts**
 | **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.40 | 32 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Visibility allow-list of upstream step ids whose results, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
 | **ORCH-2** Orchestration Extensions | ORCH-2.0 | 1 | Orchestration Engine |
 | **ORCH-5** Orchestration Runtime | ORCH-5.0 | 1 | / TUI-20 |
-| **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.13 | 13 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
+| **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.14 | 14 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
 | **SAFE-1** Safety & Guardrails | SAFE-1.0 | 1 | Tool-Agnostic File Safety Hooks |
 | **UTIL-1** Shared Utilities | UTIL-1.0 | 1 | Data Type Conversion |
 
@@ -383,7 +395,7 @@ Here is a fully-populated and production-ready `config.json` file representing t
 
 > **Note:** JSON does not support comments. The JSON key names correspond exactly to their uppercase environment variable overrides (e.g. `default_agent_name` → `DEFAULT_AGENT_NAME`).
 
-For comprehensive definitions and capabilities of specific variables, see the [Configuration Guide](docs/guides/configuration.md) and [Local Secret Storage Guide](docs/guides/secrets-auth.md).
+For comprehensive definitions and capabilities of specific variables, see the [Configuration Guide](docs/guides/configuration.md) and [Local Secret Storage Guide](docs/guides/secrets-auth.md). The authoritative **per-flag inventory and audit** (every `KG_*`/`GRAPH_*`/`EPISTEMIC_*` flag, its default, and whether it should exist at all) is [docs/architecture/configuration.md](docs/architecture/configuration.md).
 
 
 ## Installation
@@ -404,8 +416,9 @@ For more details, see the [Installation Guide](docs/guides/installation.md).
 
 ### Zero-infrastructure by default
 
-Out of the box, agent-utilities runs as a **single self-contained binary with no
-external system dependencies**. The default knowledge-graph backend is `tiered` —
+Out of the box, agent-utilities runs as a **single self-contained install with no
+external *service* dependencies** (no database or graph server to stand up;
+Python package dependencies still apply). The default knowledge-graph backend is `tiered` —
 the always-included Rust-native `epistemic_graph` (L1) in front of an embedded
 **LadybugDB** (L2). No Postgres/Neo4j server is required to get started.
 
@@ -457,7 +470,7 @@ For detailed tutorials, installation options, and configuration guides, refer to
 * **[Deployment Guide](docs/guides/deployment.md)**
   * *Zero-infra default, graph-os & multiplexer (stdio/streamable-http), API gateway, production hardening*
 * **[Configuration & Environment Variables](docs/guides/configuration.md)**
-  * *Multi-tiered LLM setup, Models Config*
+  * *Multi-tiered LLM setup, Models Config; the per-flag audit lives in [docs/architecture/configuration.md](docs/architecture/configuration.md)*
 * **[Local Secret Storage (Vault & SQLite)](docs/guides/secrets-auth.md)**
 * **[Creating an Agent](docs/guides/creating-an-agent.md)**
 * **[Building MCP Servers & API Wrappers](docs/guides/building-mcp-servers.md)**
@@ -480,7 +493,7 @@ Comprehensive system documentation is available in the [`docs/`](docs/) director
 | [Vendor-Neutral Enterprise Ontology](docs/architecture/vendor_neutral_enterprise_ontology.md) | ArchiMate crosswalk + vendor adapters making ServiceNow↔ERPNext↔Camunda interchangeable |
 | [Global Workspace Attention](docs/architecture/global_workspace_attention.md) | GWT loop: score→select→broadcast specialist proposals + `get_attention_score` read-back + engine-mismatch telemetry |
 | [Multi-Agent Social System](docs/architecture/multi_agent_social_system.md) | Swarm as `S=(f,g,G)`: archetypes, local observability, co-evolution, P1–P4 swarm health |
-| [In-House Training Substrate](docs/architecture/in_house_training_substrate.md) | Cross-repo: reward/data engine → torch/PEFT trainers → Rust kernels → deploy seam (GB10 fine-tunes) |
+| [In-House Training Substrate](docs/architecture/in_house_training_substrate.md) | **Roadmap** — cross-repo design: reward/data engine → torch/PEFT trainers → Rust kernels → deploy seam (GB10 fine-tunes) |
 | [Graph-Native Assimilation Engine](docs/architecture/assimilation_engine.md) | Self-evolution loop: ingest papers/OSS/repos/docs → dedup → gap → synergy → rank → grounded plans; idempotent, runs via `graph_orchestrate(action="assimilate")` + golden-loop daemon |
 | [Evolution Pipeline](docs/overview.md#evolution-pipeline--super-assimilation-architecture) | Assimilation governance, wire-or-discard heuristic, 4-phase pipeline |
 
