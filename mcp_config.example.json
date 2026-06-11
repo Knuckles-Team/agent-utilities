@@ -10,6 +10,13 @@
         "AGENT_ID": "local-developer",
         "WORKSPACE_PATH": "${workspaceFolder}"
       }
+    },
+    "egeria-mcp": {
+      "transport": "streamable-http",
+      "url": "http://egeria-mcp.arpa/mcp",
+      "headers": {
+        "Authorization": "Bearer ${EGERIA_MCP_TOKEN}"
+      }
     }
   }
 }

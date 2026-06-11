@@ -33,6 +33,15 @@ from fastmcp.tools import FunctionTool, ToolResult
 from mcp import StdioServerParameters, stdio_client
 from mcp.client.session import ClientSession
 
+try:  # remote transports — present on modern mcp SDKs
+    from mcp.client.streamable_http import streamablehttp_client
+except ImportError:  # pragma: no cover - older mcp SDK without streamable-http
+    streamablehttp_client = None
+try:
+    from mcp.client.sse import sse_client
+except ImportError:  # pragma: no cover - older mcp SDK without sse
+    sse_client = None
+
 # Direct all logs to stderr so stdout remains perfectly clean for stdio JSON-RPC
 logging.basicConfig(
     level=logging.INFO,
@@ -198,15 +207,28 @@ class MCPMultiplexer:
     ) -> tuple[str, ClientSession, list[mcp.types.Tool], dict] | None:
         """Starts a single child server, registers its exit stack on success, and returns its tools and session."""
         command = cfg.get("command")
-        if not command:
-            logger.warning(f"Server '{server_name}' has no command, skipping.")
+        url = os.path.expandvars(str(cfg.get("url", "")))
+        explicit_transport = str(cfg.get("transport", "")).lower()
+        # A child is remote (HTTP) when it declares a ``url`` or an http/sse
+        # ``transport``; otherwise it is a local stdio subprocess run via
+        # ``command``. Either kind loads transparently from the same config.
+        is_remote = bool(url) or explicit_transport in (
+            "streamable-http",
+            "streamable_http",
+            "http",
+            "sse",
+        )
+        if not command and not is_remote:
+            logger.warning(
+                f"Server '{server_name}' has neither 'command' nor 'url', skipping."
+            )
             return None
 
         args = cfg.get("args", [])
         env = cfg.get("env", None)
         timeout = float(cfg.get("timeout", 300.0))
 
-        # Build environment dict with dynamic expansions
+        # Build environment dict with dynamic expansions (stdio children only).
         merged_env = os.environ.copy()
         if env:
             for k, v in env.items():
@@ -216,24 +238,55 @@ class MCPMultiplexer:
         if "PYTHONPATH" not in merged_env and "PYTHONPATH" in os.environ:
             merged_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
 
+        # Expand any ${VAR} in remote headers (e.g. auth tokens).
+        headers = cfg.get("headers")
+        if headers:
+            headers = {k: os.path.expandvars(str(v)) for k, v in headers.items()}
+
+        # SSE when explicitly requested or the url path ends in ``/sse``; else
+        # streamable-http (the default for a remote child).
+        use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
+
         logger.info(
-            f"Starting child server '{server_name}' with timeout {timeout}s: {command} {' '.join(args)}"
+            "Starting child server '%s' (timeout %ss) via %s: %s",
+            server_name,
+            timeout,
+            ("sse" if use_sse else "streamable-http") if is_remote else "stdio",
+            url if is_remote else f"{command} {' '.join(args)}",
         )
 
         child_stack = contextlib.AsyncExitStack()
         try:
 
             async def _connect_and_init():
-                server_params = StdioServerParameters(
-                    command=command, args=args, env=merged_env
-                )
+                if is_remote:
+                    if use_sse:
+                        if sse_client is None:
+                            raise RuntimeError(
+                                "mcp SDK has no sse_client for SSE transport"
+                            )
+                        transport = sse_client(url, headers=headers)
+                    else:
+                        if streamablehttp_client is None:
+                            raise RuntimeError(
+                                "mcp SDK has no streamablehttp_client for "
+                                "streamable-http transport"
+                            )
+                        transport = streamablehttp_client(url, headers=headers)
+                    # streamable-http yields (read, write, get_session_id); sse
+                    # yields (read, write). Take the first two streams either way.
+                    streams = await child_stack.enter_async_context(transport)
+                    read_stream, write_stream = streams[0], streams[1]
+                else:
+                    server_params = StdioServerParameters(
+                        command=command, args=args, env=merged_env
+                    )
+                    # Connect via stdio transport
+                    read_stream, write_stream = await child_stack.enter_async_context(
+                        stdio_client(server_params)
+                    )
 
-                # Connect via stdio transport
-                read_stream, write_stream = await child_stack.enter_async_context(
-                    stdio_client(server_params)
-                )
-
-                # Create client session
+                # Create client session (transport-agnostic from here on)
                 session = await child_stack.enter_async_context(
                     ClientSession(read_stream, write_stream)
                 )
