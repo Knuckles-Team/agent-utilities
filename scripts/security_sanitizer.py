@@ -6,7 +6,9 @@ import sys
 from pathlib import Path
 
 # Config
-ALLOWED_TXT_NAMES = {"requirements.txt", "requirements-dev.txt"}
+# llms.txt is the deliberate root-level AI entry index (llms-txt convention,
+# like robots.txt) shipped by the docs/day-0 work — not garbage.
+ALLOWED_TXT_NAMES = {"requirements.txt", "requirements-dev.txt", "llms.txt"}
 TRANSIENT_PY_PATTERNS = [
     re.compile(r"^test_.*\.py$"),
     re.compile(r"^fix_.*\.py$"),
