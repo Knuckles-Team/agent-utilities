@@ -555,8 +555,11 @@ def make_batch_parse_fn(graph_compute: Any) -> BatchParseFn | None:
     """Adapt a GraphComputeEngine into a batched ParseFn — or ``None`` if the
     engine doesn't support the ``ParseFiles`` op (caller falls back to per-file).
 
-    Files are sent in chunks of ``KG_PARSE_BATCH`` (default 128) so a first ingest
-    of a large repo never builds one giant request. (CONCEPT:KG-2.16)
+    Files are sent in chunks of ``KG_PARSE_BATCH`` (default 512) so a first ingest
+    of a large repo makes few round-trips: the engine's ``parse_files`` parses a
+    whole chunk in parallel across cores (rayon), and request/response is serialized
+    on one connection, so a bigger chunk = bigger parallel batch + fewer round-trips
+    (the dominant parse cost). (CONCEPT:KG-2.16)
     """
     import os
 
@@ -566,9 +569,9 @@ def make_batch_parse_fn(graph_compute: Any) -> BatchParseFn | None:
     except Exception:  # noqa: BLE001
         return None
     try:
-        chunk = max(1, int(os.environ.get("KG_PARSE_BATCH", "128")))
+        chunk = max(1, int(os.environ.get("KG_PARSE_BATCH", "512")))
     except ValueError:
-        chunk = 128
+        chunk = 512
 
     def _fn(files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
