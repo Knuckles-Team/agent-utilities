@@ -621,7 +621,29 @@ class AgentConfig(BaseSettings):
     graph_service_endpoints: list[str] | None = Field(
         default=None, alias="GRAPH_SERVICE_ENDPOINTS"
     )
-    """List of endpoints for ShardRouter. Overrides socket/tcp_addr if provided."""
+    """Engine shard endpoints (comma-separated or JSON list; ``unix://``/
+    ``tcp://`` schemes). One entry behaves exactly like the single
+    socket/tcp_addr path; 2+ entries enable tenant-partitioned sharding —
+    graphs are routed to shards by HRW rendezvous hashing (CONCEPT:KG-2.58).
+    Overrides socket/tcp_addr when provided."""
+
+    @field_validator("graph_service_endpoints", mode="before")
+    @classmethod
+    def _coerce_endpoint_list(cls, v: Any) -> Any:
+        """Accept comma-separated or JSON-encoded GRAPH_SERVICE_ENDPOINTS
+        (CONCEPT:KG-2.58) via the canonical ``to_list`` so env wiring matches
+        the rest of the fleet's list flags."""
+        if v is None or isinstance(v, list):
+            return v
+        items = [str(e).strip() for e in to_list(v) if str(e).strip()]
+        return items or None
+
+    kg_default_graph: str = Field(default="__bus__", alias="KG_DEFAULT_GRAPH")
+    """Default named graph for engine clients that don't target an explicit
+    graph. In sharded mode (2+ GRAPH_SERVICE_ENDPOINTS) an ambient
+    ActorContext tenant maps this default onto its per-tenant graph
+    (``tenant__<tenant>__<base>``) before HRW shard selection; single-endpoint
+    deployments are unaffected (CONCEPT:KG-2.58)."""
     graph_service_socket: str | None = Field(default=None, alias="GRAPH_SERVICE_SOCKET")
     """Path to the epistemic-graph Tokio service UDS socket. Defaults to
     $XDG_RUNTIME_DIR/epistemic-graph.sock."""

@@ -37,6 +37,7 @@ from typing import Any
 from agent_utilities.observability.gateway_metrics import (
     ENGINE_BREAKER_STATE,
     ENGINE_REQUESTS,
+    ENGINE_SHARD_REQUESTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -181,26 +182,32 @@ def reset_breakers() -> None:
 _PASSTHROUGH_TYPES = (str, bytes, int, float, bool, dict, list, tuple, set)
 
 
+def _record_outcome(breaker: CircuitBreaker, op: str, outcome: str) -> None:
+    """Count one engine call by op AND by shard endpoint (CONCEPT:OS-5.28)."""
+    ENGINE_REQUESTS.labels(op=op, outcome=outcome).inc()
+    ENGINE_SHARD_REQUESTS.labels(endpoint=breaker.endpoint, outcome=outcome).inc()
+
+
 def _guard(fn: Any, breaker: CircuitBreaker, op: str) -> Any:
     def call(*args: Any, **kwargs: Any) -> Any:
         try:
             breaker.before_call()
         except EngineCircuitOpenError:
-            ENGINE_REQUESTS.labels(op=op, outcome="short_circuited").inc()
+            _record_outcome(breaker, op, "short_circuited")
             raise
         try:
             result = fn(*args, **kwargs)
         except _TRIP_EXCEPTIONS:
             breaker.record_failure()
-            ENGINE_REQUESTS.labels(op=op, outcome="connection_error").inc()
+            _record_outcome(breaker, op, "connection_error")
             raise
         except Exception:
             # Application-level error (bad query, missing node...): the engine
             # answered, so the circuit stays closed.
-            ENGINE_REQUESTS.labels(op=op, outcome="error").inc()
+            _record_outcome(breaker, op, "error")
             raise
         breaker.record_success()
-        ENGINE_REQUESTS.labels(op=op, outcome="ok").inc()
+        _record_outcome(breaker, op, "ok")
         return result
 
     call.__name__ = getattr(fn, "__name__", op)

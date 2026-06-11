@@ -525,6 +525,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                 status["queue_depth"] = q.get_queue_size()
         except Exception:  # noqa: BLE001
             pass
+        # Engine shard topology + per-shard reachability (CONCEPT:KG-2.58 /
+        # CONCEPT:OS-5.28)
+        # The flock host role above governs only the LOCAL engine; remote
+        # shards are probed (short transport-level connect) and reported
+        # here, never managed.
+        try:
+            from .shard_topology import shard_topology_status
+
+            status["shards"] = shard_topology_status()
+        except Exception:  # noqa: BLE001 - status surface stays best-effort
+            pass
         return status
 
     def start_sdd_watcher(self):

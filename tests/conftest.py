@@ -116,9 +116,12 @@ def isolate_graph_compute_engine(monkeypatch):
     _created_engines: list = []
     _created_graph_names: set = set()
 
-    def _isolated_init(self, graph_name: str = "__bus__", **kwargs):
-        # Use the fixture's unique name when the caller uses the default __bus__
-        effective_name = _test_graph_name if graph_name == "__bus__" else graph_name
+    def _isolated_init(self, graph_name: str | None = None, **kwargs):
+        # Use the fixture's unique name when the caller targets the default
+        # graph (None, or the legacy explicit "__bus__").
+        effective_name = (
+            _test_graph_name if graph_name in (None, "__bus__") else graph_name
+        )
         _created_graph_names.add(effective_name)
         _original_init(self, graph_name=effective_name, **kwargs)
         _created_engines.append(self)
