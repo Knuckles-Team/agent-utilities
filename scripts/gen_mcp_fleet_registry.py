@@ -106,7 +106,7 @@ def render(services: list[dict]) -> str:
         "  transport: streamable-http",
         "  host: 0.0.0.0",
         f"  container_port: {CONTAINER_PORT}",
-        "  image_registry: ghcr.io/knuckles-team",
+        "  image_registry: docker.io/knucklessg1",
         "services:",
     ]
     for svc in services:
@@ -115,7 +115,7 @@ def render(services: list[dict]) -> str:
             f"  - name: {svc['name']}",
             f"    package: {svc['package']}",
             f"    console_script: {svc['console_script']}",
-            f"    image: ghcr.io/knuckles-team/{svc['name']}:latest",
+            f"    image: knucklessg1/{svc['package']}:latest",
             f"    container_port: {CONTAINER_PORT}",
             f"    host_port: {svc['host_port']}",
             f"    profiles: [{profiles}]",
