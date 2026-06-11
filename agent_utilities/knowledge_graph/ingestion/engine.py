@@ -833,9 +833,6 @@ class IngestionEngine:
             # Batched parse (one RPC for N files) when the engine advertises it;
             # falls back to per-file parse otherwise. (CONCEPT:KG-2.16)
             batch_parse_fn=make_batch_parse_fn(graph_compute),
-            # The engine itself enables concurrent parse + entity-build across
-            # sibling connections for large repos (CONCEPT:KG-2.16, #1+#2).
-            graph_compute=graph_compute,
         )
 
         # Git-aware delta (CONCEPT:KG-2.8): when the source is a git work-tree we
@@ -863,16 +860,25 @@ class IngestionEngine:
         ):
             changed_files = _changed_source_files(source_path, prior_sha)
 
+        # Structural ingest of a whole repo is the heaviest single KG task (parse +
+        # community + thousands of writes). Run it under the foreground gate so the
+        # background daemons sharing this process + the engine (embedding-backfill,
+        # reconcile_durable, evolution, hygiene) YIELD instead of contending for the
+        # engine/GIL — that contention, not the algorithms, stretched a ~60s ingest
+        # to ~500s. (CONCEPT:KG-2.7)
+        from agent_utilities.core.background_throttle import get_throttle
+
         try:
-            if changed_files is not None:
-                logger.info(
-                    "[KG-2.8] git-delta ingest: %d changed source file(s) since %s",
-                    len(changed_files),
-                    prior_sha[:8] if prior_sha else "?",
-                )
-                summary = pipe.enrich_files(changed_files)
-            else:
-                summary = pipe.enrich(source_path)
+            with get_throttle().foreground():
+                if changed_files is not None:
+                    logger.info(
+                        "[KG-2.8] git-delta ingest: %d changed source file(s) since %s",
+                        len(changed_files),
+                        prior_sha[:8] if prior_sha else "?",
+                    )
+                    summary = pipe.enrich_files(changed_files)
+                else:
+                    summary = pipe.enrich(source_path)
         finally:
             if comm is not None:
                 try:
