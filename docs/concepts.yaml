@@ -2293,6 +2293,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_breaker.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/observability/gateway_metrics.py
+  - agent_utilities/orchestration/scaling_signals.py
   - agent_utilities/security/request_identity.py
   - agent_utilities/server/__init__.py
   doc: Gateway Middle-Tier Hardening
@@ -2309,6 +2310,7 @@ concepts:
   - agent_utilities/knowledge_graph/research/change_publisher.py
   - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/fleet_actuation.py
+  - agent_utilities/orchestration/fleet_autoscaler.py
   - agent_utilities/orchestration/fleet_reconciler.py
   doc: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
     windows, and blast-radius caps consulted before any autonomous mutating fleet action
@@ -2360,6 +2362,18 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   doc: Shard topology visibility with per-shard reachability status surfaces and per-endpoint engine gauges
     and counters
+- id: OS-5.29
+  name: Reactive replica autoscaling
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/orchestration/fleet_autoscaler.py
+  - agent_utilities/orchestration/fleet_reconciler.py
+  - agent_utilities/orchestration/scaling_signals.py
+  doc: Reactive replica autoscaling
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
