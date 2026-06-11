@@ -40,6 +40,10 @@ from pydantic_ai import Agent
 from agent_utilities.core.config import config
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
 from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
+from agent_utilities.orchestration.resilience import (
+    ResiliencePolicy,
+    run_with_resilience,
+)
 
 from ..models.execution_manifest import (
     AgentExecutionResult,
@@ -63,6 +67,18 @@ logger = logging.getLogger(__name__)
 
 class AgentBreakerOpenError(ConnectionError):
     """A chronically failing agent type's circuit is open — skip it this wave."""
+
+
+class AgentAttemptFailedError(Exception):
+    """One in-wave agent attempt produced an unsuccessful result (retryable).
+
+    Carries the failed :class:`AgentExecutionResult` so the wave keeps the
+    last attempt's result when retries are exhausted (SWARM-5 semantics).
+    """
+
+    def __init__(self, result: AgentExecutionResult) -> None:
+        self.result = result
+        super().__init__(result.error or "agent attempt failed")
 
 
 class AgentTypeCircuitBreaker(CircuitBreaker):
@@ -645,9 +661,11 @@ class ParallelEngine:
                 )
 
             retries = agent.max_retries or meta_retries
-            attempt = 0
-            last: AgentExecutionResult | None = None
-            while attempt <= retries:
+            attempts = 0
+
+            async def _attempt_agent_run() -> AgentExecutionResult:
+                nonlocal attempts
+                attempts += 1
                 proc = await scheduler.submit(
                     agent_id=agent.agent_id,
                     task=agent.task_template or manifest.query,
@@ -666,20 +684,28 @@ class ParallelEngine:
                         success=False,
                         error=str(e),
                     )
-                last = res
-                if res.success or attempt >= retries:
-                    if attempt > 0:
-                        res.metadata["retries"] = attempt
-                    return res
-                attempt += 1
-                # exponential backoff: 0.5s, 1s, 2s, ... (bounded)
-                await asyncio.sleep(min(0.5 * (2 ** (attempt - 1)), 8.0))
-            return last or AgentExecutionResult(
-                agent_id=agent.agent_id,
-                role=agent.role,
-                success=False,
-                error="no attempt produced a result",
+                if not res.success:
+                    raise AgentAttemptFailedError(res)
+                return res
+
+            # SWARM-5 backoff, declaratively (CONCEPT:ORCH-1.36): the
+            # historical 0.5s, 1s, 2s, ... delays bounded at 8s.
+            retry_policy = ResiliencePolicy(
+                max_attempts=retries + 1,
+                backoff_base_s=0.5,
+                backoff_factor=2.0,
+                max_backoff_s=8.0,
+                jitter=False,
+                retry_on=(AgentAttemptFailedError,),
+                name=f"wave-agent:{agent.agent_id}",
             )
+            try:
+                res = await run_with_resilience(_attempt_agent_run, retry_policy)
+            except AgentAttemptFailedError as exc:
+                res = exc.result
+            if attempts > 1:
+                res.metadata["retries"] = attempts - 1
+            return res
 
         tasks = [_run_one(a) for a in agents]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
