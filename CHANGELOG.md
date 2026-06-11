@@ -8,6 +8,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Fleet-scale MCP multiplexer hardening (CONCEPT:ECO-4.34)** — every aggregated
+  child server now runs behind a per-child `ChildRuntime`
+  (`agent_utilities/mcp/child_resilience.py`) instead of one bare shared session:
+  - **Per-child concurrency limits + bounded queue**: `MCP_CHILD_MAX_CONCURRENCY`
+    (default 8; per-server `max_concurrency` in `mcp_config.json`; 0 = unlimited)
+    caps in-flight calls; excess calls queue at most `MCP_CHILD_QUEUE_TIMEOUT`
+    (default 30s; per-server `queue_timeout`) then fail with the typed
+    `MCPChildBusyError` — no head-of-line hangs behind one slow child.
+  - **Session pools for HTTP children**: remote (streamable-http/SSE) children
+    hold `MCP_CHILD_POOL_SIZE` round-robin connections (default 1 preserves the
+    historical resource profile; per-server `pool_size`); stdio stays single-pipe.
+  - **Cancellation-safe dispatch**: the child-side call runs in a shielded task —
+    a caller timeout/cancel detaches cleanly (typed `MCPChildCallTimeoutError`,
+    per-call ceiling from the server entry's existing `timeout` / new
+    `call_timeout` key) and the slot is held until the child truly finishes, so a
+    wedged child applies backpressure instead of corrupting shared session state.
+  - **Restart-on-crash**: each connection generation is owned by a supervisor
+    task; transport failures (stdio process exit, HTTP connect/reset) recycle the
+    generation with exponential backoff (0.5s→30s, jittered). More than
+    `MCP_CHILD_MAX_RESTARTS` (default 5) inside `MCP_CHILD_RESTART_WINDOW`
+    (default 300s) parks the child as `failed`; calls to a restarting child wait
+    briefly then fail with the typed `MCPChildUnavailableError` naming the child
+    and its restart state. Generations also fix shutdown: child transports are
+    now opened AND closed in the same task (anyio cancel-scope discipline).
+  - **Per-child circuit breaker**: consecutive transport failures/timeouts open a
+    breaker (`MCP_CHILD_BREAKER_THRESHOLD`/`MCP_CHILD_BREAKER_COOLDOWN`,
+    per-server overrides) that short-circuits with the typed
+    `MCPChildCircuitOpenError` until a half-open probe succeeds — the shared
+    OS-5.23 engine-client state machine, subclassed (wording + per-child gauge).
+  - **Health surface + metrics**: new `multiplexer_status` tool /
+    `MCPMultiplexer.status_snapshot()` (per-child up/restarting/failed, restart
+    count, breaker state, pool size, in-flight, queued) and new OS-5.23-registry
+    series — `agent_utilities_mcp_child_calls_total{server,outcome}`,
+    `..._mcp_child_breaker_state{server}`, `..._mcp_child_restarts_total{server}`,
+    `..._mcp_child_queue_depth{server}` — all no-op without `prometheus_client`.
+  - Deployment follow-up (out of scope here): all callers still share each
+    child's credentials; per-caller credential injection is not yet wired.
 - **Tenant-partitioned engine sharding (Stage 2, CONCEPT:KG-2.58 / OS-5.28)** — N
   epistemic-graph engine shards behind the existing client-side HRW router,
   partitioned by tenant/graph (`tenant → named graph → HRW → shard`):

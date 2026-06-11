@@ -551,8 +551,10 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/engine_breaker.py
   - agent_utilities/mcp/child_resilience.py
   - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/observability/gateway_metrics.py
   doc: Fleet-Scale MCP Multiplexer Hardening
 - id: EE-033
   name: closes the priors→weights loop
