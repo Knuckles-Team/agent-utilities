@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 172
+total_concepts: 173
 total_pillars: 18
 pillars:
 - AHE-3
@@ -236,6 +236,7 @@ concepts:
   - agent_utilities/harness/trace_backend.py
   - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/research/change_publisher.py
   - agent_utilities/knowledge_graph/research/golden_loop.py
   - agent_utilities/mcp/kg_server.py
   doc: Failure-Driven Evolution
@@ -258,6 +259,20 @@ concepts:
   - agent_utilities/knowledge_graph/research/auto_merge.py
   - agent_utilities/knowledge_graph/research/promotion_governance.py
   doc: Promotion Governance Validator
+- id: AHE-3.21
+  name: Evolution-to-branch bridge publishing promoted proposals as regression-gated reviewable local
+    git branches via change synthesis, RLM-sandbox validation and a governed ChangePublisher seam
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/research/auto_merge.py
+  - agent_utilities/knowledge_graph/research/change_publisher.py
+  - agent_utilities/knowledge_graph/research/change_synthesis.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/orchestration/fleet_reconciler.py
+  doc: Evolution-to-branch bridge publishing promoted proposals as regression-gated reviewable local git
+    branches via change synthesis, RLM-sandbox validation and a governed ChangePublisher seam
 - id: CTX-1.0
   name: Nested Subfolder Instructions
   pillar: CTX-1
@@ -1074,7 +1089,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
   doc: social-closer / triviality gate
 - id: KG-2.16
-  name: else the per-file path. Both yield the
+  name: config discipline
   pillar: KG-2
   status: live
   code_paths:
@@ -1084,7 +1099,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
-  doc: else the per-file path. Both yield the
+  doc: config discipline
 - id: KG-2.17
   name: decay scanner + semantic merge
   pillar: KG-2
@@ -1509,6 +1524,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
+  - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/facade.py
   - agent_utilities/observability/gateway_metrics.py
   doc: Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement
@@ -1912,6 +1928,7 @@ concepts:
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/research/change_synthesis.py
   - agent_utilities/rlm/config.py
   - agent_utilities/rlm/repl.py
   - agent_utilities/rlm/sandboxes/__init__.py
@@ -2278,6 +2295,7 @@ concepts:
   - agent_utilities/gateway/fleet.py
   - agent_utilities/knowledge_graph/adaptation/remediation_playbooks.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/research/change_publisher.py
   - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/fleet_actuation.py
   - agent_utilities/orchestration/fleet_reconciler.py
@@ -2291,6 +2309,7 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/gateway/fleet.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/research/change_publisher.py
   - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/fleet_actuation.py
   - agent_utilities/orchestration/fleet_observation.py

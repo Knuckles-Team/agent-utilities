@@ -279,6 +279,13 @@ class FleetReconciler:
             props = row.get("a") if isinstance(row, dict) else None
             if not isinstance(props, dict) or not props.get("id"):
                 continue
+            if str(props.get("kind") or "") == "merge_promotion":
+                # Code-evolution publications are NOT fleet actuations: a
+                # granted merge_promotion approval is consumed by the
+                # evolution→branch bridge's ``publish_proposal`` action
+                # (CONCEPT:AHE-3.21), never by the fleet actuator — which
+                # would dry-run/fail it and silently eat the grant.
+                continue
             try:
                 params = json.loads(props.get("params_json") or "{}")
             except (TypeError, ValueError):
