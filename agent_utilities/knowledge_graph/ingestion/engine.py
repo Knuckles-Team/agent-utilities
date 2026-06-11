@@ -126,9 +126,7 @@ class ContentType(StrEnum):
         code = 0
         scanned = 0
         for _dpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [
-                d for d in dirnames if d not in _SKIP_DIRS and d != ".git"
-            ]
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and d != ".git"]
             for fn in filenames:
                 if fn.lower() in _CODE_MARKERS:
                     return cls.CODEBASE
@@ -413,15 +411,20 @@ def _git_worktree_clean(path: str) -> bool:
     return r.returncode == 0 and not r.stdout.strip()
 
 
-def _changed_python_files(repo_path: str, since_sha: str) -> list[Path] | None:
-    """Python files changed since ``since_sha`` (``git diff``), or ``None`` if
-    git can't answer (caller then falls back to a full walk).
+def _changed_source_files(repo_path: str, since_sha: str) -> list[Path] | None:
+    """Source files (any engine-supported language) changed since ``since_sha``
+    (``git diff``), or ``None`` if git can't answer (caller falls back to a full
+    walk).
 
-    Only added/modified ``*.py`` files outside vendored/build dirs are returned;
-    deletions are dropped (the unchanged-everything-else case yields ``[]``, which
-    correctly drives a near-empty re-ingest). (CONCEPT:KG-2.8 / KG-2.3)
+    Only added/modified files whose extension is in :data:`SOURCE_EXTENSIONS`
+    and outside vendored/build dirs are returned; deletions are dropped (the
+    unchanged-everything-else case yields ``[]``, which correctly drives a
+    near-empty re-ingest). Mirrors :func:`discover_source_files` so the git-delta
+    fast path stays language-complete — a changed ``.java``/``.ts``/``.rs`` is
+    caught, not just ``.py``. (CONCEPT:KG-2.8 / KG-2.3)
     """
     from ..core.fingerprint import detect_stale_files
+    from ..enrichment.pipeline import SOURCE_EXTENSIONS
 
     try:
         changes = detect_stale_files(repo_path, since_commit=since_sha)
@@ -432,7 +435,7 @@ def _changed_python_files(repo_path: str, since_sha: str) -> list[Path] | None:
         if ch.get("status") == "deleted":
             continue
         fp = ch.get("full_path") or ""
-        if not fp.endswith(".py"):
+        if Path(fp).suffix.lower() not in SOURCE_EXTENSIONS:
             continue
         if any(part in _SKIP_DIRS for part in Path(fp).parts):
             continue
@@ -855,12 +858,12 @@ class IngestionEngine:
             and prior_sha != head_sha
             and _git_worktree_clean(source_path)
         ):
-            changed_files = _changed_python_files(source_path, prior_sha)
+            changed_files = _changed_source_files(source_path, prior_sha)
 
         try:
             if changed_files is not None:
                 logger.info(
-                    "[KG-2.8] git-delta ingest: %d changed .py file(s) since %s",
+                    "[KG-2.8] git-delta ingest: %d changed source file(s) since %s",
                     len(changed_files),
                     prior_sha[:8] if prior_sha else "?",
                 )
