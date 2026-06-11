@@ -376,6 +376,23 @@ class TaskManagerMixin(GraphEngineProtocol):
                 fallback_db_path=str(queue_db_path),
                 bootstrap_servers=getattr(config, "kafka_bootstrap_servers", None),
             )
+        elif getattr(config, "state_db_uri", None):
+            # Durable state externalized (CONCEPT:OS-5.16): the task queue moves
+            # onto the shared Postgres so N hosts drain ONE queue with atomic
+            # SKIP LOCKED claims (CONCEPT:KG-2.54). Unreachable state store →
+            # fall back to the per-host SQLite queue (same convention as the
+            # NATS/Kafka backends' sqlite fallback) rather than wedging startup.
+            try:
+                from .postgres_queue_backend import PostgresTaskQueue
+
+                self._submission_queue = PostgresTaskQueue()
+            except Exception as e:  # noqa: BLE001 — degraded single-host mode
+                logger.warning(
+                    "STATE_DB_URI set but the Postgres task queue is unavailable "
+                    "(%s) — falling back to the per-host SQLite queue.",
+                    e,
+                )
+                self._submission_queue = SQLiteTaskQueue(str(queue_db_path))
         else:
             self._submission_queue = SQLiteTaskQueue(str(queue_db_path))
 
@@ -811,6 +828,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             now = time.time()
             token = self._get_host_token()
 
+            from agent_utilities.core.state_store import postgres_state_enabled
+
+            _multi_host = postgres_state_enabled()
+
             rows = self.query_cypher(
                 "MATCH (t:Task {status: 'running'}) RETURN t.id as id, t.metadata as meta"
             )
@@ -845,11 +866,23 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # token is reaped even if its age is unknown (provably a dead host); an
                 # unstamped task needs a known age past the hand-off grace to avoid
                 # racing any malformed-but-fresh claim.
-                not_live = claimed_by != token  # token is never None
-                orphan = not_live and (
-                    (claimed_by is not None and age is None)
-                    or (age is not None and age >= grace)
-                )
+                #
+                # Multi-host (CONCEPT:OS-5.16/KG-2.54): with ``state_db_uri`` set,
+                # N hosts legitimately run workers, so a foreign token is NOT
+                # proof of a dead worker — another live host may be processing
+                # it. The reaper (leader-only) then degrades to conservative
+                # age-based reaping: unstamped past the grace, or ANY claim past
+                # the absolute runtime cap.
+                if _multi_host:
+                    orphan = (
+                        claimed_by is None and age is not None and age >= grace
+                    ) or (age is not None and age >= max_runtime)
+                else:
+                    not_live = claimed_by != token  # token is never None
+                    orphan = not_live and (
+                        (claimed_by is not None and age is None)
+                        or (age is not None and age >= grace)
+                    )
                 # Backstop: this host's own task wedged beyond the absolute cap.
                 backstop = (
                     claimed_by == token and age is not None and age >= max_runtime
@@ -932,8 +965,22 @@ class TaskManagerMixin(GraphEngineProtocol):
         evolution / enrichment). One backend-readiness check and one
         foreground-throttle gate guard every job, so background work uniformly
         yields the GPU/LLM to interactive runs. (CONCEPT:KG-2.7 / KG-2.8)
+
+        Tick classification (CONCEPT:OS-5.17): every job in this scheduler is
+        **leader-only** — whole-graph/singleton passes (analysis, golden loop,
+        failure ingest, anomaly consumer, fuseki publish, compaction, evolution,
+        durable reconcile, enrichment, SDD/file watch, hygiene, task reaper)
+        where N hosts running them means duplicated LLM spend or double writes.
+        With ``state_db_uri`` set, a Postgres advisory lock elects exactly one
+        leader fleet-wide; followers idle here and still contribute **per-host**
+        capacity (task workers + submission/graph-writer queue drains, whose
+        claims are cross-host atomic — CONCEPT:KG-2.54). Under the SQLite
+        default ``is_leader()`` is always true (flock already enforces a single
+        per-host daemon).
         """
         import time
+
+        from agent_utilities.core.leadership import get_leadership
 
         jobs = self._maintenance_jobs()
         if not jobs:
@@ -942,12 +989,19 @@ class TaskManagerMixin(GraphEngineProtocol):
         logger.info("KG maintenance scheduler started with jobs: %s", names)
 
         POLL = 5.0
+        leadership = get_leadership("kg-maintenance")
         # Stagger first runs so a startup burst doesn't fire everything at once.
         last_run = {name: time.time() - interval + 15.0 for name, interval, _ in jobs}
 
         while True:
             try:
                 if not getattr(self, "backend", None):
+                    time.sleep(10.0)
+                    continue
+
+                # Leader-only gate (CONCEPT:OS-5.17): non-leader hosts skip all
+                # singleton maintenance ticks and re-check for fail-over.
+                if not leadership.is_leader():
                     time.sleep(10.0)
                     continue
 
@@ -1328,10 +1382,17 @@ class TaskManagerMixin(GraphEngineProtocol):
         (a full batch landed) loops again almost immediately; when the graph is
         fully embedded it idles at a long interval. Yields to interactive runs
         via the shared foreground throttle.
+
+        Leader-only (CONCEPT:OS-5.17): two hosts would select the same
+        unembedded batch and duplicate embedding work, so only the fleet
+        leader drains it.
         """
         import os
         import time
 
+        from agent_utilities.core.leadership import get_leadership
+
+        leadership = get_leadership("kg-maintenance")
         batch = _EMBED_BACKFILL_FETCH
         try:
             idle = float(os.getenv("KG_EMBED_BACKFILL_INTERVAL", "30"))
@@ -1342,6 +1403,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         while True:
             try:
                 if not getattr(self, "backend", None):
+                    time.sleep(idle)
+                    continue
+                if not leadership.is_leader():
                     time.sleep(idle)
                     continue
                 # Yield to interactive/foreground work.
@@ -1890,6 +1954,8 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def _task_worker_loop(self):
         """Distributed polling loop that picks up pending tasks natively."""
+        from agent_utilities.core.state_store import state_claim_guard
+
         while True:
             try:
                 # Use a thread lock to prevent multiple workers from claiming the same task simultaneously
@@ -1901,7 +1967,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                 if not hasattr(self, "_claim_lock"):
                     self._claim_lock = threading.Lock()
 
-                with self._claim_lock:
+                # ``_claim_lock`` serializes claims between this process's worker
+                # threads; ``state_claim_guard`` extends that atomicity across
+                # hosts via a Postgres advisory lock when durable state is
+                # externalized (CONCEPT:KG-2.54 — two hosts can no longer
+                # double-claim the same Task between the SELECT and the UPDATE).
+                # Under the SQLite default the guard is a no-op.
+                with self._claim_lock, state_claim_guard("kg-task-claim"):
                     # Priority-aware poll: claim ``priority='high'`` pending tasks
                     # first, then any pending. (The L1 interpreter strips ORDER BY,
                     # so we tier via two queries instead of ORDER BY priority.)

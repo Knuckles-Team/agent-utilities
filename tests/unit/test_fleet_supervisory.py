@@ -1,7 +1,8 @@
-"""Tests for the native swarm supervisory plane (CONCEPT:OS-5.10).
+"""Tests for the native swarm supervisory plane (CONCEPT:OS-5.10 / OS-5.18).
 
 Exercises the gateway /fleet/* handlers against a temp sqlite session registry —
-health/topology aggregation and whole-domain emergency kill.
+health/topology SQL aggregation, pagination/filtering, whole-domain emergency
+kill, and desired-state pause/kill writes under externalized state.
 """
 
 from __future__ import annotations
@@ -19,32 +20,30 @@ from agent_utilities.gateway import fleet
 def session_db(tmp_path, monkeypatch):
     db = tmp_path / "sessions.db"
     conn = sqlite3.connect(str(db))
-    conn.execute(
-        """CREATE TABLE sessions (
-            id TEXT PRIMARY KEY, status TEXT, background INTEGER DEFAULT 0,
-            needs_input INTEGER DEFAULT 0, updated_at REAL, metadata_json TEXT
-        )"""
-    )
+    conn.executescript(fleet._sessions._SQLITE_DDL)
     rows = [
         ("s1", "active", json.dumps({"domain": "finance"})),
         ("s2", "failed", json.dumps({"domain": "finance"})),
         ("s3", "active", json.dumps({"domain": "itops"})),
         ("s4", "completed", "{}"),
     ]
-    for sid, status, meta in rows:
+    now = time.time()
+    for i, (sid, status, meta) in enumerate(rows):
         conn.execute(
-            "INSERT INTO sessions (id, status, updated_at, metadata_json) VALUES (?,?,?,?)",
-            (sid, status, time.time(), meta),
+            "INSERT INTO sessions (id, status, created_at, updated_at, metadata_json) VALUES (?,?,?,?,?)",
+            (sid, status, now, now + i, meta),
         )
     conn.commit()
     conn.close()
     monkeypatch.setattr(fleet._sessions, "_get_db_path", lambda: db)
+    monkeypatch.setattr(fleet._sessions, "_rehydrated", True)
     return db
 
 
 class _Req:
-    def __init__(self, body=None):
+    def __init__(self, body=None, query=None):
         self._body = body or {}
+        self.query_params = query or {}
 
     async def json(self):
         return self._body
@@ -74,17 +73,83 @@ async def test_fleet_topology_groups_by_domain(session_db):
 
 
 @pytest.mark.asyncio
+async def test_fleet_topology_pagination_and_status_filter(session_db):
+    # Page of 2 newest sessions; totals still reflect the whole fleet (OS-5.18).
+    resp = await fleet.fleet_topology(_Req(query={"limit": "2", "offset": "0"}))
+    data = await _payload(resp)
+    returned = sum(len(d["sessions"]) for d in data["domains"])
+    assert returned == 2
+    assert data["page"] == {"limit": 2, "offset": 0, "returned": 2}
+    assert data["totals"]["sessions"] == 4
+
+    # Status filter pushes down to SQL.
+    resp = await fleet.fleet_topology(_Req(query={"status": "active"}))
+    data = await _payload(resp)
+    statuses = {
+        s["status"] for d in data["domains"] for s in d["sessions"]
+    }
+    assert statuses == {"active"}
+
+
+def test_fetch_sessions_filters_in_sql(session_db):
+    rows = fleet._fetch_sessions(status="active")
+    assert {r["id"] for r in rows} == {"s1", "s3"}
+    rows = fleet._fetch_sessions(domain="finance")
+    assert {r["id"] for r in rows} == {"s1", "s2"}
+    rows = fleet._fetch_sessions(limit=1)
+    assert len(rows) == 1
+    # Newest first (s4 has the max updated_at).
+    assert rows[0]["id"] == "s4"
+
+
+@pytest.mark.asyncio
 async def test_fleet_kill_whole_domain(session_db):
     resp = await fleet.fleet_kill(_Req({"domain": "finance"}))
     data = await _payload(resp)
     assert data["count"] == 2
-    # Both finance sessions are now cancelled.
+    # Both finance sessions are now cancelled (single-host: applied directly).
     conn = sqlite3.connect(str(session_db))
     statuses = dict(conn.execute("SELECT id, status FROM sessions").fetchall())
     conn.close()
     assert statuses["s1"] == "cancelled"
     assert statuses["s2"] == "cancelled"
     assert statuses["s3"] == "active"  # itops untouched
+
+
+@pytest.mark.asyncio
+async def test_fleet_kill_desired_state_for_remote_sessions(session_db, monkeypatch):
+    # With state externalized (multi-host), a session NOT local to this
+    # gateway gets a kill_requested desired-state write that the owning
+    # host's loop reconciles (CONCEPT:OS-5.18).
+    monkeypatch.setattr(fleet, "_multi_host_state", lambda: True)
+    resp = await fleet.fleet_kill(_Req({"session_ids": ["s3"]}))
+    data = await _payload(resp)
+    assert data["applied"]["s3"] == "kill_requested"
+    conn = sqlite3.connect(str(session_db))
+    status = conn.execute("SELECT status FROM sessions WHERE id='s3'").fetchone()[0]
+    conn.close()
+    assert status == "kill_requested"
+
+
+@pytest.mark.asyncio
+async def test_fleet_pause_local_fast_path_under_multi_host(session_db, monkeypatch):
+    # A session whose goal loop runs in THIS process is cancelled in-process
+    # and finalized immediately even when state is externalized.
+    monkeypatch.setattr(fleet, "_multi_host_state", lambda: True)
+
+    class _Task:
+        def done(self):
+            return True
+
+    monkeypatch.setattr(
+        fleet._sessions,
+        "background_goal_runs",
+        {"g-local": {"session_id": "s1", "task": _Task()}},
+    )
+    monkeypatch.setattr(fleet._sessions, "active_goals", {})
+    resp = await fleet.fleet_pause(_Req({"session_ids": ["s1"]}))
+    data = await _payload(resp)
+    assert data["applied"]["s1"] == "paused"
 
 
 @pytest.mark.asyncio
