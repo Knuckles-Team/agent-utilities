@@ -2120,6 +2120,22 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # Score all ingested papers and codebases against a target
                 result = await self._run_relevance_sweep(job_id, str(target))
                 self._update_task_status(job_id, "completed", result)
+            elif task_type == "fleet_event_triage":
+                # Fleet-event triage (CONCEPT:OS-5.15): 'target' is the
+                # FleetEvent node id enqueued by the gateway's
+                # POST /api/fleet/events webhook receiver, not a filesystem
+                # path. Correlates the event to known KG entities and files a
+                # failure_gap topic when severity warrants.
+                from agent_utilities.knowledge_graph.adaptation.fleet_event_triage import (
+                    triage_fleet_event,
+                )
+
+                result = triage_fleet_event(self, str(target))
+                self._update_task_status(
+                    job_id,
+                    "completed",
+                    {"target": str(target), "type": task_type, **result},
+                )
             elif task_type in ("synthesize", "deep_extract", "background_research"):
                 from agent_utilities.analysis.analyzer import GraphAnalyzer
 
