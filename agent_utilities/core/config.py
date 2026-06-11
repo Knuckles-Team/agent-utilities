@@ -462,9 +462,17 @@ class AgentConfig(BaseSettings):
     kg_failure_regression_dataset: bool = Field(
         default=False, alias="KG_FAILURE_REGRESSION_DATASET"
     )
+    # PerformanceAnomaly consumer (CONCEPT:AHE-3.19) — drains unconsumed
+    # PerformanceAnomaly nodes into failure_gap topics for the golden loop.
+    # Default ON: it is LLM-free, bounded, and propose-only (it writes topic
+    # nodes; nothing merges without the AHE-3.20 governed auto-merge chain).
+    kg_anomaly_consumer: bool = Field(default=True, alias="KG_ANOMALY_CONSUMER")
 
     @field_validator(
-        "kg_failure_evolution", "kg_failure_regression_dataset", mode="before"
+        "kg_failure_evolution",
+        "kg_failure_regression_dataset",
+        "kg_anomaly_consumer",
+        mode="before",
     )
     @classmethod
     def _coerce_failure_flags(cls, v: Any) -> bool:

@@ -201,14 +201,15 @@ concepts:
   - agent_utilities/knowledge_graph/research/golden_loop.py
   doc: consider promoting the team
 - id: AHE-3.15
-  name: also branches to
+  name: this is the read-back half of agent-step policy
   pillar: AHE-3
   status: live
   code_paths:
   - agent_utilities/graph/agent_step_po.py
   - agent_utilities/graph/reward_decomposition.py
   - agent_utilities/graph/routing/strategies/policy.py
-  doc: also branches to
+  - agent_utilities/orchestration/agent_runner.py
+  doc: this is the read-back half of agent-step policy
 - id: AHE-3.16
   name: width of the *diverse* best-of-k fan-out — harder
   pillar: AHE-3
@@ -238,12 +239,15 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   doc: bypass the generic unresolved_topics scan so a brand-new
 - id: AHE-3.19
-  name: The Concept carries NO
+  name: Performance Anomaly Consumer
   pillar: AHE-3
   status: live
   code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/adaptation/anomaly_consumer.py
   - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
-  doc: The Concept carries NO
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: Performance Anomaly Consumer
 - id: AHE-3.20
   name: Promotion Governance Validator
   pillar: AHE-3
@@ -1195,6 +1199,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/domains/finance/calibration_tracker.py
+  - agent_utilities/domains/finance/trading_swarm.py
   doc: Agent Calibration and Reputation Tracking
 - id: KG-2.28
   name: Persona Decision-Heuristic Enrichment
