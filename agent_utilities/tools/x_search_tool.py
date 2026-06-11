@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import re
-import time
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -17,6 +16,10 @@ from pydantic_ai import RunContext
 
 from agent_utilities.core.http_client import create_http_client
 from agent_utilities.harness.tracing import trace
+from agent_utilities.orchestration.resilience import (
+    ResiliencePolicy,
+    run_with_resilience,
+)
 from agent_utilities.models import AgentDeps
 from agent_utilities.security.xai_auth import XaiAuthManager
 
@@ -240,30 +243,38 @@ async def x_search(
         "User-Agent": "agent-utilities/x_search_tool",
     }
 
-    # 5. Execute HTTP Request with Retries
+    # 5. Execute HTTP Request with Retries — declarative ResiliencePolicy
+    # (CONCEPT:ORCH-1.36): the historical linear 1.5s/3.0s/... delays capped
+    # at 5s, retrying connection errors and 5xx only.
+    def _retryable(exc: BaseException) -> bool:
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code >= 500
+        return isinstance(exc, httpx.RequestError | httpx.TimeoutException)
+
+    def _post_once() -> dict[str, Any]:
+        with create_http_client(timeout=float(timeout)) as client:
+            resp = client.post(f"{base_url}/responses", headers=headers, json=payload)
+            resp.raise_for_status()
+            return resp.json()
+
+    policy = ResiliencePolicy(
+        max_attempts=max_retries + 1,
+        backoff_base_s=1.5,
+        backoff_strategy="linear",
+        max_backoff_s=5.0,
+        jitter=False,
+        retry_on=_retryable,
+        name="x_search",
+    )
+
     response_data: dict[str, Any] | None = None
     last_error: str | None = None
-
-    for attempt in range(max_retries + 1):
-        try:
-            with create_http_client(timeout=float(timeout)) as client:
-                resp = client.post(
-                    f"{base_url}/responses", headers=headers, json=payload
-                )
-                resp.raise_for_status()
-                response_data = resp.json()
-                break
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            last_error = f"HTTP {status}: {exc.response.text}"
-            if status < 500 or attempt >= max_retries:
-                break
-            time.sleep(min(5.0, 1.5 * (attempt + 1)))
-        except (httpx.RequestError, httpx.TimeoutException) as exc:
-            last_error = f"Connection error: {exc}"
-            if attempt >= max_retries:
-                break
-            time.sleep(min(5.0, 1.5 * (attempt + 1)))
+    try:
+        response_data = await run_with_resilience(_post_once, policy)
+    except httpx.HTTPStatusError as exc:
+        last_error = f"HTTP {exc.response.status_code}: {exc.response.text}"
+    except (httpx.RequestError, httpx.TimeoutException) as exc:
+        last_error = f"Connection error: {exc}"
 
     if not response_data:
         return json.dumps(
