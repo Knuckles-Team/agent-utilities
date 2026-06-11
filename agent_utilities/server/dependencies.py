@@ -109,9 +109,17 @@ async def process_parts(parts: list[dict[str, Any]]) -> list[Any]:
 def get_http_client(
     ssl_verify: bool = True, timeout: float = 300.0
 ) -> httpx.AsyncClient | None:
-    """Create a configured HTTPX AsyncClient for internal requests."""
+    """Create a configured HTTPX AsyncClient for internal requests.
+
+    Returns ``None`` when TLS verification is on (callers fall back to their
+    library's default client); only an explicit ``ssl_verify=False`` opt-out
+    yields an insecure client — built via the canonical factory, whose
+    default stays ``verify=True``.
+    """
+    from agent_utilities.core.http_client import create_async_http_client
+
     if not ssl_verify:
-        return httpx.AsyncClient(verify=False, timeout=timeout)  # nosec B501
+        return create_async_http_client(verify=False, timeout=timeout)  # nosec B501
     return None
 
 

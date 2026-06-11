@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 from agent_utilities.base_utilities import to_boolean
 from agent_utilities.core.config import config
+from agent_utilities.core.http_client import create_http_client
 
 try:
     from llama_index.embeddings.ollama import OllamaEmbedding
@@ -85,9 +86,12 @@ def create_embedding_model(
         or (_chat_cfg.api_key if _chat_cfg else None)
     )
 
+    # TLS verification is ON unless the deployment's SSL_VERIFY flag (or an
+    # explicit ssl_verify=False argument) opts out — the canonical factory
+    # keeps verify=True the default; insecure stays a per-call decision.
     http_client: httpx.Client | None = None
     if not ssl_verify:
-        http_client = httpx.Client(verify=False, timeout=timeout)  # nosec B501
+        http_client = create_http_client(verify=False, timeout=timeout)  # nosec B501
 
     if provider_str == "mock":
         raise ValueError(

@@ -3,9 +3,11 @@
 CONCEPT:ORCH-1.36 — Declarative Resilience Policy
 
 Closes the Reliability & Failure-Management gap (L7) versus the agentic
-reference architecture. The live specialist-execution path already carries a
-per-server circuit breaker (``ctx.deps.server_health`` in
-``agent_utilities/graph/executor.py``) and KG-persisted durable checkpoints
+reference architecture. The platform already ships the canonical circuit
+breaker (:class:`agent_utilities.knowledge_graph.core.engine_breaker.CircuitBreaker`),
+a per-server breaker on the live specialist-execution path
+(``ctx.deps.server_health`` in ``agent_utilities/graph/executor.py``),
+and KG-persisted durable checkpoints
 (:class:`agent_utilities.orchestration.durable_execution.DurableExecutionManager`),
 but there was no *declarative* policy describing how an individual unit of work
 should retry, back off, fall back, or time out.
@@ -68,6 +70,24 @@ DEFAULT_RETRYABLE: tuple[type[Exception], ...] = (
 RetryPredicate = Callable[[BaseException], bool]
 
 
+class RetryableError(Exception):
+    """An error the raising site has already judged retryable.
+
+    Carries an optional ``backoff_s`` delay override: when set, the resilience
+    runners sleep exactly that long before the next attempt instead of the
+    policy-computed backoff. This lets a call site encode a delay the policy
+    cannot know (e.g. "schema was just healed — retry immediately", or a
+    server-provided ``Retry-After``) without forking the retry loop.
+
+    The policy still decides retryability: include the (sub)class in
+    ``retry_on`` as usual.
+    """
+
+    def __init__(self, *args: Any, backoff_s: float | None = None) -> None:
+        super().__init__(*args)
+        self.backoff_s = backoff_s
+
+
 @dataclass(frozen=True)
 class ResiliencePolicy:
     """Declarative retry / backoff / fallback / timeout policy for one callable.
@@ -78,9 +98,14 @@ class ResiliencePolicy:
         backoff_base_s: Base delay (seconds) for the first retry.
         backoff_factor: Exponential growth factor between retries (e.g. ``2.0``).
         max_backoff_s: Hard cap on any single backoff delay (seconds).
-        jitter: When ``True``, multiply the computed backoff by a random factor
-            in ``[0.5, 1.0]`` using an injectable RNG so it stays deterministic
-            under test.
+        backoff_strategy: ``"exponential"`` (default) grows the delay as
+            ``base * factor ** (attempt - 1)``; ``"linear"`` grows it as
+            ``base * attempt`` (``backoff_factor`` is ignored).
+        jitter: When ``True``, apply ``jitter_strategy`` to the capped delay
+            using an injectable RNG so it stays deterministic under test.
+        jitter_strategy: ``"proportional"`` (default) multiplies the capped
+            delay by a random factor in ``[0.5, 1.0]``; ``"additive"`` adds a
+            random ``[0, backoff_base_s)`` offset on top of the capped delay.
         retry_on: Either a tuple of exception types to retry, or a predicate
             ``Callable[[BaseException], bool]``. Defaults to retrying transient
             errors (:data:`DEFAULT_RETRYABLE`) while *never* retrying the
@@ -96,7 +121,9 @@ class ResiliencePolicy:
     backoff_base_s: float = 0.5
     backoff_factor: float = 2.0
     max_backoff_s: float = 30.0
+    backoff_strategy: str = "exponential"
     jitter: bool = True
+    jitter_strategy: str = "proportional"
     retry_on: tuple[type[Exception], ...] | RetryPredicate = DEFAULT_RETRYABLE
     timeout_s: float | None = None
     fallbacks: list[Callable[..., Any]] = field(default_factory=list)
@@ -111,6 +138,16 @@ class ResiliencePolicy:
             raise ValueError("backoff delays must be non-negative")
         if self.backoff_factor < 1.0:
             raise ValueError("backoff_factor must be >= 1.0")
+        if self.backoff_strategy not in ("exponential", "linear"):
+            raise ValueError(
+                f"backoff_strategy must be 'exponential' or 'linear', "
+                f"got {self.backoff_strategy!r}"
+            )
+        if self.jitter_strategy not in ("proportional", "additive"):
+            raise ValueError(
+                f"jitter_strategy must be 'proportional' or 'additive', "
+                f"got {self.jitter_strategy!r}"
+            )
 
     def should_retry(self, exc: BaseException) -> bool:
         """Decide whether ``exc`` is retryable under this policy.
@@ -159,21 +196,29 @@ def compute_backoff(
     ``attempt`` is 1-indexed: the delay before the 1st retry (i.e. between
     attempt 1 and attempt 2) is ``compute_backoff(1, ...)`` and equals
     ``backoff_base_s`` (factor**0). The delay grows as
-    ``backoff_base_s * backoff_factor ** (attempt - 1)`` and is capped at
-    ``max_backoff_s``.
+    ``backoff_base_s * backoff_factor ** (attempt - 1)`` (exponential, the
+    default) or ``backoff_base_s * attempt`` (``backoff_strategy="linear"``)
+    and is capped at ``max_backoff_s``.
 
-    When ``policy.jitter`` is ``True`` the (capped) delay is multiplied by a
-    factor in ``[0.5, 1.0]`` drawn from ``rng`` — an injectable
-    :class:`random.Random` so tests are deterministic. With ``jitter`` off the
-    result is exact and independent of any RNG.
+    When ``policy.jitter`` is ``True`` the (capped) delay is jittered per
+    ``policy.jitter_strategy`` — multiplied by a factor in ``[0.5, 1.0]``
+    (proportional, the default) or increased by ``[0, backoff_base_s)``
+    (additive) — drawn from ``rng``, an injectable :class:`random.Random` so
+    tests are deterministic. With ``jitter`` off the result is exact and
+    independent of any RNG.
     """
     if attempt < 1:
         raise ValueError(f"attempt must be >= 1, got {attempt}")
-    raw = policy.backoff_base_s * (policy.backoff_factor ** (attempt - 1))
+    if policy.backoff_strategy == "linear":
+        raw = policy.backoff_base_s * attempt
+    else:
+        raw = policy.backoff_base_s * (policy.backoff_factor ** (attempt - 1))
     capped = min(raw, policy.max_backoff_s)
     if not policy.jitter:
         return capped
     _rng = rng if rng is not None else _random_module.Random()  # noqa: S311 # nosec B311 - jitter only, not security
+    if policy.jitter_strategy == "additive":
+        return capped + _rng.random() * policy.backoff_base_s
     return capped * (0.5 + 0.5 * _rng.random())
 
 
@@ -247,7 +292,7 @@ async def run_with_resilience(
                     exc,
                 )
                 break
-            delay = compute_backoff(attempt, policy, rng=rng)
+            delay = _retry_delay(exc, attempt, policy, rng)
             logger.info(
                 "[CONCEPT:ORCH-1.36] '%s' retrying after attempt %d/%d "
                 "(backoff=%.3fs): %s",
@@ -327,7 +372,7 @@ def run_with_resilience_sync(
             )
             if not retryable or not has_more:
                 break
-            delay = compute_backoff(attempt, policy, rng=rng)
+            delay = _retry_delay(exc, attempt, policy, rng)
             logger.info(
                 "[CONCEPT:ORCH-1.36] '%s' (sync) retrying after attempt %d/%d "
                 "(backoff=%.3fs): %s",
@@ -366,3 +411,15 @@ async def _maybe_await(value: Awaitable[Any] | Any) -> Any:
     if asyncio.iscoroutine(value) or isinstance(value, Awaitable):
         return await value
     return value
+
+
+def _retry_delay(
+    exc: BaseException,
+    attempt: int,
+    policy: ResiliencePolicy,
+    rng: _random_module.Random | None,
+) -> float:
+    """Delay before the next attempt: the exception's hint, else the policy's."""
+    if isinstance(exc, RetryableError) and exc.backoff_s is not None:
+        return max(0.0, exc.backoff_s)
+    return compute_backoff(attempt, policy, rng=rng)

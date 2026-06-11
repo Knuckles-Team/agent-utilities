@@ -26,6 +26,7 @@ from agent_utilities.core.execution.provider_proxy import (
     event_to_sse,
     stream_proxy,
 )
+from agent_utilities.core.http_client import create_async_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ _DEFAULT_URLS = {
 
 async def _upstream_lines(url: str, headers: dict, body: dict) -> AsyncIterator[str]:
     """Yield raw lines from the upstream provider's streaming response."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+    async with create_async_http_client(timeout=httpx.Timeout(120.0)) as client:
         async with client.stream("POST", url, headers=headers, json=body) as resp:
             async for line in resp.aiter_lines():
                 if line:

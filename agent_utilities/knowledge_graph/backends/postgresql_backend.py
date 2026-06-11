@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from contextlib import contextmanager
 from typing import Any
 
@@ -26,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 # Embedding dimension from env (must match model output)
 _EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
+
+
+class PostgresLockContentionError(ConnectionError):
+    """PostgreSQL lock/deadlock contention — retryable with exponential backoff."""
 
 
 class PostgreSQLBackend(GraphBackend):
@@ -392,6 +395,12 @@ class PostgreSQLBackend(GraphBackend):
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query by transpiling to SQL."""
+        from agent_utilities.orchestration.resilience import (
+            ResiliencePolicy,
+            RetryableError,
+            run_with_resilience_sync,
+        )
+
         from .cypher_transpiler import QueryType, transpile
 
         params = params or {}
@@ -402,7 +411,11 @@ class PostgreSQLBackend(GraphBackend):
             return []
 
         max_retries = 3
-        for attempt in range(max_retries):
+        attempts_used = 0
+
+        def _attempt() -> list[dict[str, Any]]:
+            nonlocal attempts_used
+            attempts_used += 1
             try:
                 with self._conn() as conn:
                     with conn.cursor() as cur:
@@ -447,13 +460,9 @@ class PostgreSQLBackend(GraphBackend):
                         return []
             except Exception as e:
                 msg = str(e).lower()
-                if ("lock" in msg or "deadlock" in msg) and attempt < max_retries - 1:
-                    wait = (2**attempt) * 0.1
-                    logger.warning(
-                        "PG locked, retrying in %.2fs (attempt %d)", wait, attempt + 1
-                    )
-                    time.sleep(wait)
-                    continue
+                if ("lock" in msg or "deadlock" in msg) and attempts_used < max_retries:
+                    logger.warning("PG locked, retrying (attempt %d)", attempts_used)
+                    raise PostgresLockContentionError(str(e)) from e
                 # Auto-DDL self-heal: a write to a not-yet-created type table
                 # ("relation X does not exist") creates the table and retries; a
                 # write to a missing column ("column X of relation Y does not
@@ -465,19 +474,34 @@ class PostgreSQLBackend(GraphBackend):
                 mc = _re.search(
                     r'column "([^"]+)" of relation "([^"]+)" does not exist', str(e)
                 )
-                if mc and attempt < max_retries - 1:
+                if mc and attempts_used < max_retries:
                     healed = self.ensure_column(mc.group(2), mc.group(1))
                 else:
                     mt = _re.search(r'relation "([^"]+)" does not exist', str(e))
-                    if mt and attempt < max_retries - 1:
+                    if mt and attempts_used < max_retries:
                         # force=True: the DB just told us the table is missing, so
                         # the _known_tables cache is authoritatively stale here.
                         healed = self.ensure_label_table(mt.group(1), force=True)
                 if healed:
-                    continue
+                    # Schema just healed — retry immediately (backoff_s=0.0).
+                    raise RetryableError(str(e), backoff_s=0.0) from e
                 logger.error("PostgreSQL execute error: %s | SQL: %.200s", e, tq.sql)
                 return []
-        return []  # All retries exhausted
+
+        # Historical lock backoff (2**n)*0.1s, no jitter; healed-schema retries
+        # carry a 0.0s delay hint so they stay immediate (CONCEPT:ORCH-1.36).
+        policy = ResiliencePolicy(
+            max_attempts=max_retries,
+            backoff_base_s=0.1,
+            backoff_factor=2.0,
+            jitter=False,
+            retry_on=(PostgresLockContentionError, RetryableError),
+            name="postgresql-execute",
+        )
+        try:
+            return run_with_resilience_sync(_attempt, policy)
+        except (PostgresLockContentionError, RetryableError):
+            return []  # All retries exhausted (guards make this unreachable)
 
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]]
