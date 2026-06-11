@@ -71,7 +71,7 @@ async def fleet_health(request: Request) -> JSONResponse:
     """Aggregate swarm-health: counts + per-domain error rates."""
     rows = _fetch_sessions()
     by_status: dict[str, int] = {}
-    domains: dict[str, dict[str, int]] = {}
+    domains: dict[str, dict[str, float]] = {}
     for s in rows:
         status = str(s.get("status") or "unknown")
         by_status[status] = by_status.get(status, 0) + 1
@@ -140,9 +140,10 @@ def _cancel_session_tasks(session_id: str) -> bool:
             runs.pop(goal_id, None)
             active = getattr(_sessions, "active_goals", {})
             if goal_id in active:
-                active[goal_id]["status"] = getattr(
+                goal_status: Any = getattr(
                     _sessions, "GoalStatus", type("G", (), {"CANCELLED": "cancelled"})
-                ).CANCELLED
+                )
+                active[goal_id]["status"] = goal_status.CANCELLED
             cancelled = True
     return cancelled
 

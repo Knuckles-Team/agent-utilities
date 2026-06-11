@@ -188,7 +188,9 @@ repos:
     always_run: true
   - id: guardrail-prod-profile
     name: Guardrail — production profile guard
-    entry: bash -c 'cd /home/apps/workspace/agent-packages/agent-utilities && python3 -m pytest tests/scale/test_prod_profile_guard.py -q -p no:cacheprovider -o addopts="" -k "prod or profile"'
+    # Runs in the repo being committed (pre-commit cwd = repo root) so worktrees
+    # are gated on their OWN conftest/engine wiring, not the canonical checkout's.
+    entry: bash -c 'python3 -m pytest tests/scale/test_prod_profile_guard.py -q -p no:cacheprovider -o addopts="" -k "prod or profile"'
     language: system
     pass_filenames: false
     always_run: true
