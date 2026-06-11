@@ -48,6 +48,10 @@ __all__ = [
     "ENGINE_SHARD_UP",
     "KG_INGEST_CONSUMER_LAG",
     "KG_INGEST_QUEUE_DEPTH",
+    "MCP_CHILD_BREAKER_STATE",
+    "MCP_CHILD_CALLS",
+    "MCP_CHILD_QUEUE_DEPTH",
+    "MCP_CHILD_RESTARTS",
     "PROMETHEUS_AVAILABLE",
     "GatewayMetricsMiddleware",
     "metrics_asgi_endpoint",
@@ -189,6 +193,32 @@ KG_INGEST_CONSUMER_LAG = _gauge(
     "agent_utilities_kg_ingest_consumer_lag",
     "Total kg-ingest consumer-group lag (unconsumed messages) per topic.",
     ("topic", "group"),
+)
+# MCP multiplexer per-child resilience (CONCEPT:ECO-4.34): one series per
+# aggregated child server (~50, bounded by mcp_config.json). The multiplexer
+# runs standalone; like every metric here these degrade to no-ops when
+# prometheus_client (the optional ``metrics`` extra) is absent.
+MCP_CHILD_CALLS = _counter(
+    "agent_utilities_mcp_child_calls_total",
+    "Multiplexer tool calls per child server and outcome "
+    "(ok | error | transport_error | timeout | busy | unavailable | "
+    "short_circuited).",
+    ("server", "outcome"),
+)
+MCP_CHILD_BREAKER_STATE = _gauge(
+    "agent_utilities_mcp_child_breaker_state",
+    "Per-child circuit-breaker state (0=closed, 1=half-open, 2=open).",
+    ("server",),
+)
+MCP_CHILD_RESTARTS = _counter(
+    "agent_utilities_mcp_child_restarts_total",
+    "Automatic restarts of crashed multiplexer child servers.",
+    ("server",),
+)
+MCP_CHILD_QUEUE_DEPTH = _gauge(
+    "agent_utilities_mcp_child_queue_depth",
+    "Tool calls queued behind a child's concurrency limit right now.",
+    ("server",),
 )
 
 
