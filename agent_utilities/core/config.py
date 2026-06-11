@@ -253,6 +253,12 @@ class AgentConfig(BaseSettings):
     # per-daemon KG_*_DAEMON env toggles (CONCEPT:KG-2.8, config discipline).
     kg_dev_mode: bool = Field(default=False, alias="KG_DEV_MODE")
 
+    # Safety override: by default an unscoped Cypher query (no id/label, no
+    # parseable WHERE) refuses to enumerate the whole graph and returns []
+    # (ORCH-1.39). Set this for a rare, deliberate full enumeration. Off by
+    # default so a buggy unscoped query can never silently scan the whole graph.
+    kg_allow_full_scan: bool = Field(default=False, alias="KG_ALLOW_FULL_SCAN")
+
     # --- Model registry helpers (derive from chat_models / embedding_models) ---
 
     def _chat_model_by_level(self, level: str) -> ChatModelConfig | None:

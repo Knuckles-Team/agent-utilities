@@ -66,6 +66,12 @@ Original inventory (for reference):
 Nobody runs these off in production. **Action:** delete the env gates; if a dev escape
 hatch is wanted, a single `KG_DEV_MODE=1` disables *all* background daemons.
 
+### B.1 Safety overrides — KEEP (typed on `AgentConfig`)
+
+| Flag | Default | What it gates |
+|---|---|---|
+| `KG_ALLOW_FULL_SCAN` | `false` | Permit an unscoped Cypher query to enumerate the whole graph (ORCH-1.40). Off by default so a buggy unscoped query can never silently full-scan; deliberate opt-in only. Typed `config.kg_allow_full_scan`, read in `backends/epistemic_graph_backend.py`. |
+
 ## C. Ingest-throughput knobs — REMOVED ✓
 
 **Done.** All three deleted:
