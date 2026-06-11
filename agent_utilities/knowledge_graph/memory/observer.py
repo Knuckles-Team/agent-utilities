@@ -91,9 +91,9 @@ def observe_transcript(
         )
         agent = Agent(model, system_prompt=OBSERVER_SYSTEM_PROMPT)
 
-        import nest_asyncio
+        from ...core.event_loop import allow_nested_run_sync
 
-        nest_asyncio.apply()
+        allow_nested_run_sync()
 
         user_content = f"## New transcript to process\n\n{transcript_text}"
         result = agent.run_sync(user_content)
