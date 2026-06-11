@@ -2958,7 +2958,7 @@ def _build_server(bootstrap: bool = True):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize, failure_ingest). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -3356,6 +3356,21 @@ def _build_server(bootstrap: bool = True):
                 rep = GoldenLoopController(engine).run_one_cycle(
                     max_topics=_mt if _mt > 0 else 5,
                 )
+                return _json.dumps(rep, indent=2, default=str)
+
+            elif action == "failure_ingest":
+                # Failure-driven evolution (CONCEPT:AHE-3.18): pull Langfuse
+                # failures → materialize failure_gap topics → regression-gated
+                # remediation that addresses those gaps directly. The on-demand
+                # twin of the daemon's failure_ingest tick (gated by
+                # KG_FAILURE_EVOLUTION for the daemon; the action runs on request).
+                import json as _json
+
+                from agent_utilities.knowledge_graph.adaptation.failure_analyzer import (
+                    run_failure_ingest,
+                )
+
+                rep = run_failure_ingest(_get_engine())
                 return _json.dumps(rep, indent=2, default=str)
 
             elif action == "assimilate":
