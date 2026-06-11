@@ -139,9 +139,13 @@ def test_breadth_stage_runs_when_configured(tmp_path, monkeypatch):
     (tmp_path / "memory-os" / "pyproject.toml").write_text("x", encoding="utf-8")
     monkeypatch.setenv("KG_BREADTH_LIBRARY_ROOTS", str(tmp_path))
     # Isolate from any ambient/config-configured roots so only the test's tmp lib
-    # is scanned (the golden loop falls back to AgentConfig.kg_breadth_* when the
-    # env vars are unset, which in a configured workspace points at real repos).
-    monkeypatch.delenv("KG_BREADTH_REPO_ROOTS", raising=False)
+    # is scanned. _run_breadth reads a FRESH AgentConfig() (KG-2.7) whose
+    # settings use env_ignore_empty=True AND fall back to the repo's .env FILE —
+    # so neither delenv nor an empty env var isolates on a deployed checkout
+    # with a real .env. Point the roots at an existing-but-empty directory.
+    empty_repos = tmp_path / "no-repos"
+    empty_repos.mkdir()
+    monkeypatch.setenv("KG_BREADTH_REPO_ROOTS", str(empty_repos))
     from agent_utilities.core.config import config as _cfg
 
     monkeypatch.setattr(_cfg, "kg_breadth_repo_roots", "", raising=False)
