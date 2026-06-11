@@ -126,28 +126,26 @@ async def with_backoff(
     """Await ``fn()`` with bounded exponential backoff (2→60s, capped at ``max_attempts``).
 
     Returns the result, or re-raises the last exception once attempts are exhausted. Bounded
-    (unlike Quarq's infinite loop) so background learning can never wedge CI.
+    (unlike Quarq's infinite loop) so background learning can never wedge CI. A thin wrapper
+    over the declarative ResiliencePolicy runner (CONCEPT:ORCH-1.36): any ``Exception`` is
+    retryable here (persistent-queue semantics), with delays ``initial * 2**(n-1)`` capped
+    at ``max_delay`` — identical to the historical hand-rolled loop.
     """
-    delay = initial
-    last_exc: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            return await fn()
-        except Exception as e:  # noqa: BLE001 - persistent-queue semantics
-            last_exc = e
-            if attempt >= max_attempts:
-                break
-            logger.warning(
-                "[KG-2.13] learn attempt %d failed (%s); retrying in %.1fs",
-                attempt,
-                e,
-                delay,
-            )
-            await asyncio.sleep(delay)
-            delay = min(delay * 2, max_delay)
-    if last_exc:
-        raise last_exc
-    return None
+    from agent_utilities.orchestration.resilience import (
+        ResiliencePolicy,
+        run_with_resilience,
+    )
+
+    policy = ResiliencePolicy(
+        max_attempts=max_attempts,
+        backoff_base_s=initial,
+        backoff_factor=2.0,
+        max_backoff_s=max_delay,
+        jitter=False,
+        retry_on=lambda exc: isinstance(exc, Exception),
+        name="kg-2.13-learn",
+    )
+    return await run_with_resilience(fn, policy)
 
 
 class BackgroundLearner:
