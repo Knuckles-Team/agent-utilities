@@ -9,17 +9,11 @@ COVERS edges. No Python AST walking — the Rust engine is the compute layer.
 from __future__ import annotations
 
 import hashlib
-import logging
 import os
-import queue
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import suppress
 from typing import Any
 
 from ..models import CodeEntity, EnrichmentEdge, ExtractionResult, TestEntity
-
-logger = logging.getLogger(__name__)
 
 # A parse function: (file_path, source_bytes) -> Rust ParseResult dict
 ParseFn = Callable[[str, bytes], dict[str, Any]]
@@ -164,76 +158,6 @@ def extract_source_files(
         parsed = parsed_list[i] if i < len(parsed_list) else None
         out.append(entities_from_parse_result(fp, hashes[i], parsed or {}))
     return out
-
-
-def _extract_chunk(
-    chunk: list[tuple[str, str]], parse_files_fn: BatchParseFn
-) -> list[ExtractionResult]:
-    """Parse + build entities for one chunk (the unit of parallelism)."""
-    raw = [(fp, src.encode("utf-8", "surrogatepass")) for fp, src in chunk]
-    hashes = [hashlib.sha256(b).hexdigest() for _, b in raw]
-    try:
-        parsed_list = parse_files_fn(raw)
-    except Exception:  # noqa: BLE001 - a chunk failure degrades to empty entities
-        parsed_list = []
-    out: list[ExtractionResult] = []
-    for j, (fp, _src) in enumerate(chunk):
-        parsed = parsed_list[j] if j < len(parsed_list) else None
-        out.append(entities_from_parse_result(fp, hashes[j], parsed or {}))
-    return out
-
-
-def extract_source_parallel(
-    files: list[tuple[str, str]],
-    graph_compute: Any,
-    concurrency: int = 8,
-    chunk: int = 256,
-) -> list[ExtractionResult]:
-    """Parse AND build entities for ``files`` CONCURRENTLY (CONCEPT:KG-2.16, #1+#2).
-
-    Chunks the files and runs each chunk on its own sibling engine connection in a
-    thread pool: N parse RPCs are in flight at once (the engine saturates its cores
-    via rayon, instead of sitting ~idle between serial chunks), and one chunk's
-    entity-building overlaps the next chunk's parse RPC (the socket wait releases
-    the GIL). Results are returned in input order. Falls back to the single-batch
-    path if siblings can't be opened. ``model_construct`` (see
-    :func:`entities_from_parse_result`) keeps the build itself cheap.
-    """
-    chunks = [files[i : i + chunk] for i in range(0, len(files), max(1, chunk))]
-    workers = max(1, min(concurrency, len(chunks)))
-    clients = graph_compute.make_parse_clients(workers) if workers > 1 else []
-    if len(clients) < 2:
-        for c in clients:
-            with suppress(Exception):
-                c.close()
-        # Not enough connections to parallelise — one batched round-trip.
-        return extract_source_files(files, graph_compute.parse_files)
-
-    pool: queue.Queue = queue.Queue()
-    for c in clients:
-        pool.put(c)
-
-    def _do(idx_chunk: tuple[int, list[tuple[str, str]]]) -> tuple[int, list]:
-        idx, ch = idx_chunk
-        client = pool.get()
-        try:
-            return idx, _extract_chunk(ch, client.graph.parse_files)
-        finally:
-            pool.put(client)
-
-    try:
-        by_idx: dict[int, list[ExtractionResult]] = {}
-        with ThreadPoolExecutor(max_workers=len(clients)) as ex:
-            for idx, res in ex.map(_do, enumerate(chunks)):
-                by_idx[idx] = res
-        out: list[ExtractionResult] = []
-        for idx in range(len(chunks)):
-            out.extend(by_idx[idx])
-        return out
-    finally:
-        for c in clients:
-            with suppress(Exception):
-                c.close()
 
 
 def resolve_covers(results: list[ExtractionResult]) -> list[EnrichmentEdge]:
