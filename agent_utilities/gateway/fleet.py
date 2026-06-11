@@ -1,14 +1,22 @@
 """Native swarm supervisory plane (CONCEPT:OS-5.10).
 
+CONCEPT:OS-5.18 — Fleet supervisory plane at scale — SQL aggregation, paginated and filtered session queries, and desired-state pause and kill reconciliation across hosts
+
 A single pane of glass over the running fleet, exposed through the API gateway —
 no separate supervisor service. Everything here surfaces state the ecosystem
 *already* maintains:
 
-* **topology / health** — the durable sqlite session registry and the in-memory
-  goal-loop registry in :mod:`agent_utilities.core.sessions`.
-* **pause / kill** — emergency containment by reusing the same cancel mechanics
-  as :func:`agent_utilities.core.sessions.cancel_session_run` (blast-radius stop
-  across a whole domain at once).
+* **topology / health** — the durable session registry and goal registry in
+  :mod:`agent_utilities.core.sessions` (per-host SQLite by default, the shared
+  Postgres state store when ``state_db_uri`` is set — CONCEPT:OS-5.16).
+  Aggregations run in SQL (``COUNT``/``GROUP BY``) and listings are paginated
+  + status-filterable, so the handlers stay O(page), not O(fleet)
+  (CONCEPT:OS-5.18).
+* **pause / kill** — emergency containment as *desired-state writes*: targets
+  local to this gateway are cancelled in-process (fast path) and finalized;
+  sessions owned by another host get ``pause_requested``/``kill_requested``,
+  which the owning host's goal loop reconciles on its next tick
+  (CONCEPT:OS-5.18).
 * **approvals** — pending mutation/risk approvals stored as ``Task`` graph nodes,
   read and granted through the parity-covered ``graph_query`` / ``graph_orchestrate``
   tools.
@@ -19,8 +27,6 @@ These handlers are plain Starlette callables mounted by the gateway; the
 
 from __future__ import annotations
 
-import json
-import sqlite3
 import time
 from typing import Any
 
@@ -29,69 +35,138 @@ from starlette.responses import JSONResponse
 
 from agent_utilities.core import sessions as _sessions
 
+# Statuses that count as "unhealthy" when computing per-domain error rates.
+_ERROR_STATUSES = ("failed", "error", "cancelled")
+_ACTIVE_STATUSES = ("active", "running")
 
-def _domain_of(metadata_json: str | None) -> str:
-    """Derive a session's enterprise domain from its metadata (default 'default')."""
-    if not metadata_json:
-        return "default"
+_MAX_PAGE = 1000
+
+
+def _domain_sql(dialect: str) -> str:
+    """SQL expression deriving a session's enterprise domain from its metadata.
+
+    Mirrors the old per-row Python ``_domain_of`` (domain → team → tenant →
+    'default') so aggregation can run in the database on both backends
+    (CONCEPT:OS-5.18). Malformed/empty metadata degrades to 'default'.
+    """
+    if dialect == "postgres":
+
+        def j(key: str) -> str:
+            return f"NULLIF(metadata_json::jsonb ->> '{key}', '')"
+
+        valid = "pg_input_is_valid(metadata_json, 'jsonb')"
+    else:
+
+        def j(key: str) -> str:
+            return f"NULLIF(json_extract(metadata_json, '$.{key}'), '')"
+
+        valid = "json_valid(metadata_json)"
+    coalesce = f"COALESCE({j('domain')}, {j('team')}, {j('tenant')}, 'default')"
+    return f"CASE WHEN {valid} THEN {coalesce} ELSE 'default' END"
+
+
+def _page_params(
+    request: Request, default_limit: int = 200
+) -> tuple[int, int, str | None]:
+    """Parse ``limit``/``offset``/``status`` query params with sane bounds."""
+    params = getattr(request, "query_params", {}) or {}
     try:
-        meta = json.loads(metadata_json)
+        limit = max(1, min(int(params.get("limit", default_limit)), _MAX_PAGE))
     except (TypeError, ValueError):
-        return "default"
-    domain = meta.get("domain") or meta.get("team") or meta.get("tenant")
-    return str(domain) if domain else "default"
-
-
-def _fetch_sessions() -> list[dict[str, Any]]:
-    """Read all durable sessions, tagging each with its derived domain."""
-    db_path = _sessions._get_db_path()
-    if not db_path.exists():
-        return []
-    conn = sqlite3.connect(str(db_path))
+        limit = default_limit
     try:
-        conn.row_factory = sqlite3.Row
+        offset = max(0, int(params.get("offset", 0)))
+    except (TypeError, ValueError):
+        offset = 0
+    status = params.get("status") or None
+    return limit, offset, status
+
+
+def _fetch_sessions(
+    status: str | None = None,
+    domain: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Read a filtered, paginated page of sessions tagged with their domain."""
+    conn = _sessions._connect_db()
+    try:
+        dom = _domain_sql(conn.dialect)
+        where: list[str] = []
+        params: list[Any] = []
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        if domain:
+            where.append(f"{dom} = ?")
+            params.append(domain)
+        sql = f"SELECT *, {dom} AS domain FROM sessions"  # nosec B608 — expr is a dialect constant
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        params += [limit, offset]
         cur = conn.cursor()
-        cur.execute("SELECT * FROM sessions ORDER BY updated_at DESC")
-        out = []
-        for row in cur.fetchall():
-            d = dict(row)
-            d["domain"] = _domain_of(d.get("metadata_json"))
-            out.append(d)
-        return out
+        cur.execute(sql, params)
+        return [dict(row) for row in cur.fetchall()]
     finally:
         conn.close()
 
 
-# Statuses that count as "unhealthy" when computing per-domain error rates.
-_ERROR_STATUSES = {"failed", "error", "cancelled"}
-_ACTIVE_STATUSES = {"active", "running"}
+def _sql_in(values: tuple[str, ...]) -> str:
+    return "(" + ", ".join(f"'{v}'" for v in values) + ")"
+
+
+def _multi_host_state() -> bool:
+    """True when sessions may be owned by other hosts (state externalized)."""
+    from agent_utilities.core.state_store import postgres_state_enabled
+
+    return postgres_state_enabled()
 
 
 async def fleet_health(request: Request) -> JSONResponse:
-    """Aggregate swarm-health: counts + per-domain error rates."""
-    rows = _fetch_sessions()
+    """Aggregate swarm-health: counts + per-domain error rates (SQL aggregates)."""
+    try:
+        _sessions.rehydrate_goals()
+    except Exception:  # noqa: BLE001 — health must answer even if rehydrate fails
+        pass
     by_status: dict[str, int] = {}
     domains: dict[str, dict[str, float]] = {}
-    for s in rows:
-        status = str(s.get("status") or "unknown")
-        by_status[status] = by_status.get(status, 0) + 1
-        dom = domains.setdefault(s["domain"], {"total": 0, "active": 0, "errored": 0})
-        dom["total"] += 1
-        if status in _ACTIVE_STATUSES:
-            dom["active"] += 1
-        if status in _ERROR_STATUSES:
-            dom["errored"] += 1
+    total = 0
+    conn = _sessions._connect_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT status, COUNT(*) FROM sessions GROUP BY status")
+        for row in cur.fetchall():
+            by_status[str(row[0] or "unknown")] = int(row[1])
+        total = sum(by_status.values())
 
-    for dom in domains.values():
-        dom["error_rate"] = (
-            round(dom["errored"] / dom["total"], 4) if dom["total"] else 0.0
+        dom = _domain_sql(conn.dialect)
+        cur.execute(
+            f"""
+            SELECT {dom} AS domain,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN status IN {_sql_in(_ACTIVE_STATUSES)} THEN 1 ELSE 0 END) AS active,
+                   SUM(CASE WHEN status IN {_sql_in(_ERROR_STATUSES)} THEN 1 ELSE 0 END) AS errored
+            FROM sessions GROUP BY 1
+            """  # nosec B608 — all interpolations are module constants
         )
+        for row in cur.fetchall():
+            n_total = int(row[1])
+            errored = int(row[3])
+            domains[str(row[0])] = {
+                "total": n_total,
+                "active": int(row[2]),
+                "errored": errored,
+                "error_rate": round(errored / n_total, 4) if n_total else 0.0,
+            }
+    finally:
+        conn.close()
 
     active_goals = getattr(_sessions, "active_goals", {})
     return JSONResponse(
         {
             "generated_at": time.time(),
-            "sessions": {"total": len(rows), "by_status": by_status},
+            "sessions": {"total": total, "by_status": by_status},
             "goals": {
                 "active": len(getattr(_sessions, "background_goal_runs", {})),
                 "tracked": len(active_goals),
@@ -102,8 +177,13 @@ async def fleet_health(request: Request) -> JSONResponse:
 
 
 async def fleet_topology(request: Request) -> JSONResponse:
-    """Live agent/team topology grouped by enterprise domain."""
-    rows = _fetch_sessions()
+    """Live agent/team topology grouped by enterprise domain (paginated)."""
+    try:
+        _sessions.rehydrate_goals()
+    except Exception:  # noqa: BLE001
+        pass
+    limit, offset, status = _page_params(request)
+    rows = _fetch_sessions(status=status, limit=limit, offset=offset)
     domains: dict[str, dict[str, Any]] = {}
     for s in rows:
         dom = domains.setdefault(s["domain"], {"domain": s["domain"], "sessions": []})
@@ -116,6 +196,17 @@ async def fleet_topology(request: Request) -> JSONResponse:
                 "updated_at": s.get("updated_at"),
             }
         )
+
+    # Totals from SQL aggregates, not the returned page (CONCEPT:OS-5.18).
+    conn = _sessions._connect_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM sessions")
+        row = cur.fetchone()
+        total_sessions = int(row[0]) if row else 0
+    finally:
+        conn.close()
+
     active_goals = getattr(_sessions, "active_goals", {})
     return JSONResponse(
         {
@@ -123,7 +214,8 @@ async def fleet_topology(request: Request) -> JSONResponse:
             "goals": _sessions.make_serializable(list(active_goals.values()))
             if hasattr(_sessions, "make_serializable")
             else [],
-            "totals": {"domains": len(domains), "sessions": len(rows)},
+            "totals": {"domains": len(domains), "sessions": total_sessions},
+            "page": {"limit": limit, "offset": offset, "returned": len(rows)},
         }
     )
 
@@ -144,15 +236,24 @@ def _cancel_session_tasks(session_id: str) -> bool:
                     _sessions, "GoalStatus", type("G", (), {"CANCELLED": "cancelled"})
                 )
                 active[goal_id]["status"] = goal_status.CANCELLED
+                persist = getattr(_sessions, "_persist_goal", None)
+                if callable(persist):
+                    persist(goal_id)
             cancelled = True
     return cancelled
 
 
 async def _set_fleet_status(request: Request, new_status: str) -> JSONResponse:
-    """Shared pause/kill: set the target sessions' status and cancel their tasks.
+    """Shared pause/kill: desired-state writes + local fast-path cancel (OS-5.18).
 
     Body accepts either ``{"session_ids": [...]}`` or ``{"domain": "finance"}``
-    (whole-domain containment).
+    (whole-domain containment). Sessions whose goal loop runs in THIS process
+    are cancelled immediately and set to the final status. With durable state
+    externalized (``state_db_uri``), sessions owned by other hosts instead get
+    ``pause_requested``/``kill_requested``, which the owning host's session
+    loop reconciles (see ``core.sessions._desired_session_action``). Under the
+    single-host SQLite default every session is local, so the final status is
+    applied directly — unchanged behavior.
     """
     try:
         body = await request.json()
@@ -163,7 +264,9 @@ async def _set_fleet_status(request: Request, new_status: str) -> JSONResponse:
     domain = body.get("domain")
     if domain and not target_ids:
         target_ids = [
-            s["id"] for s in _fetch_sessions() if s["domain"] == domain and s.get("id")
+            s["id"]
+            for s in _fetch_sessions(domain=domain, limit=_MAX_PAGE)
+            if s.get("id")
         ]
 
     if not target_ids:
@@ -175,18 +278,25 @@ async def _set_fleet_status(request: Request, new_status: str) -> JSONResponse:
             status_code=400,
         )
 
+    multi_host = _multi_host_state()
+    requested_status = "pause_requested" if new_status == "paused" else "kill_requested"
+
     affected: list[str] = []
-    db_path = _sessions._get_db_path()
-    conn = sqlite3.connect(str(db_path))
+    applied: dict[str, str] = {}
+    conn = _sessions._connect_db()
     try:
         cur = conn.cursor()
         for sid in target_ids:
-            _cancel_session_tasks(sid)
+            local = _cancel_session_tasks(sid)
+            status_to_write = (
+                new_status if (local or not multi_host) else requested_status
+            )
             cur.execute(
                 "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
-                (new_status, time.time(), sid),
+                (status_to_write, time.time(), sid),
             )
             affected.append(sid)
+            applied[sid] = status_to_write
         conn.commit()
     finally:
         conn.close()
@@ -196,6 +306,7 @@ async def _set_fleet_status(request: Request, new_status: str) -> JSONResponse:
             "status": "success",
             "action": new_status,
             "affected": affected,
+            "applied": applied,
             "count": len(affected),
         }
     )
