@@ -133,7 +133,12 @@ def _normalize_uptime_kuma(payload: dict[str, Any]) -> list[FleetEvent]:
     """Uptime Kuma webhook JSON (``heartbeat``/``monitor``) → one event."""
     heartbeat = payload.get("heartbeat") or {}
     monitor = payload.get("monitor") or {}
-    status = _KUMA_STATUS.get(heartbeat.get("status"), "unknown")
+    raw_status = heartbeat.get("status")
+    status = (
+        _KUMA_STATUS.get(raw_status, "unknown")
+        if isinstance(raw_status, int)
+        else "unknown"
+    )
     severity = "critical" if status == "down" else "info"
     subject = monitor.get("name") or monitor.get("url") or "unknown"
     summary = payload.get("msg") or heartbeat.get("msg") or f"monitor {status}"
@@ -179,9 +184,7 @@ def _normalize_generic(
     ]
 
 
-def normalize_payload(
-    payload: Any, source_hint: str | None = None
-) -> list[FleetEvent]:
+def normalize_payload(payload: Any, source_hint: str | None = None) -> list[FleetEvent]:
     """Detect the sender format and normalize to :class:`FleetEvent` records.
 
     Detection is structural: an ``alerts`` list with Alertmanager envelope keys
@@ -273,7 +276,10 @@ async def fleet_events_receive(request: Request) -> JSONResponse:
         offered = request.headers.get("x-fleet-events-token") or ""
         if not hmac.compare_digest(offered, required):
             return JSONResponse(
-                {"status": "error", "message": "invalid or missing X-Fleet-Events-Token"},
+                {
+                    "status": "error",
+                    "message": "invalid or missing X-Fleet-Events-Token",
+                },
                 status_code=401,
             )
 
@@ -340,6 +346,10 @@ async def fleet_events_receive(request: Request) -> JSONResponse:
 
     status_code = 200 if accepted else 500
     return JSONResponse(
-        {"status": "success" if accepted else "error", "accepted": len(accepted), "events": accepted},
+        {
+            "status": "success" if accepted else "error",
+            "accepted": len(accepted),
+            "events": accepted,
+        },
         status_code=status_code,
     )

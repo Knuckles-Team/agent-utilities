@@ -234,9 +234,7 @@ class PromotionGovernanceValidator:
         except Exception as exc:  # noqa: BLE001 — cannot prove conformance ⇒ hold
             return GovernanceCheck("shacl", False, f"validation error: {exc}")
 
-    def _check_regression_gate(
-        self, spec: Any, proposal_id: str
-    ) -> GovernanceCheck:
+    def _check_regression_gate(self, spec: Any, proposal_id: str) -> GovernanceCheck:
         """(b) the latest *recorded* regression-gate verdict must be a pass.
 
         The failure analyzer's gate (``make_regression_check``, AHE-3.18)

@@ -316,7 +316,9 @@ class TradingSwarm:
                 continue
             try:
                 self.calibration.record_call(
-                    s.agent_id, direction=s.direction, confidence=s.confidence,
+                    s.agent_id,
+                    direction=s.direction,
+                    confidence=s.confidence,
                     subject=subject,
                 )
             except Exception as e:  # noqa: BLE001
@@ -336,7 +338,8 @@ class TradingSwarm:
         for agent in self.agents:
             try:
                 if self.calibration.record_outcome(
-                    agent.agent_id, realized_direction=realized_direction,
+                    agent.agent_id,
+                    realized_direction=realized_direction,
                     subject=subject,
                 ):
                     resolved += 1
