@@ -416,6 +416,18 @@ class AgentConfig(BaseSettings):
         default=3600.0, alias="KG_GOLDEN_LOOP_INTERVAL"
     )
     kg_golden_loop_topics: int = Field(default=5, alias="KG_GOLDEN_LOOP_TOPICS")
+    # Failure-driven evolution — opt-in, off by default; pulls failures from
+    # Langfuse into failure-gap topics the golden loop remediates (CONCEPT:AHE-3.18).
+    kg_failure_evolution: bool = Field(default=False, alias="KG_FAILURE_EVOLUTION")
+    kg_failure_evolution_interval: float = Field(
+        default=3600.0, alias="KG_FAILURE_EVOLUTION_INTERVAL"
+    )
+    kg_failure_evolution_window: float = Field(
+        default=86400.0, alias="KG_FAILURE_EVOLUTION_WINDOW"
+    )
+    kg_failure_regression_dataset: bool = Field(
+        default=False, alias="KG_FAILURE_REGRESSION_DATASET"
+    )
     nats_url: str | None = Field(default=None, alias="NATS_URL")
     kafka_bootstrap_servers: str | None = Field(
         default=None, alias="KAFKA_BOOTSTRAP_SERVERS"

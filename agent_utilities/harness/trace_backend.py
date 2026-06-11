@@ -39,6 +39,15 @@ from agent_utilities.core.config import config
 logger = logging.getLogger(__name__)
 
 
+def _first(row: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    """Return the first present, non-None value among ``keys`` (else ``default``)."""
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            return v
+    return default
+
+
 class TraceBackend(ABC):
     """Abstract backend for trace ingestion (database-style abstraction).
 
@@ -91,6 +100,40 @@ class TraceBackend(ABC):
             True if the backend can serve requests.
         """
         return True
+
+    # ── failure-read surface (CONCEPT:AHE-3.18)
+    # Default no-ops so a backend that has no failure feed (OTel/File without
+    # fixtures) degrades gracefully; ``LangfuseTraceBackend`` overrides them.
+    async def get_error_observations(
+        self, *, since: str | None = None, level: str = "ERROR", limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Return error/warning observations since ``since`` (ISO-8601).
+
+        Each record carries at least ``id``, ``traceId``, ``name``,
+        ``level``, ``statusMessage``.
+        """
+        return []
+
+    async def get_low_score_traces(
+        self,
+        *,
+        score_name: str | None = None,
+        max_value: float = 0.5,
+        since: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return scores below ``max_value`` (normalized to trace references)."""
+        return []
+
+    async def get_cost_latency_anomalies(
+        self,
+        *,
+        since: str | None = None,
+        p95_latency_ms: float | None = None,
+        p95_cost_usd: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return per-name cost/latency rollups exceeding the given p95 budgets."""
+        return []
 
 
 class LangfuseTraceBackend(TraceBackend):
@@ -224,6 +267,148 @@ class LangfuseTraceBackend(TraceBackend):
             summary = await self.get_trace_summary(tid)
             scores[tid] = summary.get("score", 0.0)
         return scores
+
+    # ── failure-read surface (CONCEPT:AHE-3.18)
+    async def get_error_observations(
+        self, *, since: str | None = None, level: str = "ERROR", limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Pull ERROR/WARNING observations from Langfuse since ``since``."""
+        api = self._get_api()
+        try:
+            resp = api.observations_get_many(
+                level=level,
+                from_start_time=since,
+                fields="core,basic,io,metrics",
+                limit=limit,
+            )
+            return resp.get("data", []) or []
+        except Exception as e:  # noqa: BLE001
+            logger.error("LangfuseTraceBackend: get_error_observations failed: %s", e)
+            return []
+
+    async def get_low_score_traces(
+        self,
+        *,
+        score_name: str | None = None,
+        max_value: float = 0.5,
+        since: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Pull scores below ``max_value`` and normalize to trace references."""
+        api = self._get_api()
+        try:
+            resp = api.scores_get_many(
+                operator="<",
+                value=max_value,
+                name=score_name,
+                from_timestamp=since,
+                limit=limit,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error("LangfuseTraceBackend: get_low_score_traces failed: %s", e)
+            return []
+        out: list[dict[str, Any]] = []
+        for s in resp.get("data", []) or []:
+            out.append(
+                {
+                    "trace_id": s.get("traceId"),
+                    "observation_id": s.get("observationId"),
+                    "name": s.get("name"),
+                    "value": s.get("value"),
+                    "comment": s.get("comment"),
+                }
+            )
+        return out
+
+    async def get_cost_latency_anomalies(
+        self,
+        *,
+        since: str | None = None,
+        p95_latency_ms: float | None = None,
+        p95_cost_usd: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Aggregate per-name p95 latency + cost via the v2 metrics API.
+
+        Returns one normalized row per observation ``name`` whose p95 latency or
+        total cost exceeds the supplied budget. When no budget is supplied the
+        row is still returned (caller decides) — anomaly classification lives in
+        the analyzer, this method only shapes the metrics response.
+        """
+        import json
+
+        api = self._get_api()
+        query: dict[str, Any] = {
+            "view": "observations",
+            "dimensions": [{"field": "name"}],
+            "metrics": [
+                {"measure": "latency", "aggregation": "p95"},
+                {"measure": "totalCost", "aggregation": "sum"},
+                {"measure": "totalTokens", "aggregation": "sum"},
+                {"measure": "count", "aggregation": "count"},
+            ],
+            "filters": [],
+            "fromTimestamp": since,
+            "toTimestamp": None,
+        }
+        try:
+            resp = api.metrics_metrics(json.dumps(query))
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                "LangfuseTraceBackend: get_cost_latency_anomalies failed: %s", e
+            )
+            return []
+        out: list[dict[str, Any]] = []
+        for row in resp.get("data", []) or []:
+            # Langfuse keys aggregated measures as ``{aggregation}_{measure}``;
+            # fall back to the bare measure name across API versions.
+            lat = _first(row, "p95_latency", "latency", default=0.0)
+            cost = _first(row, "sum_totalCost", "totalCost", default=0.0)
+            tokens = _first(row, "sum_totalTokens", "totalTokens", default=0)
+            count = _first(row, "count_count", "count", default=0)
+            row_out = {
+                "name": row.get("name") or "unknown",
+                "p95_latency_ms": float(lat or 0.0),
+                "total_cost_usd": float(cost or 0.0),
+                "total_tokens": int(tokens or 0),
+                "count": int(count or 0),
+            }
+            over_latency = (
+                p95_latency_ms is not None
+                and row_out["p95_latency_ms"] > p95_latency_ms
+            )
+            over_cost = (
+                p95_cost_usd is not None and row_out["total_cost_usd"] > p95_cost_usd
+            )
+            if (
+                over_latency
+                or over_cost
+                or (p95_latency_ms is None and p95_cost_usd is None)
+            ):
+                row_out["over_latency"] = over_latency
+                row_out["over_cost"] = over_cost
+                out.append(row_out)
+        return out
+
+    # ── dataset-based regression (CONCEPT:AHE-3.18, Phase 4)
+    async def create_regression_dataset(self, name: str, description: str = "") -> bool:
+        """Create (idempotent) a Langfuse dataset used for remediation regression."""
+        api = self._get_api()
+        try:
+            api.datasets_create({"name": name, "description": description})
+            return True
+        except Exception as e:  # noqa: BLE001
+            # Already-exists is benign — the dataset is reused.
+            logger.debug("create_regression_dataset(%s) note: %s", name, e)
+            return False
+
+    async def get_dataset_run(self, dataset_name: str, run_name: str) -> dict[str, Any]:
+        """Fetch a completed dataset run (for post-merge regression comparison)."""
+        api = self._get_api()
+        try:
+            return api.datasets_get_run(dataset_name, run_name) or {}
+        except Exception as e:  # noqa: BLE001
+            logger.error("get_dataset_run(%s/%s) failed: %s", dataset_name, run_name, e)
+            return {}
 
     async def health_check(self) -> bool:
         """Check Langfuse API availability."""
@@ -454,6 +639,50 @@ class FileTraceBackend(TraceBackend):
             summary = await self.get_trace_summary(tid)
             scores[tid] = summary.get("score", 0.0)
         return scores
+
+    # ── failure-read surface from JSON fixtures (CONCEPT:AHE-3.18)
+    def _read_fixture(self, name: str) -> list[dict[str, Any]]:
+        import json
+
+        path = os.path.join(self.trace_dir, name)
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("FileTraceBackend: failed to read %s: %s", path, e)
+            return []
+        if isinstance(data, dict):
+            data = data.get("data", [])
+        return data if isinstance(data, list) else []
+
+    async def get_error_observations(
+        self, *, since: str | None = None, level: str = "ERROR", limit: int = 100
+    ) -> list[dict[str, Any]]:
+        return self._read_fixture("error_observations.json")[:limit]
+
+    async def get_low_score_traces(
+        self,
+        *,
+        score_name: str | None = None,
+        max_value: float = 0.5,
+        since: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        rows = self._read_fixture("low_scores.json")
+        return [r for r in rows if (r.get("value") is None or r["value"] < max_value)][
+            :limit
+        ]
+
+    async def get_cost_latency_anomalies(
+        self,
+        *,
+        since: str | None = None,
+        p95_latency_ms: float | None = None,
+        p95_cost_usd: float | None = None,
+    ) -> list[dict[str, Any]]:
+        return self._read_fixture("cost_latency_anomalies.json")
 
 
 def create_trace_backend(
