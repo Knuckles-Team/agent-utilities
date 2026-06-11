@@ -34,6 +34,8 @@ enforces that flags are declared on `AgentConfig` (`core/config.py`), not read w
 | `KG_DAEMON_ROLE` | `auto` | host/client/auto election (topology) |
 | `STATE_DB_URI` | none | Externalize ALL durable state (durable-exec checkpoints, sessions/turns/goals, KG task queue) to a shared Postgres; unset keeps the zero-infra per-host SQLite files (CONCEPT:OS-5.16) |
 | `STATE_DB_POOL_SIZE` | `8` | Max connections in the ONE shared state-store psycopg pool (CONCEPT:OS-5.16) |
+| `TASK_QUEUE_BACKEND` | none (auto) | Ingest task queue: `sqlite`\|`postgres`\|`kafka`. Unset = auto (postgres when `STATE_DB_URI` set, else sqlite). Explicit kafka/postgres is FAIL-LOUD at startup; replaces the deprecated `QUEUE_BACKEND` alias (CONCEPT:KG-2.55) |
+| `KG_TASKS_PARTITIONS` | `6` | Partitions ensured on the `kg_tasks` topic at startup (grow-only, never shrinks); bounds kg-ingest consumer-group parallelism (CONCEPT:KG-2.56) |
 | `EPISTEMIC_GRAPH_AUTOSTART` | — | Auto-spawn the engine |
 | `GRAPH_SERVICE_AUTH_SECRET` | auto-generated | Engine HMAC secret; unset → per-install secret persisted at `data_dir()/engine_secret` (0600) (CONCEPT:OS-5.14) |
 | `KG_ENGINE_INSECURE` | `false` | Dev opt-out of engine HMAC auth; sets `EPISTEMIC_GRAPH_ALLOW_INSECURE=1` on spawned engines (CONCEPT:OS-5.14) |

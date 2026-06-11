@@ -239,6 +239,9 @@ graph-os-daemon = "agent_utilities.gateway.daemon:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
 mcp-multiplexer = "agent_utilities.mcp.multiplexer:mcp_server"
 agent-utilities = "agent_utilities.cli:main"
+# CONCEPT:KG-2.57 — decoupled kg-ingest consumer-group worker (engine client, no
+# KG host role); also `python -m agent_utilities.knowledge_graph.ingest_worker`.
+kg-ingest-worker = "agent_utilities.knowledge_graph.ingest_worker:main"
 
 [project.entry-points."agent_utilities.messaging"]
 discord = "agent_utilities.messaging.backends.discord:DiscordBackend"

@@ -11,6 +11,10 @@
 # Environment:
 #   KAFKA_CLUSTER_ID: Unique cluster ID (auto-generated if not set)
 #   KAFKA_LISTENERS: Override listener configuration
+#   KG_TASKS_PARTITIONS: Partition count for the kg_tasks ingest queue topic
+#     (default 6). Must match the app flag of the same name; partitions bound
+#     the kg-ingest consumer group's max parallelism (CONCEPT:KG-2.56). The
+#     app's startup ensure-topic also grows (never shrinks) this topic.
 #
 # Standard Topics (auto-created):
 #   kg.mutations  — Graph CRUD events (7d retention, compacted)
@@ -18,6 +22,9 @@
 #   kg.staging    — Staged graph payloads (1d retention)
 #   kg.telemetry  — Agent telemetry (1d retention)
 #   kg.evolution  — Self-improvement events (7d retention, compacted)
+#   kg_tasks      — Durable ingest task queue, KEYED partitions
+#                   (tenant → repo/corpus → task type; CONCEPT:KG-2.55/2.56)
+#   kg_staging    — Durable staged-graph queue twin of kg_tasks
 
 services:
   kafka:
@@ -126,6 +133,26 @@ services:
           --replication-factor 1 \
           --config cleanup.policy=compact,delete \
           --config retention.ms=604800000 \
+          --if-not-exists
+
+        # kg_tasks — durable ingest task queue (CONCEPT:KG-2.55/2.56).
+        # KEYED partitions (tenant → repo/corpus → task type) consumed by the
+        # kg-ingest group; partition count is deploy-tunable and grow-only.
+        /opt/kafka/bin/kafka-topics.sh --create \
+          --bootstrap-server kafka:9092 \
+          --topic kg_tasks \
+          --partitions ${KG_TASKS_PARTITIONS:-6} \
+          --replication-factor 1 \
+          --config retention.ms=259200000 \
+          --if-not-exists
+
+        # kg_staging — durable staged-graph payload queue (1d retention)
+        /opt/kafka/bin/kafka-topics.sh --create \
+          --bootstrap-server kafka:9092 \
+          --topic kg_staging \
+          --partitions 1 \
+          --replication-factor 1 \
+          --config retention.ms=86400000 \
           --if-not-exists
 
         echo "All topics created successfully."

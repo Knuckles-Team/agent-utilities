@@ -158,3 +158,93 @@ docker exec agent-utilities-kafka \
 [project.optional-dependencies]
 event-kafka = ["confluent-kafka>=2.0"]
 ```
+
+## Ingest Task Queue Scale-Out (CONCEPT:KG-2.55 / KG-2.56 / KG-2.57)
+
+Separate from the pub/sub event backbone above, the **durable ingest task
+queue** (the queue `submit_task` writes and the ingest workers drain) is
+selectable, fail-loud, and — with Kafka — horizontally scalable.
+
+### Three queue modes
+
+| Mode | Selected by | Scope | Workers |
+|------|-------------|-------|---------|
+| `sqlite` | default (nothing set) | one host (per-host `kg_task_queue.db`) | in-process daemon threads on the flock host |
+| `postgres` | auto when `STATE_DB_URI` is set, or `TASK_QUEUE_BACKEND=postgres` | fleet (one shared queue, `FOR UPDATE SKIP LOCKED` claims — KG-2.54) | in-process threads on every participating host |
+| `kafka` | `TASK_QUEUE_BACKEND=kafka` | fleet (keyed `kg_tasks` topic) | the `kg-ingest` consumer group: the host engine's pool **plus** any number of decoupled `kg-ingest-worker` processes |
+
+Selection contract (KG-2.55):
+
+- `TASK_QUEUE_BACKEND` unset → **auto**: `postgres` when `STATE_DB_URI` is
+  set, else `sqlite`. Auto stays graceful — an unreachable Postgres degrades
+  to the per-host SQLite queue with a warning.
+- `TASK_QUEUE_BACKEND=kafka|postgres` set **explicitly** → fail-loud: an
+  unreachable broker/state store raises `TaskQueueUnavailable` at startup
+  with the endpoint and fall-back instructions. Never a silent degrade.
+- The old `QUEUE_BACKEND` env is a **deprecated alias**: honored with a
+  `DeprecationWarning` and the legacy silent-fallback semantics.
+
+### Partition-key hierarchy (KG-2.56)
+
+Producers key every `kg_tasks` message; Kafka guarantees ordering per key
+without serializing unrelated work. First match wins:
+
+1. `tenant:<id>` — ambient `ActorContext.tenant_id` (multi-tenant ordering);
+2. `corpus:<repo>` — the ingest target's repo/corpus identifier (batch-ingest
+   provenance `full_path`, else the path-derived repo root) — per-repo
+   ordering for codebase fan-out;
+3. `type:<task_type>` — coarsest bucket for everything else.
+
+`kg_tasks` is ensured idempotently at startup with `KG_TASKS_PARTITIONS`
+partitions (default 6). **Grow-only**: raising the flag adds partitions; an
+existing topic is never shrunk. Partition count bounds the consumer group's
+maximum parallelism.
+
+### Ordering & idempotency guarantees (KG-2.57)
+
+- **At-least-once delivery.** Offsets are committed only after a task
+  completes (or is durably marked failed); worker crashes redeliver.
+- **Idempotent claims.** `job_id` is the idempotency key: a consumer claims by
+  MERGE-ing the `:Task` node to `running` (skipping jobs already
+  running/completed/failed/cancelled), guarded cross-host by the KG-2.54
+  `state_claim_guard` advisory lock when `STATE_DB_URI` is set. Graph writes
+  are MERGE-based, so rare duplicate executions converge.
+- **Per-key ordering only.** There is no global order and no cross-partition
+  priority lane (the graph-polling modes' `priority=high` fast path does not
+  apply in Kafka mode).
+- **Zombie recovery.** Uncommitted offsets redeliver automatically; the task
+  reaper additionally re-publishes reaped orphans to the topic (in Kafka mode
+  nothing polls `pending` nodes).
+
+### Worker deployment shape
+
+```bash
+# Host engine (unchanged): in Kafka mode its worker pool simply joins kg-ingest.
+TASK_QUEUE_BACKEND=kafka KAFKA_BOOTSTRAP_SERVERS=kafka:9092 graph-os-daemon
+
+# Scale out: N decoupled workers, any host, NO KG host role required.
+# Each is an engine *client* (Rust daemon over TCP/UDS + OS-5.14 HMAC secret).
+GRAPH_SERVICE_TCP_ADDR=engine-host:9100 \
+GRAPH_SERVICE_AUTH_SECRET=... \
+KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
+kg-ingest-worker            # or: python -m agent_utilities.knowledge_graph.ingest_worker
+```
+
+Per-host concurrency autosizes with the shared CPU/memory sizer
+(`compute_ingest_worker_count`: ~36% of cores, ~3 GB RAM per worker, floor 2);
+override with `--workers` / `KG_INGESTION_WORKERS`.
+
+### Backpressure & lag visibility
+
+The leader host's maintenance scheduler samples the queue every pass and
+publishes to the OS-5.23 gateway Prometheus registry:
+
+- `agent_utilities_kg_ingest_queue_depth{backend}` — pending tasks in the
+  selected backend (uniform across sqlite/postgres/kafka);
+- `agent_utilities_kg_ingest_consumer_lag{topic,group}` — total `kg-ingest`
+  group lag on `kg_tasks` (Kafka mode).
+
+The batch orchestrator's deferral and the maintenance bulk-defer gate read the
+same uniform number via `engine.ingest_queue_depth()` (queue backlog + in-graph
+pending/running `:Task` nodes), so backpressure behaves identically in all
+three modes.

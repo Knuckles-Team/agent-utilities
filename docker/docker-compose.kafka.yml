@@ -1,3 +1,10 @@
+# Minimal single-broker Kafka (KRaft) for the KG ingest queue.
+#
+# Topics are NOT pre-created here: the application's idempotent ensure-topic
+# (TASK_QUEUE_BACKEND=kafka, CONCEPT:KG-2.55/2.56) creates kg_tasks with
+# KG_TASKS_PARTITIONS partitions (grow-only) and kg_staging at startup.
+# For the fully provisioned stack (retention policies, kg.* event topics,
+# tunable partitions) use docker/kafka-kraft.compose.yml instead.
 services:
   kafka:
     image: confluentinc/cp-kafka:7.4.0

@@ -8,6 +8,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Kafka ingest scale-out (Tranche 3, CONCEPT:KG-2.55/KG-2.56/KG-2.57)** — the durable
+  ingest task queue becomes a production-grade, fail-loud, horizontally scalable system:
+  - **Fail-loud queue selection (KG-2.55)**: new `TASK_QUEUE_BACKEND` flag
+    (`sqlite|postgres|kafka`, default auto = postgres when `STATE_DB_URI` is set else
+    sqlite, mirroring OS-5.16). Explicit `kafka`/`postgres` raise `TaskQueueUnavailable`
+    at startup with the endpoint + fall-back instructions — never a silent SQLite
+    degrade. The old `QUEUE_BACKEND` env is a deprecation-shimmed alias keeping its
+    legacy graceful semantics. One construction path (`create_task_queue`) now serves
+    the engine and the `--stage-to-queue` CLI.
+  - **Keyed partitions (KG-2.56)**: `kg_tasks` messages are produced with a partition
+    key — tenant id (ambient `ActorContext`) → repo/corpus identifier (batch-ingest
+    provenance `full_path`, else path-derived root) → task type — giving per-tenant /
+    per-repo ordering without global serialization. Idempotent ensure-topic at startup
+    creates/grows `kg_tasks` to `KG_TASKS_PARTITIONS` (default 6, grow-only). The
+    backend was rewritten onto `confluent_kafka` (already a core dep; the old code
+    imported the undeclared `kafka-python`).
+  - **Decoupled `kg-ingest` consumer group (KG-2.57)**: new
+    `kg-ingest-worker` console script / `python -m
+    agent_utilities.knowledge_graph.ingest_worker` runs ingest workers as engine
+    *clients* (Rust daemon over UDS/TCP + OS-5.14 HMAC secret, `KG_DAEMON_ROLE=client`,
+    no host flock). In Kafka mode the host engine's pool joins the same group, so
+    partitions spread across the host AND any number of external workers; processing
+    reuses the extracted `_execute_claimed_task` worker body (not duplicated) and the
+    shared CPU/memory autosizer (`compute_ingest_worker_count`). At-least-once delivery
+    with idempotent `job_id`-keyed claims (status-checked MERGE, cross-host
+    `state_claim_guard`); the task reaper re-publishes reaped orphans in Kafka mode.
+    In-process workers remain the default when Kafka isn't selected (zero-infra
+    preserved).
+  - **Backpressure + lag visibility**: `agent_utilities_kg_ingest_queue_depth{backend}`
+    and `agent_utilities_kg_ingest_consumer_lag{topic,group}` gauges on the OS-5.23
+    gateway metrics registry, sampled by the maintenance scheduler; the batch
+    orchestrator's deferral now reads the uniform `engine.ingest_queue_depth()`
+    (queue backlog + pending/running `:Task` nodes) across all backends.
+  - Compose: `docker/kafka-kraft.compose.yml` provisions `kg_tasks`
+    (`${KG_TASKS_PARTITIONS:-6}`) + `kg_staging`; docs: new "Ingest Task Queue
+    Scale-Out" section in `docs/architecture/event_backbone_architecture.md`.
 - **Gateway middle-tier hardening (CONCEPT:OS-5.23)** — Python-tier observability and
   backpressure for the API gateway (Tranche 2):
   - **Prometheus metrics** (`observability/gateway_metrics.py`): pure-ASGI middleware +

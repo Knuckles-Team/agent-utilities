@@ -470,6 +470,20 @@ class AgentConfig(BaseSettings):
     graph_backend_l2: str | None = Field(default=None, alias="GRAPH_BACKEND_L2")
     graph_db_uri: str | None = Field(default=None, alias="GRAPH_DB_URI")
     queue_backend: str = Field(default="sqlite", alias="QUEUE_BACKEND")
+    """DEPRECATED alias for :attr:`task_queue_backend` — honored only when the
+    new flag is unset, with a deprecation warning. Will be removed."""
+    # Ingest task-queue selection (CONCEPT:KG-2.55): which durable queue carries
+    # KG ingest tasks. Unset (default) = auto: ``postgres`` when ``state_db_uri``
+    # is set, else the zero-infra per-host ``sqlite`` file — mirroring the
+    # state-externalization convention. An EXPLICIT value is a hard contract:
+    # ``kafka``/``postgres`` raise at startup when unreachable (never a silent
+    # SQLite degrade). Values: sqlite | postgres | kafka.
+    task_queue_backend: str | None = Field(default=None, alias="TASK_QUEUE_BACKEND")
+    # Partition count ensured on the ``kg_tasks`` topic at startup when the
+    # kafka task queue is selected (CONCEPT:KG-2.56). Grow-only: raising it adds
+    # partitions idempotently; an existing topic is NEVER shrunk. Bounds the
+    # max parallelism of the ``kg-ingest`` consumer group.
+    kg_tasks_partitions: int = Field(default=6, alias="KG_TASKS_PARTITIONS")
     # Durable-state externalization (CONCEPT:OS-5.16): ONE flag selects where the
     # platform's durable state lives — durable-execution checkpoints, sessions/
     # turns/goals, and the KG task queue. Unset (default) keeps the zero-infra
