@@ -90,7 +90,10 @@ class GraphComputeEngine:
         # can key state by tenant graph. (CONCEPT:KG-2.8)
         self.graph_name = graph_name
         self.graph: dict[str, Any] = {}
-        self._client: SyncEpistemicGraphClient
+        # SyncEpistemicGraphClient wrapped in a BreakerClientProxy
+        # — attribute-transparent; raw client at
+        # ``self._client.__wrapped__``. (CONCEPT:OS-5.23)
+        self._client: Any
         self._mode: str = "service"
 
         config = AgentConfig()
@@ -126,9 +129,24 @@ class GraphComputeEngine:
         else:
             connect_kwargs["socket_path"] = endpoint
 
+        # Circuit breaker — ONE shared breaker per endpoint (CONCEPT:OS-5.23).
+        # When the engine is down, N consecutive connect/timeout failures open
+        # the circuit and every caller fails fast with the typed
+        # EngineCircuitOpenError (a ConnectionError) instead of hammering a
+        # dead socket; a half-open probe after the cooldown heals it.
+        from agent_utilities.knowledge_graph.core.engine_breaker import (
+            get_breaker,
+            wrap_client_with_breaker,
+        )
+
+        breaker = get_breaker(endpoint)
+        breaker.before_call()  # fast-fail BEFORE attempting a connect when open
+
         try:
             self._client = SyncEpistemicGraphClient.connect(**connect_kwargs)
         except Exception as initial_e:
+            if isinstance(initial_e, OSError | EOFError):
+                breaker.record_failure()
             if os.environ.get("EPISTEMIC_GRAPH_AUTOSTART") == "1":
                 logger.info(
                     "epistemic-graph Tokio service not running. Attempting to auto-start daemon..."
@@ -186,6 +204,8 @@ class GraphComputeEngine:
                     time.sleep(1.0)
                     self._client = SyncEpistemicGraphClient.connect(**connect_kwargs)
                 except Exception as retry_e:
+                    if isinstance(retry_e, OSError | EOFError):
+                        breaker.record_failure()
                     raise ConnectionError(
                         f"Cannot connect to epistemic-graph Tokio service after auto-start: {retry_e}. "
                         "Ensure the epistemic-graph-server daemon is running."
@@ -195,6 +215,12 @@ class GraphComputeEngine:
                     f"Cannot connect to epistemic-graph Tokio service: {initial_e}. "
                     "Ensure the epistemic-graph-server daemon is running, or set EPISTEMIC_GRAPH_AUTOSTART=1."
                 ) from initial_e
+
+        # Connected: close/reset the breaker and guard every subsequent call
+        # with it. The proxy is attribute-transparent, and the raw client
+        # stays reachable via ``self._client.__wrapped__``. (CONCEPT:OS-5.23)
+        breaker.record_success()
+        self._client = wrap_client_with_breaker(self._client, breaker)
 
         logger.info(
             "Connected to epistemic-graph Tokio service (graph: %s, endpoint: %s).",
@@ -482,7 +508,11 @@ class GraphComputeEngine:
 
     def vf2_subgraph_match(self, pattern: "GraphComputeEngine") -> list[dict[str, str]]:
         """Find all subgraph isomorphism matches from pattern to target graph."""
-        return self._client.graph.vf2_subgraph_match(pattern._client)
+        from agent_utilities.knowledge_graph.core.engine_breaker import unwrap_client
+
+        # The wire call needs the RAW client of the pattern engine, not its
+        # breaker proxy (CONCEPT:OS-5.23).
+        return self._client.graph.vf2_subgraph_match(unwrap_client(pattern._client))
 
     # ── Ledger Operations ────────────────────────────────────────────────
 

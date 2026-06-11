@@ -79,6 +79,7 @@ nav:
       - Graph-Native Assimilation Engine: architecture/assimilation_engine.md
       - Knowledge Distillation → Skill-Graphs: architecture/knowledge_distillation_skill_graphs.md
       - Failure-Driven Evolution: architecture/failure_driven_evolution.md
+      - Scaling the Gateway: architecture/gateway_scaling.md
   - Concept Registry:
       - Canonical Concept Map: concept_map.md
       - Concept Overview: overview.md

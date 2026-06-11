@@ -360,6 +360,11 @@ class ConfigManager:
         return layout
 
     def get_all_services(self) -> list[ServiceConfig]:
-        """Flatten all services from the current layout."""
-        layout = self._layout or self.load()
-        return [svc for group in layout.groups for svc in group.services]
+        """Flatten all services from the current layout.
+
+        Always re-loads from disk (CONCEPT:OS-5.23): the YAML file is the
+        shared source of truth, so a ``save()`` from another gateway
+        worker/replica is picked up on the next fetch instead of serving a
+        stale in-memory copy forever.
+        """
+        return [svc for group in self.load().groups for svc in group.services]

@@ -51,11 +51,19 @@ def clean_graph_globals(monkeypatch, tmp_path):
     set_active_backend(None)
     IntelligenceGraphEngine.set_active(None)
 
+    # Engine circuit breakers are shared per-endpoint process-wide
+    # (CONCEPT:OS-5.23); reset between tests so a deliberate connect failure
+    # in one test never leaves the circuit open for the next.
+    from agent_utilities.knowledge_graph.core import engine_breaker
+
+    engine_breaker.reset_breakers()
+
     monkeypatch.setenv("GRAPH_DB_PATH", str(tmp_path / "test_knowledge_graph.db"))
 
     yield
     set_active_backend(None)
     IntelligenceGraphEngine.set_active(None)
+    engine_breaker.reset_breakers()
 
 
 @pytest.fixture(autouse=True, scope="session")

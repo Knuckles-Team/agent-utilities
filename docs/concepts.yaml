@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 157
+total_concepts: 158
 total_pillars: 18
 pillars:
 - AHE-3
@@ -2141,6 +2141,22 @@ concepts:
   - agent_utilities/knowledge_graph/adaptation/fleet_event_triage.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: Fleet Event Ingress
+- id: OS-5.23
+  name: Gateway Middle-Tier Hardening
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/gateway/api.py
+  - agent_utilities/gateway/config.py
+  - agent_utilities/gateway/graph_api.py
+  - agent_utilities/gateway/rate_limit.py
+  - agent_utilities/knowledge_graph/core/engine_breaker.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/observability/gateway_metrics.py
+  - agent_utilities/security/request_identity.py
+  - agent_utilities/server/__init__.py
+  doc: Gateway Middle-Tier Hardening
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
