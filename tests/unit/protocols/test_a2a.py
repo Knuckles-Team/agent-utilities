@@ -50,7 +50,7 @@ def test_a2a_client_fetch_card_sync_success():
         def get(self, url):
             return fake_resp
 
-    with patch("agent_utilities.protocols.a2a.httpx.Client", _HttpxSync):
+    with patch("agent_utilities.core.http_client.httpx.Client", _HttpxSync):
         card = client.fetch_card_sync("http://agent")
     assert card == {"name": "alpha"}
 
@@ -74,7 +74,7 @@ def test_a2a_client_fetch_card_sync_failure():
         def get(self, url):
             raise RuntimeError("conn error")
 
-    with patch("agent_utilities.protocols.a2a.httpx.Client", _HttpxSync):
+    with patch("agent_utilities.core.http_client.httpx.Client", _HttpxSync):
         assert client.fetch_card_sync("http://x") is None
 
 
@@ -100,7 +100,7 @@ def test_a2a_client_fetch_card_sync_non_200():
         def get(self, url):
             return fake_resp
 
-    with patch("agent_utilities.protocols.a2a.httpx.Client", _HttpxSync):
+    with patch("agent_utilities.core.http_client.httpx.Client", _HttpxSync):
         assert client.fetch_card_sync("http://x") is None
 
 
@@ -128,7 +128,7 @@ async def test_a2a_client_fetch_card_async_success():
         async def get(self, url):
             return fake_resp
 
-    with patch("agent_utilities.protocols.a2a.httpx.AsyncClient", _HttpxAsync):
+    with patch("agent_utilities.core.http_client.httpx.AsyncClient", _HttpxAsync):
         card = await client.fetch_card("http://x")
     assert card == {"name": "a"}
 
@@ -153,7 +153,7 @@ async def test_a2a_client_fetch_card_async_exception():
         async def get(self, url):
             raise RuntimeError("bad")
 
-    with patch("agent_utilities.protocols.a2a.httpx.AsyncClient", _HttpxAsync):
+    with patch("agent_utilities.core.http_client.httpx.AsyncClient", _HttpxAsync):
         assert await client.fetch_card("http://x") is None
 
 
