@@ -29,6 +29,8 @@ class BackgroundThrottle:
         self._sem = threading.BoundedSemaphore(max(1, max_concurrent))
         self._foreground = threading.Event()  # set => pause background
         self._fg_depth = 0
+        self._ingest = threading.Event()  # set => a bulk ingest is in flight
+        self._ingest_depth = 0
         self._lock = threading.Lock()
         self.max_concurrent = max(1, max_concurrent)
 
@@ -56,6 +58,64 @@ class BackgroundThrottle:
             yield
         finally:
             self.set_foreground(False)
+
+    # ── bulk-ingest signalling ───────────────────────────────────────────
+    # A bulk codebase ingest is a single in-flight task, so the durable
+    # submission-queue depth drops to 0 the moment it is claimed — the
+    # queue-depth defer that maintenance uses then stops firing even though the
+    # ingest is hammering the single-writer engine. This explicit gate is held
+    # for the WHOLE ingest task lifecycle so every background drain yields to it,
+    # independent of queue depth or the (interactive) foreground flag.
+    def set_bulk_ingest(self, active: bool) -> None:
+        """Mark a bulk ingest in flight (reentrant via depth counter)."""
+        with self._lock:
+            if active:
+                self._ingest_depth += 1
+                self._ingest.set()
+            else:
+                self._ingest_depth = max(0, self._ingest_depth - 1)
+                if self._ingest_depth == 0:
+                    self._ingest.clear()
+
+    @property
+    def bulk_ingest_active(self) -> bool:
+        return self._ingest.is_set()
+
+    @contextlib.contextmanager
+    def bulk_ingest(self):
+        """Context manager: a bulk ingest is active for its duration."""
+        self.set_bulk_ingest(True)
+        try:
+            yield
+        finally:
+            self.set_bulk_ingest(False)
+
+    @property
+    def should_yield_background(self) -> bool:
+        """True when background work should stand down — interactive foreground
+        work OR a bulk ingest is in flight. The single check every background
+        drain (maintenance, embedding backfill, relevance sweep) consults."""
+        return self._foreground.is_set() or self._ingest.is_set()
+
+    def wait_while_busy(
+        self, poll: float = 0.5, max_wait: float | None = 120.0
+    ) -> bool:
+        """Cooperatively pause the CALLER while foreground/ingest is active.
+
+        For use BETWEEN chunks of a long background batch so it yields mid-work
+        instead of only at the top of its loop. Returns True if it returned
+        because the gate cleared, False if it gave up after ``max_wait`` (so a
+        permanently-busy foreground can never starve background work forever).
+        """
+        if not self.should_yield_background:
+            return True
+        waited = 0.0
+        while self.should_yield_background:
+            if max_wait is not None and waited >= max_wait:
+                return False
+            time.sleep(poll)
+            waited += poll
+        return True
 
     # ── background slot acquisition ──────────────────────────────────────
     @contextlib.contextmanager
@@ -108,3 +168,7 @@ def get_throttle() -> BackgroundThrottle:
 
 def set_foreground(active: bool) -> None:
     get_throttle().set_foreground(active)
+
+
+def set_bulk_ingest(active: bool) -> None:
+    get_throttle().set_bulk_ingest(active)

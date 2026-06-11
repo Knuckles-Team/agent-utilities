@@ -861,15 +861,17 @@ class IngestionEngine:
             changed_files = _changed_source_files(source_path, prior_sha)
 
         # Structural ingest of a whole repo is the heaviest single KG task (parse +
-        # community + thousands of writes). Run it under the foreground gate so the
-        # background daemons sharing this process + the engine (embedding-backfill,
-        # reconcile_durable, evolution, hygiene) YIELD instead of contending for the
-        # engine/GIL — that contention, not the algorithms, stretched a ~60s ingest
-        # to ~500s. (CONCEPT:KG-2.7)
+        # community + thousands of writes). Hold the BULK-INGEST gate for its whole
+        # run so every background drain (embedding-backfill, reconcile_durable,
+        # relevance-sweep, evolution, hygiene) yields instead of contending for the
+        # single-writer engine. The bulk-ingest gate (not just the interactive
+        # foreground flag, and not the submission-queue depth which drops to 0 the
+        # moment this task is claimed) is what keeps a post-restart background
+        # backlog from stretching a ~60s ingest into many minutes. (CONCEPT:KG-2.7)
         from agent_utilities.core.background_throttle import get_throttle
 
         try:
-            with get_throttle().foreground():
+            with get_throttle().bulk_ingest(), get_throttle().foreground():
                 if changed_files is not None:
                     logger.info(
                         "[KG-2.8] git-delta ingest: %d changed source file(s) since %s",
