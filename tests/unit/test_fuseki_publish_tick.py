@@ -107,7 +107,10 @@ class TestPublishInvocation:
     def test_tick_routes_config_endpoint_to_publisher(self, monkeypatch):
         pytest.importorskip("rdflib")
         from agent_utilities.core.config import config as cfg
-        from agent_utilities.knowledge_graph.core import engine_tasks, ontology_publisher
+        from agent_utilities.knowledge_graph.core import (
+            engine_tasks,
+            ontology_publisher,
+        )
         from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
         monkeypatch.setattr(cfg, "kg_fuseki_endpoint", "http://fuseki.cfg:3030")

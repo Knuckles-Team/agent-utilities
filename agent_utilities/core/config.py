@@ -532,12 +532,64 @@ class AgentConfig(BaseSettings):
     # LLM-free, and refuses malformed definitions before they burn agent runs.
     kg_workflow_shape_gate: bool = Field(default=True, alias="KG_WORKFLOW_SHAPE_GATE")
 
+    # --- Autonomy control plane (CONCEPT:OS-5.24 — OS-5.27) ---
+
+    action_policy_path: str = Field(default="", alias="ACTION_POLICY_PATH")
+    """Path to the operational ActionPolicy YAML (CONCEPT:OS-5.24). Empty
+    (default) resolves to the shipped conservative policy
+    (``deploy/action-policy.default.yml`` in a repo checkout, else the
+    identical embedded default): every mutating action is approval_required,
+    only no-op/diagnostic kinds run automatically. KG ``governance_rule``
+    overrides (scope ``action_policy``) win over file rules either way."""
+
+    fleet_reconciler: bool = Field(default=False, alias="FLEET_RECONCILER")
+    """Opt-in desired-state fleet reconciler tick (CONCEPT:OS-5.25). Diffs the
+    fleet registry (+ optional desired-state override file) against the
+    observed fleet and proposes convergence actions through the ActionPolicy
+    decision point. Default False until a deployment wires real actuators —
+    with the default dry-run actuator it only records intended actions."""
+
+    fleet_reconciler_interval: float = Field(
+        default=120.0, alias="FLEET_RECONCILER_INTERVAL"
+    )
+    """Seconds between fleet-reconciler ticks (leader-only)."""
+
+    fleet_reconciler_max_actions: int = Field(
+        default=5, alias="FLEET_RECONCILER_MAX_ACTIONS"
+    )
+    """Storm guard: max convergence actions processed per reconciler tick;
+    further divergences are deferred to the next tick (CONCEPT:OS-5.25)."""
+
+    fleet_registry_path: str = Field(default="", alias="FLEET_REGISTRY_PATH")
+    """Path to the fleet service registry YAML. Empty (default) resolves to
+    ``deploy/mcp-fleet.registry.yml`` in a repo checkout."""
+
+    fleet_desired_state_path: str = Field(default="", alias="FLEET_DESIRED_STATE_PATH")
+    """Optional desired-state override YAML layered on the registry
+    (per-service ``replicas`` / ``desired: running|stopped`` / ``version``)."""
+
+    fleet_actuator: str = Field(default="dryrun", alias="FLEET_ACTUATOR")
+    """Fleet actuator selection: ``dryrun`` (default — records intended
+    actions as KG nodes + notifications, mutates nothing) or ``docker``
+    (reference actuator via the docker CLI when available). Real
+    Portainer/Swarm actuation is wired at deployment by registering a
+    ``FleetActuator`` via ``orchestration.fleet_actuation.set_fleet_actuator``."""
+
+    deploy_watch_window: float = Field(default=300.0, alias="DEPLOY_WATCH_WINDOW")
+    """Default health-watch window (seconds) after a deploy/restart action
+    (CONCEPT:OS-5.27): sustained green inside the window records success, an
+    unhealthy observation triggers the policy-gated rollback/escalation."""
+
+    deploy_watch_poll: float = Field(default=15.0, alias="DEPLOY_WATCH_POLL")
+    """Seconds between health probes inside a deploy watch window."""
+
     @field_validator(
         "kg_failure_evolution",
         "kg_failure_regression_dataset",
         "kg_anomaly_consumer",
         "kg_fuseki_publish",
         "kg_workflow_shape_gate",
+        "fleet_reconciler",
         mode="before",
     )
     @classmethod

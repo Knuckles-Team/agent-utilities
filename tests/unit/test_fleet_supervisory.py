@@ -85,9 +85,7 @@ async def test_fleet_topology_pagination_and_status_filter(session_db):
     # Status filter pushes down to SQL.
     resp = await fleet.fleet_topology(_Req(query={"status": "active"}))
     data = await _payload(resp)
-    statuses = {
-        s["status"] for d in data["domains"] for s in d["sessions"]
-    }
+    statuses = {s["status"] for d in data["domains"] for s in d["sessions"]}
     assert statuses == {"active"}
 
 
@@ -156,3 +154,87 @@ async def test_fleet_pause_local_fast_path_under_multi_host(session_db, monkeypa
 async def test_fleet_pause_requires_target(session_db):
     resp = await fleet.fleet_pause(_Req({}))
     assert resp.status_code == 400
+
+
+# ── ActionApproval entries in the shared approvals flow (CONCEPT:OS-5.24) ──
+
+
+class _ApprovalEngine:
+    """Engine double exposing one pending ActionApproval node."""
+
+    def __init__(self):
+        self.nodes = {
+            "action_approval:1": {
+                "id": "action_approval:1",
+                "kind": "restart_service",
+                "target": "caddy-mcp",
+                "status": "pending",
+            }
+        }
+        outer = self
+
+        class _Backend:
+            def execute(self, query, params=None):
+                params = params or {}
+                node = outer.nodes.get(params.get("id"))
+                if node is not None and node.get("status") == "pending":
+                    node["status"] = params.get("status")
+                return []
+
+        self.backend = _Backend()
+
+    def query_cypher(self, query, params=None):
+        if "ActionApproval" in query:
+            return [
+                {"a": dict(n)}
+                for n in self.nodes.values()
+                if n.get("status") == "pending"
+            ]
+        return []
+
+
+@pytest.mark.asyncio
+async def test_fleet_approvals_lists_action_approvals(monkeypatch):
+    import agent_utilities.mcp.kg_server as kg
+
+    async def _no_tasks(tool, **kw):
+        return "[]"
+
+    eng = _ApprovalEngine()
+    monkeypatch.setattr(kg, "_execute_tool", _no_tasks)
+    monkeypatch.setattr(kg, "_get_engine", lambda: eng)
+    resp = await fleet.fleet_approvals(_Req())
+    data = await _payload(resp)
+    assert data["status"] == "success"
+    ids = [p.get("id") for p in data["pending"]]
+    assert "action_approval:1" in ids
+
+
+@pytest.mark.asyncio
+async def test_fleet_grant_resolves_action_approval_in_place(monkeypatch):
+    import agent_utilities.mcp.kg_server as kg
+
+    eng = _ApprovalEngine()
+    monkeypatch.setattr(kg, "_get_engine", lambda: eng)
+    resp = await fleet.fleet_grant_approval(
+        _Req({"job_id": "action_approval:1", "decision": "approved"})
+    )
+    data = await _payload(resp)
+    assert data["status"] == "success"
+    assert data["result"]["decision"] == "approved"
+    # The node was stamped — the reconciler's drain will execute it next tick.
+    assert eng.nodes["action_approval:1"]["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_fleet_grant_denial_stamps_denied(monkeypatch):
+    import agent_utilities.mcp.kg_server as kg
+
+    eng = _ApprovalEngine()
+    monkeypatch.setattr(kg, "_get_engine", lambda: eng)
+    resp = await fleet.fleet_grant_approval(
+        _Req({"job_id": "action_approval:1", "decision": "denied"})
+    )
+    data = await _payload(resp)
+    assert data["result"]["decision"] == "denied"
+    assert eng.nodes["action_approval:1"]["status"] == "denied"
