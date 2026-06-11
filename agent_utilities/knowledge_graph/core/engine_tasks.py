@@ -2251,7 +2251,16 @@ class TaskManagerMixin(GraphEngineProtocol):
                         )
 
                 if not job_id:
-                    time.sleep(2.0)
+                    # Idle backoff. During a bulk ingest, back off HARD: one worker
+                    # holds the ingest while the other ~7 idle workers were each
+                    # busy-polling two Task graph-scans every 2s, flooding the single
+                    # client event loop + engine and starving the ingest worker
+                    # (profiled: 24% of daemon CPU in poll query_cypher vs 10% in the
+                    # actual ingest). A new task then waits at most one backoff to be
+                    # claimed — fine while a multi-minute ingest drains. (CONCEPT:KG-2.7)
+                    from agent_utilities.core.background_throttle import get_throttle
+
+                    time.sleep(15.0 if get_throttle().should_yield_background else 2.0)
                     continue
 
                 if not target_path:
