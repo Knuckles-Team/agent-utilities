@@ -72,11 +72,17 @@ class TestEntity(BaseModel):
 
 
 class EnrichmentEdge(BaseModel):
-    """A typed relationship between two enrichment entities."""
+    """A typed relationship between two enrichment entities.
+
+    ``props`` carries optional scalar edge properties (e.g. the ``condition``
+    expression on a BPMN sequence-flow ``FLOWS_TO`` edge, CONCEPT:KG-2.53);
+    empty for the common property-less case.
+    """
 
     source: str
     target: str
     rel_type: str
+    props: dict = Field(default_factory=dict)
 
 
 class Concept(BaseModel):

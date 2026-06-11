@@ -293,6 +293,43 @@ sequenceDiagram
     KG-->>Q: incidents from ALL vendors
 ```
 
+## Ontology → workflow bridge (`KG-2.52`/`KG-2.53`/`ORCH-1.41`–`1.43`)
+
+The descriptive process world (harvested `BusinessProcess` nodes) and the
+executable workflow world (`WorkflowDefinition`/`GraphPlan`) are connected
+end-to-end:
+
+1. **Step-level lift (`KG-2.53`)** — when the injected Camunda client can serve
+   BPMN XML (`camunda_process action=xml`), the extractor lifts
+   tasks/gateways as `BusinessTask` nodes (`task_type` property) and sequence
+   flows as `FLOWS_TO` edges (`:flowsTo`), preserving gateway branch
+   conditions as the edge `condition` property and collapsing pass-through
+   events. Processes carrying an Egeria GUID get `externalToolId` +
+   `ALIGNED_WITH egeria_process:{guid}`.
+2. **Compilation (`ORCH-1.41`)** — `ProcessPlanCompiler` (or
+   `graph_orchestrate action=compile_process` / `POST
+   /graph/orchestrate/compile-process`) traverses the `BusinessTask`/`FLOWS_TO`
+   subgraph into a `GraphPlan`: sequence flows become `depends_on`, gateway
+   branches become parallel steps, cycles are rejected, agents resolve via the
+   KG semantic matcher (unmatched tasks stay as explicit `manual:` steps). The
+   stored workflow carries `(:WorkflowDefinition)-[:REALIZES]->
+   (:BusinessProcess)` (`:realizesProcess`).
+3. **Execution gate (`ORCH-1.42`)** — `execute_workflow` SHACL-validates the
+   stored definition (`WorkflowDefinitionShape`/`WorkflowStepShape`,
+   `KG_WORKFLOW_SHAPE_GATE` default ON) and, with `KG_BRAIN_ENFORCE` on,
+   applies the ontology permissioning row gate to the workflow node
+   (deny → `PermissionError`, fail-closed).
+4. **Lineage close-out (`ORCH-1.43`)** — when a `REALIZES` workflow completes,
+   the runner writes `(:RunTrace)-[:EXECUTED_PROCESS]->(:BusinessProcess)`
+   (`:executedProcess`) and calls the optional injected
+   `WorkflowRunner(lineage_sink=...)` with a normalized lineage record
+   (process external id/GUID, workflow id, run id, status, timestamps) — the
+   seam a deployment uses to wire egeria-mcp's `assert_lineage` without
+   agent-utilities depending on it (see the `workflows/runner.py` docstring).
+5. **Distribution (`KG-2.52`)** — the opt-in `fuseki_publish` daemon tick
+   (`KG_FUSEKI_PUBLISH`) pushes the bundled ontology modules to an Apache
+   Jena Fuseki triplestore for enterprise SPARQL federation.
+
 ## Query cookbook
 
 ```sparql
@@ -307,6 +344,13 @@ SELECT ?p WHERE { ?p a :BusinessProcess }
 // Trace a capability down to the code that realizes it
 MATCH (m:Module)-[:REALIZES]->(c:BusinessCapability {name: "Order Fulfillment"})
 RETURN c, m
+```
+
+```cypher
+// Which runs executed this harvested process, via which workflow?
+MATCH (t:RunTrace)-[:EXECUTED_PROCESS]->(p {id: "bpmn_process:invoice:1:abc"}),
+      (w:WorkflowDefinition)-[:REALIZES]->(p)
+RETURN t.id, t.status, w.name
 ```
 
 ## File map

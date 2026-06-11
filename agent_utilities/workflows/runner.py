@@ -45,6 +45,44 @@ Usage::
     # Access results
     print(result.summary())
     print(result.mermaid)
+
+Process lineage close-out (CONCEPT:ORCH-1.43)
+---------------------------------------------
+
+When an executed workflow was compiled from a descriptive BusinessProcess
+(it carries a ``(:WorkflowDefinition)-[:REALIZES]->(:BusinessProcess)`` edge,
+ORCH-1.41), completion closes the provenance loop: the run's ``RunTrace``
+gets an ``EXECUTED_PROCESS`` edge to the BusinessProcess, so "which runs
+executed this harvested process?" is a graph traversal.
+
+**Lineage sink seam.** ``WorkflowRunner(lineage_sink=...)`` accepts an
+optional callable invoked once per close-out with a normalized lineage
+record::
+
+    {
+        "process_id": ...,            # BusinessProcess node id
+        "process_external_id": ...,   # e.g. the Egeria GUID (externalToolId)
+        "workflow_id": ...,           # WorkflowDefinition node id
+        "workflow_name": ...,
+        "run_id": ...,                # RunTrace session id
+        "status": ...,                # completed | partial | failed
+        "completed_steps": ..., "failed_steps": ...,
+        "duration_ms": ..., "timestamp": ...,  # ISO-8601 UTC
+    }
+
+agent-utilities never imports a metadata server: a deployment wires the sink
+to its lineage system of record — e.g. egeria-mcp's ``assert_lineage``::
+
+    runner = WorkflowRunner(
+        lineage_sink=lambda rec: egeria.assert_lineage(
+            source_guid=rec["process_external_id"],
+            target_name=rec["run_id"],
+            status=rec["status"],
+        )
+    )
+
+The sink is best-effort (exceptions are logged, never raised) and the
+default ``None`` keeps the legacy behavior bit-for-bit.
 """
 
 from __future__ import annotations
@@ -177,13 +215,23 @@ class WorkflowRunner:
     routes through the single ``ParallelEngine`` entry point.
     """
 
-    def __init__(self, max_steps_per_agent: int = 10) -> None:
+    def __init__(
+        self,
+        max_steps_per_agent: int = 10,
+        lineage_sink: Any | None = None,
+    ) -> None:
         """Initialize the runner.
 
         Args:
             max_steps_per_agent: Max graph steps per individual agent call.
+            lineage_sink: Optional callable receiving one normalized lineage
+                record per process close-out (CONCEPT:ORCH-1.43 — see the
+                module docstring). Lets a deployment wire egeria-mcp's
+                ``assert_lineage`` (or any lineage SoR) without
+                agent-utilities depending on it. Best-effort; default None.
         """
         self.max_steps_per_agent = max_steps_per_agent
+        self.lineage_sink = lineage_sink
 
     async def execute_via_parallel_engine(
         self,
@@ -277,7 +325,137 @@ class WorkflowRunner:
         )
 
         _active_workflows[result.session_id] = result
+        # CONCEPT:ORCH-1.43 — close the descriptive↔executable provenance loop
+        # for workflows compiled from a BusinessProcess (REALIZES, ORCH-1.41).
+        self._close_out_process_lineage(engine, workflow_name, result)
         return result
+
+    # ------------------------------------------------------------------
+    # Process lineage close-out (CONCEPT:ORCH-1.43)
+    # ------------------------------------------------------------------
+
+    def _find_realized_process(
+        self, engine: IntelligenceGraphEngine, workflow_name: str
+    ) -> tuple[str | None, str | None, dict[str, Any]]:
+        """Resolve (workflow_id, process_id, process_props) via REALIZES.
+
+        Returns ``(None, None, {})`` for workflows not compiled from a
+        BusinessProcess — the common case, which must stay zero-cost-ish.
+        """
+        backend = getattr(engine, "backend", None)
+        if backend is not None:
+            try:
+                rows = backend.execute(
+                    "MATCH (w:WorkflowDefinition)-[:REALIZES]->(p) "
+                    "WHERE w.name = $name "
+                    "RETURN w.id AS wid, p.id AS pid, "
+                    "p.externalToolId AS external_id LIMIT 1",
+                    {"name": workflow_name},
+                )
+                if rows:
+                    return (
+                        rows[0].get("wid"),
+                        rows[0].get("pid"),
+                        {"externalToolId": rows[0].get("external_id")},
+                    )
+            except Exception as exc:  # noqa: BLE001 — fall through to compute graph
+                logger.debug("[ORCH-1.43] backend REALIZES lookup failed: %s", exc)
+
+        graph = getattr(engine, "graph", None)
+        if graph is not None:
+            try:
+                for nid, data in graph.nodes(data=True):
+                    if (
+                        data.get("type") != "WorkflowDefinition"
+                        or data.get("name") != workflow_name
+                    ):
+                        continue
+                    for _src, tgt, edata in graph.out_edges(nid, data=True):
+                        rel = str(
+                            (edata or {}).get("type")
+                            or (edata or {}).get("rel_type")
+                            or ""
+                        ).upper()
+                        if rel == "REALIZES":
+                            try:
+                                props = dict(graph.nodes[tgt])
+                            except Exception:  # noqa: BLE001
+                                props = {}
+                            return nid, tgt, props
+                    return nid, None, {}
+            except Exception as exc:  # noqa: BLE001 — provenance is best-effort
+                logger.debug("[ORCH-1.43] compute REALIZES lookup failed: %s", exc)
+        return None, None, {}
+
+    def _close_out_process_lineage(
+        self,
+        engine: IntelligenceGraphEngine,
+        workflow_name: str,
+        result: WorkflowResult,
+    ) -> None:
+        """Record RunTrace→BusinessProcess provenance + feed the lineage sink.
+
+        CONCEPT:ORCH-1.43 — best-effort by design: lineage close-out must
+        never fail a completed (or even failed) workflow run.
+        """
+        if engine is None:
+            return
+        try:
+            workflow_id, process_id, process_props = self._find_realized_process(
+                engine, workflow_name
+            )
+            if not process_id:
+                return
+
+            import time as _time
+
+            ts = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+            trace_id = f"trace:{result.session_id}"
+            # Upsert the workflow-level RunTrace (agent_runner's per-step
+            # traces use their own run ids; this is the run's umbrella node).
+            engine.add_node(
+                trace_id,
+                "RunTrace",
+                properties={
+                    "workflow_name": workflow_name,
+                    "workflow_id": workflow_id,
+                    "status": result.status,
+                    "duration_ms": round(result.total_duration_ms, 1),
+                    "timestamp": ts,
+                },
+            )
+            engine.link_nodes(
+                trace_id,
+                process_id,
+                "EXECUTED_PROCESS",
+                properties={"status": result.status, "workflow_id": workflow_id},
+            )
+            logger.info(
+                "[ORCH-1.43] lineage close-out: %s EXECUTED_PROCESS %s (%s)",
+                trace_id,
+                process_id,
+                result.status,
+            )
+
+            if self.lineage_sink is not None:
+                record = {
+                    "process_id": process_id,
+                    "process_external_id": process_props.get("externalToolId"),
+                    "workflow_id": workflow_id,
+                    "workflow_name": workflow_name,
+                    "run_id": result.session_id,
+                    "status": result.status,
+                    "completed_steps": result.completed_steps,
+                    "failed_steps": result.failed_steps,
+                    "duration_ms": result.total_duration_ms,
+                    "timestamp": ts,
+                }
+                try:
+                    self.lineage_sink(record)
+                except Exception as exc:  # noqa: BLE001 — sink is best-effort
+                    logger.warning("[ORCH-1.43] lineage_sink failed: %s", exc)
+        except Exception as exc:  # noqa: BLE001 — never fail the run on lineage
+            logger.debug("[ORCH-1.43] lineage close-out skipped: %s", exc)
 
     async def execute_by_name(
         self,

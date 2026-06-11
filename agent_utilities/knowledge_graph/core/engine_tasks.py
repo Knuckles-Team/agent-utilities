@@ -663,6 +663,18 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_anomaly_consumer,
                 )
             )
+        # Fuseki ontology distribution (CONCEPT:KG-2.52) — opt-in (a Fuseki
+        # deployment is optional infrastructure). Pushes the bundled ontology
+        # modules to the enterprise triplestore so SPARQL-federation consumers
+        # track the evolving authoritative TBox. Enable with KG_FUSEKI_PUBLISH=1.
+        if _cfg.kg_fuseki_publish:
+            jobs.append(
+                (
+                    "fuseki_publish",
+                    _cfg.kg_fuseki_publish_interval,
+                    self._tick_fuseki_publish,
+                )
+            )
         jobs.append(("compaction", 1800.0, self._tick_compaction))
         jobs.append(
             (
@@ -1276,6 +1288,37 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001
             logger.error("anomaly_consumer tick error: %s", e)
+
+    def _tick_fuseki_publish(self) -> None:
+        """Push the bundled ontology modules to Apache Jena Fuseki.
+
+        One bounded distribution pass (CONCEPT:KG-2.52): merges every shipped
+        ``ontology*.ttl`` module and PUTs it to the configured Fuseki dataset
+        via :func:`publish_ontology_to_fuseki`, so an optional enterprise
+        triplestore stays in sync with the authoritative ontology. Opt-in via
+        ``KG_FUSEKI_PUBLISH``; endpoint from ``KG_FUSEKI_ENDPOINT`` (falling
+        back to the publisher's own resolution).
+        """
+        try:
+            from agent_utilities.core.config import config as _cfg
+
+            from .ontology_publisher import publish_ontology_to_fuseki
+
+            report = publish_ontology_to_fuseki(endpoint=_cfg.kg_fuseki_endpoint)
+            if report.get("status") == "success":
+                logger.info(
+                    "Fuseki publish: %s triples -> %s/%s",
+                    report.get("triple_count"),
+                    report.get("endpoint"),
+                    report.get("dataset"),
+                )
+            else:
+                logger.warning(
+                    "Fuseki publish did not complete: %s",
+                    report.get("error") or report.get("reason"),
+                )
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.error("fuseki_publish tick error: %s", e)
 
     def _embedding_backfill_loop(self) -> None:
         """Dedicated drain loop for vector-embedding backfill (CONCEPT:KG-2.8).
