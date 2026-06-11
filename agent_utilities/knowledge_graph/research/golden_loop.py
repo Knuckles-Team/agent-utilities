@@ -56,6 +56,7 @@ class GoldenLoopController:
         codebase_root: str | None = None,
         propose_only: bool = True,
         auto_merge: bool | None = None,
+        regression_check: Any = None,
     ) -> None:
         self.engine = engine
         self.codebase_root = codebase_root or os.getenv("WORKSPACE_PATH") or "."
@@ -65,10 +66,16 @@ class GoldenLoopController:
         # Governed auto-merge (CONCEPT:AHE-3.14) — OFF by default. Enabled
         # explicitly (auto_merge=True) or via KG_GOLDEN_AUTO_MERGE=1; only then
         # do high-quality, governance-valid proposals promote proposal→active.
+        # ``regression_check`` gates failure-remediation merges (CONCEPT:AHE-3.18)
+        # against the originally observed failures — the failure-ingest tick passes
+        # one so a remediation only auto-merges when it does not coincide with a
+        # regression.
         from .auto_merge import GovernedAutoMerger, MergePolicy
 
         self._merger = GovernedAutoMerger(
-            engine, policy=MergePolicy.from_env(auto_merge)
+            engine,
+            policy=MergePolicy.from_env(auto_merge),
+            regression_check=regression_check,
         )
 
     # ------------------------------------------------------------------

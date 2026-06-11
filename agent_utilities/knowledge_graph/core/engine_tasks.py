@@ -636,6 +636,18 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_golden_loop,
                 )
             )
+        # Failure-driven evolution (CONCEPT:AHE-3.18) — opt-in (KG_FAILURE_EVOLUTION=1).
+        # Ingests Langfuse failures into failure-gap topics and runs a
+        # regression-gated remediation cycle. This is the real telemetry sweep that
+        # _tick_evolution used to (broken) stub out.
+        if _cfg.kg_failure_evolution:
+            jobs.append(
+                (
+                    "failure_ingest",
+                    _cfg.kg_failure_evolution_interval,
+                    self._tick_failure_ingest,
+                )
+            )
         jobs.append(("compaction", 1800.0, self._tick_compaction))
         jobs.append(
             (
@@ -1187,6 +1199,41 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception as e:  # noqa: BLE001
             logger.error("golden_loop tick error: %s", e)
 
+    def _tick_failure_ingest(self) -> None:
+        """Ingest Langfuse failures → gap topics → regression-gated remediation.
+
+        Pulls error/low-score/cost-latency telemetry from Langfuse, materializes
+        ``ExecutionSummary`` / ``PerformanceAnomaly`` nodes and synthetic
+        ``failure_gap`` ``Concept`` topics, then — when new gaps appear — runs one
+        golden-loop cycle whose auto-merge is gated by a regression check bound to
+        those failures. Opt-in via KG_FAILURE_EVOLUTION (CONCEPT:AHE-3.18).
+        """
+        try:
+            from ..adaptation.failure_analyzer import FailureAnalyzer
+
+            analyzer = FailureAnalyzer.from_engine(self)
+            report = analyzer.run_once()
+            gaps = report.get("gap_concepts", [])
+            logger.info(
+                "Failure ingest: pulled=%s patterns=%s gaps=%s anomalies=%s",
+                report.get("records_pulled"),
+                report.get("patterns"),
+                len(gaps),
+                report.get("anomalies"),
+            )
+            if gaps:
+                from ..research.golden_loop import GoldenLoopController
+
+                check = analyzer.make_regression_check(gaps)
+                GoldenLoopController(self, regression_check=check).run_one_cycle(
+                    max_topics=min(len(gaps), 5),
+                    assimilate=False,
+                    breadth=False,
+                    standardize=False,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.error("failure_ingest tick error: %s", e)
+
     def _embedding_backfill_loop(self) -> None:
         """Dedicated drain loop for vector-embedding backfill (CONCEPT:KG-2.8).
 
@@ -1396,29 +1443,11 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception as e:
             logger.warning(f"Evolution: failed to log cycle node: {e}")
 
-        # 5. Telemetry Ingestion Sweep
-        try:
-            logger.info("Evolution: triggering telemetry_ingestion workflow sweep")
-
-            def _run_telemetry():
-                try:
-                    from agent_utilities.workflows.runner import WorkflowRunner
-
-                    runner = WorkflowRunner()
-                    asyncio.run(
-                        runner.execute_by_name(
-                            "telemetry_ingestion",
-                            engine=self,  # type: ignore[arg-type]
-                        )
-                    )
-                except Exception as e:
-                    logger.error(f"Evolution telemetry sweep failed: {e}")
-
-            threading.Thread(
-                target=_run_telemetry, daemon=True, name="KG-Telemetry-Worker"
-            ).start()
-        except Exception as e:
-            logger.warning(f"Evolution: failed to trigger telemetry sweep: {e}")
+        # 5. Telemetry/failure ingestion now runs as its own dedicated maintenance
+        # job (``failure_ingest`` → _tick_failure_ingest, CONCEPT:AHE-3.18), opt-in
+        # via KG_FAILURE_EVOLUTION. The previous inline ``telemetry_ingestion``
+        # workflow sweep referenced a workflow that was never defined (it raised
+        # ValueError every cycle), so it has been removed in favor of that tick.
 
     def _graph_writer_loop(self):
         """Background daemon thread to drain the staging SQLite queue and insert heavy graph payloads sequentially to prevent lock contention."""
