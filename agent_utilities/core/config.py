@@ -481,9 +481,7 @@ class AgentConfig(BaseSettings):
     # Execution-time workflow ontology gate (CONCEPT:ORCH-1.42) — SHACL-validate
     # a stored WorkflowDefinition before dispatch. Default ON: it is cheap,
     # LLM-free, and refuses malformed definitions before they burn agent runs.
-    kg_workflow_shape_gate: bool = Field(
-        default=True, alias="KG_WORKFLOW_SHAPE_GATE"
-    )
+    kg_workflow_shape_gate: bool = Field(default=True, alias="KG_WORKFLOW_SHAPE_GATE")
 
     @field_validator(
         "kg_failure_evolution",

@@ -170,10 +170,10 @@ def _lift_process_structure(
     ``conditionExpression`` is preserved as the edge ``condition`` property.
     Parse failures are swallowed — structure lift is additive, never blocking.
     """
-    import xml.etree.ElementTree as ET
+    import xml.etree.ElementTree as ET  # nosec B405 — BPMN XML comes from the operator-configured Camunda engine (trusted, injected client)
 
     try:
-        root = ET.fromstring(xml_text)  # nosec B314 — XML from the operator-configured Camunda engine (trusted, injected client), not untrusted input
+        root = ET.fromstring(xml_text)  # nosec B314 — same trusted operator-configured source, not untrusted input
     except ET.ParseError:
         return
 
@@ -197,9 +197,7 @@ def _lift_process_structure(
         else:
             elements[el_id] = {"tag": tag, "name": el.get("name")}
 
-    lifted = {
-        el_id for el_id, meta in elements.items() if meta["tag"] in _LIFTED_TAGS
-    }
+    lifted = {el_id for el_id, meta in elements.items() if meta["tag"] in _LIFTED_TAGS}
     if not lifted:
         return
 
