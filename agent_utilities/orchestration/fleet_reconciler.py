@@ -14,7 +14,9 @@ This module is that runtime contract:
 * **desired state** — the registry's ``services:`` list (every entry is
   expected ``running`` with 1 replica unless said otherwise), layered with an
   optional override file (``FLEET_DESIRED_STATE_PATH``) carrying per-service
-  ``replicas`` / ``desired: running|stopped`` / ``version``.
+  ``replicas`` / ``desired: running|stopped`` / ``version`` / ``scaling``
+  (reactive-autoscaling bounds, CONCEPT:OS-5.29 — consumed by the
+  ``fleet_autoscaler`` tick, not by this reconciler).
 * **observed state** — a pluggable
   :class:`~agent_utilities.orchestration.fleet_observation.FleetObserver`
   (default: KG fleet events + local docker when present; Portainer observers
@@ -77,6 +79,73 @@ def _now_iso() -> str:
 
 
 @dataclass
+class ScalingSpec:
+    """Registry-declared reactive-autoscaling bounds for one service.
+
+    CONCEPT:OS-5.29 — consumed by the leader-only ``fleet_autoscaler`` tick
+    (``orchestration/fleet_autoscaler.py``). ``max``, ``signal`` and ``target``
+    are deliberately explicit (no implicit ceiling, no implicit metric): a
+    service only autoscales when its owner declared how far and on what.
+    """
+
+    min_replicas: int = 1
+    max_replicas: int = 1
+    signal: str = ""  # queue_depth | consumer_lag | cpu | custom metric name
+    target: float = 0.0  # per-replica target value for the signal
+    scale_up_step: int = 1  # max replicas added per evaluation
+    scale_down_step: int = 1  # max replicas removed per evaluation
+    cooldown_s: float = 300.0  # min seconds between scale actions
+
+
+def parse_scaling_spec(raw: Any, service: str) -> ScalingSpec | None:
+    """Validate one registry ``scaling:`` block into a :class:`ScalingSpec`.
+
+    Required: ``max`` (ceiling), ``signal`` and ``target`` (>0). Defaults:
+    ``min=1``, steps ``1``, ``cooldown_s=300``. Invariant ``max >= min >= 0``.
+    Any invalid block is dropped with a warning — the service then keeps the
+    static replica reconcile (OS-5.25) and is simply never autoscaled; a typo
+    must never produce surprise scaling.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        logger.warning("scaling spec for %s is not a mapping — ignored", service)
+        return None
+    try:
+        spec = ScalingSpec(
+            min_replicas=int(raw.get("min", 1)),
+            max_replicas=int(raw["max"]),  # required: no implicit ceiling
+            signal=str(raw.get("signal") or ""),
+            target=float(raw.get("target") or 0.0),
+            scale_up_step=int(raw.get("scale_up_step", 1)),
+            scale_down_step=int(raw.get("scale_down_step", 1)),
+            cooldown_s=float(raw.get("cooldown_s", 300.0)),
+        )
+    except (KeyError, TypeError, ValueError) as e:
+        logger.warning("scaling spec for %s is invalid (%s) — ignored", service, e)
+        return None
+    problems: list[str] = []
+    if spec.min_replicas < 0:
+        problems.append(f"min={spec.min_replicas} < 0")
+    if spec.max_replicas < spec.min_replicas:
+        problems.append(f"max={spec.max_replicas} < min={spec.min_replicas}")
+    if not spec.signal:
+        problems.append("signal missing")
+    if spec.target <= 0:
+        problems.append(f"target={spec.target} must be > 0")
+    if spec.scale_up_step < 1 or spec.scale_down_step < 1:
+        problems.append("steps must be >= 1")
+    if spec.cooldown_s < 0:
+        problems.append(f"cooldown_s={spec.cooldown_s} < 0")
+    if problems:
+        logger.warning(
+            "scaling spec for %s rejected: %s — ignored", service, "; ".join(problems)
+        )
+        return None
+    return spec
+
+
+@dataclass
 class DesiredService:
     """One service's desired state after registry + override layering."""
 
@@ -85,6 +154,7 @@ class DesiredService:
     replicas: int = 1
     version: str = ""
     profiles: list[str] = field(default_factory=list)
+    scaling: ScalingSpec | None = None  # CONCEPT:OS-5.29 (None = never autoscale)
 
 
 def resolve_registry_path(explicit: str | None = None) -> Path | None:
@@ -130,6 +200,7 @@ def load_desired_state(
                     replicas=int(raw.get("replicas") or 1),
                     version=str(raw.get("version") or ""),
                     profiles=[str(p) for p in raw.get("profiles") or []],
+                    scaling=parse_scaling_spec(raw.get("scaling"), name),
                 )
         except Exception as e:  # noqa: BLE001 — a broken registry reconciles nothing
             logger.warning("fleet_reconciler: registry parse failed (%s): %s", path, e)
@@ -148,6 +219,11 @@ def load_desired_state(
                     entry.replicas = int(raw["replicas"])
                 if raw.get("version"):
                     entry.version = str(raw["version"])
+                if "scaling" in raw:
+                    # The registry file is machine-generated, so the override
+                    # file is where a deployment normally declares scaling
+                    # bounds. ``scaling: null`` explicitly disables.
+                    entry.scaling = parse_scaling_spec(raw.get("scaling"), name)
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 "fleet_reconciler: override parse failed (%s): %s", override_path, e

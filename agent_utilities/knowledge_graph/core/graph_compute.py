@@ -548,9 +548,7 @@ class GraphComputeEngine:
         clients: list[Any] = []
         for _ in range(max(0, n)):
             try:
-                clients.append(
-                    SyncEpistemicGraphClient.connect(**self._connect_kwargs)
-                )
+                clients.append(SyncEpistemicGraphClient.connect(**self._connect_kwargs))
             except Exception as e:  # noqa: BLE001 - degrade to fewer/serial
                 logger.debug("sibling parse client connect failed: %s", e)
                 break
