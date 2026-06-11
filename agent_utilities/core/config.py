@@ -603,6 +603,17 @@ class AgentConfig(BaseSettings):
     deploy_watch_poll: float = Field(default=15.0, alias="DEPLOY_WATCH_POLL")
     """Seconds between health probes inside a deploy watch window."""
 
+    scaling_prometheus_url: str | None = Field(
+        default=None, alias="SCALING_PROMETHEUS_URL"
+    )
+    """Optional Prometheus base URL for autoscaling signals (CONCEPT:OS-5.29).
+    Set → the autoscaler reads signals via instant HTTP queries
+    (``PrometheusHttpProvider``); unset (default) → the zero-infra
+    ``LocalMetricsProvider`` reads this process's own OS-5.23/KG-2.55 gauges.
+    A custom provider injected via
+    ``orchestration.scaling_signals.set_scaling_signal_provider`` wins over
+    both."""
+
     @field_validator(
         "kg_failure_evolution",
         "kg_failure_regression_dataset",
