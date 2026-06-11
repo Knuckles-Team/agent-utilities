@@ -261,8 +261,8 @@ Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots v
 *   **Source Code**: `agent_utilities/security/topological_scanner.py`
 *   **Defense**: Scans the execution graph planner outputs for untrusted data flows or dependency deadlocks by matching structures against risk subgraphs using the Analogy Engine (KG-2.7).
 
-### Execution Stability Engine (Doom-Loop & Repetition Guard) (OS-5.18 & OS-5.3)
-*   **Source Code**: `agent_utilities/security/repetition_guard.py` & `agent_utilities/security/doom_loop_detector.py`
+### Execution Stability Engine (Doom-Loop & Repetition Guard) (OS-5.1 & OS-5.3)
+*   **Source Code**: `agent_utilities/security/execution_stability_engine.py`
 *   **Behavior**: Tracks repeated sequences of tool calls with identical arguments. On loop detection, denies execution and injects corrective guidance into the prompt context to steer the agent towards alternative strategies.
 
 ---
@@ -344,3 +344,156 @@ To satisfy strict regulatory compliance, low-level isolation, and intelligent re
 
 For a complete architectural analysis, refer to the detailed guide:
 👉 [OS-5.6 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](file:///home/apps/workspace/agent-packages/agent-utilities/docs/pillars/5_agent_os_infrastructure/OS-5.6-Distributed_Replay_And_Coordination.md)
+
+---
+
+## 🔐 Server-Minted Identity & Fail-Closed Permissioning (CONCEPT:OS-5.14)
+
+Identity is established **server-side**, never trusted from the client:
+
+1. **JWT-minted ActorContext**: the `ActorIdentityMiddleware`
+   (`agent_utilities/security/request_identity.py`) validates
+   `Authorization: Bearer` tokens against the configured JWKS and scopes every
+   request to a server-minted `ActorContext` (actor id, tenant, roles). With
+   `KG_AUTH_REQUIRED`, unauthenticated requests are rejected with 401;
+   `GET /metrics` is the deliberate exemption (scrapers cannot mint JWTs).
+2. **Fail-closed permissioning**: an ACL-check exception denies; permission
+   evaluation never falls open (`security/auth.py`,
+   `knowledge_graph/ontology/permissioning.py`).
+3. **Engine HMAC authentication**: connections to the Rust engine authenticate
+   with an HMAC-SHA256 shared secret; unset, a per-machine secret is
+   auto-generated under the data dir (mode 0600) so local processes agree,
+   while multi-host/sharded deployments set one explicit secret everywhere
+   (see `docker/engine-shards.compose.yml`).
+
+In sharded deployments the ambient `ActorContext` tenant also drives graph
+placement (KG-2.58). Walkthrough: [identity & JWT example](../examples/identity-jwt.md).
+
+---
+
+## 🗄️ Externalized Durable State & Multi-Host Operation (CONCEPT:OS-5.16 / OS-5.17 / OS-5.18)
+
+One flag — `STATE_DB_URI` — moves all three durable stores (durable-execution
+checkpoints, sessions/turns/goals, the KG task + staging queue) from per-host
+SQLite onto a shared Postgres (`agent_utilities/core/state_store.py`). Unset,
+behavior is byte-for-byte the zero-infra default.
+
+- **Cross-host queue claims (KG-2.54)**: task claims are atomic
+  `FOR UPDATE SKIP LOCKED` selections with visibility-timeout recovery, so
+  multiple hosts can drain one queue safely.
+- **Daemon leadership (OS-5.17)**: singleton background ticks elect exactly
+  one leader fleet-wide via Postgres advisory locks
+  (`agent_utilities/core/leadership.py`).
+- **Supervisory plane at scale (OS-5.18)**: fleet/session queries are
+  SQL-aggregated, paginated, and filtered server-side, and desired-state
+  pause/kill reconciles across hosts (`core/sessions.py`, `gateway/fleet.py`).
+- **Durable goals (ORCH-1.44)**: goals persist across restarts; stranded runs
+  rehydrate as `orphaned` instead of silently vanishing.
+
+Full design: [State Externalization](../architecture/state_externalization.md).
+
+---
+
+## 📡 Fleet Event Ingress (CONCEPT:OS-5.15)
+
+`POST /api/fleet/events` (`gateway/fleet_events.py`) is the webhook ingress
+for monitoring systems (Alertmanager, Uptime Kuma, Portainer, …): alerts are
+normalized and persisted as `FleetEvent` KG nodes, and a triage seam
+(`knowledge_graph/adaptation/fleet_event_triage.py`) routes them to registered
+remediation playbooks (OS-5.26). Wiring guide:
+[fleet events example](../examples/fleet-events-wiring.md).
+
+---
+
+## 🚦 Gateway Middle-Tier Hardening (CONCEPT:OS-5.23)
+
+The Python gateway tier is observable and self-protecting:
+
+- **Prometheus metrics** (`observability/gateway_metrics.py`): ASGI middleware
+  + `GET /metrics` (mounted by `register_graph_routes`, so the gateway and the
+  agent-webui backend get identical instrumentation) emitting
+  `agent_utilities_gateway_requests_total{route,method,status}` and its
+  siblings (`agent_utilities_gateway_` + `request_duration_seconds{route}`,
+  `in_flight_requests`, `rate_limited_total{tenant}`,
+  `engine_requests_total{op,outcome}`,
+  `engine_breaker_state{endpoint}`). `prometheus-client` is the optional
+  `metrics` extra with a graceful no-op fallback; flag `GATEWAY_METRICS`
+  (default on). Catalog: [metrics reference](../reference/metrics.md).
+- **Per-tenant token-bucket rate limiting** (`gateway/rate_limit.py`): mounted
+  inside the identity middleware so the bucket key is the server-minted
+  ActorContext (tenant → actor → client IP); 429 + `Retry-After`. Flags:
+  `GATEWAY_RATE_LIMIT` (req/s, default 0 = off), `GATEWAY_RATE_BURST`.
+  Buckets are per-process: N workers multiply the configured rate.
+- **Engine circuit breaker** (`knowledge_graph/core/engine_breaker.py`): one
+  shared breaker per engine endpoint — `ENGINE_BREAKER_THRESHOLD` (default 5)
+  consecutive connect/timeout failures open it, callers fail fast with the
+  typed `EngineCircuitOpenError`, and a half-open probe after
+  `ENGINE_BREAKER_COOLDOWN` (default 15s) heals it.
+- **Multi-worker readiness**: `GATEWAY_WORKERS` (default 1) pre-forks workers
+  on one shared listen socket; the flock host-lock still elects exactly one KG
+  host daemon among them.
+
+Full design: [Gateway Scaling](../architecture/gateway_scaling.md);
+walkthrough: [observability example](../examples/observability.md).
+
+---
+
+## 🤖 Fleet Autonomy Control Plane (CONCEPT:OS-5.24 — OS-5.27, OS-5.29)
+
+The layer that lets the platform act on its fleet — restart, scale, deploy,
+remediate — without ever acting outside policy. One decision point, five
+pieces:
+
+1. **ActionPolicy decision point (OS-5.24,
+   `orchestration/action_policy.py`)**: the single gate consulted before ANY
+   autonomous mutating operational action. Per-action autonomy tiers (`auto` /
+   `auto_notify` / `approval_required` / `forbidden`), durable per-action+target
+   rate limits, blast-radius caps, and UTC maintenance windows. Policies load
+   from YAML (`ACTION_POLICY_PATH`, default = the shipped conservative
+   `deploy/action-policy.default.yml`: everything mutating requires approval)
+   plus runtime KG `governance_rule` overrides. Decisions **fail closed**, are
+   audit-logged as `ActionDecision` nodes, and queued approvals surface at
+   `GET /api/fleet/approvals` / resolve via `.../grant`.
+2. **Desired-state fleet reconciler (OS-5.25,
+   `orchestration/fleet_reconciler.py`)**: opt-in leader-only tick
+   (`FLEET_RECONCILER`, default off) diffing `deploy/mcp-fleet.registry.yml`
+   against a pluggable `FleetObserver` and converging each divergence through
+   the ActionPolicy gate and the injectable `FleetActuator`
+   (`orchestration/fleet_actuation.py`). The **default actuator is dry-run** —
+   it records intended actions as `ActionExecution` nodes and mutates nothing;
+   `FLEET_ACTUATOR=docker` selects the reference docker actuator. Storm guard:
+   `FLEET_RECONCILER_MAX_ACTIONS` per tick.
+3. **Remediation playbooks (OS-5.26,
+   `knowledge_graph/adaptation/remediation_playbooks.py`)**: `service_down`
+   (confirm → policy-gated restart → durable verification watch → escalate),
+   `service_flapping` (back off + escalate), `resource_pressure` (notify +
+   propose, never auto-act). Every step outcome lands on the originating
+   FleetEvent node.
+4. **Health-gated deploy watch (OS-5.27, `orchestration/deploy_watch.py`)**:
+   every autonomy-triggered deploy/restart schedules a durable `deploy_watch`
+   task probing the observer until its deadline (`DEPLOY_WATCH_WINDOW` /
+   `DEPLOY_WATCH_POLL`). Sustained green records success; failure invokes the
+   default `on_fail` — an ActionPolicy-gated `rollback_service` plus operator
+   escalation; zero observations only notifies (never roll back on zero
+   evidence).
+5. **Reactive replica autoscaler (OS-5.29,
+   `orchestration/fleet_autoscaler.py` + `scaling_signals.py`)**:
+   registry-declared scaling bounds, pluggable signal providers, and a
+   leader-only target-tracking tick (`FLEET_AUTOSCALER`, default off) whose
+   scale actions pass the same policy gate and deploy watch.
+
+Full design: [Fleet Autonomy](../architecture/fleet_autonomy.md); postures:
+[action-policy examples](../examples/action-policy-postures.md); signals:
+[autoscaling examples](../examples/autoscaling-signals.md).
+
+---
+
+## 🧭 Shard Topology Visibility (CONCEPT:OS-5.28)
+
+When the engine tier is sharded (KG-2.58), the topology is observable:
+`shard_topology_status()` reports per-shard transport-level reachability and
+breaker state on the unified daemon status, the gateway dashboard exposes it
+at the `daemon/shards` route, and graph-os `GET /health` carries a config-only
+summary. Metrics: `agent_utilities_engine_shard_up{endpoint}` and
+`agent_utilities_engine_shard_requests_total{endpoint,outcome}`. See
+[Engine Sharding](../architecture/engine_sharding.md).

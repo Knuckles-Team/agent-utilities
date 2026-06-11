@@ -38,31 +38,52 @@ on. This page maps the pieces and how a request flows through them.
 | **Caddy** | HTTPS ingress / reverse proxy | single-node prod + enterprise |
 | **Langfuse** | LLM observability / tracing | any (optional) |
 | **LGTM** | Prometheus/Loki/Grafana/Tempo observability | enterprise |
-| **Postgres/pggraph** | Durable KG L2 tier | single-node prod + enterprise |
-| **Kafka** | Event-sourced mutation backbone | enterprise (optional) |
+| **Postgres/pggraph** | Durable KG L2 tier; also the shared fleet state store (`STATE_DB_URI`) | single-node prod + enterprise |
+| **Kafka** | Event backbone + `kg_tasks`/`agent_turns` work queues for ingest and dispatch workers | enterprise (optional) |
+
+### Scale-out workers (optional, any host)
+
+| Process | Role | Flag |
+|---|---|---|
+| **engine shards** | Tenant-partitioned `epistemic-graph` engines; clients route graphs by HRW hash | `GRAPH_SERVICE_ENDPOINTS` (see `docker/engine-shards.compose.yml`) |
+| **kg-ingest-worker** | Joins the `kg-ingest` consumer group and drains the ingest task queue as an engine client | `TASK_QUEUE_BACKEND=kafka` (or `postgres`) |
+| **agent-dispatch-worker** | Claims session-keyed agent turns and executes them with durable write-back | `AGENT_DISPATCH_BACKEND=queue` |
 
 ## How a request flows
 
 ```mermaid
 flowchart LR
-    U[User / external agent] -->|MCP or REST| GW[graph-os MCP / REST gateway]
-    GW --> ENG[("epistemic-graph<br/>Rust engine + KG")]
+    U[User / external agent] -->|MCP or REST + JWT| GW["graph-os MCP / REST gateway<br/>(GATEWAY_WORKERS, /metrics)"]
+    GW --> ENG[("epistemic-graph engine(s)<br/>HRW-routed tenant shards")]
     GW --> ORCH["Orchestrator<br/>router → planner → swarm"]
+    GW -->|enqueue turns| Q[("agent_turns / kg_tasks queues<br/>Kafka / Postgres / SQLite")]
+    Q --> DW[agent-dispatch-worker fleet]
+    Q --> IW[kg-ingest-worker fleet]
+    DW --> ENG
+    IW --> ENG
     ORCH -->|spawns| AG[Agents / teams]
     AG -->|tools via multiplexer| FLEET[*-mcp connector fleet]
     FLEET --> EXT[("ServiceNow / ERPNext /<br/>GitLab / Kafka / …")]
-    GW --> SUP["Fleet supervisor<br/>/api/fleet/*"]
+    GW --> SUP["Fleet supervisor + autonomy plane<br/>/api/fleet/* → ActionPolicy"]
     SUP --> UI[agent-webui / TUI / geniusbot]
     GW -.traces.-> LF[Langfuse]
+    GW -.metrics.-> PROM[Prometheus]
 ```
 
-1. A user or external agent calls **graph-os** (MCP) or the **REST gateway**.
-2. The shared engine handles KG reads/writes; the **orchestrator** decomposes
-   goals into teams/swarms.
+1. A user or external agent calls **graph-os** (MCP) or the **REST gateway**;
+   requests are scoped to a server-minted `ActorContext` (JWT identity,
+   OS-5.14) and rate-limited per tenant.
+2. The engine tier handles KG reads/writes — one local engine by default, or
+   tenant-sharded engines behind client-side HRW routing at scale; the
+   **orchestrator** decomposes goals into teams/swarms. In queue mode, agent
+   turns and ingest tasks flow through durable queues to stateless
+   **dispatch/ingest worker fleets** on any host.
 3. Spawned agents reach external systems through the **`*-mcp` fleet**, federated
-   by the **multiplexer**.
-4. The **fleet supervisor** surfaces health/topology/approvals to the UIs;
-   traces flow to **Langfuse** when configured.
+   by the **multiplexer** (per-child limits, circuit breakers, restart-on-crash).
+4. The **fleet supervisor** surfaces health/topology/events/approvals to the
+   UIs, and the opt-in **autonomy control plane** (ActionPolicy-gated
+   reconciler, playbooks, deploy watch, autoscaler) acts on them; traces flow
+   to **Langfuse** and metrics to **Prometheus** when configured.
 
 ## Deploying the ecosystem
 

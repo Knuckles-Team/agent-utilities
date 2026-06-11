@@ -83,6 +83,26 @@ For trivial tasks, use judgment; the bias here is correctness over speed.
   in the module docstring and name from purpose, not the vendor; surface new capability over the
   `ontology_*` MCP tools (`mcp/kg_server.py`) and the agent-webui `/api/enhanced/ontology/*`
   routes (ObjectExplorer/Object/Vertex views).
+- **Scale-out & autonomy planes (all opt-in; defaults stay zero-infra).**
+  Identity: every gateway request is scoped to a server-minted JWT
+  `ActorContext` with fail-closed permissioning and HMAC engine auth
+  (`security/request_identity.py`, `security/auth.py`, OS-5.14). State:
+  `STATE_DB_URI` externalizes checkpoints/sessions/queues onto shared Postgres
+  with SKIP LOCKED claims + advisory-lock daemon leadership
+  (`core/state_store.py`, `core/leadership.py`, OS-5.16–5.18). Engines shard
+  by tenant behind client-side HRW routing (`GRAPH_SERVICE_ENDPOINTS`,
+  `knowledge_graph/core/shard_topology.py`, KG-2.58). Work scales via
+  fail-loud queue backends (`TASK_QUEUE_BACKEND`, KG-2.55–2.57) and
+  queue-driven dispatch (`AGENT_DISPATCH_BACKEND=queue`,
+  `orchestration/agent_dispatch*.py`, ORCH-1.45) consumed by the
+  `kg-ingest-worker` / `agent-dispatch-worker` console scripts. Autonomy:
+  every mutating fleet action passes the fail-closed ActionPolicy gate
+  (`orchestration/action_policy.py` + `deploy/action-policy.default.yml`,
+  OS-5.24) feeding the reconciler/playbooks/deploy-watch/autoscaler
+  (OS-5.25–5.27, OS-5.29). Observability: Prometheus `/metrics`
+  (`observability/gateway_metrics.py`, OS-5.23); multiplexer children are
+  individually supervised (`mcp/child_resilience.py`, ECO-4.34). Docs:
+  `docs/architecture/{state_externalization,engine_sharding,agent_dispatch,fleet_autonomy,gateway_scaling}.md`.
 - **Single source of truth for concepts:** `docs/concepts.yaml` (regenerate via
   `scripts/build_concepts_yaml.py`; README/AGENTS counts come from it).
 - **Guardrail gates (CI + pre-commit, `guardrails.yml`):** `scripts/check_no_stub.py`,

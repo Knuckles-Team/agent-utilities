@@ -39,6 +39,8 @@ graph TD
         ORCH127["<b>ORCH-1.9: Dept Orchestration</b>"]
         ORCH128["<b>ORCH-1.10: Reactive Dispatch</b>"]
         ORCH129["<b>ORCH-1.11: WASM Sandbox</b>"]
+        ORCH141["<b>ORCH-1.41-1.43: Ontology-to-Workflow Execution</b>"]
+        ORCH145["<b>ORCH-1.45: Queue-Driven Agent Dispatch</b>"]
     end
 
     %% Pillar 2: Epistemic Knowledge Graph
@@ -58,6 +60,8 @@ graph TD
         KG220["<b>KG-2.7: Query Router</b>"]
         KG221["<b>KG-2.21: Working Set Manager</b>"]
         KG260["<b>KG-2.7: Single Company Brain</b>"]
+        KG255["<b>KG-2.55-2.57: Kafka Ingest Scale-Out</b>"]
+        KG258["<b>KG-2.58: Tenant-Sharded Engines (HRW)</b>"]
     end
 
     %% Pillar 3: Agentic Harness Engineering
@@ -70,6 +74,7 @@ graph TD
         AHE35["<b>AHE-3.5: Heavy Thinking</b>"]
         AHE36["<b>AHE-3.6: Backtest & Curriculum</b>"]
         AHE315["<b>AHE-3.8: Interpretability & Model Evolution</b>"]
+        AHE321["<b>AHE-3.18-3.21: Failure-Driven Evolution & Branch Publication</b>"]
     end
 
     %% Pillar 4: Ecosystem & Peripherals
@@ -86,6 +91,7 @@ graph TD
         ECO418["<b>ECO-4.11: Lint Enforcement</b>"]
         ECO419["<b>ECO-4.12: Plugin Bundles</b>"]
         ECO420["<b>ECO-4.13: Ecosystem Governance & Policy Engine</b>"]
+        ECO434["<b>ECO-4.34: Multiplexer Child Resilience</b>"]
     end
 
     %% Pillar 5: Agent OS Infrastructure
@@ -96,6 +102,10 @@ graph TD
         OS53["<b>OS-5.3: OS Guardrails & Safety Boundaries</b>"]
         OS54["<b>OS-5.4: Telemetry</b>"]
         OS56["<b>OS-5.5: Massive Scale</b>"]
+        OS514["<b>OS-5.14: Server-Minted JWT Identity</b>"]
+        OS516["<b>OS-5.16-5.18: Externalized Durable State</b>"]
+        OS523["<b>OS-5.23: Gateway Hardening & /metrics</b>"]
+        OS524["<b>OS-5.24-5.29: Fleet Autonomy Control Plane</b>"]
     end
 
     %% Cross-pillar relationships
@@ -125,6 +135,13 @@ graph TD
     OS56 --> OS50
     ECO416 --> KG20
     ECO420 --> OS51
+    ORCH145 --> OS516
+    KG255 --> KG20
+    KG258 --> KG20
+    AHE321 --> OS524
+    ECO434 --> OS523
+    OS514 --> OS51
+    OS524 --> OS514
 
     style P1 fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
     style P2 fill:#d5e8d4,stroke:#82b366,stroke-width:2px
@@ -137,7 +154,7 @@ graph TD
 
 > **Canonical Registry**: See [concept_map.md](concept_map.md) for the full canonical concept registry with module paths.
 
-### Pillar 1: Graph Orchestration Engine (ORCH-1.0 – 1.29)
+### Pillar 1: Graph Orchestration Engine (ORCH-1.0 – 1.45)
 
 | ID | Concept | Description |
 |---|---|---|
@@ -158,8 +175,13 @@ graph TD
 | ORCH-1.29 | RLM Resilience + Telemetry | Structured RunTrace + FailureClass taxonomy; recoverable tool timeout vs fatal sandbox error |
 | ORCH-1.30 | Generalizing GEPA | Held-out feedback/Pareto split + AgentSpec anti-overfit grounding + held-out candidate selection (transferable skills) |
 | ORCH-1.31 | Graph-Native Optimization State | Persist the GEPA Pareto frontier + ancestry to the epistemic-graph; resumable, cross-session optimization |
+| ORCH-1.41 | Process Plan Compiler | `compile_process` MCP/REST: lifts a descriptive BPMN process into an executable plan (`ProcessPlanCompiler`) |
+| ORCH-1.42 | Execution Ontology Gate | Ontology validation on the execution path (`workflow_gate.py`) before a compiled process runs |
+| ORCH-1.43 | Workflow Lineage Close-Out | Run lineage written back to the KG, closing the descriptive↔executable provenance loop |
+| ORCH-1.44 | Durable Goal Registry | Goals persist across restarts; stranded runs rehydrate as orphaned instead of silently vanishing |
+| ORCH-1.45 | Queue-Driven Agent Dispatch | Session-keyed `agent_turns` queue (`AgentTurnEnvelope`) + stateless `agent-dispatch-worker` fleet with fleet-visible placement |
 
-### Pillar 2: Epistemic Knowledge Graph (KG-2.0 – 2.23)
+### Pillar 2: Epistemic Knowledge Graph (KG-2.0 – 2.58)
 
 | ID | Concept | Description |
 |---|---|---|
@@ -189,8 +211,15 @@ graph TD
 | KG-2.22 | Data Science Primitives | Rust-backed OLS / K-means / PCA / estimators (ridge/lasso/RF/GB/SVR) replacing scikit-learn on the hot path, parity-validated |
 | KG-2.7 | Single Company Brain | Extensible operational state layer encompassing Ontology Bridges, Enterprise Architecture Repositories, and Entailment-Aware Permissions |
 | KG-2.49 | Remote VCS Enumeration | Enterprise-scale ingestion: enumerate every repository across a GitHub org/user or GitLab instance/groups (keyset / affiliation pagination) into a manifest for bulk workspace onboarding (repository-manager `vcs_enumerator`) |
+| KG-2.52 | Ontology Publisher Tick | Background publish of the authoritative TBox to Fuseki (`core/ontology_publisher.py`) |
+| KG-2.53 | BPMN Process Lift | Step-level shape for the descriptive process world (Camunda extractor + `owl_bridge`) |
+| KG-2.54 | Cross-Host Task Queue | Atomic SKIP LOCKED claims + visibility-timeout recovery on the shared Postgres state store |
+| KG-2.55 | Fail-Loud Queue Backend Selection | `TASK_QUEUE_BACKEND=sqlite\|postgres\|kafka`; explicit backends fail loud at startup instead of silently degrading |
+| KG-2.56 | Keyed Ingest Partitions | `kg_tasks` partition keys (tenant → repo/corpus → task type) for per-tenant/per-repo ordering |
+| KG-2.57 | Decoupled kg-ingest Consumer Group | `kg-ingest-worker` runs ingest as engine clients on any host; at-least-once, idempotent claims, lag metrics |
+| KG-2.58 | Tenant-Partitioned Engine Sharding | HRW graph→shard routing over `GRAPH_SERVICE_ENDPOINTS` with tenant→named-graph placement |
 
-### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.15)
+### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.21)
 
 | ID | Concept | Description |
 |---|---|---|
@@ -203,8 +232,12 @@ graph TD
 | AHE-3.6 | Backtest & Curriculum | Backtest harness, horizon-aware curriculum |
 | AHE-3.8 | Interpretability & Model Evolution | Agent-Interpretable Model Evolver workflows and LLM-Graded Interpretability Tests |
 | AHE-3.12 | LongMemEval-S Validation Harness | FastAPI /benchmark surface (Quarq-runner compatible) + frozen corpus + CI floor gate proving the memory-first stack vs 98.2% |
+| AHE-3.18 | Failure-Driven Evolution | Langfuse failure ingest → `failure_gap` Concept topics → golden-loop remediation → regression-gated merge |
+| AHE-3.19 | Performance Anomaly Consumer | Turns persisted `PerformanceAnomaly` nodes into evolution topics (`adaptation/anomaly_consumer.py`) |
+| AHE-3.20 | Promotion Governance Validator | Governed validation gate every promoted proposal must pass (`research/promotion_governance.py`) |
+| AHE-3.21 | Evolution-to-Branch Bridge | Change synthesis + RLM-sandbox validation + ActionPolicy-gated `ChangePublisher` publishing promoted proposals as reviewable local git branches |
 
-### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.20)
+### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.34)
 
 | ID | Concept | Description |
 |---|---|---|
@@ -221,8 +254,9 @@ graph TD
 | ECO-4.12 | Plugin Bundle Distribution System | Manifest-based skill/hook/config packaging with KG registry |
 | ECO-4.13 | Ecosystem Governance & Policy Engine | Unified engine managing permission policies, configuration staleness auditing, and governance workflows |
 | ECO-4.14 | Infrastructure Blueprint Library | Library of modular, declarative system infrastructure configurations |
+| ECO-4.34 | Fleet-Scale MCP Multiplexer Hardening | Per-child concurrency limits, session pools, restart-on-crash, circuit breakers, `multiplexer_status` tool (`mcp/child_resilience.py`) |
 
-### Pillar 5: Agent OS Infrastructure (OS-5.0 – 5.6)
+### Pillar 5: Agent OS Infrastructure (OS-5.0 – 5.29)
 
 | ID | Concept | Description |
 |---|---|---|
@@ -232,6 +266,18 @@ graph TD
 | OS-5.3 | OS Guardrails & Safety Boundaries | Holistic boundary definition integrating tool guards, reactive budgets/homeostasis, and ontological guardrails |
 | OS-5.4 | Telemetry & Observability | OTEL, token tracking, audit logging |
 | OS-5.5 | Massive Scale | Pluggable distributed queues, epistemic-graph Rust UDS RPC, and wasmtime sandbox integration |
+| OS-5.14 | Server-Minted JWT Identity | `ActorContext` minted server-side from validated JWTs; fail-closed permissioning; HMAC engine auth (`security/request_identity.py`, `security/auth.py`) |
+| OS-5.15 | Fleet Event Ingress | `POST /api/fleet/events` webhook persisting monitoring alerts as `FleetEvent` KG nodes + triage seam |
+| OS-5.16 | Unified Durable-State Externalization | One `STATE_DB_URI` flag moves checkpoints, sessions/goals, and the task queue onto shared Postgres |
+| OS-5.17 | Cross-Host Daemon Leadership | Postgres advisory-lock election so singleton background ticks run on exactly one host fleet-wide |
+| OS-5.18 | Fleet Supervisory Plane at Scale | SQL aggregation, paginated/filtered session queries, desired-state pause/kill reconciliation across hosts |
+| OS-5.23 | Gateway Middle-Tier Hardening | Prometheus `/metrics`, per-tenant token-bucket rate limiting, engine circuit breaker, `GATEWAY_WORKERS` pre-fork |
+| OS-5.24 | ActionPolicy Decision Point | Per-action autonomy tiers, durable rate limits, maintenance windows, blast-radius caps; fail-closed; audit-logged |
+| OS-5.25 | Desired-State Fleet Reconciler | Leader-only tick diffing the fleet registry against a `FleetObserver`, converging through ActionPolicy (dry-run default) |
+| OS-5.26 | Remediation Playbooks | `service_down`/`service_flapping`/`resource_pressure` playbooks with stepwise verification on the fleet-event triage seam |
+| OS-5.27 | Health-Gated Deploy Watch | Durable post-deploy health watch; failure invokes policy-gated rollback + escalation |
+| OS-5.28 | Shard Topology Visibility | Per-shard reachability/breaker status surfaces + per-endpoint engine gauges and counters |
+| OS-5.29 | Reactive Replica Autoscaling | Registry-declared scaling bounds + pluggable signal providers + leader-only target-tracking autoscaler behind the policy gate |
 
 ### Gateway Service Dashboard (OS-5.9)
 

@@ -7,6 +7,26 @@ are exposed by the `graph-os` MCP server and mirrored 1:1 by the REST gateway
 
 > Source of truth for the tool surface: `agent_utilities/mcp/kg_server.py`
 > (the `graph_*`, `ontology_*`, `object_*` tools and `ACTION_TOOL_ROUTES`).
+> The parity contract test (`tests/unit/test_gateway_mcp_parity.py`) keeps the
+> MCP and REST surfaces in lockstep.
+
+## The tool surface at a glance
+
+**25 MCP tools**, every one with an action-routed REST twin:
+
+| Group | Tools |
+|---|---|
+| Graph core (14) | `graph_query`, `graph_search`, `graph_write`, `graph_ingest`, `graph_analyze`, `graph_orchestrate`, `graph_configure`, `graph_context`, `graph_feedback`, `graph_goals`, `graph_hydrate`, `graph_message`, `graph_sessions`, `document_process` |
+| Ontology (6) | `ontology_property_types`, `ontology_value_types`, `ontology_interface`, `ontology_function`, `ontology_derive`, `ontology_link_materialize` |
+| Objects (4) | `object_edits`, `object_index`, `object_permissioning`, `object_set` |
+| Connectors (1) | `source_connector` |
+
+The REST gateway mounts the same surface under `/api`: the 25 action-routed
+twins plus granular sub-routes (`/api/graph/write/node`, `/api/graph/ingest/jobs`,
+`/api/sessions`, `/api/goals`, …) — 104 KG routes in total — alongside the
+fleet supervisory plane (`/api/fleet/*`, 7 routes), the service dashboard
+(`/api/dashboard/*`, including daemon status/shards), and Prometheus
+`GET /metrics`.
 
 ## Knowledge graph: store & recall
 
@@ -44,6 +64,13 @@ await kg_server._execute_tool("graph_ingest", action="ingest",
 `agent_toolkit`, `ingest_knowledge_pack`. Documents become first-class
 `Document`+`Chunk` ontology objects with OWL semantics.
 
+Ingestion scales horizontally: the durable task queue is selectable via
+`TASK_QUEUE_BACKEND` (`sqlite` | `postgres` | `kafka`, fail-loud when an
+explicit backend is unreachable), Kafka `kg_tasks` messages are keyed for
+per-tenant/per-repo ordering, and the `kg-ingest-worker` console script joins
+the `kg-ingest` consumer group from any host. See
+[Event Backbone — Ingest Task Queue Scale-Out](architecture/event_backbone_architecture.md).
+
 ## Orchestration: spawn teams & swarms
 
 ```python
@@ -53,9 +80,23 @@ await kg_server._execute_tool("graph_orchestrate", action="execute_agent",
 ```
 
 `graph_orchestrate` actions: `dispatch`, `execute_agent`, `swarm`, `consensus`,
-`start_debate`, `compile_workflow`, `execute_workflow`, `request_approval`,
-`grant_approval`, `submit_risk_veto`. Recursive nesting, circuit breakers,
-cognitive-scheduler quotas, and blast-radius scoping are built in (pillar 1).
+`start_debate`, `compile_workflow`, `compile_process`, `execute_workflow`,
+`request_approval`, `grant_approval`, `submit_risk_veto`, `publish_proposal`.
+Recursive nesting, circuit breakers, cognitive-scheduler quotas, and
+blast-radius scoping are built in (pillar 1).
+
+With `AGENT_DISPATCH_BACKEND=queue`, agent turns dispatch through a
+session-partitioned durable queue (`AgentTurnEnvelope`) consumed by a stateless
+`agent-dispatch-worker` fleet on any host — per-session serial execution,
+crash-safe at-least-once claims, and worker placement visible at
+`/api/fleet/topology`. See [Queue-Driven Agent Dispatch](architecture/agent_dispatch.md)
+and the [queue-dispatch walkthrough](examples/queue-dispatch-walkthrough.md).
+
+Descriptive BPMN process knowledge is executable too: `compile_process` lifts a
+process definition into an executable plan via the `ProcessPlanCompiler`
+(ORCH-1.41), gated by ontology validation on the execution path (ORCH-1.42),
+with run lineage written back to close the descriptive↔executable loop
+(ORCH-1.43). See the [ontology-to-workflow example](examples/ontology-to-workflow.md).
 
 ## Memory & autonomous goals
 
@@ -66,8 +107,10 @@ await kg_server._execute_tool("graph_goals", action="create",
 ```
 
 `graph_goals`: `create`, `list`, `iterations`, `cancel`. `graph_sessions`:
-`list`, `get`, `reply`, `cancel`. Sessions/turns are durable (SQLite) and
-resumable across restarts.
+`list`, `get`, `reply`, `cancel`. Sessions, turns, and goals are durable and
+resumable across restarts — per-host SQLite by default, or one shared Postgres
+state store for the whole fleet via `STATE_DB_URI` (OS-5.16, see
+[State Externalization](architecture/state_externalization.md)).
 
 ## Ontology (Palantir-Foundry parity)
 
@@ -90,23 +133,76 @@ Tools: `ontology_interface`, `ontology_value_types`, `ontology_property_types`,
 forward-chaining reasoning in the Rust engine (`reason()` over the
 `epistemic-graph` client).
 
-## Reactive supervision (Agent OS)
+## Identity & multi-tenancy
+
+Every gateway request passes through server-minted identity (OS-5.14): JWT
+bearer tokens are validated and scoped into an `ActorContext`
+(`agent_utilities/security/request_identity.py`), permission checks fail
+closed, and engine connections authenticate with an HMAC shared secret. With
+`KG_AUTH_REQUIRED` set, unauthenticated requests are rejected with 401. In
+sharded deployments the ambient tenant also drives graph placement (see below).
+Walkthrough: [identity & JWT example](examples/identity-jwt.md).
+
+## Scale out: shards, workers, and one shared state store
+
+When one host is not enough, every plane scales independently — all opt-in,
+all byte-for-byte unchanged at defaults:
+
+| Plane | Mechanism | Flag / entry point |
+|---|---|---|
+| KG engine | Tenant-sharded engines behind client-side HRW routing, per-shard reachability at `/api/dashboard/daemon/shards` | `GRAPH_SERVICE_ENDPOINTS` (2+ endpoints), `docker/engine-shards.compose.yml` |
+| Ingestion | Kafka `kg_tasks` keyed partitions + `kg-ingest` consumer group | `TASK_QUEUE_BACKEND=kafka`, `kg-ingest-worker` |
+| Agent execution | Session-keyed `agent_turns` queue + dispatch-worker fleet | `AGENT_DISPATCH_BACKEND=queue`, `agent-dispatch-worker` |
+| Gateway | Pre-forked workers, per-tenant token-bucket rate limiting, engine circuit breaker | `GATEWAY_WORKERS`, `GATEWAY_RATE_LIMIT` |
+| Durable state | One shared Postgres store with SKIP LOCKED queue claims + advisory-lock daemon leadership | `STATE_DB_URI` |
+
+Deep dives: [Engine Sharding](architecture/engine_sharding.md) ·
+[Gateway Scaling](architecture/gateway_scaling.md) ·
+[State Externalization](architecture/state_externalization.md) ·
+[sharding walkthrough](examples/sharding-walkthrough.md).
+
+## Reactive supervision & fleet autonomy (Agent OS)
 
 The REST gateway exposes a native **fleet supervisor** (no separate service):
-`/api/fleet/health`, `/api/fleet/topology`, `/api/fleet/pause`,
-`/api/fleet/kill`, `/api/fleet/approvals` — per-domain error rates, live
-topology, blast-radius containment, and a mutation/risk approval queue. See
-pillar 5 and the [agent-webui](ecosystem.md) Fleet Supervisor view.
+`/api/fleet/health`, `/api/fleet/topology`, `/api/fleet/events`,
+`/api/fleet/pause`, `/api/fleet/kill`, `/api/fleet/approvals` (+ `/grant`) —
+per-domain error rates, live topology (including dispatch workers), monitoring
+event ingress, blast-radius containment, and a mutation/risk approval queue.
+See pillar 5 and the [agent-webui](ecosystem.md) Fleet Supervisor view.
+
+On top of the supervisor sits an opt-in autonomy control plane: every
+autonomous mutating action is gated by the **ActionPolicy** decision point
+(`orchestration/action_policy.py`, fail-closed, audit-logged; policies in
+`deploy/action-policy.default.yml`), driving the desired-state fleet
+reconciler, remediation playbooks, health-gated deploy watch with rollback,
+and the reactive autoscaler. See [Fleet Autonomy](architecture/fleet_autonomy.md),
+[action-policy postures](examples/action-policy-postures.md), and
+[autoscaling signals](examples/autoscaling-signals.md).
+
+## Observability
+
+With the optional `metrics` extra, the gateway serves Prometheus metrics at
+`GET /metrics` (`agent_utilities_*` series: requests, latency, rate limiting,
+engine calls/breaker state, engine shard reachability, ingest queue depth and
+consumer lag — also the autoscaler's default signals — dispatch queue/turns/
+workers, and MCP child health). Each Rust engine shard
+exposes its own `epistemic_graph_*` series on its `--metrics-addr` listener.
+Catalog: [metrics reference](reference/metrics.md) ·
+[observability example](examples/observability.md).
 
 ## Expose your own tools as MCP
 
 Any `agent-packages/agents/*` connector follows the same template
 (`create_mcp_server()` in `agent_utilities/mcp/server_factory.py`) and can run
 as a streamable-http container — see [Day-0](guides/day0.md) and the
-[ecosystem map](ecosystem.md).
+[ecosystem map](ecosystem.md). The `mcp-multiplexer` that aggregates the fleet
+is hardened per child: concurrency limits, session pools, restart-on-crash,
+circuit breakers, and a `multiplexer_status` health tool (ECO-4.34,
+`agent_utilities/mcp/child_resilience.py`).
 
 ---
 
 **Full runnable examples:** `examples/reference_agent/`
 (`basic_agent.py`, `graph_agent.py`, `knowledge_graph_agent.py`, `mcp_agent.py`,
-`memory_agent.py`, `protocol_agent.py`).
+`memory_agent.py`, `protocol_agent.py`) and the operational walkthroughs under
+[docs/examples/](examples/).
