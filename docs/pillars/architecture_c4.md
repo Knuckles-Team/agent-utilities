@@ -53,25 +53,37 @@ Shows the 5 pillars as containers with data flows between them.
 
 ```mermaid
 C4Container
-    title agent-utilities — Container Diagram (5 Pillars)
+    title agent-utilities — Container Diagram (5 Pillars + scale-out planes)
 
     Person(user, "Developer / Agent")
 
     System_Boundary(au, "agent-utilities") {
-        Container(orch, "ORCH: Orchestration Engine", "Python", "Router, Planner, Dispatcher, Capability Wiring")
-        Container(kg, "KG: Knowledge Graph", "Python + epistemic-graph (Unix Sockets)", "Native graph-os ingestion, OWL ontology via Rust-compiled Datalog, hybrid retrieval")
-        Container(ahe, "AHE: Agentic Harness", "Python", "Self-model, TeamConfig, evolution, evaluation")
-        Container(eco, "ECO: Ecosystem Peripherals", "Python + FastMCP", "MCP server factory, A2A, skill management")
-        Container(os_k, "OS: Agent OS Kernel", "Python + FastAPI", "Auth, guardrails, lifecycle, telemetry")
-        ContainerDb(kgdb, "Knowledge Graph DB", "epistemic-graph (L0/L1) + PostgreSQL (durable); SQLite/file fallback", "~/.local/share/agent-utilities/kg/")
+        Container(orch, "ORCH: Orchestration Engine", "Python", "Router, Planner, Dispatcher, Capability Wiring; queue-driven turn dispatch (ORCH-1.45)")
+        Container(kg, "KG: Knowledge Graph", "Python + epistemic-graph (Unix Sockets / TCP)", "Native graph-os ingestion, OWL ontology via Rust-compiled Datalog, hybrid retrieval; HRW shard routing (KG-2.58)")
+        Container(ahe, "AHE: Agentic Harness", "Python", "Self-model, TeamConfig, evolution, evaluation; governed branch publication (AHE-3.21)")
+        Container(eco, "ECO: Ecosystem Peripherals", "Python + FastMCP", "MCP server factory, A2A, skill management; hardened multiplexer (ECO-4.34)")
+        Container(os_k, "OS: Agent OS Kernel", "Python + FastAPI", "JWT-minted identity (OS-5.14), guardrails, lifecycle, telemetry, Prometheus /metrics, rate limiting, GATEWAY_WORKERS (OS-5.23)")
+        Container(autonomy, "OS: Fleet Autonomy Plane", "Python", "ActionPolicy gate (OS-5.24), fleet reconciler (OS-5.25), remediation playbooks (OS-5.26), deploy watch (OS-5.27), autoscaler (OS-5.29)")
+        Container(workers, "Worker Fleets", "Python console scripts", "kg-ingest-worker (KG-2.57) + agent-dispatch-worker (ORCH-1.45) — stateless, any host")
+        ContainerDb(kgdb, "Knowledge Graph DB", "epistemic-graph engine shards (L0/L1) + PostgreSQL (durable); SQLite/file fallback", "1..N shards behind GRAPH_SERVICE_ENDPOINTS")
+        ContainerDb(statedb, "Shared State Store", "PostgreSQL via STATE_DB_URI (OS-5.16); per-host SQLite default", "Checkpoints, sessions/goals, task + dispatch queues (SKIP LOCKED, advisory-lock leadership)")
+        ContainerQueue(queues, "Work Queues", "Kafka kg_tasks + agent_turns topics (or Postgres/SQLite)", "Keyed partitions: tenant/repo (KG-2.56), session (ORCH-1.45)")
     }
 
-    Rel(user, os_k, "Authenticated request")
+    Rel(user, os_k, "Authenticated request (JWT → ActorContext)")
     Rel(os_k, orch, "Validated task dispatch")
     Rel(orch, kg, "Queries for routing & specialist selection")
-    Rel(kg, kgdb, "Cypher queries / persistence")
+    Rel(orch, queues, "Enqueues AgentTurnEnvelope (queue mode)")
+    Rel(kg, queues, "Enqueues ingest tasks (TASK_QUEUE_BACKEND)")
+    Rel(queues, workers, "Claims: at-least-once, idempotent")
+    Rel(workers, kg, "Executes as engine clients (HMAC auth)")
+    Rel(workers, statedb, "Durable write-back + heartbeats")
+    Rel(kg, kgdb, "Cypher queries / persistence (HRW graph → shard)")
+    Rel(os_k, statedb, "Sessions, goals, leadership, approvals")
+    Rel(autonomy, os_k, "Fleet events in; approvals out (/api/fleet/*)")
     Rel(kg, ahe, "Feeds Self-Model & TeamConfig")
     Rel(ahe, eco, "Promotes proven coalitions to MCP/A2A")
+    Rel(ahe, autonomy, "publish_proposal through the ActionPolicy gate")
     Rel(eco, os_k, "Tool execution through kernel guardrails")
     Rel(os_k, kg, "Persists execution traces & telemetry")
 ```
@@ -312,22 +324,36 @@ C4Component
 
     Container_Boundary(os_k, "Agent OS Kernel") {
         Component(auth, "Security Policy Middleware", "Python", "JWT, API key, MCP auth")
+        Component(identity, "Actor Identity Middleware", "Python", "OS-5.14: server-minted JWT ActorContext, fail-closed permissioning, engine HMAC secret")
         Component(threat, "Threat Defense Engine", "Python", "Prompt injection, jailbreak detection")
         Component(guardrails, "Guardrail Engine", "Python", "Tool guard, rate limit, content filter")
         Component(scheduler, "Cognitive Scheduler", "Python", "Priority queue, preemption, context paging")
         Component(budget, "🔬 Inference Budget Controller", "Python", "OS-5.2: Cost-aware tier fallback. Research: 2605.05701v1")
         Component(telemetry, "Telemetry Pipeline", "Python", "OTEL, token tracking, audit logging")
+        Component(metrics, "Gateway Metrics + Rate Limit", "Python ASGI", "OS-5.23: Prometheus /metrics (agent_utilities_* series), per-tenant token buckets, engine circuit breaker, GATEWAY_WORKERS")
         Component(paths, "XDG Paths Module", "Python + platformdirs", "Centralized path resolution")
-        Component(gateway, "Gateway Service Dashboard", "Python + FastAPI", "OS-5.9: 50-widget registry, aggregator, REST+WS API, MCP auto-discovery")
+        Component(gateway, "Gateway Service Dashboard", "Python + FastAPI", "OS-5.9: 50-widget registry, aggregator, REST+WS API, MCP auto-discovery; daemon/shards topology view (OS-5.28)")
+        Component(statestore, "State Store Seam", "Python", "OS-5.16: STATE_DB_URI — shared Postgres for checkpoints/sessions/queues; OS-5.17 advisory-lock leadership")
+        Component(fleetapi, "Fleet Supervisory Plane", "Python", "OS-5.15/OS-5.18: /api/fleet/* — health, topology, events ingress, pause/kill, approvals")
+        Component(actionpolicy, "ActionPolicy Decision Point", "Python", "OS-5.24: per-action autonomy tiers, durable rate limits, blast-radius caps; fail-closed; ActionDecision audit")
+        Component(reconciler, "Fleet Reconciler + Autoscaler", "Python", "OS-5.25/OS-5.29: desired-state convergence + target-tracking scaling, leader-only, dry-run actuator default")
+        Component(deploywatch, "Deploy Watch", "Python", "OS-5.27: durable post-deploy health watch; policy-gated rollback on sustained failure")
     }
 
     Rel(auth, threat, "Validates before routing")
+    Rel(identity, auth, "Scopes request to minted ActorContext")
     Rel(threat, guardrails, "Applies runtime constraints")
     Rel(guardrails, telemetry, "Records enforcement decisions")
     Rel(scheduler, budget, "Tracks cost + auto-downgrades model tier")
+    Rel(metrics, telemetry, "Exposes Prometheus series")
     Rel(paths, auth, "Provides config/data locations")
     Rel(paths, gateway, "XDG config + data paths")
     Rel(gateway, telemetry, "Reports widget fetch metrics")
+    Rel(fleetapi, statestore, "Paginated session/goal queries, approvals")
+    Rel(fleetapi, reconciler, "FleetEvents + desired-state input")
+    Rel(reconciler, actionpolicy, "Every mutating action consults the gate")
+    Rel(actionpolicy, deploywatch, "Allowed deploys/restarts get a health watch")
+    Rel(deploywatch, actionpolicy, "Rollback is itself policy-gated")
 ```
 
 ### Pillar 6: GeniusBot Cockpit (GUI)
@@ -502,6 +528,55 @@ flowchart LR
             WD_PRESET -->|"seed_into_kg()"| WD_KG
         end
 
+        subgraph QUEUE_DISPATCH ["Queue-Driven Dispatch Flow (ORCH-1.45)"]
+            direction LR
+            QD_CALL["ORCH-1.0: graph_orchestrate dispatch / goal loop"] -->|"AGENT_DISPATCH_BACKEND=queue"| QD_ENV["ORCH-1.45: AgentTurnEnvelope (job id, session id, payload ref)"]
+            QD_ENV -->|"key = session:&lt;id&gt;"| QD_TOPIC["KG-2.55: agent_turns queue (Kafka / Postgres / SQLite)"]
+            QD_TOPIC -->|"claim under session lock"| QD_WORKER["ORCH-1.45: agent-dispatch-worker"]
+            QD_WORKER -->|"rehydrate + execute existing body"| QD_RUN["ORCH-1.21: run_goal_loop / orchestration manager"]
+            QD_RUN -->|"durable write-back, then ack"| QD_STATE["OS-5.16: shared state store"]
+            QD_WORKER -->|"heartbeat"| QD_TOPO["OS-5.18: /api/fleet/topology"]
+        end
+
+        subgraph INGEST_SCALE ["Ingest Scale-Out Flow (KG-2.55 / 2.56 / 2.57)"]
+            direction LR
+            IS_SUBMIT["KG-2.0: graph_ingest submit"] -->|"TASK_QUEUE_BACKEND (fail-loud)"| IS_TOPIC["KG-2.56: kg_tasks topic (key: tenant → repo → type)"]
+            IS_TOPIC -->|"kg-ingest consumer group"| IS_WORKER["KG-2.57: kg-ingest-worker (engine client, HMAC)"]
+            IS_TOPIC -->|"same group"| IS_HOST["KG-2.0: host engine worker pool"]
+            IS_WORKER -->|"idempotent job_id claims"| IS_ENGINE["KG-2.7: epistemic-graph engine"]
+            IS_TOPIC -.->|"lag + depth gauges"| IS_METRICS["OS-5.23: /metrics"]
+        end
+
+        subgraph SHARDING ["Engine Sharding Flow (KG-2.58 / OS-5.28)"]
+            direction LR
+            SH_REQ["KG-2.0: graph operation"] -->|"graph name / tenant"| SH_ROUTE["KG-2.58: HRW ShardRouter"]
+            SH_ROUTE -->|"owning shard"| SH_ENG["KG-2.7: engine shard 1..N (GRAPH_SERVICE_ENDPOINTS)"]
+            SH_ENG -.->|"reachability + breaker state"| SH_TOPO["OS-5.28: daemon status + dashboard daemon/shards"]
+        end
+
+        subgraph AUTONOMY ["Fleet Autonomy Flow (OS-5.15 / 5.24 — 5.27 / 5.29)"]
+            direction LR
+            AU_ALERT["Alertmanager / Uptime Kuma"] -->|"POST /api/fleet/events"| AU_EVENT["OS-5.15: FleetEvent nodes"]
+            AU_EVENT -->|"triage"| AU_PLAY["OS-5.26: remediation playbooks"]
+            AU_REG["deploy/mcp-fleet.registry.yml"] --> AU_RECON["OS-5.25: fleet reconciler"]
+            AU_REG -->|"scaling bounds"| AU_SCALE["OS-5.29: autoscaler"]
+            AU_PLAY --> AU_POLICY{"OS-5.24: ActionPolicy"}
+            AU_RECON --> AU_POLICY
+            AU_SCALE --> AU_POLICY
+            AU_POLICY -->|"allow"| AU_ACT["OS-5.25: FleetActuator (dry-run default)"]
+            AU_POLICY -->|"queue approval"| AU_APPR["OS-5.18: /api/fleet/approvals"]
+            AU_ACT -->|"deploy/restart"| AU_WATCH["OS-5.27: deploy watch"]
+            AU_WATCH -->|"sustained failure → policy-gated rollback"| AU_POLICY
+        end
+
+        subgraph EVOLVE_PUBLISH ["Evolution Publication Flow (AHE-3.18 — 3.21)"]
+            direction LR
+            EP_FAIL["AHE-3.18: Langfuse failures / AHE-3.19: anomalies"] -->|"failure_gap topics"| EP_LOOP["KG-2.7: golden loop"]
+            EP_LOOP -->|"promoted proposal"| EP_GOV["AHE-3.20: promotion governance validator"]
+            EP_GOV -->|"regression-gated"| EP_SYNTH["AHE-3.21: change synthesis + RLM sandbox"]
+            EP_SYNTH -->|"publish_proposal via ActionPolicy"| EP_BRANCH["AHE-3.21: reviewable local git branch (never pushed)"]
+        end
+
         subgraph GATEWAY ["Gateway Service Dashboard Flow (OS-5.9)"]
             direction LR
             GW_MCP["OS-5.9: mcp_config.json"] -->|"auto-discover"| GW_CONFIG["OS-5.9: ConfigManager"]
@@ -648,20 +723,34 @@ C4Container
     Container_Boundary(c1, "Agent Ecosystem") {
         Container(webui, "Agent WebUI", "React, Tailwind", "Renders streaming responses and graph activity visualization")
         Container(tui, "Agent Terminal UI", "Python, Textual", "Provides a high-performance terminal interface for direct CLI interaction")
-        Container(gateway, "Agent Gateway (FastAPI)", "Python, Pydantic-AI", "Handles ACP sessions and SSE streams, merges graph events into chat annotations")
+        Container(gateway, "Agent Gateway (FastAPI)", "Python, Pydantic-AI", "Handles ACP sessions and SSE streams; JWT-minted identity, per-tenant rate limits, /metrics; GATEWAY_WORKERS pre-fork")
         Container(orchestrator, "Graph Orchestrator", "Pydantic-Graph", "Routes queries, executes parallel domains, validates results")
         Container(subagent, "Domain Sub-Agents", "Pydantic-AI", "Specialized agents for Git, Web, Cloud, etc.")
+        Container(dispatchworkers, "agent-dispatch-worker fleet", "Python", "Claims session-keyed agent turns; durable write-back (ORCH-1.45)")
+        Container(ingestworkers, "kg-ingest-worker fleet", "Python", "kg-ingest consumer group; engine clients (KG-2.57)")
+        ContainerQueue(topics, "Kafka topics", "kg_tasks + agent_turns", "Keyed partitions; Postgres/SQLite fallbacks")
+        ContainerDb(shards, "epistemic-graph engine shards", "Rust", "1..N tenant-partitioned shards, HRW-routed (KG-2.58)")
+        ContainerDb(state, "Shared state store", "PostgreSQL (STATE_DB_URI)", "Sessions, goals, checkpoints, queues")
     }
 
-    System_Ext(mcp, "MCP Servers", "Contextual tools (GitHub, Slack, etc.)")
+    System_Ext(mcp, "MCP Servers", "Contextual tools (GitHub, Slack, etc.) behind the hardened multiplexer (ECO-4.34)")
     System_Ext(otel, "OpenTelemetry Collector", "Tracing and monitoring")
+    System_Ext(prom, "Prometheus", "Scrapes gateway /metrics + per-shard engine metrics listeners")
 
     Rel(user, webui, "Uses", "HTTPS/WSS")
     Rel(user, tui, "Uses", "Terminal/CLI")
     Rel(webui, gateway, "Queries", "ACP /acp (SSE/RPC)")
     Rel(tui, gateway, "Queries", "ACP /acp (SSE/RPC)")
     Rel(gateway, orchestrator, "Dispatches", "Async Python")
+    Rel(gateway, topics, "Enqueues turns in queue mode", "AgentTurnEnvelope")
+    Rel(topics, dispatchworkers, "Session-keyed claims", "at-least-once")
+    Rel(topics, ingestworkers, "Tenant/repo-keyed claims", "at-least-once")
+    Rel(dispatchworkers, state, "Rehydrate + durable write-back")
+    Rel(ingestworkers, shards, "Ingest as engine clients", "MessagePack + HMAC")
+    Rel(orchestrator, shards, "Graph ops, HRW-routed", "MessagePack/UDS or TCP")
+    Rel(gateway, state, "Sessions, goals, approvals, leadership")
     Rel(orchestrator, subagent, "Delegates", "Parallel Execution")
     Rel(subagent, mcp, "Invokes Tools", "JSON-RPC (stdio/SSE)")
     Rel(orchestrator, otel, "Exports Spans", "OTLP")
+    Rel(prom, gateway, "Scrapes", "GET /metrics")
 ```

@@ -182,8 +182,38 @@ failures (held while a signature is spiking; AHE-3.14).
   `LANGFUSE_SECRET_KEY` (no deprecated `LANGFUSE_BASE_URL` fallback).
 - Full detail: [`docs/architecture/failure_driven_evolution.md`](../architecture/failure_driven_evolution.md).
 
+### AHE-3.19 — Performance Anomaly Consumer
+Closes the loop on the anomalies AHE-3.18 persists: a daemon tick
+(`knowledge_graph/adaptation/anomaly_consumer.py`) consumes durable
+`PerformanceAnomaly` nodes and turns recurring ones into evolution topics for
+the golden loop, so a cost/latency/error pattern observed in production becomes
+a remediation candidate without a human filing it. Propose-only, like every
+evolution ingress.
+
+### AHE-3.20 — Promotion Governance Validator
+The governed validation gate every promoted proposal must pass before merge
+(`knowledge_graph/research/promotion_governance.py`, wired into
+`research/auto_merge.py`): promotion is no longer a bare regression check but a
+policy surface. Together with the recorded regression gate (AHE-3.18), this is
+stage two of the safety chain in
+[Autonomous Evolution](../guides/autonomous-evolution.md).
+
+### AHE-3.21 — Evolution-to-Branch Publication Bridge
+The bridge from "promoted proposal in the KG" to "reviewable change on disk":
+**change synthesis** (`knowledge_graph/research/change_synthesis.py`) turns a
+promoted proposal into concrete edits, validates them in the RLM sandbox, and a
+governed **`ChangePublisher`** seam (`research/change_publisher.py`) publishes
+them as a regression-gated **local** git branch — never pushed. Publication
+itself is an ActionPolicy-gated action (`publish_proposal` on
+`graph_orchestrate`, REST twin `/api/graph/orchestrate/publish-proposal`),
+which under the shipped default policy requires human approval (OS-5.24).
+Walkthrough: [evolution publication example](../examples/evolution-publication.md).
+
 ## Key Concepts Leveraged (2026 additions)
 - **AHE-3.15**: Agent-Step Policy Optimization (ARPO)
 - **AHE-3.16**: Test-Time Diversity (VPO)
 - **AHE-3.17**: Preference-Corpus Reliability (DPO family)
 - **AHE-3.18**: Failure-Driven Evolution (Langfuse failures → remediation proposals)
+- **AHE-3.19**: Performance Anomaly Consumer (durable anomalies → evolution topics)
+- **AHE-3.20**: Promotion Governance Validator (governed gate on every promotion)
+- **AHE-3.21**: Evolution-to-Branch Bridge (change synthesis + RLM-sandbox validation + ActionPolicy-gated local-branch publication)

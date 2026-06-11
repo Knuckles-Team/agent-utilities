@@ -48,6 +48,8 @@ For financial workflows (linked to KG-2.46 Optimal Execution), the ecosystem imp
 - **ECO-4.13**: Configuration Staleness Auditor — Periodic review of unused rules, skills, and hooks
 - **ECO-4.13**: Governance Workflow Pipeline — Unified change proposal, risk scoring, and approval routing
 - **ECO-4.10**: Codebase Map Generator — Deterministic `CODEBASE.md` generation for navigational context
+- **ECO-4.25–4.29**: Document-Source Connector Framework — `load`/`poll`/`slim` connectors (web, filesystem, database, MCP fleet) with checkpoints and permission sync
+- **ECO-4.34**: Fleet-Scale MCP Multiplexer Hardening — per-child limits, session pools, restart-on-crash, circuit breakers, `multiplexer_status`
 
 ---
 
@@ -147,19 +149,49 @@ Generates deterministic `CODEBASE.md` files with directory-tree TOCs and docstri
 - **Behavior**: Walks the file tree, extracts module docstrings, and produces a navigational markdown document. Registered as a graph-os MCP tool.
 
 
+### 🛡️ Fleet-Scale MCP Multiplexer Hardening (ECO-4.34)
+
+The `mcp-multiplexer` aggregates the whole `*-mcp` fleet behind one server, and every aggregated child now runs behind a per-child `ChildRuntime` (`agent_utilities/mcp/child_resilience.py`) instead of one bare shared session:
+
+- **Per-child concurrency limits + bounded queue** — `MCP_CHILD_MAX_CONCURRENCY` (default 8; per-server `max_concurrency` in `mcp_config.json`) caps in-flight calls; excess calls queue at most `MCP_CHILD_QUEUE_TIMEOUT` (default 30s) then fail with the typed `MCPChildBusyError`, so one slow child cannot cause head-of-line hangs.
+- **Session pools for HTTP children** — remote (streamable-http/SSE) children hold `MCP_CHILD_POOL_SIZE` round-robin connections (default 1 keeps the historical resource profile); stdio stays single-pipe.
+- **Restart-on-crash supervision** — transport failures recycle the child's connection generation with jittered exponential backoff; more than `MCP_CHILD_MAX_RESTARTS` (default 5) inside `MCP_CHILD_RESTART_WINDOW` (default 300s) parks the child as `failed` with the typed `MCPChildUnavailableError` naming the child and its restart state.
+- **Per-child circuit breaker** — consecutive transport failures open a breaker (`MCP_CHILD_BREAKER_THRESHOLD` / `MCP_CHILD_BREAKER_COOLDOWN`) that short-circuits with `MCPChildCircuitOpenError` until a half-open probe succeeds.
+- **Health surface + metrics** — the `multiplexer_status` tool / `MCPMultiplexer.status_snapshot()` reports per-child up/restarting/failed state, restart count, breaker state, pool size, in-flight and queued calls; per-child Prometheus series (`agent_utilities_mcp_child_calls_total{server,outcome}`, `..._breaker_state`, `..._restarts_total`, `..._queue_depth`) land on the OS-5.23 gateway registry.
+
 ### graph-os MCP Tools
 
-The `graph-os` MCP server provides native tools for interacting with the unified Knowledge Graph.
+The `graph-os` MCP server exposes **25 tools** (source of truth:
+`ACTION_TOOL_ROUTES` in `agent_utilities/mcp/kg_server.py`; the parity contract
+test keeps this table's REST twins in lockstep).
 
 | Tool Name | Description |
 |-----------|-------------|
-| `graph_analyze` | Execute complex analysis across the Knowledge Graph (synthesize, deep_extract, evaluate, security_scan, etc). |
-| `graph_configure` | Manage backend configurations, system credentials, and tool registration within the unified agent ecosystem. |
-| `graph_ingest` | Smart ingestion for codebases, documents, directories, and conversation logs. |
-| `graph_orchestrate`| Orchestrate multi-agent workflows, dispatch subagents, and manage execution loops. |
-| `graph_query` | Execute a read-only Cypher query against the Knowledge Graph. |
+| `graph_query` | Execute a read-only Cypher query against the Knowledge Graph (incl. federated scope and bitemporal `as_of`). |
 | `graph_search` | Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, memory, discover, dci). |
-| `graph_write` | Write nodes, relationships, or register external graphs to the Knowledge Graph. |
+| `graph_write` | Write nodes, relationships, memories, or register external graphs. |
+| `graph_ingest` | Smart ingestion for codebases, documents, directories, conversation logs; job-queue controls; skill-graph distill/import. |
+| `graph_analyze` | Complex analysis across the Knowledge Graph (synthesize, deep_extract, causal, invariant, forecast, security_scan, …). |
+| `graph_orchestrate` | Orchestrate multi-agent workflows, dispatch subagents, compile workflows/processes, approvals, publish proposals. |
+| `graph_configure` | Manage backend configurations, system credentials, schema packs, and tool registration. |
+| `graph_context` | Session-anchored context collections (ORCH-1.40). |
+| `graph_message` | Native invoker↔spawned-agent message channels (ORCH-1.40). |
+| `graph_sessions` | List/get/reply-to/cancel durable sessions. |
+| `graph_goals` | Create/list/iterate/cancel durable background goals. |
+| `graph_feedback` | Record human feedback and corrections. |
+| `graph_hydrate` | Hydrate the KG from external sources. |
+| `document_process` | Extract→chunk→embed→link document processing (KG-2.48). |
+| `source_connector` | Run document-source connectors (web, filesystem, database, MCP fleet — ECO-4.25–4.29). |
+| `ontology_property_types` | Property-type vocabulary (KG-2.47). |
+| `ontology_value_types` | Constrained semantic value types (KG-2.39). |
+| `ontology_interface` | Interfaces + implementer resolution (KG-2.38). |
+| `ontology_function` | Typed, versioned, governed functions (KG-2.41). |
+| `ontology_derive` | Read-time derived properties (KG-2.40). |
+| `ontology_link_materialize` | First-class link materialization (KG-2.26). |
+| `object_edits` | Bitemporal object edit ledger with revert (KG-2.43). |
+| `object_index` | Object indexing lifecycle (KG-2.44). |
+| `object_permissioning` | Entailment-aware ACL markings (KG-2.46). |
+| `object_set` | Composable object sets: filter/search/search-around/pivot/aggregate (KG-2.45). |
 
 ### Server Endpoints
 
