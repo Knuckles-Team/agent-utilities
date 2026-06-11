@@ -747,6 +747,16 @@ class AgentConfig(BaseSettings):
     graph_service_socket: str | None = Field(default=None, alias="GRAPH_SERVICE_SOCKET")
     """Path to the epistemic-graph Tokio service UDS socket. Defaults to
     $XDG_RUNTIME_DIR/epistemic-graph.sock."""
+    kg_ingest_engine_endpoint: str | None = Field(
+        default=None, alias="KG_INGEST_ENGINE_ENDPOINT"
+    )
+    """Dedicated ingest-engine endpoint (CONCEPT:KG-2.58, Phase D). When set (e.g.
+    ``unix:///tmp/epistemic-graph-ingest.sock``), the host daemon spawns a SECOND,
+    EPHEMERAL engine there (no persist dir — it only handles stateless parse +
+    throwaway community-detection tenants) and the codebase-ingest path routes its
+    parse + community work to it, isolated from the query engine and the background
+    daemons. Unset (default) = today's single-engine behavior, no change. The ingest
+    path health-gates the endpoint and falls back to the query engine if it's down."""
     graph_service_tcp_addr: str | None = Field(
         default=None, alias="GRAPH_SERVICE_TCP_ADDR"
     )
