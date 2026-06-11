@@ -76,8 +76,11 @@ def write_batch(backend: Any, batch: ExtractionBatch) -> tuple[int, int]:
     add_edge = getattr(backend, "add_edge", None)
     if callable(add_edge):
         for edge in batch.edges:
+            edge_props = {k: v for k, v in edge.props.items() if v is not None}
             try:
-                add_edge(edge.source, edge.target, rel_type=edge.rel_type)
+                add_edge(
+                    edge.source, edge.target, rel_type=edge.rel_type, **edge_props
+                )
                 e += 1
             except Exception as exc:  # pragma: no cover
                 logger.debug("write_batch edge failed: %s", exc)

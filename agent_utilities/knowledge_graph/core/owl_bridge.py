@@ -358,6 +358,9 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "belongs_to_portfolio",
     "executes_strategy",
     "backtested_with",
+    # BPMN process structure lift (CONCEPT:KG-2.53) — sequence flows between
+    # BusinessTask elements; matches :flowsTo in the ontology.
+    "flows_to",
     # Market Data Connector Protocol (CONCEPT:ECO-4.0)
     "fetched_from",
     "falls_back_to",

@@ -1,7 +1,9 @@
-"""Camunda BPMN source extractor tests (CONCEPT:KG-2.9).
+"""Camunda BPMN source extractor tests (CONCEPT:KG-2.9, step lift KG-2.53).
 
 Uses an injected fake client (no network / no daemon) plus the write_batch
 contract to assert node/edge mapping, canonical typing, and persistence.
+The step-level lift tests feed a real BPMN 2.0 XML fixture through the
+optional ``get_process_definition_xml`` capability.
 """
 
 from __future__ import annotations
@@ -11,6 +13,35 @@ from agent_utilities.knowledge_graph.enrichment.registry import (
     get_source,
     write_batch,
 )
+
+# BPMN 2.0 fixture: start → review (userTask) → decide (exclusiveGateway)
+#   → [approved] archive (serviceTask) → end
+#   → [else]     rework  (task) → notify (event, collapsed) → archive
+BPMN_FIXTURE = """<?xml version="1.0" encoding="UTF-8"?>
+<bpmn2:definitions xmlns:bpmn2="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                   id="defs1" targetNamespace="http://example.test/bpmn">
+  <bpmn2:process id="invoice" name="Invoice Receipt" isExecutable="true">
+    <bpmn2:startEvent id="start1"/>
+    <bpmn2:userTask id="review" name="Review Invoice"/>
+    <bpmn2:exclusiveGateway id="decide" name="Approved?"/>
+    <bpmn2:serviceTask id="archive" name="Archive Invoice"/>
+    <bpmn2:task id="rework" name="Request Rework"/>
+    <bpmn2:intermediateThrowEvent id="notify1"/>
+    <bpmn2:endEvent id="end1"/>
+    <bpmn2:sequenceFlow id="f1" sourceRef="start1" targetRef="review"/>
+    <bpmn2:sequenceFlow id="f2" sourceRef="review" targetRef="decide"/>
+    <bpmn2:sequenceFlow id="f3" sourceRef="decide" targetRef="archive">
+      <bpmn2:conditionExpression>${approved == true}</bpmn2:conditionExpression>
+    </bpmn2:sequenceFlow>
+    <bpmn2:sequenceFlow id="f4" sourceRef="decide" targetRef="rework">
+      <bpmn2:conditionExpression>${approved == false}</bpmn2:conditionExpression>
+    </bpmn2:sequenceFlow>
+    <bpmn2:sequenceFlow id="f5" sourceRef="rework" targetRef="notify1"/>
+    <bpmn2:sequenceFlow id="f6" sourceRef="notify1" targetRef="archive"/>
+    <bpmn2:sequenceFlow id="f7" sourceRef="archive" targetRef="end1"/>
+  </bpmn2:process>
+</bpmn2:definitions>
+"""
 
 
 class FakeBackend:
@@ -132,3 +163,131 @@ def test_write_batch_persists():
         "bpmn_process:invoice:1:abc",
         "PART_OF",
     ) in backend.edges
+
+
+# ── Step-level structure lift (CONCEPT:KG-2.53) ─────────────────────────────
+
+
+class XmlCapableClient:
+    """Client with the optional camunda_process action=xml capability."""
+
+    def list_process_definitions(self):
+        return [{"id": "invoice:1:abc", "key": "invoice", "name": "Invoice Receipt"}]
+
+    def get_process_definition_xml(self, id=None, key=None):
+        # Camunda 7 REST envelope shape.
+        return {"id": id, "bpmn20Xml": BPMN_FIXTURE}
+
+
+def _lifted(batch):
+    tasks = {
+        n.props["element_id"]: n for n in batch.nodes if n.type == "BusinessTask"
+    }
+    flows = {
+        (e.source, e.target): e for e in batch.edges if e.rel_type == "FLOWS_TO"
+    }
+    return tasks, flows
+
+
+def test_bpmn_xml_lifts_tasks_and_gateways_as_business_tasks():
+    batch = extract({"client": XmlCapableClient()})
+    tasks, _ = _lifted(batch)
+
+    # 3 tasks + 1 gateway lifted; start/end/intermediate events are NOT nodes.
+    assert set(tasks) == {"review", "decide", "archive", "rework"}
+    assert tasks["review"].props["task_type"] == "userTask"
+    assert tasks["review"].props["name"] == "Review Invoice"
+    assert tasks["archive"].props["task_type"] == "serviceTask"
+    # Gateways are typed via the property, not a separate node type.
+    assert tasks["decide"].type == "BusinessTask"
+    assert tasks["decide"].props["task_type"] == "exclusiveGateway"
+    assert tasks["decide"].props["is_gateway"] is True
+    assert tasks["review"].props["is_gateway"] is False
+    # Every lifted element is PART_OF its process.
+    part_of = {
+        (e.source, e.target) for e in batch.edges if e.rel_type == "PART_OF"
+    }
+    for el in ("review", "decide", "archive", "rework"):
+        assert (
+            f"bpmn_task:invoice:1:abc:{el}",
+            "bpmn_process:invoice:1:abc",
+        ) in part_of
+
+
+def test_sequence_flows_become_flows_to_with_conditions():
+    batch = extract({"client": XmlCapableClient()})
+    _, flows = _lifted(batch)
+
+    def fid(el):
+        return f"bpmn_task:invoice:1:abc:{el}"
+
+    # Gateway branching preserved as multiple conditional FLOWS_TO edges.
+    assert flows[(fid("decide"), fid("archive"))].props["condition"] == (
+        "${approved == true}"
+    )
+    assert flows[(fid("decide"), fid("rework"))].props["condition"] == (
+        "${approved == false}"
+    )
+    # Plain flow has no condition prop.
+    assert flows[(fid("review"), fid("decide"))].props == {}
+    # The rework → notify1(event) → archive hop collapses through the
+    # pass-through event to a direct FLOWS_TO.
+    assert (fid("rework"), fid("archive")) in flows
+    # start1/end1 never appear as endpoints.
+    assert all("start1" not in pair and "end1" not in pair for pair in flows)
+
+
+def test_flows_to_condition_persists_through_write_batch():
+    batch = extract({"client": XmlCapableClient()})
+    backend = FakeBackend()
+    write_batch(backend, batch)
+    assert (
+        "bpmn_task:invoice:1:abc:decide",
+        "bpmn_task:invoice:1:abc:archive",
+        "FLOWS_TO",
+    ) in backend.edges
+
+
+def test_client_without_xml_capability_degrades_to_metadata_only():
+    batch = extract({"client": FakeCamundaClient()})
+    assert all(":invoice:1:abc:" not in n.id for n in batch.nodes)
+    assert all(e.rel_type != "FLOWS_TO" for e in batch.edges)
+
+
+def test_xml_fetch_failure_is_tolerated():
+    class BrokenXmlClient(XmlCapableClient):
+        def get_process_definition_xml(self, id=None, key=None):
+            raise RuntimeError("engine down")
+
+    batch = extract({"client": BrokenXmlClient()})
+    assert len(batch.nodes) == 1  # just the process definition
+    assert batch.nodes[0].type == "BusinessProcess"
+
+
+def test_unparseable_xml_is_tolerated():
+    class GarbageXmlClient(XmlCapableClient):
+        def get_process_definition_xml(self, id=None, key=None):
+            return "<not-bpmn"
+
+    batch = extract({"client": GarbageXmlClient()})
+    assert len(batch.nodes) == 1
+
+
+def test_egeria_guid_recorded_as_external_id_and_aligned_with_edge():
+    class ReconciledClient:
+        def list_process_definitions(self):
+            return [
+                {
+                    "id": "invoice:1:abc",
+                    "key": "invoice",
+                    "egeriaGuid": "guid-123",
+                }
+            ]
+
+    batch = extract({"client": ReconciledClient()})
+    (proc,) = [n for n in batch.nodes if n.type == "BusinessProcess"]
+    assert proc.props["externalToolId"] == "guid-123"
+    aligned = [
+        (e.source, e.target) for e in batch.edges if e.rel_type == "ALIGNED_WITH"
+    ]
+    assert aligned == [("bpmn_process:invoice:1:abc", "egeria_process:guid-123")]
