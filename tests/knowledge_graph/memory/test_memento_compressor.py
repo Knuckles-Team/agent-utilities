@@ -29,8 +29,15 @@ def test_compress_to_memento_dry_run():
 def test_compress_to_memento_persist():
     engine_mock = MagicMock()
     engine_mock.backend = MagicMock()
+    # Block must be comfortably longer than the memento: the F4 convergence
+    # guarantee (_guarantee_shorter) head-truncates any memento that does not
+    # actually shrink its source block.
     messages = [
-        {"role": "user", "content": "Deploy the server"},
+        {
+            "role": "user",
+            "content": "Deploy the server to the staging swarm and confirm "
+            "the health endpoint responds before cutting traffic over.",
+        },
     ]
 
     with patch("pydantic_ai.Agent.run_sync") as mock_run:
