@@ -636,7 +636,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_golden_loop,
                 )
             )
-        # Failure-driven evolution (CONCEPT:AHE-3.18) — opt-in (KG_FAILURE_EVOLUTION=1).
+        # Failure-driven evolution (CONCEPT:AHE-3.18) — opt-in (KG_FAILURE_EVOLUTION=True).
         # Ingests Langfuse failures into failure-gap topics and runs a
         # regression-gated remediation cycle. This is the real telemetry sweep that
         # _tick_evolution used to (broken) stub out.
@@ -960,6 +960,21 @@ class TaskManagerMixin(GraphEngineProtocol):
                 logger.error(f"MaintenanceScheduler error: {e}")
                 time.sleep(30.0)
 
+    def _card_store(self) -> Any:
+        """Lazy, process-wide persistent card cache (keyed by ast_hash) so identical
+        code is LLM-summarised once across runs/repos. Best-effort → ``None`` on
+        failure. (CONCEPT:KG-2.8)"""
+        store = getattr(self, "_card_store_inst", None)
+        if store is None:
+            try:
+                from ..enrichment.cards import CardStore
+
+                store = CardStore()
+            except Exception:  # noqa: BLE001 - cache is best-effort
+                store = None
+            self._card_store_inst = store
+        return store
+
     def _tick_enrichment(self) -> None:
         """One Phase-2 enrichment tick: backfill LLM capability cards onto
         structurally-ingested ``Code`` nodes whose ``summary`` is still empty.
@@ -1005,7 +1020,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 "MATCH (n:Code) WHERE n.summary = '' AND n.ast_hash IS NOT NULL "
                 "RETURN n.id AS id, n.name AS name, n.kind AS kind, "
                 "n.file_path AS file_path, n.patterns AS patterns, "
-                "n.ast_hash AS ast_hash LIMIT " + str(BATCH)
+                "n.language AS language, n.ast_hash AS ast_hash LIMIT " + str(BATCH)
             )
             if not rows:
                 return
@@ -1024,6 +1039,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     name=r.get("name") or r["id"],
                     qualname=r.get("name") or r["id"],
                     kind=r.get("kind") or "function",
+                    language=r.get("language") or "",
                     file_path=r.get("file_path") or "",
                     line=0,
                     ast_hash=r.get("ast_hash") or "",
@@ -1046,6 +1062,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     llm_fn,
                     cache=self._enrich_card_cache,
                     max_workers=max_workers,
+                    store=self._card_store(),
                 )
             written = 0
             for card in cards:
@@ -1225,8 +1242,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                 from ..research.golden_loop import GoldenLoopController
 
                 check = analyzer.make_regression_check(gaps)
+                # Address the just-materialized failure_gap concepts directly
+                # (not via the generic unresolved_topics scan, which an arbitrary
+                # limit can exclude a new gap from). (CONCEPT:AHE-3.18)
+                gap_topics = [{"id": g["id"], "name": g["name"]} for g in gaps]
                 GoldenLoopController(self, regression_check=check).run_one_cycle(
                     max_topics=min(len(gaps), 5),
+                    topics=gap_topics,
                     assimilate=False,
                     breadth=False,
                     standardize=False,

@@ -134,6 +134,84 @@ def discover_source_files(root: str | Path) -> list[Path]:
     return sorted(out)
 
 
+class _BatchedBackend:
+    """Buffers ``add_node``/``add_edge`` and flushes them through the engine's
+    bulk ``batch_update`` (one RPC per ``batch_size``) instead of one RPC per
+    write. For a big-repo ingest (tens of thousands of symbols) this is the
+    dominant cost — the engine is a socket round-trip per call, so N per-node
+    writes = N round-trips. Nodes are flushed before edges so every edge endpoint
+    already exists; reads delegate to the wrapped backend. Falls back to per-item
+    writes if the engine has no bulk path or a batch fails. (CONCEPT:KG-2.8/2.16, #1)
+    """
+
+    def __init__(self, backend: Any, batch_size: int = 1000) -> None:
+        self._backend = backend
+        self._batch_size = batch_size
+        self._nodes: list[dict[str, Any]] = []
+        self._edges: list[dict[str, Any]] = []
+        graph = getattr(backend, "_graph", None)
+        self._bulk = getattr(graph, "bulk_mutate", None) or getattr(
+            graph, "batch_update", None
+        )
+
+    def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
+        self._nodes.append(
+            {
+                "op": "add_node",
+                "id": node_id,
+                "properties": {"label": label, **properties},
+            }
+        )
+        if len(self._nodes) >= self._batch_size:
+            self._flush_nodes()
+
+    def add_edge(
+        self, source: str, target: str, rel_type: str = "", **properties: Any
+    ) -> None:
+        self._edges.append(
+            {
+                "op": "add_edge",
+                "source": source,
+                "target": target,
+                "properties": {"rel_type": rel_type, **properties},
+            }
+        )
+
+    def _flush_nodes(self) -> None:
+        if not self._nodes:
+            return
+        ops, self._nodes = self._nodes, []
+        if self._bulk is not None:
+            try:
+                self._bulk(ops)
+                return
+            except Exception as e:  # noqa: BLE001 - degrade to per-node writes
+                logger.debug("batched node flush failed (%s); per-node fallback", e)
+        for op in ops:
+            self._backend.add_node(op["id"], **op["properties"])
+
+    def _flush_edges(self) -> None:
+        if not self._edges:
+            return
+        ops, self._edges = self._edges, []
+        if self._bulk is not None:
+            try:
+                self._bulk(ops)
+                return
+            except Exception as e:  # noqa: BLE001 - degrade to per-edge writes
+                logger.debug("batched edge flush failed (%s); per-edge fallback", e)
+        for op in ops:
+            self._backend.add_edge(op["source"], op["target"], **op["properties"])
+
+    def flush(self) -> None:
+        """Flush nodes first (so endpoints exist), then edges."""
+        self._flush_nodes()
+        self._flush_edges()
+
+    def __getattr__(self, name: str) -> Any:  # delegate reads / other ops
+        return getattr(self._backend, name)
+
+
 class EnrichmentPipeline:
     """Enriches a target path into typed Test/Code entities + COVERS edges.
 
@@ -243,54 +321,64 @@ class EnrichmentPipeline:
                 cards_by_id[card.id] = card
                 summary.cards_generated += 1
 
-        for c in all_code:
-            self._write_code(c, cards_by_id.get(c.id))
-            summary.code += 1
-        for t in all_tests:
-            if self._write_test(t):
-                summary.tests_needing_work += 1
-            summary.tests += 1
+        # Batch all writes for this repo through one buffered backend: a big repo
+        # is tens of thousands of nodes, and each per-node write is a socket
+        # round-trip. The buffer flushes via the engine's bulk op (nodes before
+        # edges). Reads (e.g. capability_provider) still hit the real backend. (#1)
+        real_backend = self.backend
+        self.backend = _BatchedBackend(real_backend)
+        try:
+            for c in all_code:
+                self._write_code(c, cards_by_id.get(c.id))
+                summary.code += 1
+            for t in all_tests:
+                if self._write_test(t):
+                    summary.tests_needing_work += 1
+                summary.tests += 1
 
-        for e in resolve_covers(results):
-            self._write_edge(e.source, e.target, e.rel_type)
-            summary.covers_edges += 1
-        for e in resolve_call_edges(all_code):
-            self._write_edge(e.source, e.target, e.rel_type)
-            summary.calls_edges += 1
-
-        for f in features:
-            self._write_feature(f)
-            for mid in f.member_ids:
-                self._write_edge(mid, f.id, "PART_OF_FEATURE")
-            summary.features += 1
-
-        # Code → capability: match features to BusinessCapability nodes (LeanIX/
-        # Archi), mint provisional ones bottom-up, emit REALIZES edges, and
-        # optionally push the minted capabilities back to EA tools (KG-2.8).
-        if features and (
-            self.capability_provider is not None
-            or self.capability_registry is not None
-            or self.mint_capabilities
-        ):
-            capabilities = (
-                self.capability_provider() if self.capability_provider else []
-            )
-            minted, realizes_edges = resolve_realizes(
-                features,
-                capabilities,
-                registry=self.capability_registry,
-                mint_missing=self.mint_capabilities,
-                embed_fn=self.realizes_embed_fn,
-            )
-            for cap in minted:
-                self._write_capability(cap)
-                summary.capabilities_minted += 1
-            for e in realizes_edges:
+            for e in resolve_covers(results):
                 self._write_edge(e.source, e.target, e.rel_type)
-                summary.realizes_edges += 1
-            if minted and self.writeback_fn is not None:
-                result = self.writeback_fn(minted)
-                summary.capabilities_pushed = _writeback_count(result)
+                summary.covers_edges += 1
+            for e in resolve_call_edges(all_code):
+                self._write_edge(e.source, e.target, e.rel_type)
+                summary.calls_edges += 1
+
+            for f in features:
+                self._write_feature(f)
+                for mid in f.member_ids:
+                    self._write_edge(mid, f.id, "PART_OF_FEATURE")
+                summary.features += 1
+
+            # Code → capability: match features to BusinessCapability nodes
+            # (LeanIX/Archi), mint provisional ones bottom-up, emit REALIZES edges,
+            # and optionally push the minted capabilities back to EA tools (KG-2.8).
+            if features and (
+                self.capability_provider is not None
+                or self.capability_registry is not None
+                or self.mint_capabilities
+            ):
+                capabilities = (
+                    self.capability_provider() if self.capability_provider else []
+                )
+                minted, realizes_edges = resolve_realizes(
+                    features,
+                    capabilities,
+                    registry=self.capability_registry,
+                    mint_missing=self.mint_capabilities,
+                    embed_fn=self.realizes_embed_fn,
+                )
+                for cap in minted:
+                    self._write_capability(cap)
+                    summary.capabilities_minted += 1
+                for e in realizes_edges:
+                    self._write_edge(e.source, e.target, e.rel_type)
+                    summary.realizes_edges += 1
+                if minted and self.writeback_fn is not None:
+                    result = self.writeback_fn(minted)
+                    summary.capabilities_pushed = _writeback_count(result)
+        finally:
+            self.backend.flush()
+            self.backend = real_backend
 
         return summary
 

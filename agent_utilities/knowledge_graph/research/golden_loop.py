@@ -107,6 +107,7 @@ class GoldenLoopController:
         breadth: bool | None = None,
         force_assimilate: bool = False,
         standardize: bool | None = None,
+        topics: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -174,10 +175,19 @@ class GoldenLoopController:
         if standardize:
             report["standardize"] = _stage("standardize", self._run_standardize)
 
-        # 1. INTAKE — open topics the loop should address.
-        topics = (
-            _stage("intake", lambda: unresolved_topics(self.engine, max_topics)) or []
-        )
+        # 1. INTAKE — open topics the loop should address. Caller-supplied topics
+        # (e.g. the failure-ingest tick's just-materialized failure_gap concepts,
+        # CONCEPT:AHE-3.18) bypass the generic unresolved_topics scan so a brand-new
+        # gap is addressed deterministically instead of competing for a slot in an
+        # arbitrarily-ordered, limited scan over hundreds of existing concepts.
+        if topics is not None:
+            topics = topics[:max_topics] if max_topics else list(topics)
+            report["metrics"]["stage_ms"]["intake"] = 0.0
+        else:
+            topics = (
+                _stage("intake", lambda: unresolved_topics(self.engine, max_topics))
+                or []
+            )
         report["topics_intake"] = len(topics)
 
         if topics:
