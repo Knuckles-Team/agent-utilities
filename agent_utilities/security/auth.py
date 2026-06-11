@@ -57,9 +57,9 @@ async def _fetch_jwks(jwks_uri: str) -> Any:
         return _jwks_cache
 
     try:
-        import httpx
+        from agent_utilities.core.http_client import create_async_http_client
 
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with create_async_http_client(timeout=10) as client:
             resp = await client.get(jwks_uri)
             resp.raise_for_status()
             _jwks_cache = resp.json()
