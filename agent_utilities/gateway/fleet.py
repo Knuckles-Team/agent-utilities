@@ -323,26 +323,57 @@ async def fleet_kill(request: Request) -> JSONResponse:
 
 
 async def fleet_approvals(request: Request) -> JSONResponse:
-    """List pending mutation/risk approvals (Task nodes awaiting a decision)."""
-    from agent_utilities.mcp.kg_server import _execute_tool
+    """List pending mutation/risk approvals.
+
+    Two sources share this single human queue: ``Task`` graph nodes awaiting a
+    decision (orchestrator jobs) and ``ActionApproval`` nodes filed by the
+    operational ActionPolicy gate (CONCEPT:OS-5.24 — restart/scale/deploy
+    proposals the policy routed to a human; the fleet reconciler executes them
+    once granted, CONCEPT:OS-5.25).
+    """
+    from agent_utilities.mcp.kg_server import _execute_tool, safe_json_load
 
     cypher = (
         "MATCH (t:Task) WHERE t.status = 'pending' "
         "AND (t.approval_status IS NULL OR t.approval_status = 'pending') "
         "RETURN t LIMIT 200"
     )
+    pending: list = []
+    note = None
     try:
         res = await _execute_tool("graph_query", action="cypher", cypher=cypher)
-        from agent_utilities.mcp.kg_server import safe_json_load
-
-        return JSONResponse({"status": "success", "pending": safe_json_load(res)})
+        loaded = safe_json_load(res)
+        if isinstance(loaded, list):
+            pending = loaded
     except Exception as e:
         # Degrade gracefully when the engine/graph is not yet available.
-        return JSONResponse({"status": "success", "pending": [], "note": str(e)})
+        note = str(e)
+    try:
+        from agent_utilities.mcp.kg_server import _get_engine
+
+        rows = _get_engine().query_cypher(
+            "MATCH (a:ActionApproval {status: 'pending'}) RETURN a LIMIT 200"
+        )
+        for row in rows or []:
+            props = row.get("a") if isinstance(row, dict) else None
+            if isinstance(props, dict):
+                pending.append(props)
+    except Exception as e:
+        note = note or str(e)
+    payload = {"status": "success", "pending": pending}
+    if note:
+        payload["note"] = note
+    return JSONResponse(payload)
 
 
 async def fleet_grant_approval(request: Request) -> JSONResponse:
-    """Grant or deny a pending approval by job id."""
+    """Grant or deny a pending approval by job id.
+
+    ``ActionApproval`` ids (``action_approval:...``) resolve in place — the
+    decision is stamped on the node and the reconciler's approved-action drain
+    executes it on the next tick (CONCEPT:OS-5.24/OS-5.25). Anything else
+    falls through to the orchestrator's ``grant_approval``.
+    """
     from agent_utilities.mcp.kg_server import _execute_tool, safe_json_load
 
     try:
@@ -355,6 +386,24 @@ async def fleet_grant_approval(request: Request) -> JSONResponse:
         return JSONResponse(
             {"status": "error", "message": "job_id is required"}, status_code=400
         )
+    if str(job_id).startswith("action_approval:"):
+        status = "approved" if decision in ("approved", "approve", True) else "denied"
+        try:
+            from agent_utilities.mcp.kg_server import _get_engine
+
+            _get_engine().backend.execute(
+                "MATCH (a:ActionApproval {id: $id, status: 'pending'}) "
+                "SET a.status = $status, a.decided_unix = $ts",
+                {"id": job_id, "status": status, "ts": time.time()},
+            )
+            return JSONResponse(
+                {
+                    "status": "success",
+                    "result": {"approval_id": job_id, "decision": status},
+                }
+            )
+        except Exception as e:
+            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
     try:
         res = await _execute_tool(
             "graph_orchestrate",

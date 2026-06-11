@@ -59,6 +59,8 @@ commented blocks in `.env.example` and `docker/mcp.compose.yml`).
 | `KG_GOLDEN_AUTO_MERGE` | `false` | Allow governed proposal→active promotion. Keep `false` until you trust the proposal stream. |
 | `KG_GOLDEN_MERGE_THRESHOLD` | `0.85` | Minimum proposal quality score for auto-merge eligibility. |
 | `FLEET_EVENTS_TOKEN` | unset | Shared secret for the `POST /api/fleet/events` monitoring-webhook ingress (`OS-5.15`). |
+| `FLEET_RECONCILER` | `false` | Desired-state fleet reconciler tick — registry vs observed, converged through the `OS-5.24` ActionPolicy gate (see [Fleet Autonomy](../architecture/fleet_autonomy.md)). |
+| `ACTION_POLICY_PATH` | shipped default | Operational action policy (tiers / rate limits / maintenance windows / blast-radius caps); the shipped default keeps every mutating action approval-required (`OS-5.24`). |
 
 ## Recommended rollout
 
@@ -66,7 +68,10 @@ commented blocks in `.env.example` and `docker/mcp.compose.yml`).
    proposal stream (`EvolutionCycle` nodes, `failure_gap` Concepts, audit log)
    for a few cycles. Nothing merges.
 2. Point Alertmanager / Uptime Kuma at `POST /api/fleet/events` (set
-   `FLEET_EVENTS_TOKEN`) so production incidents also feed the loop.
+   `FLEET_EVENTS_TOKEN`) so production incidents also feed the loop. Critical
+   events now dispatch the `OS-5.26` remediation playbooks — with the shipped
+   action policy every mutating step lands in `GET /api/fleet/approvals`
+   instead of executing.
 3. Only once the proposals are consistently sane, consider
    `KG_GOLDEN_AUTO_MERGE=true`. Every promotion remains gated by the
    `AHE-3.20` validator + regression gate and is fully audited; rejected
