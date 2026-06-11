@@ -50,6 +50,22 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
     except Exception as exc:  # pragma: no cover - best-effort, never fatal
         logger.warning("Could not attach CentralizedCypherMiddleware: %s", exc)
 
+    # Server-minted JWT identity (CONCEPT:OS-5.14). Added AFTER the cypher
+    # middleware so it sits OUTSIDE it — the lock-bypassing ``POST /cypher``
+    # fast path is identity-scoped too. Validates ``Authorization: Bearer`` via
+    # the existing JWKS machinery, scopes the request to an authenticated
+    # ActorContext, and (with KG_AUTH_REQUIRED) rejects unauthenticated
+    # requests with 401.
+    from agent_utilities.core.config import config
+    from agent_utilities.security.request_identity import (
+        ActorIdentityMiddleware,
+        warn_unauthenticated_identity_once,
+    )
+
+    app.add_middleware(ActorIdentityMiddleware)
+    if not config.kg_auth_required:
+        warn_unauthenticated_identity_once()
+
     kg_server._mount_rest_routes(app, prefix=prefix)
 
     # Native swarm supervisory plane (CONCEPT:OS-5.10): /fleet/* + approvals.
