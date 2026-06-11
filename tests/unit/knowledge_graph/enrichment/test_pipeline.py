@@ -154,7 +154,11 @@ def test_pipeline_enriches_patterns_features_and_cards(tmp_path):
         }
 
     def fake_llm(prompt):
-        return '{"summary": "does a thing", "responsibilities": ["r1"]}'
+        card = '{"summary": "does a thing", "responsibilities": ["r1"]}'
+        # Multi-symbol batch prompts ask for a JSON array (CONCEPT:KG-2.8, #2).
+        if "JSON array" in prompt:
+            return "[" + ", ".join([card] * 16) + "]"
+        return card
 
     def fake_community(node_ids, edges):
         return [[i for i in node_ids if i.endswith(("orchestrate", "plan", "execute"))]]
