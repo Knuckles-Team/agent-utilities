@@ -11,6 +11,12 @@ Edit THIS file for any narrative / conventions changes, then run:
 > Claude Code loads this file via `CLAUDE.md` (`@AGENTS.md` import) — the two stay
 > in sync. Edit `AGENTS.head.md` (then regenerate), never `CLAUDE.md`.
 
+> **New to the platform (not just editing it)?** This file is *contributor/AI
+> working-discipline*. For **what agent-utilities is, how to use it, its
+> capabilities, and how to deploy it**, read **[docs/start-here.md](docs/start-here.md)**
+> (or **[llms.txt](llms.txt)** for the AI entry index, **[docs/capabilities.md](docs/capabilities.md)**,
+> and **[docs/ecosystem.md](docs/ecosystem.md)**).
+
 ## Working Discipline — think, simplify, stay surgical, verify (READ FIRST)
 
 These four habits cut the most common LLM coding mistakes. The deeper, domain-specific
