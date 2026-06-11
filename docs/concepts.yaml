@@ -235,6 +235,7 @@ concepts:
   - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/mcp/kg_server.py
   doc: Failure-Driven Evolution
 - id: CTX-1.0
   name: Nested Subfolder Instructions
