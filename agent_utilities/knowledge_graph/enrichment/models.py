@@ -21,7 +21,8 @@ class CodeEntity(BaseModel):
     id: str
     name: str
     qualname: str
-    kind: str  # "function" | "class" | "method"
+    kind: str  # function|method|constructor | class|interface|struct|enum|trait|...
+    language: str = ""  # python|javascript|typescript|go|rust|java|c|cpp|csharp
     file_path: str
     line: int
     ast_hash: str

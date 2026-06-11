@@ -87,12 +87,17 @@ def entities_from_parse_result(
             )
         elif sym_type in ("Function", "Class"):
             is_class = sym_type == "Class"
+            # ``kind_detail`` carries the precise kind from the Rust parser
+            # (interface/struct/enum/trait/method/constructor/...); fall back to
+            # the coarse class/function bucket for older engine builds.
+            kind = props.get("kind_detail") or ("class" if is_class else "function")
             result.code.append(
                 CodeEntity(
                     id=f"code:{file_path}::{name}",
                     name=name,
                     qualname=name,
-                    kind="class" if is_class else "function",
+                    kind=kind,
+                    language=props.get("language", ""),
                     file_path=file_path,
                     line=line,
                     ast_hash=ast_hash,
@@ -111,8 +116,12 @@ def entities_from_parse_result(
     return result
 
 
-def extract_python(file_path: str, source: str, parse_fn: ParseFn) -> ExtractionResult:
-    """Parse one Python file via the Rust engine and map to entities."""
+def extract_source(file_path: str, source: str, parse_fn: ParseFn) -> ExtractionResult:
+    """Parse one source file (any engine-supported language) and map to entities.
+
+    The Rust engine dispatches on file extension, so Python/JS/TS/Go/Rust/Java/
+    C/C++/C# all flow through here; the ``language`` is carried on each entity.
+    """
     raw = source.encode("utf-8", "surrogatepass")
     content_hash = hashlib.sha256(raw).hexdigest()
     try:
@@ -122,17 +131,17 @@ def extract_python(file_path: str, source: str, parse_fn: ParseFn) -> Extraction
     return entities_from_parse_result(file_path, content_hash, parsed or {})
 
 
-def extract_python_files(
+def extract_source_files(
     files: list[tuple[str, str]], batch_parse_fn: BatchParseFn
 ) -> list[ExtractionResult]:
-    """Batch variant of :func:`extract_python` — parse N files in ONE RPC.
+    """Batch variant of :func:`extract_source` — parse N files in ONE RPC.
 
     ``files`` is ``[(file_path, source_text), ...]``; ``batch_parse_fn`` takes
     ``[(file_path, source_bytes), ...]`` and returns one ParseResult dict per file
     in order. Returns one :class:`ExtractionResult` per input file, in input
     order. A file whose parse failed or is missing from the response degrades to
     an empty result (its ``content_hash`` is still recorded), mirroring the
-    per-file fault tolerance of :func:`extract_python`. (CONCEPT:KG-2.16)
+    per-file fault tolerance of :func:`extract_source`. (CONCEPT:KG-2.16)
     """
     raw = [(fp, src.encode("utf-8", "surrogatepass")) for fp, src in files]
     hashes = [hashlib.sha256(b).hexdigest() for _, b in raw]
