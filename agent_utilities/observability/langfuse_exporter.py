@@ -52,11 +52,7 @@ class LangfuseExporter:
     ) -> None:
         self._public_key = public_key or os.getenv("LANGFUSE_PUBLIC_KEY", "")
         self._secret_key = secret_key or os.getenv("LANGFUSE_SECRET_KEY", "")
-        # Official Langfuse var is LANGFUSE_HOST; LANGFUSE_BASE_URL is a
-        # deprecated fallback.
-        self._host = (
-            host or os.getenv("LANGFUSE_HOST") or os.getenv("LANGFUSE_BASE_URL", "")
-        )
+        self._host = host or os.getenv("LANGFUSE_HOST", "")
         self._client = client
         self._probed = client is not None
         # Counters expose activity for health widgets + tests.
