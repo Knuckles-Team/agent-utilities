@@ -431,7 +431,8 @@ class OntologySystem:
 
         Args:
             source_type: A registered connector key (``filesystem``/``web``/
-                ``rest``/``database``/``mcp:<package>``).
+                ``rest``/``database``/``mcp:<package>``/``mcp_tool`` — the
+                KG-2.59 universal MCP-tool source).
             config: Connector configuration.
             connector_id: Stable id for incremental checkpoint storage.
             contextual: Enable contextual-retrieval enrichment (default True).

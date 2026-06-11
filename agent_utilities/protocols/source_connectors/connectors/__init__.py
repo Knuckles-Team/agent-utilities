@@ -12,4 +12,6 @@ Reference connectors:
   * :mod:`filesystem` — directory walk (``filesystem``).
   * :mod:`rest` — paginated JSON endpoint (``rest``).
   * :mod:`mcp_package` — adapter over the agent-package fleet (``mcp:<pkg>``).
+  * :mod:`mcp_tool` — any MCP server's record-listing tool as a paginated,
+    checkpointed ingestion source (``mcp_tool``, CONCEPT:KG-2.59).
 """

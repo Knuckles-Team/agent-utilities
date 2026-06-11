@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 176
+total_concepts: 177
 total_pillars: 18
 pillars:
 - AHE-3
@@ -1101,7 +1101,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
   doc: social-closer / triviality gate
 - id: KG-2.16
-  name: config discipline
+  name: else the per-file path. Both yield the
   pillar: KG-2
   status: live
   code_paths:
@@ -1111,7 +1111,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
-  doc: config discipline
+  doc: else the per-file path. Both yield the
 - id: KG-2.17
   name: decay scanner + semantic merge
   pillar: KG-2
@@ -1542,6 +1542,15 @@ concepts:
   - agent_utilities/observability/gateway_metrics.py
   doc: Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement
     over GRAPH_SERVICE_ENDPOINTS
+- id: KG-2.59
+  name: MCP Tool Source Connector
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/protocols/source_connectors/connectors/__init__.py
+  - agent_utilities/protocols/source_connectors/connectors/database.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+  doc: MCP Tool Source Connector
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

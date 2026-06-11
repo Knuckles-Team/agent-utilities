@@ -4766,7 +4766,7 @@ def _build_server(bootstrap: bool = True):
 
     @mcp.tool(
         name="source_connector",
-        description="Document-source connectors (CONCEPT:ECO-4.25–4.29): list registered connectors, or run one (filesystem/web/rest/database/mcp:<package>) to ingest its documents into the KG as Document+Chunk objects with contextual enrichment (KG-2.50) and external permission sync (ECO-4.28).",
+        description="Document-source connectors (CONCEPT:ECO-4.25–4.29, KG-2.59): list registered connectors, or run one (filesystem/web/rest/database/mcp:<package>/mcp_tool — mcp_tool drives any fleet MCP server's listing tool as a paginated source) to ingest its documents into the KG as Document+Chunk objects with contextual enrichment (KG-2.50) and external permission sync (ECO-4.28).",
         tags=["graph-os", "ecosystem", "connectors"],
     )
     async def source_connector(
@@ -4776,7 +4776,7 @@ def _build_server(bootstrap: bool = True):
         ),
         source_type: str = Field(
             default="",
-            description="Connector type for 'run' (filesystem/web/rest/database/mcp:<package>).",
+            description="Connector type for 'run' (filesystem/web/rest/database/mcp:<package>/mcp_tool).",
         ),
         config: dict = Field(
             default_factory=dict,
