@@ -125,6 +125,28 @@ by default, single typed source of truth.
 |---|---|---|
 | `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_BRAIN_ENFORCE`, `KG_RESEARCH_EXTERNAL` | 4 | remaining experiment gates — graduate (always-on) or delete |
 
+**`KG_FAILURE_*` — Failure-Driven Evolution (`CONCEPT:AHE-3.18`), typed on `AgentConfig`,
+opt-in, all off by default.** The boolean gates are parsed via `to_boolean`
+(`"True"`/`"False"`, consistent with the fleet's other toggles). See
+[`failure_driven_evolution.md`](./failure_driven_evolution.md).
+
+| Flag | Default | Notes |
+|---|---|---|
+| `KG_FAILURE_EVOLUTION` | `False` | enable the daemon `failure_ingest` tick (pull Langfuse failures → remediation) |
+| `KG_FAILURE_EVOLUTION_INTERVAL` | `3600` | daemon tick interval (s) |
+| `KG_FAILURE_EVOLUTION_WINDOW` | `86400` | telemetry look-back window (s) |
+| `KG_FAILURE_REGRESSION_DATASET` | `False` | enable the dataset-based regression path |
+
+**Langfuse (`CONCEPT:AHE-3.18` / `AHE-3.0`) — official SDK variable names only.** The host
+variable is **`LANGFUSE_HOST`** (the non-standard `LANGFUSE_BASE_URL` fallback was removed —
+greenfield). Resolved through `AgentConfig.langfuse_host` / `langfuse_public_key` /
+`langfuse_secret_key`.
+
+| Flag | Default | Notes |
+|---|---|---|
+| `LANGFUSE_HOST` | `https://cloud.langfuse.com` | Langfuse base URL (read + OTEL write paths) |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | `None` | project API keypair |
+
 ## F. Testing — KEEP
 
 | Flag | Default | Notes |

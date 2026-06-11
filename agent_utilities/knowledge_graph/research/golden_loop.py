@@ -176,10 +176,10 @@ class GoldenLoopController:
             report["standardize"] = _stage("standardize", self._run_standardize)
 
         # 1. INTAKE — open topics the loop should address. Caller-supplied topics
-        # (e.g. the failure-ingest tick's just-materialized failure_gap concepts,
-        # CONCEPT:AHE-3.18) bypass the generic unresolved_topics scan so a brand-new
-        # gap is addressed deterministically instead of competing for a slot in an
-        # arbitrarily-ordered, limited scan over hundreds of existing concepts.
+        # (e.g. the failure-ingest tick's just-materialized failure_gap concepts)
+        # bypass the generic unresolved_topics scan so a brand-new gap is addressed
+        # deterministically instead of competing for a slot in an arbitrarily-
+        # ordered, limited scan over hundreds of existing concepts. (CONCEPT:AHE-3.18)
         if topics is not None:
             topics = topics[:max_topics] if max_topics else list(topics)
             report["metrics"]["stage_ms"]["intake"] = 0.0
