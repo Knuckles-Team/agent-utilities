@@ -1,14 +1,20 @@
 """CONCEPT:KG-2.17 — hygiene registered as a recurring maintenance daemon job.
 
-Verifies the hygiene tick is in the consolidated maintenance-job registry (gated by
-KG_HYGIENE_DAEMON) and that the tick runs without raising.
+Verifies the hygiene tick is in the consolidated maintenance-job registry and that
+the tick runs without raising. The per-daemon ``KG_HYGIENE_DAEMON`` toggle was
+collapsed into the single ``KG_DEV_MODE`` switch (config discipline, Phase 3): the
+registry always lists hygiene; disabling happens once at the scheduler loop via
+``KG_DEV_MODE``, not per job.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
+from agent_utilities.knowledge_graph.core.engine_tasks import (
+    TaskManagerMixin,
+    _kg_dev_mode,
+)
 
 
 def _bare_mixin():
@@ -18,7 +24,7 @@ def _bare_mixin():
 
 @pytest.mark.concept(id="KG-2.17")
 def test_hygiene_job_registered_by_default(monkeypatch):
-    monkeypatch.delenv("KG_HYGIENE_DAEMON", raising=False)
+    monkeypatch.delenv("KG_DEV_MODE", raising=False)
     inst = _bare_mixin()
     jobs = inst._maintenance_jobs()
     names = [n for n, _, _ in jobs]
@@ -29,11 +35,19 @@ def test_hygiene_job_registered_by_default(monkeypatch):
 
 
 @pytest.mark.concept(id="KG-2.17")
-def test_hygiene_job_can_be_disabled(monkeypatch):
-    monkeypatch.setenv("KG_HYGIENE_DAEMON", "0")
-    inst = _bare_mixin()
-    names = [n for n, _, _ in inst._maintenance_jobs()]
-    assert "hygiene" not in names
+def test_all_maintenance_daemons_disabled_via_dev_mode(monkeypatch):
+    # KG_HYGIENE_DAEMON (and every other per-daemon KG_*_DAEMON toggle) was
+    # collapsed into one KG_DEV_MODE switch. The registry still lists hygiene —
+    # gating is at the scheduler loop (`_kg_dev_mode()`), not the registry.
+    from agent_utilities.core import config as cfg_mod
+
+    monkeypatch.setattr(cfg_mod.config, "kg_dev_mode", True, raising=False)
+    assert _kg_dev_mode() is True
+    names = [n for n, _, _ in _bare_mixin()._maintenance_jobs()]
+    assert "hygiene" in names
+
+    monkeypatch.setattr(cfg_mod.config, "kg_dev_mode", False, raising=False)
+    assert _kg_dev_mode() is False
 
 
 @pytest.mark.concept(id="KG-2.17")

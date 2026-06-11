@@ -452,6 +452,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_hydrate": "/graph/hydrate",
     "graph_sessions": "/graph/sessions",
     "graph_goals": "/graph/goals",
+    "graph_message": "/graph/message",
     "document_process": "/document/process",
     "source_connector": "/connector/source",
     "ontology_property_types": "/ontology/property-types",

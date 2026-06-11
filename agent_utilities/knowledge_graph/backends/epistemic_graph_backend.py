@@ -438,9 +438,12 @@ class EpistemicGraphBackend(GraphBackend):
         # unparsed query. That over-match was the `graph_context list` "garbage" bug and a
         # latent correctness/cost hazard for every caller. Default to empty; require an
         # explicit opt-in (KG_ALLOW_FULL_SCAN=true) for a rare deliberate full enumeration.
-        import os as _os
+        # Fresh AgentConfig() (not the import-time singleton) so a runtime
+        # override is honored on this rare, deliberate full-scan path — same
+        # live-env contract as MergePolicy.from_env.
+        from agent_utilities.core.config import AgentConfig
 
-        if _os.environ.get("KG_ALLOW_FULL_SCAN", "").lower() in ("1", "true", "yes"):
+        if AgentConfig().kg_allow_full_scan:
             results = []
             for nid in self._graph._get_all_nodes():
                 data = self._graph._get_node_properties(nid)
