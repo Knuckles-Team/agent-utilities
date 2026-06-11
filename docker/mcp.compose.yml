@@ -32,6 +32,13 @@ services:
       - "HOST=0.0.0.0"
       - "PORT=8004"
       - "TRANSPORT=streamable-http"
+      # Autonomous evolution (see docs/guides/autonomous-evolution.md). The
+      # daemon ticks exist but default OFF in code — enabling them is a
+      # deployment decision. Both loops are propose-only; auto-merge stays
+      # gated behind KG_GOLDEN_AUTO_MERGE + the AHE-3.20 governance validator.
+      # - "KG_GOLDEN_LOOP=true"
+      # - "KG_FAILURE_EVOLUTION=true"
+      # - "KG_GOLDEN_AUTO_MERGE=false"
     ports:
       - "8004:8004"
     healthcheck:
