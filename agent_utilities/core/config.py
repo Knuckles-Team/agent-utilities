@@ -338,6 +338,29 @@ class AgentConfig(BaseSettings):
     auth_jwt_audience: str | None = Field(default=None, alias="AUTH_JWT_AUDIENCE")
     """Expected JWT audience claim for validation."""
 
+    # --- Knowledge Graph identity enforcement (CONCEPT:OS-5.14) ---
+
+    kg_auth_required: bool = Field(default=False, alias="KG_AUTH_REQUIRED")
+    """Require a server-validated JWT identity for Knowledge Graph access.
+    When True: HTTP requests without a valid Bearer token are rejected (401),
+    caller-supplied ``_actor``/``_roles``/``_tenant`` tool kwargs are ignored
+    (server-side identity only), and stdio MCP derives identity from a
+    validated ``KG_AUTH_TOKEN`` or falls back to a read-only system actor.
+    Default False preserves the legacy honor-system behaviour (with a one-time
+    startup warning)."""
+
+    kg_auth_token: str | None = Field(default=None, alias="KG_AUTH_TOKEN")
+    """Optional JWT used to mint the process identity for stdio MCP servers
+    (no Authorization header exists on stdio). Validated against
+    ``AUTH_JWT_JWKS_URI`` exactly like a gateway request. Only consulted when
+    ``KG_AUTH_REQUIRED`` is on."""
+
+    kg_acl_default_allow: bool = Field(default=False, alias="KG_ACL_DEFAULT_ALLOW")
+    """Escape hatch for fail-closed permissioning. With ``KG_BRAIN_ENFORCE``
+    on, nodes WITHOUT an ACL are denied by default (fail closed); setting this
+    True restores allow-on-missing-ACL while keeping exception→deny. Ignored
+    when enforcement is off (legacy default-allow)."""
+
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
 
     oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")
@@ -458,7 +481,15 @@ class AgentConfig(BaseSettings):
     graph_service_auth_secret: str | None = Field(
         default=None, alias="GRAPH_SERVICE_AUTH_SECRET"
     )
-    """HMAC-SHA256 shared secret for service authentication."""
+    """HMAC-SHA256 shared secret for service authentication. When unset, a
+    per-install secret is generated once and persisted under the XDG data dir
+    (``data_dir()/engine_secret``, mode 0600) so every local process — and any
+    engine this launcher spawns — agrees (CONCEPT:OS-5.14)."""
+    kg_engine_insecure: bool = Field(default=False, alias="KG_ENGINE_INSECURE")
+    """Opt out of engine HMAC auth for dev (CONCEPT:OS-5.14). When True no
+    client auth token is sent and a spawned engine gets
+    ``EPISTEMIC_GRAPH_ALLOW_INSECURE=1`` so binaries that refuse to start
+    without a secret still come up. Default False = secure by default."""
     graph_service_checkpoint_secs: int = Field(
         default=300, alias="GRAPH_SERVICE_CHECKPOINT_SECS"
     )

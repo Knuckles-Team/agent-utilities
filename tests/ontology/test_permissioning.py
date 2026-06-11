@@ -180,3 +180,142 @@ def test_acl_denying_node_filtered_by_enforce():
     objects = [{"id": "conf:1", "x": 1}, {"id": "open:1", "x": 2}]
     out = enforce(objects, _low_actor())
     assert [o["id"] for o in out] == ["open:1"]
+
+
+# --- fail-closed enforcement (CONCEPT:OS-5.14) -------------------------------
+
+
+def test_acl_exception_denies_when_enforced(monkeypatch):
+    from agent_utilities.knowledge_graph.ontology import permissioning as pm
+
+    monkeypatch.setenv("KG_BRAIN_ENFORCE", "1")
+
+    def boom():
+        raise RuntimeError("brain unavailable")
+
+    monkeypatch.setattr(pm, "get_company_brain", boom)
+    assert pm._acl_permits("any:node", _low_actor()) is False
+
+
+def test_acl_exception_allows_when_enforcement_off(monkeypatch):
+    from agent_utilities.knowledge_graph.ontology import permissioning as pm
+
+    monkeypatch.delenv("KG_BRAIN_ENFORCE", raising=False)
+
+    def boom():
+        raise RuntimeError("brain unavailable")
+
+    monkeypatch.setattr(pm, "get_company_brain", boom)
+    # Legacy behaviour preserved: infra error fails open.
+    assert pm._acl_permits("any:node", _low_actor()) is True
+
+
+def test_missing_acl_denied_when_enforced(monkeypatch):
+    from agent_utilities.knowledge_graph.ontology import permissioning as pm
+
+    monkeypatch.setenv("KG_BRAIN_ENFORCE", "1")
+    monkeypatch.delenv("KG_ACL_DEFAULT_ALLOW", raising=False)
+    assert pm._acl_permits("unclassified:1", _low_actor()) is False
+
+
+def test_missing_acl_escape_hatch_allows(monkeypatch):
+    from agent_utilities.knowledge_graph.ontology import permissioning as pm
+
+    monkeypatch.setenv("KG_BRAIN_ENFORCE", "1")
+    monkeypatch.setenv("KG_ACL_DEFAULT_ALLOW", "1")
+    assert pm._acl_permits("unclassified:1", _low_actor()) is True
+
+
+def test_missing_acl_allowed_when_enforcement_off(monkeypatch):
+    from agent_utilities.knowledge_graph.ontology import permissioning as pm
+
+    monkeypatch.delenv("KG_BRAIN_ENFORCE", raising=False)
+    assert pm._acl_permits("unclassified:1", _low_actor()) is True
+
+
+def test_explicit_acl_still_checked_when_enforced(monkeypatch):
+    monkeypatch.setenv("KG_BRAIN_ENFORCE", "1")
+    from agent_utilities.knowledge_graph.ontology import permissioning as pm
+
+    build_acl("hr:doc", DataClassification.CONFIDENTIAL, read_roles=["hr"])
+    denied = _low_actor()
+    granted = ActorContext(
+        actor_id="hr:1", actor_type=ActorType.HUMAN, roles=("hr",)
+    )
+    assert pm._acl_permits("hr:doc", denied) is False
+    assert pm._acl_permits("hr:doc", granted) is True
+
+
+# --- durable marking persistence (CONCEPT:OS-5.14) ---------------------------
+
+
+class FakeMarkingStore:
+    """Minimal store double recording MERGEd marking nodes."""
+
+    def __init__(self, preload: dict[str, list[str]] | None = None):
+        self.rows: dict[str, dict] = {}
+        for nid, names in (preload or {}).items():
+            self.rows[f"marking::{nid}"] = {
+                "node_id": nid,
+                "markings": __import__("json").dumps(names),
+            }
+
+    def execute(self, query: str, params: dict | None = None):
+        params = params or {}
+        if query.lstrip().startswith("MERGE"):
+            self.rows[params["id"]] = {
+                "node_id": params["n"],
+                "markings": params["marks"],
+            }
+            return []
+        # hydration read
+        return [dict(r) for r in self.rows.values()]
+
+
+def test_apply_marking_writes_through_to_store():
+    import json as _json
+
+    from agent_utilities.knowledge_graph.ontology import permissioning as pm
+
+    store = FakeMarkingStore()
+    pm.set_marking_store(store)
+    apply_marking("doc:1", Marking("pii"))
+    apply_marking("doc:1", "legal-hold")
+
+    persisted = store.rows["marking::doc:1"]
+    assert persisted["node_id"] == "doc:1"
+    assert set(_json.loads(persisted["markings"])) == {"pii", "legal-hold"}
+
+
+def test_markings_hydrate_from_store_on_first_use():
+    from agent_utilities.knowledge_graph.ontology import permissioning as pm
+
+    # Another process persisted a marking; this process must see it.
+    store = FakeMarkingStore(preload={"doc:9": ["pii"]})
+    pm.set_marking_store(store)
+    assert markings_for("doc:9") == {"pii"}
+    # And the mandatory read-gate honors the hydrated marking.
+    assert pm._marking_permits("doc:9", _low_actor()) is False
+    assert pm._marking_permits("doc:9", _cleared_actor()) is True
+
+
+def test_propagated_markings_are_persisted():
+    import json as _json
+
+    from agent_utilities.knowledge_graph.ontology import permissioning as pm
+
+    store = FakeMarkingStore()
+    pm.set_marking_store(store)
+    apply_marking("parent", Marking("pii"))
+    propagate_markings("parent", "child")
+    assert set(
+        _json.loads(store.rows["marking::child"]["markings"])
+    ) == {"pii"}
+
+
+def test_marking_store_unavailable_keeps_cache_authoritative():
+    from agent_utilities.knowledge_graph.ontology import permissioning as pm
+
+    pm.set_marking_store(None)
+    apply_marking("doc:2", Marking("pii"))
+    assert markings_for("doc:2") == {"pii"}

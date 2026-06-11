@@ -125,12 +125,16 @@ def test_sensitive_tool_patterns_defaults():
 
 
 @pytest.mark.concept("CONCEPT:OS-5.0")
-def test_agent_config_langfuse_base_url():
-    os.environ["LANGFUSE_BASE_URL"] = "https://custom-langfuse.arpa"
+def test_agent_config_langfuse_host():
+    # LANGFUSE_HOST (the official Langfuse SDK var) is the only host var; the
+    # deprecated LANGFUSE_BASE_URL fallback was removed (AHE-3.18 cleanup).
+    os.environ["LANGFUSE_HOST"] = "https://custom-langfuse.arpa"
+    os.environ["LANGFUSE_BASE_URL"] = "https://ignored-legacy.arpa"
     try:
         config = AgentConfig()
         assert config.langfuse_host == "https://custom-langfuse.arpa"
     finally:
+        os.environ.pop("LANGFUSE_HOST", None)
         os.environ.pop("LANGFUSE_BASE_URL", None)
 
 

@@ -639,7 +639,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         # Failure-driven evolution (CONCEPT:AHE-3.18) — opt-in (KG_FAILURE_EVOLUTION=True).
         # Ingests Langfuse failures into failure-gap topics and runs a
         # regression-gated remediation cycle. This is the real telemetry sweep that
-        # _tick_evolution used to (broken) stub out.
+        # _tick_evolution previously faked (it swept nothing).
         if _cfg.kg_failure_evolution:
             jobs.append(
                 (

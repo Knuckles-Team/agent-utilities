@@ -46,12 +46,12 @@ on. This page maps the pieces and how a request flows through them.
 ```mermaid
 flowchart LR
     U[User / external agent] -->|MCP or REST| GW[graph-os MCP / REST gateway]
-    GW --> ENG[(epistemic-graph<br/>Rust engine + KG)]
-    GW --> ORCH[Orchestrator<br/>router → planner → swarm]
+    GW --> ENG[("epistemic-graph<br/>Rust engine + KG")]
+    GW --> ORCH["Orchestrator<br/>router → planner → swarm"]
     ORCH -->|spawns| AG[Agents / teams]
     AG -->|tools via multiplexer| FLEET[*-mcp connector fleet]
-    FLEET --> EXT[(ServiceNow / ERPNext /<br/>GitLab / Kafka / …)]
-    GW --> SUP[Fleet supervisor<br/>/api/fleet/*]
+    FLEET --> EXT[("ServiceNow / ERPNext /<br/>GitLab / Kafka / …")]
+    GW --> SUP["Fleet supervisor<br/>/api/fleet/*"]
     SUP --> UI[agent-webui / TUI / geniusbot]
     GW -.traces.-> LF[Langfuse]
 ```

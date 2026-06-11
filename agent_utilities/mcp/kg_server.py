@@ -78,16 +78,83 @@ def _build_dummy_request(path_params=None, json_body=None):
     return req
 
 
-def _actor_from_kwargs(kwargs: dict) -> Any:
-    """Build an ActorContext from optional ``_actor``/``_roles``/``_tenant`` keys.
+# Server-side identity for stdio MCP (CONCEPT:OS-5.14): minted once at startup
+# from a validated KG_AUTH_TOKEN. None = no validated process identity.
+_PROCESS_ACTOR: Any = None
 
-    Pops them so they are not forwarded to the tool. Returns None when no
-    identity was supplied (caller keeps the default system actor). This is how
-    MCP callers scope Company Brain data access (CONCEPT:KG-2.6).
+# Tools an UNAUTHENTICATED caller may still use when KG_AUTH_REQUIRED is on
+# (stdio without a valid KG_AUTH_TOKEN). Deliberately a conservative read-only
+# surface: pure reads with no graph mutation side effects.
+ANONYMOUS_READ_TOOLS: frozenset[str] = frozenset(
+    {"graph_query", "graph_search", "graph_context", "graph_analyze"}
+)
+
+
+def _kg_auth_required() -> bool:
+    """Whether server-validated identity is mandatory (KG_AUTH_REQUIRED)."""
+    from agent_utilities.core.config import config
+
+    return bool(getattr(config, "kg_auth_required", False))
+
+
+def _actor_from_mcp_token() -> Any:
+    """Mint an actor from FastMCP's validated access token, when present.
+
+    On the streamable-http transport FastMCP's own auth provider (configured
+    via ``create_mcp_server``) validates the Bearer token; its claims are the
+    same server-side trust root the gateway middleware uses. Returns None
+    outside a token-authenticated MCP request.
+    """
+    try:
+        from fastmcp.server.dependencies import get_access_token
+
+        token = get_access_token()
+        claims = getattr(token, "claims", None)
+        if claims:
+            from ..security.request_identity import actor_from_claims
+
+            return actor_from_claims(dict(claims))
+    except Exception:  # noqa: BLE001 — no request context / no auth configured
+        return None
+    return None
+
+
+def _actor_from_kwargs(kwargs: dict) -> Any:
+    """Resolve the actor a tool call runs as (CONCEPT:KG-2.6 / OS-5.14).
+
+    Always pops ``_actor``/``_roles``/``_tenant`` so they are not forwarded to
+    the tool. Server-minted identity wins over caller-supplied kwargs:
+
+    1. An ``authenticated`` ambient actor (set by the gateway's
+       ``ActorIdentityMiddleware``) is kept — caller kwargs are ignored.
+    2. A validated FastMCP access token (streamable-http transport) is minted.
+    3. The validated stdio process identity (``KG_AUTH_TOKEN``) is used.
+    4. With ``KG_AUTH_REQUIRED`` on, caller kwargs are ignored entirely
+       (server-side identity only) — the ambient default applies.
+    5. Otherwise (legacy honor-system mode) the caller-supplied kwargs build
+       the actor, exactly as before.
+
+    Returns None when the ambient actor should be kept.
     """
     actor_id = kwargs.pop("_actor", None)
     roles = kwargs.pop("_roles", None)
     tenant = kwargs.pop("_tenant", None)
+
+    from ..security.brain_context import current_actor
+
+    if current_actor().authenticated:
+        return None  # gateway middleware already scoped this request
+
+    token_actor = _actor_from_mcp_token()
+    if token_actor is not None:
+        return token_actor
+
+    if _PROCESS_ACTOR is not None:
+        return _PROCESS_ACTOR
+
+    if _kg_auth_required():
+        return None  # server-side identity only; honor-system kwargs ignored
+
     if not actor_id and not roles and not tenant:
         return None
     from ..models.company_brain import ActorType
@@ -134,6 +201,24 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
         pass
 
     actor = _actor_from_kwargs(kwargs)
+
+    # CONCEPT:OS-5.14 — with KG_AUTH_REQUIRED on, an unauthenticated caller
+    # (stdio without a validated KG_AUTH_TOKEN) is restricted to the read-only
+    # tool surface. HTTP callers never reach here unauthenticated — the
+    # gateway middleware already rejected them with 401.
+    if _kg_auth_required():
+        from ..security.brain_context import current_actor
+
+        effective = actor if actor is not None else current_actor()
+        if (
+            not getattr(effective, "authenticated", False)
+            and tool_name not in ANONYMOUS_READ_TOOLS
+        ):
+            raise PermissionError(
+                f"KG_AUTH_REQUIRED=1: tool {tool_name!r} needs an authenticated "
+                "identity (JWT Bearer token, or KG_AUTH_TOKEN for stdio). "
+                f"Unauthenticated callers may only use: {sorted(ANONYMOUS_READ_TOOLS)}."
+            )
 
     async def _run() -> Any:
         if inspect.iscoroutinefunction(tool_func):
@@ -488,9 +573,7 @@ def _make_tool_endpoint(tool_name: str):
             res = await _execute_tool(tool_name, **body)
             return JSONResponse({"status": "success", "result": safe_json_load(res)})
         except Exception as e:
-            return JSONResponse(
-                {"status": "error", "message": str(e)}, status_code=500
-            )
+            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
     _handler.__name__ = f"{tool_name}_endpoint"
     return _handler
@@ -1717,6 +1800,44 @@ def _ingest_capabilities(engine):
         logger.error(f"Failed to ingest skills: {e}")
 
 
+def _mint_stdio_identity() -> None:
+    """Resolve the process identity for a directly-served MCP server.
+
+    CONCEPT:OS-5.14 — stdio has no Authorization header, so when
+    ``KG_AUTH_REQUIRED`` is on the identity comes from a validated JWT in the
+    MCP server's environment (``KG_AUTH_TOKEN``, validated against
+    ``AUTH_JWT_JWKS_URI`` exactly like a gateway request). Without a valid
+    token the process stays unauthenticated and ``_execute_tool`` restricts it
+    to :data:`ANONYMOUS_READ_TOOLS`. With ``KG_AUTH_REQUIRED`` off this only
+    emits the one-time honor-system warning.
+    """
+    global _PROCESS_ACTOR
+    from agent_utilities.core.config import config
+    from agent_utilities.security.request_identity import (
+        mint_actor_from_token_sync,
+        warn_unauthenticated_identity_once,
+    )
+
+    if not getattr(config, "kg_auth_required", False):
+        warn_unauthenticated_identity_once()
+        return
+    token = getattr(config, "kg_auth_token", None)
+    if token:
+        _PROCESS_ACTOR = mint_actor_from_token_sync(token)
+        if _PROCESS_ACTOR is not None:
+            logger.info(
+                "KG MCP identity minted from KG_AUTH_TOKEN: actor=%s roles=%s",
+                _PROCESS_ACTOR.actor_id,
+                list(_PROCESS_ACTOR.roles),
+            )
+            return
+    logger.warning(
+        "KG_AUTH_REQUIRED=1 but no valid KG_AUTH_TOKEN: this MCP process is "
+        "restricted to the read-only tool surface %s.",
+        sorted(ANONYMOUS_READ_TOOLS),
+    )
+
+
 def _build_server(bootstrap: bool = True):
     """Build the KG MCP server with all tools registered.
 
@@ -1733,6 +1854,11 @@ def _build_server(bootstrap: bool = True):
     from agent_utilities.mcp.server_factory import create_mcp_server
 
     is_readonly = False
+
+    if bootstrap:
+        # Directly-served MCP process (stdio/streamable-http): resolve the
+        # server-side identity (or warn that identity is honor-system).
+        _mint_stdio_identity()
 
     if bootstrap and not any(arg in sys.argv for arg in ["--help", "-h"]):
         # Build the engine + start daemons/workers + ingest capabilities in a
@@ -1873,10 +1999,14 @@ def _build_server(bootstrap: bool = True):
     )
     async def graph_context(
         action: str = Field(default="put", description="put | get | list"),
-        content: str = Field(default="", description="Context text to store (action=put)."),
+        content: str = Field(
+            default="", description="Context text to store (action=put)."
+        ),
         context_id: str = Field(default="", description="ContextBlob id (action=get)."),
         session_id: str = Field(default="", description="Session scope key."),
-        key: str = Field(default="", description="Optional sub-key within the session."),
+        key: str = Field(
+            default="", description="Optional sub-key within the session."
+        ),
         ttl_s: int = Field(
             default=0, description="Optional time-to-live in seconds (0 = persistent)."
         ),
@@ -2005,12 +2135,16 @@ def _build_server(bootstrap: bool = True):
         action: str = Field(
             default="receive", description="open | send | receive | history | close"
         ),
-        channel_id: str = Field(default="", description="Channel id (send/receive/history/close)."),
+        channel_id: str = Field(
+            default="", description="Channel id (send/receive/history/close)."
+        ),
         session_id: str = Field(default="", description="Session id (open)."),
         run_id: str = Field(default="", description="Spawned run id (open)."),
         sender: str = Field(default="invoker", description="Sender label (send)."),
         payload: str = Field(default="", description="Message text (send)."),
-        since: int = Field(default=0, description="Cursor: messages already consumed (receive)."),
+        since: int = Field(
+            default=0, description="Cursor: messages already consumed (receive)."
+        ),
         durable: bool = Field(
             default=False,
             description="When True (send), also persist the message as a graph AgentMessage "

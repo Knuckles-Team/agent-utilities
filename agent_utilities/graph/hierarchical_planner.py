@@ -205,7 +205,9 @@ async def planner_step(
 
     error_section = ""
     if ctx.state.error:
-        error_section = f"### PREVIOUS ERROR\n{str(ctx.state.error)[:_MAX_ERROR_CHARS]}\n\n"
+        error_section = (
+            f"### PREVIOUS ERROR\n{str(ctx.state.error)[:_MAX_ERROR_CHARS]}\n\n"
+        )
 
     results_section = ""
     if previous_results:

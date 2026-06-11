@@ -30,12 +30,20 @@ class ActorContext:
     ``roles`` drives role-based ACL checks; ``tenant_id`` drives multi-tenant
     isolation. Both default to permissive values so unscoped callers behave
     exactly as they do today.
+
+    ``authenticated`` is True only when the identity was minted server-side
+    from a validated credential (JWT via the gateway middleware or a validated
+    ``KG_AUTH_TOKEN`` — CONCEPT:OS-5.14). Caller-supplied identities and the
+    ambient :data:`SYSTEM_ACTOR` are unauthenticated; when an authenticated
+    actor is in scope, caller-supplied ``_actor``/``_roles``/``_tenant``
+    kwargs are ignored.
     """
 
     actor_id: str = "system"
     actor_type: ActorType = ActorType.SYSTEM
     roles: tuple[str, ...] = field(default_factory=tuple)
     tenant_id: str = ""
+    authenticated: bool = False
 
     def with_tenant(self, tenant_id: str) -> ActorContext:
         return replace(self, tenant_id=tenant_id)

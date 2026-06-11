@@ -378,20 +378,17 @@ class LangfuseTraceBackend(TraceBackend):
             cost = _first(row, "sum_totalCost", "totalCost", default=0.0)
             tokens = _first(row, "sum_totalTokens", "totalTokens", default=0)
             count = _first(row, "count_count", "count", default=0)
+            p95_val = float(lat or 0.0)
+            cost_val = float(cost or 0.0)
             row_out = {
                 "name": row.get("name") or "unknown",
-                "p95_latency_ms": float(lat or 0.0),
-                "total_cost_usd": float(cost or 0.0),
+                "p95_latency_ms": p95_val,
+                "total_cost_usd": cost_val,
                 "total_tokens": int(tokens or 0),
                 "count": int(count or 0),
             }
-            over_latency = (
-                p95_latency_ms is not None
-                and row_out["p95_latency_ms"] > p95_latency_ms
-            )
-            over_cost = (
-                p95_cost_usd is not None and row_out["total_cost_usd"] > p95_cost_usd
-            )
+            over_latency = p95_latency_ms is not None and p95_val > p95_latency_ms
+            over_cost = p95_cost_usd is not None and cost_val > p95_cost_usd
             if (
                 over_latency
                 or over_cost

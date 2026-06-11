@@ -1278,7 +1278,9 @@ async def expert_executor_step(
                 # context into a valid AgentDeps so injected tools AND MCP toolsets work.
                 from .executor import agent_deps_from_graph
 
-                _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets, state=ctx.state)
+                _agent_deps = agent_deps_from_graph(
+                    ctx.deps, domain_toolsets, state=ctx.state
+                )
 
                 # CONCEPT:ORCH-1.37/1.38 — bound requests + enforce the invoker's token budget.
                 async with dynamic_agent.run_stream(
@@ -1462,7 +1464,8 @@ async def mcp_server_step(
 
             agent = Agent(
                 model=ctx.deps.agent_model,
-                system_prompt=system_prompt + invoker_context_section(ctx.state),  # ORCH-1.39
+                system_prompt=system_prompt
+                + invoker_context_section(ctx.state),  # ORCH-1.39
                 toolsets=matched_toolsets,
             )
 

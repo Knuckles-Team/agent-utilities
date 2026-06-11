@@ -33,6 +33,11 @@ enforces that flags are declared on `AgentConfig` (`core/config.py`), not read w
 | `AGENT_UTILITIES_TOKEN_SECRET` | — | Run-scoped tool-token secret |
 | `KG_DAEMON_ROLE` | `auto` | host/client/auto election (topology) |
 | `EPISTEMIC_GRAPH_AUTOSTART` | — | Auto-spawn the engine |
+| `GRAPH_SERVICE_AUTH_SECRET` | auto-generated | Engine HMAC secret; unset → per-install secret persisted at `data_dir()/engine_secret` (0600) (CONCEPT:OS-5.14) |
+| `KG_ENGINE_INSECURE` | `false` | Dev opt-out of engine HMAC auth; sets `EPISTEMIC_GRAPH_ALLOW_INSECURE=1` on spawned engines (CONCEPT:OS-5.14) |
+| `KG_AUTH_REQUIRED` | `false` | Require server-validated JWT identity for KG access — 401 without it; caller `_actor`/`_roles`/`_tenant` kwargs ignored (CONCEPT:OS-5.14) |
+| `KG_AUTH_TOKEN` | — | JWT minting the stdio MCP process identity (validated against `AUTH_JWT_JWKS_URI`) (CONCEPT:OS-5.14) |
+| `KG_ACL_DEFAULT_ALLOW` | `false` | With `KG_BRAIN_ENFORCE` on: allow nodes WITHOUT an ACL (escape hatch from the fail-closed default-deny) (CONCEPT:OS-5.14) |
 
 These genuinely vary per host and aren't derivable. **Action:** ensure each is a typed
 `AgentConfig` field; remove duplicate bare reads (`GRAPH_DB_URI` is read in 4 places,

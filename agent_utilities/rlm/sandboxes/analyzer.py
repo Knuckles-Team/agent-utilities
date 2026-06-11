@@ -55,7 +55,8 @@ class CodeRequirements:
 class Analyzer(Protocol):
     """Anything that can turn a snippet into :class:`CodeRequirements`."""
 
-    def analyze(self, code: str) -> CodeRequirements: ...
+    def analyze(self, code: str) -> CodeRequirements:
+        ...
 
 
 class AstAnalyzer:
@@ -79,7 +80,7 @@ class AstAnalyzer:
             elif isinstance(node, ast.ClassDef):
                 req.defines_classes = True
             elif isinstance(
-                node, (ast.AsyncFunctionDef, ast.AsyncFor, ast.AsyncWith, ast.Await)
+                node, ast.AsyncFunctionDef | ast.AsyncFor | ast.AsyncWith | ast.Await
             ):
                 req.uses_async = True
             elif isinstance(node, ast.Call):

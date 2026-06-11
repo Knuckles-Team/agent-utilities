@@ -20,11 +20,13 @@ README = ROOT / "README.md"
 AGENTS = ROOT / "AGENTS.md"
 CONCEPTS = ROOT / "docs" / "concepts.yaml"
 
-# Headroom for the curated head (~9.5 KiB of architecture + governance guidance) plus
-# the auto-generated, already-bounded project tree (EXCLUDE_DIRS + MAX_ENTRIES/MAX_DEPTH
-# summarization in gen_agents_md.py). The anti-bloat guarantee comes from those generator
-# controls, not from a tight byte ceiling; this just catches a runaway regression.
-AGENTS_MAX_BYTES = 24 * 1024
+# Headroom for the curated head (AGENTS.head.md — ~22.5 KiB of deliberate, cross-repo
+# governance standards: Working Discipline, Quality Bar, worktree workflow, config
+# discipline, etc.) plus the auto-generated, already-bounded project tree + concept table
+# (EXCLUDE_DIRS + MAX_ENTRIES/MAX_DEPTH summarization in gen_agents_md.py). The anti-bloat
+# guarantee comes from those generator controls, not from a tight byte ceiling; this just
+# catches a runaway regression (current full file is ~33 KiB).
+AGENTS_MAX_BYTES = 40 * 1024
 
 
 def _run(script: str, *args: str) -> subprocess.CompletedProcess:
