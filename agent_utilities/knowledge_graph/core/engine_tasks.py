@@ -814,6 +814,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                 self._tick_task_reaper,
             )
         )
+        # Tenant GC: drop leaked per-job community-detection tenants. The inline
+        # finally-delete can't run when a process is killed mid-ingest (a daemon
+        # redeploy), so they leak — and every leaked tenant is re-serialized on
+        # EVERY checkpoint (the sprawl that bloated checkpoint cost). (CONCEPT:KG-2.8)
+        jobs.append(
+            (
+                "tenant_gc",
+                float(os.getenv("KG_TENANT_GC_INTERVAL", "300")),
+                self._tick_tenant_gc,
+            )
+        )
         return jobs
 
     def _tick_hygiene(self) -> None:
@@ -1591,6 +1602,49 @@ class TaskManagerMixin(GraphEngineProtocol):
             except Exception as e:  # noqa: BLE001 — never let the loop die
                 logger.error("EmbeddingBackfillLoop error: %s", e)
                 time.sleep(idle)
+
+    def _tick_tenant_gc(self) -> None:
+        """Drop leaked per-job community-detection tenants (CONCEPT:KG-2.8).
+
+        Structural ingest runs community detection in an ephemeral
+        ``{graph}__enrich_comm_{uuid}`` tenant and deletes it in a ``finally`` — but
+        a process kill (a daemon redeploy mid-ingest) skips that, leaking the tenant.
+        Every leaked tenant is then re-serialized on EVERY checkpoint, which is what
+        bloated checkpoint cost into multi-second write freezes. These tenants are
+        per-job ephemeral, so when no bulk ingest is in flight they are ALL orphans
+        and safe to drop. Only the ``__enrich_comm_`` pattern is touched — never a
+        real graph.
+        """
+        from agent_utilities.core.background_throttle import get_throttle
+
+        if get_throttle().bulk_ingest_active:
+            return  # a live ingest may own its comm tenant right now
+        backend = getattr(self, "backend", None)
+        graph = getattr(backend, "graph", None) or getattr(backend, "_graph", None)
+        client = getattr(graph, "_client", None)
+        if client is None:
+            return
+        try:
+            tenants = client.tenants.list()
+        except Exception:  # noqa: BLE001 — best-effort sweep
+            return
+        leaked = [
+            t["name"]
+            for t in tenants
+            if isinstance(t, dict) and "__enrich_comm_" in t.get("name", "")
+        ]
+        deleted = 0
+        for name in leaked:
+            try:
+                client.tenants.delete(name)
+                deleted += 1
+            except Exception:  # noqa: BLE001 — one failure never stops the sweep
+                pass
+        if deleted:
+            logger.info(
+                "tenant GC: dropped %d leaked community tenant(s) (checkpoint sprawl)",
+                deleted,
+            )
 
     def _tick_reconcile_durable(self) -> None:
         """Autoheal the L1→L2 durable mirror (CONCEPT:KG-2.8).
