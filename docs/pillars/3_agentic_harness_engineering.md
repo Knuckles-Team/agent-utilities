@@ -162,7 +162,28 @@ GRPO/REINFORCE++ grouping), `dynamic_sample` (DAPO zero-variance group drop),
 `token_regulation` (TR-GRPO). GSPO/DPPO trainer micro-mechanics are deferred until a policy-gradient
 trainer consumes them (Wire-First — no speculative dead code).
 
+### AHE-3.18 — Failure-Driven Evolution
+The self-evolution loop learns from **failures observed in production telemetry**, not only
+from research. Errors, low scores, and cost/latency anomalies are pulled from **Langfuse**,
+clustered into recurring **failure signatures**, and materialized into the durable KG as
+`PerformanceAnomaly` / `ExecutionSummary` nodes plus synthetic **`failure_gap` `Concept`**
+topics (with `evidence_trace_ids` back to Langfuse). The golden loop addresses those gaps
+**directly** (an explicit `run_one_cycle(topics=…)` override, so a brand-new gap is never
+lost in a limited generic scan) and synthesizes a `TeamSpec`/`AgentSpec` remediation. Merge
+of a failure remediation is gated by a **regression check** bound to the originating
+failures (held while a signature is spiking; AHE-3.14).
+- **Source**: `knowledge_graph/adaptation/failure_analyzer.py` (`FailureAnalyzer`,
+  `cluster_failures`, `make_regression_check`, `run_failure_ingest`),
+  `harness/trace_backend.py` (Langfuse failure-read surface).
+- **Run it**: `graph_orchestrate(action="failure_ingest")` (on demand) or the daemon
+  `failure_ingest` tick (opt-in `KG_FAILURE_EVOLUTION`). Replaced the dead
+  `telemetry_ingestion` sweep.
+- **Langfuse vars** are the official SDK names — `LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` /
+  `LANGFUSE_SECRET_KEY` (no deprecated `LANGFUSE_BASE_URL` fallback).
+- Full detail: [`docs/architecture/failure_driven_evolution.md`](../architecture/failure_driven_evolution.md).
+
 ## Key Concepts Leveraged (2026 additions)
 - **AHE-3.15**: Agent-Step Policy Optimization (ARPO)
 - **AHE-3.16**: Test-Time Diversity (VPO)
 - **AHE-3.17**: Preference-Corpus Reliability (DPO family)
+- **AHE-3.18**: Failure-Driven Evolution (Langfuse failures → remediation proposals)

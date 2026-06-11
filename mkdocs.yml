@@ -69,6 +69,7 @@ nav:
       - In-House Training Substrate: architecture/in_house_training_substrate.md
       - Graph-Native Assimilation Engine: architecture/assimilation_engine.md
       - Knowledge Distillation → Skill-Graphs: architecture/knowledge_distillation_skill_graphs.md
+      - Failure-Driven Evolution: architecture/failure_driven_evolution.md
   - Concept Registry:
       - Canonical Concept Map: concept_map.md
       - Concept Overview: overview.md
