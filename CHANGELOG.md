@@ -45,6 +45,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `..._mcp_child_queue_depth{server}` — all no-op without `prometheus_client`.
   - Deployment follow-up (out of scope here): all callers still share each
     child's credentials; per-caller credential injection is not yet wired.
+- **Queue-driven agent dispatch (CONCEPT:ORCH-1.45)** — agent turns (goal runs /
+  orchestrator jobs) dispatched via a session-partitioned durable queue consumed
+  by a stateless scheduler fleet, replacing the in-process-only asyncio
+  scheduler ceiling:
+  - **Envelope + enqueue seams**: typed `AgentTurnEnvelope` (job id = idempotency
+    key, session id, kind, payload *reference* — bodies stay in the state store);
+    `graph_orchestrate action=dispatch` and the goal machinery return a job
+    handle in queue mode (`AGENT_DISPATCH_BACKEND=queue`; `inline` default is
+    byte-for-byte the previous behavior).
+  - **Session-first ordering**: `partition_key_for` gains `session:<id>` above
+    the KG-2.56 tenant key — per-session serial execution is a turn-coherence
+    requirement; distinct sessions parallelize across `AGENT_TURNS_PARTITIONS`.
+  - **Transport composes the KG-2.55 stack**: Kafka `agent_turns` topic /
+    `agent-dispatch` group, Postgres SKIP LOCKED `agent_dispatch_queue` table,
+    or per-host SQLite — same fail-loud selection contract.
+  - **`agent-dispatch-worker`** (console script): claims under per-session
+    mutual exclusion (process lock + `agent-session:<id>` advisory lock),
+    rehydrates from the shared state store, executes the EXISTING
+    `run_goal_loop` / orchestration-manager bodies, writes back durably, acks
+    after. At-least-once + idempotent stale-claim-aware re-claims = crash
+    recovery without a separate scheduler.
+  - **Fleet visibility**: workers heartbeat into the sessions store's
+    `dispatch_workers` registry; `/api/fleet/topology` lists them;
+    `graph_orchestrate job/{id}` reports the executing worker/host; new
+    `agent_utilities_dispatch_queue_depth` / `_dispatch_turns_total{outcome}` /
+    `_dispatch_workers` metrics on the OS-5.23 registry.
+  - Docs: `docs/architecture/agent_dispatch.md`; capacity model marks the
+    queue-driven dispatch stage implemented.
 - **Tenant-partitioned engine sharding (Stage 2, CONCEPT:KG-2.58 / OS-5.28)** — N
   epistemic-graph engine shards behind the existing client-side HRW router,
   partitioned by tenant/graph (`tenant → named graph → HRW → shard`):

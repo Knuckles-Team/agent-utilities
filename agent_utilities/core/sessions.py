@@ -114,6 +114,16 @@ _SQLITE_DDL = """
         created_at REAL NOT NULL,
         updated_at REAL NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS dispatch_workers (
+        worker_id TEXT PRIMARY KEY,
+        host TEXT DEFAULT '',
+        capacity INTEGER DEFAULT 1,
+        active_sessions TEXT DEFAULT '[]',
+        queue_backend TEXT DEFAULT '',
+        started_at REAL NOT NULL,
+        last_heartbeat REAL NOT NULL
+    );
 """
 
 # Same logical schema on Postgres (CONCEPT:OS-5.16). REAL epoch timestamps
@@ -162,10 +172,21 @@ _PG_DDL = """
         created_at DOUBLE PRECISION NOT NULL,
         updated_at DOUBLE PRECISION NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS dispatch_workers (
+        worker_id TEXT PRIMARY KEY,
+        host TEXT DEFAULT '',
+        capacity INTEGER DEFAULT 1,
+        active_sessions TEXT DEFAULT '[]',
+        queue_backend TEXT DEFAULT '',
+        started_at DOUBLE PRECISION NOT NULL,
+        last_heartbeat DOUBLE PRECISION NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions (updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions (status);
     CREATE INDEX IF NOT EXISTS idx_turns_session ON turns (session_id, turn_number);
     CREATE INDEX IF NOT EXISTS idx_goals_status ON goals (status);
+    CREATE INDEX IF NOT EXISTS idx_dispatch_workers_hb
+        ON dispatch_workers (last_heartbeat DESC);
 """
 
 
@@ -804,6 +825,36 @@ async def create_goal(request: Request) -> JSONResponse:
     if consts:
         spec.constraints = consts
 
+    # CONCEPT:ORCH-1.45 — queue-backed goal dispatch: with
+    # AGENT_DISPATCH_BACKEND=queue this gateway does NOT run the goal loop
+    # in-process. The full spec is persisted into the session's metadata (the
+    # queue carries only references), a session-keyed envelope is published,
+    # and any host's agent-dispatch-worker claims it, runs the SAME
+    # ``run_goal_loop`` body, and writes turns/status back into this store.
+    from agent_utilities.orchestration.agent_dispatch import dispatch_queue_enabled
+
+    try:
+        queue_mode = dispatch_queue_enabled()
+    except Exception as e:  # noqa: BLE001 — a bad flag must not kill goal intake
+        logger.error(f"agent_dispatch_backend resolution failed: {e}")
+        queue_mode = False
+
+    import json as _json
+
+    session_metadata = "{}"
+    if queue_mode:
+        session_metadata = _json.dumps(
+            {
+                "goal_spec": {
+                    "objective": spec.objective,
+                    "end_state": spec.end_state,
+                    "validation_cmd": spec.validation_cmd,
+                    "max_iterations": spec.max_iterations,
+                    "constraints": list(spec.constraints or []),
+                }
+            }
+        )
+
     try:
         conn = _connect_db()
         cursor = conn.cursor()
@@ -819,12 +870,14 @@ async def create_goal(request: Request) -> JSONResponse:
                 "ask",
                 str(DEFAULT_AGENT_DIR),
                 1,
-                "running",
+                "queued" if queue_mode else "running",
                 1,
                 0,
-                "Goal loop initialized...",
+                "Goal queued for dispatch..."
+                if queue_mode
+                else "Goal loop initialized...",
                 goal_id,
-                "{}",
+                session_metadata,
             ),
         )
 
@@ -850,6 +903,59 @@ async def create_goal(request: Request) -> JSONResponse:
         logger.error(f"Error initializing goal session: {e}")
         return JSONResponse(
             {"error": f"Database initialization failed: {e}"}, status_code=500
+        )
+
+    if queue_mode:
+        # Durable goal row first (status=pending, unowned), THEN the envelope:
+        # a worker that wins the race always finds the record it must claim.
+        active_goals[goal_id] = {
+            "goal_id": goal_id,
+            "session_id": session_id,
+            "status": GoalStatus.PENDING,
+            "objective": spec.objective,
+            "owner_host": "",
+            "created_at": time.time(),
+            "iterations": [],
+            "total_iterations": 0,
+            "total_duration_ms": 0,
+            "total_tool_calls": 0,
+            "summary": "Goal queued for dispatch...",
+            "error": "",
+        }
+        _persist_goal(goal_id)
+
+        from agent_utilities.orchestration.agent_dispatch import (
+            KIND_GOAL_LOOP,
+            AgentTurnEnvelope,
+            enqueue_agent_turn,
+        )
+
+        try:
+            handle = enqueue_agent_turn(
+                AgentTurnEnvelope(
+                    session_id=session_id,
+                    kind=KIND_GOAL_LOOP,
+                    payload_ref=goal_id,
+                )
+            )
+        except Exception as e:  # noqa: BLE001 — surface enqueue failure loudly
+            logger.error(f"Goal {goal_id} enqueue failed: {e}")
+            active_goals[goal_id]["status"] = GoalStatus.FAILED
+            active_goals[goal_id]["error"] = f"dispatch enqueue failed: {e}"
+            _persist_goal(goal_id)
+            return JSONResponse(
+                {"error": f"dispatch enqueue failed: {e}"}, status_code=503
+            )
+
+        return JSONResponse(
+            {
+                "status": "success",
+                "goal_id": goal_id,
+                "session_id": session_id,
+                "objective": spec.objective,
+                "validation_cmd": spec.validation_cmd,
+                "dispatch": handle,
+            }
         )
 
     task = asyncio.create_task(

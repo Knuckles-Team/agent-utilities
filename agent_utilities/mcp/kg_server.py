@@ -3234,6 +3234,33 @@ def _build_server(bootstrap: bool = True):
             if action == "dispatch":
                 deps = json.loads(dependencies) if dependencies else []
                 job_id = await orch.dispatch_task(task, deps)
+                # CONCEPT:ORCH-1.45 — queue-driven dispatch: with
+                # AGENT_DISPATCH_BACKEND=queue the durable :Task node stays the
+                # payload of record, a session-keyed envelope goes onto the
+                # agent_turns queue, and the caller gets a job handle (poll
+                # action=status / /api/graph/orchestrate/job/{job_id}) instead
+                # of an in-process execution promise. A bare dispatch has no
+                # session, so the job id is its own session scope — serial
+                # with itself, parallel with everything else.
+                from agent_utilities.orchestration.agent_dispatch import (
+                    KIND_ORCHESTRATOR_TASK,
+                    AgentTurnEnvelope,
+                    dispatch_queue_enabled,
+                    enqueue_agent_turn,
+                )
+
+                if dispatch_queue_enabled():
+                    handle = enqueue_agent_turn(
+                        AgentTurnEnvelope(
+                            job_id=job_id,
+                            session_id=job_id,
+                            kind=KIND_ORCHESTRATOR_TASK,
+                            payload_ref=job_id,
+                            agent_name=agent_name or "",
+                        )
+                    )
+                    handle["status_url"] = f"/api/graph/orchestrate/job/{job_id}"
+                    return json.dumps(handle)
                 return f"Task dispatched. Job ID: {job_id}"
             elif action == "rlm_run":
                 # CONCEPT:ORCH-1.12 — run the Predict-RLM runtime on an ad-hoc task.

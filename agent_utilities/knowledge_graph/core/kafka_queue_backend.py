@@ -73,13 +73,25 @@ def _corpus_root(target: str) -> str:
 
 
 def partition_key_for(item: dict[str, Any]) -> str:
-    """Compute the ``kg_tasks`` partition key for a task envelope.
+    """Compute the partition key for a task or agent-turn envelope.
 
     CONCEPT:KG-2.56 — key hierarchy: tenant id (ambient ActorContext) →
     repo/corpus identifier of the ingest target → task type. Guarantees
     per-tenant / per-repo ordering while letting unrelated work parallelize
     across partitions.
+
+    CONCEPT:ORCH-1.45 — a ``session_id`` on the envelope outranks everything,
+    INCLUDING the ambient tenant: agent turns of one session must execute
+    serially (turn N+1 reads the state turn N wrote — interleaving corrupts
+    the conversation), whereas tenant keying is only an ordering/fairness
+    *grouping* for ingest work. Per-session keys still preserve tenant
+    isolation — a session never spans tenants — so session beats tenant
+    without weakening any KG-2.56 guarantee.
     """
+    session = item.get("session_id") or (item.get("props") or {}).get("session_id")
+    if session:
+        return f"session:{session}"
+
     try:
         from agent_utilities.security.brain_context import current_actor
 
@@ -133,7 +145,16 @@ class KafkaQueueBackend(QueueBackend):
         producer: Any = None,
         admin_client: Any = None,
         consumer_factory: Any = None,
+        tasks_topic: str = TASKS_TOPIC,
+        consumer_group: str = INGEST_GROUP,
     ):
+        # CONCEPT:ORCH-1.45 — the topic/group are parameters so the agent
+        # dispatch queue (``agent_turns`` / ``agent-dispatch``) reuses this
+        # backend verbatim; the defaults keep the ingest queue unchanged. The
+        # staging twin only exists for the ingest topic.
+        self.tasks_topic = tasks_topic
+        self.consumer_group = consumer_group
+        self._include_staging = tasks_topic == TASKS_TOPIC
         if isinstance(bootstrap_servers, list | tuple):
             bootstrap_servers = ",".join(str(s) for s in bootstrap_servers)
         if not bootstrap_servers:
@@ -171,9 +192,9 @@ class KafkaQueueBackend(QueueBackend):
                 "Kafka task queue ready (brokers=%s, topic=%s, partitions>=%d, "
                 "group=%s)",
                 self.bootstrap_servers,
-                TASKS_TOPIC,
+                self.tasks_topic,
                 self.partitions,
-                INGEST_GROUP,
+                self.consumer_group,
             )
         except TaskQueueUnavailable:
             raise
@@ -239,7 +260,9 @@ class KafkaQueueBackend(QueueBackend):
         topic (Kafka cannot shrink partitions; we never try)."""
         admin = self._admin_client()
         md = admin.list_topics(timeout=_PROBE_TIMEOUT_S)
-        wanted = ((TASKS_TOPIC, self.partitions), (STAGING_TOPIC, 1))
+        wanted: tuple[tuple[str, int], ...] = ((self.tasks_topic, self.partitions),)
+        if self._include_staging:
+            wanted += ((STAGING_TOPIC, 1),)
         to_create: list[tuple[str, int]] = []
         to_grow: list[tuple[str, int]] = []
         for topic, parts in wanted:
@@ -291,7 +314,7 @@ class KafkaQueueBackend(QueueBackend):
         try:
             key = partition_key_for(item)
             self._producer.produce(
-                TASKS_TOPIC,
+                self.tasks_topic,
                 value=json.dumps(item).encode("utf-8"),
                 key=key.encode("utf-8"),
             )
@@ -323,7 +346,9 @@ class KafkaQueueBackend(QueueBackend):
         try:
             with self._lock:
                 if self._task_consumer is None:
-                    self._task_consumer = self._consumer(TASKS_TOPIC, INGEST_GROUP)
+                    self._task_consumer = self._consumer(
+                        self.tasks_topic, self.consumer_group
+                    )
                 msg = self._task_consumer.poll(0.5)
             if msg is None or msg.error():
                 return None
@@ -345,12 +370,15 @@ class KafkaQueueBackend(QueueBackend):
 
     # ── depth / lag backpressure visibility ── CONCEPT:KG-2.57
 
-    def consumer_lag(self, topic: str = TASKS_TOPIC, group: str = INGEST_GROUP) -> int:
-        """Total ``kg-ingest`` consumer-group lag on ``topic`` (unconsumed
-        messages across all partitions). Uses a non-subscribing probe consumer
-        so it never joins (and never steals partitions from) the group."""
+    def consumer_lag(self, topic: str | None = None, group: str | None = None) -> int:
+        """Total consumer-group lag on ``topic`` (unconsumed messages across
+        all partitions; defaults to this queue's topic/group). Uses a
+        non-subscribing probe consumer so it never joins (and never steals
+        partitions from) the group."""
         if self._fallback_queue is not None:
             return self._fallback_queue.get_queue_size()
+        topic = topic or self.tasks_topic
+        group = group or self.consumer_group
         from confluent_kafka import TopicPartition
 
         if self._lag_probe is None:
@@ -382,7 +410,7 @@ class KafkaQueueBackend(QueueBackend):
         return lag
 
     def get_queue_size(self) -> int:
-        """Queue depth = unconsumed ``kg_tasks`` messages (consumer-group lag)."""
+        """Queue depth = unconsumed task-topic messages (consumer-group lag)."""
         if self._fallback_queue is not None:
             return self._fallback_queue.get_queue_size()
         try:

@@ -2,7 +2,11 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
+<<<<<<< HEAD
 total_concepts: 175
+=======
+total_concepts: 174
+>>>>>>> feat/queue-driven-dispatch
 total_pillars: 18
 pillars:
 - AHE-3
@@ -1011,6 +1015,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/governance_rules.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/protocols/source_connectors/checkpoint.py
   doc: / OS-5.9 — the KG runs exactly ONE consolidated background daemon
 - id: KG-2.9
@@ -1502,6 +1507,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/queue_backend.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
   - agent_utilities/knowledge_graph/ingest_worker.py
+  - agent_utilities/orchestration/agent_dispatch.py
   doc: Fail-loud selectable ingest task-queue backend with explicit kafka and postgres and auto sqlite
     modes
 - id: KG-2.56
@@ -2017,6 +2023,21 @@ concepts:
   - agent_utilities/models/goal.py
   doc: Durable goal registry — goals persist across restarts and stranded runs rehydrate as orphaned instead
     of silently vanishing
+- id: ORCH-1.45
+  name: Queue-driven agent dispatch with session-keyed partitions
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/core/sessions.py
+  - agent_utilities/gateway/fleet.py
+  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
+  - agent_utilities/knowledge_graph/core/postgres_queue_backend.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/observability/gateway_metrics.py
+  - agent_utilities/orchestration/agent_dispatch.py
+  - agent_utilities/orchestration/agent_dispatch_worker.py
+  doc: Queue-driven agent dispatch with session-keyed partitions
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
@@ -2229,6 +2250,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ontology/permissioning.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/security/brain_context.py
   - agent_utilities/security/request_identity.py
   doc: an ACL-check exception denies, and nodes without an ACL are
@@ -2257,6 +2279,7 @@ concepts:
   - agent_utilities/gateway/fleet.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
+  - agent_utilities/orchestration/agent_dispatch.py
   - agent_utilities/orchestration/durable_execution.py
   doc: Unified durable-state externalization — one STATE_DB_URI flag selects a shared Postgres state store
     over the per-host SQLite default

@@ -34,7 +34,7 @@ the max of the resulting infrastructure:
 
 | Axis | Driver | Knob in `core/config.py` |
 |------|--------|--------------------------|
-| **Active concurrency** | agents executing *right now* | `worker_pool_size` × node count |
+| **Active concurrency** | agents executing *right now* | `worker_pool_size` × node count; **queue-driven dispatch is the live scale-out path for this axis** — `agent_dispatch_backend=queue` + N `agent-dispatch-worker` hosts (see [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md), CONCEPT:ORCH-1.45) |
 | **Resident population** | total agents whose state must persist | `graph_service_endpoints` (PG/L0 shard fan-out — the L0 side is the live tenant-partitioned engine sharding path, see [`architecture/engine_sharding.md`](../architecture/engine_sharding.md), CONCEPT:KG-2.58) |
 | **Event throughput** | graph events/sec driving fan-out | `kafka_bootstrap_servers` partitions |
 
@@ -131,6 +131,27 @@ single-shard floor):
   super-linear coordination costs (cross-shard queries, rebalancing, tail
   latency) that this first-order model intentionally ignores. Treat 1M as an
   engineering target to validate, and 100M as an order-of-magnitude sketch only.
+
+## Queue-driven dispatch stage (IMPLEMENTED — CONCEPT:ORCH-1.45)
+
+The "Workers" column above used to be aspirational on the active-concurrency
+axis: agent turns executed only inside the in-process asyncio scheduler
+(`core/cognitive_scheduler.py`, `max_concurrent` per process) on the host that
+accepted them. That stage is now implemented:
+
+- agent turns ride the session-keyed `agent_turns` queue
+  (`AGENT_DISPATCH_BACKEND=queue`; transport follows `TASK_QUEUE_BACKEND`);
+- any host running `agent-dispatch-worker` claims and executes them against the
+  shared state store (OS-5.16), so "Workers = ceil(active / 25)" maps to a
+  **stateless dispatch-worker fleet** spread across "Nodes", not to one
+  process's coroutine cap;
+- `AGENT_TURNS_PARTITIONS` bounds fleet-wide session concurrency on Kafka the
+  same way the Kafka-parts column bounds event drain.
+
+Deployment shape per row of the summary table: stateless gateways + N
+dispatch workers + M `kg-ingest-worker` processes + the listed engine/PG
+shards and Kafka partitions. Design, ordering and idempotency guarantees:
+[`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md).
 
 ## Production guard
 
