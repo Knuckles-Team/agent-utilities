@@ -62,7 +62,7 @@ workflow, and writes the captured diagrams to a report,
 - **AC11**: It `compile_workflow`s then `execute_workflow`s a read-only canary workflow
   (`full_ecosystem_health`), handling the CallableResource↔WorkflowDefinition gap.
 - **AC12**: It captures the `mermaid` from each response and writes a Markdown report with fenced
-  ```mermaid blocks and per-phase pass/fail.
+  `mermaid` code blocks and per-phase pass/fail.
 
 ## Non-Functional Requirements
 

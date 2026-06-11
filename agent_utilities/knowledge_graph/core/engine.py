@@ -599,8 +599,10 @@ class IntelligenceGraphEngine(
         model. Best-effort: a missing backend/compute method is tolerated.
         """
         if self.backend and not ephemeral:
-            with contextlib.suppress(Exception):
-                self.backend.add_edge(source, target, rel_type, **properties)
+            _be = getattr(self.backend, "add_edge", None)
+            if callable(_be):
+                with contextlib.suppress(Exception):
+                    _be(source, target, rel_type, **properties)
         _ge = getattr(self.graph_compute, "add_edge", None)
         if callable(_ge):
             with contextlib.suppress(Exception):
