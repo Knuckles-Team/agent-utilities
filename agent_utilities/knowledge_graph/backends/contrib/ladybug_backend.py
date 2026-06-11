@@ -113,9 +113,11 @@ _HTTP_CLIENT: httpx.Client | None = None
 
 def _get_http_client(timeout: float = 30.0) -> httpx.Client:
     """Get or create a persistent httpx client with connection pooling."""
+    from agent_utilities.core.http_client import create_http_client
+
     global _HTTP_CLIENT
     if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
-        _HTTP_CLIENT = httpx.Client(
+        _HTTP_CLIENT = create_http_client(
             timeout=timeout,
             limits=httpx.Limits(
                 max_connections=100,
