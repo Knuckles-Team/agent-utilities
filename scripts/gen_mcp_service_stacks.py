@@ -49,11 +49,7 @@ services:
     command:
     - {name}
     healthcheck:
-      test:
-      - CMD
-      - python3
-      - -c
-      - import urllib.request; urllib.request.urlopen('http://localhost:8000/health')
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('localhost', 8000), timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
