@@ -123,6 +123,15 @@ class GraphComputeEngine:
         # connection pooling callers should use epistemic_graph.pool.ShardRouter,
         # which shares this exact placement function. (CONCEPT:KG-2.58)
         endpoint = shard_endpoint_for(graph_name, endpoints)
+        # Explicit endpoint override (CONCEPT:KG-2.58 / Phase D — dedicated ingest
+        # engine): the ingest path pins its parse + community-scratch work to a
+        # SEPARATE engine process, isolated from the query engine and the background
+        # daemons (embedding backfill / reconcile / poll). Bypasses HRW so the caller
+        # controls placement; the caller is responsible for only passing a reachable
+        # endpoint (it health-gates + falls back to the query engine otherwise).
+        endpoint_override = kwargs.get("endpoint")
+        if endpoint_override:
+            endpoint = str(endpoint_override)
         # Engine auth (CONCEPT:OS-5.14): resolve the shared HMAC secret —
         # configured, or generated once and persisted under the XDG data dir —
         # and export it so sibling clients (the epistemic_graph pool and any
