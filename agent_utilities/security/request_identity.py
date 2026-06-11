@@ -42,6 +42,11 @@ HEALTH_PATHS: frozenset[str] = frozenset(
     {"/health", "/healthz", "/api/health", "/api/healthz"}
 )
 
+# Prometheus scrapers cannot mint JWTs; /metrics exposes only aggregate
+# counters (no graph data), so it is exempt like the health probes.
+# (CONCEPT:OS-5.23 — Gateway Middle-Tier Hardening)
+UNAUTHENTICATED_PATHS: frozenset[str] = HEALTH_PATHS | {"/metrics"}
+
 _warned_unauthenticated = False
 
 
@@ -210,7 +215,7 @@ class ActorIdentityMiddleware:
                 return
 
         if actor is None:
-            if config.kg_auth_required and path not in HEALTH_PATHS:
+            if config.kg_auth_required and path not in UNAUTHENTICATED_PATHS:
                 await _send_json(
                     send,
                     401,
@@ -241,6 +246,7 @@ class ActorIdentityMiddleware:
 __all__ = [
     "ActorIdentityMiddleware",
     "HEALTH_PATHS",
+    "UNAUTHENTICATED_PATHS",
     "actor_from_bearer_token",
     "actor_from_claims",
     "mint_actor_from_token_sync",

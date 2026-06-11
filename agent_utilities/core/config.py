@@ -372,6 +372,46 @@ class AgentConfig(BaseSettings):
     other fleet routes; the OS-5.14 identity middleware still applies when
     ``KG_AUTH_REQUIRED`` is on)."""
 
+    # --- Gateway middle-tier hardening (CONCEPT:OS-5.23) ---
+
+    gateway_metrics: bool = Field(default=True, alias="GATEWAY_METRICS")
+    """Expose Python-tier Prometheus metrics on the gateway: a pure-ASGI
+    middleware recording ``agent_utilities_gateway_*`` series (request totals,
+    duration histogram, in-flight gauge, rate-limit/breaker counters) plus a
+    ``GET /metrics`` endpoint (exempt from auth — scrapers cannot mint JWTs).
+    Requires the optional ``metrics`` extra (``prometheus-client``); without it
+    the middleware degrades to a no-op and ``/metrics`` returns a placeholder."""
+
+    gateway_rate_limit: float = Field(default=0.0, alias="GATEWAY_RATE_LIMIT")
+    """Per-tenant sustained request rate (requests/second) enforced by the
+    gateway token-bucket middleware. ``0`` (default) disables rate limiting.
+    Bucket key: ActorContext tenant → authenticated actor id → client IP.
+    Buckets are in-memory and PER-PROCESS: with N workers/replicas the
+    effective limit is N× this value (see docs/architecture/gateway_scaling.md)."""
+
+    gateway_rate_burst: float = Field(default=0.0, alias="GATEWAY_RATE_BURST")
+    """Token-bucket burst capacity (max requests served instantly from a full
+    bucket). ``0`` (default) derives 2× ``GATEWAY_RATE_LIMIT``."""
+
+    gateway_workers: int = Field(default=1, alias="GATEWAY_WORKERS")
+    """Number of gateway worker processes. Default ``1`` preserves the
+    single-process behaviour (in-process KG daemon, one event loop). With
+    ``>1`` the server pre-forks workers sharing one listen socket; exactly ONE
+    worker wins the KG host flock and runs the consolidated daemon/ticks while
+    the rest self-heal to clients. Metrics and rate-limit buckets are
+    per-worker. Ignored when the terminal UI is enabled or under pytest."""
+
+    engine_breaker_threshold: int = Field(default=5, alias="ENGINE_BREAKER_THRESHOLD")
+    """Consecutive engine connect/timeout failures before the epistemic-graph
+    client circuit breaker opens (fast, typed ``EngineCircuitOpenError``
+    instead of hammering a dead engine). ``0`` disables the breaker."""
+
+    engine_breaker_cooldown: float = Field(
+        default=15.0, alias="ENGINE_BREAKER_COOLDOWN"
+    )
+    """Seconds an open engine circuit breaker waits before allowing a single
+    half-open probe; the probe's outcome closes or re-opens the circuit."""
+
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
 
     oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")

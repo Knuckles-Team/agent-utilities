@@ -63,6 +63,12 @@ sandbox = [
 kafka = [
     "aiokafka>=0.10.0"
 ]
+# CONCEPT:OS-5.23 — Python-tier gateway Prometheus metrics. Optional so the
+# base install stays light; without it every gateway metric degrades to a
+# no-op and GET /metrics returns a placeholder.
+metrics = [
+    "prometheus-client>=0.20.0"
+]
 nats = [
     "nats-py>=2.6.0"
 ]

@@ -50,13 +50,24 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
     except Exception as exc:  # pragma: no cover - best-effort, never fatal
         logger.warning("Could not attach CentralizedCypherMiddleware: %s", exc)
 
+    # Per-tenant token-bucket rate limiting (CONCEPT:OS-5.23). Added BEFORE
+    # the identity middleware so it sits INSIDE it (Starlette: last added =
+    # outermost) — the server-minted ActorContext is already in scope when
+    # the bucket key (tenant → actor → client IP) is resolved. Disabled by
+    # default (GATEWAY_RATE_LIMIT=0); /metrics and health paths are exempt.
+    from agent_utilities.core.config import config
+
+    if config.gateway_rate_limit > 0:
+        from agent_utilities.gateway.rate_limit import GatewayRateLimitMiddleware
+
+        app.add_middleware(GatewayRateLimitMiddleware)
+
     # Server-minted JWT identity (CONCEPT:OS-5.14). Added AFTER the cypher
     # middleware so it sits OUTSIDE it — the lock-bypassing ``POST /cypher``
     # fast path is identity-scoped too. Validates ``Authorization: Bearer`` via
     # the existing JWKS machinery, scopes the request to an authenticated
     # ActorContext, and (with KG_AUTH_REQUIRED) rejects unauthenticated
     # requests with 401.
-    from agent_utilities.core.config import config
     from agent_utilities.security.request_identity import (
         ActorIdentityMiddleware,
         warn_unauthenticated_identity_once,
@@ -65,6 +76,32 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
     app.add_middleware(ActorIdentityMiddleware)
     if not config.kg_auth_required:
         warn_unauthenticated_identity_once()
+
+    # Python-tier Prometheus metrics (CONCEPT:OS-5.23). Added LAST so the
+    # metrics middleware is OUTERMOST — auth rejections (401) and rate-limit
+    # rejections (429) are counted too. GET /metrics is exempt from the
+    # identity middleware (scrapers cannot mint JWTs). Both the gateway and
+    # the agent-webui backend mount through here, so both get the same
+    # instrumentation. With prometheus_client absent (optional ``metrics``
+    # extra) everything degrades to a no-op.
+    if config.gateway_metrics:
+        from agent_utilities.observability.gateway_metrics import (
+            GatewayMetricsMiddleware,
+            metrics_asgi_endpoint,
+            metrics_endpoint,
+        )
+
+        app.add_middleware(GatewayMetricsMiddleware)
+        if not any(getattr(r, "path", None) == "/metrics" for r in app.routes):
+            if hasattr(app, "add_api_route"):  # FastAPI
+                app.add_api_route(
+                    "/metrics",
+                    metrics_endpoint,
+                    methods=["GET"],
+                    include_in_schema=False,
+                )
+            else:  # plain Starlette
+                app.add_route("/metrics", metrics_asgi_endpoint, methods=["GET"])
 
     kg_server._mount_rest_routes(app, prefix=prefix)
 
