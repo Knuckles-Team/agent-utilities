@@ -437,6 +437,20 @@ class AgentConfig(BaseSettings):
     always keep exactly one session. Per-server override: the ``pool_size``
     key on the server entry."""
 
+    mcp_child_max_restarts: int = Field(default=5, alias="MCP_CHILD_MAX_RESTARTS")
+    """How many automatic restarts a crashed multiplexer child may consume
+    within ``MCP_CHILD_RESTART_WINDOW`` before it is marked ``failed`` (calls
+    then fail fast with the typed ``MCPChildUnavailableError`` instead of
+    retry-looping forever). ``0`` disables auto-restart entirely."""
+
+    mcp_child_restart_window: float = Field(
+        default=300.0, alias="MCP_CHILD_RESTART_WINDOW"
+    )
+    """Sliding window (seconds) over which ``MCP_CHILD_MAX_RESTARTS`` is
+    counted. Restarts older than the window are forgiven, so a child that
+    crashes rarely keeps restarting indefinitely while a crash-looping child
+    is parked as ``failed``."""
+
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
 
     oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")

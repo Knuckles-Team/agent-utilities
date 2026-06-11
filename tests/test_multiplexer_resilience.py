@@ -17,6 +17,7 @@ from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
     MCPChildBusyError,
     MCPChildCallTimeoutError,
+    MCPChildUnavailableError,
 )
 from agent_utilities.mcp.multiplexer import MCPMultiplexer
 
@@ -217,7 +218,9 @@ async def test_multiplexer_opens_pool_size_connections_for_http_child(
     )
     assert res is not None
     assert len(connects) == 3
-    assert isinstance(res[1], list) and len(res[1]) == 3
+    assert isinstance(res[1], ChildRuntime)
+    assert res[1].status()["sessions"] == 3
+    await res[1].aclose()
 
 
 async def test_stdio_child_ignores_pool_size_and_keeps_one_pipe(
@@ -266,7 +269,9 @@ async def test_stdio_child_ignores_pool_size_and_keeps_one_pipe(
     )
     assert res is not None
     assert len(connects) == 1
-    assert isinstance(res[1], list) and len(res[1]) == 1
+    assert isinstance(res[1], ChildRuntime)
+    assert res[1].status()["sessions"] == 1
+    await res[1].aclose()
 
 
 async def test_call_timeout_detaches_cleanly_and_keeps_session_usable():
@@ -330,6 +335,161 @@ async def test_detached_timeouts_apply_backpressure_until_child_recovers():
     await asyncio.sleep(0.01)
     result = await runtime.call_tool("t", {})
     assert not result.isError
+
+
+# ---------------------------------------------------------------------------
+# Work item 3 — restart-on-crash supervisor + health surface
+# ---------------------------------------------------------------------------
+
+
+class DeadPipeSession:
+    """Fake session over a dead transport: every call hits a closed pipe."""
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        raise ConnectionResetError("child process exited")
+
+
+class GenerationConnector:
+    """Scripted connect factory: one plan entry per connection generation.
+
+    An exception entry makes that generation's connect fail; a session entry
+    becomes the generation's (single-session) pool."""
+
+    def __init__(self, plan: list[Any]) -> None:
+        self.plan = plan
+        self.connects = 0
+
+    async def __call__(self, stack: Any) -> tuple[list[Any], list[Any]]:
+        item = self.plan[min(self.connects, len(self.plan) - 1)]
+        self.connects += 1
+        if isinstance(item, BaseException):
+            raise item
+        if item == "hang":
+            await asyncio.Event().wait()
+        return [item], ["tool_a"]
+
+
+async def _wait_for(predicate, timeout: float = 2.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not predicate():
+        assert asyncio.get_running_loop().time() < deadline, "condition not reached"
+        await asyncio.sleep(0.005)
+
+
+async def test_crash_triggers_restart_and_child_recovers():
+    healthy = EchoSession("gen2")
+    connector = GenerationConnector([DeadPipeSession(), healthy])
+    runtime = ChildRuntime(
+        "phoenix",
+        {"max_concurrency": 2, "queue_timeout": 0.5},
+        connect=connector,
+        restart_backoff_base=0.01,
+        restart_backoff_cap=0.02,
+    )
+    tools = await runtime.start()
+    assert tools == ["tool_a"]
+    assert runtime.state == "up"
+
+    # The dead pipe surfaces to the caller AND trips the restart cycle.
+    with pytest.raises(ConnectionResetError):
+        await runtime.call_tool("t", {})
+
+    await _wait_for(lambda: runtime.state == "up" and connector.connects == 2)
+    assert runtime.restart_count == 1
+
+    result = await runtime.call_tool("t", {})
+    assert result.content[0].text == "gen2:t"
+    assert runtime.status()["state"] == "up"
+    assert runtime.status()["restart_count"] == 1
+    await runtime.aclose()
+
+
+async def test_calls_during_restart_fail_fast_with_typed_error():
+    connector = GenerationConnector([DeadPipeSession(), "hang"])
+    runtime = ChildRuntime(
+        "limbo",
+        {"max_concurrency": 2, "queue_timeout": 0.05},
+        connect=connector,
+        restart_backoff_base=0.01,
+        restart_backoff_cap=0.02,
+    )
+    await runtime.start()
+
+    with pytest.raises(ConnectionResetError):
+        await runtime.call_tool("t", {})
+    await _wait_for(lambda: runtime.state == "restarting")
+
+    # Reconnect hangs forever -> a call waits briefly, then fails typed.
+    with pytest.raises(MCPChildUnavailableError) as exc:
+        await runtime.call_tool("t", {})
+    assert "limbo" in str(exc.value)
+    assert exc.value.state == "restarting"
+    await runtime.aclose()
+
+
+async def test_restart_budget_exhaustion_parks_child_as_failed():
+    connector = GenerationConnector(
+        [EchoSession(), ConnectionRefusedError("child gone for good")]
+    )
+    runtime = ChildRuntime(
+        "doomed",
+        {"max_concurrency": 2, "queue_timeout": 0.05, "max_restarts": 2},
+        connect=connector,
+        restart_backoff_base=0.01,
+        restart_backoff_cap=0.02,
+    )
+    await runtime.start()
+    runtime.request_restart(reason="test crash")
+
+    await _wait_for(lambda: runtime.state == "failed")
+    # 1 boot connect + 2 allowed restart attempts, then parked.
+    assert connector.connects == 3
+
+    with pytest.raises(MCPChildUnavailableError) as exc:
+        await runtime.call_tool("t", {})
+    assert exc.value.state == "failed"
+    assert "doomed" in str(exc.value)
+    await runtime.aclose()
+
+
+async def test_zero_max_restarts_disables_auto_restart():
+    connector = GenerationConnector([DeadPipeSession(), EchoSession()])
+    runtime = ChildRuntime(
+        "frozen",
+        {"max_concurrency": 2, "max_restarts": 0, "queue_timeout": 0.05},
+        connect=connector,
+        restart_backoff_base=0.01,
+    )
+    await runtime.start()
+    with pytest.raises(ConnectionResetError):
+        await runtime.call_tool("t", {})
+
+    await _wait_for(lambda: runtime.state == "failed")
+    assert connector.connects == 1  # never reconnected
+    await runtime.aclose()
+
+
+async def test_boot_connect_failure_raises_and_does_not_retry():
+    connector = GenerationConnector([ConnectionRefusedError("nobody home")])
+    runtime = ChildRuntime("stillborn", {}, connect=connector)
+    with pytest.raises(ConnectionRefusedError):
+        await runtime.start()
+    assert connector.connects == 1
+    assert runtime.state == "closed"  # aclose() ran in start()'s error path
+
+
+async def test_multiplexer_status_snapshot_reports_every_child(tmp_path):
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    up = ChildRuntime("alive", {"max_concurrency": 4})
+    up.adopt_sessions([EchoSession()])
+    mux.children["alive"] = up
+
+    snapshot = mux.status_snapshot()
+    assert snapshot["total_children"] == 1
+    child = snapshot["children"]["alive"]
+    assert child["state"] == "up"
+    assert child["restart_count"] == 0
+    assert child["max_concurrency"] == 4
 
 
 async def test_runtime_status_reports_limits_and_load():

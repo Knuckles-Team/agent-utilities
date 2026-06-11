@@ -293,79 +293,75 @@ class MCPMultiplexer:
             url if is_remote else f"{command} {' '.join(args)}",
         )
 
-        child_stack = contextlib.AsyncExitStack()
-        try:
-
-            async def _connect_one():
-                if is_remote:
-                    if use_sse:
-                        if sse_client is None:
-                            raise RuntimeError(
-                                "mcp SDK has no sse_client for SSE transport"
-                            )
-                        transport = sse_client(url, headers=headers)
-                    else:
-                        if streamablehttp_client is None:
-                            raise RuntimeError(
-                                "mcp SDK has no streamablehttp_client for "
-                                "streamable-http transport"
-                            )
-                        transport = streamablehttp_client(url, headers=headers)
-                    # streamable-http yields (read, write, get_session_id); sse
-                    # yields (read, write). Take the first two streams either way.
-                    streams = await child_stack.enter_async_context(transport)
-                    read_stream, write_stream = streams[0], streams[1]
+        async def _connect_one(stack: contextlib.AsyncExitStack):
+            if is_remote:
+                if use_sse:
+                    if sse_client is None:
+                        raise RuntimeError(
+                            "mcp SDK has no sse_client for SSE transport"
+                        )
+                    transport = sse_client(url, headers=headers)
                 else:
-                    server_params = StdioServerParameters(
-                        command=command, args=args, env=merged_env
-                    )
-                    # Connect via stdio transport
-                    read_stream, write_stream = await child_stack.enter_async_context(
-                        stdio_client(server_params)
-                    )
-
-                # Create client session (transport-agnostic from here on)
-                session = await child_stack.enter_async_context(
-                    ClientSession(read_stream, write_stream)
+                    if streamablehttp_client is None:
+                        raise RuntimeError(
+                            "mcp SDK has no streamablehttp_client for "
+                            "streamable-http transport"
+                        )
+                    transport = streamablehttp_client(url, headers=headers)
+                # streamable-http yields (read, write, get_session_id); sse
+                # yields (read, write). Take the first two streams either way.
+                streams = await stack.enter_async_context(transport)
+                read_stream, write_stream = streams[0], streams[1]
+            else:
+                server_params = StdioServerParameters(
+                    command=command, args=args, env=merged_env
+                )
+                # Connect via stdio transport
+                read_stream, write_stream = await stack.enter_async_context(
+                    stdio_client(server_params)
                 )
 
-                await session.initialize()
-                return session
-
-            async def _connect_and_init():
-                sessions = [await _connect_one() for _ in range(pool_size)]
-                tools_result = await sessions[0].list_tools()
-                return sessions, tools_result.tools
-
-            sessions, tools = await asyncio.wait_for(
-                _connect_and_init(), timeout=timeout
+            # Create client session (transport-agnostic from here on)
+            session = await stack.enter_async_context(
+                ClientSession(read_stream, write_stream)
             )
 
-            # Register the child_stack in the main exit_stack so it persists
-            await self.exit_stack.enter_async_context(child_stack)
+            await session.initialize()
+            return session
 
-            logger.info(
-                "Loaded %d tools from child server '%s' (%d session%s)",
-                len(tools),
-                server_name,
-                len(sessions),
-                "" if len(sessions) == 1 else "s",
-            )
-            return server_name, sessions, tools, cfg
+        async def _connect(stack: contextlib.AsyncExitStack):
+            """One connection generation: full session pool + tool list.
 
+            The stack is owned by the runtime's supervisor task (entered and
+            exited there), so each crash/restart cleanly tears down and
+            rebuilds every transport of the generation."""
+            sessions = [await _connect_one(stack) for _ in range(pool_size)]
+            tools_result = await sessions[0].list_tools()
+            return sessions, tools_result.tools
+
+        runtime = ChildRuntime(server_name, cfg, connect=_connect)
+        try:
+            tools = await runtime.start()
         except TimeoutError:
             logger.error(
                 f"Failed to start child server '{server_name}': Timeout of {timeout}s exceeded"
             )
-            await child_stack.aclose()
             return None
         except Exception as e:
             logger.error(
                 f"Failed to start child server '{server_name}': {e}",
                 exc_info=True,
             )
-            await child_stack.aclose()
             return None
+
+        logger.info(
+            "Loaded %d tools from child server '%s' (%d session%s)",
+            len(tools),
+            server_name,
+            pool_size,
+            "" if pool_size == 1 else "s",
+        )
+        return server_name, runtime, tools, cfg
 
     async def start_children(self):
         """Parse configuration and start all child processes concurrently."""
@@ -417,18 +413,23 @@ class MCPMultiplexer:
             if not isinstance(result, tuple):
                 continue
 
-            server_name, session, tools, cfg = result
-            sessions = (
-                list(session) if isinstance(session, (list, tuple)) else [session]
-            )
-            self.sessions[server_name] = sessions[0]
-
-            # Wrap the live session pool in the per-child hardening runtime
-            # (CONCEPT:ECO-4.34): bounded concurrency + queue timeout +
-            # round-robin dispatch across pooled connections.
-            runtime = ChildRuntime(server_name, cfg)
-            runtime.adopt_sessions(sessions)
+            server_name, payload, tools, cfg = result
+            # The per-child hardening runtime (CONCEPT:ECO-4.34) carries the
+            # session pool, concurrency limits, and restart supervisor. Plain
+            # session payloads (externally owned connections) are wrapped in a
+            # supervisor-less runtime: limits apply, auto-restart does not.
+            if isinstance(payload, ChildRuntime):
+                runtime = payload
+            else:
+                sessions = (
+                    list(payload)
+                    if isinstance(payload, (list, tuple))
+                    else [payload]
+                )
+                runtime = ChildRuntime(server_name, cfg)
+                runtime.adopt_sessions(sessions)
             self.children[server_name] = runtime
+            self.sessions[server_name] = runtime.primary_session
 
             disabled_tools = cfg.get("disabledTools", [])
             enabled_tools = cfg.get("enabledTools", None)
@@ -470,6 +471,23 @@ class MCPMultiplexer:
                     inputSchema=tool.inputSchema,
                 )
                 self.aggregated_tools.append(prefixed_tool)
+
+    def status_snapshot(self) -> dict[str, Any]:
+        """Fleet health surface: per-child state, limits, load, restarts."""
+        return {
+            "children": {
+                name: runtime.status()
+                for name, runtime in sorted(self.children.items())
+            },
+            "total_children": len(self.children),
+            "total_tools": len(self.aggregated_tools),
+        }
+
+    async def aclose(self) -> None:
+        """Shut down every child runtime (and any legacy stack registrations)."""
+        for runtime in self.children.values():
+            await runtime.aclose()
+        await self.exit_stack.aclose()
 
 
 def _resolve_config_path(explicit: str | None) -> Path:
@@ -520,6 +538,32 @@ def _register_forwarding_tools(mcp, mux: MCPMultiplexer) -> None:
                 fn=_make_forwarder(tool.name),
             )
         )
+
+    # Fleet health surface (CONCEPT:ECO-4.34): per-child state
+    # (up/restarting/failed), restart counts, concurrency limits, and load.
+    async def _status() -> ToolResult:
+        snapshot = mux.status_snapshot()
+        return ToolResult(
+            content=[
+                mcp.types.TextContent(
+                    type="text", text=json.dumps(snapshot, indent=2)
+                )
+            ],
+            structured_content=snapshot,
+        )
+
+    mcp.add_tool(
+        FunctionTool(
+            name="multiplexer_status",
+            description=(
+                "Health of every aggregated child MCP server: state "
+                "(up/restarting/failed), restart count, concurrency "
+                "limits, in-flight and queued calls."
+            ),
+            parameters={"type": "object", "properties": {}},
+            fn=_status,
+        )
+    )
 
 
 def get_mcp_instance():
@@ -589,7 +633,7 @@ async def _serve(args, mcp, mux: MCPMultiplexer) -> None:
             await mcp.run_async(transport="stdio")
     finally:
         logger.info("Shutting down multiplexer and child servers...")
-        await mux.exit_stack.aclose()
+        await mux.aclose()
 
 
 def mcp_server() -> None:
