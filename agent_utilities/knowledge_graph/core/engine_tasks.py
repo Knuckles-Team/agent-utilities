@@ -1225,8 +1225,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                 from ..research.golden_loop import GoldenLoopController
 
                 check = analyzer.make_regression_check(gaps)
+                # Address the just-materialized failure_gap concepts directly
+                # (not via the generic unresolved_topics scan, which an arbitrary
+                # limit can exclude a new gap from). (CONCEPT:AHE-3.18)
+                gap_topics = [{"id": g["id"], "name": g["name"]} for g in gaps]
                 GoldenLoopController(self, regression_check=check).run_one_cycle(
                     max_topics=min(len(gaps), 5),
+                    topics=gap_topics,
                     assimilate=False,
                     breadth=False,
                     standardize=False,
