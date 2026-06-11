@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from .extractors.code_test import (
     ParseFn,
     extract_source,
     extract_source_files,
+    extract_source_parallel,
     resolve_covers,
 )
 from .extractors.document import (
@@ -38,6 +40,20 @@ from .patterns import detect_patterns
 from .realizes import EmbedFn, resolve_realizes
 
 logger = logging.getLogger(__name__)
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, str(default))))
+    except ValueError:
+        return default
+
+
+# Concurrent parse+build kicks in only for a repo big enough to amortise opening
+# sibling connections; concurrency caps how many parse RPCs are in flight (the
+# engine handles 1024). Auto-sized to the box (CONCEPT:KG-2.16, config discipline).
+_PARALLEL_PARSE_MIN_FILES = _env_int("KG_PARALLEL_PARSE_MIN", 400)
+_PARSE_CONCURRENCY = _env_int("KG_PARSE_CONCURRENCY", min(8, (os.cpu_count() or 4)))
 
 _SKIP_DIRS = {
     ".venv",
@@ -237,12 +253,16 @@ class EnrichmentPipeline:
         realizes_embed_fn: EmbedFn | None = None,
         writeback_fn: Callable[[list[GraphNode]], Any] | None = None,
         batch_parse_fn: BatchParseFn | None = None,
+        graph_compute: Any = None,
     ) -> None:
         self.backend = backend
         self.parse_fn = parse_fn
         # Optional batched parse (one RPC for N files). When set, changed files
         # are parsed in a single round-trip instead of per-file. (CONCEPT:KG-2.16)
         self.batch_parse_fn = batch_parse_fn
+        # The compute engine itself — lets a large repo parse + build entities
+        # concurrently across sibling connections (CONCEPT:KG-2.16, #1+#2).
+        self.graph_compute = graph_compute
         self.thresholds = thresholds or TestThresholds()
         self._hash_seen = hash_seen if hash_seen is not None else {}
         self.llm_fn = llm_fn
@@ -282,10 +302,19 @@ class EnrichmentPipeline:
                 continue
             pending.append((str(fp), source))
 
-        # Phase 2 — parse the changed files. One batched RPC when the engine
-        # supports it (CONCEPT:KG-2.16), else the per-file path. Both yield the
-        # same per-file ``ExtractionResult`` list.
-        if self.batch_parse_fn is not None and pending:
+        # Phase 2 — parse the changed files. For a large repo, parse + build
+        # entities CONCURRENTLY across sibling engine connections so the multi-core
+        # engine saturates instead of idling between serial chunks (CONCEPT:KG-2.16,
+        # #1+#2). Smaller sets use one batched RPC; no engine → the per-file path.
+        if (
+            self.graph_compute is not None
+            and getattr(self.graph_compute, "supports_batch_parse", False)
+            and len(pending) >= _PARALLEL_PARSE_MIN_FILES
+        ):
+            results = extract_source_parallel(
+                pending, self.graph_compute, concurrency=_PARSE_CONCURRENCY
+            )
+        elif self.batch_parse_fn is not None and pending:
             results = extract_source_files(pending, self.batch_parse_fn)
         else:
             results = [
