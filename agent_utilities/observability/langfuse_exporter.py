@@ -39,7 +39,7 @@ class LangfuseExporter:
         from the ``LANGFUSE_*`` environment variables.
     public_key, secret_key, host:
         Explicit credentials; default to the ``LANGFUSE_PUBLIC_KEY`` /
-        ``LANGFUSE_SECRET_KEY`` / ``LANGFUSE_BASE_URL`` env vars.
+        ``LANGFUSE_SECRET_KEY`` / ``LANGFUSE_HOST`` env vars.
     """
 
     def __init__(
@@ -52,8 +52,10 @@ class LangfuseExporter:
     ) -> None:
         self._public_key = public_key or os.getenv("LANGFUSE_PUBLIC_KEY", "")
         self._secret_key = secret_key or os.getenv("LANGFUSE_SECRET_KEY", "")
+        # Official Langfuse var is LANGFUSE_HOST; LANGFUSE_BASE_URL is a
+        # deprecated fallback.
         self._host = (
-            host or os.getenv("LANGFUSE_BASE_URL") or os.getenv("LANGFUSE_HOST", "")
+            host or os.getenv("LANGFUSE_HOST") or os.getenv("LANGFUSE_BASE_URL", "")
         )
         self._client = client
         self._probed = client is not None
