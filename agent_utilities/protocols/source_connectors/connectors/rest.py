@@ -85,7 +85,6 @@ class RestJsonConnector(LoadConnector, PollConnector):
     """
 
     provider = "REST/JSON"
-    priority = 55
 
     def configure(
         self,

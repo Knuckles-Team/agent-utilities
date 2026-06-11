@@ -150,7 +150,7 @@ A2A Network (ECO-4.1)      Market Connectors (ECO-4.3)  Pluggable Queues (ECO-4.
 
 As the parallel specialists run, they communicate over the **A2A (Agent-to-Agent) Network & Consensus engine** (`CONCEPT:ECO-4.1`). Rather than executing in isolated bubbles, the Risk Agent and the Trade Execution Agent discover each other on a local peer network, negotiating transaction parameters and reaching cryptographic consensus before executing a portfolio swap.
 
-Every interaction is mapped inside the **Community Telemetry & Ecosystem Map** (`CONCEPT:ECO-4.2`), which tracks service health across all active agent packages. Real-time market connectivity is established by the **Market Data Connectors** (`CONCEPT:ECO-4.3`), which bind directly to external exchanges.
+Every interaction is mapped inside the **Community Telemetry & Ecosystem Map** (`CONCEPT:ECO-4.2`), which tracks service health across all active agent packages.
 
 For direct execution against the system's own memory, the **KG MCP Server & Execution environment** (`CONCEPT:ECO-4.4`) exposes the Knowledge Graph as a set of standard tools, allowing external agents to query database states natively.
 

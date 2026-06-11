@@ -244,7 +244,7 @@ graph TD
 | ECO-4.0 | Tool Interface & MCP Factory | MCP server factory, skill loading, tool assignment |
 | ECO-4.1 | A2A Network & Consensus 🔬 | Agent-to-agent discovery, delegation, consensus |
 | ECO-4.2 | Community Telemetry & Ecosystem Map | Ecosystem topology, 40-repo graph, telemetry |
-| ECO-4.3 | Market Data Connectors | External data source protocols for finance domain |
+| ECO-4.3 | Market Data KG Node Models | Connector/fetch-record ontology nodes for data-source provenance |
 | ECO-4.4 | KG MCP Server & Execution | KG MCP exposure, durable execution, sandbox |
 | ECO-4.6 | Dynamic Capability Ingestion & Discovery | Ingests external agent toolkits, discovers MCP endpoints in real-time, and builds self-documenting skill-graphs |
 | ECO-4.7 | Domain Workflow Bindings | Parallel execution workflows and capability bindings for specialized domain processes |
