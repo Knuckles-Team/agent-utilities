@@ -821,7 +821,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         jobs.append(
             (
                 "tenant_gc",
-                float(os.getenv("KG_TENANT_GC_INTERVAL", "300")),
+                _cfg.kg_tenant_gc_interval,
                 self._tick_tenant_gc,
             )
         )
