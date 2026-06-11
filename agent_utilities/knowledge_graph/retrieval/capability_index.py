@@ -418,8 +418,11 @@ class CapabilityIndex:
             return out
 
         # numpy brute-force over the (optionally restricted) candidate set.
+        # Candidates are a hash-ordered set → sort them and use a STABLE
+        # argsort so exact-tie scores rank deterministically (lexicographic),
+        # identically before and after a save/load round-trip.
         ids = (
-            [i for i in candidates if i in self._id_to_vec]
+            sorted(i for i in candidates if i in self._id_to_vec)
             if candidates is not None
             else list(self._id_to_vec.keys())
         )
@@ -427,7 +430,7 @@ class CapabilityIndex:
             return []
         matrix = np.stack([self._id_to_vec[i] for i in ids])  # already normalized
         sims = matrix @ query  # cosine sim since both sides L2-normalized
-        order = np.argsort(-sims)[:k]
+        order = np.argsort(-sims, kind="stable")[:k]
         return [(ids[int(j)], float(sims[int(j)])) for j in order]
 
     def alternatives(self, id: str) -> list[str]:
