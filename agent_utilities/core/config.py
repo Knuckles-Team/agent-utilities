@@ -412,6 +412,23 @@ class AgentConfig(BaseSettings):
     """Seconds an open engine circuit breaker waits before allowing a single
     half-open probe; the probe's outcome closes or re-opens the circuit."""
 
+    # --- MCP multiplexer child resilience (CONCEPT:ECO-4.34) ---
+
+    mcp_child_max_concurrency: int = Field(
+        default=8, alias="MCP_CHILD_MAX_CONCURRENCY"
+    )
+    """Maximum in-flight tool calls per multiplexer child server. Excess calls
+    queue (bounded by ``MCP_CHILD_QUEUE_TIMEOUT``) instead of piling onto the
+    child unbounded. Per-server override: the ``max_concurrency`` key on the
+    server's ``mcp_config.json`` entry. ``0`` disables the limit."""
+
+    mcp_child_queue_timeout: float = Field(
+        default=30.0, alias="MCP_CHILD_QUEUE_TIMEOUT"
+    )
+    """Seconds a tool call may wait for a free per-child concurrency slot
+    before failing with the typed ``MCPChildBusyError`` (no silent hangs).
+    Per-server override: the ``queue_timeout`` key on the server entry."""
+
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
 
     oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")

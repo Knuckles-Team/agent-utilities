@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 172
+total_concepts: 173
 total_pillars: 18
 pillars:
 - AHE-3
@@ -545,6 +545,15 @@ concepts:
   - agent_utilities/tools/db_tools.py
   - agent_utilities/tools/tool_registry.py
   doc: native database traversal tools
+- id: ECO-4.34
+  name: Fleet-Scale MCP Multiplexer Hardening
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/mcp/child_resilience.py
+  - agent_utilities/mcp/multiplexer.py
+  doc: Fleet-Scale MCP Multiplexer Hardening
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -1509,6 +1518,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
+  - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/facade.py
   - agent_utilities/observability/gateway_metrics.py
   doc: Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement

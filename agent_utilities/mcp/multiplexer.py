@@ -33,6 +33,11 @@ from fastmcp.tools import FunctionTool, ToolResult
 from mcp import StdioServerParameters, stdio_client
 from mcp.client.session import ClientSession
 
+from agent_utilities.mcp.child_resilience import (
+    ChildRuntime,
+    MCPChildError,
+)
+
 try:  # remote transports — present on modern mcp SDKs
     from mcp.client.streamable_http import streamablehttp_client
 except ImportError:  # pragma: no cover - older mcp SDK without streamable-http
@@ -162,6 +167,9 @@ class MCPMultiplexer:
         self.config_path = config_path
         self.exit_stack = contextlib.AsyncExitStack()
         self.sessions: dict[str, ClientSession] = {}
+        # Per-child hardening layer (CONCEPT:ECO-4.34): concurrency limits and
+        # bounded queueing live on the ChildRuntime, not the raw session.
+        self.children: dict[str, ChildRuntime] = {}
         self.tool_to_server: dict[
             str, tuple[str, str]
         ] = {}  # prefixed_name -> (server_name, original_name)
@@ -181,13 +189,32 @@ class MCPMultiplexer:
             raise ValueError(f"Tool {prefixed_name} is not registered in multiplexer")
 
         server_name, original_name = self.tool_to_server[prefixed_name]
-        session = self.sessions.get(server_name)
-        if not session:
+        runtime = self.children.get(server_name)
+        if runtime is None:
             raise RuntimeError(f"Session for server '{server_name}' is not active")
 
         try:
-            # Forward the call directly to the child session
-            return await session.call_tool(original_name, arguments or {})
+            # Forward the call through the child's hardened runtime
+            # (per-server concurrency limit + bounded queue).
+            return await runtime.call_tool(original_name, arguments or {})
+        except MCPChildError as e:
+            # Typed per-child failure (busy/restarting/failed/circuit-open):
+            # surface the error class name so callers can branch on it.
+            logger.warning(
+                "Tool '%s' on '%s' rejected: %s: %s",
+                original_name,
+                server_name,
+                type(e).__name__,
+                e,
+            )
+            return mcp.types.CallToolResult(
+                content=[
+                    mcp.types.TextContent(
+                        type="text", text=f"{type(e).__name__}: {e}"
+                    )
+                ],
+                isError=True,
+            )
         except Exception as e:
             logger.error(
                 f"Error calling tool '{original_name}' on '{server_name}': {e}",
@@ -371,6 +398,14 @@ class MCPMultiplexer:
 
             server_name, session, tools, cfg = result
             self.sessions[server_name] = session
+
+            # Wrap the live session in the per-child hardening runtime
+            # (CONCEPT:ECO-4.34): bounded concurrency + queue timeout.
+            runtime = ChildRuntime(server_name, cfg)
+            runtime.adopt_sessions(
+                list(session) if isinstance(session, list) else [session]
+            )
+            self.children[server_name] = runtime
 
             disabled_tools = cfg.get("disabledTools", [])
             enabled_tools = cfg.get("enabledTools", None)
