@@ -85,6 +85,16 @@ class SwarmConfig:
     consensus_threshold: float = 0.6
     risk_veto_enabled: bool = True
     min_agents_for_consensus: int = 3
+    # Calibration read-back (CONCEPT:KG-2.27): blend each role's weight toward
+    # its agents' tracked calibration (Brier-based reputation) at aggregation
+    # time. Safe-by-construction default: with no resolved calls the calibrated
+    # weights EQUAL the base weights, so behaviour only shifts once real
+    # outcomes are recorded; gate off to pin the static weights regardless.
+    calibration_weighting: bool = True
+    # EMA-style blend strength toward the calibrated weight (mirrors the
+    # capability-index reward-EMA alpha): 0 = static weights, 1 = fully
+    # calibrated. Kept moderate so one reputation swing can't flip a vote.
+    calibration_alpha: float = 0.3
     role_weights: dict[str, float] = field(
         default_factory=lambda: {
             SwarmRole.DIRECTOR: 1.5,
@@ -230,11 +240,25 @@ class TradingSwarm:
     """
 
     def __init__(
-        self, agents: list[SwarmAgent] | None = None, config: SwarmConfig | None = None
+        self,
+        agents: list[SwarmAgent] | None = None,
+        config: SwarmConfig | None = None,
+        calibration: Any | None = None,
     ):
         self.agents = agents or []
         self.config = config or SwarmConfig()
         self._consensus_history: list[SwarmConsensus] = []
+        # Per-agent reputation tracker (CONCEPT:KG-2.27). Every analyze() logs
+        # each agent's directional call; record_market_outcome() resolves them,
+        # and the next aggregation blends the resulting calibration into the
+        # role weights — the read-back loop that was previously write-only.
+        if calibration is None:
+            from agent_utilities.domains.finance.calibration_tracker import (
+                CalibrationTracker,
+            )
+
+            calibration = CalibrationTracker()
+        self.calibration = calibration
 
     @classmethod
     def create_default(cls, config: SwarmConfig | None = None) -> "TradingSwarm":
@@ -253,11 +277,86 @@ class TradingSwarm:
         """Add an agent to the swarm."""
         self.agents.append(agent)
 
+    def _effective_role_weights(self) -> dict[str, float]:
+        """Role weights for aggregation, calibration-blended when enabled.
+
+        CONCEPT:KG-2.27 read-back: each role's static weight is EMA-blended
+        toward :func:`calibrated_role_weights` (its agents' tracked Brier-based
+        reputation) so historically-accurate voices count more. Guarded — any
+        calibration failure falls back to the configured static weights.
+        """
+        base = dict(self.config.role_weights)
+        if not self.config.calibration_weighting or self.calibration is None:
+            return base
+        try:
+            from agent_utilities.domains.finance.calibration_tracker import (
+                calibrated_role_weights,
+            )
+
+            calibrated = calibrated_role_weights(
+                self.calibration,
+                {a.agent_id: a.role for a in self.agents},
+                base_weights=base,
+            )
+            alpha = max(0.0, min(1.0, float(self.config.calibration_alpha)))
+            return {
+                role: (1.0 - alpha) * base.get(role, 1.0) + alpha * cal
+                for role, cal in calibrated.items()
+            }
+        except Exception as e:  # noqa: BLE001 — never let reputation break a vote
+            logger.debug("calibration weighting unavailable: %s", e)
+            return base
+
+    def _record_calls(self, signals: list[AgentSignal], subject: str) -> None:
+        """Log each directional signal as an open calibration call (KG-2.27)."""
+        if self.calibration is None:
+            return
+        for s in signals:
+            if s.direction == 0:
+                continue
+            try:
+                self.calibration.record_call(
+                    s.agent_id,
+                    direction=s.direction,
+                    confidence=s.confidence,
+                    subject=subject,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.debug("calibration call record failed: %s", e)
+
+    def record_market_outcome(self, realized_direction: int, subject: str = "") -> int:
+        """Resolve every agent's open call against the realized direction.
+
+        The feedback half of the calibration loop (CONCEPT:KG-2.27): call this
+        when the market outcome for ``subject`` is known; the very next
+        :meth:`analyze` aggregates with reputation-adjusted weights. Returns
+        the number of calls resolved.
+        """
+        if self.calibration is None:
+            return 0
+        resolved = 0
+        for agent in self.agents:
+            try:
+                if self.calibration.record_outcome(
+                    agent.agent_id,
+                    realized_direction=realized_direction,
+                    subject=subject,
+                ):
+                    resolved += 1
+            except Exception as e:  # noqa: BLE001
+                logger.debug("calibration outcome record failed: %s", e)
+        return resolved
+
     def analyze(self, market_data: dict[str, Any]) -> SwarmConsensus:
         """
         Run all agents and aggregate signals into a consensus decision.
         """
         signals = [agent.analyze(market_data) for agent in self.agents]
+
+        # Open a calibration call per directional signal so future outcomes
+        # build each agent's reputation (CONCEPT:KG-2.27).
+        subject = str(market_data.get("symbol") or market_data.get("ticker") or "")
+        self._record_calls(signals, subject)
 
         if len(signals) < self.config.min_agents_for_consensus:
             return SwarmConsensus(
@@ -267,11 +366,12 @@ class TradingSwarm:
                 signals=signals,
             )
 
-        # Weighted score aggregation
+        # Weighted score aggregation (calibration-blended weights, KG-2.27)
+        role_weights = self._effective_role_weights()
         total_weight = 0.0
         weighted_sum = 0.0
         for signal in signals:
-            weight = self.config.role_weights.get(signal.role, 1.0)
+            weight = role_weights.get(signal.role, 1.0)
             weighted_sum += signal.direction * signal.confidence * weight
             total_weight += weight
 

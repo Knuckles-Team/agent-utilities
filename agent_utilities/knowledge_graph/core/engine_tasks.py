@@ -171,6 +171,10 @@ _EMBED_BACKFILL_FETCH = 512
 # KG_BULK_INGEST flag — the engine already knows the queue depth. (CONCEPT:KG-2.7)
 _BULK_QUEUE_THRESHOLD = 5
 
+# PerformanceAnomaly consumer cadence (CONCEPT:AHE-3.19): a bounded, LLM-free
+# scan, so a fixed moderate interval suffices — no env knob needed.
+_ANOMALY_CONSUMER_INTERVAL = 900.0
+
 
 class SQLiteTaskQueue(QueueBackend):
     """Thread-safe, persistent SQLite-backed queue for tasks to prevent memory loss on restarts."""
@@ -646,6 +650,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "failure_ingest",
                     _cfg.kg_failure_evolution_interval,
                     self._tick_failure_ingest,
+                )
+            )
+        # PerformanceAnomaly consumer (CONCEPT:AHE-3.19) — drains unconsumed
+        # PerformanceAnomaly nodes into failure_gap topics. LLM-free, bounded,
+        # propose-only ⇒ ON by default (KG_ANOMALY_CONSUMER=0 to disable).
+        if _cfg.kg_anomaly_consumer:
+            jobs.append(
+                (
+                    "anomaly_consumer",
+                    _ANOMALY_CONSUMER_INTERVAL,
+                    self._tick_anomaly_consumer,
                 )
             )
         jobs.append(("compaction", 1800.0, self._tick_compaction))
@@ -1238,6 +1253,29 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
         except Exception as e:  # noqa: BLE001
             logger.error("failure_ingest tick error: %s", e)
+
+    def _tick_anomaly_consumer(self) -> None:
+        """Drain unconsumed PerformanceAnomaly nodes into failure_gap topics.
+
+        One bounded consumer pass (CONCEPT:AHE-3.19): clusters fresh anomalies
+        by target + type, files one failure_gap Concept per cluster through the
+        failure analyzer's shared gap-topic path (so the golden loop's intake
+        remediates them), and stamps every scanned anomaly ``consumed``.
+        Propose-only and LLM-free; on by default via KG_ANOMALY_CONSUMER.
+        """
+        try:
+            from ..adaptation.anomaly_consumer import consume_anomalies
+
+            report = consume_anomalies(self)
+            if report.get("scanned"):
+                logger.info(
+                    "Anomaly consumer: scanned=%s gaps=%s consumed=%s",
+                    report.get("scanned"),
+                    report.get("gaps_filed"),
+                    report.get("consumed"),
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.error("anomaly_consumer tick error: %s", e)
 
     def _embedding_backfill_loop(self) -> None:
         """Dedicated drain loop for vector-embedding backfill (CONCEPT:KG-2.8).
@@ -2120,6 +2158,22 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # Score all ingested papers and codebases against a target
                 result = await self._run_relevance_sweep(job_id, str(target))
                 self._update_task_status(job_id, "completed", result)
+            elif task_type == "fleet_event_triage":
+                # Fleet-event triage (CONCEPT:OS-5.15): 'target' is the
+                # FleetEvent node id enqueued by the gateway's
+                # POST /api/fleet/events webhook receiver, not a filesystem
+                # path. Correlates the event to known KG entities and files a
+                # failure_gap topic when severity warrants.
+                from agent_utilities.knowledge_graph.adaptation.fleet_event_triage import (
+                    triage_fleet_event,
+                )
+
+                result = triage_fleet_event(self, str(target))
+                self._update_task_status(
+                    job_id,
+                    "completed",
+                    {"target": str(target), "type": task_type, **result},
+                )
             elif task_type in ("synthesize", "deep_extract", "background_research"):
                 from agent_utilities.analysis.analyzer import GraphAnalyzer
 
