@@ -39,6 +39,7 @@ from pydantic_ai import Agent
 
 from agent_utilities.core.config import config
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
+from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
 
 from ..models.execution_manifest import (
     AgentExecutionResult,
@@ -60,34 +61,36 @@ logger = logging.getLogger(__name__)
 # ── Circuit Breaker ─────────────────────────────────────────────────
 
 
-class _CircuitBreaker:
-    """Per-agent-type circuit breaker.
+class AgentBreakerOpenError(ConnectionError):
+    """A chronically failing agent type's circuit is open — skip it this wave."""
+
+
+class AgentTypeCircuitBreaker(CircuitBreaker):
+    """The canonical OS-5.23 breaker state machine, per parallel-engine agent type.
 
     CONCEPT:ORCH-1.8 — Parallel Engine
 
-    Tracks consecutive failures per agent type. When failures exceed
-    ``threshold``, the agent type is disabled and skipped in subsequent
-    waves until the breaker is reset.
+    Subclass-parameterized exactly like the multiplexer's per-child breaker
+    (CONCEPT:ECO-4.34). Profile differences from the engine-client breaker:
+
+    * ``cooldown`` is infinite — once open, the agent type stays disabled for
+      subsequent waves until a recorded success (the historical ORCH-1.8
+      semantics had no half-open probe window).
+    * No gauge export — agent-type ids are unbounded per run, so they must
+      not become Prometheus label values.
+
+    Note the canonical ``threshold=0 disables the breaker`` convention now
+    applies (the deleted fork treated 0 as "always open", a footgun).
     """
 
-    def __init__(self, threshold: int = 3):
-        self.threshold = threshold
-        self._failures: dict[str, int] = {}
+    error_cls = AgentBreakerOpenError
+    subject = "parallel-engine agent type"
 
-    def record_failure(self, agent_id: str) -> None:
-        self._failures[agent_id] = self._failures.get(agent_id, 0) + 1
+    def __init__(self, agent_id: str, threshold: int) -> None:
+        super().__init__(agent_id, threshold=threshold, cooldown=float("inf"))
 
-    def record_success(self, agent_id: str) -> None:
-        self._failures.pop(agent_id, None)
-
-    def is_open(self, agent_id: str) -> bool:
-        return self._failures.get(agent_id, 0) >= self.threshold
-
-    def reset(self, agent_id: str | None = None) -> None:
-        if agent_id:
-            self._failures.pop(agent_id, None)
-        else:
-            self._failures.clear()
+    def _export_state(self) -> None:
+        return None
 
 
 # ── Swarm helpers — CONCEPT:ORCH-1.32 KG-Governed Agent Swarm
@@ -172,9 +175,10 @@ class ParallelEngine:
     def __init__(self, engine: IntelligenceGraphEngine | None = None) -> None:
         self.engine = engine
         self.coordination = CoordinationLayer(engine=engine)
-        self._circuit_breaker = _CircuitBreaker(
-            threshold=getattr(config, "circuit_breaker_threshold", 3)
-        )
+        # ONE canonical breaker per agent type (state machine shared with the
+        # engine client / multiplexer children — see AgentTypeCircuitBreaker).
+        self._breaker_threshold = int(getattr(config, "circuit_breaker_threshold", 3))
+        self._agent_breakers: dict[str, AgentTypeCircuitBreaker] = {}
         # Repeated-failure escalation — absorbed from the dormant
         # AutoHealingEngine shell (strangler-then-delete): the per-agent
         # failure threshold survives; at threshold the failure enters the
@@ -185,6 +189,15 @@ class ParallelEngine:
         self._schedule_meta: dict[str, Any] = {}
         # CONCEPT:ORCH-1.32 — previous run's MASS latent-state distribution, for W1 drift
         self._prev_social_states: list[float] = []
+
+    def _agent_breaker(self, agent_id: str) -> AgentTypeCircuitBreaker:
+        """The shared per-agent-type breaker (created on first use)."""
+        breaker = self._agent_breakers.get(agent_id)
+        if breaker is None:
+            breaker = self._agent_breakers[agent_id] = AgentTypeCircuitBreaker(
+                agent_id, threshold=self._breaker_threshold
+            )
+        return breaker
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -621,7 +634,9 @@ class ParallelEngine:
         meta_retries = int(manifest.metadata.get("max_retries", 0) or 0)
 
         async def _run_one(agent: AgentSpec) -> AgentExecutionResult:
-            if self._circuit_breaker.is_open(agent.agent_id):
+            try:
+                self._agent_breaker(agent.agent_id).before_call()
+            except AgentBreakerOpenError:
                 return AgentExecutionResult(
                     agent_id=agent.agent_id,
                     role=agent.role,
@@ -675,9 +690,9 @@ class ParallelEngine:
                 results.append(raw)
                 # Update circuit breaker
                 if raw.success:
-                    self._circuit_breaker.record_success(raw.agent_id)
+                    self._agent_breaker(raw.agent_id).record_success()
                 else:
-                    self._circuit_breaker.record_failure(raw.agent_id)
+                    self._agent_breaker(raw.agent_id).record_failure()
             elif isinstance(raw, Exception):
                 results.append(
                     AgentExecutionResult(
