@@ -63,7 +63,7 @@ from .query import (
 from .registry import (
     discover_extractors,
     list_sources,
-    register_source,
+    register_extractor,
     write_batch,
 )
 from .semantic import (
@@ -113,7 +113,7 @@ __all__ = [
     "prompt_to_batch",
     "propose_workflow_evolution",
     "pydantic_graph_to_workflow",
-    "register_source",
+    "register_extractor",
     "synthesize_agent",
     "synthesize_team",
     "team_to_batch",

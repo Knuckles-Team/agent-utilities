@@ -185,7 +185,7 @@ New canonical classes introduced: `:ApplicationEvent`, `:BusinessTask`,
 
 Each enterprise system has an extractor under `enrichment/extractors/` that lifts
 its API into the uniform `ExtractionBatch` of canonical `GraphNode` + `EnrichmentEdge`
-objects. They self-register via `registry.register_source` at import time — adding a
+objects. They self-register via `registry.register_extractor` at import time — adding a
 source touches **no shared hub file**.
 
 | System | Extractor | Canonical nodes emitted |
@@ -390,7 +390,7 @@ pytest tests/unit/knowledge_graph/test_crosswalk_reasoning.py -q
 ## Adding a new vendor
 
 1. Write `enrichment/extractors/<vendor>.py` emitting **canonical** node types
-   (reuse `:Incident`, `:BusinessProcess`, … where they fit), `register_source(...)`.
+   (reuse `:Incident`, `:BusinessProcess`, … where they fit), `register_extractor(...)`.
 2. If it introduces a genuinely new vendor class, declare it in that vendor's TTL
    and add one `rdfs:subClassOf <canonical>` line in `ontology_archimate.ttl`.
 3. Register lowercase node types in `_NODE_TYPE_TO_OWL_CLASS` and
