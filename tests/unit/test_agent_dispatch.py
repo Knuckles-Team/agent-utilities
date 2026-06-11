@@ -561,9 +561,6 @@ def test_consumer_loop_processes_and_acks_after(dispatch_db, fake_queue, queued_
 
     stop = threading.Event()
 
-    class _StopWhenEmpty(FakeDispatchQueue):
-        pass
-
     # Reuse the populated fake queue; stop the loop once it drains.
     real_get = fake_queue.get
 
