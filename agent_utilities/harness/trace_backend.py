@@ -272,13 +272,16 @@ class LangfuseTraceBackend(TraceBackend):
     async def get_error_observations(
         self, *, since: str | None = None, level: str = "ERROR", limit: int = 100
     ) -> list[dict[str, Any]]:
-        """Pull ERROR/WARNING observations from Langfuse since ``since``."""
+        """Pull ERROR/WARNING observations from Langfuse since ``since``.
+
+        Uses the stable ``/api/public/observations`` endpoint (the ``v2``
+        observations route is absent on older self-hosted versions and 404s).
+        """
         api = self._get_api()
         try:
-            resp = api.observations_get_many(
+            resp = api.legacy_observations_v1_get_many(
                 level=level,
                 from_start_time=since,
-                fields="core,basic,io,metrics",
                 limit=limit,
             )
             return resp.get("data", []) or []
@@ -335,8 +338,15 @@ class LangfuseTraceBackend(TraceBackend):
         the analyzer, this method only shapes the metrics response.
         """
         import json
+        import time
 
         api = self._get_api()
+        # The metrics API requires BOTH fromTimestamp and toTimestamp; a null
+        # toTimestamp is a 400. Default the window to the last 24h when unset.
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        from_ts = since or time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 86400)
+        )
         query: dict[str, Any] = {
             "view": "observations",
             "dimensions": [{"field": "name"}],
@@ -347,11 +357,14 @@ class LangfuseTraceBackend(TraceBackend):
                 {"measure": "count", "aggregation": "count"},
             ],
             "filters": [],
-            "fromTimestamp": since,
-            "toTimestamp": None,
+            "fromTimestamp": from_ts,
+            "toTimestamp": now,
         }
         try:
-            resp = api.metrics_metrics(json.dumps(query))
+            # ``/api/public/metrics`` (the v2 ``/api/public/v2/metrics`` alias is
+            # absent on older self-hosted versions and 404s); the query schema is
+            # identical across both routes.
+            resp = api.legacy_metrics_v1_metrics(json.dumps(query))
         except Exception as e:  # noqa: BLE001
             logger.error(
                 "LangfuseTraceBackend: get_cost_latency_anomalies failed: %s", e
