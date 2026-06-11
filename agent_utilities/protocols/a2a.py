@@ -12,13 +12,16 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
-import httpx
 
 if TYPE_CHECKING:
     pass
 
 
 from agent_utilities.core.config import *  # noqa: F403
+from agent_utilities.core.http_client import (
+    create_async_http_client,
+    create_http_client,
+)
 from agent_utilities.models import A2APeerModel, A2ARegistryModel  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -53,7 +56,7 @@ class A2AClient:
 
         """
         card_url = f"{url.rstrip('/')}/.well-known/agent-card.json"
-        with httpx.Client(timeout=5.0, verify=self.ssl_verify) as client:
+        with create_http_client(timeout=5.0, verify=self.ssl_verify) as client:
             try:
                 resp = client.get(card_url)
                 if resp.status_code == 200:
@@ -73,7 +76,9 @@ class A2AClient:
 
         """
         card_url = f"{url.rstrip('/')}/.well-known/agent-card.json"
-        async with httpx.AsyncClient(timeout=10.0, verify=self.ssl_verify) as client:
+        async with create_async_http_client(
+            timeout=10.0, verify=self.ssl_verify
+        ) as client:
             try:
                 resp = await client.get(card_url)
                 if resp.status_code == 200:
@@ -93,7 +98,7 @@ class A2AClient:
             The final result content from the remote agent, or an error message.
 
         """
-        async with httpx.AsyncClient(
+        async with create_async_http_client(
             timeout=self.timeout, verify=self.ssl_verify
         ) as client:
             # 1. Send Message
