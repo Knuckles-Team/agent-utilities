@@ -67,10 +67,19 @@ def cluster_features(
     code: list[CodeEntity],
     community_fn: CommunityFn,
     min_size: int = 3,
+    *,
+    call_edges: list[EnrichmentEdge] | None = None,
 ) -> list[Feature]:
-    """Cluster code symbols into features via injected community detection."""
+    """Cluster code symbols into features via injected community detection.
+
+    ``call_edges`` lets the caller pass already-resolved CALLS edges so the
+    fan-out resolution isn't recomputed: the ingest pipeline needs the same edge
+    set to WRITE the CALLS relationships, and resolving twice over a big repo is
+    pure waste (~5s on egeria). Defaults to resolving here when omitted.
+    """
     ids = [c.id for c in code]
-    edges = [(e.source, e.target) for e in resolve_call_edges(code)]
+    resolved = call_edges if call_edges is not None else resolve_call_edges(code)
+    edges = [(e.source, e.target) for e in resolved]
     if not ids:
         return []
     communities = community_fn(ids, edges)

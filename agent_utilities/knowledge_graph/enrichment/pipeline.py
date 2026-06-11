@@ -305,11 +305,20 @@ class EnrichmentPipeline:
             if c.patterns:
                 summary.patterns_tagged += 1
 
+        # Resolve the code→code CALLS edges ONCE: community detection clusters on
+        # them and the write section below persists the same set. Resolving twice
+        # over a big repo is pure waste (~5s on egeria), so compute here and pass
+        # through to both consumers.
+        call_edges = resolve_call_edges(all_code)
+
         # Features: cluster the call graph via the engine's community detection.
         features = []
         if self.community_fn is not None:
             features = cluster_features(
-                all_code, self.community_fn, self.min_feature_size
+                all_code,
+                self.community_fn,
+                self.min_feature_size,
+                call_edges=call_edges,
             )
 
         # L2 semantic: capability cards (LLM, cached by ast_hash).
@@ -340,7 +349,7 @@ class EnrichmentPipeline:
             for e in resolve_covers(results):
                 self._write_edge(e.source, e.target, e.rel_type)
                 summary.covers_edges += 1
-            for e in resolve_call_edges(all_code):
+            for e in call_edges:
                 self._write_edge(e.source, e.target, e.rel_type)
                 summary.calls_edges += 1
 
