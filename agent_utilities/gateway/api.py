@@ -146,6 +146,22 @@ async def daemon_status() -> dict[str, Any]:
     return _status()
 
 
+@dashboard_router.get("/daemon/shards")
+async def daemon_shards() -> dict[str, Any]:
+    """Engine shard topology + per-shard reachability (CONCEPT:OS-5.28).
+
+    Reports the configured ``GRAPH_SERVICE_ENDPOINTS`` topology (single vs
+    sharded), a transport-level reachability probe per shard, and each shard's
+    circuit-breaker state. Refreshes the
+    ``agent_utilities_engine_shard_up{endpoint}`` gauge as a side effect.
+    """
+    from agent_utilities.knowledge_graph.core.shard_topology import (
+        shard_topology_status,
+    )
+
+    return shard_topology_status()
+
+
 @dashboard_router.post("/daemon/start")
 async def daemon_start() -> dict[str, Any]:
     """Ensure the single consolidated KG daemon is running in this gateway."""

@@ -1,0 +1,91 @@
+---
+# Tenant-partitioned engine sharding — worked 3-shard example (CONCEPT:KG-2.58).
+#
+# Three independent epistemic-graph engine processes ("shards"), each with its
+# own TCP port, persist dir, and Prometheus /metrics listener, all sharing ONE
+# HMAC auth secret. Clients route graphs to shards with HRW rendezvous hashing
+# — point every agent-utilities process at the full list:
+#
+#   export GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)"   # same everywhere
+#   docker compose -f docker/engine-shards.compose.yml up -d
+#   export GRAPH_SERVICE_ENDPOINTS="tcp://localhost:9101,tcp://localhost:9102,tcp://localhost:9103"
+#
+# Notes (see docs/architecture/engine_sharding.md):
+# * The endpoint list must be IDENTICAL (verbatim strings) on every client;
+#   order does not matter.
+# * Autostart never applies to tcp:// shards — an unreachable shard is a
+#   fail-loud ConnectionError naming the shard.
+# * Adding/removing a shard reassigns ~1/N of graphs (HRW) but moves NO data:
+#   migrate affected graphs manually via snapshot export/import first.
+# * The image is the standard agent-utilities image; the epistemic-graph wheel
+#   ships the `epistemic-graph-server` binary on PATH.
+
+x-shard: &shard
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  restart: always
+  environment:
+    # ONE shared secret across all shards and all clients (CONCEPT:OS-5.14).
+    # Leave it unset and the engine binary itself refuses to start (fail-loud)
+    # — there is deliberately no baked-in default value here.
+    - "GRAPH_SERVICE_AUTH_SECRET=${GRAPH_SERVICE_AUTH_SECRET:-}"
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  engine-shard-1:
+    <<: *shard
+    container_name: engine-shard-1
+    command:
+      [
+        "epistemic-graph-server",
+        "--tcp-addr", "0.0.0.0:9101",
+        "--persist-dir", "/data/shard-1",
+        "--metrics-addr", "0.0.0.0:9111",
+      ]
+    volumes:
+      - engine-shard-1:/data/shard-1
+    ports:
+      - "9101:9101" # RPC (MessagePack)
+      - "9111:9111" # Prometheus /metrics
+
+  engine-shard-2:
+    <<: *shard
+    container_name: engine-shard-2
+    command:
+      [
+        "epistemic-graph-server",
+        "--tcp-addr", "0.0.0.0:9102",
+        "--persist-dir", "/data/shard-2",
+        "--metrics-addr", "0.0.0.0:9112",
+      ]
+    volumes:
+      - engine-shard-2:/data/shard-2
+    ports:
+      - "9102:9102"
+      - "9112:9112"
+
+  engine-shard-3:
+    <<: *shard
+    container_name: engine-shard-3
+    command:
+      [
+        "epistemic-graph-server",
+        "--tcp-addr", "0.0.0.0:9103",
+        "--persist-dir", "/data/shard-3",
+        "--metrics-addr", "0.0.0.0:9113",
+      ]
+    volumes:
+      - engine-shard-3:/data/shard-3
+    ports:
+      - "9103:9103"
+      - "9113:9113"
+
+volumes:
+  engine-shard-1:
+  engine-shard-2:
+  engine-shard-3:

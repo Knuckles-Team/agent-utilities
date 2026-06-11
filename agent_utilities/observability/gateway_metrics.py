@@ -44,6 +44,8 @@ __all__ = [
     "GATEWAY_REQUESTS",
     "ENGINE_BREAKER_STATE",
     "ENGINE_REQUESTS",
+    "ENGINE_SHARD_REQUESTS",
+    "ENGINE_SHARD_UP",
     "KG_INGEST_CONSUMER_LAG",
     "KG_INGEST_QUEUE_DEPTH",
     "PROMETHEUS_AVAILABLE",
@@ -156,6 +158,23 @@ ENGINE_BREAKER_STATE = _gauge(
     "agent_utilities_gateway_engine_breaker_state",
     "Engine circuit-breaker state per endpoint (0=closed, 1=half-open, 2=open).",
     ("endpoint",),
+)
+# Tenant-partitioned engine sharding visibility (CONCEPT:KG-2.58 / OS-5.28):
+# one series per configured GRAPH_SERVICE_ENDPOINTS entry. The gauge is
+# refreshed on every real client connect attempt and by the daemon's
+# shard_topology_status probe; the counter splits the existing engine-call
+# outcomes per shard so a hot or failing shard is visible at a glance.
+# Cardinality is bounded by the configured endpoint list (a handful).
+ENGINE_SHARD_UP = _gauge(
+    "agent_utilities_engine_shard_up",
+    "Per-shard engine reachability by endpoint (1=reachable, 0=unreachable).",
+    ("endpoint",),
+)
+ENGINE_SHARD_REQUESTS = _counter(
+    "agent_utilities_engine_shard_requests_total",
+    "Engine client calls per shard endpoint and outcome "
+    "(ok | connection_error | error | short_circuited).",
+    ("endpoint", "outcome"),
 )
 # Ingest scale-out backpressure visibility (CONCEPT:KG-2.57): sampled by the
 # KG maintenance scheduler on the leader host. Depth is uniform across queue

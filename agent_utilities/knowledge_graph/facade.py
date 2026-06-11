@@ -375,6 +375,22 @@ class KnowledgeGraph:
         audit_read([], summary="query")
         return rows
 
+    def tenant_graph(self, tenant: str | None = None, base: str | None = None) -> str:
+        """Resolve the per-tenant named graph (CONCEPT:KG-2.58).
+
+        The naming discipline that makes engine sharding tenant-partitioned:
+        ``tenant → named graph → HRW → shard``. ``tenant`` defaults to the
+        ambient :class:`ActorContext` tenant; ``base`` to the configured
+        default graph (``KG_DEFAULT_GRAPH``). With no tenant in scope the base
+        is returned unchanged, so single-tenant deployments are unaffected.
+        """
+        from agent_utilities.security.brain_context import current_actor
+
+        from .core.shard_topology import default_graph_name, tenant_graph_name
+
+        effective_tenant = tenant if tenant is not None else current_actor().tenant_id
+        return tenant_graph_name(effective_tenant, base or default_graph_name())
+
     def populate_capability_index(self, nodes: Any) -> int:
         """Populate the L2 retrieval index from graph nodes (Plan 08 Synergy 1).
 

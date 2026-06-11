@@ -283,7 +283,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.exit(
             2,
             "Cannot reach the epistemic-graph engine as a client: "
-            f"{e}\nCheck GRAPH_SERVICE_TCP_ADDR / GRAPH_SERVICE_SOCKET and the "
+            f"{e}\nCheck GRAPH_SERVICE_ENDPOINTS / GRAPH_SERVICE_TCP_ADDR / "
+            "GRAPH_SERVICE_SOCKET and the "
             "shared HMAC secret (GRAPH_SERVICE_AUTH_SECRET or the host's "
             "data_dir()/engine_secret — CONCEPT:OS-5.14).\n",
         )
