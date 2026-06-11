@@ -12,7 +12,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 import platformdirs
-from pydantic import AliasChoices, Field
+from pydantic import Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -428,6 +428,17 @@ class AgentConfig(BaseSettings):
     kg_failure_regression_dataset: bool = Field(
         default=False, alias="KG_FAILURE_REGRESSION_DATASET"
     )
+
+    @field_validator(
+        "kg_failure_evolution", "kg_failure_regression_dataset", mode="before"
+    )
+    @classmethod
+    def _coerce_failure_flags(cls, v: Any) -> bool:
+        """Parse failure-evolution toggles via the canonical ``to_boolean``
+        ({t,true,y,yes,1}) so ``"True"``/``"False"`` mcp_config strings behave
+        consistently with the rest of the fleet's boolean flags."""
+        return to_boolean(v)
+
     nats_url: str | None = Field(default=None, alias="NATS_URL")
     kafka_bootstrap_servers: str | None = Field(
         default=None, alias="KAFKA_BOOTSTRAP_SERVERS"
@@ -544,11 +555,8 @@ class AgentConfig(BaseSettings):
 
     langfuse_public_key: str | None = Field(default=None, alias="LANGFUSE_PUBLIC_KEY")
     langfuse_secret_key: str | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")
-    # Official Langfuse SDK var is LANGFUSE_HOST; LANGFUSE_BASE_URL kept as a
-    # deprecated fallback so existing deployments don't break.
     langfuse_host: str = Field(
-        default="https://cloud.langfuse.com",
-        validation_alias=AliasChoices("LANGFUSE_HOST", "LANGFUSE_BASE_URL"),
+        default="https://cloud.langfuse.com", alias="LANGFUSE_HOST"
     )
     langfuse_dataset_capture_threshold: float = Field(
         default=0.0, alias="LANGFUSE_DATASET_CAPTURE_THRESHOLD"

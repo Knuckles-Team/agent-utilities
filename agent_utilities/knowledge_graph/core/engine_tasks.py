@@ -636,7 +636,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_golden_loop,
                 )
             )
-        # Failure-driven evolution (CONCEPT:AHE-3.18) — opt-in (KG_FAILURE_EVOLUTION=1).
+        # Failure-driven evolution (CONCEPT:AHE-3.18) — opt-in (KG_FAILURE_EVOLUTION=True).
         # Ingests Langfuse failures into failure-gap topics and runs a
         # regression-gated remediation cycle. This is the real telemetry sweep that
         # _tick_evolution used to (broken) stub out.
