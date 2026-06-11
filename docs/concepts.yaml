@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 149
+total_concepts: 151
 total_pillars: 18
 pillars:
 - AHE-3
@@ -226,7 +226,7 @@ concepts:
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   doc: Preference-Corpus Reliability
 - id: AHE-3.18
-  name: Failure-Driven Evolution
+  name: bypass the generic unresolved_topics scan so a brand-new
   pillar: AHE-3
   status: live
   code_paths:
@@ -235,7 +235,15 @@ concepts:
   - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/golden_loop.py
-  doc: Failure-Driven Evolution
+  - agent_utilities/mcp/kg_server.py
+  doc: bypass the generic unresolved_topics scan so a brand-new
+- id: AHE-3.19
+  name: The Concept carries NO
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+  doc: The Concept carries NO
 - id: CTX-1.0
   name: Nested Subfolder Instructions
   pillar: CTX-1
@@ -2050,16 +2058,32 @@ concepts:
   - agent_utilities/graph/routing/enrichers/capability_designation.py
   doc: resolve the active channel once;
 - id: OS-5.14
-  name: with KG_AUTH_REQUIRED on, an unauthenticated caller
+  name: an ACL-check exception denies, and nodes without an ACL are
   pillar: OS-5
   status: live
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/gateway/graph_api.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
+  - agent_utilities/knowledge_graph/facade.py
+  - agent_utilities/knowledge_graph/ontology/permissioning.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/security/brain_context.py
   - agent_utilities/security/request_identity.py
-  doc: with KG_AUTH_REQUIRED on, an unauthenticated caller
+  doc: an ACL-check exception denies, and nodes without an ACL are
+- id: OS-5.15
+  name: Fleet Event Ingress
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/gateway/fleet.py
+  - agent_utilities/gateway/fleet_events.py
+  - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+  - agent_utilities/knowledge_graph/adaptation/fleet_event_triage.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: Fleet Event Ingress
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

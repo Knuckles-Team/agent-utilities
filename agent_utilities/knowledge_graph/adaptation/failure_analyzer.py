@@ -164,6 +164,68 @@ def cluster_failures(records: list[FailureRecord]) -> list[FailurePattern]:
     return sorted(by_sig.values(), key=lambda p: p.count, reverse=True)
 
 
+def file_gap_topic(
+    engine: Any,
+    pattern: FailurePattern,
+    *,
+    anomaly_id: str | None = None,
+    source: str = "failure_analyzer",
+) -> dict[str, Any] | None:
+    """Persist one synthetic ``failure_gap`` ``Concept`` topic for a pattern.
+
+    The single shared gap-topic creation path (CONCEPT:AHE-3.18): used by
+    :meth:`FailureAnalyzer._materialize` for Langfuse-derived patterns, by the
+    fleet-event triage handler (CONCEPT:OS-5.15) and by the anomaly
+    consumer (CONCEPT:AHE-3.19). The Concept carries NO ``ADDRESSED_BY`` edge,
+    so the golden loop's existing ``unresolved_topics()`` intake picks it up
+    unchanged. When ``anomaly_id`` is given a provenance
+    ``(anomaly)-[:EVIDENCES]->(gap)`` edge is added.
+
+    Returns the gap-topic dict (the shape ``run_failure_ingest`` feeds to the
+    remediation cycle), or ``None`` when the Concept could not be persisted.
+    """
+    ts = _now_iso()
+    gap_id = f"failure_gap:{pattern.signature}"
+    try:
+        engine.add_node(
+            gap_id,
+            "Concept",
+            properties={
+                "name": f"Failure: {pattern.label}",
+                "kind": "failure_gap",
+                "source": source,
+                "pattern_signature": pattern.signature,
+                "occurrences": pattern.count,
+                "evidence_trace_ids": ",".join(pattern.trace_ids[:20]),
+                "timestamp": ts,
+            },
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("gap concept persist failed: %s", e)
+        return None
+
+    if anomaly_id:
+        try:
+            engine.link_nodes(
+                source_id=anomaly_id,
+                target_id=gap_id,
+                rel_type="EVIDENCES",
+                properties={"source": source},
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("EVIDENCES edge failed: %s", e)
+
+    return {
+        "id": gap_id,
+        "name": f"Failure: {pattern.label}",
+        "signature": pattern.signature,
+        "workflow": pattern.name,
+        "anomaly_type": pattern.anomaly_type,
+        "baseline": pattern.baseline,
+        "occurrences": pattern.count,
+    }
+
+
 class FailureAnalyzer:
     """Turn observed telemetry failures into KG remediation topics. CONCEPT:AHE-3.18.
 
@@ -307,7 +369,6 @@ class FailureAnalyzer:
         for p in patterns:
             if p.count < self.min_occurrences:
                 continue
-            gap_id = f"failure_gap:{p.signature}"
             anomaly_id = f"perf_anomaly:{p.signature}"
 
             # 1. PerformanceAnomaly (target = the failing workflow/agent name).
@@ -328,49 +389,15 @@ class FailureAnalyzer:
             except Exception as e:  # noqa: BLE001
                 logger.debug("anomaly node persist failed: %s", e)
 
-            # 2. failure_gap Concept — label Concept, NO ADDRESSED_BY edge, so the
-            #    golden loop's unresolved_topics() picks it up automatically.
-            try:
-                self.engine.add_node(
-                    gap_id,
-                    "Concept",
-                    properties={
-                        "name": f"Failure: {p.label}",
-                        "kind": "failure_gap",
-                        "source": "failure_analyzer",
-                        "pattern_signature": p.signature,
-                        "occurrences": p.count,
-                        "evidence_trace_ids": ",".join(p.trace_ids[:20]),
-                        "timestamp": ts,
-                    },
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("gap concept persist failed: %s", e)
+            # 2.+3. failure_gap Concept (+EVIDENCES provenance) via the shared
+            #    gap-topic creation path — NO ADDRESSED_BY edge, so the golden
+            #    loop's unresolved_topics() picks it up automatically.
+            gap = file_gap_topic(self.engine, p, anomaly_id=anomaly_id)
+            if gap is None:
                 continue
 
-            # 3. provenance: PerformanceAnomaly -[:EVIDENCES]-> Concept
-            try:
-                self.engine.link_nodes(
-                    source_id=anomaly_id,
-                    target_id=gap_id,
-                    rel_type="EVIDENCES",
-                    properties={"source": "failure_analyzer"},
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("EVIDENCES edge failed: %s", e)
-
             summaries[p.name] = summaries.get(p.name, 0) + p.count
-            gap_concepts.append(
-                {
-                    "id": gap_id,
-                    "name": f"Failure: {p.label}",
-                    "signature": p.signature,
-                    "workflow": p.name,
-                    "anomaly_type": p.anomaly_type,
-                    "baseline": p.baseline,
-                    "occurrences": p.count,
-                }
-            )
+            gap_concepts.append(gap)
 
         # 4. ExecutionSummary rollup per failing workflow name (success_rate<1.0 so
         #    maintainer.trigger_self_improvement picks it up).
