@@ -19,7 +19,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from agent_utilities.core.credentials import CredentialResolver
-from agent_utilities.core.http_client import create_async_http_client
 from agent_utilities.core.execution.adapters.base import ExecEvent, ExecEventType
 from agent_utilities.core.execution.provider_proxy import (
     SUPPORTED_PROVIDERS,
@@ -27,6 +26,7 @@ from agent_utilities.core.execution.provider_proxy import (
     event_to_sse,
     stream_proxy,
 )
+from agent_utilities.core.http_client import create_async_http_client
 
 logger = logging.getLogger(__name__)
 

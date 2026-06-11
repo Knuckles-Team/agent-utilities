@@ -16,11 +16,11 @@ from pydantic_ai import RunContext
 
 from agent_utilities.core.http_client import create_http_client
 from agent_utilities.harness.tracing import trace
+from agent_utilities.models import AgentDeps
 from agent_utilities.orchestration.resilience import (
     ResiliencePolicy,
     run_with_resilience,
 )
-from agent_utilities.models import AgentDeps
 from agent_utilities.security.xai_auth import XaiAuthManager
 
 from .versioning import tool_version
