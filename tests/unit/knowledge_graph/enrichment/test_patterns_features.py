@@ -138,6 +138,30 @@ def test_resolve_call_edges_builds_call_graph():
     assert all(e.rel_type == "CALLS" for e in edges)
 
 
+def test_resolve_call_edges_caps_ambiguous_fanout():
+    # An ambiguous callee (more than _MAX_CALL_FANOUT same-named targets, like Java
+    # toString) is dropped — it would N×M-explode the edge set without signal.
+    from agent_utilities.knowledge_graph.enrichment.features import (
+        _MAX_CALL_FANOUT,
+        resolve_call_edges,
+    )
+
+    n = _MAX_CALL_FANOUT + 5
+    # n functions all named "toString" + one caller that calls both toString and "uniq".
+    toStrings = [
+        _fn("toString") for _ in range(n)
+    ]  # share name → same id, so vary the id
+    for i, t in enumerate(toStrings):
+        t.id = f"code:m.py::toString#{i}"
+    uniq = _fn("uniq")
+    caller = _fn("caller", calls=["toString", "uniq"])
+    edges = resolve_call_edges([*toStrings, uniq, caller])
+    targets = {e.target for e in edges if e.source == caller.id}
+    # The ambiguous "toString" fan-out (n > cap) is skipped; the precise "uniq" stays.
+    assert uniq.id in targets
+    assert not any("toString" in t for t in targets)
+
+
 def test_cluster_features_uses_injected_community_detection():
     code = [_fn(n) for n in ("a", "b", "c", "d", "e")]
 

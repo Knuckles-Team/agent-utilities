@@ -25,8 +25,22 @@ _COMMUNITY_BULK_CHUNK = 10_000
 CommunityFn = Callable[[list[str], list[tuple[str, str]]], list[list[str]]]
 
 
+# A callee name resolving to MORE than this many symbols is ambiguous — a common
+# method name like Java `toString`/`equals`/`hashCode`/`get*` — and carries no
+# call-graph signal: name-only resolution edges it to EVERY same-named symbol, an
+# N×M blow-up (egeria: `toString` is on 1,864 symbols → 6.4M spurious edges in 72s,
+# and a community pass over them is catastrophic). Capping the fan-out drops that
+# noise (egeria → 162k real edges in 2.1s) while keeping the precise calls.
+# (CONCEPT:KG-2.8)
+_MAX_CALL_FANOUT = 10
+
+
 def resolve_call_edges(code: list[CodeEntity]) -> list[EnrichmentEdge]:
-    """Resolve code→code CALLS edges by matching callee names to symbols."""
+    """Resolve code→code CALLS edges by matching callee names to symbols.
+
+    Calls whose name is ambiguous (>``_MAX_CALL_FANOUT`` candidate targets) are
+    skipped — common names that explode the edge set without adding signal.
+    """
     by_name: dict[str, list[str]] = {}
     for c in code:
         by_name.setdefault(c.name, []).append(c.id)
@@ -34,7 +48,10 @@ def resolve_call_edges(code: list[CodeEntity]) -> list[EnrichmentEdge]:
     seen: set[tuple[str, str]] = set()
     for c in code:
         for callee in set(c.calls):
-            for tgt in by_name.get(callee, []):
+            targets = by_name.get(callee, [])
+            if len(targets) > _MAX_CALL_FANOUT:
+                continue  # ambiguous common name → no signal, skip the fan-out
+            for tgt in targets:
                 if tgt == c.id:
                     continue
                 key = (c.id, tgt)
