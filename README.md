@@ -171,13 +171,13 @@ Shipped but lightly documented (real code, importable today):
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **149 canonical concepts** across **18 pillars**.
+Synthesized from concept markers in the codebase into **152 canonical concepts** across **18 pillars**.
 
 > This count and the table below are generated from `docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand.
 
 | Pillar | ID Range | Count | Focus |
 |:------|:---------|:---:|:------|
-| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.18 | 15 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, Adversarial verification passed — no issues found, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
+| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.20 | 17 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, Adversarial verification passed — no issues found, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
 | **CTX-1** Context Management | CTX-1.0 | 1 | Nested Subfolder Instructions |
 | **ECO-4** Ecosystem & Peripherals | ECO-4.0 – ECO-4.33 | 23 | Register PlannerGraphSkill when graph_bundle is available, Live MCP server connection for tool metadata caching, Company Infrastructure Orchestration, Infrastructure Blueprint Library, Pluggable Event Queue Backend, Team-Specific Startup Context, Deterministic Lint Enforcement Hook, Plugin Bundle Distribution System |
 | **EE-033** EE-033 | EE-033 | 1 | closes the priors→weights loop |
@@ -192,7 +192,7 @@ Synthesized from concept markers in the codebase into **149 canonical concepts**
 | **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.40 | 32 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Visibility allow-list of upstream step ids whose results, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
 | **ORCH-2** Orchestration Extensions | ORCH-2.0 | 1 | Orchestration Engine |
 | **ORCH-5** Orchestration Runtime | ORCH-5.0 | 1 | / TUI-20 |
-| **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.14 | 14 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
+| **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.15 | 15 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
 | **SAFE-1** Safety & Guardrails | SAFE-1.0 | 1 | Tool-Agnostic File Safety Hooks |
 | **UTIL-1** Shared Utilities | UTIL-1.0 | 1 | Data Type Conversion |
 

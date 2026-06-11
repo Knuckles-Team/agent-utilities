@@ -174,10 +174,14 @@ async def verifier_step(
     execution results.  It does NOT synthesize the final response —
     that is handled by :func:`synthesizer_step`.
 
-    Routing decisions:
+    Routing decisions (CONCEPT:ORCH-1.37 proportional verification):
+    - trivial runs (≤1-step plan / direct dispatch) with results skip the
+      gate and go straight to ``'synthesizer'``
     - **score >= 0.7** → ``'synthesizer'`` for final response composition
-    - **0.4 <= score < 0.7** → ``'dispatcher'`` for re-execution
-    - **score < 0.4** → ``'planner'`` for a fresh approach
+    - **score < 0.7** with partial results → ``'dispatcher'`` for cheap
+      re-execution of the existing plan
+    - **score < 0.4** with NO salvageable results → ``'planner'`` for a
+      fresh approach (re-planning is the most expensive action, done once)
 
     Args:
         ctx: The pydantic-graph step context containing all registry results.
