@@ -1488,6 +1488,24 @@ async def graph_orchestrate_compile_workflow_endpoint(request: Request) -> JSONR
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_orchestrate_compile_process_endpoint(request: Request) -> JSONResponse:
+    """CONCEPT:ORCH-1.41 — REST twin of graph_orchestrate compile_process."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_orchestrate",
+            action="compile_process",
+            task=body.get("process_id", body.get("task", "")),
+            agent_name=body.get("name", body.get("agent_name", "")),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_orchestrate_list_workflows_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_orchestrate", action="list_workflows")
@@ -3092,7 +3110,7 @@ def _build_server(bootstrap: bool = True):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize, failure_ingest). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize, failure_ingest). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -3327,6 +3345,39 @@ def _build_server(bootstrap: bool = True):
                     )
                 except Exception as exc:
                     return f"Error compiling workflow: {exc}"
+            elif action == "compile_process":
+                # CONCEPT:ORCH-1.41 — descriptive BusinessProcess → executable
+                # WorkflowDefinition (+ REALIZES bridge edge). 'task' carries
+                # the BusinessProcess node id; 'agent_name' an optional name.
+                try:
+                    from agent_utilities.knowledge_graph.process_plan_compiler import (
+                        ProcessPlanCompiler,
+                    )
+                    from agent_utilities.knowledge_graph.workflow_store import (
+                        WorkflowStore,
+                    )
+
+                    process_id = task.strip()
+                    if not process_id:
+                        return (
+                            "Error: Must specify the BusinessProcess node id in "
+                            "the 'task' parameter."
+                        )
+                    compiler = ProcessPlanCompiler(engine)
+                    report = await compiler.compile_and_store(
+                        process_id, name=agent_name or None
+                    )
+                    report["status"] = "compiled"
+                    # CONCEPT:ORCH-1.37 — surface the stored topology diagram.
+                    try:
+                        report["mermaid"] = WorkflowStore(engine).get_mermaid(
+                            report["name"]
+                        )
+                    except Exception:
+                        report["mermaid"] = None
+                    return json.dumps(report, default=str)
+                except Exception as exc:
+                    return f"Error compiling process: {exc}"
             elif action == "list_workflows":
                 try:
                     from agent_utilities.knowledge_graph.workflow_store import (
@@ -3343,6 +3394,31 @@ def _build_server(bootstrap: bool = True):
                 except Exception as exc:
                     return f"Error listing workflows: {exc}"
             elif action == "execute_workflow":
+                # CONCEPT:ORCH-1.42 — execution-time ontology gate, BEFORE any
+                # dispatch: (a) SHACL-validate the stored definition (refuse
+                # malformed workflows, KG_WORKFLOW_SHAPE_GATE default ON);
+                # (b) with KG_BRAIN_ENFORCE on, apply the ontology permissioning
+                # row gate to the workflow node for the current actor —
+                # a denial raises PermissionError (fail-closed, OS-5.14).
+                from agent_utilities.knowledge_graph.core.workflow_gate import (
+                    gate_workflow_execution,
+                )
+
+                gate_name = agent_name or task
+                gate = gate_workflow_execution(engine, gate_name)
+                if not gate.get("allowed", True):
+                    return json.dumps(
+                        {
+                            "error": (
+                                "workflow definition failed ontology validation "
+                                "— execution refused"
+                            ),
+                            "workflow": gate_name,
+                            "workflow_id": gate.get("workflow_id"),
+                            "violations": gate.get("violations", []),
+                        },
+                        default=str,
+                    )
                 try:
                     from agent_utilities.knowledge_graph.workflow_store import (
                         WorkflowStore,
@@ -3551,6 +3627,10 @@ def _build_server(bootstrap: bool = True):
 
             else:
                 return f"Error: Unknown orchestration action '{action}'"
+        except PermissionError:
+            # CONCEPT:ORCH-1.42 / OS-5.14 — ACL denial is fail-closed: surface
+            # it as a real error to the MCP layer, never a stringified result.
+            raise
         except Exception as e:
             return f"Orchestration error: {str(e)}"
 
@@ -5063,6 +5143,11 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route(
         "/graph/orchestrate/compile-workflow",
         graph_orchestrate_compile_workflow_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/compile-process",
+        graph_orchestrate_compile_process_endpoint,
         ["POST"],
     )
     route(
