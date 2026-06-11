@@ -144,6 +144,12 @@ by default, single typed source of truth.
 |---|---|---|
 | `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_BRAIN_ENFORCE`, `KG_RESEARCH_EXTERNAL` | 4 | remaining experiment gates — graduate (always-on) or delete |
 
+**`EVOLUTION_WORKTREE_ROOT` — evolution→branch bridge (`CONCEPT:AHE-3.21`), typed on
+`AgentConfig` (`evolution_worktree_root`).** Root directory the `LocalBranchPublisher`
+creates fresh git worktrees under when publishing a promoted proposal as a reviewable
+local branch. Empty (default) resolves to `data_dir()/evolution_worktrees` — publication
+never writes into a canonical checkout's working tree.
+
 **`KG_FAILURE_*` — Failure-Driven Evolution (`CONCEPT:AHE-3.18`), typed on `AgentConfig`,
 opt-in, all off by default.** The boolean gates are parsed via `to_boolean`
 (`"True"`/`"False"`, consistent with the fleet's other toggles). See
