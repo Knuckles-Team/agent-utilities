@@ -255,6 +255,9 @@ async def run_agent(
         _record_execution_trace(
             engine, run_id, agent_name, task, status="failed", error=str(e)
         )
+        # ARPO read-back (CONCEPT:AHE-3.15): failed runs carry step credit too
+        # (a correct step in a failed trajectory must not be penalized).
+        _write_step_credit(engine, run_id, agent_name, None, success=False)
         return f"Agent execution failed: {e}"
 
     # Step 5: Record success provenance
@@ -268,6 +271,10 @@ async def run_agent(
         duration_ms=duration_ms,
         result_preview=str(result)[:500],
     )
+    # ARPO read-back (CONCEPT:AHE-3.15): credit the intermediate agent-steps of
+    # this run into the capability reward-EMA so routing learns from the steps,
+    # not only the final answer. Guarded — never breaks the run path.
+    _write_step_credit(engine, run_id, agent_name, result, success=True)
     # CONCEPT:ORCH-1.40 — anchor this run to its Session (id-addressable) so "list runs by
     # session" is a reliable single-hop traversal, mirroring HAS_CONTEXT/HAS_MESSAGE.
     if session_id:
@@ -743,3 +750,82 @@ def _record_execution_trace(
             )
     except Exception as e:
         logger.debug("Failed to record execution trace: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Internal: ARPO step-credit read-back (CONCEPT:AHE-3.15)
+# ---------------------------------------------------------------------------
+
+# Bookkeeping keys in GraphResponse.results that are not per-step outputs.
+_NON_STEP_RESULT_KEYS = {"output", "mermaid", "usage", "error", "metadata", "status"}
+
+
+def _extract_steps(
+    result: Any, agent_name: str, success: bool
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Derive ARPO (step, agent-id) pairs from a GraphResponse-shaped result.
+
+    Each non-bookkeeping key in ``results`` is one completed agent/specialist
+    step (the executor stores per-node outputs under the node name); a truthy
+    output counts as a locally-successful step. When no per-step structure is
+    available, the whole run collapses to a single step credited to the
+    invoked agent.
+    """
+    steps: list[dict[str, Any]] = []
+    agent_ids: list[str] = []
+    results = result.get("results") if isinstance(result, dict) else None
+    if isinstance(results, dict):
+        for key, value in results.items():
+            if not isinstance(key, str) or key in _NON_STEP_RESULT_KEYS:
+                continue
+            steps.append({"action": key, "success": bool(value)})
+            agent_ids.append(key)
+    if not steps:
+        steps = [{"action": agent_name, "success": success}]
+        agent_ids = [agent_name]
+    return steps, agent_ids
+
+
+def _write_step_credit(
+    engine: IntelligenceGraphEngine | None,
+    run_id: str,
+    agent_name: str,
+    result: Any,
+    success: bool,
+) -> int:
+    """Write ARPO per-step advantages into the capability reward-EMA.
+
+    CONCEPT:AHE-3.15 — this is the read-back half of agent-step policy
+    optimization: :func:`write_back_step_credit` existed but was never invoked
+    from the live step lifecycle, so routing only ever learned from final
+    answers. Called on every run completion (success AND failure); guarded so
+    a credit failure can never break the step path (log-and-continue).
+    Returns the number of steps credited (0 when no capability index exists).
+    """
+    try:
+        kg = getattr(engine, "knowledge_graph", None) or getattr(engine, "kg", None)
+        capability_index = getattr(kg, "retrieval", None) if kg is not None else None
+        if capability_index is None:
+            return 0
+
+        from agent_utilities.graph.agent_step_po import write_back_step_credit
+        from agent_utilities.graph.reward_decomposition import RewardDecomposer
+
+        steps, agent_ids = _extract_steps(result, agent_name, success)
+        decomposer = RewardDecomposer()
+        record = decomposer.decompose(run_id, steps, goal_achieved=success)
+        advantages = decomposer.step_advantages(record)
+        # Group-normalization centers a uniform trajectory at 0 (neutral 0.5
+        # reward); shift by the centered trajectory outcome so the final
+        # result still moves the EMA even for single-step runs.
+        outcome_shift = record.total_reward - 0.5
+        advantages = [a + outcome_shift for a in advantages]
+        written = write_back_step_credit(capability_index, agent_ids, advantages)
+        if written:
+            logger.debug(
+                "[AHE-3.15] run %s: %d agent-step credits written", run_id, written
+            )
+        return written
+    except Exception as e:  # noqa: BLE001 — credit must never break the run
+        logger.debug("step-credit write-back skipped for %s: %s", run_id, e)
+        return 0
