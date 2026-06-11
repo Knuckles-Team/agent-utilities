@@ -59,13 +59,12 @@ except ImportError:
 
 from contextlib import AsyncExitStack
 
+import anyio
+
 from agent_utilities.models.execution_manifest import (
     ExecutionManifest,
     ExecutionResult,
 )
-
-
-import anyio
 
 
 # implements core.execution.ExecutionEngine
