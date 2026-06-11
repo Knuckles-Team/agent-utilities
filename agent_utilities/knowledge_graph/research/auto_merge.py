@@ -17,7 +17,17 @@ It is deliberately conservative and OFF by default:
   - regression is checked (a promoted artifact must not lower a tracked metric),
   - the whole step is opt-in via ``GoldenLoopController(auto_merge=...)`` /
     ``KG_GOLDEN_AUTO_MERGE=1`` — the existing propose-only safety is the default
-    unless explicitly enabled.
+    unless explicitly enabled,
+  - the merger's own promotion decision consults the operational
+    :class:`~agent_utilities.orchestration.action_policy.ActionPolicy`
+    (CONCEPT:OS-5.24) under the reserved ``merge_promotion`` kind before the
+    lifecycle flip (the AHE-3.20 adoption that was previously a noted
+    follow-up): ``deny`` blocks promotion outright (recorded + audited),
+    ``queue_approval`` files/reuses the SAME ``ActionApproval`` the AHE-3.21
+    publication step consumes (deduped per kind+target) while the KG-internal
+    lifecycle flip proceeds — the real-world materialization stays
+    human-gated — and ``allow``/``allow_notify`` proceed (the policy itself
+    emits the notification).
 
 Every promotion (and every rejection) emits an
 :class:`~agent_utilities.observability.audit_logger.AuditLogger` entry, so the
@@ -51,6 +61,15 @@ def _probe_production_validator(engine: Any, policy: MergePolicy) -> Any:
     except Exception as exc:  # noqa: BLE001
         logger.debug("production governance validator unavailable: %s", exc)
         return None
+
+
+@dataclass
+class _FailClosedDecision:
+    """Deny-shaped stand-in when the OS-5.24 gate itself cannot be consulted."""
+
+    reason: str
+    decision: str = "deny"
+    approval_id: str | None = None
 
 
 @dataclass
@@ -110,6 +129,11 @@ class MergeEvaluation:
     #: the shipped ActionPolicy, ``published`` once allowed (branch + sha +
     #: gate verdict inside), ``None`` when the proposal did not merge.
     publication: dict[str, Any] | None = None
+    #: Operational ActionPolicy verdict on the promotion itself (CONCEPT:OS-5.24,
+    #: the AHE-3.20 adoption): ``{"decision", "reason", "approval_id"}`` when
+    #: the ``merge_promotion`` gate was consulted, ``None`` when promotion was
+    #: never attempted (disabled policy / ineligible proposal).
+    action_decision: dict[str, Any] | None = None
 
     @property
     def eligible(self) -> bool:
@@ -147,6 +171,14 @@ class GovernedAutoMerger:
         Optional :class:`~agent_utilities.knowledge_graph.research.change_publisher.ChangePublisher`
         for the evolution→branch bridge (CONCEPT:AHE-3.21). ``None`` resolves
         the registered/default publisher at publication time.
+    action_policy:
+        Optional :class:`~agent_utilities.orchestration.action_policy.ActionPolicy`
+        override (CONCEPT:OS-5.24). ``None`` resolves the engine-bound policy
+        at decision time. The merger consults it with
+        ``kind="merge_promotion"`` BEFORE the lifecycle flip: ``deny`` blocks
+        the promotion (recorded), ``queue_approval`` proceeds with the
+        KG-internal flip while the publication step stays approval-gated
+        (same deduped ``ActionApproval``), ``allow``/``allow_notify`` proceed.
     """
 
     def __init__(
@@ -159,6 +191,7 @@ class GovernedAutoMerger:
         regression_check: Any = None,
         promoter: Any = None,
         publisher: Any = None,
+        action_policy: Any = None,
     ) -> None:
         self.engine = engine
         self.policy = policy or MergePolicy.from_env()
@@ -173,6 +206,7 @@ class GovernedAutoMerger:
         self._regression_check = regression_check
         self._promoter = promoter
         self._publisher = publisher
+        self._action_policy = action_policy
 
     # ── scoring ────────────────────────────────────────────────────────
     @staticmethod
@@ -271,9 +305,32 @@ class GovernedAutoMerger:
 
         Always audits. When the policy is disabled the proposal stays
         proposal-only (the conservative default) even if it would be eligible.
+
+        An enabled + eligible promotion additionally consults the operational
+        OS-5.24 :class:`ActionPolicy` under the reserved ``merge_promotion``
+        kind (the AHE-3.20 adoption): ``deny`` blocks the lifecycle flip
+        (recorded on the evaluation + audit trail), ``queue_approval`` keeps
+        the AHE-3.21 semantics — the KG-internal flip proceeds and the
+        real-world publication queues the (deduped) ``ActionApproval`` —
+        and ``allow``/``allow_notify`` proceed (the policy notifies).
         """
         evaluation = self.evaluate(spec)
         promote = self.policy.enabled and evaluation.eligible
+        denied_reason = ""
+        if promote:
+            decision = self._consult_action_policy(spec)
+            if decision is not None:
+                evaluation.action_decision = {
+                    "decision": getattr(decision, "decision", "deny"),
+                    "reason": getattr(decision, "reason", ""),
+                    "approval_id": getattr(decision, "approval_id", None),
+                }
+                if evaluation.action_decision["decision"] == "deny":
+                    promote = False
+                    denied_reason = (
+                        "blocked by action policy (merge_promotion): "
+                        f"{evaluation.action_decision['reason']}"
+                    )
         if promote:
             try:
                 evaluation.merged = self._promote(spec)
@@ -292,6 +349,8 @@ class GovernedAutoMerger:
                 # default queues a human approval; publication then proceeds
                 # via the one-shot ``publish_proposal`` action).
                 evaluation.publication = self._publish(spec)
+        elif denied_reason:
+            evaluation.reason = denied_reason
         else:
             evaluation.reason = (
                 "proposal-only (auto-merge disabled)"
@@ -300,6 +359,48 @@ class GovernedAutoMerger:
             )
         self._audit(evaluation)
         return evaluation
+
+    def _consult_action_policy(self, spec: Any) -> Any:
+        """Decide ``merge_promotion`` for this proposal via the OS-5.24 gate.
+
+        The AHE-3.20 → ActionPolicy adoption: the merger's own promotion
+        decision routes through the same operational decision point the
+        AHE-3.21 publication path consults — same reserved kind, same target
+        (the proposal id, so a queued/granted ``ActionApproval`` is SHARED
+        with the publication step via the policy's per-kind+target dedup).
+        A gate failure fails CLOSED (deny), mirroring ``governed_publish``.
+        """
+        target = self._spec_id(spec)
+        try:
+            from agent_utilities.orchestration.action_policy import (
+                ActionRequest,
+                get_action_policy,
+            )
+
+            policy = self._action_policy or get_action_policy(self.engine)
+            return policy.decide(
+                ActionRequest(
+                    kind="merge_promotion",
+                    target=target,
+                    params={
+                        "stage": "promotion",
+                        "name": str(
+                            getattr(spec, "name", None)
+                            or (spec.get("name") if isinstance(spec, dict) else "")
+                            or ""
+                        ),
+                    },
+                    source="golden_loop",
+                    reason="promote evolution proposal proposal→active",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — gate failure ⇒ fail closed
+            logger.warning(
+                "auto-merge action-policy consult failed for %s: %s", target, exc
+            )
+            return _FailClosedDecision(
+                reason=f"action policy unavailable (fail closed): {exc}"
+            )
 
     def _promote(self, spec: Any) -> bool:
         """Promote a proposal to an active artifact (proposal → active)."""
@@ -401,6 +502,9 @@ class GovernedAutoMerger:
                 "reason": ev.reason,
                 "failures": ev.failures,
                 "enabled": self.policy.enabled,
+                "action_decision": (ev.action_decision or {}).get("decision", ""),
+                "action_approval_id": (ev.action_decision or {}).get("approval_id")
+                or "",
                 "publication_status": (ev.publication or {}).get("status", ""),
                 "publication_branch": ((ev.publication or {}).get("publish") or {}).get(
                     "branch", ""

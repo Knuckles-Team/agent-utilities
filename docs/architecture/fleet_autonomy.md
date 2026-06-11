@@ -94,9 +94,14 @@ which would execute the action unapproved.
 **Relation to AHE-3.20.** The promotion-governance validator
 (`knowledge_graph/research/promotion_governance.py`) remains the
 code-evolution gate; it was the conceptual template (typed verdicts,
-constitution rules) but is NOT refactored here. It can adopt ActionPolicy
-later by routing its merge verdict through a `merge_promotion` ActionRequest
-— the shipped default policy already reserves that kind (approval_required).
+constitution rules). The adoption follow-up is now closed:
+`GovernedAutoMerger` (`knowledge_graph/research/auto_merge.py`) routes its
+own promotion decision through a `merge_promotion` `ActionRequest` before
+the proposal→active lifecycle flip — `deny` blocks the promotion (recorded
+and audited, fail-closed on policy errors), the shipped `approval_required`
+tier queues the same `ActionApproval` the AHE-3.21 publication bridge
+consumes (deduped per kind+target), and `auto`/`auto_notify` tiers proceed.
+See [Autonomous Evolution](../guides/autonomous-evolution.md).
 
 ## OS-5.25 — Desired-state fleet reconciler
 

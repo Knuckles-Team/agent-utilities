@@ -207,3 +207,99 @@ class TestExecuteWorkflowWiring:
         assert gate_idx != -1, "execute_workflow must run the ORCH-1.42 gate"
         assert dispatch_idx != -1
         assert gate_idx < dispatch_idx, "gate must run BEFORE dispatch"
+
+
+class TestDispatchWorkflowWiring:
+    """The background twin (action='dispatch_workflow') runs the SAME gate.
+
+    execute_workflow was gated at ORCH-1.42 ship time; dispatch_workflow (the
+    fire-and-forget background dispatch, also the REST twin
+    /api/graph/orchestrate/dispatch-workflow) was a documented follow-up —
+    these tests pin the closed gap: malformed stored definitions are refused
+    BEFORE any background task is created, valid ones dispatch, and the
+    KG_WORKFLOW_SHAPE_GATE flag keeps the same default-on / off-bypass
+    semantics as the foreground path.
+    """
+
+    @pytest.fixture()
+    def dispatch(self, monkeypatch):
+        """(engine, name) -> tool output, with a recording fake runner."""
+        import asyncio
+
+        import agent_utilities.orchestration as orch_mod
+        from agent_utilities.mcp import kg_server
+
+        kg_server.ensure_tools_registered()
+
+        class _FakeRunner:
+            instances: list = []
+
+            def __init__(self):
+                type(self).instances.append(self)
+                self.calls: list[dict] = []
+
+            async def execute_workflow(self, **kwargs):
+                self.calls.append(kwargs)
+                return {"ok": True}
+
+        _FakeRunner.instances = []
+        monkeypatch.setattr(orch_mod, "AgentOrchestrationEngine", _FakeRunner)
+
+        async def _run(engine, name):
+            monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+            out = await kg_server._execute_tool(
+                "graph_orchestrate", action="dispatch_workflow", agent_name=name
+            )
+            await asyncio.sleep(0)  # let any created background task start
+            return out
+
+        return _run, _FakeRunner
+
+    async def test_malformed_workflow_refused_before_background_dispatch(
+        self, dispatch
+    ):
+        import json
+
+        run, runner = dispatch
+        engine = FakeEngine()
+        _seed_workflow(engine, name="empty_flow", step_count=0, steps=[])
+        out = await run(engine, "empty_flow")
+        payload = json.loads(out)
+        assert "background dispatch refused" in payload["error"]
+        assert payload["violations"]
+        assert runner.instances == [], "no background task for a refused workflow"
+
+    async def test_valid_workflow_dispatches_in_background(self, dispatch):
+        run, runner = dispatch
+        engine = FakeEngine()
+        _seed_workflow(engine)
+        out = await run(engine, "invoice_flow")
+        assert "Workflow dispatched in background" in out
+        assert runner.instances and runner.instances[0].calls
+        assert runner.instances[0].calls[0]["workflow_id"] == "invoice_flow"
+
+    async def test_gate_off_bypasses_shape_validation(self, dispatch, monkeypatch):
+        from agent_utilities.core.config import config as cfg
+
+        monkeypatch.setattr(cfg, "kg_workflow_shape_gate", False)
+        run, runner = dispatch
+        engine = FakeEngine()
+        _seed_workflow(engine, name="empty_flow", step_count=0, steps=[])
+        out = await run(engine, "empty_flow")
+        assert "Workflow dispatched in background" in out
+        assert runner.instances, "gate off must fall through to dispatch"
+
+    def test_dispatch_workflow_action_gates_before_background_task(self):
+        """Source order: the gate runs BEFORE asyncio.create_task in the branch."""
+        import inspect
+
+        from agent_utilities.mcp import kg_server
+
+        source = inspect.getsource(kg_server)
+        branch_idx = source.find('elif action == "dispatch_workflow":')
+        assert branch_idx != -1
+        gate_idx = source.find("gate_workflow_execution(engine, gate_name)", branch_idx)
+        task_idx = source.find("asyncio.create_task(", branch_idx)
+        assert gate_idx != -1, "dispatch_workflow must run the ORCH-1.42 gate"
+        assert task_idx != -1
+        assert gate_idx < task_idx, "gate must run BEFORE background dispatch"

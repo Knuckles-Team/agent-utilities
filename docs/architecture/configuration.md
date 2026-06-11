@@ -202,11 +202,12 @@ federation. Off by default — Fuseki is optional infrastructure.
 | `KG_FUSEKI_PUBLISH_INTERVAL` | `3600` | daemon tick interval (s) |
 
 **`KG_WORKFLOW_SHAPE_GATE` — execution-time workflow ontology gate (`CONCEPT:ORCH-1.42`),
-typed on `AgentConfig`, default ON.** `execute_workflow` SHACL-validates the stored
-`WorkflowDefinition` (+ steps) against the governance shapes before dispatch and refuses
-malformed definitions with a structured violation report; cheap and LLM-free. The companion
-permission gate (ontology permissioning ACL on the workflow node) is governed by the existing
-`KG_BRAIN_ENFORCE` flag (OS-5.14 fail-closed semantics), not a new one.
+typed on `AgentConfig`, default ON.** `execute_workflow` AND its background twin
+`dispatch_workflow` (REST twin `/api/graph/orchestrate/dispatch-workflow`) SHACL-validate
+the stored `WorkflowDefinition` (+ steps) against the governance shapes before dispatch and
+refuse malformed definitions with a structured violation report; cheap and LLM-free. The
+companion permission gate (ontology permissioning ACL on the workflow node) is governed by
+the existing `KG_BRAIN_ENFORCE` flag (OS-5.14 fail-closed semantics), not a new one.
 
 | Flag | Default | Notes |
 |---|---|---|
