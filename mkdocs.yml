@@ -81,6 +81,7 @@ nav:
       - Failure-Driven Evolution: architecture/failure_driven_evolution.md
       - Durable-State Externalization: architecture/state_externalization.md
       - Scaling the Gateway: architecture/gateway_scaling.md
+      - Fleet Autonomy Control Plane: architecture/fleet_autonomy.md
   - Concept Registry:
       - Canonical Concept Map: concept_map.md
       - Concept Overview: overview.md

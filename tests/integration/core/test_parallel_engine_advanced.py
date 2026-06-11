@@ -5,7 +5,7 @@ verifying:
 1. Skill compiler parsing DAG dependencies correctly.
 2. Parallel waves batching, scheduling, and topological ordering.
 3. Checkpoint middleware saving state between wave boundaries.
-4. Stuck-loop and auto-healing capabilities.
+4. Stuck-loop and repeated-failure escalation capabilities.
 5. Topological context propagation and synthesis.
 """
 
@@ -197,8 +197,10 @@ async def test_checkpointing_saves_and_resumes():
 
 
 @pytest.mark.asyncio
-async def test_auto_healing_triggers_on_failures():
-    """Verify that auto-healing logic tracks failed agent runs inside the engine."""
+async def test_repeated_failure_escalation_tracks_failures():
+    """Repeated agent failures are tracked by the strangled escalation path
+    (the old AutoHealingEngine shell's threshold counter, now feeding the
+    failure_gap remediation chain when a KG engine is attached)."""
     agents = [
         AgentSpec(
             agent_id="agent-failing",
@@ -228,6 +230,9 @@ async def test_auto_healing_triggers_on_failures():
         assert len(res.wave_results) == 1
         assert res.wave_results[0].results[0].success is False
         assert "API limit exceeded" in res.wave_results[0].results[0].error
+        # The strangled escalation path counted the failure (no KG engine
+        # attached, so it never escalates - and never raises).
+        assert engine._agent_failure_counts.get("agent-failing", 0) >= 1
 
 
 class _FakeKGEngine:

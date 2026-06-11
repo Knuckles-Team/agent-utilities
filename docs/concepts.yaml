@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 166
+total_concepts: 170
 total_pillars: 18
 pillars:
 - AHE-3
@@ -232,6 +232,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/graph/parallel_engine.py
   - agent_utilities/harness/trace_backend.py
   - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
@@ -2251,6 +2252,55 @@ concepts:
   - agent_utilities/security/request_identity.py
   - agent_utilities/server/__init__.py
   doc: Gateway Middle-Tier Hardening
+- id: OS-5.24
+  name: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
+    windows, and blast-radius caps consulted before any autonomous mutating fleet action
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/gateway/fleet.py
+  - agent_utilities/knowledge_graph/adaptation/remediation_playbooks.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/orchestration/fleet_actuation.py
+  - agent_utilities/orchestration/fleet_reconciler.py
+  doc: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
+    windows, and blast-radius caps consulted before any autonomous mutating fleet action
+- id: OS-5.25
+  name: Desired-state fleet reconciler
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/gateway/fleet.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/orchestration/fleet_actuation.py
+  - agent_utilities/orchestration/fleet_observation.py
+  - agent_utilities/orchestration/fleet_reconciler.py
+  doc: Desired-state fleet reconciler
+- id: OS-5.26
+  name: Remediation playbooks with stepwise verification and policy-gated actuation plugged into the fleet-event
+    triage seam, recording every step on the originating FleetEvent node
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/remediation_playbooks.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: Remediation playbooks with stepwise verification and policy-gated actuation plugged into the fleet-event
+    triage seam, recording every step on the originating FleetEvent node
+- id: OS-5.27
+  name: Health-gated deploy and rollback watch where every deploy or restart the autonomy plane triggers
+    is followed by a durable health watch whose failure invokes a policy-gated rollback and escalation
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/orchestration/deploy_watch.py
+  doc: Health-gated deploy and rollback watch where every deploy or restart the autonomy plane triggers
+    is followed by a durable health watch whose failure invokes a policy-gated rollback and escalation
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
