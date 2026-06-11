@@ -603,6 +603,19 @@ class AgentConfig(BaseSettings):
     deploy_watch_poll: float = Field(default=15.0, alias="DEPLOY_WATCH_POLL")
     """Seconds between health probes inside a deploy watch window."""
 
+    fleet_autoscaler: bool = Field(default=False, alias="FLEET_AUTOSCALER")
+    """Opt-in reactive replica autoscaler tick (CONCEPT:OS-5.29). For each
+    service with a registry/override ``scaling:`` block: read its load signal,
+    target-track a desired replica count inside the declared min/max bounds,
+    and propose ``scale_service`` through the ActionPolicy gate + actuator
+    seam (deploy-watched on scale-up). Default False; with the default
+    dry-run actuator it records intent without mutating."""
+
+    fleet_autoscaler_interval: float = Field(
+        default=60.0, alias="FLEET_AUTOSCALER_INTERVAL"
+    )
+    """Seconds between autoscaler ticks (leader-only)."""
+
     scaling_prometheus_url: str | None = Field(
         default=None, alias="SCALING_PROMETHEUS_URL"
     )
@@ -621,6 +634,7 @@ class AgentConfig(BaseSettings):
         "kg_fuseki_publish",
         "kg_workflow_shape_gate",
         "fleet_reconciler",
+        "fleet_autoscaler",
         mode="before",
     )
     @classmethod

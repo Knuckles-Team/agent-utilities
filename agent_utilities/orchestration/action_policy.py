@@ -273,6 +273,19 @@ class ActionPolicy:
             )
             return DEFAULT_POLICY
 
+    def option(self, name: str, default: Any = None) -> Any:
+        """Read one entry from the policy file's optional ``options:`` mapping.
+
+        Deployment-tunable behavior knobs that are policy (not config) —
+        e.g. ``watch_scale_down: true`` makes the autoscaler schedule an
+        OS-5.27 health watch after scale-DOWN actions too (CONCEPT:OS-5.29).
+        Missing file/section/key ⇒ ``default``.
+        """
+        options = self._load_file_policy().get("options")
+        if not isinstance(options, dict):
+            return default
+        return options.get(name, default)
+
     def _kg_rules(self) -> list[ActionRule]:
         """KG-stored overrides: ``governance_rule`` nodes with scope='action_policy'.
 
