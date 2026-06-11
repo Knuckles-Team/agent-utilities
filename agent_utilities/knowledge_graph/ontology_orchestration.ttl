@@ -77,6 +77,16 @@
     rdfs:comment "Workflow → the agents/skills it orchestrates." ;
     rdfs:domain :Workflow .
 
+:realizesProcess a owl:ObjectProperty ;
+    rdfs:label "realizesProcess" ;
+    rdfs:comment """CONCEPT:ORCH-1.41 — a compiled executable Workflow REALIZES the
+    descriptive BusinessProcess it was derived from (REALIZES in the LPG;
+    written by the ProcessPlanCompiler). The bridge between the harvested
+    process world (Camunda/Egeria/ArchiMate) and the executable workflow
+    world, traversed by lineage close-out and provenance queries.""" ;
+    rdfs:domain :Workflow ;
+    rdfs:range :BusinessProcess .
+
 :reportsTo a owl:ObjectProperty,
         owl:TransitiveProperty ;
     rdfs:comment "Team reporting hierarchy (transitive)." ;
@@ -117,13 +127,13 @@
 :Tool a owl:Class ;
     rdfs:label "Tool" .
 
-:Workflow a owl:Class ;
-    rdfs:label "Workflow" ;
-    rdfs:comment "An orchestration flow (skill-workflow) over agents/skills." .
-
 :ContextBlob a owl:Class ;
     rdfs:label "ContextBlob" ;
     rdfs:comment "CONCEPT:ORCH-1.39 — curated context an invoking agent persists for a spawned agent to reference (session-scoped, optionally TTL'd)." .
+
+:Workflow a owl:Class ;
+    rdfs:label "Workflow" ;
+    rdfs:comment "An orchestration flow (skill-workflow) over agents/skills." .
 
 :Prompt a owl:Class ;
     rdfs:label "Prompt" .
