@@ -36,7 +36,9 @@ enforces that flags are declared on `AgentConfig` (`core/config.py`), not read w
 | `STATE_DB_POOL_SIZE` | `8` | Max connections in the ONE shared state-store psycopg pool (CONCEPT:OS-5.16) |
 | `TASK_QUEUE_BACKEND` | none (auto) | Ingest task queue: `sqlite`\|`postgres`\|`kafka`. Unset = auto (postgres when `STATE_DB_URI` set, else sqlite). Explicit kafka/postgres is FAIL-LOUD at startup; replaces the deprecated `QUEUE_BACKEND` alias (CONCEPT:KG-2.55) |
 | `KG_TASKS_PARTITIONS` | `6` | Partitions ensured on the `kg_tasks` topic at startup (grow-only, never shrinks); bounds kg-ingest consumer-group parallelism (CONCEPT:KG-2.56) |
-| `EPISTEMIC_GRAPH_AUTOSTART` | — | Auto-spawn the engine |
+| `EPISTEMIC_GRAPH_AUTOSTART` | — | Auto-spawn the engine (local `unix://` endpoint only; never remote shards) |
+| `GRAPH_SERVICE_ENDPOINTS` | unset | Engine shard endpoints (comma/JSON list). 2+ entries = tenant-partitioned sharding via HRW over graph names; unset/1 = single-engine zero-infra default (CONCEPT:KG-2.58) |
+| `KG_DEFAULT_GRAPH` | `__bus__` | Default named graph; in sharded mode the ambient ActorContext tenant maps it to `tenant__<t>__<base>` before HRW (CONCEPT:KG-2.58) |
 | `GRAPH_SERVICE_AUTH_SECRET` | auto-generated | Engine HMAC secret; unset → per-install secret persisted at `data_dir()/engine_secret` (0600) (CONCEPT:OS-5.14) |
 | `KG_ENGINE_INSECURE` | `false` | Dev opt-out of engine HMAC auth; sets `EPISTEMIC_GRAPH_ALLOW_INSECURE=1` on spawned engines (CONCEPT:OS-5.14) |
 | `KG_AUTH_REQUIRED` | `false` | Require server-validated JWT identity for KG access — 401 without it; caller `_actor`/`_roles`/`_tenant` kwargs ignored (CONCEPT:OS-5.14) |

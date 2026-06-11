@@ -1933,10 +1933,26 @@ def _build_server(bootstrap: bool = True):
     )
 
     # Liveness endpoint for streamable-http/sse deployments (container
-    # healthchecks). Does not touch the engine so it stays fast and lock-free.
+    # healthchecks). Does not touch the engine so it stays fast and lock-free;
+    # the shard summary is config-only (no probe) — full per-shard
+    # reachability lives on the gateway's /daemon/shards route and in the
+    # unified daemon status. (CONCEPT:OS-5.28)
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
-        return JSONResponse({"status": "ok", "server": "graph-os"})
+        from agent_utilities.core.config import config as _config
+        from agent_utilities.knowledge_graph.core.shard_topology import (
+            resolve_endpoints,
+        )
+
+        endpoints = resolve_endpoints(_config)
+        return JSONResponse(
+            {
+                "status": "ok",
+                "server": "graph-os",
+                "shard_mode": "sharded" if len(endpoints) > 1 else "single",
+                "shard_count": len(endpoints),
+            }
+        )
 
     # ═══ Synthesized Tools (7 tools, action-routed) ═══
 

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 170
+total_concepts: 172
 total_pillars: 18
 pillars:
 - AHE-3
@@ -1474,6 +1474,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
+  - agent_utilities/knowledge_graph/core/shard_topology.py
   - agent_utilities/knowledge_graph/ingest_worker.py
   doc: Fail-loud selectable ingest task-queue backend with explicit kafka and postgres and auto sqlite
     modes
@@ -1497,6 +1498,21 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py
   - agent_utilities/observability/gateway_metrics.py
   doc: Decoupled kg-ingest consumer group with idempotent at-least-once task claims
+- id: KG-2.58
+  name: Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement
+    over GRAPH_SERVICE_ENDPOINTS
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/__init__.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/shard_topology.py
+  - agent_utilities/knowledge_graph/facade.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement
+    over GRAPH_SERVICE_ENDPOINTS
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -2301,6 +2317,19 @@ concepts:
   - agent_utilities/orchestration/deploy_watch.py
   doc: Health-gated deploy and rollback watch where every deploy or restart the autonomy plane triggers
     is followed by a durable health watch whose failure invokes a policy-gated rollback and escalation
+- id: OS-5.28
+  name: Shard topology visibility with per-shard reachability status surfaces and per-endpoint engine
+    gauges and counters
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/gateway/api.py
+  - agent_utilities/knowledge_graph/core/engine_breaker.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/shard_topology.py
+  - agent_utilities/mcp/kg_server.py
+  doc: Shard topology visibility with per-shard reachability status surfaces and per-endpoint engine gauges
+    and counters
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

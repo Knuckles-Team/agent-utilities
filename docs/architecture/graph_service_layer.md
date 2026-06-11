@@ -84,3 +84,12 @@ talks to the `epistemic-graph-server` Tokio daemon **exclusively** over the
 out-of-process MessagePack/UDS (or TCP) client (`epistemic_graph.client`); there
 is no in-process embedded fallback. If the daemon is unreachable, set
 `EPISTEMIC_GRAPH_AUTOSTART=1` to have the engine spawn it on first connect.
+
+## Sharding (Stage 2)
+
+With 2+ entries in `GRAPH_SERVICE_ENDPOINTS`, `GraphComputeEngine` routes each
+named graph to its owning shard by HRW rendezvous hashing (`tenant → named
+graph → HRW → shard`, CONCEPT:KG-2.58). Autostart then applies **only** to the
+local `unix://` endpoint — an unreachable remote shard is a fail-loud
+`ConnectionError` naming the shard. See
+[engine_sharding.md](./engine_sharding.md).
