@@ -488,3 +488,33 @@ class FailureAnalyzer:
                 )
             except Exception as e:  # noqa: BLE001
                 logger.debug("outcome correction failed: %s", e)
+
+
+def run_failure_ingest(engine: Any) -> dict[str, Any]:
+    """One failure-driven evolution pass: pull Langfuse failures → materialize
+    failure_gap topics → run a regression-gated remediation cycle that addresses
+    those gaps directly (CONCEPT:AHE-3.18).
+
+    Shared by the daemon's ``failure_ingest`` tick and the on-demand
+    ``graph_orchestrate(action="failure_ingest")`` MCP action so the two never
+    drift. Returns a JSON-able report (the ingest report plus a ``remediation``
+    block when gaps were found).
+    """
+    analyzer = FailureAnalyzer.from_engine(engine)
+    report = analyzer.run_once()
+    gaps = report.get("gap_concepts", [])
+    if gaps:
+        from ..research.golden_loop import GoldenLoopController
+
+        check = analyzer.make_regression_check(gaps)
+        gap_topics = [{"id": g["id"], "name": g["name"]} for g in gaps]
+        report["remediation"] = GoldenLoopController(
+            engine, regression_check=check
+        ).run_one_cycle(
+            max_topics=min(len(gaps), 5),
+            topics=gap_topics,
+            assimilate=False,
+            breadth=False,
+            standardize=False,
+        )
+    return report

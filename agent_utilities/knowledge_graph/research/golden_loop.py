@@ -408,6 +408,10 @@ class GoldenLoopController:
         if report["errors"]:
             logger.warning("golden-loop cycle errors: %s", report["errors"])
         # Monitoring: persist a queryable EvolutionCycle node (best-effort).
+        # ``errors``/``stage_ms`` are JSON-encoded: the durable (Postgres) backend
+        # cannot adapt a raw dict/list into a column value.
+        import json
+
         try:
             self.engine.add_node(
                 f"evolution_cycle:{uuid.uuid4().hex[:10]}",
@@ -415,10 +419,10 @@ class GoldenLoopController:
                 properties={
                     "duration_ms": m["duration_ms"],
                     "error_count": m["error_count"],
-                    "errors": report["errors"][:10],
+                    "errors": json.dumps(report["errors"][:10]),
                     "topics_intake": report["topics_intake"],
                     "open_gaps": m["open_gaps"],
-                    "stage_ms": m["stage_ms"],
+                    "stage_ms": json.dumps(m["stage_ms"]),
                 },
             )
         except Exception as e:  # noqa: BLE001 - monitoring persist is best-effort
