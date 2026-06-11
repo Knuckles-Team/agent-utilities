@@ -71,13 +71,11 @@ async def fleet_health(request: Request) -> JSONResponse:
     """Aggregate swarm-health: counts + per-domain error rates."""
     rows = _fetch_sessions()
     by_status: dict[str, int] = {}
-    domains: dict[str, dict[str, int]] = {}
+    domains: dict[str, dict[str, float]] = {}
     for s in rows:
         status = str(s.get("status") or "unknown")
         by_status[status] = by_status.get(status, 0) + 1
-        dom = domains.setdefault(
-            s["domain"], {"total": 0, "active": 0, "errored": 0}
-        )
+        dom = domains.setdefault(s["domain"], {"total": 0, "active": 0, "errored": 0})
         dom["total"] += 1
         if status in _ACTIVE_STATUSES:
             dom["active"] += 1
@@ -85,14 +83,19 @@ async def fleet_health(request: Request) -> JSONResponse:
             dom["errored"] += 1
 
     for dom in domains.values():
-        dom["error_rate"] = round(dom["errored"] / dom["total"], 4) if dom["total"] else 0.0
+        dom["error_rate"] = (
+            round(dom["errored"] / dom["total"], 4) if dom["total"] else 0.0
+        )
 
     active_goals = getattr(_sessions, "active_goals", {})
     return JSONResponse(
         {
             "generated_at": time.time(),
             "sessions": {"total": len(rows), "by_status": by_status},
-            "goals": {"active": len(getattr(_sessions, "background_goal_runs", {})), "tracked": len(active_goals)},
+            "goals": {
+                "active": len(getattr(_sessions, "background_goal_runs", {})),
+                "tracked": len(active_goals),
+            },
             "domains": domains,
         }
     )
@@ -137,9 +140,10 @@ def _cancel_session_tasks(session_id: str) -> bool:
             runs.pop(goal_id, None)
             active = getattr(_sessions, "active_goals", {})
             if goal_id in active:
-                active[goal_id]["status"] = getattr(
+                goal_status: Any = getattr(
                     _sessions, "GoalStatus", type("G", (), {"CANCELLED": "cancelled"})
-                ).CANCELLED
+                )
+                active[goal_id]["status"] = goal_status.CANCELLED
             cancelled = True
     return cancelled
 
@@ -158,11 +162,16 @@ async def _set_fleet_status(request: Request, new_status: str) -> JSONResponse:
     target_ids: list[str] = list(body.get("session_ids") or [])
     domain = body.get("domain")
     if domain and not target_ids:
-        target_ids = [s["id"] for s in _fetch_sessions() if s["domain"] == domain and s.get("id")]
+        target_ids = [
+            s["id"] for s in _fetch_sessions() if s["domain"] == domain and s.get("id")
+        ]
 
     if not target_ids:
         return JSONResponse(
-            {"status": "error", "message": "Provide session_ids or a domain to target."},
+            {
+                "status": "error",
+                "message": "Provide session_ids or a domain to target.",
+            },
             status_code=400,
         )
 
@@ -183,7 +192,12 @@ async def _set_fleet_status(request: Request, new_status: str) -> JSONResponse:
         conn.close()
 
     return JSONResponse(
-        {"status": "success", "action": new_status, "affected": affected, "count": len(affected)}
+        {
+            "status": "success",
+            "action": new_status,
+            "affected": affected,
+            "count": len(affected),
+        }
     )
 
 

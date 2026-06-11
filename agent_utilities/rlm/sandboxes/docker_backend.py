@@ -35,6 +35,7 @@ import struct
 import subprocess
 import tempfile
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 
 from ..telemetry import SandboxFatalError
@@ -172,7 +173,7 @@ class DockerSandbox(Sandbox):
                 if ok:
                     self._runtime = rt
                     break
-        return self._runtime or None
+        return self._runtime if isinstance(self._runtime, str) else None
 
     async def execute(self, code: str, env: SandboxEnv) -> SandboxResult:
         runtime = self._resolve_runtime()
@@ -189,9 +190,9 @@ class DockerSandbox(Sandbox):
             server = await self._start_bridge(sock_path, env)
             # The container process may run under a different uid (rootless/userns-remapped
             # docker), so it needs traverse on the dir AND connect (write) on the socket file.
-            os.chmod(tmpdir, 0o777)
+            os.chmod(tmpdir, 0o777)  # nosec B103 — throwaway sandbox dir; container uid differs
             with contextlib.suppress(FileNotFoundError):
-                os.chmod(sock_path, 0o777)
+                os.chmod(sock_path, 0o777)  # nosec B103 — bridge socket must accept the container uid
 
             stdout, error, wrote_result = await self._run_container(
                 runtime, tmpdir, run_id
@@ -232,7 +233,7 @@ class DockerSandbox(Sandbox):
 
     @staticmethod
     def _classify_helpers(
-        helpers: dict[str, object],
+        helpers: Mapping[str, object],
     ) -> tuple[list[str], list[str]]:
         """Split helpers into (async, sync) so the in-container shims match the call sites.
 

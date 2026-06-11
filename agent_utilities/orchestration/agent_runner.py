@@ -213,7 +213,9 @@ async def run_agent(
                     with contextlib.suppress(Exception):
                         _add_edge(f"trace:{run_id}", context_ref, "HAS_CONTEXT")
         except Exception as _ctx_exc:  # noqa: BLE001
-            logger.warning("context_ref %s resolution failed: %s", context_ref, _ctx_exc)
+            logger.warning(
+                "context_ref %s resolution failed: %s", context_ref, _ctx_exc
+            )
     if context:
         config["invoker_context"] = context
     if budget_tokens:
@@ -230,9 +232,7 @@ async def run_agent(
     if open_channel or session_id:
         from agent_utilities.messaging import agent_channel
 
-        channel_id = agent_channel.open_channel(
-            engine, session_id or run_id, run_id
-        )
+        channel_id = agent_channel.open_channel(engine, session_id or run_id, run_id)
         if channel_id:
             config["message_channel_id"] = channel_id
 

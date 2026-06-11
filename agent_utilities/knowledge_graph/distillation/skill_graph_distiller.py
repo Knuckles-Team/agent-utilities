@@ -148,9 +148,15 @@ class SkillGraphDistiller:
         if not (socket_path or tcp_addr):
             try:
                 from agent_utilities.core.config import AgentConfig
+                from agent_utilities.knowledge_graph.core.graph_compute import (
+                    resolve_engine_auth,
+                )
 
                 config = AgentConfig()
-                auth_secret = auth_secret or config.graph_service_auth_secret
+                if auth_secret is None:
+                    # Shared per-install secret (CONCEPT:OS-5.14) — same
+                    # resolution the compute engine uses.
+                    auth_secret, _insecure = resolve_engine_auth(config)
                 endpoints = config.graph_service_endpoints
                 if endpoints:
                     ep = endpoints[0]

@@ -101,10 +101,14 @@ class FinanceEngineMixin(_Base):
             last_validated=ts,
             timestamp=existing.get("timestamp", ts),
         )
-        self.graph.add_node(node.id, **node.model_dump())
+        # Sample size travels with the priors: a Sharpe measured over 5 trades
+        # must not carry the same weight as one measured over 5000.
+        props = {**node.model_dump(), "n_trades": n_trades}
+        self.graph.add_node(node.id, **props)
 
         if self.backend:
             data = self._serialize_node(node, label="MicrostructureSignal")
+            data["n_trades"] = n_trades
             self._upsert_node("MicrostructureSignal", signal_id, data)
         return signal_id
 

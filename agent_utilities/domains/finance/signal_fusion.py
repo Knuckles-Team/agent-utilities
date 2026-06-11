@@ -6,7 +6,9 @@ Inspired by AI-Trader minimal information paradigm.
 """
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ class BayesianSignalFusion:
 
     def seed_from_kg(
         self,
-        signals: object,
+        signals: Iterable[Any] | None,
         *,
         min_sharpe: float = 0.0,
         max_pbo: float = 0.5,

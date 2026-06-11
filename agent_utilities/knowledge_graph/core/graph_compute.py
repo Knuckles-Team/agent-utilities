@@ -11,6 +11,67 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _load_or_create_engine_secret() -> str:
+    """Load (or generate once) the per-install engine HMAC secret.
+
+    CONCEPT:OS-5.14 — Authenticated Identity Enforcement. The secret lives at
+    ``data_dir()/engine_secret`` with mode 0600 so every local process — and
+    every engine this launcher spawns — shares it. Creation is race-safe
+    (``O_EXCL``; the loser re-reads the winner's secret). If the data dir is
+    unwritable a process-local secret is used (warned: siblings won't share it).
+    """
+    import secrets as _secrets
+
+    from agent_utilities.core.paths import data_dir
+
+    path = data_dir() / "engine_secret"
+    try:
+        if path.exists():
+            existing = path.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+        path.parent.mkdir(parents=True, exist_ok=True)
+        secret = _secrets.token_hex(32)
+        try:
+            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            return path.read_text(encoding="utf-8").strip() or secret
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(secret)
+        return secret
+    except OSError as exc:
+        logger.warning(
+            "Could not persist engine secret at %s (%s); using a process-local "
+            "secret — sibling processes will not share it.",
+            path,
+            exc,
+        )
+        return _secrets.token_hex(32)
+
+
+def resolve_engine_auth(config: Any) -> tuple[str | None, bool]:
+    """Resolve the engine HMAC auth material as ``(secret, insecure)``.
+
+    CONCEPT:OS-5.14 — secure by default:
+
+    * ``KG_ENGINE_INSECURE=1`` → ``(None, True)``: no client auth token, and a
+      spawned engine gets ``EPISTEMIC_GRAPH_ALLOW_INSECURE=1`` so binaries that
+      refuse to start without a secret still come up for dev.
+    * ``GRAPH_SERVICE_AUTH_SECRET`` set → use it verbatim.
+    * Otherwise → the persisted per-install secret
+      (:func:`_load_or_create_engine_secret`).
+
+    Always sending a secret is backward-compatible: an engine running without
+    one ignores auth tokens entirely, so this works with both old (empty-secret
+    tolerant) and new (refuse-insecure) engine binaries.
+    """
+    if getattr(config, "kg_engine_insecure", False):
+        return None, True
+    if config.graph_service_auth_secret:
+        return config.graph_service_auth_secret, False
+    return _load_or_create_engine_secret(), False
+
+
 class GraphComputeEngine:
     """Graph compute engine backed by the epistemic-graph Tokio service.
 
@@ -46,8 +107,16 @@ class GraphComputeEngine:
         # we still use the standard SyncEpistemicGraphClient but point it to the configured
         # endpoint. For true async connection pooling, async callers should use ShardRouter directly.
         endpoint = endpoints[0]
+        # Engine auth (CONCEPT:OS-5.14): resolve the shared HMAC secret —
+        # configured, or generated once and persisted under the XDG data dir —
+        # and export it so sibling clients (the epistemic_graph pool and any
+        # direct SyncEpistemicGraphClient user falls back to this env var) and
+        # spawned engines agree. KG_ENGINE_INSECURE=1 opts out for dev.
+        auth_secret, engine_insecure = resolve_engine_auth(config)
+        if auth_secret:
+            os.environ.setdefault("GRAPH_SERVICE_AUTH_SECRET", auth_secret)
         connect_kwargs = {
-            "auth_secret": config.graph_service_auth_secret,
+            "auth_secret": auth_secret,
             "graph_name": graph_name,
         }
         if endpoint.startswith("tcp://"):
@@ -96,11 +165,23 @@ class GraphComputeEngine:
                             "--checkpoint-interval",
                             os.environ.get("GRAPH_SERVICE_CHECKPOINT_INTERVAL", "60"),
                         ]
+                    # Engine auth (CONCEPT:OS-5.14): the spawned engine gets the
+                    # SAME secret this client authenticates with (the engine
+                    # reads GRAPH_SERVICE_AUTH_SECRET). With KG_ENGINE_INSECURE
+                    # the explicit allow flag keeps refuse-insecure binaries
+                    # bootable for dev.
+                    child_env = dict(os.environ)
+                    if engine_insecure:
+                        child_env["EPISTEMIC_GRAPH_ALLOW_INSECURE"] = "1"
+                        child_env.pop("GRAPH_SERVICE_AUTH_SECRET", None)
+                    else:
+                        child_env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret or ""
                     subprocess.Popen(
                         cmd,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         start_new_session=True,
+                        env=child_env,
                     )
                     time.sleep(1.0)
                     self._client = SyncEpistemicGraphClient.connect(**connect_kwargs)
