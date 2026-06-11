@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 152
+total_concepts: 153
 total_pillars: 18
 pillars:
 - AHE-3
@@ -1431,6 +1431,15 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/mcp/kg_server.py
   doc: situate each chunk within the document and embed context+chunk for better recall
+- id: KG-2.52
+  name: the authoritative TBox the platform ships
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/ontology_publisher.py
+  doc: the authoritative TBox the platform ships
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

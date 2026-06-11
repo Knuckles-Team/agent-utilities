@@ -137,6 +137,17 @@ opt-in, all off by default.** The boolean gates are parsed via `to_boolean`
 | `KG_FAILURE_EVOLUTION_WINDOW` | `86400` | telemetry look-back window (s) |
 | `KG_FAILURE_REGRESSION_DATASET` | `False` | enable the dataset-based regression path |
 
+**`KG_FUSEKI_*` — Ontology distribution to Apache Jena Fuseki (`CONCEPT:KG-2.52`), typed on
+`AgentConfig`, opt-in.** The `fuseki_publish` maintenance tick pushes the bundled ontology
+modules (the authoritative TBox) to an optional enterprise Fuseki triplestore for SPARQL
+federation. Off by default — Fuseki is optional infrastructure.
+
+| Flag | Default | Notes |
+|---|---|---|
+| `KG_FUSEKI_PUBLISH` | `False` | enable the daemon `fuseki_publish` tick |
+| `KG_FUSEKI_ENDPOINT` | `None` | Fuseki URL; `None` defers to the publisher (`FUSEKI_ENDPOINT`, then localhost) |
+| `KG_FUSEKI_PUBLISH_INTERVAL` | `3600` | daemon tick interval (s) |
+
 **Langfuse (`CONCEPT:AHE-3.18` / `AHE-3.0`) — official SDK variable names only.** The host
 variable is **`LANGFUSE_HOST`** (the non-standard `LANGFUSE_BASE_URL` fallback was removed —
 greenfield). Resolved through `AgentConfig.langfuse_host` / `langfuse_public_key` /
