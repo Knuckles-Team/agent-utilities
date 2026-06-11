@@ -1,0 +1,8 @@
+{
+  "tool": "graph_orchestrate",
+  "arguments": {
+    "action": "compile_process",
+    "task": "bpmn_process:order_fulfillment:1:demo",
+    "agent_name": "process_order_fulfillment"
+  }
+}
