@@ -158,7 +158,9 @@ def run_ingest_consumer_loop(
         try:
             consumer.commit(message=msg, asynchronous=False)
         except Exception as e:  # noqa: BLE001 — redelivery is safe (idempotent)
-            logger.warning("kg-ingest offset commit failed (%s); redelivery is safe.", e)
+            logger.warning(
+                "kg-ingest offset commit failed (%s); redelivery is safe.", e
+            )
 
 
 def _default_consumer_factory(bootstrap_servers: str) -> Any:
