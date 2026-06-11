@@ -19,6 +19,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from agent_utilities.core.credentials import CredentialResolver
+from agent_utilities.core.http_client import create_async_http_client
 from agent_utilities.core.execution.adapters.base import ExecEvent, ExecEventType
 from agent_utilities.core.execution.provider_proxy import (
     SUPPORTED_PROVIDERS,
@@ -42,7 +43,7 @@ _DEFAULT_URLS = {
 
 async def _upstream_lines(url: str, headers: dict, body: dict) -> AsyncIterator[str]:
     """Yield raw lines from the upstream provider's streaming response."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+    async with create_async_http_client(timeout=httpx.Timeout(120.0)) as client:
         async with client.stream("POST", url, headers=headers, json=body) as resp:
             async for line in resp.aiter_lines():
                 if line:
