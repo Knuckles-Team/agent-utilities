@@ -170,3 +170,27 @@
             sh:message "Chunk must carry exactly one ordinal position." ;
             sh:path :position ] ;
     sh:targetClass :Chunk .
+
+:WorkflowDefinitionShape a sh:NodeShape ;
+    sh:description "CONCEPT:ORCH-1.42 — an executable workflow definition must be named and carry at least one step before it may be dispatched (constraints mirror what WorkflowStore persists: name + step_count)." ;
+    sh:name "Workflow Definition Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "WorkflowDefinition must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ],
+        [ sh:datatype xsd:integer ;
+            sh:maxCount 1 ;
+            sh:message "WorkflowDefinition must have at least one step (step_count >= 1)." ;
+            sh:minCount 1 ;
+            sh:minInclusive 1 ;
+            sh:path :step_count ] ;
+    sh:targetClass :WorkflowDefinition .
+
+:WorkflowStepShape a sh:NodeShape ;
+    sh:description "CONCEPT:ORCH-1.42 — every workflow step must name a resolvable execution target (the WorkflowStep node_id WorkflowStore persists is the agent/tool the step dispatches to)." ;
+    sh:name "Workflow Step Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "WorkflowStep must carry node_id (the agent/tool execution target)." ;
+            sh:minCount 1 ;
+            sh:path :node_id ] ;
+    sh:targetClass :WorkflowStep .

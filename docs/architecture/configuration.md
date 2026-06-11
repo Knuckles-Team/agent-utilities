@@ -148,6 +148,17 @@ federation. Off by default — Fuseki is optional infrastructure.
 | `KG_FUSEKI_ENDPOINT` | `None` | Fuseki URL; `None` defers to the publisher (`FUSEKI_ENDPOINT`, then localhost) |
 | `KG_FUSEKI_PUBLISH_INTERVAL` | `3600` | daemon tick interval (s) |
 
+**`KG_WORKFLOW_SHAPE_GATE` — execution-time workflow ontology gate (`CONCEPT:ORCH-1.42`),
+typed on `AgentConfig`, default ON.** `execute_workflow` SHACL-validates the stored
+`WorkflowDefinition` (+ steps) against the governance shapes before dispatch and refuses
+malformed definitions with a structured violation report; cheap and LLM-free. The companion
+permission gate (ontology permissioning ACL on the workflow node) is governed by the existing
+`KG_BRAIN_ENFORCE` flag (OS-5.14 fail-closed semantics), not a new one.
+
+| Flag | Default | Notes |
+|---|---|---|
+| `KG_WORKFLOW_SHAPE_GATE` | `True` | SHACL-validate stored workflows before execution |
+
 **Langfuse (`CONCEPT:AHE-3.18` / `AHE-3.0`) — official SDK variable names only.** The host
 variable is **`LANGFUSE_HOST`** (the non-standard `LANGFUSE_BASE_URL` fallback was removed —
 greenfield). Resolved through `AgentConfig.langfuse_host` / `langfuse_public_key` /
