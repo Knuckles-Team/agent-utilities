@@ -3394,6 +3394,31 @@ def _build_server(bootstrap: bool = True):
                 except Exception as exc:
                     return f"Error listing workflows: {exc}"
             elif action == "execute_workflow":
+                # CONCEPT:ORCH-1.42 — execution-time ontology gate, BEFORE any
+                # dispatch: (a) SHACL-validate the stored definition (refuse
+                # malformed workflows, KG_WORKFLOW_SHAPE_GATE default ON);
+                # (b) with KG_BRAIN_ENFORCE on, apply the ontology permissioning
+                # row gate to the workflow node for the current actor —
+                # a denial raises PermissionError (fail-closed, OS-5.14).
+                from agent_utilities.knowledge_graph.core.workflow_gate import (
+                    gate_workflow_execution,
+                )
+
+                gate_name = agent_name or task
+                gate = gate_workflow_execution(engine, gate_name)
+                if not gate.get("allowed", True):
+                    return json.dumps(
+                        {
+                            "error": (
+                                "workflow definition failed ontology validation "
+                                "— execution refused"
+                            ),
+                            "workflow": gate_name,
+                            "workflow_id": gate.get("workflow_id"),
+                            "violations": gate.get("violations", []),
+                        },
+                        default=str,
+                    )
                 try:
                     from agent_utilities.knowledge_graph.workflow_store import (
                         WorkflowStore,
@@ -3602,6 +3627,10 @@ def _build_server(bootstrap: bool = True):
 
             else:
                 return f"Error: Unknown orchestration action '{action}'"
+        except PermissionError:
+            # CONCEPT:ORCH-1.42 / OS-5.14 — ACL denial is fail-closed: surface
+            # it as a real error to the MCP layer, never a stringified result.
+            raise
         except Exception as e:
             return f"Orchestration error: {str(e)}"
 

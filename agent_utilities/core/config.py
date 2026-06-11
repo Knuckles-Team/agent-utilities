@@ -478,12 +478,19 @@ class AgentConfig(BaseSettings):
     kg_fuseki_publish_interval: float = Field(
         default=3600.0, alias="KG_FUSEKI_PUBLISH_INTERVAL"
     )
+    # Execution-time workflow ontology gate (CONCEPT:ORCH-1.42) — SHACL-validate
+    # a stored WorkflowDefinition before dispatch. Default ON: it is cheap,
+    # LLM-free, and refuses malformed definitions before they burn agent runs.
+    kg_workflow_shape_gate: bool = Field(
+        default=True, alias="KG_WORKFLOW_SHAPE_GATE"
+    )
 
     @field_validator(
         "kg_failure_evolution",
         "kg_failure_regression_dataset",
         "kg_anomaly_consumer",
         "kg_fuseki_publish",
+        "kg_workflow_shape_gate",
         mode="before",
     )
     @classmethod
