@@ -105,6 +105,11 @@ class MergeEvaluation:
     reason: str = ""
     audit_ref: str = ""
     failures: list[str] = field(default_factory=list)
+    #: Evolution→branch bridge outcome (CONCEPT:AHE-3.21): the governed_publish
+    #: report for a merged proposal — ``status`` is ``approval_queued`` under
+    #: the shipped ActionPolicy, ``published`` once allowed (branch + sha +
+    #: gate verdict inside), ``None`` when the proposal did not merge.
+    publication: dict[str, Any] | None = None
 
     @property
     def eligible(self) -> bool:
@@ -138,6 +143,10 @@ class GovernedAutoMerger:
     promoter:
         Optional ``(spec) -> bool`` that performs the actual proposal→active
         promotion and returns success. Defaults to :meth:`_default_promote`.
+    publisher:
+        Optional :class:`~agent_utilities.knowledge_graph.research.change_publisher.ChangePublisher`
+        for the evolution→branch bridge (CONCEPT:AHE-3.21). ``None`` resolves
+        the registered/default publisher at publication time.
     """
 
     def __init__(
@@ -149,6 +158,7 @@ class GovernedAutoMerger:
         governance_validator: Any = None,
         regression_check: Any = None,
         promoter: Any = None,
+        publisher: Any = None,
     ) -> None:
         self.engine = engine
         self.policy = policy or MergePolicy.from_env()
@@ -162,6 +172,7 @@ class GovernedAutoMerger:
         self._governance_validator = governance_validator
         self._regression_check = regression_check
         self._promoter = promoter
+        self._publisher = publisher
 
     # ── scoring ────────────────────────────────────────────────────────
     @staticmethod
@@ -274,6 +285,13 @@ class GovernedAutoMerger:
                     "auto-merge promotion error for %s: %s", evaluation.proposal_id, exc
                 )
                 evaluation.reason = f"promotion error: {exc}"
+            if evaluation.merged:
+                # Evolution→branch bridge (CONCEPT:AHE-3.21): a merged proposal
+                # becomes a reviewable git branch — gated by the OS-5.24
+                # ActionPolicy's reserved ``merge_promotion`` kind (the shipped
+                # default queues a human approval; publication then proceeds
+                # via the one-shot ``publish_proposal`` action).
+                evaluation.publication = self._publish(spec)
         else:
             evaluation.reason = (
                 "proposal-only (auto-merge disabled)"
@@ -288,6 +306,29 @@ class GovernedAutoMerger:
         if self._promoter is not None:
             return bool(self._promoter(spec))
         return self._default_promote(spec)
+
+    def _publish(self, spec: Any) -> dict[str, Any] | None:
+        """Bridge a merged proposal to a reviewable branch (CONCEPT:AHE-3.21).
+
+        Best-effort: a publication failure never undoes the lifecycle merge or
+        crashes the loop — the report (or the error) is carried on the
+        evaluation and audited.
+        """
+        try:
+            from .change_publisher import governed_publish
+
+            return governed_publish(
+                self.engine,
+                spec,
+                publisher=self._publisher,
+                regression_check=self._regression_check,
+                source="golden_loop",
+            )
+        except Exception as exc:  # noqa: BLE001 — never crash the loop
+            logger.warning(
+                "auto-merge publication error for %s: %s", self._spec_id(spec), exc
+            )
+            return {"status": "error", "detail": str(exc)}
 
     def _default_promote(self, spec: Any) -> bool:
         """Default promotion: flip the artifact's lifecycle to ``active`` in the KG.
@@ -336,6 +377,8 @@ class GovernedAutoMerger:
     @staticmethod
     def _spec_id(spec: Any) -> str:
         sid = getattr(spec, "id", None)
+        if not sid and isinstance(spec, dict):
+            sid = spec.get("id")
         if sid:
             return str(sid)
         name = getattr(spec, "name", None) or (
@@ -358,6 +401,10 @@ class GovernedAutoMerger:
                 "reason": ev.reason,
                 "failures": ev.failures,
                 "enabled": self.policy.enabled,
+                "publication_status": (ev.publication or {}).get("status", ""),
+                "publication_branch": ((ev.publication or {}).get("publish") or {}).get(
+                    "branch", ""
+                ),
             },
         )
         if record is not None:

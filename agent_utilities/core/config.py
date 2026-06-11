@@ -509,6 +509,12 @@ class AgentConfig(BaseSettings):
     kg_golden_merge_threshold: float | None = Field(
         default=None, alias="KG_GOLDEN_MERGE_THRESHOLD"
     )
+    # Evolution→branch bridge (CONCEPT:AHE-3.21): root directory the
+    # LocalBranchPublisher creates fresh git worktrees under when publishing a
+    # promoted proposal as a reviewable local branch. Empty (default) resolves
+    # to ``data_dir()/evolution_worktrees`` — NEVER the canonical checkout's
+    # working tree.
+    evolution_worktree_root: str = Field(default="", alias="EVOLUTION_WORKTREE_ROOT")
     kg_golden_loop_interval: float = Field(
         default=3600.0, alias="KG_GOLDEN_LOOP_INTERVAL"
     )
