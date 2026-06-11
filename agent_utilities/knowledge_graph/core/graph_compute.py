@@ -171,61 +171,44 @@ class GraphComputeEngine:
             if isinstance(initial_e, OSError | EOFError):
                 breaker.record_failure()
             if autostart_allowed:
-                logger.info(
-                    "epistemic-graph Tokio service not running. Attempting to auto-start daemon..."
-                )
                 import subprocess
                 import sys
                 import time
                 from pathlib import Path
 
-                try:
-                    server_path = str(
-                        Path(sys.executable).parent / "epistemic-graph-server"
-                    )
-                    cmd = [server_path]
-                    sock = connect_kwargs.get("socket_path")
-                    if sock:
-                        cmd += ["--socket-path", str(sock)]
-                    # Durable by default (CONCEPT:KG-2.8 / OS-5.9): snapshot the
-                    # graphs to disk so an auto-spawned engine warm-restarts from
-                    # the last checkpoint instead of starting empty. pggraph stays
-                    # the durable system-of-record; this is the fast local cache.
-                    persist_dir = os.environ.get("GRAPH_SERVICE_PERSIST_DIR")
-                    if persist_dir is None:
-                        try:
-                            from agent_utilities.core.paths import data_dir
+                from .engine_lock import engine_spawn_guard
 
-                            persist_dir = str(data_dir() / "graph_snapshots")
-                        except Exception:
-                            persist_dir = None
-                    if persist_dir:
-                        cmd += [
-                            "--persist-dir",
-                            persist_dir,
-                            "--checkpoint-interval",
-                            os.environ.get("GRAPH_SERVICE_CHECKPOINT_INTERVAL", "60"),
-                        ]
-                    # Engine auth (CONCEPT:OS-5.14): the spawned engine gets the
-                    # SAME secret this client authenticates with (the engine
-                    # reads GRAPH_SERVICE_AUTH_SECRET). With KG_ENGINE_INSECURE
-                    # the explicit allow flag keeps refuse-insecure binaries
-                    # bootable for dev.
-                    child_env = dict(os.environ)
-                    if engine_insecure:
-                        child_env["EPISTEMIC_GRAPH_ALLOW_INSECURE"] = "1"
-                        child_env.pop("GRAPH_SERVICE_AUTH_SECRET", None)
-                    else:
-                        child_env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret or ""
-                    subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                        env=child_env,
-                    )
-                    time.sleep(1.0)
-                    self._client = SyncEpistemicGraphClient.connect(**connect_kwargs)
+                sock = connect_kwargs.get("socket_path")
+                try:
+                    # Single-instance spawn (CONCEPT:KG-2.8 / OS-5.9): serialize all
+                    # autostart spawners for this socket behind a flock and
+                    # double-check connectivity before spawning. Without this, two
+                    # connects racing — or a client spawning while a displaced engine
+                    # still holds the socket — produce a split-brain (two engines on
+                    # one socket, clobbering the same --persist-dir). The guard is
+                    # held across spawn+wait so a concurrent spawner finds the engine
+                    # already up on re-check instead of spawning a second one.
+                    with engine_spawn_guard(sock):
+                        try:
+                            # Double check: a peer may have brought it up while we
+                            # waited for the guard.
+                            self._client = SyncEpistemicGraphClient.connect(
+                                **connect_kwargs
+                            )
+                        except Exception:  # noqa: BLE001 - still down; we spawn
+                            self._client = self._autostart_engine(
+                                connect_kwargs,
+                                sock,
+                                engine_insecure,
+                                auth_secret,
+                                subprocess,
+                                sys,
+                                time,
+                                Path,
+                            )
+                except ConnectionError:
+                    record_shard_connect(endpoint, False)
+                    raise
                 except Exception as retry_e:
                     if isinstance(retry_e, OSError | EOFError):
                         breaker.record_failure()
@@ -287,6 +270,73 @@ class GraphComputeEngine:
             or os.environ.get("KAFKA_BOOTSTRAP_SERVERS") == ""
         ):
             self._start_event_bridge()
+
+    def _autostart_engine(
+        self,
+        connect_kwargs: dict[str, Any],
+        sock: str | None,
+        engine_insecure: bool,
+        auth_secret: str | None,
+        subprocess: Any,
+        sys: Any,
+        time: Any,
+        Path: Any,
+    ) -> Any:
+        """Spawn the local epistemic-graph engine and return a connected client.
+
+        Called ONLY while holding the per-socket spawn guard (see
+        :func:`engine_lock.engine_spawn_guard`) and only after a double-checked
+        connect confirmed the engine is still down — so this is the sole spawner
+        for ``sock``. Mirrors the prior inline autostart: durable ``--persist-dir``
+        + checkpoint, the same auth secret the client uses (CONCEPT:OS-5.14).
+        """
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        logger.info(
+            "epistemic-graph Tokio service not running. Auto-starting daemon (single-instance guard held)..."
+        )
+        server_path = str(Path(sys.executable).parent / "epistemic-graph-server")
+        cmd = [server_path]
+        if sock:
+            cmd += ["--socket-path", str(sock)]
+        # Durable by default (CONCEPT:KG-2.8 / OS-5.9): snapshot the graphs to disk
+        # so an auto-spawned engine warm-restarts from the last checkpoint instead
+        # of starting empty. pggraph stays the durable system-of-record; this is
+        # the fast local cache.
+        persist_dir = os.environ.get("GRAPH_SERVICE_PERSIST_DIR")
+        if persist_dir is None:
+            try:
+                from agent_utilities.core.paths import data_dir
+
+                persist_dir = str(data_dir() / "graph_snapshots")
+            except Exception:
+                persist_dir = None
+        if persist_dir:
+            cmd += [
+                "--persist-dir",
+                persist_dir,
+                "--checkpoint-interval",
+                os.environ.get("GRAPH_SERVICE_CHECKPOINT_INTERVAL", "60"),
+            ]
+        # Engine auth (CONCEPT:OS-5.14): the spawned engine gets the SAME secret
+        # this client authenticates with (the engine reads GRAPH_SERVICE_AUTH_SECRET).
+        # With KG_ENGINE_INSECURE the explicit allow flag keeps refuse-insecure
+        # binaries bootable for dev.
+        child_env = dict(os.environ)
+        if engine_insecure:
+            child_env["EPISTEMIC_GRAPH_ALLOW_INSECURE"] = "1"
+            child_env.pop("GRAPH_SERVICE_AUTH_SECRET", None)
+        else:
+            child_env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret or ""
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env=child_env,
+        )
+        time.sleep(1.0)
+        return SyncEpistemicGraphClient.connect(**connect_kwargs)
 
     def _start_event_bridge(self) -> None:
         """Starts a background bridge to forward local EventBus events to the Rust service."""

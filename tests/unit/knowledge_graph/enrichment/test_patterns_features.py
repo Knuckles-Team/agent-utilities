@@ -173,3 +173,35 @@ def test_cluster_features_uses_injected_community_detection():
     assert len(feats) == 1
     assert feats[0].size == 3
     assert len(feats[0].member_ids) == 3
+
+
+def test_cluster_features_honors_precomputed_call_edges(monkeypatch):
+    # The ingest pipeline resolves CALLS edges once and passes them in so the
+    # fan-out resolution isn't recomputed. Assert the provided edges are used and
+    # resolve_call_edges is NOT called again.
+    import agent_utilities.knowledge_graph.enrichment.features as feat_mod
+
+    called = {"n": 0}
+    real = feat_mod.resolve_call_edges
+
+    def spy(code):
+        called["n"] += 1
+        return real(code)
+
+    monkeypatch.setattr(feat_mod, "resolve_call_edges", spy)
+
+    code = [_fn(n) for n in ("a", "b", "c", "d")]
+    a, b = code[0], code[1]
+    provided = [
+        feat_mod.EnrichmentEdge(source=a.id, target=b.id, rel_type="CALLS"),
+    ]
+
+    seen_edges = {}
+
+    def fake_community(node_ids, edges):
+        seen_edges["e"] = edges
+        return [node_ids]
+
+    feat_mod.cluster_features(code, fake_community, min_size=3, call_edges=provided)
+    assert called["n"] == 0, "resolve_call_edges recomputed despite provided call_edges"
+    assert seen_edges["e"] == [(a.id, b.id)], "community_fn did not get the provided edges"
