@@ -792,6 +792,35 @@ class IngestionEngine:
             backend = EpistemicGraphBackend()
             backend._graph = graph_compute
 
+        # Dedicated ingest engine (CONCEPT:KG-2.58, Phase D): route the heavy,
+        # contention-prone compute — stateless PARSE and the throwaway COMMUNITY
+        # tenant — to a private ephemeral engine, isolated from the query engine and
+        # the background daemons (embedding backfill / reconcile / task poll) that
+        # profiling showed dominate a daemon ingest's wall-clock. The durable code/
+        # feature WRITES still go to ``backend`` (the query engine, where queries
+        # read them). Health-gated: if the ingest engine is unset or unreachable,
+        # ``ingest_ep`` is None and everything runs on the query engine as before.
+        from ..core.graph_compute import GraphComputeEngine, resolve_engine_auth
+
+        ingest_ep = None
+        parse_gc = graph_compute
+        try:
+            from agent_utilities.core.config import AgentConfig
+
+            from ..core.ingest_engine import ensure_ingest_engine
+
+            _cfg = AgentConfig()
+            _auth, _insecure = resolve_engine_auth(_cfg)
+            ingest_ep = ensure_ingest_engine(
+                _cfg.kg_ingest_engine_endpoint, _auth, insecure=_insecure
+            )
+            if ingest_ep:
+                parse_gc = GraphComputeEngine(endpoint=ingest_ep)
+                logger.info("[KG-2.58] ingest compute routed to %s", ingest_ep)
+        except Exception:  # noqa: BLE001 — any failure → query engine
+            ingest_ep = None
+            parse_gc = graph_compute
+
         # Features (call-graph communities) are cheap + non-LLM, but use a
         # transient tenant for community detection so the main graph isn't
         # polluted. Best-effort: degrade to no-features on any failure.
@@ -806,9 +835,12 @@ class IngestionEngine:
         comm_name = f"{self.graph_name}__enrich_comm_{_uuid.uuid4().hex[:8]}"
         if manifest.metadata.get("features", True):
             try:
-                from ..core.graph_compute import GraphComputeEngine
-
-                comm = GraphComputeEngine(graph_name=comm_name)
+                # Community tenant lives on the ingest engine when one is active.
+                comm = (
+                    GraphComputeEngine(graph_name=comm_name, endpoint=ingest_ep)
+                    if ingest_ep
+                    else GraphComputeEngine(graph_name=comm_name)
+                )
                 community_fn = make_community_fn(comm)
             except Exception:  # noqa: BLE001
                 community_fn = None
@@ -826,13 +858,15 @@ class IngestionEngine:
 
         pipe = EnrichmentPipeline(
             backend,
-            make_parse_fn(graph_compute),
+            # Parse on the ingest engine (parse_gc) when one is active, else the
+            # query engine. Writes still flow through ``backend`` (query engine).
+            make_parse_fn(parse_gc),
             community_fn=community_fn,
             hash_seen=hash_seen,
             writeback_fn=resolve_writeback_fn(backend),
             # Batched parse (one RPC for N files) when the engine advertises it;
             # falls back to per-file parse otherwise. (CONCEPT:KG-2.16)
-            batch_parse_fn=make_batch_parse_fn(graph_compute),
+            batch_parse_fn=make_batch_parse_fn(parse_gc),
         )
 
         # Git-aware delta (CONCEPT:KG-2.8): when the source is a git work-tree we
