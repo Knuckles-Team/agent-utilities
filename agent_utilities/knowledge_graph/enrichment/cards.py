@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -39,7 +40,7 @@ class CapabilityCard(BaseModel):
     patterns: list[str] = Field(default_factory=list)
 
 
-_SYMBOL_PROMPT = """Document this Python {kind} named `{name}` from `{file_path}`.
+_SYMBOL_PROMPT = """Document this {language} {kind} named `{name}` from `{file_path}`.
 Design-pattern tags (detected): {patterns}
 Names it calls: {calls}
 Methods/members: {methods}
@@ -54,6 +55,7 @@ Output ONLY a JSON object with keys "summary" (string) and "responsibilities"
 
 def build_symbol_prompt(c: CodeEntity, calls: list[str] | None = None) -> str:
     return _SYMBOL_PROMPT.format(
+        language=(c.language or "source").strip() or "source",
         kind=c.kind,
         name=c.name,
         file_path=c.file_path,
@@ -61,6 +63,117 @@ def build_symbol_prompt(c: CodeEntity, calls: list[str] | None = None) -> str:
         calls=", ".join((calls or [])[:20]) or "n/a",
         methods=", ".join(c.methods[:20]) or "n/a",
     )
+
+
+# Symbols not worth an LLM round-trip: trivial accessors/ctors/dunders whose
+# behaviour is fully implied by their name. They still become Code nodes — just
+# with an empty summary (no card). (CONCEPT:KG-2.8, #4)
+_TRIVIAL_NAMES = {
+    "__init__",
+    "__repr__",
+    "__str__",
+    "__eq__",
+    "__hash__",
+    "__len__",
+    "__enter__",
+    "__exit__",
+    "__iter__",
+    "__next__",
+    "__call__",
+    "__del__",
+    "toString",
+    "hashCode",
+    "equals",
+    "Dispose",
+    "Equals",
+    "GetHashCode",
+}
+_TRIVIAL_PREFIXES = (
+    "get",
+    "set",
+    "is",
+    "has",
+    "Get",
+    "Set",
+    "Is",
+    "Has",
+    "with_",
+    "_get_",
+    "_set_",
+)
+
+
+def _is_trivial_symbol(c: CodeEntity) -> bool:
+    """True for getters/setters/constructors/dunders — skip the LLM card."""
+    if c.kind not in ("function", "method", "constructor"):
+        return False
+    name = c.name or ""
+    if c.kind == "constructor" or name in _TRIVIAL_NAMES:
+        return True
+    # get/set/is/has accessors with no/one trivial argument-ish body proxy: the
+    # name alone documents them. Keep it conservative — only short accessor names.
+    for p in _TRIVIAL_PREFIXES:
+        rest = name[len(p) :]
+        if (
+            name.startswith(p) and rest[:1].isupper()
+        ):  # getValue, setName, is_ready→False (not upper)
+            return True
+    return False
+
+
+_BATCH_PROMPT = """Document each of these {language} symbols from a codebase. For
+each, write a concrete 1-2 sentence explanation of WHAT it does and HOW it is
+implemented, then list 1-4 distinct responsibilities.
+
+Symbols:
+{symbols}
+
+Output ONLY a JSON array with one object per symbol IN THE SAME ORDER, each with
+keys "name" (string, echo the symbol name), "summary" (string) and
+"responsibilities" (array of strings). No other text or placeholders."""
+
+
+def build_batch_prompt(
+    entities: list[CodeEntity], calls_by_id: dict[str, list[str]] | None = None
+) -> str:
+    """One prompt documenting K symbols at once (cuts LLM calls ~K×, #2).
+
+    Symbols share a language (the caller groups by language). Each is numbered so
+    the model returns an ordered JSON array we can map back per-symbol.
+    """
+    calls_by_id = calls_by_id or {}
+    language = (
+        (entities[0].language or "source").strip() or "source" if entities else "source"
+    )
+    lines = []
+    for i, c in enumerate(entities, 1):
+        calls = ", ".join((calls_by_id.get(c.id) or [])[:12]) or "n/a"
+        methods = ", ".join(c.methods[:12]) or "n/a"
+        patterns = ", ".join(c.patterns) or "none"
+        lines.append(
+            f"{i}. {c.kind} `{c.name}` (file {c.file_path}) — "
+            f"patterns: {patterns}; calls: {calls}; members: {methods}"
+        )
+    return _BATCH_PROMPT.format(language=language, symbols="\n".join(lines))
+
+
+def _parse_batch_cards(text: str, n: int) -> list[tuple[str, list[str]]]:
+    """Parse the JSON array of K cards; degrade to empty per missing slot."""
+    out: list[tuple[str, list[str]]] = [("", []) for _ in range(n)]
+    try:
+        start, end = text.index("["), text.rindex("]") + 1
+        arr = json.loads(text[start:end])
+    except (ValueError, json.JSONDecodeError):
+        return out
+    for i, item in enumerate(arr[:n]):
+        if not isinstance(item, dict):
+            continue
+        summary = str(item.get("summary", "")).strip()
+        resp = [
+            str(r).strip() for r in item.get("responsibilities", []) if str(r).strip()
+        ]
+        out[i] = (summary, resp)
+    return out
 
 
 def _parse_card_json(text: str) -> tuple[str, list[str]]:
@@ -77,63 +190,195 @@ def _parse_card_json(text: str) -> tuple[str, list[str]]:
         return text.strip()[:500], []
 
 
+class CardStore:
+    """Content-addressed persistent cache of symbol cards, keyed by ``ast_hash``.
+
+    Identical code (same AST hash) is summarised by the LLM once *ever* — across
+    ingest runs and across repos (vendored/copied code, re-ingests). SQLite-backed,
+    thread-safe, and best-effort: any failure degrades to "no cache" so card
+    generation still proceeds. (CONCEPT:KG-2.8, #3)
+    """
+
+    _SQLITE_VARS = 900  # stay under SQLite's bound-parameter limit
+
+    def __init__(self, path: str | None = None) -> None:
+        import sqlite3
+
+        if path is None:
+            from agent_utilities.core.paths import data_dir
+
+            path = str(data_dir() / "kg_card_cache.db")
+        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS card_cache ("
+            "ast_hash TEXT PRIMARY KEY, summary TEXT NOT NULL, "
+            "responsibilities_json TEXT NOT NULL, updated_at TEXT NOT NULL)"
+        )
+        self._conn.commit()
+        self._lock = threading.Lock()
+
+    def get_many(self, hashes: list[str]) -> dict[str, tuple[str, list[str]]]:
+        out: dict[str, tuple[str, list[str]]] = {}
+        if not hashes:
+            return out
+        try:
+            with self._lock:
+                for i in range(0, len(hashes), self._SQLITE_VARS):
+                    chunk = hashes[i : i + self._SQLITE_VARS]
+                    ph = ",".join("?" * len(chunk))
+                    rows = self._conn.execute(
+                        f"SELECT ast_hash, summary, responsibilities_json "
+                        f"FROM card_cache WHERE ast_hash IN ({ph})",
+                        chunk,
+                    ).fetchall()
+                    for h, summary, resp_json in rows:
+                        try:
+                            resp = json.loads(resp_json)
+                        except (ValueError, json.JSONDecodeError):
+                            resp = []
+                        out[h] = (summary, resp)
+        except Exception as e:  # noqa: BLE001 - cache is best-effort
+            logger.debug("CardStore.get_many failed: %s", e)
+        return out
+
+    def put_many(self, items: list[tuple[str, str, list[str]]]) -> None:
+        if not items:
+            return
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC).isoformat()
+        rows = [(h, s, json.dumps(r), now) for h, s, r in items]
+        try:
+            with self._lock:
+                self._conn.executemany(
+                    "INSERT OR REPLACE INTO card_cache "
+                    "(ast_hash, summary, responsibilities_json, updated_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    rows,
+                )
+                self._conn.commit()
+        except Exception as e:  # noqa: BLE001 - cache is best-effort
+            logger.debug("CardStore.put_many failed: %s", e)
+
+
+def _card_for(c: CodeEntity, summary: str, resp: list[str]) -> CapabilityCard:
+    return CapabilityCard(
+        id=c.id,
+        kind="symbol",
+        name=c.name,
+        file_path=c.file_path,
+        ast_hash=c.ast_hash,
+        summary=summary,
+        responsibilities=resp,
+        patterns=c.patterns,
+    )
+
+
+def _group_batches(reps: list[CodeEntity], batch_size: int) -> list[list[CodeEntity]]:
+    """Chunk representative symbols into LLM batches, grouped by language so each
+    batch prompt is single-language (#2)."""
+    by_lang: dict[str, list[CodeEntity]] = {}
+    for c in reps:
+        by_lang.setdefault((c.language or "source").strip() or "source", []).append(c)
+    batches: list[list[CodeEntity]] = []
+    for items in by_lang.values():
+        for i in range(0, len(items), max(1, batch_size)):
+            batches.append(items[i : i + batch_size])
+    return batches
+
+
 def generate_symbol_cards(
     entities: Iterable[CodeEntity],
     llm_fn: LLMFn,
     cache: dict[str, CapabilityCard] | None = None,
     calls_by_id: dict[str, list[str]] | None = None,
     max_workers: int = 8,
+    batch_size: int = 12,
+    store: CardStore | None = None,
 ) -> list[CapabilityCard]:
     """Generate (or reuse cached) capability cards for code entities.
 
-    Concurrency: per-entity LLM calls are fanned out across a bounded
-    ``ThreadPoolExecutor`` (``max_workers``, default 8) so the research→spec/card
-    loop scales instead of running one symbol at a time. Cache hits are served
-    without spawning an LLM call, and each distinct uncached ``ast_hash`` is
-    computed exactly once even if it appears multiple times in the batch (the LLM
-    fn is invoked once per unique hash, results de-duped). The returned list
-    preserves input order and the exact ``CapabilityCard`` contents.
+    Cost controls (CONCEPT:KG-2.8):
+    - **dedup + in-memory cache** by ``ast_hash`` — a repeated/unchanged symbol is
+      summarised once.
+    - **persistent cache** (``store``, opt-in) — identical code summarised once
+      *ever*, across runs/repos (#3).
+    - **trivial-symbol skip** — getters/setters/ctors/dunders get an empty card,
+      no LLM call (#4).
+    - **multi-symbol batching** — up to ``batch_size`` symbols per LLM call, grouped
+      by language, with the batches fanned out across a ``ThreadPoolExecutor``
+      (``max_workers``) (#2). A 1-symbol batch uses the single-symbol prompt so the
+      raw-text degrade path is preserved.
+
+    The returned list preserves input order and the exact ``CapabilityCard`` contents.
     """
     cache = cache if cache is not None else {}
     calls_by_id = calls_by_id or {}
     materialized = list(entities)
 
-    # Determine the distinct uncached ast_hashes; keep the first entity seen for
-    # each as the representative used to build the prompt. This dedupes work so a
-    # repeated ast_hash triggers exactly one LLM call.
+    # Distinct uncached ast_hashes; first entity seen is the representative.
     unique: dict[str, CodeEntity] = {}
     for c in materialized:
         if c.ast_hash in cache or c.ast_hash in unique:
             continue
         unique[c.ast_hash] = c
 
-    def _build(c: CodeEntity) -> CapabilityCard:
-        prompt = build_symbol_prompt(c, calls_by_id.get(c.id))
-        try:
-            summary, resp = _parse_card_json(llm_fn(prompt))
-        except Exception as e:  # pragma: no cover - LLM transport failure
-            logger.debug("card generation failed for %s: %s", c.id, e)
-            summary, resp = "", []
-        return CapabilityCard(
-            id=c.id,
-            kind="symbol",
-            name=c.name,
-            file_path=c.file_path,
-            ast_hash=c.ast_hash,
-            summary=summary,
-            responsibilities=resp,
-            patterns=c.patterns,
-        )
-
     if unique:
-        reps = list(unique.values())
-        if len(reps) == 1 or max_workers <= 1:
-            built = [_build(c) for c in reps]
-        else:
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                built = list(pool.map(_build, reps))
-        for card in built:
-            cache[card.ast_hash] = card
+        # (1) trivial symbols → empty card, no LLM.
+        remaining: dict[str, CodeEntity] = {}
+        for h, c in unique.items():
+            if _is_trivial_symbol(c):
+                cache[h] = _card_for(c, "", [])
+            else:
+                remaining[h] = c
+
+        # (2) persistent store hits.
+        if remaining and store is not None:
+            for h, (summary, resp) in store.get_many(list(remaining)).items():
+                cache[h] = _card_for(remaining[h], summary, resp)
+                remaining.pop(h, None)
+
+        # (3) LLM for the rest — batched by language, parallel across batches.
+        if remaining:
+
+            def _do_batch(group: list[CodeEntity]) -> list[CapabilityCard]:
+                if len(group) == 1:
+                    c = group[0]
+                    prompt = build_symbol_prompt(c, calls_by_id.get(c.id))
+                    try:
+                        summary, resp = _parse_card_json(llm_fn(prompt))
+                    except Exception as e:  # pragma: no cover - transport failure
+                        logger.debug("card gen failed for %s: %s", c.id, e)
+                        summary, resp = "", []
+                    return [_card_for(c, summary, resp)]
+                prompt = build_batch_prompt(group, calls_by_id)
+                try:
+                    parsed = _parse_batch_cards(llm_fn(prompt), len(group))
+                except Exception as e:  # pragma: no cover - transport failure
+                    logger.debug("batch card gen failed (%d syms): %s", len(group), e)
+                    parsed = [("", []) for _ in group]
+                return [
+                    _card_for(c, s, r) for c, (s, r) in zip(group, parsed, strict=True)
+                ]
+
+            batches = _group_batches(list(remaining.values()), batch_size)
+            if len(batches) <= 1 or max_workers <= 1:
+                built_groups = [_do_batch(g) for g in batches]
+            else:
+                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                    built_groups = list(pool.map(_do_batch, batches))
+
+            fresh: list[CapabilityCard] = [c for grp in built_groups for c in grp]
+            for card in fresh:
+                cache[card.ast_hash] = card
+            if store is not None:
+                store.put_many(
+                    [
+                        (c.ast_hash, c.summary, c.responsibilities)
+                        for c in fresh
+                        if c.summary
+                    ]
+                )
 
     out: list[CapabilityCard] = []
     for c in materialized:
