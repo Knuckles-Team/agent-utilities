@@ -4,7 +4,7 @@ Covers the delta/throttle work that keeps a large-repo (re-)ingest cheap and
 prevents bulk ingest from saturating the engine:
 
   * pre-hash skip — unchanged files never reach the parse RPC;
-  * git-aware delta — only changed ``*.py`` files are enriched on re-ingest;
+  * git-aware delta — only changed source files (any language) are enriched on re-ingest;
   * deep_analysis gating — recursive fan-out is capped while bulk ingest drains.
 """
 
@@ -24,7 +24,7 @@ from agent_utilities.knowledge_graph.enrichment.pipeline import (
     make_batch_parse_fn,
 )
 from agent_utilities.knowledge_graph.ingestion.engine import (
-    _changed_python_files,
+    _changed_source_files,
     _git_head_sha,
 )
 
@@ -107,28 +107,33 @@ class TestGitDelta:
         assert sha and len(sha) == 40
         assert _git_head_sha(str(tmp_path / "not-a-repo")) is None
 
-    def test_changed_python_files_returns_only_modified(self, git_repo: Path):
+    def test_changed_source_files_returns_only_modified_any_language(
+        self, git_repo: Path
+    ):
         first = _git_head_sha(str(git_repo))
         (git_repo / "a.py").write_text("def a():\n    return 99\n")  # modify a.py
         (git_repo / "c.py").write_text("def c():\n    return 3\n")  # add c.py
+        (git_repo / "W.java").write_text("class W {}\n")  # add Java
+        (git_repo / "lib.rs").write_text("pub fn f() {}\n")  # add Rust
         _git(git_repo, "add", "-A")
         _git(git_repo, "commit", "-q", "-m", "change")
 
-        changed = _changed_python_files(str(git_repo), first)
+        changed = _changed_source_files(str(git_repo), first)
         assert changed is not None
         names = sorted(p.name for p in changed)
-        assert names == ["a.py", "c.py"]  # b.py unchanged → excluded
+        # All languages are caught now — not just .py (b.py unchanged → excluded).
+        assert names == ["W.java", "a.py", "c.py", "lib.rs"]
 
-    def test_no_python_changes_yields_empty_list(self, git_repo: Path):
+    def test_no_source_changes_yields_empty_list(self, git_repo: Path):
         first = _git_head_sha(str(git_repo))
-        (git_repo / "README.md").write_text("# docs\n")  # non-.py change only
+        (git_repo / "README.md").write_text("# docs\n")  # non-source change only
         _git(git_repo, "add", "-A")
         _git(git_repo, "commit", "-q", "-m", "docs")
 
-        changed = _changed_python_files(str(git_repo), first)
+        changed = _changed_source_files(str(git_repo), first)
         assert (
             changed == []
-        )  # functional git, but no .py changed → near-empty re-ingest
+        )  # functional git, but no source changed → near-empty re-ingest
 
 
 # ── #5: deep_analysis gating during bulk ingest ─────────────────────────────
