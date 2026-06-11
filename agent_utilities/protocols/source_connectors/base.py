@@ -4,11 +4,10 @@ from __future__ import annotations
 
 CONCEPT:ECO-4.25 — Document-Source Connector Framework
 
-Where :mod:`agent_utilities.protocols.data_connector` (CONCEPT:ECO-4.0) models a
-*query → rows* data source (market data, tabular fetch), this module models a
-*document source*: an external system (a website, a filesystem, a SaaS app
-reached through its MCP server) that yields **documents** to be ingested into the
-Knowledge Graph as first-class ``Document`` + ``Chunk`` ontology objects.
+This module models a *document source*: an external system (a website, a
+filesystem, a SaaS app reached through its MCP server) that yields **documents**
+to be ingested into the Knowledge Graph as first-class ``Document`` + ``Chunk``
+ontology objects.
 
 Provenance: this ports the connector surface of Onyx / Danswer
 (``backend/onyx/connectors/interfaces.py`` — ``LoadConnector`` / ``PollConnector``
@@ -21,12 +20,6 @@ entailment-aware ACLs of KG-2.46 — capabilities a document index cannot offer.
 
 Design choices:
 
-  * **Compose, do not compete.** :class:`BaseSourceConnector` carries the same
-    ``name`` / ``provider`` / ``priority`` / ``supported_instruments`` /
-    ``health_check`` / ``fetch`` surface as :class:`DataConnectorProtocol`, so a
-    document connector is *also* registerable in the existing
-    :class:`DataConnectorRegistry` (its ``fetch`` returns a row-shaped summary).
-    Its real document surface is the ``load`` / ``poll`` / ``slim`` methods.
   * **Three connector shapes**, exactly mirroring the Onyx contract:
       - :class:`LoadConnector` — ``load()`` yields a full snapshot.
       - :class:`PollConnector` — ``poll(checkpoint)`` yields an incremental,
@@ -133,12 +126,8 @@ class SlimDocument(BaseModel):
 class BaseSourceConnector(abc.ABC):  # noqa: B024 — abstract surface lives on the load/poll/slim mixins
     """Base class for all document-source connectors.
 
-    CONCEPT:ECO-4.25 — carries the :class:`DataConnectorProtocol` (ECO-4.0)
-    metadata surface (``name`` / ``provider`` / ``priority`` /
-    ``supported_instruments`` / ``health_check`` / ``fetch``) so a document
-    connector can co-register in the existing :class:`DataConnectorRegistry`
-    while exposing its real document surface through the ``Load`` / ``Poll`` /
-    ``Slim`` mixins.
+    CONCEPT:ECO-4.25 — the document surface lives on the ``Load`` / ``Poll`` /
+    ``Slim`` mixins, plus a cheap ``health_check`` probe.
 
     Subclasses set ``source_type`` (the registry key) and override ``configure``
     (or ``__init__``) to accept their config dict.
@@ -146,22 +135,16 @@ class BaseSourceConnector(abc.ABC):  # noqa: B024 — abstract surface lives on 
 
     #: Registry key used by :func:`registry.register_source` / ``build_connector``.
     source_type: str = "base"
-    #: Human-readable provider name (DataConnectorProtocol field).
+    #: Human-readable provider name (display/provenance metadata).
     provider: str = ""
-    #: Fallback priority (lower tried first); document connectors default mid-pack.
-    priority: int = 50
-    #: Instrument scope (unused for document sources; kept for protocol parity).
-    supported_instruments: list[str] = []
 
     def __init__(self, **config: Any) -> None:
         self._config = dict(config)
         self.configure(**config)
 
-    # -- DataConnectorProtocol parity --------------------------------------
-
     @property
     def name(self) -> str:
-        """Unique connector identifier (``DataConnectorProtocol.name``)."""
+        """Unique connector identifier (defaults to the registry key)."""
         return self.source_type
 
     def configure(self, **config: Any) -> None:  # noqa: B027 — optional override hook, not abstract
@@ -178,26 +161,6 @@ class BaseSourceConnector(abc.ABC):  # noqa: B024 — abstract surface lives on 
         Override for sources whose reachability is cheap to probe.
         """
         return True
-
-    def fetch(self, query: str = "", **kwargs: Any) -> Any:
-        """:class:`DataConnectorProtocol` parity: summarise ``load()`` as rows.
-
-        Returns a :class:`DataFetchResult` whose ``rows`` are the slim
-        ``{id, source_uri, title}`` projections of the loaded documents, so a
-        document connector also satisfies the row-oriented registry. The document
-        surface proper is ``load`` / ``poll`` / ``slim``.
-        """
-        from ..data_connector import DataFetchResult
-
-        rows: list[dict[str, Any]] = []
-        if isinstance(self, LoadConnector):
-            for doc in self.load():
-                rows.append(
-                    {"id": doc.id, "source_uri": doc.source_uri, "title": doc.title}
-                )
-        return DataFetchResult(
-            rows=rows, row_count=len(rows), connector_name=self.name, query=query
-        )
 
 
 class LoadConnector(BaseSourceConnector):

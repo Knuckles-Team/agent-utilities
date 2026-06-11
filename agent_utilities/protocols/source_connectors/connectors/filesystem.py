@@ -57,7 +57,6 @@ class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
     """
 
     provider = "Local Filesystem"
-    priority = 40
 
     def configure(
         self,

@@ -14,10 +14,9 @@ edges (``DataSource`` → ``Table``/``Collection``/``GraphQLType`` → ``Column`
 This module is **importable with no database drivers installed**: every driver
 import is performed lazily inside :meth:`UniversalConnector._driver` and a
 missing driver raises a clear :class:`RuntimeError` (never an ``ImportError``
-leak). It builds *on* the shared ``protocols.data_connector`` abstractions
-(``DataConnectorProtocol``, ``DataFetchResult``) rather than replacing them, and
-emits the same backend-agnostic ``ExtractionBatch`` shape that the KG enrichment
-pipeline (``knowledge_graph.enrichment.registry.write_batch``) already persists.
+leak). It emits the same backend-agnostic ``ExtractionBatch`` shape that the KG
+enrichment pipeline (``knowledge_graph.enrichment.registry.write_batch``)
+already persists.
 
 Usage::
 
@@ -39,7 +38,6 @@ from ..knowledge_graph.enrichment.models import (
     ExtractionBatch,
     GraphNode,
 )
-from .data_connector import DataFetchResult
 
 logger = logging.getLogger(__name__)
 
@@ -114,15 +112,7 @@ class UniversalConnector:
             ``sqlite:///path`` or a bare filesystem path; graphql uses the
             endpoint URL.
         kind: Explicit backend kind; inferred from the DSN scheme when ``None``.
-
-    The connector conforms loosely to ``DataConnectorProtocol`` (it exposes a
-    :meth:`fetch` that wraps :meth:`read`).
     """
-
-    # DataConnectorProtocol-compatible metadata.
-    provider = "universal"
-    priority = 50
-    supported_instruments: list[str] = []
 
     def __init__(self, dsn: str, kind: str | None = None) -> None:
         self.dsn = dsn
@@ -312,24 +302,6 @@ class UniversalConnector:
         if isinstance(data, list):
             return data
         return []
-
-    # ------------------------------------------------------------------ #
-    # Protocol conformance.
-    # ------------------------------------------------------------------ #
-    def fetch(self, query: str, **kwargs: Any) -> DataFetchResult:
-        """``DataConnectorProtocol``-style fetch wrapping :meth:`read`."""
-        try:
-            rows = self.read(query, kwargs.get("params"))
-            return DataFetchResult(
-                rows=rows,
-                row_count=len(rows),
-                connector_name=self.name,
-                query=query,
-            )
-        except Exception as exc:  # surface as a result rather than raising
-            return DataFetchResult(
-                connector_name=self.name, query=query, error=str(exc)
-            )
 
     def health_check(self) -> bool:
         """Return True if a trivial round-trip to the backend succeeds."""

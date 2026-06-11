@@ -59,7 +59,6 @@ class DatabaseConnector(LoadConnector, PollConnector):
     """
 
     provider = "Database"
-    priority = 45
 
     def configure(
         self,

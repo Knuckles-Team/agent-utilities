@@ -293,7 +293,6 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
     """
 
     provider = "MCP Tool Source"
-    priority = 60
 
     def configure(  # noqa: PLR0915 — flat declarative-config binding
         self,
