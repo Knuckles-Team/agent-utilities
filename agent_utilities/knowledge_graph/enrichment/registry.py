@@ -44,7 +44,9 @@ class SourceExtractor:
 _REGISTRY: dict[str, SourceExtractor] = {}
 
 
-def register_extractor(category: str, extract: ExtractFn, description: str = "") -> None:
+def register_extractor(
+    category: str, extract: ExtractFn, description: str = ""
+) -> None:
     """Register a source extractor under a unique category key (idempotent)."""
     if category in _REGISTRY and _REGISTRY[category].extract is not extract:
         logger.debug("Overriding source extractor for category %s", category)
