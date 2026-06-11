@@ -58,18 +58,47 @@ CREATE INDEX IF NOT EXISTS idx_kg_task_staging_claim
 """
 
 
+def _queue_table_ddl(table: str) -> str:
+    """DDL for an additional SKIP LOCKED claim queue table.
+
+    CONCEPT:ORCH-1.45 — the agent dispatch queue (``agent_dispatch_queue``)
+    reuses this backend with its own table; same columns, same claim contract.
+    """
+    return f"""
+CREATE TABLE IF NOT EXISTS {table} (
+    id BIGSERIAL PRIMARY KEY,
+    data TEXT NOT NULL,
+    claimed_by TEXT,
+    claimed_at DOUBLE PRECISION
+);
+CREATE INDEX IF NOT EXISTS idx_{table}_claim
+    ON {table} (claimed_at NULLS FIRST, id);
+"""  # nosec B608 — table names are module-level constants, never user input
+
+
 class PostgresTaskQueue(QueueBackend):
     """Multi-host KG task/staging queue on the shared state Postgres."""
 
-    def __init__(self, dsn: str | None = None):
+    def __init__(self, dsn: str | None = None, *, queue_table: str = "kg_task_queue"):
         from agent_utilities.core.state_store import ensure_state_schema, state_pool
 
         # Connectivity + schema probe up front so the engine can fall back to
         # the SQLite queue if the state store is unreachable at startup.
         self._pool = state_pool()
-        ensure_state_schema("kg_task_queue", _DDL, pool=self._pool)
+        self.queue_table = queue_table
+        if queue_table == "kg_task_queue":
+            ensure_state_schema("kg_task_queue", _DDL, pool=self._pool)
+        else:
+            # A non-default queue (e.g. the ORCH-1.45 agent dispatch queue)
+            # gets its own table; the staging twin stays ingest-only.
+            ensure_state_schema(
+                queue_table, _queue_table_ddl(queue_table), pool=self._pool
+            )
         self._claimer = f"{socket.gethostname()}:{id(self)}"
-        logger.info("PostgresTaskQueue ready (cross-host SKIP LOCKED claims)")
+        logger.info(
+            "PostgresTaskQueue ready (table=%s, cross-host SKIP LOCKED claims)",
+            queue_table,
+        )
 
     # ── internal ───────────────────────────────────────────────────────
 
@@ -97,22 +126,28 @@ class PostgresTaskQueue(QueueBackend):
     def put(self, item: dict) -> None:
         with self._pool.connection() as conn:
             conn.execute(
-                "INSERT INTO kg_task_queue (data) VALUES (%s)", (json.dumps(item),)
+                f"INSERT INTO {self.queue_table} (data) VALUES (%s)",  # nosec B608 — constant table
+                (json.dumps(item),),
             )
 
     def get(self) -> tuple[int, dict] | None:
-        row = self._claim_one("kg_task_queue", "id, data")
+        row = self._claim_one(self.queue_table, "id, data")
         if row is None:
             return None
         return int(row[0]), json.loads(row[1])
 
     def ack(self, item_id: int) -> None:
         with self._pool.connection() as conn:
-            conn.execute("DELETE FROM kg_task_queue WHERE id = %s", (item_id,))
+            conn.execute(
+                f"DELETE FROM {self.queue_table} WHERE id = %s",  # nosec B608 — constant table
+                (item_id,),
+            )
 
     def get_queue_size(self) -> int:
         with self._pool.connection() as conn:
-            row = conn.execute("SELECT COUNT(*) FROM kg_task_queue").fetchone()
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM {self.queue_table}"  # nosec B608 — constant table
+            ).fetchone()
         return int(row[0]) if row else 0
 
     # ── QueueBackend: staged-graph queue ───────────────────────────────

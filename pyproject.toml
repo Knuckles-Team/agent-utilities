@@ -242,6 +242,9 @@ agent-utilities = "agent_utilities.cli:main"
 # CONCEPT:KG-2.57 — decoupled kg-ingest consumer-group worker (engine client, no
 # KG host role); also `python -m agent_utilities.knowledge_graph.ingest_worker`.
 kg-ingest-worker = "agent_utilities.knowledge_graph.ingest_worker:main"
+# CONCEPT:ORCH-1.45 — stateless agent dispatch worker (agent-dispatch group);
+# also `python -m agent_utilities.orchestration.agent_dispatch_worker`.
+agent-dispatch-worker = "agent_utilities.orchestration.agent_dispatch_worker:main"
 
 [project.entry-points."agent_utilities.messaging"]
 discord = "agent_utilities.messaging.backends.discord:DiscordBackend"

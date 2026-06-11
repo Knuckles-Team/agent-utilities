@@ -2,7 +2,8 @@
 
 **Concepts:** OS-5.16 (unified state store), OS-5.17 (daemon leadership),
 OS-5.18 (fleet supervisory plane at scale), KG-2.54 (cross-host task queue),
-ORCH-1.44 (durable goal registry)
+ORCH-1.44 (durable goal registry), ORCH-1.45 (queue-driven agent dispatch —
+see [Queue-Driven Agent Dispatch](agent_dispatch.md))
 
 ## The problem
 
@@ -88,6 +89,20 @@ unchanged.
 The task reaper also degrades to conservative age-based reaping under
 multi-host state (a foreign claim token no longer proves a dead worker —
 another live host may own it).
+
+## Queue-driven agent dispatch (ORCH-1.45)
+
+State externalization made sessions/goals *visible* on every host; queue-driven
+dispatch makes them *executable* on every host. With
+`AGENT_DISPATCH_BACKEND=queue` an agent turn (goal run / orchestrator job)
+rides the session-keyed `agent_turns` queue and any host's
+`agent-dispatch-worker` claims it, rehydrates from this shared state store,
+executes the existing goal/agent bodies, and writes back — sessions are no
+longer pinned to their birth host. The workers' liveness registry is one more
+table in this store (`dispatch_workers`, surfaced by `/api/fleet/topology`),
+and per-session mutual exclusion reuses `state_claim_guard`
+(`agent-session:<id>` advisory locks). Full design:
+[Queue-Driven Agent Dispatch](agent_dispatch.md).
 
 ## Fleet supervisory plane at scale (OS-5.18)
 
