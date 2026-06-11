@@ -42,7 +42,7 @@ and toggle the integrations you want.
   "graph_db_uri": "postgresql://agent:REDACTED@pggraph.example.arpa:5432/agent_kg",
   "kg_daemon_role": "host",
 
-  "queue_backend": "kafka",
+  "task_queue_backend": "kafka",
   "kafka_bootstrap_servers": "kafka.example.arpa:9092",
 
   "secrets_vault_url": "https://openbao.example.arpa",

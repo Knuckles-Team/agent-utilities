@@ -157,6 +157,40 @@ def _kg_dev_mode() -> bool:
         return False
 
 
+def compute_ingest_worker_count(configured: int | None = None) -> int:
+    """Autosize the ingest worker pool for THIS host (CPU + memory bounded).
+
+    The single sizing policy shared by the in-process task workers and the
+    decoupled ``kg-ingest`` consumer pool (CONCEPT:KG-2.57): ~36% of the cores,
+    capped by available memory at ~3 GB per heavy worker, floor of 2. An
+    explicit ``configured`` value (``KG_INGESTION_WORKERS``) wins outright.
+    """
+    if configured is None:
+        from agent_utilities.core.config import DEFAULT_KG_INGESTION_WORKERS
+
+        configured = DEFAULT_KG_INGESTION_WORKERS
+    if configured:
+        return int(configured)
+    try:
+        import os
+
+        import psutil
+
+        # Memory bound: assume ~3GB RAM per heavy (parse/LLM) worker.
+        mem = psutil.virtual_memory()
+        available_gb = mem.available / (1024**3)
+        max_mem_workers = max(1, int(available_gb / 3.0))
+
+        # CPU bound: target ~36% of the cores so ingest never starves the box.
+        cores = os.cpu_count() or 4
+        max_cpu_workers = max(1, int(cores * 0.36))
+
+        return max(2, min(max_cpu_workers, max_mem_workers))
+    except Exception as e:  # noqa: BLE001 — sizing is best-effort
+        logger.debug("Dynamic worker scaling failed, falling back to 4: %s", e)
+        return 4
+
+
 # Embedding-backfill sizing. Previously the single overloaded
 # ``KG_EMBED_BACKFILL_BATCH`` env was read in two places with CONFLICTING
 # defaults (256 vs 512) for two genuinely different knobs — a config bug. They
@@ -358,43 +392,18 @@ class TaskManagerMixin(GraphEngineProtocol):
         from agent_utilities.core.paths import data_dir
 
         queue_db_path = data_dir() / "kg_task_queue.db"
-        backend_type = str(getattr(config, "queue_backend", "sqlite")).lower()
+
+        # Queue selection is ONE explicit, fail-loud path (CONCEPT:KG-2.55):
+        # TASK_QUEUE_BACKEND=sqlite|postgres|kafka, default auto (postgres when
+        # STATE_DB_URI is set — CONCEPT:OS-5.16/KG-2.54 — else sqlite). An
+        # explicitly selected kafka/postgres queue that is unreachable raises
+        # TaskQueueUnavailable here instead of silently degrading.
+        from .queue_backend import create_task_queue
 
         self._submission_queue: QueueBackend
-
-        if backend_type == "nats":
-            from .nats_queue_backend import NatsQueueBackend
-
-            self._submission_queue = NatsQueueBackend(
-                fallback_db_path=str(queue_db_path),
-                nats_url=getattr(config, "nats_url", None),
-            )
-        elif backend_type == "kafka":
-            from .kafka_queue_backend import KafkaQueueBackend
-
-            self._submission_queue = KafkaQueueBackend(
-                fallback_db_path=str(queue_db_path),
-                bootstrap_servers=getattr(config, "kafka_bootstrap_servers", None),
-            )
-        elif getattr(config, "state_db_uri", None):
-            # Durable state externalized (CONCEPT:OS-5.16): the task queue moves
-            # onto the shared Postgres so N hosts drain ONE queue with atomic
-            # SKIP LOCKED claims (CONCEPT:KG-2.54). Unreachable state store →
-            # fall back to the per-host SQLite queue (same convention as the
-            # NATS/Kafka backends' sqlite fallback) rather than wedging startup.
-            try:
-                from .postgres_queue_backend import PostgresTaskQueue
-
-                self._submission_queue = PostgresTaskQueue()
-            except Exception as e:  # noqa: BLE001 — degraded single-host mode
-                logger.warning(
-                    "STATE_DB_URI set but the Postgres task queue is unavailable "
-                    "(%s) — falling back to the per-host SQLite queue.",
-                    e,
-                )
-                self._submission_queue = SQLiteTaskQueue(str(queue_db_path))
-        else:
-            self._submission_queue = SQLiteTaskQueue(str(queue_db_path))
+        self._submission_queue, self._task_queue_backend_name = create_task_queue(
+            config, str(queue_db_path)
+        )
 
         import os
         import sys
@@ -434,12 +443,17 @@ class TaskManagerMixin(GraphEngineProtocol):
             return
 
         # Continuous queue drainers that actually move ingested data.
-        self._submission_thread = threading.Thread(
-            target=self._submission_worker_loop,
-            daemon=True,
-            name="KG-Job-Submitter",
-        )
-        self._submission_thread.start()
+        # Kafka mode (CONCEPT:KG-2.57): the ``kg-ingest`` consumer group owns
+        # the whole task lifecycle (Task node is created AT CLAIM TIME by the
+        # consuming worker), so the submission drain — which would race the
+        # group for the same messages just to mint a node — does not run.
+        if self._task_queue_backend_name != "kafka":
+            self._submission_thread = threading.Thread(
+                target=self._submission_worker_loop,
+                daemon=True,
+                name="KG-Job-Submitter",
+            )
+            self._submission_thread.start()
 
         self._graph_writer_thread = threading.Thread(
             target=self._graph_writer_loop, daemon=True, name="KG-Graph-Writer"
@@ -504,10 +518,11 @@ class TaskManagerMixin(GraphEngineProtocol):
             "threads": threads,
             "maintenance_jobs": [n for n, _, _ in self._maintenance_jobs()],
         }
+        status["queue_backend"] = getattr(self, "_task_queue_backend_name", None)
         try:
             q = getattr(self, "_submission_queue", None)
-            if q is not None and hasattr(q, "depth"):
-                status["queue_depth"] = q.depth()
+            if q is not None:
+                status["queue_depth"] = q.get_queue_size()
         except Exception:  # noqa: BLE001
             pass
         return status
@@ -922,6 +937,26 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "MATCH (t:Task {id: $id, status: 'running'}) SET t.status = 'pending', t.metadata = $meta",
                     {"id": tid, "meta": _encode_metadata(meta)},
                 )
+                # Kafka mode (CONCEPT:KG-2.57): nothing polls 'pending' :Task
+                # nodes — the kg-ingest consumer group drives processing from
+                # the topic — so a reaped orphan is RE-PUBLISHED for re-claim.
+                # The claim is idempotent (status-checked), so a duplicate
+                # delivery of the original message is harmless.
+                if getattr(self, "_task_queue_backend_name", None) == "kafka":
+                    try:
+                        self._submission_queue.put(
+                            {
+                                "job_id": tid,
+                                "props": {
+                                    "status": "pending",
+                                    "metadata": _encode_metadata(meta),
+                                },
+                            }
+                        )
+                    except Exception as e:  # noqa: BLE001 — next reaper tick retries
+                        logger.warning(
+                            "TaskReaper: kafka re-publish of %s failed: %s", tid, e
+                        )
                 requeued += 1
                 logger.warning(
                     "TaskReaper: requeued %s (%s, age=%ss, claimed_by=%s)",
@@ -957,6 +992,33 @@ class TaskManagerMixin(GraphEngineProtocol):
             run_watcher_scan(self, get_workspace_path())
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
             logger.debug("file_watch tick error: %s", e)
+
+    def _record_queue_telemetry(self, queue_size: int) -> None:
+        """Publish ingest queue depth (+ Kafka consumer lag) as Prometheus
+        gauges on the OS-5.23 gateway metrics registry (CONCEPT:KG-2.57).
+
+        No-op-cheap: without ``prometheus_client`` the gauges are shared no-ops.
+        Sampled by the maintenance scheduler on the leader host (the process
+        that also serves ``GET /metrics``); for Kafka the backend's queue size
+        IS the ``kg-ingest`` group lag, recorded under both names so dashboards
+        can alert on lag without knowing the selected backend.
+        """
+        try:
+            from agent_utilities.observability.gateway_metrics import (
+                KG_INGEST_CONSUMER_LAG,
+                KG_INGEST_QUEUE_DEPTH,
+            )
+
+            backend_name = getattr(self, "_task_queue_backend_name", "sqlite")
+            KG_INGEST_QUEUE_DEPTH.labels(backend=backend_name).set(float(queue_size))
+            if backend_name == "kafka":
+                from .kafka_queue_backend import INGEST_GROUP, TASKS_TOPIC
+
+                KG_INGEST_CONSUMER_LAG.labels(
+                    topic=TASKS_TOPIC, group=INGEST_GROUP
+                ).set(float(queue_size))
+        except Exception:  # noqa: BLE001 — telemetry must never break the loop
+            pass
 
     def _maintenance_scheduler_loop(self) -> None:
         """Single thread running all periodic KG maintenance jobs.
@@ -1018,10 +1080,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # Auto-defer while a bulk ingest drains: the whole-graph passes
                 # contend with ingestion for the single-writer engine. Detected
                 # from the durable submission-queue depth, not a manual flag.
+                # The probe doubles as the backpressure-visibility sample
+                # (CONCEPT:KG-2.57): depth (and, for Kafka, kg-ingest consumer
+                # lag) land on the OS-5.23 gateway Prometheus registry every
+                # pass — including while bulk-deferred, exactly when the number
+                # is most interesting.
                 q = getattr(self, "_submission_queue", None)
                 if q is not None:
                     try:
-                        if q.get_queue_size() > _BULK_QUEUE_THRESHOLD:
+                        qsize = q.get_queue_size()
+                        self._record_queue_telemetry(qsize)
+                        if qsize > _BULK_QUEUE_THRESHOLD:
                             time.sleep(POLL)
                             continue
                     except Exception:  # noqa: BLE001 — queue probe best-effort
@@ -1835,6 +1904,35 @@ class TaskManagerMixin(GraphEngineProtocol):
                     return True
         return False
 
+    def ingest_queue_depth(self) -> int:
+        """Uniform ingest backlog depth across queue backends (CONCEPT:KG-2.57).
+
+        ``queued-but-not-yet-claimed`` (the selected backend's queue size — for
+        Kafka that is the ``kg-ingest`` consumer-group lag, for SQLite/Postgres
+        the row count) **plus** in-graph ``pending``/``running`` ``:Task``
+        nodes. This is the single number backpressure consumers (the batch
+        orchestrator's deferral, the maintenance bulk-defer gate, the lag
+        metrics) should read, regardless of which backend is selected.
+        """
+        depth = 0
+        q = getattr(self, "_submission_queue", None)
+        if q is not None:
+            try:
+                depth += int(q.get_queue_size())
+            except Exception:  # noqa: BLE001 — depth probe is best-effort
+                pass
+        try:
+            rows = self.query_cypher(
+                "MATCH (t:Task) WHERE t.status IN ['pending','running'] "
+                "RETURN count(t) AS c"
+            )
+            if rows:
+                row = rows[0]
+                depth += int(row.get("c", 0) or 0) if isinstance(row, dict) else 0
+        except Exception:  # noqa: BLE001
+            pass
+        return depth
+
     def submit_directory_tasks(
         self, directory: Path, provenance: dict
     ) -> tuple[list[dict[str, str]], list[str]]:
@@ -1884,7 +1982,6 @@ class TaskManagerMixin(GraphEngineProtocol):
     def start_task_workers(self, worker_count: int | None = None):
         """Start background workers to poll and execute tasks from the graph."""
         from agent_utilities.core.config import (
-            DEFAULT_KG_INGESTION_WORKERS,
             DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND,
         )
 
@@ -1905,32 +2002,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             return
 
         if worker_count is None:
-            worker_count = DEFAULT_KG_INGESTION_WORKERS
-            try:
-                import os
-
-                import psutil
-
-                # Calculate based on available memory (assume 3GB RAM per heavy worker)
-                mem = psutil.virtual_memory()
-                available_gb = mem.available / (1024**3)
-                max_mem_workers = max(1, int(available_gb / 3.0))
-
-                # Calculate based on CPU cores (target 36% max utilization)
-                cores = os.cpu_count() or 4
-                max_cpu_workers = max(1, int(cores * 0.36))
-
-                # Cap workers between 2 and 36% CPU max, constrained by available memory
-                dynamic_workers = max(2, min(max_cpu_workers, max_mem_workers))
-
-                # Use the dynamic scale directly to maximize parallelization!
-                worker_count = dynamic_workers
-            except Exception as e:
-                if worker_count is None:
-                    worker_count = 4
-                logger.debug(
-                    f"Dynamic worker scaling failed, falling back to {worker_count}: {e}"
-                )
+            worker_count = compute_ingest_worker_count()
 
         if not self.backend:
             # We can't do distributed worker locks safely without a persistent backend
@@ -1944,6 +2016,20 @@ class TaskManagerMixin(GraphEngineProtocol):
 
             # Start workers
             self._workers_running = True
+
+        if getattr(self, "_task_queue_backend_name", "sqlite") == "kafka":
+            # CONCEPT:KG-2.57 — Kafka mode: the host's worker pool joins the
+            # ``kg-ingest`` consumer group instead of polling :Task nodes, so
+            # it shares partitions (and per-key ordering) with any decoupled
+            # `kg-ingest-worker` processes added for scale-out.
+            from ..ingest_worker import start_ingest_consumer_pool
+
+            logger.info(
+                "Starting %d kg-ingest consumer workers (kafka task queue)...",
+                worker_count,
+            )
+            start_ingest_consumer_pool(self, worker_count=worker_count)
+            return
 
         logger.info(f"Starting {worker_count} TaskManager workers...")
         for i in range(worker_count):
@@ -2028,41 +2114,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     time.sleep(2.0)
                     continue
 
-                # Execute the task asynchronously inside this thread (lock is
-                # released). Heavy task types (parse storms / background LLM /
-                # analysis) run through the shared background throttle so they
-                # yield to interactive (foreground) work and stay within the
-                # global concurrency cap — a bulk ingest can no longer consume the
-                # engine's whole in-flight budget and starve live queries
-                # (CONCEPT:KG-2.7 read/ingest plane isolation). Lightweight types
-                # (diff/conversation/…) run unthrottled.
-                _HEAVY_TASK_TYPES = {
-                    "codebase",
-                    "document",
-                    "deep_analysis",
-                    "synthesize",
-                    "deep_extract",
-                    "background_research",
-                    "relevance_sweep",
-                }
-                if task_type in _HEAVY_TASK_TYPES:
-                    from agent_utilities.core.background_throttle import get_throttle
-
-                    with get_throttle().background_slot():
-                        asyncio.run(
-                            self._run_background_task(
-                                job_id, target_path, is_codebase, task_type
-                            )
-                        )
-                else:
-                    asyncio.run(
-                        self._run_background_task(
-                            job_id, target_path, is_codebase, task_type
-                        )
-                    )
-
-                # Post-ingestion: auto-build HNSW indexes when queue drains
-                self._maybe_build_vector_indexes()
+                self._execute_claimed_task(job_id, target_path, is_codebase, task_type)
 
             except Exception as e:
                 logger.error(f"TaskManager worker error: {e}")
@@ -2074,6 +2126,50 @@ class TaskManagerMixin(GraphEngineProtocol):
                             f"Failed to update task status to failed for {job_id}: {inner_e}"
                         )
                 time.sleep(5)
+
+    def _execute_claimed_task(
+        self,
+        job_id: str,
+        target_path: Path,
+        is_codebase: bool,
+        task_type: str = "document",
+    ) -> None:
+        """Run ONE already-claimed task to completion (the shared worker body).
+
+        Used by both the in-process graph-polling workers and the decoupled
+        ``kg-ingest`` Kafka consumers (CONCEPT:KG-2.57) so the processing logic
+        exists exactly once. Heavy task types (parse storms / background LLM /
+        analysis) run through the shared background throttle so they yield to
+        interactive (foreground) work and stay within the global concurrency
+        cap — a bulk ingest can no longer consume the engine's whole in-flight
+        budget and starve live queries (CONCEPT:KG-2.7 read/ingest plane
+        isolation). Lightweight types (diff/conversation/…) run unthrottled.
+        """
+        _HEAVY_TASK_TYPES = {
+            "codebase",
+            "document",
+            "deep_analysis",
+            "synthesize",
+            "deep_extract",
+            "background_research",
+            "relevance_sweep",
+        }
+        if task_type in _HEAVY_TASK_TYPES:
+            from agent_utilities.core.background_throttle import get_throttle
+
+            with get_throttle().background_slot():
+                asyncio.run(
+                    self._run_background_task(
+                        job_id, target_path, is_codebase, task_type
+                    )
+                )
+        else:
+            asyncio.run(
+                self._run_background_task(job_id, target_path, is_codebase, task_type)
+            )
+
+        # Post-ingestion: auto-build HNSW indexes when queue drains
+        self._maybe_build_vector_indexes()
 
     async def _run_background_task(
         self, job_id: str, target: Path, is_codebase: bool, task_type: str = "document"

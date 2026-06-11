@@ -85,7 +85,21 @@ class BatchProgress:
 
 
 def _inflight_count(engine: Any) -> int | None:
-    """Count pending/running ``:Task`` nodes (``None`` if not queryable)."""
+    """In-flight ingest depth (``None`` if not queryable).
+
+    Prefers the engine's uniform :meth:`ingest_queue_depth` (CONCEPT:KG-2.57):
+    the selected queue backend's not-yet-claimed backlog (Kafka = ``kg-ingest``
+    consumer-group lag; SQLite/Postgres = row count) PLUS pending/running
+    ``:Task`` nodes — so backpressure sees work the graph poll alone would miss
+    (e.g. unconsumed Kafka messages). Falls back to the :Task count for engines
+    without the method.
+    """
+    depth_fn = getattr(engine, "ingest_queue_depth", None)
+    if callable(depth_fn):
+        try:
+            return int(depth_fn())
+        except Exception:  # noqa: BLE001 — fall through to the :Task count
+            pass
     q = getattr(engine, "query_cypher", None)
     if not callable(q):
         return None
