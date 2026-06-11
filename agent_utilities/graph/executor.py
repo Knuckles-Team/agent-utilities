@@ -1096,17 +1096,20 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
 
         max_attempts = 3
         last_error = None
+        attempt_no = 0
 
-        for attempt in range(max_attempts):
+        async def _dispatch_specialist_once() -> str:
+            nonlocal last_error, attempt_no
+            attempt_no += 1
             emit_graph_event(
                 ctx.deps.event_queue,
                 "expert_thinking",
                 expert=agent_info.name,
-                attempt=attempt + 1,
+                attempt=attempt_no,
             )
             try:
                 logger.info(
-                    f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Starting (attempt {attempt + 1}). Prompt length: {len(agent_sys_prompt)}"
+                    f"[LAYER:GRAPH:EXPERT] '{agent_info.name}' LLM Call Starting (attempt {attempt_no}). Prompt length: {len(agent_sys_prompt)}"
                 )
                 # Wrap user query in XML tags to protect against prompt injection
                 # and provide clear boundaries for the model.
@@ -1271,7 +1274,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 ctx.state.results[result_key] = result_str
                 ctx.state.routed_domain = result_key
                 logger.info(
-                    f"Expert: '{agent_info.name}' succeeded (attempt {attempt + 1}). "
+                    f"Expert: '{agent_info.name}' succeeded (attempt {attempt_no}). "
                     f"Result: {len(result_str)} chars. Registry key: '{node_uid}'"
                 )
                 # Emit completion event
@@ -1294,7 +1297,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
             except TimeoutError:
                 last_error = f"Timeout after {node_timeout}s"
                 logger.warning(
-                    f"Expert '{agent_name}' timed out (attempt {attempt + 1}/{max_attempts})"
+                    f"Expert '{agent_name}' timed out (attempt {attempt_no}/{max_attempts})"
                 )
                 emit_graph_event(
                     ctx.deps.event_queue,
@@ -1302,10 +1305,11 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                     expert=agent_info.name,
                     status="timeout",
                 )
+                raise
             except Exception as e:
                 last_error = str(e)
                 logger.warning(
-                    f"Expert '{agent_name}' failed (attempt {attempt + 1}/{max_attempts}): {e}"
+                    f"Expert '{agent_name}' failed (attempt {attempt_no}/{max_attempts}): {e}"
                 )
                 emit_graph_event(
                     ctx.deps.event_queue,
@@ -1321,11 +1325,25 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                     status="error",
                     error=str(e),
                 )
+                raise
 
-            # Exponential backoff between retries
-            if attempt < max_attempts - 1:
-                backoff = min(2**attempt, 10)
-                await asyncio.sleep(backoff)
+        # Historical outer dispatch backoff min(2**n, 10)s, declaratively
+        # (CONCEPT:ORCH-1.36). This OUTER policy retries the whole specialist
+        # dispatch (events + run + result handling); it composes with the
+        # INNER per-LLM-call policy inside the attempt body.
+        dispatch_policy = ResiliencePolicy(
+            max_attempts=max_attempts,
+            backoff_base_s=1.0,
+            backoff_factor=2.0,
+            max_backoff_s=10.0,
+            jitter=False,
+            retry_on=lambda exc: isinstance(exc, Exception),
+            name=f"specialist-dispatch:{agent_info.name or 'unknown'}",
+        )
+        try:
+            return await run_with_resilience(_dispatch_specialist_once, dispatch_policy)
+        except Exception:  # noqa: BLE001 - exhausted; fall through to HSM exit + fallback
+            pass
 
         # All retries exhausted
         # HSM: Exit action (failure)
