@@ -980,6 +980,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
   - agent_utilities/knowledge_graph/core/conversation_ingestion.py
+  - agent_utilities/knowledge_graph/core/engine_lock.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/host_lock.py
