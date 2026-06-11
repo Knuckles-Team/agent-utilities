@@ -65,27 +65,6 @@ from agent_utilities.models.execution_manifest import (
 )
 
 
-class _CircuitBreaker:
-    def __init__(self, threshold: int = 3):
-        self.threshold = threshold
-        self._failures: dict[str, int] = {}
-
-    def record_failure(self, agent_id: str) -> None:
-        self._failures[agent_id] = self._failures.get(agent_id, 0) + 1
-
-    def record_success(self, agent_id: str) -> None:
-        self._failures.pop(agent_id, None)
-
-    def is_open(self, agent_id: str) -> bool:
-        return self._failures.get(agent_id, 0) >= self.threshold
-
-    def reset(self, agent_id: str | None = None) -> None:
-        if agent_id:
-            self._failures.pop(agent_id, None)
-        else:
-            self._failures.clear()
-
-
 import anyio
 
 
