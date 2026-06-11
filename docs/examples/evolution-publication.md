@@ -52,9 +52,13 @@ on, each cycle runs the governed auto-merge: a proposal must clear the quality
 threshold **and** the production promotion-governance validator
 (`agent_utilities/knowledge_graph/research/promotion_governance.py` — SHACL/
 governance validity, regression must not lower a tracked metric, a recorded
-`hold` blocks). Passing proposals are promoted and audited; failing ones stay
-proposal-only. Promotion is a prerequisite here — `publish_proposal` only
-materializes and publishes **what was already promoted**.
+`hold` blocks). The merger's promotion decision also consults the OS-5.24
+ActionPolicy under `kind=merge_promotion`: a `deny` blocks the lifecycle flip
+outright, while the shipped `approval_required` tier queues the same
+`ActionApproval` step 3 below dedups to. Passing proposals are promoted and
+audited; failing ones stay proposal-only. Promotion is a prerequisite here —
+`publish_proposal` only materializes and publishes **what was already
+promoted**.
 
 For this walkthrough the promoted proposal node is:
 

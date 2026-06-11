@@ -194,8 +194,12 @@ evolution ingress.
 The governed validation gate every promoted proposal must pass before merge
 (`knowledge_graph/research/promotion_governance.py`, wired into
 `research/auto_merge.py`): promotion is no longer a bare regression check but a
-policy surface. Together with the recorded regression gate (AHE-3.18), this is
-stage two of the safety chain in
+policy surface. The merger's own promotion decision additionally consults the
+operational OS-5.24 `ActionPolicy` under the reserved `merge_promotion` kind
+before the lifecycle flip — `deny` blocks promotion (fail-closed, audited);
+the shipped `approval_required` tier queues the same approval the AHE-3.21
+bridge consumes. Together with the recorded regression gate (AHE-3.18), this
+is stage two of the safety chain in
 [Autonomous Evolution](../guides/autonomous-evolution.md).
 
 ### AHE-3.21 — Evolution-to-Branch Publication Bridge
