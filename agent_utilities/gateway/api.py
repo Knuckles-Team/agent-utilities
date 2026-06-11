@@ -25,7 +25,16 @@ logger = logging.getLogger(__name__)
 
 dashboard_router = APIRouter(tags=["dashboard"])
 
-# Singletons — initialized on first request
+# Singletons — initialized lazily on first request, PER PROCESS.
+#
+# Multi-worker audit (CONCEPT:OS-5.23):
+# nothing here is mutated post-startup
+# except through ``save_layout``, which persists straight to the shared YAML
+# file (XDG config dir) — reads always go back to disk, so workers/replicas
+# converge on the next request. The only per-process *divergent* state is the
+# Aggregator's short read cache (10s TTL) and its thread pool, both of which
+# are safe to duplicate per worker. Anything needing strict cross-replica
+# consistency belongs to the state-externalization track, not here.
 _aggregator: Aggregator | None = None
 _config_manager: ConfigManager | None = None
 
