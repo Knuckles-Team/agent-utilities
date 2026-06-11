@@ -1163,11 +1163,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                     time.sleep(10.0)
                     continue
 
-                # Single shared foreground gate for ALL background jobs.
+                # Single shared gate for ALL background jobs: yield to interactive
+                # foreground work AND to an in-flight bulk ingest (the latter is not
+                # visible in the queue-depth probe below once the task is claimed).
                 try:
                     from agent_utilities.core.background_throttle import get_throttle
 
-                    if get_throttle().foreground_active:
+                    if get_throttle().should_yield_background:
                         time.sleep(POLL)
                         continue
                 except ImportError:
@@ -1253,11 +1255,11 @@ class TaskManagerMixin(GraphEngineProtocol):
         llm_fn = getattr(self, "_enrich_llm_fn", None)
 
         for _ in range(MAX_BATCHES):
-            # Yield to interactive runs between batches.
+            # Yield between batches to interactive runs AND to a bulk ingest.
             try:
                 from agent_utilities.core.background_throttle import get_throttle
 
-                if get_throttle().foreground_active:
+                if get_throttle().should_yield_background:
                     return
             except ImportError:
                 pass
@@ -1573,11 +1575,12 @@ class TaskManagerMixin(GraphEngineProtocol):
                 if not leadership.is_leader():
                     time.sleep(idle)
                     continue
-                # Yield to interactive/foreground work.
+                # Yield to interactive/foreground work AND to a bulk ingest — the
+                # 512-node embed batch is a prime swamper of a post-restart backlog.
                 try:
                     from agent_utilities.core.background_throttle import get_throttle
 
-                    if get_throttle().foreground_active:
+                    if get_throttle().should_yield_background:
                         time.sleep(busy)
                         continue
                 except ImportError:
@@ -2689,6 +2692,22 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         CONCEPT:KG-2.5 — Per-Item Relevance Ranking
         """
+        # Defer while a bulk ingest is in flight: this sweep scores every paper +
+        # repo (heavy queries + embeddings) and, as a worker-pool task, runs
+        # CONCURRENTLY with ingest on the single-writer engine. It's periodic, so
+        # skipping a cycle is cheap — the maintenance scheduler re-enqueues it once
+        # the ingest drains. (CONCEPT:KG-2.7)
+        try:
+            from agent_utilities.core.background_throttle import get_throttle
+
+            if get_throttle().should_yield_background:
+                logger.info(
+                    "RelevanceSweep: deferring — bulk ingest/foreground active "
+                    "(will retry next cycle)."
+                )
+                return {"status": "deferred", "reason": "bulk_ingest_or_foreground"}
+        except ImportError:
+            pass
 
         logger.info(f"RelevanceSweep: starting sweep against '{target_codebase}'")
 
