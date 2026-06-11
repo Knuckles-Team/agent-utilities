@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 163
+total_concepts: 166
 total_pillars: 18
 pillars:
 - AHE-3
@@ -977,6 +977,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/realizes.py
   - agent_utilities/knowledge_graph/enrichment/semantic.py
   - agent_utilities/knowledge_graph/facade.py
+  - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/manifest.py
   - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py
@@ -1458,8 +1459,43 @@ concepts:
   - agent_utilities/core/leadership.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/postgres_queue_backend.py
+  - agent_utilities/knowledge_graph/ingest_worker.py
   doc: Cross-host-safe KG task queue with atomic SKIP LOCKED claims and visibility-timeout recovery on
     the shared state store
+- id: KG-2.55
+  name: Fail-loud selectable ingest task-queue backend with explicit kafka and postgres and auto sqlite
+    modes
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/__main__.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
+  - agent_utilities/knowledge_graph/core/queue_backend.py
+  - agent_utilities/knowledge_graph/ingest_worker.py
+  doc: Fail-loud selectable ingest task-queue backend with explicit kafka and postgres and auto sqlite
+    modes
+- id: KG-2.56
+  name: Keyed ingest partitions for per-tenant and per-repo ordering
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
+  - agent_utilities/knowledge_graph/ingest_worker.py
+  doc: Keyed ingest partitions for per-tenant and per-repo ordering
+- id: KG-2.57
+  name: Decoupled kg-ingest consumer group with idempotent at-least-once task claims
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
+  - agent_utilities/knowledge_graph/ingest_worker.py
+  - agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: Decoupled kg-ingest consumer group with idempotent at-least-once task claims
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -2145,6 +2181,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/facade.py
+  - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ontology/permissioning.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/security/brain_context.py
@@ -2174,6 +2211,7 @@ concepts:
   - agent_utilities/core/state_store.py
   - agent_utilities/gateway/fleet.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/queue_backend.py
   - agent_utilities/orchestration/durable_execution.py
   doc: Unified durable-state externalization — one STATE_DB_URI flag selects a shared Postgres state store
     over the per-host SQLite default
