@@ -1,6 +1,7 @@
 # CONCEPT:KG-2.2 - High-Performance Graph Compute Engine
 # CONCEPT:ORCH-1.11 - Compiled Orchestration Kernel
 # CONCEPT:KG-2.7 - Tokio Service Layer (Tokio-first)
+# CONCEPT:KG-2.58 - Tenant-Partitioned Engine Sharding (HRW over GRAPH_SERVICE_ENDPOINTS)
 
 import json
 import logging
@@ -81,14 +82,19 @@ class GraphComputeEngine:
     before this engine is instantiated.
     """
 
-    def __init__(self, graph_name: str = "__bus__", **kwargs: Any) -> None:
+    def __init__(self, graph_name: str | None = None, **kwargs: Any) -> None:
         from epistemic_graph.client import SyncEpistemicGraphClient
 
         from agent_utilities.core.config import AgentConfig
 
-        # Retained so downstream consumers (e.g. the delta-ingestion manifest)
-        # can key state by tenant graph. (CONCEPT:KG-2.8)
-        self.graph_name = graph_name
+        from .shard_topology import (
+            is_local_endpoint,
+            record_shard_connect,
+            resolve_endpoints,
+            resolve_routing_graph,
+            shard_endpoint_for,
+        )
+
         self.graph: dict[str, Any] = {}
         # SyncEpistemicGraphClient wrapped in a BreakerClientProxy
         # — attribute-transparent; raw client at
@@ -97,19 +103,26 @@ class GraphComputeEngine:
         self._mode: str = "service"
 
         config = AgentConfig()
-        endpoints = config.graph_service_endpoints
-        if not endpoints:
-            if config.graph_service_tcp_addr:
-                endpoints = [f"tcp://{config.graph_service_tcp_addr}"]
-            elif config.graph_service_socket:
-                endpoints = [f"unix://{config.graph_service_socket}"]
-            else:
-                endpoints = ["unix:///tmp/epistemic-graph.sock"]  # nosec B108
+        endpoints = resolve_endpoints(config)
+        sharded = len(endpoints) > 1
+        if sharded:
+            # Tenant-partitioned sharding (CONCEPT:KG-2.58): tenant → named
+            # graph → HRW → shard. An explicit non-default graph routes by its
+            # own name; the default graph maps to the ambient ActorContext
+            # tenant's graph (tenant__<t>__<base>) when one is in scope.
+            graph_name = resolve_routing_graph(graph_name, config)
+        elif graph_name is None:
+            graph_name = config.kg_default_graph
+        # Retained so downstream consumers (e.g. the delta-ingestion manifest)
+        # can key state by tenant graph. (CONCEPT:KG-2.8)
+        self.graph_name = graph_name
 
-        # Note: Since GraphComputeEngine is synchronous and often used as a long-lived wrapper,
-        # we still use the standard SyncEpistemicGraphClient but point it to the configured
-        # endpoint. For true async connection pooling, async callers should use ShardRouter directly.
-        endpoint = endpoints[0]
+        # Note: Since GraphComputeEngine is synchronous and often used as a long-lived
+        # wrapper, we still use the standard SyncEpistemicGraphClient but point it at
+        # the graph's HRW-owning shard (identity with one endpoint). True async
+        # connection pooling callers should use epistemic_graph.pool.ShardRouter,
+        # which shares this exact placement function. (CONCEPT:KG-2.58)
+        endpoint = shard_endpoint_for(graph_name, endpoints)
         # Engine auth (CONCEPT:OS-5.14): resolve the shared HMAC secret —
         # configured, or generated once and persisted under the XDG data dir —
         # and export it so sibling clients (the epistemic_graph pool and any
@@ -142,12 +155,22 @@ class GraphComputeEngine:
         breaker = get_breaker(endpoint)
         breaker.before_call()  # fast-fail BEFORE attempting a connect when open
 
+        # Autostart governs only the LOCAL engine (CONCEPT:KG-2.58): in sharded
+        # mode a remote (tcp://) shard is a hard contract — auto-spawning a
+        # local stand-in would silently split that shard's graphs into
+        # invisible islands (same fail-loud convention as KG-2.55). The flock
+        # host role (host_lock.py) likewise elects a daemon owner for the
+        # local engine only.
+        autostart_allowed = os.environ.get("EPISTEMIC_GRAPH_AUTOSTART") == "1" and (
+            not sharded or is_local_endpoint(endpoint)
+        )
+
         try:
             self._client = SyncEpistemicGraphClient.connect(**connect_kwargs)
         except Exception as initial_e:
             if isinstance(initial_e, OSError | EOFError):
                 breaker.record_failure()
-            if os.environ.get("EPISTEMIC_GRAPH_AUTOSTART") == "1":
+            if autostart_allowed:
                 logger.info(
                     "epistemic-graph Tokio service not running. Attempting to auto-start daemon..."
                 )
@@ -206,11 +229,28 @@ class GraphComputeEngine:
                 except Exception as retry_e:
                     if isinstance(retry_e, OSError | EOFError):
                         breaker.record_failure()
+                    record_shard_connect(endpoint, False)
                     raise ConnectionError(
                         f"Cannot connect to epistemic-graph Tokio service after auto-start: {retry_e}. "
                         "Ensure the epistemic-graph-server daemon is running."
                     ) from retry_e
+            elif sharded:
+                # Fail-loud per-shard contract (CONCEPT:KG-2.58, KG-2.55-style):
+                # name the shard so the operator fixes the topology instead of
+                # half the keyspace quietly degrading.
+                record_shard_connect(endpoint, False)
+                raise ConnectionError(
+                    f"Configured engine shard {endpoint!r} (owner of graph "
+                    f"{graph_name!r} by HRW over GRAPH_SERVICE_ENDPOINTS) is "
+                    f"unreachable: {initial_e}. Start that shard's "
+                    "epistemic-graph-server (or remove it from "
+                    "GRAPH_SERVICE_ENDPOINTS — moving a graph between shards "
+                    "requires a manual snapshot export/import). Autostart "
+                    "applies only to the local unix:// endpoint, never to "
+                    "remote shards."
+                ) from initial_e
             else:
+                record_shard_connect(endpoint, False)
                 raise ConnectionError(
                     f"Cannot connect to epistemic-graph Tokio service: {initial_e}. "
                     "Ensure the epistemic-graph-server daemon is running, or set EPISTEMIC_GRAPH_AUTOSTART=1."
@@ -220,6 +260,7 @@ class GraphComputeEngine:
         # with it. The proxy is attribute-transparent, and the raw client
         # stays reachable via ``self._client.__wrapped__``. (CONCEPT:OS-5.23)
         breaker.record_success()
+        record_shard_connect(endpoint, True)
         self._client = wrap_client_with_breaker(self._client, breaker)
 
         logger.info(

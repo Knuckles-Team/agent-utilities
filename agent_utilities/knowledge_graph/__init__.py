@@ -38,6 +38,14 @@ def __getattr__(name: str):
 
         return ige
 
+    if name == "tenant_graph_name":
+        # Tenant → named graph naming discipline (CONCEPT:KG-2.58): the one
+        # helper facade/backends use so tenant-scoped operations land on
+        # per-tenant named graphs (and therefore one HRW shard) consistently.
+        from .core.shard_topology import tenant_graph_name as tgn
+
+        return tgn
+
     if name in ("IntelligencePipeline", "RegistryPipeline"):
         from .pipeline import (
             IntelligencePipeline as ip,
@@ -57,6 +65,7 @@ def __getattr__(name: str):
 
 __all__ = [
     "PipelineConfig",
+    "tenant_graph_name",
     "RegistryGraphMetadata",
     "MemoryNode",
     "CodeNode",

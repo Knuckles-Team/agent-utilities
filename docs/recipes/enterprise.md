@@ -60,11 +60,34 @@ and toggle the integrations you want.
 ## Scale note
 
 The connector fleet is stateless and scales horizontally on the swarm. The KG
-host daemon is a singleton per the `KG_DAEMON_ROLE=host` flock; running the agent
-swarm at very large scale (the 100k+ target) additionally needs multiple gateway
-workers + a durable queue (Kafka, above) + shared pggraph state — see the
-[capacity model](../scaling/capacity_model.md). Durable execution (idempotency +
-at-least-once) is already in place to make that safe.
+host daemon is a singleton per host per the `KG_DAEMON_ROLE=host` flock; running
+the agent swarm at very large scale (the 100k+ target) additionally needs
+multiple gateway workers + a durable queue (Kafka, above) + shared pggraph state
+— see the [capacity model](../scaling/capacity_model.md). Durable execution
+(idempotency + at-least-once) is already in place to make that safe.
+
+### Engine shards (Stage 2 — tenant-partitioned L0)
+
+When one engine host saturates, run N engine shards and add to `config.json`:
+
+```jsonc
+{
+  "graph_service_endpoints": [
+    "tcp://kg-shard-1.example.arpa:9101",
+    "tcp://kg-shard-2.example.arpa:9102",
+    "tcp://kg-shard-3.example.arpa:9103"
+  ],
+  "graph_service_auth_secret": "ONE shared secret across shards + clients"
+}
+```
+
+Graphs (and therefore tenants — `tenant → named graph → HRW → shard`) are
+routed client-side by rendezvous hashing; an unreachable shard fails loud, and
+per-shard health is on `GET /daemon/shards` +
+`agent_utilities_engine_shard_up{endpoint}`. Worked single-host 3-shard compose:
+`docker/engine-shards.compose.yml`; full semantics (including the manual
+snapshot migration caveat when re-sharding):
+[engine sharding](../architecture/engine_sharding.md).
 
 ## Operate
 

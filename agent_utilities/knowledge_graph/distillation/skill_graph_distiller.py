@@ -157,19 +157,21 @@ class SkillGraphDistiller:
                     # Shared per-install secret (CONCEPT:OS-5.14) — same
                     # resolution the compute engine uses.
                     auth_secret, _insecure = resolve_engine_auth(config)
-                endpoints = config.graph_service_endpoints
-                if endpoints:
-                    ep = endpoints[0]
-                    if ep.startswith("tcp://"):
-                        tcp_addr = ep[6:]
-                    elif ep.startswith("unix://"):
-                        socket_path = ep[7:]
-                    else:
-                        socket_path = ep
-                elif config.graph_service_tcp_addr:
-                    tcp_addr = config.graph_service_tcp_addr
-                elif config.graph_service_socket:
-                    socket_path = config.graph_service_socket
+                # Shard-aware (CONCEPT:KG-2.58): route to the graph's
+                # HRW-owning shard instead of assuming endpoints[0], so the
+                # distiller reads the same shard the ingestion plane wrote.
+                from agent_utilities.knowledge_graph.core.shard_topology import (
+                    resolve_endpoints,
+                    shard_endpoint_for,
+                )
+
+                ep = shard_endpoint_for(gname, resolve_endpoints(config))
+                if ep.startswith("tcp://"):
+                    tcp_addr = ep[6:]
+                elif ep.startswith("unix://"):
+                    socket_path = ep[7:]
+                else:
+                    socket_path = ep
             except Exception:  # noqa: BLE001 — fall through to client env defaults
                 logger.debug("AgentConfig unavailable; using client env defaults")
 

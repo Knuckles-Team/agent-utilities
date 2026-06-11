@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Tenant-partitioned engine sharding (Stage 2, CONCEPT:KG-2.58 / OS-5.28)** — N
+  epistemic-graph engine shards behind the existing client-side HRW router,
+  partitioned by tenant/graph (`tenant → named graph → HRW → shard`):
+  - **Shard-aware client path**: with 2+ `GRAPH_SERVICE_ENDPOINTS` (comma or JSON
+    list; new before-validator), `GraphComputeEngine` routes each named graph to its
+    owning shard via the exact `epistemic_graph.pool.ShardRouter` HRW hash (sync and
+    async callers agree by construction). Routing key = explicit graph name → ambient
+    `ActorContext` tenant (mapped through `tenant_graph_name`) → new `KG_DEFAULT_GRAPH`
+    flag. Single-endpoint deployments are byte-for-byte unchanged (zero-infra default).
+  - **Fail-loud shard contract**: `EPISTEMIC_GRAPH_AUTOSTART` applies only to the
+    local `unix://` endpoint; an unreachable remote shard raises a `ConnectionError`
+    naming the shard, its graph, and the remediation (KG-2.55 convention). The flock
+    host role governs only the LOCAL engine.
+  - **Tenant→graph naming discipline**: `tenant_graph_name(tenant, base)` →
+    `tenant__<t>__<base>` in `knowledge_graph/core/shard_topology.py`, exported from
+    `agent_utilities.knowledge_graph` and as `KnowledgeGraph.tenant_graph()`.
+  - **Topology visibility (OS-5.28)**: `shard_topology_status()` (per-shard
+    transport-level reachability + breaker state) on the unified daemon status,
+    new gateway `GET /daemon/shards`, and a config-only summary on graph-os
+    `GET /health`; new `agent_utilities_engine_shard_up{endpoint}` gauge and
+    `agent_utilities_engine_shard_requests_total{endpoint,outcome}` counter on the
+    OS-5.23 metrics registry.
+  - **Deployment recipe**: worked 3-shard compose (`docker/engine-shards.compose.yml`,
+    distinct ports/persist dirs/metrics listeners + one shared secret) and
+    `docs/architecture/engine_sharding.md` (incl. the honest re-sharding caveat:
+    HRW minimizes movement but data migration is a manual snapshot export/import);
+    enterprise recipe + capacity model now reference the real sharding path.
 - **Kafka ingest scale-out (Tranche 3, CONCEPT:KG-2.55/KG-2.56/KG-2.57)** — the durable
   ingest task queue becomes a production-grade, fail-loud, horizontally scalable system:
   - **Fail-loud queue selection (KG-2.55)**: new `TASK_QUEUE_BACKEND` flag
