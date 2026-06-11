@@ -5,12 +5,15 @@ from __future__ import annotations
 CONCEPT:ECO-4.25 — reference ``Load`` + ``Poll`` connector over a database.
 CONCEPT:ECO-4.26 — incremental poll keyed on a monotonic column watermark.
 
-Wraps the existing :class:`UniversalConnector` (CONCEPT:KG-2.9) so any database it
-speaks — **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle, SQLite, MongoDB** —
-becomes a document source: a SQL/Mongo query's rows are each mapped to a
-:class:`SourceDocument` via a declarative field map. No new driver dependency is
-added here; ``UniversalConnector`` lazily imports the appropriate driver and
-raises a clear error if it is missing.
+Wraps the existing :class:`UniversalConnector` (CONCEPT:KG-2.9) so a database it
+speaks becomes a document source: a query's rows are each mapped to a
+:class:`SourceDocument` via a declarative field map. **PostgreSQL is the proven
+native path** — other ``UniversalConnector`` dialects (MySQL/MariaDB, MSSQL,
+Oracle, Mongo) require their driver installed in-process and are better served
+through the :mod:`mcp_tool` source (CONCEPT:KG-2.59) over sql-mcp, which owns
+the dialect drivers, the read-only gate, and the row caps. No new driver
+dependency is added here; ``UniversalConnector`` lazily imports the appropriate
+driver and raises a clear error if it is missing.
 
 This composes rather than competes: ``UniversalConnector`` already does the wire
 work + ``introspect()``; this connector adds the *document* projection and the
