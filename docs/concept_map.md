@@ -140,7 +140,7 @@ Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.p
 | `ECO-4.0` | Tool Interface & MCP Factory | 26 | 18 | [ECO-4.0](pillars/4_ecosystem_peripherals/ECO-4.0-Tool_Interface_And_MCP_Factory.md) |
 | `ECO-4.1` | A2A Network & Consensus 🔬 | 7 | 3 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
 | `ECO-4.2` | Community Telemetry & Ecosystem Map | 5 | 1 | [ECO-4.2](pillars/4_ecosystem_peripherals/ECO-4.2-Community_Telemetry_And_Ecosystem_Map.md) |
-| `ECO-4.3` | Market Data Connectors | 9 | 3 | [ECO-4.3](pillars/4_ecosystem_peripherals/ECO-4.3-Market_Data_Connectors.md) |
+| `ECO-4.3` | Market Data KG Node Models | 1 | 1 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
 | `ECO-4.4` | KG MCP Server & Execution | 2 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
 | `ECO-4.5` | Native Messaging Backend Abstraction | 21 | 17 | [ECO-4.5](pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md) |
 | `ECO-4.6` | Dynamic Capability Ingestion & Discovery | 5 | 4 | [ECO-4.6](pillars/4_ecosystem_peripherals/ECO-4.6-Agent_Toolkit_Ingestor.md) |
@@ -152,7 +152,7 @@ Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.p
 | `ECO-4.12` | Plugin Bundle Distribution System | 1 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md#-plugin-bundle-distribution-system-eco-419) |
 | `ECO-4.13` | Ecosystem Governance & Policy Engine | 3 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md#-permission-policy-engine-eco-420) |
 
-Key modules: `mcp/server_factory.py`, `mcp/kg_server.py` (incl. `kg_launch_terminal_agent`), `ecosystem/bridge.py`, `ecosystem/hook_installer.py`, `ecosystem/agents_md_reflector.py`, `ecosystem/lint_enforcement_hook.py`, `ecosystem/plugin_bundle.py`, `ecosystem/permission_policy.py`, `ecosystem/config_staleness_auditor.py`, `ecosystem/governance_workflow.py`, `ecosystem/agent_manager_dashboard.py`, `tools/codebase_map_tools.py`, `knowledge_graph/core/agents_md.py`, `knowledge_graph/memory/startup_context.py`, `graph/subagent_patterns.py`, `protocols/a2a_graph_skill.py`, `protocols/data_connector.py`, `tools/tool_filtering.py`, `tools/dynamic_tool_orchestrator.py`, `knowledge_graph/core/engine_ingestion.py`, `knowledge_graph/core/engine_mcp_discovery.py`, `knowledge_graph/core/queue_backend.py`, `knowledge_graph/core/nats_queue_backend.py`, `knowledge_graph/core/kafka_queue_backend.py`
+Key modules: `mcp/server_factory.py`, `mcp/kg_server.py` (incl. `kg_launch_terminal_agent`), `ecosystem/bridge.py`, `ecosystem/hook_installer.py`, `ecosystem/agents_md_reflector.py`, `ecosystem/lint_enforcement_hook.py`, `ecosystem/plugin_bundle.py`, `ecosystem/permission_policy.py`, `ecosystem/config_staleness_auditor.py`, `ecosystem/governance_workflow.py`, `ecosystem/agent_manager_dashboard.py`, `tools/codebase_map_tools.py`, `knowledge_graph/core/agents_md.py`, `knowledge_graph/memory/startup_context.py`, `graph/subagent_patterns.py`, `protocols/a2a_graph_skill.py`, `tools/tool_filtering.py`, `tools/dynamic_tool_orchestrator.py`, `knowledge_graph/core/engine_ingestion.py`, `knowledge_graph/core/engine_mcp_discovery.py`, `knowledge_graph/core/queue_backend.py`, `knowledge_graph/core/nats_queue_backend.py`, `knowledge_graph/core/kafka_queue_backend.py`
 
 ---
 

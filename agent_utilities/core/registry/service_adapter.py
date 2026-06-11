@@ -361,14 +361,6 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "domain": "general",
         "desc": "Provider-specific optimization (ECO-4.5)",
     },
-    {
-        "module": "agent_utilities.protocols.data_connector",
-        "entry": "DataConnectorProtocol",
-        "capability": "data_connectors",
-        "layer": "harness",
-        "domain": "general",
-        "desc": "Market data connectors (ECO-4.4)",
-    },
     # --- Layer 5: Research Pipeline ---
     {
         "module": "agent_utilities.automation.research_pipeline",

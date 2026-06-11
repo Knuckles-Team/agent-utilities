@@ -48,7 +48,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
-from ..registry import register_source
+from ..registry import register_extractor
 
 CATEGORY = "camunda"
 
@@ -358,7 +358,7 @@ def extract(config: Any) -> ExtractionBatch:
     return ExtractionBatch(category=CATEGORY, nodes=nodes, edges=edges)
 
 
-register_source(
+register_extractor(
     CATEGORY,
     extract,
     description=(

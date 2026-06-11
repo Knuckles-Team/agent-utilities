@@ -171,7 +171,6 @@ class MCPPackageConnector(LoadConnector, PollConnector):
     """
 
     provider = "MCP Agent-Package"
-    priority = 70
 
     def configure(
         self,

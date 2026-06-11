@@ -126,14 +126,6 @@ def test_health_check_bad_path():
     assert conn.health_check() is False
 
 
-def test_fetch_protocol_wrapper(sqlite_db):
-    conn = UniversalConnector(sqlite_db)
-    result = conn.fetch("SELECT id FROM authors")
-    assert result.row_count == 1
-    assert result.error is None
-    assert result.connector_name == conn.name
-
-
 # ---------------------------------------------------------------------- #
 # Schema introspection → KG nodes/edges.
 # ---------------------------------------------------------------------- #
