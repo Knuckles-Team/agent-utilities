@@ -1101,7 +1101,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
   doc: social-closer / triviality gate
 - id: KG-2.16
-  name: config discipline
+  name: else the per-file path. Both yield the
   pillar: KG-2
   status: live
   code_paths:
@@ -1111,7 +1111,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
-  doc: config discipline
+  doc: else the per-file path. Both yield the
 - id: KG-2.17
   name: decay scanner + semantic merge
   pillar: KG-2
