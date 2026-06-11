@@ -191,6 +191,49 @@ class TestDaemonRegistration:
         assert match[0][1] == ms._tick_failure_ingest
 
 
+class TestGoldenLoopTopicsOverride:
+    """The failure tick addresses its just-created gaps directly, not via the
+    generic (limited, arbitrarily-ordered) unresolved_topics scan."""
+
+    def test_supplied_topics_bypass_generic_scan(self, monkeypatch):
+        import agent_utilities.knowledge_graph.enrichment.cards as cards_mod
+        import agent_utilities.knowledge_graph.enrichment.synthesize as synth_mod
+        import agent_utilities.knowledge_graph.research.golden_loop as gl
+        from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
+        from agent_utilities.knowledge_graph.research.golden_loop import (
+            GoldenLoopController,
+        )
+
+        captured = {}
+
+        def fake_synth(goal, *a, **k):
+            captured["goal"] = goal
+            return TeamSpec(name="T", goal=goal, lead="L", members=["a", "b"]), []
+
+        monkeypatch.setattr(synth_mod, "synthesize_team", fake_synth)
+        monkeypatch.setattr(synth_mod, "persist_synthesis", lambda *a, **k: (1, 0))
+        monkeypatch.setattr(cards_mod, "make_lite_llm_fn", lambda *a, **k: (lambda p: "{}"))
+
+        def _boom(*a, **k):  # must never run when topics are supplied
+            raise AssertionError("generic unresolved_topics scan should be skipped")
+
+        monkeypatch.setattr(gl, "unresolved_topics", _boom)
+
+        from unittest.mock import MagicMock
+
+        eng = MagicMock()
+        eng.backend.semantic_search = lambda *a, **k: []
+        ctrl = GoldenLoopController(eng)
+        ctrl._capability_search = lambda: (lambda q, top_k=5: [])  # type: ignore[assignment]
+
+        rep = ctrl.run_one_cycle(
+            topics=[{"id": "failure_gap:x", "name": "Failure: timeout in loop"}],
+            assimilate=False,
+        )
+        assert rep["topics_intake"] == 1
+        assert "timeout in loop" in captured["goal"]
+
+
 class TestIntakeContract:
     def test_gap_is_selected_by_unresolved_topics(self):
         """The materialized failure_gap must ride the golden loop's intake unchanged."""
