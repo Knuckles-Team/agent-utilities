@@ -32,6 +32,15 @@
     rdfs:domain :Prompt ;
     rdfs:range :Prompt .
 
+:executedProcess a owl:ObjectProperty ;
+    rdfs:label "executedProcess" ;
+    rdfs:comment """CONCEPT:ORCH-1.43 — a RunTrace (one workflow run) EXECUTED the
+    descriptive BusinessProcess its workflow realizes (EXECUTED_PROCESS in the
+    LPG; written by the workflow runner's lineage close-out when a REALIZES
+    workflow completes). Closes the provenance loop opened by
+    :realizesProcess.""" ;
+    rdfs:range :BusinessProcess .
+
 :goalText a owl:DatatypeProperty ;
     rdfs:range xsd:string .
 
