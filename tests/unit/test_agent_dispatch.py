@@ -439,3 +439,263 @@ def test_session_execution_guard_distinct_sessions_run_concurrently():
     t1.join(timeout=5)
     t2.join(timeout=5)
     assert not t1.is_alive() and not t2.is_alive()
+
+
+# ── dispatch worker: claim / execute / writeback ──────────────────────────
+
+
+@pytest.fixture
+def queued_goal(dispatch_db, fake_queue, monkeypatch):
+    """A goal enqueued in queue mode, ready for a worker to claim."""
+    import asyncio
+
+    monkeypatch.setattr(agent_dispatch, "dispatch_queue_enabled", lambda *a: True)
+    resp = asyncio.run(
+        _sessions.create_goal(
+            _FakeRequest(
+                {
+                    "objective": "worker goal",
+                    "max_iterations": 1,
+                    "validation_cmd": "true",
+                }
+            )
+        )
+    )
+    return json.loads(resp.body)
+
+
+def test_worker_claims_executes_and_writes_back(dispatch_db, fake_queue, queued_goal):
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    goal_id = queued_goal["goal_id"]
+    session_id = queued_goal["session_id"]
+
+    item_id, payload = fake_queue.get()
+    env = AgentTurnEnvelope.from_item(payload)
+    outcome = worker.execute_agent_turn(env, token="hostA:1:agent-dispatch")
+    assert outcome == "completed"
+    fake_queue.ack(item_id)
+
+    goals = _rows(dispatch_db, "goals")
+    assert goals[0]["status"] == "completed"  # run_goal_loop wrote back durably
+    assert goals[0]["total_iterations"] == 1
+    sessions = _rows(dispatch_db, "sessions")
+    assert sessions[0]["status"] == "completed"
+    turns = _rows(dispatch_db, "turns")
+    assert any(t["role"] == "assistant" for t in turns)  # iteration turn appended
+    assert fake_queue.get_queue_size() == 0
+
+
+def test_worker_skips_duplicate_delivery_of_finished_goal(
+    dispatch_db, fake_queue, queued_goal
+):
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    _, payload = fake_queue.get()
+    env = AgentTurnEnvelope.from_item(payload)
+    assert worker.execute_agent_turn(env) == "completed"
+    # Redelivery of the same envelope (at-least-once) is an idempotent skip.
+    assert worker.execute_agent_turn(env) == "skipped"
+
+
+def test_worker_skips_goal_with_fresh_live_claim(dispatch_db, fake_queue, queued_goal):
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    goal_id = queued_goal["goal_id"]
+    conn = sqlite3.connect(str(dispatch_db))
+    conn.execute(
+        "UPDATE goals SET status = 'running', owner_host = 'hostB:9:agent-dispatch', "
+        "updated_at = ? WHERE goal_id = ?",
+        (time.time(), goal_id),
+    )
+    conn.commit()
+    conn.close()
+    _, payload = fake_queue.get()
+    env = AgentTurnEnvelope.from_item(payload)
+    assert worker.execute_agent_turn(env) == "skipped"
+
+
+def test_crash_requeue_stale_claim_is_reclaimed(dispatch_db, fake_queue, queued_goal):
+    """Worker crash mid-turn: the envelope was never acked, the claim goes
+    stale, and the redelivered envelope is re-claimed by another worker."""
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    goal_id = queued_goal["goal_id"]
+    # Worker A claimed (status=running) then died — claim timestamp far in the past.
+    conn = sqlite3.connect(str(dispatch_db))
+    conn.execute(
+        "UPDATE goals SET status = 'running', owner_host = 'dead:1:agent-dispatch', "
+        "updated_at = ? WHERE goal_id = ?",
+        (time.time() - 2 * worker.CLAIM_TTL_S, goal_id),
+    )
+    conn.commit()
+    conn.close()
+
+    # The unacked item is still in the queue (head-until-ack / redelivery).
+    assert fake_queue.get_queue_size() == 1
+    item_id, payload = fake_queue.get()
+    env = AgentTurnEnvelope.from_item(payload)
+    outcome = worker.execute_agent_turn(env, token="hostB:2:agent-dispatch")
+    assert outcome == "completed"
+    fake_queue.ack(item_id)
+    goals = _rows(dispatch_db, "goals")
+    assert goals[0]["status"] == "completed"
+
+
+def test_worker_expires_past_deadline_turn(dispatch_db, fake_queue, queued_goal):
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    _, payload = fake_queue.get()
+    payload = dict(payload, deadline_unix=time.time() - 10)
+    env = AgentTurnEnvelope.from_item(payload)
+    assert worker.execute_agent_turn(env) == "expired"
+    goals = _rows(dispatch_db, "goals")
+    assert goals[0]["status"] == "failed"
+    assert "deadline" in goals[0]["error"].lower()
+
+
+def test_consumer_loop_processes_and_acks_after(dispatch_db, fake_queue, queued_goal):
+    import threading
+
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    stop = threading.Event()
+
+    class _StopWhenEmpty(FakeDispatchQueue):
+        pass
+
+    # Reuse the populated fake queue; stop the loop once it drains.
+    real_get = fake_queue.get
+
+    def _get():
+        item = real_get()
+        if item is None:
+            stop.set()
+        return item
+
+    fake_queue.get = _get
+    worker.run_dispatch_consumer_loop(fake_queue, stop, idle_sleep_s=0.01)
+    assert fake_queue.get_queue_size() == 0  # processed AND acked
+    goals = _rows(dispatch_db, "goals")
+    assert goals[0]["status"] == "completed"
+
+
+def test_consumer_loop_acks_poison_envelope(dispatch_db, fake_queue):
+    """A malformed envelope is logged + acked — it never wedges the loop."""
+    import threading
+
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    fake_queue.put({"job_id": "poison", "kind": "goal_loop"})  # no session_id
+    stop = threading.Event()
+    real_get = fake_queue.get
+
+    def _get():
+        item = real_get()
+        if item is None:
+            stop.set()
+        return item
+
+    fake_queue.get = _get
+    worker.run_dispatch_consumer_loop(fake_queue, stop, idle_sleep_s=0.01)
+    assert fake_queue.get_queue_size() == 0
+
+
+def test_two_workers_one_session_execute_serially(dispatch_db, fake_queue, monkeypatch):
+    """Two workers, one session: per-session mutual exclusion holds end-to-end."""
+    import asyncio
+    import threading
+
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    monkeypatch.setattr(agent_dispatch, "dispatch_queue_enabled", lambda *a: True)
+    body = json.loads(
+        asyncio.run(
+            _sessions.create_goal(_FakeRequest({"objective": "serial goal"}))
+        ).body
+    )
+    session_id = body["session_id"]
+    # The same envelope delivered to BOTH workers (at-least-once duplicate).
+    env = AgentTurnEnvelope(
+        session_id=session_id, kind=KIND_GOAL_LOOP, payload_ref=body["goal_id"]
+    )
+
+    active = {"n": 0, "max": 0}
+    gate = threading.Lock()
+    real_execute = worker._execute_goal_turn
+
+    def _tracked(spec):
+        with gate:
+            active["n"] += 1
+            active["max"] = max(active["max"], active["n"])
+        time.sleep(0.05)
+        try:
+            return real_execute(spec)
+        finally:
+            with gate:
+                active["n"] -= 1
+
+    monkeypatch.setattr(worker, "_execute_goal_turn", _tracked)
+    outcomes: list[str] = []
+
+    def _run(token):
+        outcomes.append(worker.execute_agent_turn(env, token=token))
+
+    t1 = threading.Thread(target=_run, args=("hostA:1:agent-dispatch",))
+    t2 = threading.Thread(target=_run, args=("hostB:2:agent-dispatch",))
+    t1.start()
+    t2.start()
+    t1.join(timeout=30)
+    t2.join(timeout=30)
+
+    assert active["max"] == 1  # never concurrent within one session
+    assert sorted(outcomes) == ["completed", "skipped"]  # exactly one executed
+
+
+def test_orchestrator_task_claim_execute_writeback(fake_queue, monkeypatch):
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    class _TaskEngine(_FakeOrchEngine):
+        def query_cypher(self, q, params=None):
+            node = self.graph.nodes.get((params or {}).get("id"))
+            if node is None:
+                return []
+            return [
+                {
+                    "s": node.get("status"),
+                    "d": node.get("description"),
+                    "cu": node.get("claim_unix"),
+                }
+            ]
+
+        def _update_task_status(self, job_id, status, meta=None):
+            node = self.graph.nodes.setdefault(job_id, {})
+            node["status"] = status
+            node.update(meta or {})
+
+    engine = _TaskEngine()
+    engine.add_node(
+        "orch-abc", "Task", properties={"status": "pending", "description": "do it"}
+    )
+
+    async def _fake_execute_agent(self, **kw):
+        return f"ran {kw['task']} as {kw['agent_name'] or 'default'}"
+
+    from agent_utilities.orchestration.manager import Orchestrator
+
+    monkeypatch.setattr(Orchestrator, "execute_agent", _fake_execute_agent)
+    monkeypatch.setattr(Orchestrator, "__init__", lambda self, engine: None)
+
+    env = AgentTurnEnvelope(
+        session_id="orch-abc",
+        kind=KIND_ORCHESTRATOR_TASK,
+        payload_ref="orch-abc",
+        agent_name="librarian",
+    )
+    assert worker.execute_agent_turn(env, engine) == "completed"
+    node = engine.graph.nodes["orch-abc"]
+    assert node["status"] == "completed"
+    assert "librarian" in node["result"]
+    assert node["executed_by"].endswith(":agent-dispatch")
+    # Redelivery is an idempotent skip.
+    assert worker.execute_agent_turn(env, engine) == "skipped"
