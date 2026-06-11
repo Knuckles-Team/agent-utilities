@@ -1,8 +1,8 @@
-"""Shared fakes for the autonomy control-plane tests (OS-5.24 — OS-5.27).
+"""Shared fakes for the autonomy control-plane tests (OS-5.24 — OS-5.29).
 
 A minimal KG-engine double honoring exactly the surface the control plane
 uses (``add_node`` / ``query_cypher`` / ``backend.execute`` / ``submit_task``
-/ ``link_nodes``), plus observer/actuator/notifier doubles.
+/ ``link_nodes``), plus observer/actuator/signal-provider/notifier doubles.
 """
 
 from __future__ import annotations
@@ -82,6 +82,25 @@ class FakeEngine:
                 and n.get("kind") == params.get("kind")
                 and n.get("target") == params.get("target")
             ][:1]
+        if "ActionDecision" in query and "params_json" in query:
+            # The autoscaler's cooldown probe (OS-5.29): per kind+target.
+            return [
+                {
+                    "decision": n.get("decision"),
+                    "params_json": n.get("params_json"),
+                    "ts": n.get("decided_unix"),
+                }
+                for n in self.by_type("ActionDecision")
+                if n.get("kind") == params.get("kind")
+                and n.get("target") == params.get("target")
+            ]
+        if "ActionExecution" in query:
+            return [
+                {"ok": n.get("ok"), "ts": n.get("executed_unix")}
+                for n in self.by_type("ActionExecution")
+                if n.get("kind") == params.get("kind")
+                and n.get("target") == params.get("target")
+            ]
         if "ActionDecision" in query:
             return [
                 {
@@ -154,6 +173,25 @@ def obs(name: str, status: str, replicas: int | None = None, flaps: int = 0):
         sources=["fake"],
         detail=f"fake {status}",
     )
+
+
+class FakeSignalProvider:
+    """Scriptable ScalingSignalProvider double (OS-5.29)."""
+
+    name = "fake-signals"
+
+    def __init__(
+        self,
+        values: dict[str, float | None] | None = None,
+        default: float | None = None,
+    ):
+        self.values = values or {}
+        self.default = default
+        self.calls: list[tuple[str, str]] = []
+
+    def signal_value(self, service: str, signal: str) -> float | None:
+        self.calls.append((service, signal))
+        return self.values.get(service, self.default)
 
 
 class CaptureNotifier:

@@ -1,8 +1,8 @@
-# Fleet Autonomy Control Plane (OS-5.24 — OS-5.27)
+# Fleet Autonomy Control Plane (OS-5.24 — OS-5.27, OS-5.29)
 
 The Tranche-3 autonomy build: the layer that lets the platform *act* on its
 fleet — restart, scale, deploy, remediate — without ever acting outside
-policy. Four pieces, one decision point.
+policy. Five pieces, one decision point.
 
 ```mermaid
 flowchart LR
@@ -12,10 +12,14 @@ flowchart LR
     FE --> TR[fleet_event_triage task]
     TR --> PB[Remediation playbooks\nOS-5.26]
     REG[deploy/mcp-fleet.registry.yml\n+ desired-state override] --> RC[Fleet reconciler tick\nOS-5.25]
+    REG -->|scaling: bounds| AS[Autoscaler tick\nOS-5.29]
+    SIG[ScalingSignalProvider\nlocal gauges / Prometheus / injected] --> AS
     OBS[FleetObserver\nKG events + docker / injected] --> RC
+    OBS --> AS
     OBS --> PB
     PB --> AP{ActionPolicy\nOS-5.24}
     RC --> AP
+    AS --> AP
     DW[Deploy watch\nOS-5.27] --> AP
     AP -->|allow / allow+notify| ACT[FleetActuator\ndry-run default / docker / injected]
     AP -->|queue_approval| APQ[ActionApproval nodes\n/api/fleet/approvals]
@@ -166,6 +170,98 @@ Outcomes persist as `DeployWatch` nodes. The reconciler and the
 `service_down` playbook schedule a watch after every successful
 restart/deploy actuation.
 
+## OS-5.29 — Reactive replica autoscaling
+
+`orchestration/fleet_autoscaler.py`, registered as the leader-only
+`fleet_autoscaler` maintenance tick (opt-in: `FLEET_AUTOSCALER=1`, interval
+`FLEET_AUTOSCALER_INTERVAL`, default 60 s). Where the reconciler converges on
+*declared* replica counts, the autoscaler *chooses* them from load — the
+smallest viable autoscaler, composed from the existing primitives.
+
+**Bounds — registry-declared.** A service is only ever autoscaled when its
+registry/override entry carries a `scaling:` block:
+
+```yaml
+services:
+  - name: vector-mcp
+    scaling:
+      min: 1                # replica floor (>= 0; default 1)
+      max: 3                # replica ceiling (required; >= min)
+      signal: queue_depth   # queue_depth | consumer_lag | cpu | custom metric
+      target: 200           # per-replica target value (required; > 0)
+      scale_up_step: 1      # max replicas added per evaluation (default 1)
+      scale_down_step: 1    # max replicas removed per evaluation (default 1)
+      cooldown_s: 300       # min seconds between scale actions (default 300)
+```
+
+Because `deploy/mcp-fleet.registry.yml` is machine-generated, the normal home
+for scaling blocks is the `FLEET_DESIRED_STATE_PATH` override (same shape,
+layered on top; `scaling: null` explicitly disables). Validation is strict —
+`max >= min >= 0`, `signal`/`target`/`max` explicit — and an invalid block is
+**dropped with a warning** (the service keeps the static OS-5.25 reconcile);
+a typo never produces surprise scaling.
+
+**Signal hierarchy — pluggable, no hard Prometheus dependency**
+(`orchestration/scaling_signals.py`, `ScalingSignalProvider` protocol:
+`signal_value(service, signal) -> float | None`):
+
+1. **Injected** — `set_scaling_signal_provider(MyProvider())` (lgtm-mcp,
+   Thanos, pushgateway, …) wins over everything.
+2. **Prometheus** — `SCALING_PROMETHEUS_URL` set ⇒ instant HTTP queries
+   against `/api/v1/query` (plain `httpx` GET, no client lib). Well-known
+   signals use shipped PromQL; a custom signal is sent verbatim as PromQL
+   with a `{service}` placeholder.
+3. **Local (default, zero-infra)** — this process's own OS-5.23/KG-2.55
+   gauges: `queue_depth` → `agent_utilities_kg_ingest_queue_depth`,
+   `consumer_lag` → `agent_utilities_kg_ingest_consumer_lag`; other names
+   resolve verbatim in the local registry.
+
+`None` (unknown signal, provider failure, metrics extra absent, empty query
+result) means **no data ⇒ no scaling action** — the same
+never-act-on-zero-evidence rule the reconciler applies to unobserved
+services.
+
+**Target tracking (as shipped):**
+
+```
+desired = ceil(effective_current × value_per_replica / target)
+```
+
+with `effective_current = max(current, 1)` (scale-from-zero works) and
+fleet-total signals (`queue_depth`, `consumer_lag`) first normalized to
+per-replica (`value / effective_current`); `cpu` and custom signals are
+treated as per-replica averages already (write custom PromQL with `avg`, not
+`sum`). The result is clamped to `[min, max]` and step-capped (at most
+`scale_up_step` added / `scale_down_step` removed per evaluation), and
+`current` comes from the **FleetObserver** — a service with no replica
+observation (or observed *down*: that is the reconciler's restart problem)
+is skipped.
+
+**Cooldown / flap rules.** No scale action — in either direction — within
+`cooldown_s` of the service's last allowed/executed `scale_service` entry in
+the durable `ActionDecision`/`ActionExecution` ledger (shared across
+processes and restarts). That single rule is also the flap guard: an
+up-then-down oscillation inside the window is impossible. The per-tick
+action budget reuses `FLEET_RECONCILER_MAX_ACTIONS`.
+
+**Gate → actuate → watch.** Every proposal is a `scale_service`
+`ActionRequest` (`source: autoscaler`, params carry
+`replicas/from_replicas/direction/signal/value/target`) through ActionPolicy
+— `approval_required` under the shipped default policy, so enabling
+`FLEET_AUTOSCALER` out of the box only *queues* scale proposals for a human.
+Allowed actions run through the FleetActuator seam; a successful scale-up
+schedules an OS-5.27 deploy watch, and scale-downs do too when the policy
+file opts in:
+
+```yaml
+options:
+  watch_scale_down: true   # read via ActionPolicy.option()
+```
+
+**Audit.** At most ONE compact `AutoscaleEvaluation` node per tick (per-tick
+verdict list in `details_json`; quiet ticks write nothing) — per-action
+audit already lives in the `ActionDecision`/`ActionExecution` ledger.
+
 ## Strangled: `capabilities/auto_healing.py`
 
 The dormant `AutoHealingEngine` shell (disabled by default, never-wired
@@ -189,6 +285,9 @@ topic through the live AHE-3.18 propose-only remediation chain at the same
 | `FLEET_ACTUATOR` | `dryrun` | OS-5.25 |
 | `DEPLOY_WATCH_WINDOW` | `300` s | OS-5.27 |
 | `DEPLOY_WATCH_POLL` | `15` s | OS-5.27 |
+| `FLEET_AUTOSCALER` | `false` (opt-in) | OS-5.29 |
+| `FLEET_AUTOSCALER_INTERVAL` | `60` s | OS-5.29 |
+| `SCALING_PROMETHEUS_URL` | unset (local gauges) | OS-5.29 |
 
 All typed `AgentConfig` fields (see `docs/architecture/configuration.md`).
 
@@ -197,14 +296,21 @@ All typed `AgentConfig` fields (see `docs/architecture/configuration.md`).
 ```python
 from agent_utilities.orchestration.fleet_actuation import set_fleet_actuator
 from agent_utilities.orchestration.fleet_observation import set_fleet_observer
+from agent_utilities.orchestration.scaling_signals import set_scaling_signal_provider
 from agent_utilities.knowledge_graph.actions.dispatch import set_default_notifier
 
 set_fleet_observer(MyPortainerObserver())     # richer observed state
 set_fleet_actuator(MyPortainerActuator())     # real actuation
+set_scaling_signal_provider(MyLgtmProvider()) # richer load signals (optional)
 set_default_notifier(MySlackNotifier())       # real escalation channel
 ```
 
+For autoscaling without a custom provider, point the built-in at your
+Prometheus (`SCALING_PROMETHEUS_URL=http://prometheus:9090`), declare
+`scaling:` bounds in the `FLEET_DESIRED_STATE_PATH` override, and set
+`FLEET_AUTOSCALER=1`.
+
 Then set `FLEET_RECONCILER=1` and relax `ACTION_POLICY_PATH` rule-by-rule
 (staging targets first) as confidence grows — the audit ledger
-(`ActionDecision` / `ActionExecution` / `ReconcileReport` / `DeployWatch`
-nodes) is the evidence trail.
+(`ActionDecision` / `ActionExecution` / `ReconcileReport` / `DeployWatch` /
+`AutoscaleEvaluation` nodes) is the evidence trail.
