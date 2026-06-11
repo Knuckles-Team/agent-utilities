@@ -9,10 +9,17 @@ the major features of this codebase".
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from .models import CodeEntity, EnrichmentEdge, Feature
+
+logger = logging.getLogger(__name__)
+
+# Max ops per bulk_mutate call — bounds the per-request MsgPack payload while
+# still amortising the socket round-trip over thousands of writes. (CONCEPT:KG-2.16)
+_COMMUNITY_BULK_CHUNK = 10_000
 
 # (node_ids, edges) -> list of communities (each a list of node ids)
 CommunityFn = Callable[[list[str], list[tuple[str, str]]], list[list[str]]]
@@ -82,16 +89,44 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
     """
 
     def _fn(node_ids: list[str], edges: list[tuple[str, str]]) -> list[list[str]]:
-        # Load the call graph into the scratch tenant. A batched load via
-        # ``graph_compute.batch_update`` was tried as an optimization but that
-        # wrapper has a latent bug (it ``json.loads`` an already-decoded dict)
-        # AND its op schema added 0 nodes — so it broke features-on codebase
-        # ingestion outright. Until a batch path is fixed *and* verified to add
-        # nodes, the proven per-element load is correct. (CONCEPT:KG-2.16)
-        for nid in node_ids:
-            graph_compute.add_node(nid, {"type": "Code"})
-        for src, tgt in edges:
-            graph_compute.add_edge(src, tgt, {"type": "CALLS"})
+        # Load the call graph into the scratch tenant in ONE bulk pass instead of
+        # a per-element add_node/add_edge round-trip each (a big repo is tens of
+        # thousands of symbols → tens of thousands of socket round-trips). The
+        # engine's ``batch_update`` now MsgPack-encodes properties (epistemic-graph
+        # 9e3620c), so the batched load is read-compatible; this was reverted to
+        # per-element only while that op stored unreadable bytes. Nodes are loaded
+        # before edges so every edge endpoint exists. Falls back to per-element if
+        # the engine has no bulk op or a batch fails. (CONCEPT:KG-2.16)
+        bulk = getattr(graph_compute, "bulk_mutate", None) or getattr(
+            graph_compute, "batch_update", None
+        )
+        loaded = False
+        if bulk is not None:
+            node_ops = [
+                {"op": "add_node", "id": nid, "properties": {"type": "Code"}}
+                for nid in node_ids
+            ]
+            edge_ops = [
+                {
+                    "op": "add_edge",
+                    "source": src,
+                    "target": tgt,
+                    "properties": {"type": "CALLS"},
+                }
+                for src, tgt in edges
+            ]
+            try:
+                for ops in (node_ops, edge_ops):  # all nodes, THEN all edges
+                    for i in range(0, len(ops), _COMMUNITY_BULK_CHUNK):
+                        bulk(ops[i : i + _COMMUNITY_BULK_CHUNK])
+                loaded = True
+            except Exception as e:  # noqa: BLE001 - degrade to per-element load
+                logger.debug("community batch load failed (%s); per-element", e)
+        if not loaded:
+            for nid in node_ids:
+                graph_compute.add_node(nid, {"type": "Code"})
+            for src, tgt in edges:
+                graph_compute.add_edge(src, tgt, {"type": "CALLS"})
         try:
             return graph_compute.community_detection(resolution)
         except Exception:

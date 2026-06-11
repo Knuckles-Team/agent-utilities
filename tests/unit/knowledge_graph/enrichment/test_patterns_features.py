@@ -29,14 +29,53 @@ class _RecordingCompute:
 
 
 def test_make_community_fn_loads_then_detects():
-    # The scratch tenant is loaded with the full call graph (every node + edge)
-    # before community detection runs, and the partition is returned.
+    # No bulk op on the stand-in → per-element fallback loads the full call graph
+    # (every node + edge) before community detection runs.
     gc = _RecordingCompute()
     fn = make_community_fn(gc)
     result = fn(["a", "b", "c"], [("a", "b"), ("b", "c")])
     assert gc.nodes == ["a", "b", "c"]
     assert gc.edges == [("a", "b"), ("b", "c")]
     assert result == [["a", "b"]]
+
+
+class _BulkCompute:
+    """Stand-in with a bulk op (like the real engine) recording batch_update ops."""
+
+    def __init__(self):
+        self.bulk_calls: list[list[dict]] = []
+        self.per_node = 0
+
+    def bulk_mutate(self, ops):
+        self.bulk_calls.append(ops)
+
+    def add_node(self, nid, props):
+        self.per_node += 1
+
+    def add_edge(self, src, tgt, props):
+        self.per_node += 1
+
+    def community_detection(self, resolution):
+        return [["a", "b"]]
+
+
+def test_make_community_fn_uses_bulk_load_nodes_before_edges():
+    gc = _BulkCompute()
+    fn = make_community_fn(gc)
+    result = fn(["a", "b", "c"], [("a", "b"), ("b", "c")])
+    assert result == [["a", "b"]]
+    assert gc.per_node == 0  # NOT the per-element path
+    flat = [op for call in gc.bulk_calls for op in call]
+    # All node ops precede all edge ops (so endpoints exist).
+    kinds = [op["op"] for op in flat]
+    assert kinds == ["add_node", "add_node", "add_node", "add_edge", "add_edge"]
+    assert flat[0] == {"op": "add_node", "id": "a", "properties": {"type": "Code"}}
+    assert flat[3] == {
+        "op": "add_edge",
+        "source": "a",
+        "target": "b",
+        "properties": {"type": "CALLS"},
+    }
 
 
 def _cls(name, bases=None, methods=None, decorators=None, is_abstract=False):
