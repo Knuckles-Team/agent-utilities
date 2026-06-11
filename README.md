@@ -1,4 +1,4 @@
-# Agent Utilities - AGI Harness
+# Agent Utilities
 
 ![PyPI - Version](https://img.shields.io/pypi/v/agent-utilities)
 ![MCP Server](https://badge.mcpx.dev?type=server 'MCP Server')
@@ -23,35 +23,60 @@
 
 *Version: 0.47.0*
 
-> **Documentation** — The complete guides, architecture references, and pillar
-> documentation are published as the
-> [official documentation](https://knuckles-team.github.io/agent-utilities/).
+> **New here?** Read **[docs/start-here.md](docs/start-here.md)** — one page: what
+> this is, the three ways to use it, and the zero-infra knowledge graph. For AIs,
+> **[llms.txt](llms.txt)** is the entry index. Full docs are
+> [published here](https://knuckles-team.github.io/agent-utilities/).
+
+## ⚡ What it is
+
+`agent-utilities` is a **batteries-included harness for building Pydantic-AI
+agents** that ship with a knowledge graph, orchestration, memory, and tools. The
+**zero-infra default needs no databases or external services** — the knowledge
+graph runs in-process. Use it three ways:
+
+| You want to… | Use | Start |
+|---|---|---|
+| Build a standalone agent in Python | **Library** | `from agent_utilities import create_agent` |
+| Give an existing agent (Claude Code/Cursor/yours) the KG + tools | **MCP `graph-os`** | `uv run graph-os` |
+| Share one KG backend across many clients/containers | **MCP HTTP / REST gateway** | `uv run graph-os-daemon` (`:8100`) |
+
+→ Full trade-offs: **[Consumption Models](docs/guides/consumption-models.md)**.
 
 ## ⚡ 5-Minute Quickstart
 
-`agent-utilities` is a batteries-included harness for building Pydantic-AI agents.
-The **zero-infra default needs no databases or external services** — the knowledge
-graph runs in-process.
-
 ```bash
-pip install agent-utilities
+pip install agent-utilities          # zero external deps to start
 ```
 
-Point it at any model provider (e.g. `OPENAI_API_KEY`, or a local vLLM/Ollama
-endpoint via `.env`), then:
+Point it at any model provider (`OPENAI_API_KEY`, or a local vLLM/Ollama endpoint
+via `.env`), then create an agent — skills, tools, and the in-process KG included:
 
 ```python
-from agent_utilities.agent.factory import create_agent
+from agent_utilities import create_agent
 
-# A ready-to-run agent: skills, universal tools, and the in-process knowledge graph.
-agent, toolsets = create_agent(name="assistant")
-result = agent.run_sync("What can you do?")
-print(result.output)
+agent, toolsets = create_agent(name="assistant", skill_types=["universal", "graphs"])
+print(agent.run_sync("What can you do?").output)
 ```
 
-That's the whole "hello world". From there, attach MCP toolsets, swap the graph
-backend, or wire up the full 5-pillar platform — see [Quick Start](#quick-start),
-the [reference agent](examples/reference_agent/), and the [pillar docs](docs/pillars).
+### Use the knowledge graph natively — for free, no database
+
+```python
+from agent_utilities.mcp import kg_server   # GRAPH_BACKEND=tiered is the default
+
+# Add knowledge...
+await kg_server._execute_tool("graph_write", action="add_node",
+    node_id="svc:payments", node_type="Service",
+    properties='{"team":"fintech","tier":"critical"}')
+
+# ...and query it back — in-process, no server required.
+res = await kg_server._execute_tool("graph_query",
+    cypher="MATCH (n:Service) WHERE n.tier='critical' RETURN n")
+```
+
+→ The full capability catalog (search, ingest, orchestrate, ontology, memory) is
+in **[docs/capabilities.md](docs/capabilities.md)**; runnable code is in the
+[reference agent](examples/reference_agent/).
 
 > **Heads-up — this is two repos.** The heavy graph compute lives in a **separate**
 > Rust engine, [`epistemic-graph`](https://github.com/Knuckles-Team/epistemic-graph)
@@ -90,13 +115,19 @@ the [reference agent](examples/reference_agent/), and the [pillar docs](docs/pil
 
 ---
 
-## 🌌 Mission & Future State: Distributed Evolution
+## 🧭 Roadmap & Vision
 
-The core vision for `agent-utilities` transcends being just an execution harness—it is the bedrock for **Distributed Agentic Evolution** and the substrate for the **AI-First Autonomous Organization**.
+> This section is **aspirational direction**, not shipped behavior — it's here so
+> you know where the project is heading. For what works *today*, see
+> [Capabilities](docs/capabilities.md).
 
-As autonomous agents leverage this ecosystem to solve complex problems, they continuously learn, adapt, and refine their own capabilities. Our future state envisions a community of independent, self-improving agents that not only run on this harness but dynamically contribute their localized evolutionary breakthroughs—new skills, optimized TeamConfigs, refined prompts, and advanced reasoning traces—back to the open-source collective.
-
-By tying our unified Knowledge Graph, capability auto-activation, and cross-agent communication protocols together, `agent-utilities` becomes an interconnected hive mind where the evolution of one agent elevates the intelligence of all. The harness is not just a way to run an agent; it is the heartbeat of a distributed, self-evolving intelligence network.
+The direction beyond a single agent harness is **distributed agentic evolution**:
+agents that learn from their own failures (the [harness-engineering pillar](docs/pillars/3_agentic_harness_engineering.md)
+ships the evolution loop today) and, over time, contribute reusable breakthroughs
+— new skills, TeamConfigs, refined prompts — back to a shared knowledge graph so
+improvements compound across agents. The building blocks that exist now (unified
+KG, capability auto-activation, cross-agent protocols) are the substrate; the
+"agents improving each other at scale" end-state is roadmap.
 
 ## Key Features
 
@@ -104,7 +135,7 @@ By tying our unified Knowledge Graph, capability auto-activation, and cross-agen
 - **[Schema-Pack 2.0 — pluggable domain profiles](docs/pillars/2_epistemic_knowledge_graph/KG-2.37-Research_State_Domain_Pack.md)** (CONCEPT:KG-2.22–KG-2.37): Swap the active domain pack (`research-state`, `finance`, `biomedical`, …) to retune the whole KG — zero-LLM typed-edge extraction (supports/weakens/cites), relational-intent recall, recency/source-trust ranking, autocut, and **transitive/inverse OWL closure** + bi-temporal `as_of` "literature state" that flat brain layers can't provide. Set `GRAPH_SCHEMA_PACK` or `graph_configure(action="schema_pack")`.
 - **[Unified Intelligence Graph](docs/guides/features.md#comprehensive-feature-list)**: A tiered pipeline combining native Rust in-memory processing (`EpistemicGraphBackend`, the default L1 working store) with a durable PostgreSQL/pggraph persistence tier and OWL (Apache Jena Fuseki) semantics. (LadybugDB / Neo4j / FalkorDB Cypher backends remain available under `backends/contrib/`.)
 - **[Centralized Sessions & Goals (API-First Gateway)](docs/centralized_kg_coordination.md#7-centralized-sessions--autonomous-goal-coordination)**: A highly-resilient, centralized REST API gateway running on Port `8100` that handles background goal loops, durable turns, and user session reply orchestration.
-- **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` running over high-speed Unix Sockets (length-prefixed MessagePack — **no PyO3/FFI**), providing fast AST parsing, VF2 subgraph matching, and a Redpanda-backed Reactive State Ledger. The architecture is **modeled** to scale toward 100,000,000 concurrent agents — each working a *bounded subgraph*, not one monolithic graph — via a [Capacity Model](docs/scaling/capacity_model.md) whose anchors are now **measured** — per-shard linear write throughput and a ~52 kB/agent working-set footprint (`epistemic-graph/docs/benchmarks.md`). The 100M target is a **measured projection** (~78 hosts at 64 GB/host), **not a full-scale load test** — we do not claim 100M has been run.
+- **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` running over high-speed Unix Sockets (length-prefixed MessagePack — **no PyO3/FFI**), providing fast AST parsing, VF2 subgraph matching, and a Redpanda-backed Reactive State Ledger. **Measured** anchors: per-shard linear write throughput and a ~52 kB/agent working-set footprint (`epistemic-graph/docs/benchmarks.md`). From those, a [Capacity Model](docs/scaling/capacity_model.md) **projects** scaling toward very large agent counts (the often-cited 100M figure is an arithmetic projection at ~78 hosts × 64 GB, **not a load test** — each agent works a *bounded subgraph*, not one monolithic graph). We do not claim 100M has been run.
 - **[Spec-Driven Development (SDD)](docs/guides/features.md#spec-driven-development-sdd-lifecycle)**: High-fidelity orchestration that decomposes goals into structured specs, implementation plans, and parallel tasks.
 - **[Emergent Architecture](docs/guides/features.md#emergent-architecture-conceptkg-20-through-conceptorch-12)**: Dynamic AgentCapability auto-activation, TeamConfig coalition promotion, and evolutionary skill refinement via self-models.
 - **[Agent OS & Safety](docs/guides/features.md#human-in-the-loop--tool-safety)**: Built-in Universal Tool Guards, structural vulnerability scanning, and transparent process lifecycle management.
