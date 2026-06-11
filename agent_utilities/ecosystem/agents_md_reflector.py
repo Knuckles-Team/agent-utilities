@@ -197,9 +197,9 @@ class AgentsMdReflector:
                 provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
             )
             agent = Agent(model, system_prompt=REFLECTOR_SYSTEM_PROMPT)
-            import nest_asyncio
+            from ..core.event_loop import allow_nested_run_sync
 
-            nest_asyncio.apply()
+            allow_nested_run_sync()
             result = agent.run_sync(
                 f"## Current AGENTS.md\n```\n{current_md[:4000]}\n```\n\n## Session\n{transcript}"
             )

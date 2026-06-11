@@ -819,9 +819,9 @@ class IntelligenceGraphEngine(
         # ── L2: Free-Text LLM Synthesis ─────────────────────────────
         llm_summary = ""
         try:
-            import nest_asyncio
+            from ...core.event_loop import allow_nested_run_sync
 
-            nest_asyncio.apply()
+            allow_nested_run_sync()
 
             model = create_model(
                 provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
