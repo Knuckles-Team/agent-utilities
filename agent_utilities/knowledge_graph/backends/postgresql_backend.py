@@ -461,9 +461,7 @@ class PostgreSQLBackend(GraphBackend):
             except Exception as e:
                 msg = str(e).lower()
                 if ("lock" in msg or "deadlock" in msg) and attempts_used < max_retries:
-                    logger.warning(
-                        "PG locked, retrying (attempt %d)", attempts_used
-                    )
+                    logger.warning("PG locked, retrying (attempt %d)", attempts_used)
                     raise PostgresLockContentionError(str(e)) from e
                 # Auto-DDL self-heal: a write to a not-yet-created type table
                 # ("relation X does not exist") creates the table and retries; a

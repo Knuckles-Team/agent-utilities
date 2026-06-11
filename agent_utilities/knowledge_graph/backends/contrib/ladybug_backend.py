@@ -719,9 +719,7 @@ class LadybugBackend(GraphBackend):
             name="ladybug-execute",
         )
         try:
-            return run_with_resilience_sync(
-                _attempt, policy, rng=random.SystemRandom()
-            )
+            return run_with_resilience_sync(_attempt, policy, rng=random.SystemRandom())
         except LadybugLockContentionError as exc:
             logger.error(
                 f"Failed to execute query after {max_retries} retries due to "
