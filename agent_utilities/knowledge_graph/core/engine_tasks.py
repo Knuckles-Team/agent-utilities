@@ -732,6 +732,21 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_fleet_reconciler,
                 )
             )
+        # Reactive replica autoscaler (CONCEPT:OS-5.29) — opt-in
+        # (FLEET_AUTOSCALER=1). Leader-only: one host fleet-wide target-tracks
+        # load signals against registry-declared scaling bounds and proposes
+        # scale_service through the ActionPolicy gate (CONCEPT:OS-5.24).
+        # Default off; with the default dry-run actuator it records intent
+        # without mutating, and a service without a scaling block (or with no
+        # signal data) is never scaled.
+        if _cfg.fleet_autoscaler:
+            jobs.append(
+                (
+                    "fleet_autoscaler",
+                    _cfg.fleet_autoscaler_interval,
+                    self._tick_fleet_autoscaler,
+                )
+            )
         jobs.append(("compaction", 1800.0, self._tick_compaction))
         jobs.append(
             (
@@ -849,6 +864,35 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
             logger.debug("fleet_reconciler tick error: %s", e)
+
+    def _tick_fleet_autoscaler(self) -> None:
+        """One reactive autoscale pass (CONCEPT:OS-5.29).
+
+        For each registry service with a ``scaling:`` block: read its load
+        signal through the pluggable ScalingSignalProvider, target-track a
+        desired replica count within the declared min/max bounds (step-capped,
+        cooldown/flap-guarded against the durable action ledger), diff against
+        the FleetObserver and propose ``scale_service`` through the
+        ActionPolicy decision point (CONCEPT:OS-5.24) + FleetActuator seam;
+        scale-ups get an OS-5.27 deploy watch. Leader-only via the
+        consolidated maintenance scheduler.
+        """
+        try:
+            from agent_utilities.orchestration.fleet_autoscaler import autoscale_fleet
+
+            report = autoscale_fleet(self)
+            if report.get("actions"):
+                logger.info(
+                    "[OS-5.29] fleet autoscale: evaluated=%s actions=%s scaled=%s "
+                    "actuator=%s signals=%s",
+                    report.get("evaluated"),
+                    report.get("actions"),
+                    report.get("scaled"),
+                    report.get("actuator"),
+                    report.get("signal_provider"),
+                )
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("fleet_autoscaler tick error: %s", e)
 
     def _get_host_token(self) -> str:
         """Stable per-process identity for task-claim ownership (zombie reaper).
