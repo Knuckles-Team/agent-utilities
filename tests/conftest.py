@@ -279,10 +279,21 @@ for _mod_name in _OPTIONAL_HEAVY_DEPS:
 # into the repo while the suite runs, which made the pre-commit ``pytest`` hook
 # report "files were modified by this hook" non-deterministically. This guard
 # snapshots the dirty-tracked + untracked sets at session start and, at session
-# end, reverts any tracked file that became dirty *during* the session and removes
-# any untracked file that appeared during it — preserving pre-existing uncommitted
-# work (only test-generated mutations are undone) so the working tree returns to
-# its starting state.
+# end, detects any tracked file that became dirty *during* the session and any
+# untracked file that appeared during it.
+#
+# SAFETY (fix/destructive-test-isolation): the guard is REPORT-ONLY by default.
+# The previous behaviour — ``git checkout -- <strays>`` + ``os.remove`` against
+# the live working tree — destroyed any *concurrent* uncommitted work: a
+# developer or agent editing the repo while the suite ran had their edits
+# reverted and new files deleted at session end (the snapshot can't distinguish
+# test-generated writes from human/agent writes made mid-run). Destructive
+# cleanup now requires an explicit opt-in, used only by the pre-commit
+# ``pytest`` hook where the tree must return to its starting state:
+#
+#   AGENT_UTILITIES_TEST_REPO_GUARD=revert  → revert/delete strays (old behaviour)
+#   AGENT_UTILITIES_TEST_REPO_GUARD=warn    → report strays to stderr (default)
+#   AGENT_UTILITIES_TEST_REPO_GUARD=off     → disable the guard entirely
 import subprocess as _au_subprocess  # noqa: E402
 
 _AU_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -290,10 +301,15 @@ _AU_DIRTY_AT_START: set[str] = set()
 _AU_UNTRACKED_AT_START: set[str] = set()
 
 
-def _au_git(*args: str) -> str:
+def _au_guard_mode() -> str:
+    mode = os.environ.get("AGENT_UTILITIES_TEST_REPO_GUARD", "warn").strip().lower()
+    return mode if mode in {"warn", "revert", "off"} else "warn"
+
+
+def _au_git(*args: str, repo_root: str | None = None) -> str:
     try:
         out = _au_subprocess.run(
-            ["git", "-C", _AU_REPO_ROOT, *args],
+            ["git", "-C", repo_root or _AU_REPO_ROOT, *args],
             capture_output=True,
             text=True,
             timeout=60,
@@ -303,18 +319,59 @@ def _au_git(*args: str) -> str:
         return ""
 
 
-def _au_dirty_tracked() -> set[str]:
-    return {line for line in _au_git("diff", "--name-only").splitlines() if line.strip()}
+def _au_dirty_tracked(repo_root: str | None = None) -> set[str]:
+    return {
+        line
+        for line in _au_git("diff", "--name-only", repo_root=repo_root).splitlines()
+        if line.strip()
+    }
 
 
-def _au_untracked() -> set[str]:
+def _au_untracked(repo_root: str | None = None) -> set[str]:
     return {
         line
         for line in _au_git(
-            "ls-files", "--others", "--exclude-standard"
+            "ls-files", "--others", "--exclude-standard", repo_root=repo_root
         ).splitlines()
         if line.strip()
     }
+
+
+def _au_enforce_session_guard(
+    stray_tracked: list[str],
+    stray_untracked: list[str],
+    *,
+    repo_root: str | None = None,
+    mode: str | None = None,
+) -> None:
+    """Apply the session guard policy to stray working-tree mutations.
+
+    ``warn`` (default) only reports — it never touches the working tree, so
+    concurrent uncommitted edits made while the suite runs are safe. ``revert``
+    restores the tree to its session-start state (pre-commit hook only).
+    """
+    mode = mode or _au_guard_mode()
+    if mode == "off" or not (stray_tracked or stray_untracked):
+        return
+    if mode == "revert":
+        if stray_tracked:
+            _au_git("checkout", "--", *stray_tracked, repo_root=repo_root)
+        for rel in stray_untracked:
+            try:
+                os.remove(os.path.join(repo_root or _AU_REPO_ROOT, rel))
+            except OSError:
+                pass
+        return
+    lines = [
+        "",
+        "[repo-guard] tests mutated the repository working tree during this session:",
+        *(f"[repo-guard]   modified (tracked): {rel}" for rel in stray_tracked),
+        *(f"[repo-guard]   created (untracked): {rel}" for rel in stray_untracked),
+        "[repo-guard] left in place (AGENT_UTILITIES_TEST_REPO_GUARD=warn). Fix the",
+        "[repo-guard] offending test to write under tmp_path; set =revert only in",
+        "[repo-guard] hermetic contexts (pre-commit hook) — it deletes/reverts these.",
+    ]
+    print("\n".join(lines), file=sys.stderr)
 
 
 def pytest_sessionstart(session):  # noqa: ARG001 — pytest hook signature
@@ -325,13 +382,9 @@ def pytest_sessionstart(session):  # noqa: ARG001 — pytest hook signature
 
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001 — pytest hook signature
     stray_tracked = sorted(_au_dirty_tracked() - _AU_DIRTY_AT_START)
-    if stray_tracked:
-        _au_git("checkout", "--", *stray_tracked)
-    stray_untracked = sorted(_au_untracked() - _AU_UNTRACKED_AT_START)
-    for rel in stray_untracked:
-        if rel.startswith(".pytest_tmp"):
-            continue
-        try:
-            os.remove(os.path.join(_AU_REPO_ROOT, rel))
-        except OSError:
-            pass
+    stray_untracked = sorted(
+        rel
+        for rel in _au_untracked() - _AU_UNTRACKED_AT_START
+        if not rel.startswith(".pytest_tmp")
+    )
+    _au_enforce_session_guard(stray_tracked, stray_untracked)
