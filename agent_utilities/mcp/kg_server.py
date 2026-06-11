@@ -1506,6 +1506,25 @@ async def graph_orchestrate_compile_process_endpoint(request: Request) -> JSONRe
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_orchestrate_publish_proposal_endpoint(
+    request: Request,
+) -> JSONResponse:
+    """CONCEPT:AHE-3.21 — REST twin of graph_orchestrate publish_proposal."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_orchestrate",
+            action="publish_proposal",
+            task=body.get("proposal_id", body.get("task", "")),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_orchestrate_list_workflows_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_orchestrate", action="list_workflows")
@@ -3110,7 +3129,7 @@ def _build_server(bootstrap: bool = True):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize, failure_ingest). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize, failure_ingest, publish_proposal). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -3581,6 +3600,29 @@ def _build_server(bootstrap: bool = True):
                 )
 
                 rep = run_failure_ingest(_get_engine())
+                return _json.dumps(rep, indent=2, default=str)
+
+            elif action == "publish_proposal":
+                # Evolution→branch bridge (CONCEPT:AHE-3.21): publish a promoted
+                # golden-loop proposal (task=proposal node id) as a reviewable
+                # LOCAL git branch — change synthesis + RLM-sandbox validation +
+                # LocalBranchPublisher — gated by the OS-5.24 ActionPolicy's
+                # merge_promotion kind (default approval_required: a pending
+                # grant queues, a granted approval lets this proceed). Never
+                # pushes; a human merges through the normal release flow.
+                import json as _json
+
+                from agent_utilities.knowledge_graph.research.change_publisher import (
+                    publish_proposal,
+                )
+
+                pid = (task or "").strip()
+                if not pid:
+                    return (
+                        "Error: publish_proposal requires the proposal node id "
+                        "in 'task'"
+                    )
+                rep = publish_proposal(_get_engine(), pid)
                 return _json.dumps(rep, indent=2, default=str)
 
             elif action == "assimilate":
@@ -5148,6 +5190,11 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route(
         "/graph/orchestrate/compile-process",
         graph_orchestrate_compile_process_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/publish-proposal",
+        graph_orchestrate_publish_proposal_endpoint,
         ["POST"],
     )
     route(
