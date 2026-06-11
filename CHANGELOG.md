@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Gateway middle-tier hardening (CONCEPT:OS-5.23)** — Python-tier observability and
+  backpressure for the API gateway (Tranche 2):
+  - **Prometheus metrics** (`observability/gateway_metrics.py`): pure-ASGI middleware +
+    `GET /metrics` mounted by `register_graph_routes` (gateway AND agent-webui), emitting
+    `agent_utilities_gateway_requests_total{route,method,status}` (route = TEMPLATE, bounded
+    cardinality), `_request_duration_seconds{route}`, `_in_flight_requests`,
+    `_rate_limited_total{tenant}`, `_engine_requests_total{op,outcome}` and
+    `_engine_breaker_state{endpoint}` — naming mirrors the Rust engine's `epistemic_graph_*`
+    series. `prometheus-client` is the new optional `metrics` extra with a graceful no-op
+    fallback; `/metrics` is exempt from the OS-5.14 identity middleware (scrapers can't mint
+    JWTs). Flag: `GATEWAY_METRICS` (default on).
+  - **Per-tenant token-bucket rate limiting** (`gateway/rate_limit.py`): ASGI middleware
+    mounted INSIDE the identity middleware so the bucket key uses the server-minted
+    ActorContext (tenant → authenticated actor id → client IP). 429 + `Retry-After` + JSON
+    body; `/metrics` and health routes exempt. Flags: `GATEWAY_RATE_LIMIT` (req/s, default 0 =
+    off) and `GATEWAY_RATE_BURST` (default 2× rate). Buckets are per-process (documented:
+    N workers → N× the configured rate).
+  - **Engine circuit breaker** (`knowledge_graph/core/engine_breaker.py`): every
+    `GraphComputeEngine` call is guarded by ONE shared breaker per endpoint —
+    `ENGINE_BREAKER_THRESHOLD` (5) consecutive connect/timeout failures open the circuit,
+    callers fail fast with the typed `EngineCircuitOpenError` (a `ConnectionError`), and a
+    half-open probe after `ENGINE_BREAKER_COOLDOWN` (15s) heals it. Application-level errors
+    never trip it.
+  - **Multi-worker readiness**: `GATEWAY_WORKERS` (default 1 = historical single-process
+    behaviour) pre-forks workers on one shared listen socket, forking BEFORE app build so the
+    flock host-lock elects exactly ONE KG host daemon among the workers (verified against
+    `host_lock.py`); per-process state audited and documented in
+    `docs/architecture/gateway_scaling.md`; dashboard `ConfigManager.get_all_services` now
+    always re-reads the shared YAML (no stale per-worker cache).
 - **Tiered RLM code sandbox with an intelligent capability router (CONCEPT:ORCH-1.38)** —
   the RLM REPL's hardcoded `use_wasm/use_container/local` if-elif (`agent_utilities/rlm/repl.py`)
   is replaced by a uniform `Sandbox` contract (`agent_utilities/rlm/sandboxes/`) with **four real

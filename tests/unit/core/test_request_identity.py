@@ -195,6 +195,16 @@ class TestActorIdentityMiddleware:
         assert _status(sent) == 200
         assert captured["actor"].authenticated is False
 
+    async def test_auth_required_exempts_metrics(self):
+        # Prometheus scrapers cannot mint JWTs (CONCEPT:OS-5.23)
+        cfg = _make_config(kg_auth_required=True)
+        captured: dict = {}
+        mw = ActorIdentityMiddleware(_make_inner_app(captured))
+        with mock.patch("agent_utilities.core.config.config", cfg):
+            sent = await _call(mw, path="/metrics")
+        assert _status(sent) == 200
+        assert captured["actor"].authenticated is False
+
     @pytest.mark.concept("CONCEPT:OS-5.14")
     @pytest.mark.asyncio
     async def test_legacy_mode_passes_through_unauthenticated(self):

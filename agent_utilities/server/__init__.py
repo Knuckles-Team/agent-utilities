@@ -60,6 +60,102 @@ logger = logging.getLogger(__name__)
 _CLEANUP_REGISTERED = False
 
 
+def _resolve_gateway_workers(is_pytest: bool, enable_terminal_ui: bool) -> int:
+    """Resolve the effective gateway worker count (CONCEPT:OS-5.23).
+
+    ``GATEWAY_WORKERS`` (AgentConfig ``gateway_workers``) defaults to 1 —
+    single process, single event loop, in-process KG daemon: exactly the
+    historical behaviour. Forced to 1 under pytest (no forking inside the
+    test runner) and with the terminal UI (it owns the foreground process).
+    """
+    from agent_utilities.core.config import config
+
+    try:
+        workers = int(getattr(config, "gateway_workers", 1) or 1)
+    except (TypeError, ValueError):
+        workers = 1
+    if workers <= 1:
+        return 1
+    if is_pytest:
+        return 1
+    if enable_terminal_ui:
+        logger.warning(
+            "GATEWAY_WORKERS=%d ignored: the terminal UI runs a single "
+            "in-process server.",
+            workers,
+        )
+        return 1
+    return workers
+
+
+def _bind_gateway_socket(host: str, port: int):
+    """Bind the shared pre-fork listen socket (CONCEPT:OS-5.23).
+
+    Bound once in the parent BEFORE forking; every worker serves on the
+    inherited socket (the classic pre-fork model — uvicorn's own multiprocess
+    supervisor works the same way, but requires an import-string app, which
+    the dynamically-built gateway app cannot provide).
+    """
+    import socket as _socket
+
+    family = _socket.AF_INET6 if ":" in (host or "") else _socket.AF_INET
+    sock = _socket.socket(family, _socket.SOCK_STREAM)
+    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    sock.bind((host, port))
+    sock.set_inheritable(True)
+    return sock
+
+
+def _fork_gateway_workers(workers: int, host: str, port: int):
+    """Pre-fork ``workers-1`` children sharing one listen socket.
+
+    Returns ``(shared_socket, child_pids)`` — ``child_pids`` is empty in the
+    children (each child serves as a worker; the parent is worker 0 and reaps
+    the children when its server exits).
+
+    Per-process state notice (CONCEPT:OS-5.23): each worker builds its OWN
+    app/engine connections. The KG host role is serialized by the advisory
+    flock in :mod:`agent_utilities.knowledge_graph.core.host_lock` — the first
+    worker to resolve wins ``host`` (consolidated daemon/ticks); the rest
+    self-heal to ``client``. Prometheus metrics and rate-limit buckets are
+    per-worker. See ``docs/architecture/gateway_scaling.md``.
+    """
+    shared_socket = _bind_gateway_socket(host, port)
+    logger.warning(
+        "GATEWAY_WORKERS=%d: pre-forking %d gateway workers on a shared "
+        "listen socket (%s:%s). State is PER-PROCESS: exactly ONE worker wins "
+        "the KG host flock and runs the daemon/ticks (the rest are clients); "
+        "/metrics scrapes sample one worker; GATEWAY_RATE_LIMIT is effectively "
+        "multiplied by the worker count. (CONCEPT:OS-5.23)",
+        workers,
+        workers,
+        host,
+        port,
+    )
+    child_pids: list[int] = []
+    for _ in range(workers - 1):
+        pid = os.fork()
+        if pid == 0:
+            return shared_socket, []  # child: build + serve, then os._exit
+        child_pids.append(pid)
+    return shared_socket, child_pids
+
+
+def _serve_on_socket(app: Any, sock: Any, host: str, port: int, debug: bool) -> None:
+    """Run a single uvicorn server on an already-bound (shared) socket."""
+    import uvicorn
+
+    server_config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        timeout_keep_alive=1800,
+        timeout_graceful_shutdown=60,
+        log_level="debug" if debug else "info",
+    )
+    uvicorn.Server(server_config).run(sockets=[sock])
+
+
 def _run_agent_server(
     provider: str | None = DEFAULT_LLM_PROVIDER,
     model_id: str | None = DEFAULT_LLM_MODEL_ID,
@@ -180,6 +276,21 @@ def _run_agent_server(
         file=sys.stderr,
     )
 
+    # Multi-worker readiness (CONCEPT:OS-5.23): fork BEFORE building the app
+    # so every worker constructs its own app, engine connections and daemon
+    # role (the host flock elects exactly one KG host among the workers).
+    # Default GATEWAY_WORKERS=1 keeps the historical single-process path.
+    workers = _resolve_gateway_workers(is_pytest, enable_terminal_ui)
+    shared_socket = None
+    child_pids: list[int] = []
+    if workers > 1:
+        shared_socket, child_pids = _fork_gateway_workers(
+            workers,
+            host or "0.0.0.0",
+            port or 9000,  # nosec B104
+        )
+    is_worker_child = shared_socket is not None and not child_pids
+
     app = build_agent_app(
         provider=provider,
         model_id=model_id,
@@ -265,6 +376,32 @@ def _run_agent_server(
         except Exception as e:
             print(f"Error launching TUI: {e}")
 
+        return
+
+    if shared_socket is not None:
+        # Pre-fork worker pool (CONCEPT:OS-5.23): every process (parent =
+        # worker 0 + forked children) serves on the shared inherited socket.
+        try:
+            _serve_on_socket(
+                reloadable,
+                shared_socket,
+                host or "0.0.0.0",  # nosec B104
+                port or 9000,
+                bool(debug),
+            )
+        finally:
+            if is_worker_child:
+                os._exit(0)  # never fall back into the caller's stack
+            for pid in child_pids:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            for pid in child_pids:
+                try:
+                    os.waitpid(pid, 0)
+                except ChildProcessError:
+                    pass
         return
 
     uvicorn.run(
