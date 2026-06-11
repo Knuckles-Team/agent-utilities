@@ -2,7 +2,7 @@
 
 Enables **conflict-free parallel development** of enterprise/source extractors:
 each source (infra, servicenow, leanix, erpnext, grafana, …) lives in its own
-module under ``extractors/`` and calls :func:`register_source` at import time, so
+module under ``extractors/`` and calls :func:`register_extractor` at import time, so
 adding a source touches NO shared hub file (no edits to ``__init__``/``pipeline``/
 ``models``). The package auto-discovers and imports all extractor modules, and a
 single generic writer persists every ``ExtractionBatch`` through the one
@@ -10,13 +10,13 @@ single generic writer persists every ``ExtractionBatch`` through the one
 
 Contract for a source extractor::
 
-    from ..registry import register_source
+    from ..registry import register_extractor
     from ..models import ExtractionBatch, GraphNode, EnrichmentEdge
 
     def extract(config) -> ExtractionBatch:
         ...
 
-    register_source("servicenow", extract, description="ServiceNow ITSM → KG")
+    register_extractor("servicenow", extract, description="ServiceNow ITSM → KG")
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class SourceExtractor:
 _REGISTRY: dict[str, SourceExtractor] = {}
 
 
-def register_source(category: str, extract: ExtractFn, description: str = "") -> None:
+def register_extractor(category: str, extract: ExtractFn, description: str = "") -> None:
     """Register a source extractor under a unique category key (idempotent)."""
     if category in _REGISTRY and _REGISTRY[category].extract is not extract:
         logger.debug("Overriding source extractor for category %s", category)

@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
-from ..registry import register_source
+from ..registry import register_extractor
 
 
 def _first(row: dict, *keys: str) -> Any:
@@ -170,4 +170,4 @@ def extract(config: Any) -> ExtractionBatch:
     return ExtractionBatch(category="erpnext", nodes=nodes, edges=edges)
 
 
-register_source("erpnext", extract, description="ERPNext/Frappe (HR/sales) → KG")
+register_extractor("erpnext", extract, description="ERPNext/Frappe (HR/sales) → KG")
