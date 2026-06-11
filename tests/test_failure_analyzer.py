@@ -194,6 +194,20 @@ class TestDaemonRegistration:
 class TestRunFailureIngest:
     """run_failure_ingest (shared by the daemon tick + the MCP action)."""
 
+    def test_run_once_works_inside_running_event_loop(self):
+        """The MCP action runs the tick inside the server's event loop; run_once
+        must not raise 'asyncio.run() cannot be called from a running event loop'."""
+        import asyncio
+
+        async def _in_loop():
+            a = FailureAnalyzer(
+                _FakeEngine(), trace_backend=_FakeBackend(), feedback=None
+            )
+            return a.run_once()  # sync call from within a running loop
+
+        rep = asyncio.run(_in_loop())
+        assert rep["records_pulled"] == 0
+
     def test_no_failures_is_clean_noop(self):
         from agent_utilities.knowledge_graph.adaptation.failure_analyzer import (
             run_failure_ingest,

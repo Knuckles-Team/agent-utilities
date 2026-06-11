@@ -81,6 +81,24 @@ def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _run_coro(coro: Any) -> Any:
+    """Run a coroutine to completion whether or not a loop is already running.
+
+    The daemon ``failure_ingest`` tick runs in a worker thread (no loop, so
+    ``asyncio.run`` works), but the ``graph_orchestrate(action="failure_ingest")``
+    MCP action runs inside the server's event loop — where ``asyncio.run`` raises.
+    In that case run the coroutine on a short-lived helper thread.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(asyncio.run, coro).result()
+
+
 @dataclass
 class FailureRecord:
     """One normalized failure observation pulled from telemetry."""
@@ -408,7 +426,7 @@ class FailureAnalyzer:
 
     def run_once(self) -> dict[str, Any]:
         """Synchronous entry point (for the daemon scheduler thread)."""
-        return asyncio.run(self.run_once_async())
+        return _run_coro(self.run_once_async())
 
     # ── closed-loop regression gate (CONCEPT:AHE-3.18, Phase 4)
     def make_regression_check(self, gaps: list[dict[str, Any]]) -> Any:
@@ -435,7 +453,7 @@ class FailureAnalyzer:
             if self.trace_backend is None:
                 return True  # cannot observe → conservatively allow (no tracked regression)
             try:
-                current = asyncio.run(self._current_counts(list(baselines)))
+                current = _run_coro(self._current_counts(list(baselines)))
             except Exception as e:  # noqa: BLE001
                 logger.debug("regression re-query failed: %s", e)
                 return True
