@@ -1,0 +1,88 @@
+# Scoped-autonomous ActionPolicy posture (CONCEPT:OS-5.24).
+#
+# Use when: the fleet should heal and scale itself, but only inside explicit
+# guard rails — UTC maintenance windows for disruptive actions, per-action
+# rate limits, blast-radius caps, and a hard forbidden line for destructive
+# operations. The decision pipeline downgrades an auto tier OUTSIDE its
+# maintenance_window to queue_approval (a human can still push it through),
+# DENIES on rate-limit breach, and QUEUES on blast-radius breach.
+#
+# Load with: ACTION_POLICY_PATH=examples/action-policies/scoped-autonomous.yml
+# Schema reference: deploy/action-policy.default.yml +
+# agent_utilities/orchestration/action_policy.py (the loader).
+version: 1
+
+defaults:
+  # Anything not named below still queues for a human — autonomy is granted
+  # per kind, never implied.
+  tier: approval_required
+  rate_limit: {max: 3, window_s: 3600}
+  blast_radius: {max_targets: 3, window_s: 3600}
+
+# Policy-level behavior knobs (read via ActionPolicy.option()).
+options:
+  # Also schedule an OS-5.27 health watch after scale-DOWN actions (the
+  # autoscaler always watches scale-ups); an unhealthy post-scale-down
+  # observation triggers the policy-gated rollback/escalation.
+  watch_scale_down: true
+
+rules:
+  # ── No-op / read-only kinds: automatic, no ceremony. ──
+  - {kind: diagnose, target: "*", tier: auto}
+  - {kind: observe, target: "*", tier: auto}
+  - {kind: notify, target: "*", tier: auto}
+  - {kind: record_dry_run, target: "*", tier: auto}
+
+  # Playbook dispatch announces itself; mutating steps re-enter the gate.
+  - {kind: run_playbook, target: "*", tier: auto_notify}
+
+  # ── Self-healing restarts: fully automatic but tightly budgeted.
+  #    No maintenance_window — a down service should not wait for 02:00.
+  #    2 restarts/service/30min, and a 4th distinct restarted service inside
+  #    an hour queues for approval (failure wave → human). ──
+  - kind: restart_service
+    target: "*"
+    tier: auto
+    rate_limit: {max: 2, window_s: 1800}
+    blast_radius: {max_targets: 3, window_s: 3600}
+
+  # ── Reactive autoscaling (CONCEPT:OS-5.29 proposes kind=scale_service):
+  #    automatic with notification, around the clock — load does not respect
+  #    maintenance windows — but step-budgeted: at most 4 scale actions per
+  #    service per hour, and concurrent scaling of a 3rd distinct service
+  #    inside an hour queues for approval. ──
+  - kind: scale_service
+    target: "*"
+    tier: auto_notify
+    rate_limit: {max: 4, window_s: 3600}
+    blast_radius: {max_targets: 2, window_s: 3600}
+
+  # ── Rollback is the safety response of the OS-5.27 deploy watch; it must
+  #    not be blocked at 03:00 when the watch detects a bad deploy. Budgeted
+  #    to once per service per hour — repeated rollbacks mean the humans
+  #    need to look anyway. ──
+  - kind: rollback_service
+    target: "*"
+    tier: auto_notify
+    rate_limit: {max: 1, window_s: 3600}
+
+  # ── Deploys: automatic ONLY for staging-prefixed services and ONLY inside
+  #    the 02:00-05:00 UTC window; outside it the same proposal queues for
+  #    approval. Windows that wrap midnight ("22:00-04:00") also work. ──
+  - kind: deploy_service
+    target: "staging-*"
+    tier: auto_notify
+    maintenance_window: "02:00-05:00"
+    rate_limit: {max: 2, window_s: 3600}
+    blast_radius: {max_targets: 2, window_s: 3600}
+
+  # Production deploys always need a human, window or not.
+  - {kind: deploy_service, target: "*", tier: approval_required}
+
+  # ── Destructive operations: never autonomous, never even queued. ──
+  - {kind: redeploy_stack, target: "*", tier: forbidden}
+  - {kind: stop_service, target: "*", tier: forbidden}
+
+  # Code-evolution promotion merges keep their own governance chain
+  # (AHE-3.20); the operational plane only ever queues them.
+  - {kind: merge_promotion, target: "*", tier: approval_required}

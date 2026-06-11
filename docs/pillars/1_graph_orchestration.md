@@ -55,6 +55,11 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **ORCH-1.37**: Orchestration execution-flow mermaid-diagram surfacing in `graph_orchestrate` responses (additive, backward-compatible)
 - **ORCH-1.39**: Invoker→spawned-agent handoff of curated context, token budget, tool scope, and credential *reference* (raw secret never persisted/logged) — see [KG-Native Orchestration § Invoker to Spawned Handoff](../guides/kg_native_orchestration.md#invoker-to-spawned-agent-handoff-and-native-channels)
 - **ORCH-1.40**: Session-anchored collections (`Session` node + `HAS_CONTEXT`/`HAS_MESSAGE`/`HAS_RUN` edges) and native cross-process invoker↔spawned message channels with a durable backstop and elicitation bridge (`graph_context`, `graph_message` MCP tools)
+- **ORCH-1.41**: Process Plan Compiler — `graph_orchestrate(action="compile_process")` lifts a descriptive BPMN process into an executable plan (see [Ontology-to-Workflow Execution](#orch-141--142--143--ontology-to-workflow-execution-path))
+- **ORCH-1.42**: Execution Ontology Gate — ontology validation on the execution path before a compiled process runs (`knowledge_graph/core/workflow_gate.py`)
+- **ORCH-1.43**: Workflow Lineage Close-Out — run lineage written back to the KG, closing the descriptive↔executable provenance loop (`workflows/runner.py`)
+- **ORCH-1.44**: Durable Goal Registry — goals persist across restarts; stranded runs rehydrate as orphaned instead of silently vanishing (see [State Externalization](../architecture/state_externalization.md))
+- **ORCH-1.45**: Queue-Driven Agent Dispatch — session-keyed `agent_turns` queue (`AgentTurnEnvelope`) consumed by a stateless `agent-dispatch-worker` fleet with fleet-visible placement (see [Agent Dispatch](../architecture/agent_dispatch.md))
 
 ## 🧬 First Principles Architecture
 
@@ -349,3 +354,53 @@ local-neighborhood observability, a co-evolution edge-update loop, and a P1–P4
 neighbor co-evolution slope, Wasserstein-1 drift). `ParallelEngine` attaches the
 snapshot to `ExecutionResult.telemetry["social_system"]`. Full design:
 [Multi-Agent Social System](../architecture/multi_agent_social_system.md).
+
+### ORCH-1.41 / 1.42 / 1.43 — Ontology-to-Workflow Execution Path
+
+Descriptive process knowledge in the KG is now executable, with the ontology in
+the loop at every step:
+
+- **ORCH-1.41 — Process Plan Compiler** (`knowledge_graph/process_plan_compiler.py`):
+  `graph_orchestrate(action="compile_process")` (REST twin
+  `/api/graph/orchestrate/compile-process`) lifts a descriptive BPMN process —
+  ingested via the Camunda extractor and given step-level ontology shape by
+  **KG-2.53** — into an executable plan.
+- **ORCH-1.42 — Execution Ontology Gate** (`knowledge_graph/core/workflow_gate.py`):
+  ontology validation sits on the execution path, so a compiled process is
+  checked against the published ontology before it runs.
+- **ORCH-1.43 — Lineage Close-Out** (`workflows/runner.py` + `core/owl_bridge.py`):
+  workflow runs write lineage back to the KG, closing the
+  descriptive↔executable provenance loop — the process model, the compiled
+  plan, and the run that executed it stay connected.
+
+The authoritative TBox these steps validate against is published to Fuseki on a
+background tick (**KG-2.52**, `knowledge_graph/core/ontology_publisher.py`).
+Walkthrough: [ontology-to-workflow example](../examples/ontology-to-workflow.md).
+
+### ORCH-1.44 — Durable Goal Registry
+
+Goals are durable records in the externalized state store (OS-5.16), not
+in-process objects: they persist across gateway restarts, and a run stranded by
+a crashed host rehydrates as `orphaned` instead of silently vanishing
+(`core/sessions.py`, `models/goal.py`). See
+[State Externalization](../architecture/state_externalization.md).
+
+### ORCH-1.45 — Queue-Driven Agent Dispatch
+
+Agent turns (goal-loop iterations and orchestrator jobs) can dispatch through a
+session-partitioned durable queue instead of the in-process scheduler:
+`AGENT_DISPATCH_BACKEND=queue` makes `graph_orchestrate(action="dispatch")` and
+the goal machinery enqueue a typed `AgentTurnEnvelope`
+(`orchestration/agent_dispatch.py` — job id as idempotency key; payload stays a
+*reference* into the state store) onto the `agent_turns` queue (Kafka, Postgres
+SKIP LOCKED, or per-host SQLite — composing the KG-2.55 transport stack with a
+`session:<id>` partition key above the KG-2.56 tenant key). A stateless
+**`agent-dispatch-worker`** fleet claims turns under per-session mutual
+exclusion, rehydrates from the shared state store, executes the existing
+goal/orchestration bodies, and writes back durably before acking —
+at-least-once with idempotent re-claims, so a crashed worker is crash recovery,
+not data loss. Workers heartbeat into the `dispatch_workers` registry,
+`/api/fleet/topology` lists them, and `graph_orchestrate job/{id}` reports the
+executing worker. The `inline` default is byte-for-byte the previous behavior.
+Full design: [Queue-Driven Agent Dispatch](../architecture/agent_dispatch.md);
+walkthrough: [queue-dispatch example](../examples/queue-dispatch-walkthrough.md).

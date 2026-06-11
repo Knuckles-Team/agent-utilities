@@ -1,0 +1,9 @@
+{
+  "tool": "graph_orchestrate",
+  "arguments": {
+    "action": "execute_workflow",
+    "agent_name": "process_order_fulfillment",
+    "task": "Fulfill order #1042 for tenant acme",
+    "max_steps": 30
+  }
+}

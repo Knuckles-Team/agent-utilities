@@ -5,7 +5,11 @@
 > runs in-process with zero external service dependencies. Consume it as a Python
 > library, as an MCP server (`graph-os`), or via a REST gateway. The heavy graph
 > compute lives in a separate Rust engine (`epistemic-graph`), reached
-> out-of-process over a socket — no Rust needed to start.
+> out-of-process over a socket — no Rust needed to start. At scale, every plane
+> is opt-in horizontally scalable: shared Postgres state, tenant-sharded
+> engines, Kafka-backed ingest and dispatch worker fleets, pre-forked gateway
+> workers, server-minted JWT identity, Prometheus metrics, and an
+> ActionPolicy-gated fleet autonomy control plane.
 
 ## Start here (read first)
 
@@ -15,11 +19,29 @@
 
 ## Deploy
 
+- [Deployment Configurations](docs/guides/deployment-configurations.md): the flagship guide — every deployment shape from zero-infra laptop to sharded, queue-driven, policy-governed fleet.
 - [Day-0 Deployment](docs/guides/day0.md): install deps → run graph-os + multiplexer → deploy the *-mcp fleet → wire integrations.
 - [Recipe: Tiny (all-local, zero-infra)](docs/recipes/tiny.md)
 - [Recipe: Single-node prod](docs/recipes/single-node-prod.md)
 - [Recipe: Enterprise (swarm)](docs/recipes/enterprise.md)
 - [Installation](docs/guides/installation.md) · [Configuration](docs/guides/configuration.md)
+
+## Scale-out & autonomy (architecture deep dives)
+
+- [State Externalization](docs/architecture/state_externalization.md): STATE_DB_URI shared Postgres state, SKIP LOCKED queue claims, advisory-lock daemon leadership, fleet pagination (OS-5.16-5.18, KG-2.54, ORCH-1.44).
+- [Engine Sharding](docs/architecture/engine_sharding.md): tenant-partitioned epistemic-graph shards behind client-side HRW routing + shard topology visibility (KG-2.58, OS-5.28).
+- [Event Backbone](docs/architecture/event_backbone_architecture.md): Kafka event backbone + ingest task-queue scale-out — fail-loud TASK_QUEUE_BACKEND, keyed kg_tasks partitions, kg-ingest consumer group (KG-2.55-2.57).
+- [Agent Dispatch](docs/architecture/agent_dispatch.md): queue-driven agent dispatch — session-keyed agent_turns queue + stateless agent-dispatch-worker fleet (ORCH-1.45).
+- [Fleet Autonomy](docs/architecture/fleet_autonomy.md): fleet event ingress, ActionPolicy decision point, desired-state reconciler, remediation playbooks, health-gated deploy watch, reactive autoscaler (OS-5.15, OS-5.24-5.27, OS-5.29).
+- [Gateway Scaling](docs/architecture/gateway_scaling.md): GATEWAY_WORKERS pre-fork, per-tenant rate limiting, engine circuit breaker, Prometheus /metrics (OS-5.23).
+- [Autonomous Evolution](docs/guides/autonomous-evolution.md): the governed self-evolution chain — propose-only loops, governance validator, regression gate, policy-gated branch publication (AHE-3.18-3.21).
+- [Metrics Reference](docs/reference/metrics.md): catalog of every agent_utilities_* Prometheus series.
+
+## Operational examples (walkthroughs)
+
+- [Ontology to workflow](docs/examples/ontology-to-workflow.md) · [Fleet events wiring](docs/examples/fleet-events-wiring.md) · [Action-policy postures](docs/examples/action-policy-postures.md) · [Autoscaling signals](docs/examples/autoscaling-signals.md)
+- [Sharding walkthrough](docs/examples/sharding-walkthrough.md) · [Queue-dispatch walkthrough](docs/examples/queue-dispatch-walkthrough.md) · [Evolution publication](docs/examples/evolution-publication.md)
+- [Observability](docs/examples/observability.md) · [Identity & JWT](docs/examples/identity-jwt.md) · [MCP consumption](docs/examples/mcp-consumption.md)
 
 ## Understand the ecosystem
 
