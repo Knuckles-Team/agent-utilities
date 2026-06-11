@@ -12,7 +12,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 import platformdirs
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -544,8 +544,11 @@ class AgentConfig(BaseSettings):
 
     langfuse_public_key: str | None = Field(default=None, alias="LANGFUSE_PUBLIC_KEY")
     langfuse_secret_key: str | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")
+    # Official Langfuse SDK var is LANGFUSE_HOST; LANGFUSE_BASE_URL kept as a
+    # deprecated fallback so existing deployments don't break.
     langfuse_host: str = Field(
-        default="https://cloud.langfuse.com", alias="LANGFUSE_BASE_URL"
+        default="https://cloud.langfuse.com",
+        validation_alias=AliasChoices("LANGFUSE_HOST", "LANGFUSE_BASE_URL"),
     )
     langfuse_dataset_capture_threshold: float = Field(
         default=0.0, alias="LANGFUSE_DATASET_CAPTURE_THRESHOLD"
