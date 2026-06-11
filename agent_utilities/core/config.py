@@ -484,6 +484,21 @@ class AgentConfig(BaseSettings):
     # partitions idempotently; an existing topic is NEVER shrunk. Bounds the
     # max parallelism of the ``kg-ingest`` consumer group.
     kg_tasks_partitions: int = Field(default=6, alias="KG_TASKS_PARTITIONS")
+    # Queue-driven agent dispatch (CONCEPT:ORCH-1.45): how agent turns (goal
+    # runs / orchestrator jobs) are dispatched. ``inline`` (default) keeps the
+    # existing in-process execution exactly as-is; ``queue`` publishes a
+    # session-keyed AgentTurnEnvelope onto the agent_turns queue (transport
+    # follows TASK_QUEUE_BACKEND/auto) and returns a job handle — any host
+    # running ``agent-dispatch-worker`` executes it, so the scheduler tier
+    # scales horizontally and sessions are not pinned to their birth host.
+    agent_dispatch_backend: str = Field(
+        default="inline", alias="AGENT_DISPATCH_BACKEND"
+    )
+    # Partitions ensured on the ``agent_turns`` topic when the kafka transport
+    # carries dispatched agent turns (CONCEPT:ORCH-1.45). Grow-only, like
+    # KG_TASKS_PARTITIONS. Bounds agent-dispatch consumer-group parallelism —
+    # i.e. how many sessions can execute concurrently across the worker fleet.
+    agent_turns_partitions: int = Field(default=6, alias="AGENT_TURNS_PARTITIONS")
     # Durable-state externalization (CONCEPT:OS-5.16): ONE flag selects where the
     # platform's durable state lives — durable-execution checkpoints, sessions/
     # turns/goals, and the KG task queue. Unset (default) keeps the zero-infra
