@@ -209,9 +209,7 @@ class MCPMultiplexer:
             )
             return mcp.types.CallToolResult(
                 content=[
-                    mcp.types.TextContent(
-                        type="text", text=f"{type(e).__name__}: {e}"
-                    )
+                    mcp.types.TextContent(type="text", text=f"{type(e).__name__}: {e}")
                 ],
                 isError=True,
             )
@@ -422,9 +420,7 @@ class MCPMultiplexer:
                 runtime = payload
             else:
                 sessions = (
-                    list(payload)
-                    if isinstance(payload, (list, tuple))
-                    else [payload]
+                    list(payload) if isinstance(payload, list | tuple) else [payload]
                 )
                 runtime = ChildRuntime(server_name, cfg)
                 runtime.adopt_sessions(sessions)
@@ -545,9 +541,7 @@ def _register_forwarding_tools(mcp, mux: MCPMultiplexer) -> None:
         snapshot = mux.status_snapshot()
         return ToolResult(
             content=[
-                mcp.types.TextContent(
-                    type="text", text=json.dumps(snapshot, indent=2)
-                )
+                mcp.types.TextContent(type="text", text=json.dumps(snapshot, indent=2))
             ],
             structured_content=snapshot,
         )

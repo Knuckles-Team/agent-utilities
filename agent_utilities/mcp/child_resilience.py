@@ -27,10 +27,24 @@ multiplexer was restarted.
   restarts inside ``MCP_CHILD_RESTART_WINDOW`` parks the child as ``failed``.
   Calls to a restarting child wait briefly for recovery, then fail with the
   typed :class:`MCPChildUnavailableError` naming the child and its state.
+* **Circuit breaker** — consecutive transport failures/timeouts open a
+  per-child breaker (``MCP_CHILD_BREAKER_THRESHOLD`` /
+  ``MCP_CHILD_BREAKER_COOLDOWN``), short-circuiting calls with the typed
+  :class:`MCPChildCircuitOpenError` until a half-open probe succeeds. The
+  state machine is the shared OS-5.23 engine-client breaker
+  (``knowledge_graph.core.engine_breaker.CircuitBreaker``), subclassed for
+  child wording and the per-child state gauge.
 
 Crash detection is call-path driven: a stdio process exit or HTTP transport
 failure surfaces as a stream/connection error on the next forwarded call,
 which triggers the restart cycle (no idle polling of ~50 children).
+
+Metrics land on the OS-5.23 registry (``observability.gateway_metrics``) and
+degrade to no-ops when ``prometheus_client`` (the optional ``metrics`` extra)
+is absent — the multiplexer runs standalone, so this stays import-light:
+``agent_utilities_mcp_child_calls_total{server,outcome}``,
+``..._mcp_child_breaker_state{server}``, ``..._mcp_child_restarts_total{server}``,
+``..._mcp_child_queue_depth{server}``.
 
 Tenant note: all callers still share each child's credentials (the child
 process owns ONE identity). Per-caller credential injection is a deployment
@@ -49,6 +63,14 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import anyio
+
+from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
+from agent_utilities.observability.gateway_metrics import (
+    MCP_CHILD_BREAKER_STATE,
+    MCP_CHILD_CALLS,
+    MCP_CHILD_QUEUE_DEPTH,
+    MCP_CHILD_RESTARTS,
+)
 
 logger = logging.getLogger("mcp_multiplexer.child")
 
@@ -115,6 +137,29 @@ class MCPChildUnavailableError(MCPChildError):
         super().__init__(server, message)
 
 
+class MCPChildCircuitOpenError(MCPChildError):
+    """The child's circuit breaker is open — failing fast, not forwarding."""
+
+
+class _BreakerOpenSignal(ConnectionError):
+    """Internal: what the shared breaker raises before it is re-typed with
+    the child's name as :class:`MCPChildCircuitOpenError`."""
+
+
+class ChildCircuitBreaker(CircuitBreaker):
+    """The OS-5.23 engine-client breaker state machine, per multiplexer child.
+
+    Same closed/open/half-open semantics and thread-safety; only the wording
+    and the exported gauge differ (per-child ``server`` label instead of the
+    engine ``endpoint`` label)."""
+
+    error_cls = _BreakerOpenSignal
+    subject = "MCP child server"
+
+    def _export_state(self) -> None:
+        MCP_CHILD_BREAKER_STATE.labels(server=self.endpoint).set(self._state_value())
+
+
 def _cfg_value(cfg: dict[str, Any], key: str, fallback: Any) -> Any:
     """Per-server config override with a global-config fallback."""
     value = cfg.get(key)
@@ -174,6 +219,22 @@ class ChildRuntime:
         self.restart_backoff_base = float(restart_backoff_base)
         self.restart_backoff_cap = float(restart_backoff_cap)
 
+        # Per-child circuit breaker (shared OS-5.23 state machine; thread-safe
+        # by construction, trivially so on the multiplexer's single loop).
+        self.breaker = ChildCircuitBreaker(
+            name,
+            threshold=int(
+                _cfg_value(
+                    self.cfg, "breaker_threshold", config.mcp_child_breaker_threshold
+                )
+            ),
+            cooldown=float(
+                _cfg_value(
+                    self.cfg, "breaker_cooldown", config.mcp_child_breaker_cooldown
+                )
+            ),
+        )
+
         self._semaphore: asyncio.Semaphore | None = (
             asyncio.Semaphore(self.max_concurrency)
             if self.max_concurrency > 0
@@ -183,6 +244,9 @@ class ChildRuntime:
         self._rr_index = 0
         self._in_flight = 0
         self._queued = 0
+        # Calls whose caller timed out (outcome already recorded as
+        # ``timeout``); their completion must not double-count the call.
+        self._abandoned: set[asyncio.Future] = set()
 
         # Lifecycle (restart-on-crash supervisor)
         self._connect = connect
@@ -221,8 +285,7 @@ class ChildRuntime:
 
     def _pick_session(self) -> Any:
         if not self._sessions:
-            raise MCPChildUnavailableError(
-                self.name,
+            raise self._unavailable(
                 self.state,
                 f"Child server '{self.name}' has no active session "
                 f"(state={self.state})",
@@ -274,6 +337,10 @@ class ChildRuntime:
                     self._sessions = list(sessions)
                     self._set_state("up")
                     backoff = self.restart_backoff_base
+                    # A fresh generation proves the child reachable again, so
+                    # an open breaker closes instead of short-circuiting
+                    # calls against the recovered child.
+                    self.breaker.record_success()
                     self._stop_generation = asyncio.Event()
                     self._ready.set()
                     if first is not None:
@@ -329,7 +396,7 @@ class ChildRuntime:
             self.restart_count += 1
             self._on_restart()
             self._set_state("restarting")
-            delay = min(backoff, self.restart_backoff_cap) * random.uniform(  # noqa: S311 - jitter, not crypto
+            delay = min(backoff, self.restart_backoff_cap) * random.uniform(  # nosec B311 - backoff jitter, not crypto
                 *_JITTER_RANGE
             )
             backoff = min(backoff * 2, self.restart_backoff_cap)
@@ -346,8 +413,12 @@ class ChildRuntime:
             logger.info("Child server '%s': %s -> %s", self.name, self.state, state)
         self.state = state
 
+    def _record(self, outcome: str) -> None:
+        MCP_CHILD_CALLS.labels(server=self.name, outcome=outcome).inc()
+
     def _on_restart(self) -> None:
-        """Restart side-effects hook (metrics wiring attaches here)."""
+        """Restart side-effects: counted on the OS-5.23 metrics registry."""
+        MCP_CHILD_RESTARTS.labels(server=self.name).inc()
 
     def request_restart(self, reason: str = "") -> None:
         """Tear down the current generation and reconnect (supervised only)."""
@@ -363,11 +434,14 @@ class ChildRuntime:
         if self._stop_generation is not None:
             self._stop_generation.set()
 
+    def _unavailable(self, state: str, message: str) -> MCPChildUnavailableError:
+        self._record("unavailable")
+        return MCPChildUnavailableError(self.name, state, message)
+
     async def _await_ready(self) -> None:
         """Gate calls on child availability with a brief recovery wait."""
         if self.state == "failed":
-            raise MCPChildUnavailableError(
-                self.name,
+            raise self._unavailable(
                 "failed",
                 f"Child server '{self.name}' is marked FAILED after "
                 f"{self.restart_count} restarts; not accepting calls.",
@@ -378,16 +452,14 @@ class ChildRuntime:
         try:
             await asyncio.wait_for(self._ready.wait(), timeout=wait)
         except TimeoutError:
-            raise MCPChildUnavailableError(
-                self.name,
+            raise self._unavailable(
                 self.state,
                 f"Child server '{self.name}' is {self.state} (restart "
                 f"#{self.restart_count}); still unavailable after waiting "
                 f"{wait}s. Retry shortly.",
             ) from None
         if self.state == "failed":
-            raise MCPChildUnavailableError(
-                self.name,
+            raise self._unavailable(
                 "failed",
                 f"Child server '{self.name}' is marked FAILED after "
                 f"{self.restart_count} restarts; not accepting calls.",
@@ -417,11 +489,13 @@ class ChildRuntime:
             return
         if self._semaphore.locked():
             self._queued += 1
+            MCP_CHILD_QUEUE_DEPTH.labels(server=self.name).set(self._queued)
             try:
                 await asyncio.wait_for(
                     self._semaphore.acquire(), timeout=self.queue_timeout
                 )
             except TimeoutError:
+                self._record("busy")
                 raise MCPChildBusyError(
                     self.name,
                     f"Child server '{self.name}' is at its concurrency limit "
@@ -431,6 +505,7 @@ class ChildRuntime:
                 ) from None
             finally:
                 self._queued -= 1
+                MCP_CHILD_QUEUE_DEPTH.labels(server=self.name).set(self._queued)
         else:
             await self._semaphore.acquire()
 
@@ -451,15 +526,27 @@ class ChildRuntime:
         than letting abandoned calls stack up invisibly."""
         self._in_flight -= 1
         self._release_slot()
+        abandoned = task in self._abandoned
+        self._abandoned.discard(task)
         if task.cancelled():
             return
         exc = task.exception()  # consume so abandoned failures don't warn
         if exc is None:
+            self.breaker.record_success()
+            if not abandoned:  # abandoned calls were already counted (timeout)
+                self._record("ok")
             return
         if isinstance(exc, TRANSPORT_EXCEPTIONS):
             # Dead pipe / closed stream: the child is gone, not erroring.
+            self.breaker.record_failure()
+            if not abandoned:
+                self._record("transport_error")
             self.request_restart(reason=type(exc).__name__)
         else:
+            # Application-level tool error: the child answered, so the
+            # breaker stays closed (mirrors the OS-5.23 engine guard).
+            if not abandoned:
+                self._record("error")
             logger.debug(
                 "Child '%s' call finished with %s after the caller detached",
                 self.name,
@@ -473,12 +560,30 @@ class ChildRuntime:
         shielded from the caller. A caller timeout/cancel detaches cleanly —
         the shared session keeps its request/response bookkeeping intact and
         the concurrency slot is released only when the child finishes."""
-        await self._await_ready()
-        await self._acquire_slot()
+        try:
+            self.breaker.before_call()
+        except _BreakerOpenSignal as signal:
+            self._record("short_circuited")
+            raise MCPChildCircuitOpenError(self.name, str(signal)) from None
+        # before_call() claims the single half-open probe slot when the
+        # breaker is recovering; if this call dies before reaching the child
+        # (busy/unavailable), the slot must be returned — as a failed probe,
+        # since the child was not demonstrably reachable. In the closed state
+        # those same pre-call rejections never touch the breaker.
+        probe_claimed = self.breaker.state == "half_open"
+        try:
+            await self._await_ready()
+            await self._acquire_slot()
+        except BaseException:
+            if probe_claimed:
+                self.breaker.record_failure()
+            raise
         try:
             session = self._pick_session()
         except BaseException:
             self._release_slot()
+            if probe_claimed:
+                self.breaker.record_failure()
             raise
         self._in_flight += 1
         inner = asyncio.ensure_future(session.call_tool(original_name, arguments))
@@ -490,6 +595,11 @@ class ChildRuntime:
                 )
             return await asyncio.shield(inner)
         except TimeoutError:
+            # Consecutive timeouts count toward opening the circuit; if the
+            # detached call eventually succeeds, its completion closes it.
+            self.breaker.record_failure()
+            self._record("timeout")
+            self._abandoned.add(inner)
             raise MCPChildCallTimeoutError(
                 self.name,
                 f"Tool '{original_name}' on child server '{self.name}' did "
@@ -507,6 +617,7 @@ class ChildRuntime:
             "server": self.name,
             "state": self.state,
             "restart_count": self.restart_count,
+            "breaker": self.breaker.state,
             "sessions": len(self._sessions),
             "max_concurrency": self.max_concurrency,
             "in_flight": self._in_flight,
@@ -515,9 +626,11 @@ class ChildRuntime:
 
 
 __all__ = [
+    "ChildCircuitBreaker",
     "ChildRuntime",
     "MCPChildBusyError",
     "MCPChildCallTimeoutError",
+    "MCPChildCircuitOpenError",
     "MCPChildError",
     "MCPChildUnavailableError",
     "TRANSPORT_EXCEPTIONS",

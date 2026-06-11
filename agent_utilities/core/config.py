@@ -414,9 +414,7 @@ class AgentConfig(BaseSettings):
 
     # --- MCP multiplexer child resilience (CONCEPT:ECO-4.34) ---
 
-    mcp_child_max_concurrency: int = Field(
-        default=8, alias="MCP_CHILD_MAX_CONCURRENCY"
-    )
+    mcp_child_max_concurrency: int = Field(default=8, alias="MCP_CHILD_MAX_CONCURRENCY")
     """Maximum in-flight tool calls per multiplexer child server. Excess calls
     queue (bounded by ``MCP_CHILD_QUEUE_TIMEOUT``) instead of piling onto the
     child unbounded. Per-server override: the ``max_concurrency`` key on the
@@ -450,6 +448,21 @@ class AgentConfig(BaseSettings):
     counted. Restarts older than the window are forgiven, so a child that
     crashes rarely keeps restarting indefinitely while a crash-looping child
     is parked as ``failed``."""
+
+    mcp_child_breaker_threshold: int = Field(
+        default=5, alias="MCP_CHILD_BREAKER_THRESHOLD"
+    )
+    """Consecutive transport failures/timeouts on one multiplexer child
+    before its circuit breaker opens (fast, typed
+    ``MCPChildCircuitOpenError`` instead of hammering a dead child). ``0``
+    disables the breaker. Per-server override: ``breaker_threshold``."""
+
+    mcp_child_breaker_cooldown: float = Field(
+        default=15.0, alias="MCP_CHILD_BREAKER_COOLDOWN"
+    )
+    """Seconds an open per-child circuit breaker waits before allowing a
+    single half-open probe call; the probe's outcome closes or re-opens the
+    circuit. Per-server override: ``breaker_cooldown``."""
 
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
 

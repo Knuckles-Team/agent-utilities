@@ -17,6 +17,7 @@ from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
     MCPChildBusyError,
     MCPChildCallTimeoutError,
+    MCPChildCircuitOpenError,
     MCPChildUnavailableError,
 )
 from agent_utilities.mcp.multiplexer import MCPMultiplexer
@@ -490,6 +491,156 @@ async def test_multiplexer_status_snapshot_reports_every_child(tmp_path):
     assert child["state"] == "up"
     assert child["restart_count"] == 0
     assert child["max_concurrency"] == 4
+
+
+# ---------------------------------------------------------------------------
+# Work item 4 — per-child circuit breaker + metrics
+# ---------------------------------------------------------------------------
+
+
+class FlakySession:
+    """Scripted session: fails the first N calls at the transport level,
+    then answers normally."""
+
+    def __init__(self, failures: int) -> None:
+        self.remaining = failures
+        self.calls = 0
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        self.calls += 1
+        if self.remaining > 0:
+            self.remaining -= 1
+            raise ConnectionResetError("transport hiccup")
+        return mcp.types.CallToolResult(
+            content=[mcp.types.TextContent(type="text", text=f"ok:{name}")]
+        )
+
+
+async def test_breaker_opens_after_consecutive_transport_failures_then_recovers():
+    session = FlakySession(failures=2)
+    runtime = ChildRuntime(
+        "breaky", {"breaker_threshold": 2, "breaker_cooldown": 0.05}
+    )
+    runtime.adopt_sessions([session])
+
+    for _ in range(2):
+        with pytest.raises(ConnectionResetError):
+            await runtime.call_tool("t", {})
+    assert runtime.breaker.state == "open"
+    assert runtime.status()["breaker"] == "open"
+
+    # Open circuit: fail fast, the child is never touched.
+    with pytest.raises(MCPChildCircuitOpenError) as exc:
+        await runtime.call_tool("t", {})
+    assert "breaky" in str(exc.value)
+    assert session.calls == 2
+
+    # After the cooldown the half-open probe goes through and closes it.
+    await asyncio.sleep(0.06)
+    result = await runtime.call_tool("t", {})
+    assert not result.isError
+    assert runtime.breaker.state == "closed"
+    assert session.calls == 3
+
+
+async def test_failed_half_open_probe_reopens_the_circuit():
+    session = FlakySession(failures=10)
+    runtime = ChildRuntime(
+        "relapse", {"breaker_threshold": 1, "breaker_cooldown": 0.05}
+    )
+    runtime.adopt_sessions([session])
+
+    with pytest.raises(ConnectionResetError):
+        await runtime.call_tool("t", {})
+    assert runtime.breaker.state == "open"
+
+    await asyncio.sleep(0.06)
+    with pytest.raises(ConnectionResetError):  # the probe itself fails
+        await runtime.call_tool("t", {})
+    assert runtime.breaker.state == "open"
+    with pytest.raises(MCPChildCircuitOpenError):
+        await runtime.call_tool("t", {})
+    assert session.calls == 2
+
+
+async def test_zero_breaker_threshold_disables_short_circuiting():
+    session = FlakySession(failures=10)
+    runtime = ChildRuntime("unbroken", {"breaker_threshold": 0})
+    runtime.adopt_sessions([session])
+
+    for _ in range(4):
+        with pytest.raises(ConnectionResetError):
+            await runtime.call_tool("t", {})
+    assert runtime.breaker.state == "closed"
+    assert session.calls == 4
+
+
+async def test_application_errors_do_not_trip_the_breaker():
+    class AppErrorSession:
+        async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+            raise ValueError("bad arguments for this tool")
+
+    runtime = ChildRuntime("chatty", {"breaker_threshold": 2})
+    runtime.adopt_sessions([AppErrorSession()])
+
+    for _ in range(5):
+        with pytest.raises(ValueError):
+            await runtime.call_tool("t", {})
+    # The child answered (with errors) — it is alive, circuit stays closed.
+    assert runtime.breaker.state == "closed"
+
+
+async def test_busy_rejections_do_not_count_as_breaker_failures():
+    session = GatedSession()
+    runtime = ChildRuntime(
+        "swamped",
+        {"max_concurrency": 1, "queue_timeout": 0.02, "breaker_threshold": 2},
+    )
+    runtime.adopt_sessions([session])
+
+    blocker = asyncio.create_task(runtime.call_tool("t", {}))
+    await asyncio.sleep(0.01)
+    for _ in range(3):
+        with pytest.raises(MCPChildBusyError):
+            await runtime.call_tool("t", {})
+    assert runtime.breaker.state == "closed"
+
+    session.release.set()
+    assert not (await blocker).isError
+
+
+async def test_multiplexer_surfaces_circuit_open_as_typed_tool_result(tmp_path):
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    runtime = ChildRuntime(
+        "fused", {"breaker_threshold": 1, "breaker_cooldown": 60.0}
+    )
+    runtime.adopt_sessions([FlakySession(failures=1)])
+    mux.children["fused"] = runtime
+    mux.tool_to_server["fu__tool"] = ("fused", "tool")
+
+    first = await mux.call_proxied_tool("fu__tool", {})
+    assert first.isError  # the transport failure itself
+
+    second = await mux.call_proxied_tool("fu__tool", {})
+    assert second.isError
+    assert "MCPChildCircuitOpenError" in second.content[0].text
+    assert "fused" in second.content[0].text
+
+
+async def test_metrics_are_noop_safe_without_prometheus():
+    # The multiplexer runs standalone; every metric must degrade to a no-op
+    # when prometheus_client (the optional extra) is absent — and be a real
+    # series when it is installed. Either way these calls must not raise.
+    from agent_utilities.observability import gateway_metrics as gm
+
+    gm.MCP_CHILD_CALLS.labels(server="x", outcome="ok").inc()
+    gm.MCP_CHILD_BREAKER_STATE.labels(server="x").set(2.0)
+    gm.MCP_CHILD_RESTARTS.labels(server="x").inc()
+    gm.MCP_CHILD_QUEUE_DEPTH.labels(server="x").set(3)
+
+    if gm.PROMETHEUS_AVAILABLE:
+        value = gm.MCP_CHILD_RESTARTS.labels(server="x")._value.get()
+        assert value >= 1.0
 
 
 async def test_runtime_status_reports_limits_and_load():

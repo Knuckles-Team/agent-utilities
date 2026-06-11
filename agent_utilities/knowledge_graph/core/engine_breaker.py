@@ -54,7 +54,18 @@ class EngineCircuitOpenError(ConnectionError):
 
 
 class CircuitBreaker:
-    """Thread-safe closed → open → half-open circuit breaker."""
+    """Thread-safe closed → open → half-open circuit breaker.
+
+    Reusable beyond the engine client: subclasses may override ``error_cls``
+    (the typed fail-fast exception), ``subject`` (log/message wording), and
+    ``_export_state`` (which gauge carries the state) — the MCP multiplexer's
+    per-child breaker (CONCEPT:ECO-4.34) does exactly that."""
+
+    #: Raised on short-circuited calls; a ``ConnectionError`` subclass so
+    #: existing ``except ConnectionError`` handlers keep working.
+    error_cls: type[ConnectionError] = EngineCircuitOpenError
+    #: Human wording for log lines and error messages.
+    subject: str = "epistemic-graph engine"
 
     def __init__(
         self, endpoint: str, threshold: int = 5, cooldown: float = 15.0
@@ -78,18 +89,21 @@ class CircuitBreaker:
     def enabled(self) -> bool:
         return self.threshold > 0
 
+    def _state_value(self) -> float:
+        """Numeric gauge encoding of the current state (0/1/2)."""
+        return _STATE_VALUES[self._state]
+
     def _export_state(self) -> None:
-        ENGINE_BREAKER_STATE.labels(endpoint=self.endpoint).set(
-            _STATE_VALUES[self._state]
-        )
+        ENGINE_BREAKER_STATE.labels(endpoint=self.endpoint).set(self._state_value())
 
     def _set_state(self, state: str) -> None:
         if state == self._state:
             return
         log = logger.warning if state == "open" else logger.info
         log(
-            "Engine circuit breaker %s -> %s (endpoint=%s, failures=%d). "
+            "%s circuit breaker %s -> %s (endpoint=%s, failures=%d). "
             "(CONCEPT:OS-5.23)",
+            self.subject,
             self._state,
             state,
             self.endpoint,
@@ -110,8 +124,8 @@ class CircuitBreaker:
             if self._state == "open":
                 remaining = self._opened_at + self.cooldown - now
                 if remaining > 0:
-                    raise EngineCircuitOpenError(
-                        f"epistemic-graph engine breaker OPEN for "
+                    raise self.error_cls(
+                        f"{self.subject} breaker OPEN for "
                         f"{self.endpoint!r} after {self._failures} consecutive "
                         f"connection failures; retrying in {remaining:.1f}s."
                     )
@@ -120,8 +134,8 @@ class CircuitBreaker:
                 return
             # half_open: exactly one probe at a time
             if self._probe_in_flight:
-                raise EngineCircuitOpenError(
-                    f"epistemic-graph engine breaker HALF-OPEN for "
+                raise self.error_cls(
+                    f"{self.subject} breaker HALF-OPEN for "
                     f"{self.endpoint!r}: probe already in flight."
                 )
             self._probe_in_flight = True
