@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import contextvars
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 from agent_utilities.harness import tracing
 
@@ -99,7 +100,9 @@ def bind_carrier(carrier: dict[str, str] | None) -> Iterator[str]:
 
     sid = carrier.get(SESSION_HEADER)
     if sid:
-        tokens.append((tracing._current_session_id, tracing._current_session_id.set(sid)))
+        tokens.append(
+            (tracing._current_session_id, tracing._current_session_id.set(sid))
+        )
 
     try:
         yield cid

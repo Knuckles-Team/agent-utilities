@@ -162,7 +162,9 @@ def history(engine: Any, channel_id: str) -> list[dict[str, Any]]:
     return msgs
 
 
-def receive(engine: Any, channel_id: str, since: int = 0) -> tuple[list[dict[str, Any]], int]:
+def receive(
+    engine: Any, channel_id: str, since: int = 0
+) -> tuple[list[dict[str, Any]], int]:
     """Return (new_messages_after `since`, new_cursor).
 
     `since` is the count already consumed by this caller; the returned cursor is the new total,
@@ -184,7 +186,12 @@ _ELICIT_TAG = "__elicit__"
 
 
 def send_elicitation(
-    engine: Any, channel_id: str, prompt: str, *, sender: str = "agent", durable: bool = True
+    engine: Any,
+    channel_id: str,
+    prompt: str,
+    *,
+    sender: str = "agent",
+    durable: bool = True,
 ) -> bool:
     """CONCEPT:ORCH-1.40 (Phase 4) — a spawned agent asks its invoker (→ user) a question.
 
