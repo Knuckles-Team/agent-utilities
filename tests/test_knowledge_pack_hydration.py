@@ -55,6 +55,11 @@ async def test_hydrate_bundle(sample_bundle):
     with (
         patch("requests.get") as mock_get,
         patch("tempfile.NamedTemporaryFile") as mock_tempfile,
+        # No searxng server configured — exercise the zero-infra crawl4ai path.
+        patch(
+            "agent_utilities.models.knowledge_pack._searxng_connector_for",
+            return_value=None,
+        ),
     ):
         mock_tempfile.return_value.__enter__.return_value.name = ".tmp/fake.pdf"
         mock_get.return_value.content = b"fake pdf bytes"
@@ -74,3 +79,113 @@ async def test_hydrate_bundle(sample_bundle):
         # Verify node with no url
         no_url_node = next(n for n in hydrated_bundle.nodes if n["id"] == "node_no_url")
         assert "content" not in no_url_node
+
+# ---------------------------------------------------------------------------
+# KG-2.59 reuse policy: web retrieval routes through the searxng-mcp
+# mcp_tool source preset when configured; crawl4ai stays the final fallback.
+# ---------------------------------------------------------------------------
+
+
+class FakeSearxngConnector:
+    """Fake mcp_tool searxng source: yields canned SourceDocuments."""
+
+    def __init__(self, docs):
+        self._docs = docs
+
+    def load(self):
+        yield from self._docs
+
+
+def _searxng_doc(url: str, text: str):
+    from agent_utilities.protocols.source_connectors.base import SourceDocument
+
+    return SourceDocument(id=url, source_uri=url, title="result", text=text)
+
+
+@pytest.mark.asyncio
+async def test_hydrate_web_via_searxng_mcp_tool(sample_bundle):
+    """When searxng is configured, web content comes from the mcp_tool source."""
+    url = "https://example.com/article"
+    fake = FakeSearxngConnector([_searxng_doc(url, "Searxng content")])
+
+    with (
+        patch("requests.get") as mock_get,
+        patch("tempfile.NamedTemporaryFile") as mock_tempfile,
+        patch(
+            "agent_utilities.models.knowledge_pack._searxng_connector_for",
+            return_value=fake,
+        ) as mock_factory,
+    ):
+        mock_tempfile.return_value.__enter__.return_value.name = ".tmp/fake.pdf"
+        mock_get.return_value.content = b"fake pdf bytes"
+        mock_get.return_value.raise_for_status = MagicMock()
+
+        await KnowledgePackHydrator.hydrate(sample_bundle)
+
+    web_node = next(n for n in sample_bundle.nodes if n["id"] == "node_web")
+    assert web_node["content"] == "Searxng content"
+    mock_factory.assert_called_once_with(url)
+
+
+def test_hydrate_via_searxng_returns_unmatched_urls_for_fallback():
+    """URLs the searxng source cannot serve fall through to crawl4ai."""
+    matched = "https://example.com/found"
+    unmatched = "https://example.com/missing"
+    node_map = {matched: {"id": "a"}, unmatched: {"id": "b"}}
+
+    def factory(query):
+        return FakeSearxngConnector([_searxng_doc(matched, "Found body")])
+
+    with patch(
+        "agent_utilities.models.knowledge_pack._searxng_connector_for",
+        side_effect=factory,
+    ):
+        remaining = KnowledgePackHydrator._hydrate_via_searxng(
+            [matched, unmatched], node_map
+        )
+
+    assert remaining == [unmatched]
+    assert node_map[matched]["content"] == "Found body"
+    assert "content" not in node_map[unmatched]
+
+
+def test_hydrate_via_searxng_unconfigured_keeps_all_urls():
+    """No searxng server configured: every URL is left for crawl4ai."""
+    urls = ["https://example.com/a", "https://example.com/b"]
+    node_map = {u: {} for u in urls}
+
+    with patch(
+        "agent_utilities.models.knowledge_pack._searxng_connector_for",
+        return_value=None,
+    ):
+        remaining = KnowledgePackHydrator._hydrate_via_searxng(urls, node_map)
+
+    assert remaining == urls
+    assert all("content" not in node_map[u] for u in urls)
+
+
+def test_searxng_connector_factory_unconfigured(monkeypatch):
+    """Factory returns None when mcp_config has no searxng server."""
+    from agent_utilities.models import knowledge_pack as kp
+    from agent_utilities.protocols.source_connectors.connectors import mcp_package
+
+    monkeypatch.setattr(mcp_package, "_load_mcp_config", lambda: {"other-mcp": {}})
+    assert kp._searxng_connector_for("https://example.com") is None
+
+
+def test_searxng_connector_factory_builds_preset(monkeypatch):
+    """Factory builds an mcp_tool connector bound to the searxng preset."""
+    from agent_utilities.models import knowledge_pack as kp
+    from agent_utilities.protocols.source_connectors.connectors import mcp_package
+
+    monkeypatch.setattr(
+        mcp_package,
+        "_load_mcp_config",
+        lambda: {"searxng-mcp": {"url": "http://searxng-mcp.test/mcp"}},
+    )
+    conn = kp._searxng_connector_for("site query")
+    assert conn is not None
+    assert conn.tool == "web_search"
+    assert conn.params == {"query": "site query"}
+    assert conn.records_path == "results"
+    assert conn.text_field == "content"
