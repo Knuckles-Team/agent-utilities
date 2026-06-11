@@ -10,7 +10,7 @@ from agent_utilities.knowledge_graph.enrichment.models import (
 from agent_utilities.knowledge_graph.enrichment.registry import (
     get_source,
     list_sources,
-    register_source,
+    register_extractor,
     write_batch,
 )
 
@@ -31,7 +31,7 @@ def test_register_and_retrieve_source():
     def extract(cfg):
         return ExtractionBatch(category="demo")
 
-    register_source("demo-itsm", extract, description="demo")
+    register_extractor("demo-itsm", extract, description="demo")
     src = get_source("demo-itsm")
     assert src is not None and src.description == "demo"
     assert any(s.category == "demo-itsm" for s in list_sources())

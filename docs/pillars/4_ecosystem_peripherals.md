@@ -21,9 +21,6 @@ When the system encounters a problem it lacks a tool for, the **SkillNeologismDe
 ### A2A Network & Consensus (ECO-4.2)
 Agent-to-Agent (A2A) communication is configured via `a2a_config.json`. Remote agents are ingested as `CallableResource` nodes in the KG. The system supports multi-agent **Byzantine Fault Tolerance (BFT)** consensus algorithms, allowing a swarm of agents to vote on optimal pathways or verify code logic independently before returning a synthesized result to the user.
 
-### Market Data Connector Protocol (ECO-4.4)
-For financial workflows (linked to KG-2.46 Optimal Execution), the ecosystem implements a prioritized failover chain for market data fetchers, ensuring high availability and immutable audit trails for quantitative trading intelligence.
-
 ## Benefits Introduced
 
 - **Infinite Scalability**: Adding a new integration requires zero code changes to the core agent—simply add an MCP server to the config.
@@ -34,7 +31,6 @@ For financial workflows (linked to KG-2.46 Optimal Execution), the ecosystem imp
 - **ECO-4.0**: Unified Tool Interface
 - **ECO-4.1**: Capability Registry Engine
 - **ECO-4.2**: A2A Network & Consensus
-- **ECO-4.4**: Market Data Connector Protocol
 - **ECO-4.5**: Native Messaging Backend Abstraction — NATS/Kafka event queue messaging interfaces
 - **ECO-4.8**: Skill Evolution Engine
 - **ECO-4.6**: Agent Toolkit Ingestor — unified MCP/Skill/A2A ingestion with auto-detection heuristics

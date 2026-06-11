@@ -13,7 +13,7 @@ import os
 from typing import Any
 
 from ..models import ExtractionBatch, GraphNode
-from ..registry import register_source
+from ..registry import register_extractor
 
 
 def _slug(text: str) -> str:
@@ -93,7 +93,7 @@ def extract(config: Any = None) -> ExtractionBatch:
     return ExtractionBatch(category="config_models", nodes=nodes)
 
 
-register_source(
+register_extractor(
     "config_models",
     extract,
     description="agent-utilities config.json model registry → Model nodes",

@@ -3,9 +3,9 @@
 CONCEPT:ORCH-1.36 — Declarative Resilience Policy
 
 Closes the Reliability & Failure-Management gap (L7) versus the agentic
-reference architecture. The orchestration engine already ships an in-memory
-circuit breaker (:class:`agent_utilities.orchestration.engine._CircuitBreaker`)
-and KG-persisted durable checkpoints
+reference architecture. The live specialist-execution path already carries a
+per-server circuit breaker (``ctx.deps.server_health`` in
+``agent_utilities/graph/executor.py``) and KG-persisted durable checkpoints
 (:class:`agent_utilities.orchestration.durable_execution.DurableExecutionManager`),
 but there was no *declarative* policy describing how an individual unit of work
 should retry, back off, fall back, or time out.

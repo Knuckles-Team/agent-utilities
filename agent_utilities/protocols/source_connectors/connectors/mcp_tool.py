@@ -131,6 +131,20 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
             "text_path": "content",
         },
     },
+    # searxng-mcp: privacy-respecting metasearch — one `web_search` call,
+    # each result (url/title/content snippet) becomes a document. Extend with
+    #   {"params": {"query": "..."}}  (plus optional categories/engines/
+    #    language/pageno — the tool takes plain arguments, hence "args").
+    "searxng-search": {
+        "server": "searxng-mcp",
+        "tool": "web_search",
+        "params_style": "args",
+        "records_path": "results",
+        "id_field": "url",
+        "title_field": "title",
+        "text_field": "content",
+        "doc_type": "web",
+    },
     # servicenow-api: any Table-API table via sysparm offset paging. Extend with
     #   {"params": {"table": "incident"},
     #    "updated_since_param": "sysparm_query"} as needed.
@@ -293,7 +307,6 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
     """
 
     provider = "MCP Tool Source"
-    priority = 60
 
     def configure(  # noqa: PLR0915 — flat declarative-config binding
         self,

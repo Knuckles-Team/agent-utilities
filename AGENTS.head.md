@@ -313,6 +313,17 @@ Pick the most specific accurate noun for the behavior/domain (a suite of groundi
 + safety + retrieval-quality checks → *reliability* scorers). Provenance (which
 plan/paper it came from) belongs in the docstring/CHANGELOG, not the identifier.
 
+### External data sources — one reuse path (KG-2.59)
+
+New external data sources are `mcp_tool` source presets (KG-2.59:
+`protocols/source_connectors/connectors/mcp_tool.py`, `MCP_TOOL_PRESETS`) —
+**never** new `UniversalConnector` dialects or bespoke connector modules. The
+fleet's ~58 MCP servers already wrap the external systems; a new source is a
+declarative preset (server + tool + field map + pagination), not new transport
+code. Native connectors are reserved for **zero-infra defaults** (filesystem,
+sqlite — things that must work with nothing deployed) and **hot-path
+substrates** (the engine's own storage/queue backends).
+
 **Good example:**
 ```python
 from agent_utilities import create_mcp_server

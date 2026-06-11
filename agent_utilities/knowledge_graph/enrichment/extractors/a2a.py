@@ -31,7 +31,7 @@ import os
 from typing import Any
 
 from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
-from ..registry import register_source
+from ..registry import register_extractor
 
 try:  # keep self-contained but reuse the canonical helper when available
     from .document import slug as _slug
@@ -196,7 +196,7 @@ def extract(config: Any) -> ExtractionBatch:
     return ExtractionBatch(category=CATEGORY, nodes=nodes, edges=edges)
 
 
-register_source(
+register_extractor(
     CATEGORY,
     extract,
     description="A2A agent cards (external agents) → KG",

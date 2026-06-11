@@ -81,7 +81,6 @@ class WebCrawlerConnector(LoadConnector, PollConnector):
     """
 
     provider = "Web Crawler"
-    priority = 60
 
     def configure(
         self,

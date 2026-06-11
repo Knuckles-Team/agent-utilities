@@ -88,7 +88,7 @@ graph TD
         ECO40("ECO-4.0: Tool Interface & MCP Factory")
         ECO41("ECO-4.1: A2A Network & Consensus 🔬")
         ECO42("ECO-4.2: Community Telemetry & Ecosystem Map")
-        ECO43("ECO-4.3: Market Data Connectors")
+        ECO43("ECO-4.3: Market Data KG Node Models")
         ECO44("ECO-4.4: KG MCP Server & Execution")
         ECO410("ECO-4.6: Agent Toolkit Ingestor")
         ECO411("ECO-4.6: MCP Live Discovery")

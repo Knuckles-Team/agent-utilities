@@ -157,15 +157,87 @@ class KnowledgePackExporter:
         return json_str
 
 
+def _searxng_connector_for(query: str) -> Any | None:
+    """Build a KG-2.59 ``mcp_tool`` searxng source for one query, if configured.
+
+    Reuse-policy seam: external web retrieval goes through the ``mcp_tool``
+    ``searxng-search`` preset when a searxng server is present in the
+    workspace ``mcp_config.json``. Returns ``None`` when no searxng server is
+    configured (or the connector stack is unavailable), in which case callers
+    fall back to the zero-infra crawl4ai path.
+    """
+    try:
+        from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
+            _load_mcp_config,
+        )
+        from agent_utilities.protocols.source_connectors.registry import (
+            build_connector,
+        )
+
+        servers = _load_mcp_config()
+        if not any(name in servers for name in ("searxng", "searxng-mcp")):
+            return None
+        return build_connector(
+            "mcp_tool", {"preset": "searxng-search", "params": {"query": query}}
+        )
+    except Exception as exc:  # noqa: BLE001 — unavailable source ≠ hydration failure
+        logger.debug("[KG-2.7] searxng mcp_tool source unavailable: %s", exc)
+        return None
+
+
 class KnowledgePackHydrator:
     """Hydrates Knowledge Pack nodes by extracting content from their URLs."""
+
+    @staticmethod
+    def _hydrate_via_searxng(
+        urls: list[str], node_map: dict[str, dict[str, Any]]
+    ) -> list[str]:
+        """Hydrate web URLs through the searxng-mcp ``mcp_tool`` source.
+
+        For each URL, queries the configured searxng server (KG-2.59 preset)
+        and uses the matching result's content. Returns the URLs that were
+        *not* hydrated — because no searxng server is configured, the call
+        failed, or no result matched — so the caller can fall back to the
+        zero-infra crawl4ai path for exactly those.
+        """
+        remaining: list[str] = []
+        for url in urls:
+            connector = _searxng_connector_for(url)
+            if connector is None:
+                remaining.append(url)
+                continue
+            try:
+                match = next(
+                    (
+                        doc
+                        for doc in connector.load()
+                        if doc.id == url and doc.text.strip()
+                    ),
+                    None,
+                )
+            except Exception as exc:  # noqa: BLE001 — fall back per URL
+                logger.warning(
+                    "[KG-2.7] searxng-mcp fetch failed for %s (%s); "
+                    "falling back to crawl4ai.",
+                    url,
+                    exc,
+                )
+                remaining.append(url)
+                continue
+            if match is not None:
+                node_map[url]["content"] = match.text.strip()
+            else:
+                remaining.append(url)
+        return remaining
 
     @staticmethod
     async def hydrate(bundle: KnowledgePackBundle) -> None:
         """Hydrate nodes with content extracted from their URLs.
 
-        PDFs are converted using pymupdf4llm. Web pages are fetched using Crawl4AI
-        (if available), or fall back to requests.
+        PDFs are converted using pymupdf4llm. Web pages go through the
+        searxng-mcp ``mcp_tool`` source when a searxng server is configured
+        (KG-2.59 reuse policy), then Crawl4AI as the zero-infra fallback,
+        then plain requests as the last resort.
 
         Args:
             bundle: The KnowledgePackBundle to hydrate.
@@ -211,7 +283,16 @@ class KnowledgePackHydrator:
         if not urls_to_crawl:
             return
 
-        # Second pass: Extract web content using crawl4ai (simulating web-crawler skill)
+        # Second pass: when a searxng server is configured, route web
+        # retrieval through the mcp_tool source preset (KG-2.59 reuse
+        # policy); crawl4ai remains the zero-infra fallback below.
+        urls_to_crawl = KnowledgePackHydrator._hydrate_via_searxng(
+            urls_to_crawl, node_map
+        )
+        if not urls_to_crawl:
+            return
+
+        # Final fallback pass: extract web content using crawl4ai (zero-infra)
         try:
             from crawl4ai import (
                 AsyncWebCrawler,

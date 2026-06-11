@@ -350,8 +350,6 @@ concepts:
   - agent_utilities/protocols/a2a_graph_skill.py
   - agent_utilities/protocols/acp_adapter.py
   - agent_utilities/protocols/acp_providers.py
-  - agent_utilities/protocols/data_connector.py
-  - agent_utilities/protocols/source_connectors/base.py
   - agent_utilities/security/permissions_kernel.py
   - agent_utilities/server/app.py
   - agent_utilities/server/routers/__init__.py
