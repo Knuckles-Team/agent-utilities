@@ -1,0 +1,43 @@
+# agent-utilities
+
+> A batteries-included harness for building Pydantic-AI agents that ship with a
+> knowledge graph, orchestration, memory, and tools. The default knowledge graph
+> runs in-process with zero external dependencies. Consume it as a Python
+> library, as an MCP server (`graph-os`), or via a REST gateway. The heavy graph
+> compute lives in a separate Rust engine (`epistemic-graph`), reached
+> out-of-process over a socket — no Rust needed to start.
+
+## Start here (read first)
+
+- [Start Here — what it is & how to use it](docs/start-here.md): the one-page overview — pillars, the 3 consumption models, zero-infra KG.
+- [Capabilities](docs/capabilities.md): concrete list of what an agent can do, with copy-paste library + MCP snippets.
+- [Consumption Models](docs/guides/consumption-models.md): library vs MCP stdio vs MCP HTTP vs REST gateway — when to use each.
+
+## Deploy
+
+- [Day-0 Deployment](docs/guides/day0.md): install deps → run graph-os + multiplexer → deploy the *-mcp fleet → wire integrations.
+- [Recipe: Tiny (all-local, zero-infra)](docs/recipes/tiny.md)
+- [Recipe: Single-node prod](docs/recipes/single-node-prod.md)
+- [Recipe: Enterprise (swarm)](docs/recipes/enterprise.md)
+- [Installation](docs/guides/installation.md) · [Configuration](docs/guides/configuration.md)
+
+## Understand the ecosystem
+
+- [Ecosystem map](docs/ecosystem.md): how agent-utilities anchors epistemic-graph, the UIs, the *-mcp connector fleet, and the enterprise services.
+
+## Build & extend
+
+- [Reference agent (runnable examples)](examples/reference_agent/): basic, graph, knowledge-graph, MCP, memory, protocol agents.
+- [Creating an Agent](docs/guides/creating-an-agent.md) · [Building MCP Servers](docs/guides/building-mcp-servers.md)
+
+## For AIs editing this repo
+
+- [AGENTS.md](AGENTS.md): conventions, architecture rules, working discipline, configuration discipline, the concept registry.
+
+## Pillars (deep dives)
+
+- [1. Graph Orchestration](docs/pillars/1_graph_orchestration.md)
+- [2. Epistemic Knowledge Graph](docs/pillars/2_epistemic_knowledge_graph.md)
+- [3. Agentic Harness Engineering](docs/pillars/3_agentic_harness_engineering.md)
+- [4. Ecosystem & Peripherals](docs/pillars/4_ecosystem_peripherals.md)
+- [5. Agent OS Infrastructure](docs/pillars/5_agent_os_infrastructure.md)
