@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 147
+total_concepts: 148
 total_pillars: 18
 pillars:
 - AHE-3
@@ -225,6 +225,17 @@ concepts:
   - agent_utilities/harness/preference_pairs.py
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   doc: Preference-Corpus Reliability
+- id: AHE-3.18
+  name: Failure-Driven Evolution
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/harness/trace_backend.py
+  - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/research/golden_loop.py
+  doc: Failure-Driven Evolution
 - id: CTX-1.0
   name: Nested Subfolder Instructions
   pillar: CTX-1
@@ -2005,17 +2016,22 @@ concepts:
   pillar: OS-5
   status: live
   code_paths:
+  - agent_utilities/gateway/fleet.py
+  - agent_utilities/gateway/graph_api.py
   - agent_utilities/security/tool_guard.py
   doc: Ontological Guardrail Engine
 - id: OS-5.11
-  name: Run-Scoped Tool Token
+  name: establish a run-wide correlation id so every nested
   pillar: OS-5
   status: live
   code_paths:
   - agent_utilities/cli/__init__.py
   - agent_utilities/cli/__main__.py
+  - agent_utilities/observability/correlation.py
+  - agent_utilities/observability/langfuse_exporter.py
+  - agent_utilities/orchestration/engine.py
   - agent_utilities/security/run_token.py
-  doc: Run-Scoped Tool Token
+  doc: establish a run-wide correlation id so every nested
 - id: OS-5.12
   name: Empty → derive from effect
   pillar: OS-5
