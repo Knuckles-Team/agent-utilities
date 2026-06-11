@@ -255,6 +255,17 @@ class MCPMultiplexer:
         env = cfg.get("env", None)
         timeout = float(cfg.get("timeout", 300.0))
 
+        # Session-pool sizing (CONCEPT:ECO-4.34): remote children may hold N
+        # independent connections for parallel in-flight calls; stdio children
+        # are single-pipe and always keep exactly one session.
+        from agent_utilities.core.config import config as agent_config
+
+        pool_size = 1
+        if is_remote:
+            pool_size = max(
+                1, int(cfg.get("pool_size") or agent_config.mcp_child_pool_size)
+            )
+
         # Build environment dict with dynamic expansions (stdio children only).
         merged_env = os.environ.copy()
         if env:
@@ -285,7 +296,7 @@ class MCPMultiplexer:
         child_stack = contextlib.AsyncExitStack()
         try:
 
-            async def _connect_and_init():
+            async def _connect_one():
                 if is_remote:
                     if use_sse:
                         if sse_client is None:
@@ -319,18 +330,28 @@ class MCPMultiplexer:
                 )
 
                 await session.initialize()
-                tools_result = await session.list_tools()
-                return session, tools_result.tools
+                return session
 
-            session, tools = await asyncio.wait_for(
+            async def _connect_and_init():
+                sessions = [await _connect_one() for _ in range(pool_size)]
+                tools_result = await sessions[0].list_tools()
+                return sessions, tools_result.tools
+
+            sessions, tools = await asyncio.wait_for(
                 _connect_and_init(), timeout=timeout
             )
 
             # Register the child_stack in the main exit_stack so it persists
             await self.exit_stack.enter_async_context(child_stack)
 
-            logger.info(f"Loaded {len(tools)} tools from child server '{server_name}'")
-            return server_name, session, tools, cfg
+            logger.info(
+                "Loaded %d tools from child server '%s' (%d session%s)",
+                len(tools),
+                server_name,
+                len(sessions),
+                "" if len(sessions) == 1 else "s",
+            )
+            return server_name, sessions, tools, cfg
 
         except TimeoutError:
             logger.error(
@@ -397,14 +418,16 @@ class MCPMultiplexer:
                 continue
 
             server_name, session, tools, cfg = result
-            self.sessions[server_name] = session
-
-            # Wrap the live session in the per-child hardening runtime
-            # (CONCEPT:ECO-4.34): bounded concurrency + queue timeout.
-            runtime = ChildRuntime(server_name, cfg)
-            runtime.adopt_sessions(
-                list(session) if isinstance(session, list) else [session]
+            sessions = (
+                list(session) if isinstance(session, (list, tuple)) else [session]
             )
+            self.sessions[server_name] = sessions[0]
+
+            # Wrap the live session pool in the per-child hardening runtime
+            # (CONCEPT:ECO-4.34): bounded concurrency + queue timeout +
+            # round-robin dispatch across pooled connections.
+            runtime = ChildRuntime(server_name, cfg)
+            runtime.adopt_sessions(sessions)
             self.children[server_name] = runtime
 
             disabled_tools = cfg.get("disabledTools", [])

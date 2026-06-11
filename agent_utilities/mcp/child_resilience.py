@@ -48,6 +48,14 @@ class MCPChildBusyError(MCPChildError):
     """The child's concurrency slots stayed full past the queue timeout."""
 
 
+class MCPChildCallTimeoutError(MCPChildError):
+    """The child accepted the call but did not answer within the call timeout.
+
+    The abandoned call is detached: it keeps its concurrency slot until the
+    child actually finishes (or the session dies), so a wedged child applies
+    backpressure instead of corrupting the shared session."""
+
+
 def _cfg_value(cfg: dict[str, Any], key: str, fallback: Any) -> Any:
     """Per-server config override with a global-config fallback."""
     value = cfg.get(key)
@@ -85,6 +93,12 @@ class ChildRuntime:
             queue_timeout
             if queue_timeout is not None
             else _cfg_value(self.cfg, "queue_timeout", config.mcp_child_queue_timeout)
+        )
+        # Per-call ceiling: reuses the server entry's existing ``timeout`` key
+        # (historically the connect/handshake budget) unless a dedicated
+        # ``call_timeout`` is given. <=0 disables the ceiling.
+        self.call_timeout = float(
+            _cfg_value(self.cfg, "call_timeout", self.cfg.get("timeout", 300.0))
         )
 
         self._semaphore: asyncio.Semaphore | None = (
@@ -159,16 +173,54 @@ class ChildRuntime:
     # Call path
     # ------------------------------------------------------------------
 
+    def _finish_call(self, task: asyncio.Task) -> None:
+        """Slot bookkeeping when the underlying child call actually completes.
+
+        Runs even when the awaiting caller timed out or was cancelled: the
+        slot belongs to the *child-side* call, so it is only returned once the
+        child has truly finished — a wedged child exerts backpressure rather
+        than letting abandoned calls stack up invisibly."""
+        self._in_flight -= 1
+        self._release_slot()
+        if task.cancelled():
+            return
+        exc = task.exception()  # consume so abandoned failures don't warn
+        if exc is not None:
+            logger.debug(
+                "Child '%s' call finished with %s after the caller detached",
+                self.name,
+                type(exc).__name__,
+            )
+
     async def call_tool(self, original_name: str, arguments: dict[str, Any]) -> Any:
-        """Forward one tool call to the child under the per-server limits."""
+        """Forward one tool call to the child under the per-server limits.
+
+        Cancellation-safe: the child-side call runs in its own task and is
+        shielded from the caller. A caller timeout/cancel detaches cleanly —
+        the shared session keeps its request/response bookkeeping intact and
+        the concurrency slot is released only when the child finishes."""
         await self._acquire_slot()
-        self._in_flight += 1
         try:
             session = self._pick_session()
-            return await session.call_tool(original_name, arguments)
-        finally:
-            self._in_flight -= 1
+        except BaseException:
             self._release_slot()
+            raise
+        self._in_flight += 1
+        inner = asyncio.ensure_future(session.call_tool(original_name, arguments))
+        inner.add_done_callback(self._finish_call)
+        try:
+            if self.call_timeout > 0:
+                return await asyncio.wait_for(
+                    asyncio.shield(inner), timeout=self.call_timeout
+                )
+            return await asyncio.shield(inner)
+        except TimeoutError:
+            raise MCPChildCallTimeoutError(
+                self.name,
+                f"Tool '{original_name}' on child server '{self.name}' did "
+                f"not answer within {self.call_timeout}s; the call was "
+                f"detached and its slot is held until the child finishes.",
+            ) from None
 
     # ------------------------------------------------------------------
     # Health surface
@@ -188,5 +240,6 @@ class ChildRuntime:
 __all__ = [
     "ChildRuntime",
     "MCPChildBusyError",
+    "MCPChildCallTimeoutError",
     "MCPChildError",
 ]

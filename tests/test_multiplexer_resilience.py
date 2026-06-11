@@ -16,6 +16,7 @@ import pytest
 from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
     MCPChildBusyError,
+    MCPChildCallTimeoutError,
 )
 from agent_utilities.mcp.multiplexer import MCPMultiplexer
 
@@ -147,6 +148,188 @@ async def test_multiplexer_surfaces_busy_error_as_typed_tool_result(tmp_path):
     session.release.set()
     ok = await blocker
     assert not ok.isError
+
+
+# ---------------------------------------------------------------------------
+# Work item 2 — HTTP session pools + cancellation-safe dispatch
+# ---------------------------------------------------------------------------
+
+
+async def test_session_pool_round_robins_parallel_calls_across_connections():
+    pool = [GatedSession(), GatedSession()]
+    runtime = ChildRuntime("pooled", {"max_concurrency": 4})
+    runtime.adopt_sessions(pool)
+
+    tasks = [asyncio.create_task(runtime.call_tool("t", {})) for _ in range(4)]
+    await asyncio.sleep(0.01)
+    # Round-robin: 4 in-flight calls split 2/2 across the two connections.
+    assert [s.active for s in pool] == [2, 2]
+
+    for s in pool:
+        s.release.set()
+    results = await asyncio.gather(*tasks)
+    assert all(not r.isError for r in results)
+
+
+async def test_multiplexer_opens_pool_size_connections_for_http_child(
+    tmp_path, monkeypatch
+):
+    import contextlib
+    from unittest.mock import MagicMock
+
+    from agent_utilities.mcp import multiplexer as mod
+
+    connects: list[str] = []
+
+    @contextlib.asynccontextmanager
+    async def fake_http(url, headers=None):
+        connects.append(url)
+        yield ("r", "w", "sid")
+
+    class FakeSessionCM:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            inner = MagicMock()
+
+            async def initialize():
+                return None
+
+            async def list_tools():
+                result = MagicMock()
+                result.tools = []
+                return result
+
+            inner.initialize = initialize
+            inner.list_tools = list_tools
+            return inner
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(mod, "streamablehttp_client", fake_http)
+    monkeypatch.setattr(mod, "ClientSession", FakeSessionCM)
+
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    res = await mux._start_child(
+        "pooled-http", {"url": "http://pooled.arpa/mcp", "pool_size": 3}
+    )
+    assert res is not None
+    assert len(connects) == 3
+    assert isinstance(res[1], list) and len(res[1]) == 3
+
+
+async def test_stdio_child_ignores_pool_size_and_keeps_one_pipe(
+    tmp_path, monkeypatch
+):
+    import contextlib
+    from unittest.mock import MagicMock
+
+    from agent_utilities.mcp import multiplexer as mod
+
+    connects: list[Any] = []
+
+    @contextlib.asynccontextmanager
+    async def fake_stdio(params):
+        connects.append(params)
+        yield ("r", "w")
+
+    class FakeSessionCM:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            inner = MagicMock()
+
+            async def initialize():
+                return None
+
+            async def list_tools():
+                result = MagicMock()
+                result.tools = []
+                return result
+
+            inner.initialize = initialize
+            inner.list_tools = list_tools
+            return inner
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(mod, "stdio_client", fake_stdio)
+    monkeypatch.setattr(mod, "ClientSession", FakeSessionCM)
+
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    res = await mux._start_child(
+        "stdio-child", {"command": "child", "args": [], "pool_size": 3}
+    )
+    assert res is not None
+    assert len(connects) == 1
+    assert isinstance(res[1], list) and len(res[1]) == 1
+
+
+async def test_call_timeout_detaches_cleanly_and_keeps_session_usable():
+    session = GatedSession()
+    runtime = ChildRuntime(
+        "slowpoke", {"max_concurrency": 2, "call_timeout": 0.05}
+    )
+    runtime.adopt_sessions([session])
+
+    with pytest.raises(MCPChildCallTimeoutError) as exc:
+        await runtime.call_tool("slow", {})
+    assert "slowpoke" in str(exc.value)
+
+    # The abandoned call still holds its slot until the child finishes.
+    assert runtime.in_flight == 1
+    assert session.active == 1
+
+    # The shared session is NOT corrupted: a second call works fine.
+    session.release.set()
+    result = await runtime.call_tool("slow", {})
+    assert not result.isError
+    await asyncio.sleep(0)  # let the detached task's done-callback run
+    assert runtime.in_flight == 0
+    assert session.completed == 2
+
+
+async def test_caller_cancellation_does_not_cancel_the_child_side_call():
+    session = GatedSession()
+    runtime = ChildRuntime("cancelled", {"max_concurrency": 2})
+    runtime.adopt_sessions([session])
+
+    caller = asyncio.create_task(runtime.call_tool("t", {}))
+    await asyncio.sleep(0.01)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+
+    # Child-side call keeps running (shielded) and finishes normally.
+    assert session.active == 1
+    session.release.set()
+    await asyncio.sleep(0.01)
+    assert session.completed == 1
+    assert runtime.in_flight == 0
+
+
+async def test_detached_timeouts_apply_backpressure_until_child_recovers():
+    session = GatedSession()
+    runtime = ChildRuntime(
+        "wedged",
+        {"max_concurrency": 1, "call_timeout": 0.05, "queue_timeout": 0.05},
+    )
+    runtime.adopt_sessions([session])
+
+    with pytest.raises(MCPChildCallTimeoutError):
+        await runtime.call_tool("t", {})
+    # Slot is still held by the wedged call -> next caller gets BUSY, fast.
+    with pytest.raises(MCPChildBusyError):
+        await runtime.call_tool("t", {})
+
+    session.release.set()
+    await asyncio.sleep(0.01)
+    result = await runtime.call_tool("t", {})
+    assert not result.isError
 
 
 async def test_runtime_status_reports_limits_and_load():

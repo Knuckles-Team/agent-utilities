@@ -429,6 +429,14 @@ class AgentConfig(BaseSettings):
     before failing with the typed ``MCPChildBusyError`` (no silent hangs).
     Per-server override: the ``queue_timeout`` key on the server entry."""
 
+    mcp_child_pool_size: int = Field(default=1, alias="MCP_CHILD_POOL_SIZE")
+    """Session-pool size for remote (streamable-http/SSE) multiplexer
+    children: N independent connections per child, round-robin dispatched,
+    enabling parallel in-flight calls. Default 1 preserves the historical
+    one-connection resource profile. Stdio children are single-pipe and
+    always keep exactly one session. Per-server override: the ``pool_size``
+    key on the server entry."""
+
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
 
     oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")
