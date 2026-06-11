@@ -171,6 +171,13 @@ def start_epistemic_graph_server():
         log_file = open(
             os.path.join(tempfile.gettempdir(), ".test_epistemic_graph.log"), "w"
         )
+        # Engine auth (CONCEPT:OS-5.14): run the test engine WITH a shared
+        # secret. Works with both engine generations — the old binary verifies
+        # client HMAC tokens against it; the new binary REFUSES to start
+        # without one. Exported to this process so every client (env fallback)
+        # authenticates.
+        test_secret = "agent-utilities-test-engine-secret"  # nosec B105 — test-only
+        os.environ["GRAPH_SERVICE_AUTH_SECRET"] = test_secret
         # Start server
         process = subprocess.Popen(
             [
@@ -186,6 +193,7 @@ def start_epistemic_graph_server():
             cwd=rust_dir,
             stdout=log_file,
             stderr=log_file,
+            env={**os.environ, "GRAPH_SERVICE_AUTH_SECRET": test_secret},
         )
 
         # Wait for socket to be ready
