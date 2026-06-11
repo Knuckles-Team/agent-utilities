@@ -148,9 +148,7 @@ class PrometheusHttpProvider:
 
         query = self._query_for(service, signal)
         try:
-            with httpx.Client(
-                timeout=self.timeout, transport=self.transport
-            ) as client:
+            with httpx.Client(timeout=self.timeout, transport=self.transport) as client:
                 resp = client.get(
                     f"{self.base_url}/api/v1/query", params={"query": query}
                 )

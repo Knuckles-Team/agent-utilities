@@ -105,9 +105,7 @@ def compute_desired_replicas(current: int, value: float, spec: ScalingSpec) -> i
     [min_replicas, max_replicas] and capped to one step in either direction.
     """
     eff = max(int(current), 1)
-    per_replica = (
-        value / eff if spec.signal in AGGREGATE_SIGNALS else float(value)
-    )
+    per_replica = value / eff if spec.signal in AGGREGATE_SIGNALS else float(value)
     desired = math.ceil(eff * per_replica / spec.target)
     desired = max(spec.min_replicas, min(spec.max_replicas, desired))
     if desired > current:
@@ -238,7 +236,11 @@ class FleetAutoscaler:
         desired = compute_desired_replicas(current, value, spec)
         if desired == current:
             return ServiceEvaluation(
-                name, "skipped", "at target", current=current, desired=desired,
+                name,
+                "skipped",
+                "at target",
+                current=current,
+                desired=desired,
                 value=value,
             )
 
@@ -351,9 +353,9 @@ class FleetAutoscaler:
                     "evaluated": report["evaluated"],
                     "actions": report["actions"],
                     "scaled": report["scaled"],
-                    "details_json": json.dumps(
-                        report["evaluations"], default=str
-                    )[:4000],
+                    "details_json": json.dumps(report["evaluations"], default=str)[
+                        :4000
+                    ],
                     "actuator": report["actuator"],
                     "signal_provider": report["signal_provider"],
                     "created_at": _now_iso(),
