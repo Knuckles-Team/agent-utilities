@@ -18,7 +18,11 @@ from agent_utilities.mcp.multiplexer import (
 
 CNT = "container-manager-mcp"
 CNT_TOOL = "cm_container_operations"
-CNT_PREFIXED = "cnt__cm_container_operations"
+# container-manager-mcp auto-derives prefix "cm"; clean_tool_name then strips the
+# redundant leading "cm_" from the tool name → "cm__container_operations".
+CNT_PREFIXED = "cm__container_operations"
+CNT_IMAGE_PREFIXED = "cm__image_operations"
+CNT_INFO_PREFIXED = "cm__info_operations"
 
 
 def _write_config(tmp_path, servers: dict) -> object:
@@ -97,7 +101,7 @@ async def test_start_children_eager_unchanged(tmp_path):
     await mux.start_children()
     names = {t.name for t in mux.aggregated_tools}
     assert CNT_PREFIXED in names
-    assert "kg__graph_query" in names
+    assert "go__graph_query" in names
     assert mux._start_child.await_count == 2
 
 
@@ -313,6 +317,118 @@ async def test_list_catalog_meta_tool_registered(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Unique prefixes (collision-free at any scale)
+# --------------------------------------------------------------------------- #
+
+
+def test_server_prefix_resolves_derived_collisions(tmp_path):
+    # foo-bar-mcp and foo-baz-mcp both auto-derive the acronym "fb" → the
+    # resolver must hand one a distinct prefix.
+    mux = _mux_with_children(
+        tmp_path,
+        {"foo-bar-mcp": [("a", "")], "foo-baz-mcp": [("b", "")]},
+    )
+    p1 = mux.server_prefix("foo-bar-mcp")
+    p2 = mux.server_prefix("foo-baz-mcp")
+    assert p1 != p2
+    assert "fb" in (p1, p2)  # one keeps the preferred prefix
+    prefixes = [mux.server_prefix(s) for s in mux.load_catalog()]
+    assert len(prefixes) == len(set(prefixes)), "prefixes must be unique"
+
+
+def test_config_prefix_override_wins(tmp_path):
+    mux = _mux_with_children(tmp_path, {"foo-bar-mcp": [("a", "")]})
+    mux.load_catalog()["foo-bar-mcp"]["prefix"] = "myfoo"
+    mux._build_prefix_map()
+    assert mux.server_prefix("foo-bar-mcp") == "myfoo"
+
+
+def test_reverse_prefix_resolves_owner(tmp_path):
+    mux = _mux_with_children(
+        tmp_path,
+        {"foo-bar-mcp": [("a", "")], "foo-baz-mcp": [("b", "")]},
+    )
+    for name in ["foo-bar-mcp", "foo-baz-mcp"]:
+        prefix = mux.server_prefix(name)
+        assert mux._server_for_prefixed(f"{prefix}__x") == name
+
+
+# --------------------------------------------------------------------------- #
+# Enabled / disabled annotation
+# --------------------------------------------------------------------------- #
+
+
+def _seed_disabled(mux, server, disabled):
+    mux.load_catalog()[server]["disabledTools"] = disabled
+
+
+async def test_list_catalog_splits_enabled_disabled(tmp_path):
+    mux = _mux_with_children(
+        tmp_path, {CNT: [(CNT_TOOL, "a"), ("cm_info_operations", "b")]}
+    )
+    _seed_disabled(mux, CNT, ["cm_info_operations"])
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(mux, {CNT: [(CNT_TOOL, "containers"), ("cm_info_operations", "info")]})
+
+    cat = await mux.list_catalog()
+    s = {x["server"]: x for x in cat["servers"]}[CNT]
+    assert s["tool_count"] == 2
+    assert s["enabled_count"] == 1
+    assert CNT_PREFIXED in s["tools"]
+    assert CNT_INFO_PREFIXED in s.get("disabled_tools", [])
+    assert CNT_INFO_PREFIXED not in s["tools"]
+
+
+async def test_list_catalog_drilldown_enabled_flag(tmp_path):
+    mux = _mux_with_children(
+        tmp_path, {CNT: [(CNT_TOOL, "a"), ("cm_info_operations", "b")]}
+    )
+    _seed_disabled(mux, CNT, ["cm_info_operations"])
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(mux, {CNT: [(CNT_TOOL, "c"), ("cm_info_operations", "i")]})
+
+    cat = await mux.list_catalog(server=CNT)
+    by_tool = {t["tool"]: t for t in cat["tools"]}
+    assert by_tool[CNT_TOOL]["enabled"] is True
+    assert by_tool["cm_info_operations"]["enabled"] is False
+
+
+async def test_discover_skips_disabled_tools(tmp_path):
+    mux = _mux_with_children(
+        tmp_path, {CNT: [(CNT_TOOL, "a"), ("cm_info_operations", "b")]}
+    )
+    _seed_disabled(mux, CNT, ["cm_info_operations"])
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(
+        mux,
+        {CNT: [(CNT_TOOL, "manage docker"), ("cm_info_operations", "manage docker")]},
+    )
+
+    discovery = await mux.discover_tools("manage docker", top_k=10)
+    tools = [r["tool"] for r in discovery["results"]]
+    assert CNT_TOOL in tools
+    assert "cm_info_operations" not in tools
+
+
+# --------------------------------------------------------------------------- #
+# Probe error formatting
+# --------------------------------------------------------------------------- #
+
+
+def test_format_probe_error_unwraps_exceptiongroup():
+    from agent_utilities.mcp.multiplexer import _format_probe_error
+
+    eg = ExceptionGroup(
+        "boom",
+        [RuntimeError("HTTP 502 Bad Gateway"), RuntimeError("HTTP 502 Bad Gateway")],
+    )
+    msg = _format_probe_error(eg)
+    assert "HTTP 502 Bad Gateway" in msg
+    assert "TaskGroup" not in msg  # opaque wrapper removed
+    assert _format_probe_error(ConnectionError("refused")) == "ConnectionError: refused"
+
+
+# --------------------------------------------------------------------------- #
 # load/unload resolution
 # --------------------------------------------------------------------------- #
 
@@ -323,7 +439,7 @@ async def test_resolve_and_mount_by_server(tmp_path):
     )
     servers, to_expose, failed = await mux.resolve_and_mount(servers=[CNT])
     assert servers == [CNT]
-    assert set(to_expose) == {CNT_PREFIXED, "cnt__cm_image_operations"}
+    assert set(to_expose) == {CNT_PREFIXED, CNT_IMAGE_PREFIXED}
     assert failed == {}
     assert CNT in mux.children
 
@@ -444,4 +560,4 @@ async def test_find_tools_meta_returns_structured(tmp_path):
 
 def test_prefix_sanity():
     # Guards the (server -> prefix) assumption the rest of the suite relies on.
-    assert get_server_prefix(CNT) == "cnt"
+    assert get_server_prefix(CNT) == "cm"

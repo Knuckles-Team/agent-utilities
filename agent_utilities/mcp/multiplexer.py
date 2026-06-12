@@ -10,8 +10,8 @@ Built on the standard ``mcp_server.py`` scaffolding: it uses
 ``create_mcp_server()`` for the standard ``--transport/--host/--port`` args and
 middleware, and exposes the aggregated tools through a FastMCP instance so the
 multiplexer can be deployed as either a **stdio** or **streamable-http** server.
-The proven child-server lifecycle, host-aware prefixing, and enable/disable tool
-filtering are preserved (see :class:`MCPMultiplexer`).
+The proven child-server lifecycle, algorithmic collision-free prefixing, and
+enable/disable tool filtering are preserved (see :class:`MCPMultiplexer`).
 
 CONCEPT:ECO-4.0 — MCP Standardized Interfaces
 """
@@ -58,67 +58,77 @@ logging.basicConfig(
 logger = logging.getLogger("mcp_multiplexer")
 
 
-SERVER_NICKNAMES = {
-    "graph-os": "kg",
-    "repository-manager-mcp": "rep",
-    "tunnel-manager-mcp": "tun",
-    "systems-manager-mcp": "sys",
-    "container-manager-mcp": "cnt",
-    "audio-transcriber-mcp": "aud",
-    "archivebox-mcp": "arc",
-    "data-science-mcp": "ds",
-    "ansible-tower-mcp": "ans",
-    "github-mcp": "gh",
-    "gitlab-mcp": "gl",
-    "home-assistant-mcp": "ha",
-    "arr-mcp": "arr",
-    "plane-mcp": "pl",
-    "mealie-mcp": "mel",
-    "postiz-mcp": "pz",
-    "owncast-mcp": "oc",
-    "jellyfin-mcp": "jf",
-    "microsoft-mcp": "ms",
-    "listmonk-mcp": "lm",
-    "nextcloud-mcp": "nc",
-    "atlassian-mcp": "atl",
-    "servicenow-mcp": "sn",
-    "qbittorrent-mcp": "qb",
-    "searxng-mcp": "sx",
-    "media-downloader-mcp": "md",
-    "stirlingpdf-mcp": "sp",
-    "wger-mcp": "wg",
-    "uptime-kuma-mcp": "ut",
-    "technitium-dns-mcp": "td",
-    "caddy-mcp": "cd",
-    "keycloak-mcp": "kc",
-    "twenty-mcp": "tw",
-    "erpnext-mcp": "erp",
-    "openbao-mcp": "ob",
-    "lgtm-mcp": "lg",
-    "mattermost-mcp": "mm",
-    "scholarx-mcp": "sx",
-    "langfuse-mcp": "lf",
-    "portainer-mcp": "pt",
-    "legal-peripherals-mcp": "lgl",
-    "egeria-mcp": "eg",
-    "dr-egeria-mcp": "dre",
+# Prefixes are derived 100% algorithmically (no per-server lookup table), so any
+# MCP server — bundled or third-party — gets a sensible, unique prefix with zero
+# code changes. Pin a specific one per server via the ``prefix`` key in its
+# mcp_config entry; uniqueness across the fleet is then guaranteed by the
+# catalog-aware collision resolver (:meth:`MCPMultiplexer._build_prefix_map`).
+
+
+# Tokens that carry no identifying signal — stripped before auto-deriving a
+# prefix so e.g. "weather-mcp-server" keys off "weather", not "mcp"/"server".
+_PREFIX_NOISE_TOKENS = {
+    "mcp",
+    "server",
+    "agent",
+    "api",
+    "service",
+    "srv",
+    "tool",
+    "tools",
 }
 
 
-def get_server_prefix(server_name: str) -> str:
-    """Get a clean, short prefix for the server name to respect character limit constraints."""
-    if server_name.startswith("systems-manager-mcp-"):
-        host = server_name[len("systems-manager-mcp-") :]
-        return f"sys_{host}".replace("-", "_")
-    if server_name.startswith("container-manager-mcp-"):
-        host = server_name[len("container-manager-mcp-") :]
-        return f"cnt_{host}".replace("-", "_")
-    if server_name in SERVER_NICKNAMES:
-        return SERVER_NICKNAMES[server_name]
-    # Fallback: clean non-alphanumeric chars and limit to first 5 chars
-    clean = "".join(c if (c.isalnum() or c in ("_", "-")) else "_" for c in server_name)
-    clean = clean.replace("-", "_")
-    return clean[:5].lower().strip("_")
+def _tokenize_server_name(name: str) -> list[str]:
+    """Split a server name into lowercase word tokens, handling separators
+    (``-_./:`` etc.) AND camelCase/PascalCase humps (``MyCoolMCP`` →
+    my/cool/mcp), so any naming style yields sensible tokens."""
+    humped = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)
+    return [t.lower() for t in re.split(r"[^A-Za-z0-9]+", humped) if t]
+
+
+# A trailing host/instance id (r510, rw710, gr1080, …) — kept readable on
+# multi-instance servers (e.g. systems-manager-mcp-r510 → sm_r510).
+_INSTANCE_ID_RE = re.compile(r"^[a-z]{0,4}\d+[a-z0-9]*$")
+
+
+def auto_server_prefix(server_name: str) -> str:
+    """Algorithmically derive a short, readable prefix for ANY MCP server name —
+    no lookup table, so out-of-ecosystem / third-party servers are fully
+    supported (CONCEPT:ECO-4.36). Uniqueness across the fleet is guaranteed
+    separately by the catalog-aware collision resolver.
+
+    Rules (after dropping noise words mcp/server/agent/api/…):
+      • trailing host/instance id → ``<initials>_<id>`` (systems-manager-mcp-r510
+        → 'sm_r510'), so multi-instance servers stay distinct and legible;
+      • multi-word → initials acronym (container-manager → 'cm', github → 'gith');
+      • single-word → a short stem ('leanix' → 'lean')."""
+    tokens = _tokenize_server_name(server_name)
+    meaningful = [t for t in tokens if t not in _PREFIX_NOISE_TOKENS] or tokens
+    if not meaningful:
+        return "mcp"
+    if len(meaningful) >= 2 and _INSTANCE_ID_RE.match(meaningful[-1]):
+        base = meaningful[:-1]
+        acronym = "".join(t[0] for t in base) or base[0][:2]
+        return f"{acronym}_{meaningful[-1]}"
+    if len(meaningful) >= 2:
+        acronym = "".join(t[0] for t in meaningful)
+        if len(acronym) >= 2:
+            return acronym[:5]
+    return meaningful[0][:4]
+
+
+def get_server_prefix(server_name: str, cfg: dict | None = None) -> str:
+    """Resolve a server's preferred prefix (uniqueness is enforced later by the
+    catalog-aware collision resolver). An explicit ``prefix`` on the server's
+    config entry wins; otherwise it is auto-derived from the name."""
+    if cfg:
+        explicit = cfg.get("prefix")
+        if explicit:
+            clean = re.sub(r"[^A-Za-z0-9_]+", "_", str(explicit)).strip("_").lower()
+            if clean:
+                return clean[:10]
+    return auto_server_prefix(server_name)
 
 
 def clean_tool_name(prefix: str, server_name: str, original_tool_name: str) -> str:
@@ -162,6 +172,30 @@ def clean_tool_name(prefix: str, server_name: str, original_tool_name: str) -> s
     return candidate
 
 
+def _format_probe_error(exc: BaseException) -> str:
+    """Render a probe failure as a concise, useful string. anyio wraps
+    transport failures in an ``ExceptionGroup`` whose str() is the opaque
+    "unhandled errors in a TaskGroup (N sub-exceptions)" — so unwrap it to the
+    distinct leaf causes (e.g. the underlying HTTP 502 / connection error)."""
+    leaves: list[str] = []
+
+    def _walk(e: BaseException) -> None:
+        subs = getattr(e, "exceptions", None)
+        if isinstance(e, BaseExceptionGroup) or (
+            subs and isinstance(subs, (list, tuple))
+        ):
+            for sub in subs:
+                _walk(sub)
+        else:
+            msg = str(e).strip()
+            leaves.append(f"{type(e).__name__}: {msg}" if msg else type(e).__name__)
+
+    _walk(exc)
+    # de-dup while preserving order
+    seen = list(dict.fromkeys(leaves))
+    return "; ".join(seen) if seen else f"{type(exc).__name__}: {exc}"
+
+
 class MCPMultiplexer:
     """Aggregates and proxies multiple MCP servers over a single stdio connection."""
 
@@ -188,6 +222,12 @@ class MCPMultiplexer:
         # find_tools ranks real fleet-wide tools without holding connections and
         # without depending on the (separately-flaky) KG live discovery.
         self._probe_cache: dict[str, dict] = {}
+        # CONCEPT:ECO-4.36 — catalog-aware, collision-free prefix assignment,
+        # computed deterministically over the whole server set so similarly
+        # named servers (e.g. scholarx/searxng, both preferring "sx") never
+        # share a namespace however the fleet scales. Built lazily from catalog.
+        self._prefix_map: dict[str, str] | None = None
+        self._prefix_reverse: dict[str, str] = {}
 
     async def call_proxied_tool(
         self, prefixed_name: str, arguments: dict[str, Any] | None = None
@@ -427,6 +467,73 @@ class MCPMultiplexer:
             self._catalog[server_name] = cfg
         return self._catalog
 
+    @staticmethod
+    def _server_stem(name: str) -> str:
+        """Full cleaned server name used to disambiguate colliding prefixes."""
+        clean = "".join(c if (c.isalnum() or c in ("_", "-")) else "_" for c in name)
+        return clean.replace("-", "_").lower().strip("_")
+
+    def _build_prefix_map(self) -> None:
+        """Assign every catalog server a unique prefix (CONCEPT:ECO-4.36).
+
+        Each server starts from its preferred prefix (:func:`get_server_prefix`
+        — config override or auto-derived). Collisions are resolved
+        deterministically (sorted order): the first claimant keeps the preferred
+        prefix; the rest extend their cleaned stem until unique, falling back to
+        a numeric suffix. Guarantees no two servers ever share a prefix, however
+        the fleet grows."""
+        catalog = self.load_catalog()
+        names = sorted(catalog.keys())
+        assigned: dict[str, str] = {}
+        used: set[str] = set()
+        for name in names:
+            base = get_server_prefix(name, catalog.get(name))
+            if base not in used:
+                assigned[name] = base
+                used.add(base)
+                continue
+            stem = self._server_stem(name)
+            cand: str | None = None
+            for n in range(max(len(base) + 1, 1), len(stem) + 1):
+                if stem[:n] not in used:
+                    cand = stem[:n]
+                    break
+            if cand is None:  # stem exhausted — append a numeric suffix
+                i = 2
+                while f"{base}{i}" in used:
+                    i += 1
+                cand = f"{base}{i}"
+            assigned[name] = cand
+            used.add(cand)
+        self._prefix_map = assigned
+        self._prefix_reverse = {p: n for n, p in assigned.items()}
+
+    def server_prefix(self, server_name: str) -> str:
+        """The unique, collision-free prefix for a server (CONCEPT:ECO-4.36).
+        Falls back to the bare derived prefix for names outside the catalog."""
+        if self._prefix_map is None:
+            self._build_prefix_map()
+        assert self._prefix_map is not None
+        return self._prefix_map.get(server_name) or get_server_prefix(server_name)
+
+    def _tool_enabled(self, server_name: str, tool_name: str) -> bool:
+        """Whether a server's tool would actually be exposed on load, applying
+        the config's ``enabledTools`` whitelist + ``disabledTools`` blacklist —
+        the same filter :meth:`_register_child_result` uses. Lets discovery
+        distinguish capable-but-disabled tools from loadable ones."""
+        import fnmatch
+
+        cfg = self.load_catalog().get(server_name, {})
+        enabled = cfg.get("enabledTools")
+        disabled = cfg.get("disabledTools", [])
+        if enabled is not None and not any(
+            fnmatch.fnmatch(tool_name, pat) for pat in enabled
+        ):
+            return False
+        if disabled and any(fnmatch.fnmatch(tool_name, pat) for pat in disabled):
+            return False
+        return True
+
     def _register_child_result(
         self,
         server_name: str,
@@ -483,7 +590,7 @@ class MCPMultiplexer:
                     )
                     continue
 
-            prefix = get_server_prefix(server_name)
+            prefix = self.server_prefix(server_name)
             prefixed_name = clean_tool_name(prefix, server_name, tool.name)
             self.tool_to_server[prefixed_name] = (server_name, tool.name)
 
@@ -555,13 +662,14 @@ class MCPMultiplexer:
 
     def _server_for_prefixed(self, prefixed_name: str) -> str | None:
         """Resolve which child server owns a prefixed tool name, even before
-        that child is mounted (by reversing the server prefix against the
-        catalog). Returns None if ambiguous or unknown."""
+        that child is mounted, via the collision-free reverse prefix map.
+        Returns None if unknown."""
         if prefixed_name in self.tool_to_server:
             return self.tool_to_server[prefixed_name][0]
+        if self._prefix_map is None:
+            self._build_prefix_map()
         prefix = prefixed_name.split("__", 1)[0]
-        candidates = [s for s in self.load_catalog() if get_server_prefix(s) == prefix]
-        return candidates[0] if len(candidates) == 1 else None
+        return self._prefix_reverse.get(prefix)
 
     def _kg_prefixed(self, bare_tool: str) -> str | None:
         """Find the live prefixed name for a knowledge-graph child tool
@@ -671,7 +779,7 @@ class MCPMultiplexer:
         except TimeoutError:
             info = {"tools": [], "error": f"timeout after {probe_to:g}s"}
         except Exception as e:
-            info = {"tools": [], "error": f"{type(e).__name__}: {e}"}
+            info = {"tools": [], "error": _format_probe_error(e)}
         self._probe_cache[server_name] = info
         return info
 
@@ -772,13 +880,18 @@ class MCPMultiplexer:
                 continue
             for entry in info.get("tools", []):
                 tool = entry["name"]
+                # find_tools surfaces only loadable (enabled) tools, so the
+                # caller never picks one that load_tools would silently drop.
+                # Disabled-but-capable tools remain visible via list_catalog.
+                if not self._tool_enabled(server, tool):
+                    continue
                 desc = entry.get("description", "")
                 score = semantic.get(tool, 0.0) + self._relevance(
                     query, f"{tool} {desc}"
                 )
                 if score <= 0:
                     continue
-                prefixed = clean_tool_name(get_server_prefix(server), server, tool)
+                prefixed = clean_tool_name(self.server_prefix(server), server, tool)
                 ranked.append(
                     {
                         "server": server,
@@ -817,7 +930,7 @@ class MCPMultiplexer:
             if server not in catalog:
                 return {"error": f"'{server}' is not in the catalog"}
             info = probe.get(server, {})
-            prefix = get_server_prefix(server)
+            prefix = self.server_prefix(server)
             return {
                 "server": server,
                 "prefix": prefix,
@@ -829,6 +942,7 @@ class MCPMultiplexer:
                         "prefixed_name": clean_tool_name(prefix, server, t["name"]),
                         "tool": t["name"],
                         "description": t.get("description", ""),
+                        "enabled": self._tool_enabled(server, t["name"]),
                     }
                     for t in info.get("tools", [])
                 ],
@@ -837,21 +951,32 @@ class MCPMultiplexer:
         servers: list[dict] = []
         for name in catalog:
             info = probe.get(name, {})
-            prefix = get_server_prefix(name)
+            prefix = self.server_prefix(name)
+            tool_entries = info.get("tools", [])
+            enabled_names: list[str] = []
+            disabled_names: list[str] = []
+            for t in tool_entries:
+                pn = clean_tool_name(prefix, name, t["name"])
+                target = (
+                    enabled_names
+                    if self._tool_enabled(name, t["name"])
+                    else disabled_names
+                )
+                target.append(pn)
             entry = {
                 "server": name,
                 "prefix": prefix,
-                "tool_count": len(info.get("tools", [])),
+                "tool_count": len(tool_entries),
+                "enabled_count": len(enabled_names),
                 "mounted": name in self.children,
                 "available": info.get("error") is None,
             }
             if info.get("error"):
                 entry["error"] = info["error"]
             if include_tools:
-                entry["tools"] = [
-                    clean_tool_name(prefix, name, t["name"])
-                    for t in info.get("tools", [])
-                ]
+                entry["tools"] = enabled_names
+                if disabled_names:
+                    entry["disabled_tools"] = disabled_names
             servers.append(entry)
         return {
             "total_servers": len(servers),
