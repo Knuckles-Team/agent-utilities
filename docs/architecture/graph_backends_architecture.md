@@ -159,6 +159,71 @@ search requires pgvector.
 | `GRAPH_FUSEKI_URL` | `http://localhost:3030` | Jena/Apache Fuseki server URL |
 | `GRAPH_FUSEKI_DATASET` | `agent_kg` | Fuseki dataset name |
 | `GRAPH_FUSEKI_USER` / `GRAPH_FUSEKI_PASSWORD` | — | Optional Fuseki credentials |
+| `KG_CONNECTIONS` | — | JSON list of named connections for the multi-connection registry (CONCEPT:KG-2.63). See below. |
+
+## Multiple Connections at Once (CONCEPT:KG-2.63)
+
+The engine has always been vendor-agnostic, but historically only **one** backend
+was live per process. The **named multi-connection registry** lets a deployment
+keep several live connections side by side and run the *same* graph tools against
+any one — or fan out to all — with the backend choice fully abstracted behind a
+`target` parameter. No code is forked into a separate server: every existing
+`graph_*` MCP tool and its REST twin gains this for free.
+
+### Register connections
+
+Declaratively, via `KG_CONNECTIONS` (each entry is `create_backend` kwargs plus a
+`name`):
+
+```bash
+export KG_CONNECTIONS='[
+  {"name": "prod-neo4j", "backend": "neo4j", "uri": "bolt://neo4j:7687", "user": "neo4j", "password": "..."},
+  {"name": "team-falkor", "backend": "falkordb", "host": "falkor", "port": 6379},
+  {"name": "pg-main", "backend": "age", "uri": "postgresql://agent:agent@pg:5432/agent_kg"}
+]'
+```
+
+…or at runtime via `graph_configure`:
+
+```
+graph_configure(action="add_connection", config_key="pg-main",
+                config_value='{"backend":"age","uri":"postgresql://agent:agent@pg:5432/agent_kg"}')
+graph_configure(action="list_connections")          # per-connection health
+graph_configure(action="set_default_connection", config_key="pg-main")
+graph_configure(action="remove_connection", config_key="pg-main")
+```
+
+### Target a connection
+
+Every `graph_query` / `graph_search` / `graph_write` (and the heavier
+`graph_ingest`/`graph_analyze`/`graph_orchestrate`) accepts an optional `target`:
+
+| `target` | Behaviour |
+|---|---|
+| omitted / `""` / `"default"` | the primary engine — **identical to legacy behaviour** (backward compatible) |
+| `"pg-main"` | a single named connection; result shape unchanged |
+| `"all"` or `"a,b"` or `["a","b"]` | **fan-out** — per-connection labeled results (`{"targets": {...}, "errors": {...}}`), partial success: one backend failing never aborts the others |
+
+**Writes** only fan out on an *explicit* multi-target value (`"all"`/list) — the
+default and a single named target stay single-write, so you never accidentally
+triple-write.
+
+### Portability: one query, every backend
+
+For the same Cypher to run unchanged everywhere, the backend must speak native
+openCypher. Each backend advertises a `cypher_support` tier:
+
+| Backend | `cypher_support` | Notes |
+|---|---|---|
+| neo4j, falkordb | `full` | native Cypher |
+| **Postgres via Apache AGE** (`backend: "age"`) | `full` | native openCypher (`count(r)`, aliases, multi-hop, `-[*1..2]->`, edge props) + pgvector |
+| Postgres regex transpiler (`backend: "postgresql"`) | `subset` | only the bounded operational subset the engine emits; fallback when the AGE extension is absent |
+| epistemic_graph (in-memory) | `subset` | interprets the operational subset directly |
+
+**Register Postgres connections as `age`** (not `postgresql`) when you want one
+query to run unchanged across neo4j + falkordb + postgres. `list_connections`
+reports each connection's `cypher_support` so fan-out callers can tell which
+backends can serve a full query.
 
 ### Quick Start: PostgreSQL
 

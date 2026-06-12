@@ -808,6 +808,38 @@ class AgentConfig(BaseSettings):
         items = [str(e).strip() for e in to_list(v) if str(e).strip()]
         return items or None
 
+    kg_connections: list[dict[str, Any]] | None = Field(
+        default=None, alias="KG_CONNECTIONS"
+    )
+    """Declarative named graph connections (CONCEPT:KG-2.63). A JSON list of
+    backend specs, each ``{"name": <str>, "backend": <type>, ...create_backend
+    kwargs (uri/host/port/user/password/db_name)}``. These are registered into
+    the multi-connection registry at first use so the SAME graph tools can target
+    any one (``target=<name>``) or fan out to all (``target="all"``). The
+    zero-infra default is fully preserved: unset → only the ambient ``default``
+    connection exists. For Postgres, use ``"backend": "age"`` for native
+    openCypher portability."""
+
+    @field_validator("kg_connections", mode="before")
+    @classmethod
+    def _coerce_kg_connections(cls, v: Any) -> Any:
+        """Accept a JSON-encoded string or an already-parsed list for
+        KG_CONNECTIONS (CONCEPT:KG-2.63)."""
+        if v is None or isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            import json
+
+            s = v.strip()
+            if not s:
+                return None
+            try:
+                parsed = json.loads(s)
+            except Exception:
+                return None
+            return parsed if isinstance(parsed, list) else None
+        return None
+
     @model_validator(mode="after")
     def _auto_enable_from_dependencies(self) -> "AgentConfig":
         """Configure-by-default, opt-out: a capability auto-engages once its
