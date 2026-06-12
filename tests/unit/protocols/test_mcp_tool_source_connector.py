@@ -151,6 +151,33 @@ def test_presets_are_data():
         assert get_tool_preset(name) == preset
 
 
+@pytest.mark.concept("KG-2.59")
+def test_enterprise_presets_build_with_verified_shape():
+    # github-mcp + okta-mcp: source-control and identity, grounded in each
+    # agent's actual list tool + response envelope (not guessed).
+    assert {"github-repos", "okta-users"} <= set(list_tool_presets())
+
+    gh = build_connector("mcp_tool", {"preset": "github-repos"})
+    assert gh.server == "github-mcp"
+    assert gh.tool == "github_repos"
+    assert gh.action == "list"
+    assert gh.records_path == "data"
+    assert (gh.id_field, gh.title_field, gh.text_field, gh.updated_field) == (
+        "id",
+        "full_name",
+        "description",
+        "updated_at",
+    )
+
+    okta = build_connector("mcp_tool", {"preset": "okta-users"})
+    assert okta.server == "okta-mcp"
+    assert okta.tool == "okta_users"
+    assert okta.records_path == "data"
+    # login/email live under the nested ``profile`` object (dotted field maps).
+    assert okta.title_field == "profile.login"
+    assert okta.text_field == "profile.email"
+
+
 # ── sql-mcp shapes ───────────────────────────────────────────────────────────
 
 
