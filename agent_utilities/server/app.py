@@ -349,6 +349,28 @@ def build_agent_app(
                 engine = IntelligenceGraphEngine()
                 synthesis = SynthesisEngine(engine=engine)
 
+                # CONCEPT:KG-2.7 — preload the bundled ontology TBox into the local
+                # OWL store at startup so OWL reasoning + the local SPARQL endpoint
+                # have the schema immediately (best-effort; a no-op when owlready2
+                # /rdflib aren't installed, e.g. the most minimal tiny profile).
+                try:
+                    from pathlib import Path as _Path
+
+                    import agent_utilities.knowledge_graph as _kgpkg
+                    from agent_utilities.knowledge_graph.backends.owl import (
+                        create_owl_backend,
+                    )
+
+                    _owl = create_owl_backend()
+                    _core_ttl = _Path(_kgpkg.__file__).parent / "ontology.ttl"
+                    if _owl is not None and _core_ttl.exists():
+                        _owl.load_ontology(str(_core_ttl))
+                        logger.info(
+                            "Preloaded bundled ontology TBox into local OWL store"
+                        )
+                except Exception as _tbox_e:  # noqa: BLE001 — best-effort
+                    logger.debug("TBox preload skipped: %s", _tbox_e)
+
                 # Boot Phase 5 Daemon using the SAME engine
                 gov_agent = GraphGovernanceAgent(
                     engine=engine, workspace=workspace or "."

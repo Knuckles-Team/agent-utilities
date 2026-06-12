@@ -119,6 +119,25 @@ def validate_graph(
     shapes_graph = rdflib.Graph()
     shapes_graph.parse(shapes_path, format="turtle")
 
+    # CONCEPT:KG-2.39 — also load value-type-generated SHACL shapes so value-type
+    # constraints (EmailAddress, Percentage, …) are enforced alongside the bundled
+    # governance shapes. Best-effort: a malformed/absent fragment must not break
+    # the gate (the parse is isolated in try/except).
+    try:
+        from agent_utilities.knowledge_graph.ontology.value_types import VALUE_TYPES
+
+        frags = [vt.to_shacl() for vt in VALUE_TYPES.values()]
+        if frags:
+            header = (
+                "@prefix sh: <http://www.w3.org/ns/shacl#> .\n"
+                "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
+                "@prefix qudt: <http://qudt.org/schema/qudt/> .\n"
+                f"@prefix : <{KG_NS}> .\n\n"
+            )
+            shapes_graph.parse(data=header + "\n".join(frags), format="turtle")
+    except Exception as _vt_e:  # noqa: BLE001 — best-effort coupling
+        logger.debug("value-type SHACL shapes not merged: %s", _vt_e)
+
     conforms, results_graph, results_text = pyshacl.validate(
         data_graph,
         shacl_graph=shapes_graph,
