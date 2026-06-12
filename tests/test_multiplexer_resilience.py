@@ -12,6 +12,7 @@ from typing import Any
 
 import mcp.types
 import pytest
+from mcp.shared.exceptions import McpError
 
 from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
@@ -68,9 +69,7 @@ class EchoSession:
 
 async def test_concurrency_limit_enforced_and_excess_call_gets_busy_error():
     session = GatedSession()
-    runtime = ChildRuntime(
-        "limited", {"max_concurrency": 2, "queue_timeout": 0.05}
-    )
+    runtime = ChildRuntime("limited", {"max_concurrency": 2, "queue_timeout": 0.05})
     runtime.adopt_sessions([session])
 
     first = asyncio.create_task(runtime.call_tool("t", {}))
@@ -224,9 +223,7 @@ async def test_multiplexer_opens_pool_size_connections_for_http_child(
     await res[1].aclose()
 
 
-async def test_stdio_child_ignores_pool_size_and_keeps_one_pipe(
-    tmp_path, monkeypatch
-):
+async def test_stdio_child_ignores_pool_size_and_keeps_one_pipe(tmp_path, monkeypatch):
     import contextlib
     from unittest.mock import MagicMock
 
@@ -277,9 +274,7 @@ async def test_stdio_child_ignores_pool_size_and_keeps_one_pipe(
 
 async def test_call_timeout_detaches_cleanly_and_keeps_session_usable():
     session = GatedSession()
-    runtime = ChildRuntime(
-        "slowpoke", {"max_concurrency": 2, "call_timeout": 0.05}
-    )
+    runtime = ChildRuntime("slowpoke", {"max_concurrency": 2, "call_timeout": 0.05})
     runtime.adopt_sessions([session])
 
     with pytest.raises(MCPChildCallTimeoutError) as exc:
@@ -405,6 +400,56 @@ async def test_crash_triggers_restart_and_child_recovers():
     await runtime.aclose()
 
 
+class SessionTerminatedSession:
+    """Fake session whose call hits a server-terminated streamable-http session
+    (what a redeployed backend does): McpError(code=32600)."""
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        raise McpError(mcp.types.ErrorData(code=32600, message="Session terminated"))
+
+
+async def test_terminated_session_auto_reconnects_and_retries(monkeypatch):
+    # A backend redeploy drops the session; the next call must transparently
+    # reconnect and retry on the fresh generation — no manual reconnect, no
+    # error surfaced to the caller (ECO-4.36 hardening).
+    healthy = EchoSession("gen2")
+    connector = GenerationConnector([SessionTerminatedSession(), healthy])
+    runtime = ChildRuntime(
+        "redeployed",
+        {"max_concurrency": 2, "queue_timeout": 0.5},
+        connect=connector,
+        restart_backoff_base=0.01,
+        restart_backoff_cap=0.02,
+    )
+    await runtime.start()
+    assert runtime.state == "up"
+
+    result = await runtime.call_tool("t", {})
+    assert result.content[0].text == "gen2:t"  # served by the reconnected gen
+    assert runtime.restart_count == 1
+    assert connector.connects == 2
+    await runtime.aclose()
+
+
+async def test_terminated_session_surfaces_if_reconnect_also_dead():
+    # If the reconnect's session is ALSO terminated, the single retry is
+    # exhausted and the typed error surfaces (no infinite retry loop).
+    connector = GenerationConnector(
+        [SessionTerminatedSession(), SessionTerminatedSession()]
+    )
+    runtime = ChildRuntime(
+        "still-dead",
+        {"max_concurrency": 2, "queue_timeout": 0.5},
+        connect=connector,
+        restart_backoff_base=0.01,
+        restart_backoff_cap=0.02,
+    )
+    await runtime.start()
+    with pytest.raises(McpError):
+        await runtime.call_tool("t", {})
+    await runtime.aclose()
+
+
 async def test_calls_during_restart_fail_fast_with_typed_error():
     connector = GenerationConnector([DeadPipeSession(), "hang"])
     runtime = ChildRuntime(
@@ -518,9 +563,7 @@ class FlakySession:
 
 async def test_breaker_opens_after_consecutive_transport_failures_then_recovers():
     session = FlakySession(failures=2)
-    runtime = ChildRuntime(
-        "breaky", {"breaker_threshold": 2, "breaker_cooldown": 0.05}
-    )
+    runtime = ChildRuntime("breaky", {"breaker_threshold": 2, "breaker_cooldown": 0.05})
     runtime.adopt_sessions([session])
 
     for _ in range(2):
@@ -611,9 +654,7 @@ async def test_busy_rejections_do_not_count_as_breaker_failures():
 
 async def test_multiplexer_surfaces_circuit_open_as_typed_tool_result(tmp_path):
     mux = MCPMultiplexer(tmp_path / "c.json")
-    runtime = ChildRuntime(
-        "fused", {"breaker_threshold": 1, "breaker_cooldown": 60.0}
-    )
+    runtime = ChildRuntime("fused", {"breaker_threshold": 1, "breaker_cooldown": 60.0})
     runtime.adopt_sessions([FlakySession(failures=1)])
     mux.children["fused"] = runtime
     mux.tool_to_server["fu__tool"] = ("fused", "tool")
