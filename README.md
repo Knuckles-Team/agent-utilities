@@ -43,6 +43,25 @@ graph runs in-process. Use it three ways:
 
 → Full trade-offs: **[Consumption Models](docs/guides/consumption-models.md)**.
 
+### The 30-second mental model
+
+All four surfaces talk to one gateway; the gateway owns one knowledge-graph facade;
+the facade fronts a fast Rust engine (L1) and durable tiers (L2). Everything below the
+gateway is shared — the surfaces are just different windows onto the same brain.
+
+```mermaid
+flowchart TD
+    subgraph Surfaces["Four ways in"]
+        WEB[agent-webui] & TUI[agent-terminal-ui] & GB[geniusbot] & IDE[Claude Code / Cursor]
+    end
+    Surfaces -->|REST / MCP| GW["graph-os MCP + REST gateway<br/>(identity · ActionPolicy · metrics)"]
+    GW --> KG["KnowledgeGraph facade<br/>(ontology · routing · memory)"]
+    KG --> L1["epistemic-graph<br/>Rust engine — L1 (MessagePack/UDS)"]
+    KG --> L2["durable L2<br/>Postgres / pggraph · LadybugDB"]
+    KG --> OWL["OWL / SHACL · Fuseki<br/>semantics"]
+    GW -. fleet events / autonomy .-> FLEET["reconciler · playbooks · autoscaler"]
+```
+
 ## ⚡ 5-Minute Quickstart
 
 ```bash
@@ -103,18 +122,6 @@ in **[docs/capabilities.md](docs/capabilities.md)**; runnable code is in the
 - [Contributing](#contributing)
 - [License](#license)
 
----
-
-## 🌌 The Journey of Agent Utilities: The Technical Novel
-
-> [!NOTE]
-> **New to the project?** Rather than reading dry configuration tables, experience `agent-utilities` live!
-> Read our comprehensive technical biography tracing the lifecycle of a high-stakes quantitative rebalancing mandate.
->
-> 📖 **[Read the Immersive Narrative Journey (docs/journey.md)](docs/journey.md)**
-
----
-
 ## 🧭 Roadmap & Vision
 
 > This section is **aspirational direction**, not shipped behavior — it's here so
@@ -137,31 +144,59 @@ these to work out of the box today):
 
 ## Key Features
 
-- **[Multi-Domain Expert System](docs/guides/features.md#comprehensive-feature-list)**: Scale across finance, medical, and scientific domains using Temporally-Aware Epistemic Memory (TKG) and specialized MCP tools.
-- **[Schema-Pack 2.0 — pluggable domain profiles](docs/pillars/2_epistemic_knowledge_graph/KG-2.37-Research_State_Domain_Pack.md)** (CONCEPT:KG-2.22–KG-2.37): Swap the active domain pack (`research-state`, `finance`, `biomedical`, …) to retune the whole KG — zero-LLM typed-edge extraction (supports/weakens/cites), relational-intent recall, recency/source-trust ranking, autocut, and **transitive/inverse OWL closure** + bi-temporal `as_of` "literature state" that flat brain layers can't provide. Set `GRAPH_SCHEMA_PACK` or `graph_configure(action="schema_pack")`.
-- **[Unified Intelligence Graph](docs/guides/features.md#comprehensive-feature-list)**: A tiered pipeline combining native Rust in-memory processing (`EpistemicGraphBackend`, the default L1 working store) with a durable PostgreSQL/pggraph persistence tier and OWL (Apache Jena Fuseki) semantics. (LadybugDB / Neo4j / FalkorDB Cypher backends remain available under `backends/contrib/`.)
-- **[Centralized Sessions & Goals (API-First Gateway)](docs/centralized_kg_coordination.md#7-centralized-sessions--autonomous-goal-coordination)**: A highly-resilient, centralized REST API gateway (`python -m agent_utilities`, default port `9000`) that handles background goal loops, durable turns, and user session reply orchestration.
-- **[High-Performance Rust Compute Engine](pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) 🔬**: A compiled Rust Graph Compute Engine via `epistemic-graph` running over high-speed Unix Sockets (length-prefixed MessagePack — **no PyO3/FFI**), providing fast AST parsing, VF2 subgraph matching, and a Redpanda-backed Reactive State Ledger. **Measured** anchors: per-shard linear write throughput and a ~52 kB/agent working-set footprint (`epistemic-graph/docs/benchmarks.md`). From those, a [Capacity Model](docs/scaling/capacity_model.md) **projects** scaling toward very large agent counts (the often-cited 100M figure is an arithmetic projection at ~78 hosts × 64 GB, **not a load test** — each agent works a *bounded subgraph*, not one monolithic graph). We do not claim 100M has been run.
-- **[Spec-Driven Development (SDD)](docs/guides/features.md#spec-driven-development-sdd-lifecycle)**: High-fidelity orchestration that decomposes goals into structured specs, implementation plans, and parallel tasks.
-- **[Emergent Architecture](docs/guides/features.md#emergent-architecture-conceptkg-20-through-conceptorch-12)**: Dynamic AgentCapability auto-activation, TeamConfig coalition promotion, and evolutionary skill refinement via self-models.
-- **[Agent OS & Safety](docs/guides/features.md#human-in-the-loop--tool-safety)**: Built-in Universal Tool Guards, structural vulnerability scanning, and transparent process lifecycle management.
-- **[Dynamic Company Brain Ingestion](docs/guides/features.md#company-intelligence-graph)**: Dynamic data ingestion from external platforms like Jira, GitLab/GitHub, enterprise architecture repositories (e.g., Essential Project, Archi), and databases with automatic ontology alignment and GraphQL/REST extraction.
-- **[Document-Source Connector Framework](docs/pillars/4_ecosystem_peripherals/ECO-4.25-Document_Source_Connector_Framework.md)** (CONCEPT:ECO-4.25–4.32, KG-2.59): A `load`/`poll`/`slim` connector abstraction with resumable checkpoints, **external permission sync** into the entailment-aware ACL gate, **contextual-retrieval enrichment** (KG-2.50), and query analysis. **Native sources**: Postgres (via `UniversalConnector`), filesystem, REST/JSON, and web crawl. **Every other system rides the MCP fleet** through the universal `mcp_tool` source (CONCEPT:KG-2.59) — sql-mcp (MariaDB/MSSQL/Oracle/SQLite/… behind its read-only gate), objectstore-mcp (S3/GCS/Azure/filesystem buckets), servicenow/salesforce/okta and the rest of the ~58 `agent-packages/agents/*` servers — declarative config + shipped presets, no per-database drivers. Routing: bulk hot-path → native Postgres; harvest/poll workloads → `mcp_tool` (per-page MCP overhead is negligible vs chunk/embed/enrich cost). Ports the Onyx connector surface onto the semantic core — ingested documents become first-class `Document`+`Chunk` ontology objects with OWL semantics, bitemporal slicing, and reified links a flat index can't offer. Includes an explicit **Onyx connector-parity map**.
-- **[Company Brain Runtime (Trust, Permissions, Feedback)](docs/architecture/company_brain_runtime.md)**: The 6-layer "Single Company Brain" wired end-to-end behind `KG_BRAIN_ENFORCE` — **source-authority conflict resolution with trust decay** and **field-level survivorship** (durable per-attribute provenance / MDM golden record), **data-level ACLs + tenant scoping + read audit** on the retrieval path, a **human-correction → durable rule → eval** feedback loop, and **token-budgeted, task-scoped retrieval**.
-- **[Vendor-Neutral Enterprise Ontology](docs/architecture/vendor_neutral_enterprise_ontology.md)**: One ArchiMate-aligned upper ontology + crosswalk so ServiceNow↔ERPNext, Camunda↔Archi, etc. are interchangeable — a single query resolves all sources regardless of which vendor tool produced the data.
-- **[Enterprise Agent Governance](docs/pillars/4_ecosystem_peripherals.md#-enterprise-agent-governance-eco-416--eco-422)**: Production-grade mutation governance with risk-scored change proposals, human-in-the-loop approval gates, AGENTS.md self-improvement, lint enforcement hooks, plugin bundle distribution, permission policies, staleness auditing, and unified governance workflow pipeline.
-- **[Global Workspace Attention & Social-System Swarm](docs/architecture/global_workspace_attention.md)**: After every multi-agent wave the parallel engine scores, selects, and broadcasts winning specialist proposals (read back as runtime standing, with an engine-mismatch telemetry guard) and snapshots [Multi-Agent Social System](docs/architecture/multi_agent_social_system.md) health (archetype heterogeneity, co-evolution, Wasserstein drift) into `ExecutionResult.telemetry`.
-- **[Server-Minted Identity & Fail-Closed Permissioning](docs/architecture/gateway_scaling.md)** (CONCEPT:OS-5.14): Every gateway request is scoped to a server-minted `ActorContext` (JWT validated via JWKS, `agent_utilities/security/request_identity.py`), permission checks fail closed, and engine connections authenticate with an HMAC shared secret; `KG_AUTH_REQUIRED` rejects unauthenticated requests with 401. Walkthrough: [identity & JWT example](docs/examples/identity-jwt.md).
-- **[Externalized Durable State (multi-host)](docs/architecture/state_externalization.md)** (CONCEPT:OS-5.16–5.18, KG-2.54, ORCH-1.44): One `STATE_DB_URI` flag moves durable-execution checkpoints, sessions/turns/goals, and the KG task queue from per-host SQLite onto a shared Postgres — with atomic `SKIP LOCKED` queue claims, advisory-lock daemon leadership (singleton background ticks run on exactly one host), durable goals that rehydrate as orphaned instead of vanishing, and SQL-aggregated, paginated fleet queries. Unset, behavior is byte-for-byte the zero-infra default.
-- **[Tenant-Sharded Engines (HRW routing)](docs/architecture/engine_sharding.md)** (CONCEPT:KG-2.58 / OS-5.28): With 2+ `GRAPH_SERVICE_ENDPOINTS`, clients route each named graph to its owning `epistemic-graph` shard via rendezvous (HRW) hashing — tenant → named graph → shard — with fail-loud errors for unreachable shards, per-shard reachability/breaker visibility on the daemon status and the gateway dashboard's `daemon/shards` route, and a worked 3-shard recipe in `docker/engine-shards.compose.yml`. Walkthrough: [sharding example](docs/examples/sharding-walkthrough.md).
-- **[Kafka Ingest Scale-Out](docs/architecture/event_backbone_architecture.md)** (CONCEPT:KG-2.55–2.57): The durable ingest queue backend is selectable and fail-loud (`TASK_QUEUE_BACKEND=sqlite|postgres|kafka` — an explicitly selected backend that is unreachable raises at startup, never a silent degrade); Kafka `kg_tasks` messages carry partition keys for per-tenant/per-repo ordering, and the `kg-ingest-worker` console script joins the `kg-ingest` consumer group from any host, with queue-depth and consumer-lag gauges on the gateway metrics registry.
-- **[Queue-Driven Agent Dispatch](docs/architecture/agent_dispatch.md)** (CONCEPT:ORCH-1.45): `AGENT_DISPATCH_BACKEND=queue` dispatches agent turns through a session-keyed durable queue (`AgentTurnEnvelope`) consumed by a stateless `agent-dispatch-worker` fleet — per-session serial execution, crash-safe at-least-once claims, and worker placement visible at `/api/fleet/topology`. Walkthrough: [queue-dispatch example](docs/examples/queue-dispatch-walkthrough.md).
-- **[Fleet Autonomy Control Plane](docs/architecture/fleet_autonomy.md)** (CONCEPT:OS-5.15, OS-5.24–5.27, OS-5.29): Monitoring events ingress at `POST /api/fleet/events` (OS-5.15) and persist as `FleetEvent` nodes; every autonomous mutating action is gated by the fail-closed **ActionPolicy** decision point (`orchestration/action_policy.py` — per-action autonomy tiers, durable rate limits, blast-radius caps, maintenance windows; the shipped `deploy/action-policy.default.yml` requires approval for everything mutating). On top: a desired-state fleet reconciler (dry-run actuator by default), remediation playbooks, health-gated deploy watch with policy-gated rollback, and a reactive replica autoscaler. Examples: [fleet events wiring](docs/examples/fleet-events-wiring.md) · [action-policy postures](docs/examples/action-policy-postures.md) · [autoscaling signals](docs/examples/autoscaling-signals.md).
-- **[Governed Evolution-to-Branch Publication](docs/guides/autonomous-evolution.md)** (CONCEPT:AHE-3.18–3.21): The self-evolution loops are propose-only by default; promoted proposals pass the governance validator (AHE-3.20) and the recorded regression gate, then change synthesis + RLM-sandbox validation publish them as reviewable **local** git branches through the ActionPolicy-gated `ChangePublisher` (AHE-3.21) — never auto-pushed. Walkthrough: [evolution publication example](docs/examples/evolution-publication.md).
-- **[Ontology-to-Workflow Execution](docs/pillars/1_graph_orchestration.md)** (CONCEPT:KG-2.52/2.53, ORCH-1.41–1.43): The authoritative TBox publishes to Fuseki on a background tick, BPMN processes gain step-level ontology shape, and `graph_orchestrate(action="compile_process")` lifts a descriptive process into an executable plan (`ProcessPlanCompiler`) — gated by ontology validation on the execution path and closed out with run lineage written back to the KG. Walkthrough: [ontology-to-workflow example](docs/examples/ontology-to-workflow.md).
-- **[Hardened MCP Multiplexer](docs/pillars/4_ecosystem_peripherals.md)** (CONCEPT:ECO-4.34): Every aggregated child server runs behind per-child concurrency limits and bounded queues, session pools for HTTP children, restart-on-crash supervision with exponential backoff, and per-child circuit breakers — with a `multiplexer_status` health tool and per-child Prometheus series (`agent_utilities/mcp/child_resilience.py`).
-- **[Prometheus Observability & Gateway Scaling](docs/architecture/gateway_scaling.md)** (CONCEPT:OS-5.23): The gateway serves `GET /metrics` (`agent_utilities_*` series covering requests, latency, rate limiting, engine calls/breaker state, engine shard reachability, ingest queue depth/lag — also the autoscaler's default signals — dispatch queue/turns/workers, and multiplexer children; optional `metrics` extra), enforces per-tenant token-bucket rate limiting (`GATEWAY_RATE_LIMIT`), guards every engine call with a shared circuit breaker, and pre-forks workers via `GATEWAY_WORKERS`. Engine shards expose their own `epistemic_graph_*` series on per-shard `--metrics-addr` listeners. Catalog: [metrics reference](docs/reference/metrics.md).
-- **[Ontology System — Palantir-Foundry-parity, graph-native](docs/pillars/2_epistemic_knowledge_graph.md#ontology-system-palantir-foundry-parity)** (`agent_utilities/knowledge_graph/ontology/`, `kg.ontology`): A first-class object/link/function/action layer reaching the *same* epistemic backend the rest of the KG uses — **interfaces** (CONCEPT:KG-2.38, abstract shapes + implementer resolution), **value types** (KG-2.39, constrained semantic types compiled to SHACL/OWL), **property types** (KG-2.47, the scalar/geo/vector/struct type vocabulary that drives column DDL + write coercion), **derived properties** (KG-2.40, read-time FUNCTION/CYPHER/SPARQL/EMBEDDING compute), **functions** (KG-2.41, typed/versioned/governed PLAIN/ON_OBJECTS/QUERY runtime), **action types** (KG-2.42, submission-criteria-gated, side-effecting, batchable, revertable), **durable object edits** (KG-2.43, bitemporal edit ledger with revert), **indexing lifecycle** (KG-2.44, content-hashed object funnel + staleness ledger), **object sets** (KG-2.45, composable filter/search/search-around/pivot/aggregate handles), **fine-grained permissioning** (KG-2.46, entailment-aware ACL marking propagation + row-drop enforcement), and **document processing** (KG-2.48, chunk→embed→link) over **reified junction links** (KG-2.26). Unique value-adds vs Foundry: OWL/SHACL-backed interfaces+value-types, embedding/cypher/sparql-backed derived properties, reified many-to-many links, entailment-aware marking propagation, bitemporal edit history, a self-evolving ontology, and the Rust epistemic engine. Exposed over the `ontology_*` MCP tools and the operator **Object Explorer / Object / Vertex** views in the [web UI](docs/pillars/4_ecosystem_peripherals.md) (`/api/enhanced/ontology/*`).
+Grouped by what they do. Each line links to the deep-dive; the full catalog with
+every concept ID is in **[docs/guides/features.md](docs/guides/features.md)**.
+
+**🧠 Knowledge graph & memory** — the zero-infra core.
+A tiered KG (native Rust L1 + durable Postgres/pggraph L2 + OWL semantics; contrib
+Neo4j/FalkorDB/LadybugDB) with **[Schema-Pack domain profiles](docs/pillars/2_epistemic_knowledge_graph/KG-2.37-Research_State_Domain_Pack.md)**
+(KG-2.22–2.37: zero-LLM typed-edge extraction, transitive/inverse OWL closure,
+bitemporal `as_of` recall) over a **[high-performance Rust compute engine](docs/pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md)**
+(MessagePack/UDS, **no PyO3**; measured ~52 kB/agent — see the
+[capacity model](docs/scaling/capacity_model.md) for the honestly-projected 100M figure).
+
+**🗂 Ontology system (Palantir-Foundry parity, graph-native)** — the structured layer.
+**[Objects, links, interfaces, value/property types, derived properties, functions,
+action types, durable edits, object sets & fine-grained permissioning](docs/pillars/2_epistemic_knowledge_graph.md#ontology-system-palantir-foundry-parity)**
+(KG-2.26, 2.38–2.48) — OWL/SHACL-backed, reified many-to-many links, bitemporal edit
+history, exposed over `ontology_*` MCP tools and the web-UI Object Explorer.
+A **[vendor-neutral ArchiMate upper ontology](docs/architecture/vendor_neutral_enterprise_ontology.md)**
+makes ServiceNow↔ERPNext↔Camunda interchangeable in one query.
+
+**🔀 Orchestration & self-evolution** — how work gets planned and improved.
+**[Spec-Driven Development](docs/guides/features.md#spec-driven-development-sdd-lifecycle)**,
+**[emergent architecture](docs/guides/features.md#emergent-architecture-conceptkg-20-through-conceptorch-12)**
+(capability auto-activation, TeamConfig coalitions),
+**[global-workspace attention](docs/architecture/global_workspace_attention.md)** over
+multi-agent waves, **[ontology-to-workflow execution](docs/pillars/1_graph_orchestration.md)**
+(KG-2.52/53, ORCH-1.41–43: lift a descriptive process into an executable plan), and
+**[governed evolution-to-branch publication](docs/guides/autonomous-evolution.md)**
+(AHE-3.18–21: propose-only, governance + regression gated, **never auto-pushed**).
+
+**🏢 Enterprise integration (Company Brain)** — getting your systems in.
+A **[document-source connector framework](docs/pillars/4_ecosystem_peripherals/ECO-4.25-Document_Source_Connector_Framework.md)**
+(ECO-4.25–4.32, KG-2.59) — native Postgres/filesystem/REST/web-crawl, with **every
+other system riding the ~58-server MCP fleet** via the universal `mcp_tool` source —
+feeding the **[6-layer Company Brain runtime](docs/architecture/company_brain_runtime.md)**
+(`KG_BRAIN_ENFORCE`: trust-decay conflict resolution, field-level survivorship,
+data ACLs + tenant scoping, human-correction→rule→eval feedback).
+
+**📈 Scale-out planes (all opt-in; default stays zero-infra)** — how it grows.
+**[Externalized durable state](docs/architecture/state_externalization.md)** (one
+`STATE_DB_URI`, OS-5.16–18), **[tenant-sharded engines](docs/architecture/engine_sharding.md)**
+(HRW routing, KG-2.58/OS-5.28), **[Kafka ingest scale-out](docs/architecture/event_backbone_architecture.md)**
+(KG-2.55–57, fail-loud), **[queue-driven agent dispatch](docs/architecture/agent_dispatch.md)**
+(ORCH-1.45), and **[gateway scaling + Prometheus `/metrics`](docs/architecture/gateway_scaling.md)**
+(OS-5.23, per-tenant rate limits, circuit breakers, `GATEWAY_WORKERS`).
+
+**🛡 Autonomy & governance** — how it acts safely.
+A **[fleet-autonomy control plane](docs/architecture/fleet_autonomy.md)** (OS-5.15,
+5.24–27, 5.29: `POST /api/fleet/events` → fail-closed **ActionPolicy** gate → reconciler,
+remediation playbooks, health-gated deploy-watch + rollback, reactive autoscaler),
+**[server-minted identity & fail-closed permissioning](docs/architecture/gateway_scaling.md)**
+(OS-5.14, JWT `ActorContext`, HMAC engine auth), enterprise mutation governance, and a
+**[hardened MCP multiplexer](docs/pillars/4_ecosystem_peripherals.md)** (ECO-4.34:
+per-child limits, circuit breakers, restart-on-crash).
 
 Shipped but lightly documented (real code, importable today):
 
@@ -260,150 +295,28 @@ All LLM providers, model registries, safety guardrails, and scheduler policies a
 
 Every field in the `config.json` has a 1-to-1 environment variable override. The environment variables (detailed in `.env.example`) act as secondary overrides for all settings.
 
-### Centralized `config.json` Template
+### Minimal `config.json`
 
-Here is a fully-populated and production-ready `config.json` file representing the absolute source of truth for the `agent-utilities` Pydantic `AgentConfig` schema:
+You only need to declare your model providers; every other field has a sensible
+default. A minimal working config:
 
 ```json
 {
-  "default_agent_name": "Agent",
-  "agent_description": "AI Agent",
-  "agent_system_prompt": null,
-
-  "host": "0.0.0.0",
-  "port": 9000,
-  "debug": false,
-  "enable_web_ui": false,
-  "enable_terminal_ui": false,
-  "enable_web_logs": true,
-  "enable_acp": false,
-  "acp_port": 8001,
-  "acp_session_root": ".acp-sessions",
-  "mcp_config": null,
-  "max_upload_size": 10485760,
-
-  "agent_api_key": null,
-  "enable_api_auth": false,
-  "auth_jwt_jwks_uri": null,
-  "auth_jwt_issuer": null,
-  "auth_jwt_audience": null,
-  "allowed_origins": null,
-  "allowed_hosts": null,
-  "tool_guard_mode": "strict",
-  "sensitive_tool_patterns": [
-    ".*delete.*",
-    ".*remove.*",
-    ".*rm_.*",
-    ".*prune.*",
-    ".*kill.*",
-    ".*exec.*",
-    ".*run_command.*"
-  ],
-
-  "secrets_backend": "inmemory",
-  "secrets_sqlite_path": null,
-  "secrets_vault_url": null,
-  "secrets_vault_mount": "secret",
-
-  "routing_strategy": "hybrid",
-  "graph_persistence_type": "file",
-  "graph_persistence_path": "~/.local/share/agent-utilities/graph_state",
-  "enable_llm_validation": false,
-  "graph_router_timeout": 300.0,
-  "graph_verifier_timeout": 300.0,
-  "graph_direct_execution": true,
-  "min_confidence": 0.4,
-  "validation_mode": false,
-  "approval_timeout": 0.0,
-
-  "enable_kg_embeddings": true,
-  "kg_backups": 3,
-  "knowledge_graph_sync_background": true,
-
-  "enable_otel": true,
-  "otel_exporter_otlp_endpoint": "http://langfuse.arpa/api/public/otel",
-  "otel_exporter_otlp_headers": null,
-  "otel_exporter_otlp_public_key": "lf_pk_...",
-  "otel_exporter_otlp_secret_key": "lf_sk_...",
-  "otel_exporter_otlp_protocol": "http/protobuf",
-  "langfuse_host": "http://langfuse.arpa",
-  "langfuse_public_key": "lf_pk_...",
-  "langfuse_secret_key": "lf_sk_...",
-  "langfuse_dataset_capture_threshold": 0.0,
-
-  "a2a_broker": "in-memory",
-  "a2a_broker_url": null,
-  "a2a_storage": "in-memory",
-  "a2a_storage_url": null,
-  "a2a_config": null,
-  "a2a_refresh_interval": 300,
-
-  "max_tokens": 16384,
-  "temperature": 0.7,
-  "top_p": 1.0,
-  "timeout": 32400.0,
-  "tool_timeout": 32400.0,
-  "parallel_tool_calls": true,
-  "seed": null,
-  "presence_penalty": 0.0,
-  "frequency_penalty": 0.0,
-  "logit_bias": null,
-  "stop_sequences": null,
-  "extra_headers": null,
-  "extra_body": null,
-
-  "cognitive_scheduler_enabled": true,
-  "max_concurrent_agents": 5,
-  "agent_token_quota": 100000,
-  "preemption_threshold_pct": 0.85,
-  "agent_policies_path": null,
-  "permissions_signing_key": null,
-  "specialist_registry_path": null,
-  "homeostatic_downgrade_enabled": true,
-  "adversarial_verification": false,
-  "maintenance_token_budget": 0,
-  "maintenance_priority": "LOW",
-  "watchdog_patterns": [
-    "pyproject.toml",
-    "mcp_config.json",
-    "requirements*.txt"
-  ],
-
-  "custom_skills_directory": null,
-  "skill_types": null,
-
   "chat_models": [
-    {
-      "id": "qwen/qwen3.5-9b",
-      "provider": "openai",
-      "base_url": "http://vllm.arpa/v1",
-      "supports_json": false,
-      "vision": true,
-      "reasoning": true,
-      "tools_enabled": true,
-      "parallel_instances": 3,
-      "context_window": 256000,
-      "intelligence_level": "normal",
-      "can_route": true,
-      "can_kg": true
-    }
+    {"id": "qwen/qwen3.5-9b", "provider": "openai", "base_url": "http://vllm.arpa/v1",
+     "tools_enabled": true, "can_route": true, "can_kg": true}
   ],
   "embedding_models": [
-    {
-      "id": "text-embedding-nomic-embed-text-v2-moe",
-      "provider": "openai",
-      "base_url": "http://vllm-embed.arpa/v1",
-      "parallel_instances": 4,
-      "chunk_size": 768
-    }
-  ],
-
-  "workspace_path": "/home/apps/workspace",
-  "agent_utilities_config_dir": "~/.config/agent-utilities"
+    {"id": "nomic-embed-text-v2", "provider": "openai", "base_url": "http://vllm-embed.arpa/v1"}
+  ]
 }
 ```
 
-> **Note:** JSON does not support comments. The JSON key names correspond exactly to their uppercase environment variable overrides (e.g. `default_agent_name` → `DEFAULT_AGENT_NAME`).
+> Every `config.json` key maps 1-to-1 to an uppercase environment-variable override
+> (`default_agent_name` → `DEFAULT_AGENT_NAME`). JSON has no comments — keep notes in
+> the guides. The **fully-populated production template** (auth, secrets, routing,
+> scheduler, OTEL/Langfuse, A2A, sampling) lives in
+> [docs/examples/config.json](docs/examples/config.json).
 
 For comprehensive definitions and capabilities of specific variables, see the [Configuration Guide](docs/guides/configuration.md) and [Local Secret Storage Guide](docs/guides/secrets-auth.md). The authoritative **per-flag inventory and audit** (every `KG_*`/`GRAPH_*`/`EPISTEMIC_*` flag, its default, and whether it should exist at all) is [docs/architecture/configuration.md](docs/architecture/configuration.md).
 
@@ -451,6 +364,12 @@ walks every shape from the zero-infra laptop default to a sharded,
 queue-driven, policy-governed fleet (`STATE_DB_URI`, `GRAPH_SERVICE_ENDPOINTS`,
 `TASK_QUEUE_BACKEND`, `AGENT_DISPATCH_BACKEND`, `GATEWAY_WORKERS`).
 
+> **Already deployed and want to turn the enterprise/autonomy capabilities on?**
+> They ship off-by-default so the laptop experience stays zero-infra. The
+> **[Enterprise Enablement Runbook](docs/guides/enterprise-enablement-runbook.md)**
+> is the ordered push → deploy → flag-enablement sequence (security → state → sharding
+> → brain → autonomy), each stage independently reversible and verified.
+
 ## Quick Start
 
 You can quickly launch the graph-os MCP server (a thin FastMCP wrapper):
@@ -489,6 +408,13 @@ For detailed tutorials, installation options, and configuration guides, refer to
 * **[Creating an Agent](docs/guides/creating-an-agent.md)**
 * **[Building MCP Servers & API Wrappers](docs/guides/building-mcp-servers.md)**
 * **[API Documentation & Swagger](docs/guides/development.md)**
+
+## 🌌 The Technical Novel
+
+> [!NOTE]
+> Prefer a story to config tables? **[The Immersive Narrative Journey (docs/journey.md)](docs/journey.md)**
+> traces `agent-utilities` live through the lifecycle of a high-stakes quantitative
+> rebalancing mandate — a guided tour of the whole platform in motion.
 
 ## Documentation
 
