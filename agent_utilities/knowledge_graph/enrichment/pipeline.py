@@ -156,6 +156,13 @@ class _BatchedBackend:
             graph, "batch_update", None
         )
 
+    @property
+    def bulk_available(self) -> bool:
+        """True when the wrapped backend exposes an engine bulk path, so callers
+        can choose batching only when it actually collapses round-trips (and keep
+        their own robust per-item path otherwise)."""
+        return self._bulk is not None
+
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
         self._nodes.append(
             {
