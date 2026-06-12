@@ -259,6 +259,27 @@ class AgentConfig(BaseSettings):
     # default so a buggy unscoped query can never silently scan the whole graph.
     kg_allow_full_scan: bool = Field(default=False, alias="KG_ALLOW_FULL_SCAN")
 
+    # --- Observability / usage analytics (CONCEPT:ECO-4.39 / ECO-4.40 / OS-5.31) ---
+    # Backend for the usage/cost/session fact store. Zero-config default is a
+    # per-host SQLite+FTS5 file (no external deps); "postgres" / "duckdb" promote
+    # to enterprise-scale shared backends via the same UsageBackend interface.
+    usage_db_backend: str = Field(default="sqlite", alias="USAGE_DB_BACKEND")
+    # Optional explicit path/URI for the usage store. Empty = derive from the
+    # state_store seam (per-host data dir for sqlite, STATE_DB_URI for postgres).
+    usage_db_uri: str | None = Field(default=None, alias="USAGE_DB_URI")
+    # Master switch for runtime usage instrumentation (plane B). Default-on but
+    # best-effort: a recorder failure never breaks a graph run.
+    usage_tracking_enabled: bool = Field(default=True, alias="USAGE_TRACKING_ENABLED")
+    # LiteLLM pricing source. Empty keeps the bundled offline fallback only
+    # (fully functional with no network); the daemon refreshes from this URL.
+    pricing_litellm_url: str = Field(
+        default=(
+            "https://raw.githubusercontent.com/BerriAI/litellm/main/"
+            "model_prices_and_context_window.json"
+        ),
+        alias="PRICING_LITELLM_URL",
+    )
+
     # --- Model registry helpers (derive from chat_models / embedding_models) ---
 
     def _chat_model_by_level(self, level: str) -> ChatModelConfig | None:
