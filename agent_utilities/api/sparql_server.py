@@ -1,103 +1,59 @@
+"""Local SPARQL endpoint router.
+
+CONCEPT:KG-2.7 — a zero-dependency SPARQL surface over the OWL/RDF bridge
+(rdflib materialization of the live LPG + OWL inferences). The canonical mount is
+:func:`agent_utilities.gateway.graph_api.register_graph_routes` (``{prefix}/sparql``);
+this standalone router is provided for apps that want to mount SPARQL on its own.
+
+The previous implementation here was a broken stub that dumped every edge via a
+non-existent ``_get_all_edges`` helper; it now delegates to the shared bridge.
+"""
+
+from __future__ import annotations
+
 import logging
-from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sparql", tags=["sparql"])
 
 
-class SparqlTranspiler:
-    """
-    Translates incoming standard SPARQL queries into native
-    epistemic-graph traversals. This ensures we can serve Semantic Web
-    queries without risking split-brain state issues, as all requests
-    are securely proxied to the local Rust operational Truth.
-    """
+@router.api_route("", methods=["GET", "POST"])
+@router.api_route("/", methods=["GET", "POST"])
+async def sparql(request: Request) -> JSONResponse:
+    """Execute a SPARQL query over the local OWL/RDF bridge."""
+    from agent_utilities.gateway.graph_api import _get_sparql_bridge
 
-    def __init__(self):
-        self.engine = GraphComputeEngine()
-
-    def transpile_and_execute(self, sparql_query: str) -> dict[str, Any]:
-        """
-        Takes a SPARQL string, parses the abstract syntax, and maps
-        it to native `self.engine` graph lookups.
-
-        Currently acts as an architectural translation stub demonstrating the connection
-        pipeline for basic Subject-Predicate-Object selections.
-        """
-        results = []
-        # In a full deployment, this logic is replaced by rdflib.plugins.sparql.parser
-        # to generate ASTs matching our epistemic_graph topology constraints.
-        if "SELECT" in sparql_query.upper():
-            # For demonstration, we simply dump edges representing a wildcard graph query
-            # and format them perfectly into the standard SPARQL-JSON W3C output schema.
-            for u, v in self.engine._get_all_edges():
-                props = self.engine._get_edge_properties(u, v)
-                results.append(
-                    {
-                        "subject": {"type": "uri", "value": u},
-                        "predicate": {
-                            "type": "literal",
-                            "value": props.get("type", "UNKNOWN"),
-                        },
-                        "object": {"type": "uri", "value": v},
-                    }
-                )
-
-        return {
-            "head": {"vars": ["subject", "predicate", "object"]},
-            "results": {"bindings": results},
-        }
-
-
-transpiler = SparqlTranspiler()
-
-
-@router.get("/")
-@router.post("/")
-async def sparql_endpoint(request: Request):
-    """
-    Standard Semantic Web SPARQL 1.1 Endpoint.
-    Accepts standard GET (via query param) and POST (via form/json body) requests.
-    """
-    query = ""
-    if request.method == "GET":
-        query = request.query_params.get("query", "")
-    elif request.method == "POST":
-        content_type = request.headers.get("Content-Type", "")
-        if "application/x-www-form-urlencoded" in content_type:
-            form_body = await request.form()
-            _q = form_body.get("query", "")
-            query = _q if isinstance(_q, str) else ""
-        elif "application/sparql-query" in content_type:
-            body = await request.body()
-            query = body.decode("utf-8")
-        else:
-            try:
-                json_body = await request.json()
-                query = json_body.get("query", "")
-            except Exception:
-                pass
-
+    query = request.query_params.get("query")
+    if not query and request.method == "POST":
+        try:
+            body = await request.json()
+            query = body.get("query") if isinstance(body, dict) else None
+        except Exception:
+            query = (await request.body()).decode("utf-8", "replace") or None
     if not query:
-        raise HTTPException(
-            status_code=400, detail="Missing 'query' parameter for SPARQL endpoint."
+        return JSONResponse(
+            {"status": "error", "message": "missing 'query'"}, status_code=400
         )
 
-    try:
-        # Route query through our native Epistemic Graph transpiler
-        response_data = transpiler.transpile_and_execute(str(query))
+    bridge = _get_sparql_bridge()
+    if bridge is None:
         return JSONResponse(
-            content=response_data,
-            headers={"Content-Type": "application/sparql-results+json"},
+            {"status": "error", "message": "SPARQL layer unavailable"},
+            status_code=503,
         )
-    except Exception as e:
-        logger.error(f"SPARQL execution failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail="Failed to transpile and execute SPARQL query."
-        ) from e
+    try:
+        bindings = bridge.query_sparql(query)
+        varnames = list(bindings[0].keys()) if bindings else []
+        return JSONResponse(
+            {
+                "status": "success",
+                "head": {"vars": varnames},
+                "results": {"bindings": bindings},
+            }
+        )
+    except Exception as exc:
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=500)

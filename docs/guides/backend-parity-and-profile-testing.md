@@ -66,20 +66,42 @@ seams: durable graph writes persist in pggraph across a reconnect; the task queu
 resolves to Kafka and a put→consume→ack round-trips; the ontology publishes to
 Fuseki and is queryable over SPARQL.
 
-## Known parity gaps (surfaced, not hidden)
+## Parity status (the 100%-parity program)
 
-The conformance suite `skip`s — with a backend-named reason — rather than silently
-passing where a backend genuinely can't satisfy a check. Current gaps:
+A live probe (write via the engine, read via `backend.execute`) drove a phased
+program that closed the gaps. Current state:
 
-- **Vector search on generic labels.** Neo4j/FalkorDB index a fixed `:Chunk`
-  label for embeddings; semantic search over arbitrary `:Document` nodes returns
-  nothing there, so `test_embedding_and_semantic_search_ranking` skips for those
-  backends. LadybugDB (label-agnostic cosine) and pggraph (pgvector) pass.
+| Capability | epistemic_graph | ladybug | pggraph (AGE) | neo4j | falkordb |
+|---|---|---|---|---|---|
+| node props (declared/ad-hoc/nested) | ✅ | ✅ (ad-hoc in `metadata`) | ✅ | ✅ | ✅ |
+| edge existence | ✅ | ✅ | ✅ | ✅ | ✅ |
+| edge properties | ✅ | ✅ (JSON `r.properties`) | ✅ | ✅ | ✅ |
+| full Cypher (count/alias/multi-hop) | subset | ✅ (Kuzu) | ✅ (AGE) | ✅ | ✅ |
+| vector search | ✅ | ⚠️ | ✅ (pgvector) | ✅ (`:Embeddable`) | ⚠️ |
+| SPARQL (via OWL/RDF layer) | ✅ local `/sparql` | ✅ | ✅ | ✅ | ✅ |
+
+What changed:
+- **Neo4j/FalkorDB are first-class** — they crashed on the standard write path
+  (`label()`), threw on nested props, and mis-targeted the vector index; all fixed.
+  They run in the `-m live` conformance matrix and pass the contract.
+- **pggraph runs Apache AGE** (`GRAPH_PG_AGE=1` / `backend_type=age`,
+  `docker/pggraph-age.compose.yml`) — real openCypher incl. `count(r)`, multi-hop,
+  variable-length, edge props, plus pgvector embeddings.
+- **Edge properties** persist on every backend (Ladybug via a JSON `r.properties`
+  column on REL tables).
+- **Local SPARQL** is served at `{prefix}/sparql` over the OWL/RDF bridge (rdflib
+  materialization) with zero external deps — Fuseki/Stardog are optional scale-out.
+
+### Remaining gaps (surfaced, not hidden)
+The conformance suite `skip`s with a backend-named reason rather than silently
+passing where a backend genuinely can't satisfy a check:
+
+- **Vector search** is empty on **LadybugDB** (Kuzu VECTOR-extension path) and
+  **FalkorDB** (index timing); epistemic_graph, pggraph(AGE), and Neo4j pass.
 - **Prune semantics differ** (importance vs `last_accessed`); the suite asserts
-  only the shared no-raise contract, not per-backend deletion semantics.
-- **Ontology object/link/function parity** across exotic backends (Neo4j/Falkor)
-  is exercised through the tiny-profile gateway path against the default tiered
-  backend; per-backend ontology parity is a documented follow-up.
+  only the shared no-raise contract.
+- **Per-backend ontology object/link/function parity** is exercised through the
+  tiny-profile gateway path against the default tiered backend.
 
 ## Adopting this in another agent-package
 
