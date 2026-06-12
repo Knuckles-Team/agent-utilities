@@ -64,15 +64,19 @@ class FalkorDBBackend(GraphBackend):
         return results
 
     def create_schema(self) -> None:
-        logger.info("Creating FalkorDB vector index for embeddings.")
-        query = "CALL db.idx.vector.create('idx_embedding', 'Chunk', 'embedding', 768, 'cosine')"
+        # Index a SHARED ``Embeddable`` label (every embedded node is tagged with
+        # it in add_embedding). The old index targeted ``Chunk`` — a label no node
+        # carries — so vector search silently returned nothing.
+        logger.info("Creating FalkorDB vector index for embeddings (Embeddable).")
+        query = "CALL db.idx.vector.create('idx_embedding', 'Embeddable', 'embedding', 768, 'cosine')"
         try:
             self.execute(query)
         except Exception as e:
             logger.warning(f"Could not create vector index in FalkorDB: {e}")
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        query = "MATCH (n {id: $id}) SET n.embedding = vecf32($embedding)"
+        # Tag ``:Embeddable`` so the node enters the vector index regardless of label.
+        query = "MATCH (n {id: $id}) SET n:Embeddable, n.embedding = vecf32($embedding)"
         try:
             self.execute(query, {"id": node_id, "embedding": embedding})
         except Exception as e:
@@ -83,7 +87,7 @@ class FalkorDBBackend(GraphBackend):
     ) -> list[dict[str, Any]]:
         """Perform a semantic vector search returning top matching nodes using FalkorDB."""
         query = """
-        CALL db.idx.vector.queryNodes('Chunk', 'embedding', $n_results, vecf32($query_embedding))
+        CALL db.idx.vector.queryNodes('Embeddable', 'embedding', $n_results, vecf32($query_embedding))
         YIELD node, score
         RETURN node
         """

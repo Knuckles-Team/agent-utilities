@@ -498,14 +498,24 @@ class IntelligenceGraphEngine(
         stamp_bitemporal(props, event_time=props.get("event_time"))
 
         if self.backend and not ephemeral:
-            # Tier 1: Backend is source of truth — write here FIRST
-            set_clause = self._get_set_clause(props, alias="r")
+            # Tier 1: Backend is source of truth — write here FIRST.
+            # Kuzu/Ladybug REL tables carry a single JSON ``properties`` column
+            # (other backends store edge props as native columns/JSONB), so fold
+            # all edge props into it there — otherwise Kuzu drops them.
+            _backend_name = self.backend.__class__.__name__
+            if _backend_name == "LadybugBackend":
+                set_clause = " SET r.`properties` = $properties"
+                edge_params: dict[str, Any] = {
+                    "properties": json.dumps(props, default=str)
+                }
+            else:
+                set_clause = self._get_set_clause(props, alias="r")
+                edge_params = dict(props)
 
             # Portable label lookup: Neo4j/FalkorDB expose ``labels(n)`` (a list);
             # Kuzu/epistemic-graph/pggraph-transpiler use the singular ``label(n)``.
             # The previous unconditional ``label(n)`` crashed Neo4j/FalkorDB
             # ("Unknown function 'label'") on the standard link path.
-            _backend_name = self.backend.__class__.__name__
             _lbl_expr = (
                 "labels(n)[0]" if _backend_name in self._NESTED_UNSAFE else "label(n)"
             )
@@ -530,7 +540,7 @@ class IntelligenceGraphEngine(
                 f"MERGE (s)-[r:{rel_type}]->(t){set_clause}"
             )
             params = {"sid": source_id, "tid": target_id}
-            params.update(props)
+            params.update(edge_params)
             self.backend.execute(query, params)
 
         # Tier 2: Update graph_compute cache after backend succeeds

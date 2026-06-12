@@ -88,10 +88,13 @@ class Neo4jBackend(GraphBackend):
                 return []
 
     def create_schema(self) -> None:
-        logger.info("Creating Neo4j vector index for embeddings.")
+        # Index a SHARED ``:Embeddable`` label that every embedded node is tagged
+        # with (see add_embedding). The old index targeted a ``:Chunk`` label that
+        # no node ever carries, so vector search silently returned nothing.
+        logger.info("Creating Neo4j vector index for embeddings (:Embeddable).")
         query = """
         CREATE VECTOR INDEX idx_embedding IF NOT EXISTS
-        FOR (n:Chunk) ON (n.embedding)
+        FOR (n:Embeddable) ON (n.embedding)
         OPTIONS {indexConfig: {
           `vector.dimensions`: 768,
           `vector.similarity_function`: 'cosine'
@@ -103,7 +106,9 @@ class Neo4jBackend(GraphBackend):
             logger.warning(f"Could not create vector index in Neo4j: {e}")
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        query = "MATCH (n {id: $id}) SET n.embedding = $embedding"
+        # Tag the node ``:Embeddable`` so it enters the vector index regardless of
+        # its primary label (Code/Concept/Document/…).
+        query = "MATCH (n {id: $id}) SET n:Embeddable, n.embedding = $embedding"
         self.execute(query, {"id": node_id, "embedding": embedding})
 
     def semantic_search(
