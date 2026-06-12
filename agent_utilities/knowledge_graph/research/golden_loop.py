@@ -193,8 +193,20 @@ class GoldenLoopController:
         if topics:
             # 2–3. ACQUIRE related sources + RESOLVE (ADDRESSES) so the loop converges.
             def _acquire_resolve():
+                from ..enrichment.semantic import make_embed_fn
+                from .search import _ACQUIRE_TIMEOUT_S, bounded_embed
+
+                # Build the embedder ONCE per cycle (not per topic), then a single
+                # bounded probe: if embeddings are down, skip the whole stage in
+                # seconds instead of paying the per-topic timeout for every topic.
+                embed_fn = make_embed_fn()
+                if bounded_embed(embed_fn, "ping", _ACQUIRE_TIMEOUT_S) is None:
+                    report["errors"].append(
+                        "acquire_resolve:embedding endpoint unavailable — stage skipped"
+                    )
+                    return
                 for t in topics:
-                    srcs = acquire_for_topic(self.engine, t)
+                    srcs = acquire_for_topic(self.engine, t, embed_fn=embed_fn)
                     if srcs:
                         n = mark_addressed(
                             self.engine, t["id"], srcs, source="golden_loop"

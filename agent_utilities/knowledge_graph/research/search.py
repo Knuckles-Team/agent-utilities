@@ -12,6 +12,7 @@ useful (propose-only) without it.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import os
 from typing import Any
@@ -21,12 +22,45 @@ logger = logging.getLogger(__name__)
 # Node labels that count as substantive "sources" addressing a topic.
 _SOURCE_TYPES = {"Document", "Code", "Feature", "Article", "Thread", "Skill"}
 
+# Wall-clock bound for a single embed during acquisition. The embedding model
+# talks to a remote endpoint (default ``vllm-embed.arpa``); when that endpoint
+# is slow or down the OpenAI client retries with backoff against a 300s timeout,
+# which would stall the golden loop for minutes per topic. Bounding each embed
+# means a dead endpoint degrades the acquire stage in seconds, not minutes.
+_ACQUIRE_TIMEOUT_S = 8.0
+
+
+def bounded_embed(embed_fn: Any, text: str, timeout: float) -> list[float] | None:
+    """Embed ``text`` via ``embed_fn`` but never block longer than ``timeout`` s.
+
+    Returns the embedding vector, or ``None`` if the embedding endpoint is
+    unreachable/slow (timeout) or errors. The worker thread is abandoned
+    (not cancellable) on timeout — it finishes in the background — but control
+    returns to the caller immediately so the loop never hangs.
+    """
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        return ex.submit(lambda: embed_fn([text])[0]).result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        logger.warning(
+            "embedding endpoint did not respond within %.1fs — treating as unavailable",
+            timeout,
+        )
+        return None
+    except Exception as e:  # noqa: BLE001
+        logger.debug("bounded_embed failed: %s", e)
+        return None
+    finally:
+        ex.shutdown(wait=False)
+
 
 def acquire_for_topic(
     engine: Any,
     topic: dict[str, Any],
     *,
     top_k: int = 5,
+    embed_fn: Any = None,
+    timeout: float | None = None,
 ) -> list[str]:
     """Return source-node ids that semantically address ``topic``.
 
@@ -34,6 +68,12 @@ def acquire_for_topic(
     backend vector search; returns the ids of related source nodes (excluding
     the topic itself). Best-effort — returns ``[]`` if embeddings/search are
     unavailable.
+
+    ``embed_fn`` lets the caller build the embedding fn ONCE and reuse it across
+    topics (the golden loop does this) instead of re-creating the model per call.
+    The embed is wall-clock bounded by ``timeout`` (default ``_ACQUIRE_TIMEOUT_S``)
+    so an unreachable embedding endpoint degrades in seconds rather than stalling
+    the loop on client-side retries.
     """
     name = str(topic.get("name") or topic.get("id") or "").strip()
     if not name:
@@ -42,12 +82,15 @@ def acquire_for_topic(
     search = getattr(backend, "semantic_search", None)
     if not callable(search):
         return []
-    try:
+    if embed_fn is None:
         from ..enrichment.semantic import make_embed_fn
 
-        vec = make_embed_fn()([name])[0]
-    except Exception as e:  # noqa: BLE001
-        logger.debug("acquire embed failed for %s: %s", name, e)
+        embed_fn = make_embed_fn()
+    vec = bounded_embed(
+        embed_fn, name, _ACQUIRE_TIMEOUT_S if timeout is None else timeout
+    )
+    if vec is None:
+        logger.debug("acquire embed unavailable for %s — skipping", name)
         return []
 
     ids: list[str] = []
