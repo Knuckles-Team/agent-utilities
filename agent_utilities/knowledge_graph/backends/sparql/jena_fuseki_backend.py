@@ -121,22 +121,27 @@ class JenaFusekiBackend(SparqlAdapter):
     def execute(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """Execute a Cypher-style query by transpiling to SPARQL."""
+        """Execute a SPARQL query/update against Fuseki.
+
+        This is the RDF/SPARQL tier — SPARQL is its native query language. Cypher
+        (labeled-property-graph) queries are NOT supported here: there is no
+        Cypher→SPARQL transpiler (the previous ``CypherToSPARQL`` import was dead
+        code that raised on every Cypher query). Use a SPARQL query, or an LPG
+        backend for Cypher. The LPG↔OWL bridge answers SPARQL over any LPG store
+        via ``OWLBridge.query_sparql`` — this backend is for a real triplestore.
+        """
         stripped = query.strip().upper()
         if stripped.startswith(
-            ("SELECT", "ASK", "CONSTRUCT", "PREFIX", "INSERT", "DELETE")
+            ("SELECT", "ASK", "CONSTRUCT", "DESCRIBE", "PREFIX", "INSERT", "DELETE")
         ):
             return self.execute_sparql(query)
 
-        try:
-            from ..cypher_transpiler import CypherToSPARQL  # type: ignore[attr-defined]
-
-            transpiler = CypherToSPARQL(namespace=_NS)
-            sparql = transpiler.transpile(query, params)
-            return self.execute_sparql(sparql)
-        except Exception as e:
-            logger.warning("Cypher transpilation failed: %s", e)
-            return [{"error": str(e)}]
+        logger.debug(
+            "JenaFusekiBackend received a non-SPARQL (Cypher?) query; unsupported "
+            "on the RDF/SPARQL tier: %s",
+            query[:120],
+        )
+        return []
 
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]]
