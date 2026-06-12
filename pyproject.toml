@@ -230,6 +230,13 @@ test = [
     "opentelemetry-instrumentation-asgi",
     "agent-utilities[agent,graph,acp,owl,finance,event-kafka]"
 ]
+# CONCEPT:KG-2.0 / KG-2.7 — live cross-backend parity + enterprise-profile e2e.
+# Pulls every storage/queue/SPARQL driver plus testcontainers so
+# `pytest -m live` can stand up throwaway pggraph/Neo4j/FalkorDB/Fuseki/Kafka.
+test-backends = [
+    "agent-utilities[test,neo4j,falkordb,postgresql,kafka,owl,fuseki]",
+    "testcontainers>=4.0.0"
+]
 all = [
     "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,ann,browser,test,owl,stardog,vault,auth,finance,messaging]>=0.47.0"]
 
