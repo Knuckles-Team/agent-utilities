@@ -645,6 +645,7 @@ class MCPMultiplexer:
             if timeout is not None
             else cfg.get("probe_timeout", cfg.get("timeout", 10.0))
         )
+
         async def _probe() -> list[dict]:
             # Enter AND exit the transports within this single coroutine so the
             # anyio cancel scopes are not crossed between tasks. ``wait_for``
@@ -798,6 +799,67 @@ class MCPMultiplexer:
         if not results and any(not info.get("error") for info in probe.values()):
             results = self._server_level_fallback()
         return {"results": results, "unavailable": unavailable}
+
+    async def list_catalog(self, server: str = "", include_tools: bool = True) -> dict:
+        """Browse the WHOLE fleet catalog (CONCEPT:ECO-4.36) — every configured
+        server, its tool count + (optionally) tool names, reachability, and
+        mount state. This is the flat "show me everything" view; ``find_tools``
+        is the semantic "find me the right tool for X" search. Both ride the
+        cached self-catalog probe, so the first call may take a few seconds.
+
+        With ``server`` set, drills into one server and returns its full tool
+        list with descriptions.
+        """
+        catalog = self.load_catalog()
+        probe = await self.probe_catalog()
+
+        if server:
+            if server not in catalog:
+                return {"error": f"'{server}' is not in the catalog"}
+            info = probe.get(server, {})
+            prefix = get_server_prefix(server)
+            return {
+                "server": server,
+                "prefix": prefix,
+                "mounted": server in self.children,
+                "available": info.get("error") is None,
+                "error": info.get("error"),
+                "tools": [
+                    {
+                        "prefixed_name": clean_tool_name(prefix, server, t["name"]),
+                        "tool": t["name"],
+                        "description": t.get("description", ""),
+                    }
+                    for t in info.get("tools", [])
+                ],
+            }
+
+        servers: list[dict] = []
+        for name in catalog:
+            info = probe.get(name, {})
+            prefix = get_server_prefix(name)
+            entry = {
+                "server": name,
+                "prefix": prefix,
+                "tool_count": len(info.get("tools", [])),
+                "mounted": name in self.children,
+                "available": info.get("error") is None,
+            }
+            if info.get("error"):
+                entry["error"] = info["error"]
+            if include_tools:
+                entry["tools"] = [
+                    clean_tool_name(prefix, name, t["name"])
+                    for t in info.get("tools", [])
+                ]
+            servers.append(entry)
+        return {
+            "total_servers": len(servers),
+            "total_tools": sum(s["tool_count"] for s in servers),
+            "mounted": sorted(self.children.keys()),
+            "unavailable": [s["server"] for s in servers if not s["available"]],
+            "servers": servers,
+        }
 
     async def resolve_and_mount(
         self,
@@ -987,9 +1049,10 @@ async def _notify_tools_changed(mcp) -> None:
 
 def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     """Register the dynamic-gateway meta-tools (CONCEPT:ECO-4.36):
-    ``find_tools`` (semantic discovery over the whole fleet) and
-    ``load_tools`` / ``unload_tools`` (mount/expose and retract tools at
-    runtime, notifying the client each time). Plus the status tool."""
+    ``find_tools`` (semantic discovery over the whole fleet), ``list_catalog``
+    (flat browse of every server + its tools), ``load_tools`` / ``unload_tools``
+    (mount/expose and retract tools at runtime, notifying the client each time),
+    plus the status tool."""
 
     async def _find_tools(query: str, top_k: int = 0) -> ToolResult:
         discovery = await mux.discover_tools(query, top_k=top_k or None)
@@ -1054,17 +1117,29 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
             structured_content=payload,
         )
 
+    async def _list_catalog(server: str = "", include_tools: bool = True) -> ToolResult:
+        payload = await mux.list_catalog(server=server, include_tools=include_tools)
+        return ToolResult(
+            content=[
+                mcp_types.TextContent(type="text", text=json.dumps(payload, indent=2))
+            ],
+            structured_content=payload,
+        )
+
     mcp.add_tool(
         FunctionTool(
             name="find_tools",
             description=(
-                "Discover the most relevant tools across the ENTIRE MCP fleet "
-                "for a natural-language task, without loading them. Returns "
+                "Search the ENTIRE MCP fleet (hundreds of tools across dozens of "
+                "servers that are NOT in your current tool list) for the ones "
+                "matching a natural-language task. ALWAYS call this FIRST before "
+                "concluding a capability is unavailable — most tools are not "
+                "loaded yet and only become visible after you load them. Returns "
                 "ranked prefixed tool names plus an 'unavailable' map of any "
-                "servers that couldn't be reached. Pass the names you need to "
-                "load_tools to make them callable. Use this first whenever the "
-                "tool you want isn't already available. The first call probes "
-                "the fleet (a few seconds); later calls are cached."
+                "unreachable servers; pass the names you want to load_tools to "
+                "make them callable. (Use list_catalog to browse everything.) "
+                "The first call probes the fleet (a few seconds); later calls "
+                "are cached."
             ),
             parameters={
                 "type": "object",
@@ -1082,6 +1157,36 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
                 "required": ["query"],
             },
             fn=_find_tools,
+        )
+    )
+    mcp.add_tool(
+        FunctionTool(
+            name="list_catalog",
+            description=(
+                "Browse the ENTIRE MCP fleet: every configured server with its "
+                "tool count, tool names, reachability, and whether it's mounted. "
+                "This is the flat 'show me everything available' view (find_tools "
+                "is the semantic 'find the right tool for X' search). Pass a "
+                "'server' name to drill into just that one and get its full tool "
+                "list with descriptions. Then use load_tools to make tools "
+                "callable. First call probes the fleet (a few seconds); cached after."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "server": {
+                        "type": "string",
+                        "description": "Optional: a single server to drill into (full tools + descriptions). Empty = list all servers.",
+                        "default": "",
+                    },
+                    "include_tools": {
+                        "type": "boolean",
+                        "description": "Include each server's tool names in the all-servers view (default true).",
+                        "default": True,
+                    },
+                },
+            },
+            fn=_list_catalog,
         )
     )
     mcp.add_tool(
@@ -1163,14 +1268,23 @@ def get_mcp_instance():
         name="mcp-multiplexer",
         version="0.1.0",
         instructions=(
-            "Aggregates multiple child MCP servers (declared in mcp_config.json) "
-            "into a single unified server. Tools are namespaced by a short, "
-            "host-aware server prefix; calls are forwarded to the owning child. "
-            "In dynamic mode (MCP_MULTIPLEXER_MODE=dynamic) only a few meta-tools "
-            "are exposed up front: call find_tools(query) to discover the right "
-            "tools across the whole fleet, then load_tools(tools=[...]) to make "
-            "them callable (the tool list updates live), and unload_tools(...) to "
-            "free them again. multiplexer_status reports mounted children."
+            "Aggregates many child MCP servers (declared in mcp_config.json) into "
+            "one server, tool names namespaced by a short per-server prefix.\n\n"
+            "IMPORTANT — in dynamic mode (MCP_MULTIPLEXER_MODE=dynamic) the tools "
+            "you see are only a small subset: a few meta-tools plus the always-on "
+            "servers. HUNDREDS more tools across dozens of servers exist but are "
+            "NOT loaded yet. So whenever you need a capability you don't see in "
+            "your current tool list, do NOT assume it's unavailable — use the "
+            "meta-tools to reach the rest of the fleet:\n"
+            "  • find_tools(query) — semantic search for the right tool by intent\n"
+            "  • list_catalog() — browse every server and its tools\n"
+            "  • load_tools(tools=[...]] or servers=[...]) — mount the ones you "
+            "need; they become directly callable immediately (the tool list "
+            "updates live)\n"
+            "  • unload_tools(...) — retract tools to reclaim context\n"
+            "  • multiplexer_status — health of mounted children\n"
+            "Always discover (find_tools/list_catalog) before concluding a tool "
+            "doesn't exist."
         ),
     )
     for middleware in middlewares:
