@@ -78,6 +78,7 @@ nav:
       - KG-Native Orchestration: guides/kg_native_orchestration.md
       - Graph-OS MCP Tool Examples: examples/graph-os-mcp-examples.md
       - Recursive Language Models (RLM): guides/rlm.md
+      - Building Fleet API Clients: guides/building-fleet-api-clients.md
       - Epistemic Knowledge Graph: pillars/2_epistemic_knowledge_graph.md
       - Agentic Harness Engineering: pillars/3_agentic_harness_engineering.md
       - Ecosystem & Peripherals: pillars/4_ecosystem_peripherals.md
