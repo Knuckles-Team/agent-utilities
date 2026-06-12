@@ -63,6 +63,10 @@ client session per run reused across every page and detail call.
   (`okta_users` action=list → `data[]`; the client auto-follows Okta's `after`
   cursor, login/email under the nested `profile`). Extend with a filter, e.g.
   `{"params": {"filter": "status eq \"ACTIVE\""}}`.
+- **`keycloak-users`** — list realm identities from keycloak-mcp as `identity`
+  documents (`keycloak_agent_users` action=list_users → bare user array, so
+  `records_path` is ""; flat id/username/email). Realm required, e.g.
+  `{"params": {"realm": "master"}}`.
 
 SaaS sources without a shipped preset follow the same pattern — point the config at
 the fleet server's listing tool:
