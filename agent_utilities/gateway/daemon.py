@@ -18,6 +18,8 @@ import os
 import threading
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 _engine: Any = None
@@ -56,7 +58,7 @@ def daemon_status() -> dict[str, Any]:
     """Return the consolidated daemon's status (role + live threads + jobs)."""
     eng = _engine
     if eng is None:
-        return {"running": False, "role": os.environ.get("KG_DAEMON_ROLE", "auto")}
+        return {"running": False, "role": setting("KG_DAEMON_ROLE", "auto")}
     try:
         return eng.unified_daemon_status()
     except Exception as e:  # noqa: BLE001
@@ -154,7 +156,7 @@ def main() -> None:
     args, _ = ap.parse_known_args()
 
     logging.basicConfig(
-        level=os.environ.get("KG_DAEMON_LOG_LEVEL", "INFO"),
+        level=setting("KG_DAEMON_LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 

@@ -13,17 +13,18 @@ See docs/pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieva
 """
 
 import logging
-import os
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:
     from .hybrid_retriever import HybridRetriever
 
 logger = logging.getLogger(__name__)
 
-_MINING_ENABLED = os.getenv("KG_ENABLE_HARD_NEGATIVE_MINING", "false").lower() == "true"
+_MINING_ENABLED = setting("KG_ENABLE_HARD_NEGATIVE_MINING", False)
 
 
 class HardNegative(BaseModel):

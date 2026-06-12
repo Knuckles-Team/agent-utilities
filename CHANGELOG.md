@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Configuration discipline — every `KG_*`/`GRAPH_*`/`EPISTEMIC_*` env read folded
+  off `os.environ`.** All 100+ governed bare reads across ~35 modules now go through
+  one of two centralized, `config.json`-driven paths instead of scattered
+  `os.environ.get`/`os.getenv`:
+  - New **`config.setting("VAR", default, cast=…)`** accessor (`core/config.py`) — the
+    sanctioned way to read an env var outside `config.py`. Reads `os.environ` **live**
+    (so daemon cadences, `monkeypatch.setenv` tests, and runtime toggles still work),
+    with a declared default and type coercion inferred from the default (or explicit
+    `cast`). config.json keys are injected into the environment first, so both fields
+    and `setting()` are config.json-driven.
+  - Deployment-varying / behavioral / test-varied flags → `setting()`; pure load
+    tunables (`KG_LLM_CONCURRENCY`, `KG_CHAT_CONCURRENCY`, `KG_ENRICH_BATCH`,
+    `GRAPH_POOL_*`, `KG_BACKGROUND_MAX_CONCURRENT`) → **auto-sized** via
+    `compute_ingest_worker_count()` or named constants; single-value cadences/limits
+    (`KG_*_INTERVAL`, `KG_TASK_*`, `KG_LLM_TIMEOUT`/`_MAX_RETRIES`,
+    `GRAPH_SERVICE_CHECKPOINT_INTERVAL`) → named module constants — honoring the
+    AGENTS.md *Configuration discipline* rule (knobs auto-sized, not proliferated).
+  - **Gate broadened** (`scripts/check_no_env_sprawl.py`): now ratchets bare env
+    *reads* of **every** prefix (not just KG/graph), excluding writes; governed reads
+    removed from the frozen baseline (now a non-KG burn-down list).
+  - Docs: `AGENTS.head.md` *Configuration discipline* rewritten (field-vs-`setting()`
+    decision, all-prefix gate) + regenerated `AGENTS.md`/`CLAUDE.md`;
+    `docs/architecture/configuration.md` + `docs/examples/config.json` updated.
+
 ### Added
 - **Named multi-connection graph registry (CONCEPT:KG-2.63)** — register several
   live graph backends side by side (e.g. `prod-neo4j`, `team-falkor`, `pg-main`)

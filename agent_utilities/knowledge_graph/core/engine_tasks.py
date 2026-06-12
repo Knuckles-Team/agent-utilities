@@ -31,9 +31,9 @@ def daemon_role() -> str:
     ``__init__`` without changing the role, so explicit ``start_task_workers()``
     calls in tests still work.
     """
-    import os
+    from agent_utilities.core.config import setting
 
-    role = (os.environ.get("KG_DAEMON_ROLE") or "auto").strip().lower()
+    role = (setting("KG_DAEMON_ROLE", "auto") or "auto").strip().lower()
     return role if role in {"host", "client", "auto"} else "auto"
 
 
@@ -208,6 +208,31 @@ _BULK_QUEUE_THRESHOLD = 5
 # PerformanceAnomaly consumer cadence (CONCEPT:AHE-3.19): a bounded, LLM-free
 # scan, so a fixed moderate interval suffices — no env knob needed.
 _ANOMALY_CONSUMER_INTERVAL = 900.0
+
+# Background-daemon cadences and task-reaper limits (config discipline): each has
+# one correct default and no per-host correctness requirement, so they are named
+# module constants rather than env knobs (replacing KG_*_INTERVAL / KG_TASK_*).
+# Seconds.
+_EVOLUTION_INTERVAL = 3600.0
+_RECONCILE_INTERVAL = 900.0
+_ENRICH_INTERVAL = 20.0
+_FILE_WATCH_INTERVAL = 30.0
+_HYGIENE_INTERVAL = 86400.0
+_TASK_REAPER_INTERVAL = 120.0
+_EMBED_BACKFILL_IDLE_INTERVAL = 30.0
+_EMBED_BACKFILL_BUSY_SLEEP = 1.0
+_TASK_ORPHAN_GRACE_SEC = 90.0
+_TASK_MAX_RUNTIME_SEC = 7200.0
+_TASK_MAX_REQUEUE = 3
+_USAGE_SYNC_INTERVAL = 900.0
+_USAGE_PRICING_REFRESH_INTERVAL = 86400.0
+
+# Enrichment pass sizing (config discipline): per-tick LLM-card batch budget. The
+# worker concurrency is CPU/mem auto-sized via compute_ingest_worker_count();
+# these batch caps are bounded constants, not env knobs (replacing
+# KG_ENRICH_BATCH / KG_ENRICH_MAX_BATCHES).
+_ENRICH_BATCH = 16
+_ENRICH_MAX_BATCHES = 8
 
 
 class SQLiteTaskQueue(QueueBackend):
@@ -660,7 +685,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         all in a single thread, each on its own interval, behind one shared
         foreground-throttle gate.
         """
-        import os
 
         from agent_utilities.core.config import DEFAULT_KG_MODEL_ID
 
@@ -756,7 +780,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         jobs.append(
             (
                 "evolution",
-                float(os.getenv("KG_EVOLUTION_INTERVAL", "3600")),
+                _EVOLUTION_INTERVAL,
                 self._tick_evolution,
             )
         )
@@ -771,14 +795,14 @@ class TaskManagerMixin(GraphEngineProtocol):
             jobs.append(
                 (
                     "reconcile_durable",
-                    float(os.getenv("KG_RECONCILE_INTERVAL", "900")),
+                    _RECONCILE_INTERVAL,
                     self._tick_reconcile_durable,
                 )
             )
         jobs.append(
             (
                 "enrichment",
-                float(os.getenv("KG_ENRICH_INTERVAL", "20")),
+                _ENRICH_INTERVAL,
                 self._tick_enrichment,
             )
         )
@@ -791,14 +815,14 @@ class TaskManagerMixin(GraphEngineProtocol):
             jobs.append(
                 (
                     "usage_log_sync",
-                    float(os.getenv("USAGE_SYNC_INTERVAL", "900")),
+                    _USAGE_SYNC_INTERVAL,
                     self._tick_usage_log_sync,
                 )
             )
             jobs.append(
                 (
                     "usage_pricing_refresh",
-                    float(os.getenv("USAGE_PRICING_REFRESH_INTERVAL", "86400")),
+                    _USAGE_PRICING_REFRESH_INTERVAL,
                     self._tick_usage_pricing_refresh,
                 )
             )
@@ -815,7 +839,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             jobs.append(
                 (
                     "file_watch",
-                    float(os.getenv("KG_FILE_WATCH_INTERVAL", "30")),
+                    _FILE_WATCH_INTERVAL,
                     self._tick_file_watch,
                 )
             )
@@ -824,7 +848,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         jobs.append(
             (
                 "hygiene",
-                float(os.getenv("KG_HYGIENE_INTERVAL", "86400")),
+                _HYGIENE_INTERVAL,
                 self._tick_hygiene,
             )
         )
@@ -835,7 +859,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         jobs.append(
             (
                 "task_reaper",
-                float(os.getenv("KG_TASK_REAPER_INTERVAL", "120")),
+                _TASK_REAPER_INTERVAL,
                 self._tick_task_reaper,
             )
         )
@@ -993,16 +1017,15 @@ class TaskManagerMixin(GraphEngineProtocol):
         that reliably kills its worker cannot loop forever. Host-only; driven by the
         consolidated maintenance scheduler.
         """
-        import os
 
         from .host_lock import effective_daemon_role
 
         if effective_daemon_role() != "host":
             return
         try:
-            grace = float(os.getenv("KG_TASK_ORPHAN_GRACE_SEC", "90"))
-            max_runtime = float(os.getenv("KG_TASK_MAX_RUNTIME_SEC", "7200"))
-            max_resets = int(os.getenv("KG_TASK_MAX_REQUEUE", "3"))
+            grace = _TASK_ORPHAN_GRACE_SEC
+            max_runtime = _TASK_MAX_RUNTIME_SEC
+            max_resets = _TASK_MAX_REQUEUE
             now = time.time()
             token = self._get_host_token()
 
@@ -1301,7 +1324,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         throttle between batches so it yields promptly to interactive runs.
         """
         import json
-        import os
 
         backend = getattr(self, "backend", None)
         if not backend:
@@ -1316,9 +1338,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         from ..enrichment.models import CodeEntity
 
-        BATCH = int(os.environ.get("KG_ENRICH_BATCH", "16"))
-        MAX_BATCHES = int(os.environ.get("KG_ENRICH_MAX_BATCHES", "8"))
-        max_workers = int(os.environ.get("KG_LLM_CONCURRENCY", "6"))
+        BATCH = _ENRICH_BATCH
+        MAX_BATCHES = _ENRICH_MAX_BATCHES
+        max_workers = compute_ingest_worker_count()
         llm_fn = getattr(self, "_enrich_llm_fn", None)
 
         for _ in range(MAX_BATCHES):
@@ -1344,7 +1366,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # LITE chat model by default (markedly faster than the heavy KG
                 # model, which is what saturated the engine on a full backfill).
                 # ``KG_CARD_MODEL=heavy`` forces the heavy model. (CONCEPT:KG-2.8)
-                use_heavy = os.environ.get("KG_CARD_MODEL", "lite").lower() == "heavy"
+                from agent_utilities.core.config import setting
+
+                use_heavy = setting("KG_CARD_MODEL", "lite").lower() == "heavy"
                 llm_fn = make_llm_fn() if use_heavy else make_lite_llm_fn()
                 self._enrich_llm_fn = llm_fn
 
@@ -1639,7 +1663,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         unembedded batch and duplicate embedding work, so only the fleet
         leader drains it.
         """
-        import os
         import time
 
         from agent_utilities.core.leadership import get_leadership
@@ -1647,10 +1670,10 @@ class TaskManagerMixin(GraphEngineProtocol):
         leadership = get_leadership("kg-maintenance")
         batch = _EMBED_BACKFILL_FETCH
         try:
-            idle = float(os.getenv("KG_EMBED_BACKFILL_INTERVAL", "30"))
+            idle = _EMBED_BACKFILL_IDLE_INTERVAL
         except ValueError:
             idle = 30.0
-        busy = float(os.getenv("KG_EMBED_BACKFILL_BUSY_SLEEP", "1"))
+        busy = _EMBED_BACKFILL_BUSY_SLEEP
 
         while True:
             try:
@@ -1806,10 +1829,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         primary codebase, logs an ``EvolutionCycle`` node, and triggers the
         telemetry-ingestion sweep. Run by the consolidated maintenance scheduler.
         """
-        import os
         from datetime import datetime
 
-        EVOLUTION_INTERVAL = float(os.getenv("KG_EVOLUTION_INTERVAL", "3600"))
+        EVOLUTION_INTERVAL = _EVOLUTION_INTERVAL
         cycle_start = datetime.now(UTC)
         cycle_id = f"evo_cycle_{cycle_start.strftime('%Y%m%d_%H%M%S')}"
         logger.info("Evolution: starting cycle %s", cycle_id)

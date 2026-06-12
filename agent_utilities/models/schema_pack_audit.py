@@ -19,11 +19,12 @@ private domain vocabulary. Set ``GRAPH_SCHEMA_AUDIT_VERBOSE=1`` to store raw nam
 import hashlib
 import json
 import logging
-import os
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def _redact(type_name: str) -> str:
 
 def _audit_path() -> Path:
     """Resolve the JSONL audit file under the XDG state dir (created on demand)."""
-    override = os.environ.get("GRAPH_SCHEMA_AUDIT_DIR")
+    override = setting("GRAPH_SCHEMA_AUDIT_DIR")
     if override:
         base = Path(override).expanduser()
     else:
@@ -80,7 +81,7 @@ class SchemaCandidateAuditor:
 
     @staticmethod
     def _verbose() -> bool:
-        return os.environ.get("GRAPH_SCHEMA_AUDIT_VERBOSE", "") not in (
+        return setting("GRAPH_SCHEMA_AUDIT_VERBOSE", "") not in (
             "",
             "0",
             "false",

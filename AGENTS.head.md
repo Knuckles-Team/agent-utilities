@@ -129,19 +129,40 @@ verdict lives in `docs/architecture/configuration.md`.
 **Otherwise, do NOT add a flag:**
 - One correct value → a named module constant.
 - A hardware/load tunable (concurrency, batch size, pool size) → **auto-size** it
-  (reuse the CPU/mem sizer in `knowledge_graph/core/engine_tasks.py`, ~L1683).
+  (reuse `compute_ingest_worker_count()` in `knowledge_graph/core/engine_tasks.py`).
 - An always-on behavior → just enable it. A single `KG_DEV_MODE` may gate *all* dev
   escape hatches; never one env flag per feature/daemon.
 - An experiment → the feature-flag registry; then graduate or delete it. Never a new
   `KG_<EXPERIMENT>_*` family.
 - "Someone might want to tune this" → YAGNI. Add it when a real second value exists.
 
-**When a flag IS justified:** add a typed field to `AgentConfig` (`core/config.py`)
-with `Field(alias="...")` and read it via the `config` object — **never** a bare
-`os.environ.get()` in a module — give it a default, and document it in
-`docs/architecture/configuration.md`. Enforced by `scripts/check_no_env_sprawl.py`
-(a guardrail gate): a bare `os.environ.get("KG_*"/"GRAPH_*"/"EPISTEMIC_*")` outside
-`core/config.py` fails CI.
+**Never read `os.environ` in a module.** `core/config.py` (and `core/paths.py`) are
+the ONLY files allowed to touch `os.environ`. Everywhere else, reads go through one of
+two centralized, config.json-driven paths:
+
+1. **A typed `AgentConfig` field** — for static, schema-worthy settings parsed once at
+   import. Add `Field(alias="MY_VAR")` with a default + docstring; read `config.my_var`.
+   Best for values that don't change after process start.
+2. **`config.setting("MY_VAR", default, cast=…)`** — the sanctioned accessor for
+   reads that must be **live** (daemon cadences read at loop start, anything a test
+   varies with `monkeypatch.setenv`, runtime-toggled behavior). It reads `os.environ`
+   at call time with a declared default + type coercion (inferred from the default's
+   type, or pass `cast`). Because `config.json` is injected into `os.environ` first,
+   both fields and `setting()` are config.json-driven — set any var in
+   `~/.config/agent-utilities/config.json` (or `AGENT_UTILITIES_CONFIG_DIR`).
+
+So the decision is: **field for static, `setting()` for dynamic — never bare
+`os.environ.get`/`os.getenv`/`os.environ[...]`.** (Env *writes* for cross-process
+signaling are still allowed.) This applies to **every** variable, not just
+`KG_*`/`GRAPH_*` — `AGENT_*`, `VAULT_*`, `OTEL_*`, connector creds, all of it.
+
+When a flag is justified, give it a default and document it in
+`docs/architecture/configuration.md` and `docs/examples/config.json`. Enforced by
+`scripts/check_no_env_sprawl.py` (a guardrail gate): any new bare `os.environ.get` /
+`os.getenv` / `os.environ["…"]` **read** (any prefix) outside `core/config.py` fails
+CI. The gate carries a frozen burn-down baseline (`scripts/env_flag_baseline.txt`) of
+the remaining legacy non-KG reads — shrink it, never grow it (`--update-baseline`
+after removing reads).
 
 ## Reward / preference / RL-method primitives (AHE-3.x) — conventions
 

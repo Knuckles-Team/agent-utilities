@@ -8,10 +8,12 @@ import time
 import httpx
 import psutil
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger("agent_utilities.mcp.kg_coordinator")
 
-DEFAULT_KG_PORT = int(os.getenv("KG_SERVER_PORT", "8100"))
-DEFAULT_KG_HOST = os.getenv("KG_SERVER_HOST", "127.0.0.1")
+DEFAULT_KG_PORT = setting("KG_SERVER_PORT", 8100)
+DEFAULT_KG_HOST = setting("KG_SERVER_HOST", "127.0.0.1")
 
 
 class KGCoordinator:

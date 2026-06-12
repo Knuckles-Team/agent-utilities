@@ -13,8 +13,9 @@ useful (propose-only) without it.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def acquire_for_topic(
     except Exception as e:  # noqa: BLE001
         logger.debug("acquire search failed for %s: %s", name, e)
 
-    if os.getenv("KG_RESEARCH_EXTERNAL", "0") == "1":
+    if setting("KG_RESEARCH_EXTERNAL", "0") == "1":
         ids.extend(_acquire_external(engine, name, top_k))
     return ids
 

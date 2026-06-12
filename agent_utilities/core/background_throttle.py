@@ -148,6 +148,11 @@ class BackgroundThrottle:
 _throttle: BackgroundThrottle | None = None
 _init_lock = threading.Lock()
 
+# Background work runs at a deliberately low fixed concurrency so it never
+# contends with foreground request/ingest work (config discipline: one correct
+# value, not a per-deploy env knob — replaces KG_BACKGROUND_MAX_CONCURRENT).
+_BACKGROUND_MAX_CONCURRENT = 2
+
 
 def get_throttle() -> BackgroundThrottle:
     """Process-wide throttle singleton (concurrency from config)."""
@@ -155,14 +160,11 @@ def get_throttle() -> BackgroundThrottle:
     if _throttle is None:
         with _init_lock:
             if _throttle is None:
-                mc = 2
-                try:
-                    import os
-
-                    mc = int(os.environ.get("KG_BACKGROUND_MAX_CONCURRENT", "2"))
-                except (ValueError, TypeError):
-                    mc = 2
-                _throttle = BackgroundThrottle(max_concurrent=mc)
+                # Deliberately low fixed background concurrency (config
+                # discipline): one correct value, not a per-deploy env knob.
+                _throttle = BackgroundThrottle(
+                    max_concurrent=_BACKGROUND_MAX_CONCURRENT
+                )
     return _throttle
 
 

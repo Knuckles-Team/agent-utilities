@@ -59,12 +59,12 @@ def _engine_is_remote() -> bool:
     Detected via the daemon role and a configured remote engine endpoint; a
     local UDS/in-process engine returns False (fast in-process write path).
     """
-    role = os.environ.get("KG_DAEMON_ROLE", "auto")
+    from agent_utilities.core.config import setting
+
+    role = setting("KG_DAEMON_ROLE", "auto")
     if role == "client":
         return True
-    endpoint = os.environ.get("GRAPH_ENGINE_ENDPOINT") or os.environ.get(
-        "EPISTEMIC_GRAPH_ENDPOINT"
-    )
+    endpoint = setting("GRAPH_ENGINE_ENDPOINT") or setting("EPISTEMIC_GRAPH_ENDPOINT")
     return bool(endpoint and ("://" in endpoint or ":" in endpoint))
 
 

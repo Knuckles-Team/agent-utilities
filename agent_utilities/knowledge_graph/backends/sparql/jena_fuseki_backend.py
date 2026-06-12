@@ -22,9 +22,9 @@ Environment Variables:
 import asyncio
 import logging
 import math
-import os
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.knowledge_graph.core.event_backend import (
     TOPIC_MUTATIONS,
     EventBackend,
@@ -72,13 +72,11 @@ class JenaFusekiBackend(SparqlAdapter):
             ) from e
 
         self._base_url = (
-            jena_fuseki_url
-            or os.environ.get("GRAPH_FUSEKI_URL")
-            or "http://localhost:3030"
+            jena_fuseki_url or setting("GRAPH_FUSEKI_URL") or "http://localhost:3030"
         ).rstrip("/")
-        self._dataset = dataset or os.environ.get("GRAPH_FUSEKI_DATASET") or "agent_kg"
-        self._username = username or os.environ.get("GRAPH_FUSEKI_USER")
-        self._password = password or os.environ.get("GRAPH_FUSEKI_PASSWORD")
+        self._dataset = dataset or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
+        self._username = username or setting("GRAPH_FUSEKI_USER")
+        self._password = password or setting("GRAPH_FUSEKI_PASSWORD")
         self._event_backend = event_backend
 
         # Build auth tuple if credentials provided

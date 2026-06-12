@@ -39,6 +39,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 
@@ -1047,7 +1049,6 @@ Controlled by the ``KG_EVAL_CAPTURE`` environment variable (default: disabled).
 
 import json
 import logging
-import os
 from collections.abc import Callable
 from typing import Any
 
@@ -1058,11 +1059,7 @@ from ...models.knowledge_graph import EvaluationRecordNode
 logger = logging.getLogger(__name__)
 
 # Feature gate — disabled by default
-_EVAL_CAPTURE_ENABLED = os.environ.get("KG_EVAL_CAPTURE", "").lower() in (
-    "true",
-    "1",
-    "yes",
-)
+_EVAL_CAPTURE_ENABLED = setting("KG_EVAL_CAPTURE", False)
 
 
 class EvalReplayResult(BaseModel):
