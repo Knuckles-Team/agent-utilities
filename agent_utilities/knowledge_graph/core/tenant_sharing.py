@@ -45,9 +45,11 @@ __all__ = [
     "SCOPE_KEY",
     "SCOPE_ORG",
     "SCOPE_PRIVATE",
+    "TENANT_KEY",
     "accessible_graphs",
     "apply_visibility",
     "commons_graph_name",
+    "filter_visible",
     "is_privileged",
     "make_private",
     "org_graph_name",
@@ -59,6 +61,8 @@ __all__ = [
     "visibility_predicate",
 ]
 
+#: Node property carrying the owning org/tenant (drives the scope() predicate).
+TENANT_KEY = "tenant_id"
 #: Node property carrying the owning actor id (the user who created it).
 OWNER_KEY = "_owner_id"
 #: Node property carrying the share scope: one of the SCOPE_* values below.
@@ -147,15 +151,24 @@ def _ancestor_tenants(tenant_id: str) -> list[str]:
 
 
 def stamp_ownership(properties: dict[str, Any], actor: ActorContext | None = None) -> None:
-    """Stamp ``_owner_id``/``_shared_scope`` onto a node's properties in place.
+    """Stamp ``tenant_id``/``_owner_id``/``_shared_scope`` onto node props in place.
 
-    Private-by-default: a real (non-privileged) actor's new nodes are owned by
-    them and scoped ``private`` until explicitly shared. Privileged/system
-    writes are left **unowned** (no ``_owner_id``) so platform/system data stays
-    visible to everyone in the tenant. Existing markers are never overwritten
-    (so a re-write or an explicit share is not silently reset to private).
+    Two layers:
+
+    * **``tenant_id``** is stamped whenever the actor carries one — this is what
+      makes the tenant ``scope()`` predicate (``n.tenant_id = <org>``) match, so
+      cross-org isolation works on a shared backend graph, not only in the
+      KG-2.58 named-graph/sharded mode.
+    * **Private-by-default ownership** (``_owner_id`` + ``_shared_scope``) is
+      added only for a real, non-privileged actor; privileged/system writes are
+      left **unowned** so platform data stays visible to everyone in the tenant.
+
+    Existing markers are never overwritten (a re-write or an explicit share is
+    not silently reset to private).
     """
     actor = actor or current_actor()
+    if actor.tenant_id:
+        properties.setdefault(TENANT_KEY, actor.tenant_id)
     if is_privileged(actor):
         return
     if not actor.actor_id or actor.actor_id == "system":
@@ -189,6 +202,44 @@ def visibility_predicate(actor: ActorContext | None = None, var: str = "n") -> s
         f"OR {var}.{SCOPE_KEY} IN ['{SCOPE_ORG}', '{SCOPE_COMMONS}'] "
         f"OR {var}.{OWNER_KEY} IS NULL)"
     )
+
+
+def _row_props(row: dict[str, Any]) -> dict[str, Any]:
+    """Best-effort extraction of a node's properties from a result row."""
+    for v in row.values():
+        if isinstance(v, dict) and (OWNER_KEY in v or SCOPE_KEY in v or "id" in v):
+            return v
+    return row
+
+
+def filter_visible(
+    rows: list[dict[str, Any]], actor: ActorContext | None = None
+) -> list[dict[str, Any]]:
+    """Drop rows not visible to ``actor`` by owner/scope (Python post-filter).
+
+    The backend-agnostic counterpart to :func:`visibility_predicate`: a row is
+    visible when the actor is privileged, or the node is owned by the actor, is
+    org-/commons-shared, or is unowned. Rows whose properties can't be located
+    are kept (we never silently drop data we can't classify — tenant ``scope()``
+    already bounded the set).
+    """
+    if is_privileged(actor):
+        return rows
+    me = (actor or current_actor()).actor_id
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        props = _row_props(row)
+        owner = props.get(OWNER_KEY)
+        scope_val = props.get(SCOPE_KEY)
+        # Unowned (no owner key at all) → visible; owned → only self / shared.
+        if (
+            OWNER_KEY not in props
+            or owner is None
+            or owner == me
+            or scope_val in (SCOPE_ORG, SCOPE_COMMONS)
+        ):
+            out.append(row)
+    return out
 
 
 def apply_visibility(

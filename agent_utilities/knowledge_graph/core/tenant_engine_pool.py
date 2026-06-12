@@ -42,21 +42,39 @@ def _default_factory(graph_name: str) -> Any:
     return GraphComputeEngine(graph_name=graph_name)
 
 
-def _default_evict(graph_name: str, engine: Any) -> None:
-    """Best-effort release of an evicted tenant's L1 residency.
+def _drop_on_evict_enabled() -> bool:
+    """Whether eviction unloads the tenant graph from the engine (needs L3)."""
+    try:
+        from agent_utilities.core.config import config
 
-    The durable L3 mirror already holds the data, so this only frees the
-    process-local client/working set: ask the engine to shed nodes (``evict_lru``)
-    and close the client if it supports it. Per-graph unload is an engine-side
-    follow-up; this hook is where it slots in.
+        return bool(getattr(config, "kg_engine_pool_drop_on_evict", False))
+    except Exception:  # noqa: BLE001 — default to the safe (no-drop) behaviour
+        return False
+
+
+def _default_evict(graph_name: str, engine: Any) -> None:
+    """Release an evicted tenant's L1 residency.
+
+    Always closes the process-local client. When ``KG_ENGINE_POOL_DROP_ON_EVICT``
+    is set (safe only when the data is durably mirrored to L3, which re-hydrates
+    on the next access), it also unloads the tenant's named graph from the engine
+    via :meth:`GraphComputeEngine.drop_graph` to reclaim engine memory.
     """
-    for method, args in (("evict_lru", (0,)), ("close", ()), ("disconnect", ())):
+    if _drop_on_evict_enabled():
+        drop = getattr(engine, "drop_graph", None)
+        if callable(drop):
+            try:
+                drop()
+            except Exception as exc:  # noqa: BLE001 — best-effort unload
+                logger.debug("drop_graph %s skipped: %s", graph_name, exc)
+    for method in ("close", "disconnect"):
         fn = getattr(engine, method, None)
         if callable(fn):
             try:
-                fn(*args)
+                fn()
             except Exception as exc:  # noqa: BLE001 — eviction is best-effort
                 logger.debug("evict %s via %s skipped: %s", graph_name, method, exc)
+            break
 
 
 class TenantEnginePool:

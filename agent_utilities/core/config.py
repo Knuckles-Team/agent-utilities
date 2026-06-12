@@ -349,6 +349,12 @@ class AgentConfig(BaseSettings):
     Default False preserves the legacy honor-system behaviour (with a one-time
     startup warning)."""
 
+    kg_served_profile: bool = Field(default=True, alias="KG_SERVED_PROFILE")
+    """Apply the fail-closed served-security profile when serving a network MCP
+    transport (streamable-http/sse): refuse to start without a JWT validator and
+    auto-enable auth + enforcement (CONCEPT:OS-5.14). Set ``KG_SERVED_PROFILE=0``
+    to serve a network transport WITHOUT enforced identity (local dev only)."""
+
     kg_auth_token: str | None = Field(default=None, alias="KG_AUTH_TOKEN")
     """Optional JWT used to mint the process identity for stdio MCP servers
     (no Authorization header exists on stdio). Validated against
@@ -638,6 +644,16 @@ class AgentConfig(BaseSettings):
     durable L3 mirror keeps them) and re-hydrated on the next access. ``0``
     (default) disables pooling — engines are constructed per use exactly as
     today, so single-tenant/local deployments are unaffected."""
+
+    kg_engine_pool_drop_on_evict: bool = Field(
+        default=False, alias="KG_ENGINE_POOL_DROP_ON_EVICT"
+    )
+    """When a tenant is evicted from the engine pool (CONCEPT:KG-2.62), also
+    unload its named graph from the engine process to reclaim L1 memory
+    (``GraphComputeEngine.drop_graph``). **Only safe when data is durably
+    mirrored to L3** (the tiered backend), which re-hydrates on next access;
+    otherwise the in-memory graph is lost. Default off (eviction only closes the
+    client)."""
     # Fuseki ontology distribution (CONCEPT:KG-2.52) — opt-in daemon tick that
     # pushes the bundled ontology modules to an Apache Jena Fuseki triplestore
     # (KG-2.6 distribution, operationalized). Off by default because a Fuseki

@@ -351,10 +351,10 @@ class KnowledgeGraph:
         store = self.store
         if store is None:
             return []
-        from .core.secured_reads import audit_read, filter_rows, scope
+        from .core.secured_reads import audit_read, filter_rows, scope, visible
 
         rows = store.execute(scope(cypher), params or {}) or []
-        rows = filter_rows(rows)
+        rows = visible(filter_rows(rows))
         # Fine-grained, default-ON object permissioning (CONCEPT:KG-2.46): row-drop
         # marked/ACL-denied rows + column-redact, allow-by-default for unmarked
         # rows. Runs regardless of KG_BRAIN_ENFORCE because it is driven by the

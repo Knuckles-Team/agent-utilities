@@ -38,6 +38,7 @@ def _make_config(**overrides):
     cfg.auth_jwt_jwks_uri = overrides.get("auth_jwt_jwks_uri", None)
     cfg.auth_jwt_issuer = overrides.get("auth_jwt_issuer", None)
     cfg.auth_jwt_audience = overrides.get("auth_jwt_audience", None)
+    cfg.kg_served_profile = overrides.get("kg_served_profile", True)
     return cfg
 
 
@@ -360,8 +361,7 @@ class TestServedSecurityProfile:
         )
 
         self._clear_env(monkeypatch)
-        monkeypatch.setenv("KG_SERVED_PROFILE", "0")
-        cfg = _make_config(auth_jwt_jwks_uri=None)
+        cfg = _make_config(auth_jwt_jwks_uri=None, kg_served_profile=False)
         # Opt-out: no JWKS required, no flags forced, no raise.
         apply_served_security_profile("streamable-http", config=cfg)
         assert "KG_AUTH_REQUIRED" not in os.environ

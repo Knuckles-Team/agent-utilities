@@ -63,32 +63,45 @@ def audit_read(
 
 
 def scope(cypher: str, actor: ActorContext | None = None) -> str:
-    """Tenant-scope + owner/scope-gate a Cypher read query for ``actor``.
+    """Tenant-scope a Cypher read query for ``actor`` (``n.tenant_id = <tenant>``).
 
-    Two composed gates, both no-ops when enforcement is off:
-
-    * **Tenant scoping** (KG-2.6) — ``n.tenant_id = <tenant>`` when the actor
-      carries one. Cross-org isolation; the primary boundary.
-    * **Owner/scope visibility** (KG-2.60) — within a tenant, a non-privileged
-      actor sees only their own, org-shared, or unowned nodes. Private-by-default.
+    Cross-org isolation, the primary boundary (KG-2.6). Kept to a SIMPLE equality
+    so even the lightweight in-memory operational-subset interpreter can parse it;
+    the finer owner/scope visibility (KG-2.60) is applied as a Python post-filter
+    in :func:`visible` so it is backend-agnostic. No-op when enforcement is off or
+    the actor has no tenant.
     """
     if not brain_enforcement_enabled():
         return cypher
     actor = actor or current_actor()
-    if actor.tenant_id:
-        try:
-            cypher = get_company_brain().tenancy.scope_cypher_query(
-                cypher, actor.tenant_id
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.debug("tenant scope() failed, leaving unscoped: %s", exc)
+    if not actor.tenant_id:
+        return cypher
     try:
-        from .tenant_sharing import apply_visibility
-
-        cypher = apply_visibility(cypher, actor)
+        return get_company_brain().tenancy.scope_cypher_query(cypher, actor.tenant_id)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("visibility scope() failed, leaving as-is: %s", exc)
-    return cypher
+        logger.debug("tenant scope() failed, leaving unscoped: %s", exc)
+        return cypher
+
+
+def visible(
+    rows: list[dict[str, Any]], actor: ActorContext | None = None
+) -> list[dict[str, Any]]:
+    """Drop rows the actor may not see by owner/scope (KG-2.60), Python-side.
+
+    The backend-agnostic companion to :func:`scope`: applies private-by-default
+    owner/scope visibility on the returned rows so it works on any backend
+    (including the in-memory interpreter that cannot parse a compound predicate).
+    No-op when enforcement is off or for a privileged actor.
+    """
+    if not brain_enforcement_enabled() or not rows:
+        return rows
+    try:
+        from .tenant_sharing import filter_visible
+
+        return filter_visible(rows, actor)
+    except Exception as exc:  # pragma: no cover - never break a read
+        logger.debug("visible() filter skipped: %s", exc)
+        return rows
 
 
 _CLASS_ORDER = {"public": 0, "internal": 1, "confidential": 2, "restricted": 3}

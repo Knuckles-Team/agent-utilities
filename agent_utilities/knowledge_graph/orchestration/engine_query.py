@@ -56,13 +56,37 @@ class QueryMixin(_Base):
             "RBAC Interceptor: Executing query with clearance level %d", clearance_level
         )
 
+        # Tenant scoping + owner/scope visibility on the MCP/orchestration read
+        # chokepoint (CONCEPT:KG-2.6 + KG-2.60). No-op unless KG_BRAIN_ENFORCE is
+        # on and a non-privileged tenant actor is in scope, so the existing
+        # suite and single-tenant/local paths are unchanged. This is what
+        # isolates ``graph_query`` on a shared backend graph (the named-graph
+        # physical partition only applies in sharded / direct-L1 paths).
+        scoped_query = query
+        try:
+            from agent_utilities.knowledge_graph.core.secured_reads import scope
+
+            scoped_query = scope(query)
+        except Exception as exc:  # pragma: no cover - never break a read
+            logger.debug("query scope() skipped: %s", exc)
+
         if not self.backend:
             logger.warning(
                 "GraphBackend not initialized; using basic graph compute fallback for Cypher query."
             )
-            rows = self._query_nx_fallback(query, params, clearance_level)
+            rows = self._query_nx_fallback(scoped_query, params, clearance_level)
         else:
-            rows = self.backend.execute(query, params)
+            rows = self.backend.execute(scoped_query, params)
+
+        try:
+            from agent_utilities.knowledge_graph.core.secured_reads import (
+                filter_rows,
+                visible,
+            )
+
+            rows = visible(filter_rows(rows))
+        except Exception as exc:  # pragma: no cover - never break a read
+            logger.debug("query row filtering skipped: %s", exc)
 
         if as_of:
             from agent_utilities.knowledge_graph.core.bitemporal import filter_as_of
