@@ -203,3 +203,26 @@ def test_ladybug_backend_escaped_properties(temp_db_dir):
     create_query = mock_backend.execute.call_args_list[-1][0][0]
     assert "CREATE (n:MemoryNode" in create_query
     assert "`order`: $order" in create_query
+
+
+def test_relative_db_path_resolves_under_data_dir_not_cwd():
+    """E2: a relative db_path must NOT anchor to the cwd (the workspace-root
+    `knowledge_graph.db.corrupted` incident) — it resolves under the data dir."""
+    import os
+
+    from agent_utilities.core.paths import data_dir
+
+    with patch("ladybug.Database"), patch("ladybug.Connection"):
+        backend = LadybugBackend("knowledge_graph.db")
+    assert os.path.isabs(backend.db_path), backend.db_path
+    assert str(data_dir()) in backend.db_path
+    # Never the cwd-relative form.
+    assert backend.db_path != os.path.join(os.getcwd(), "knowledge_graph.db")
+
+
+def test_absolute_db_path_is_left_untouched(tmp_path):
+    """An explicit absolute path is honored as-is."""
+    abs_path = str(tmp_path / "explicit.db")
+    with patch("ladybug.Database"), patch("ladybug.Connection"):
+        backend = LadybugBackend(abs_path)
+    assert backend.db_path == abs_path

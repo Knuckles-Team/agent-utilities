@@ -798,6 +798,29 @@ class DocumentProcessor:
         if writer is None:
             return False
 
+        # When the backend has an engine bulk path, materialize the whole slice
+        # (document + N chunks + M edges) in batched RPCs instead of one socket
+        # round-trip per element. Reuse the enrichment batcher (nodes flushed
+        # before edges so endpoints exist); fall back to the robust per-item path
+        # — which carries the label-less retry — when there is no bulk path.
+        from agent_utilities.knowledge_graph.enrichment.pipeline import _BatchedBackend
+
+        batched = _BatchedBackend(writer)
+        if batched.bulk_available:
+            for node in (document_node, *chunk_nodes):
+                props = {k: v for k, v in node.items() if k not in ("id", "type")}
+                batched.add_node(node["id"], label=node["type"], type=node["type"], **props)
+            for e in edges:
+                props = {
+                    k: v for k, v in e.items() if k not in ("source", "target", "type")
+                }
+                batched.add_edge(e["source"], e["target"], rel_type=e["type"], **props)
+            try:
+                batched.flush()
+                return True
+            except Exception as exc:  # noqa: BLE001 — degrade to per-item below
+                logger.debug("[KG-2.48] batched persist failed (%s); per-item", exc)
+
         ok = False
         ok |= self._write_node(writer, document_node)
         for cn in chunk_nodes:
