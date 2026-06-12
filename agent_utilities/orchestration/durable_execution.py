@@ -32,6 +32,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from agent_utilities.core.config import setting
 from agent_utilities.orchestration.resilience import (
     DEFAULT_POLICY,
     ResiliencePolicy,
@@ -65,11 +66,11 @@ def _now() -> str:
 
 def _default_db_path() -> Path:
     """Resolve the durable-execution store path (env-overridable, XDG-friendly)."""
-    override = os.environ.get("DURABLE_EXECUTION_DB")
+    override = setting("DURABLE_EXECUTION_DB")
     if override:
         return Path(override)
     base = (
-        Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+        Path(setting("XDG_STATE_HOME", Path.home() / ".local" / "state"))
         / "agent_utilities"
     )
     base.mkdir(parents=True, exist_ok=True)
@@ -86,19 +87,17 @@ class CheckpointStore(Protocol):
         state_json: str,
         status: str,
         idempotency_key: str,
-    ) -> None:
-        ...
+    ) -> None: ...
 
-    def resume_session(self, session_id: str) -> dict[str, Any] | None:
-        ...
+    def resume_session(self, session_id: str) -> dict[str, Any] | None: ...
 
-    def mark_completed(self, session_id: str, node_id: str, result_json: str) -> None:
-        ...
+    def mark_completed(
+        self, session_id: str, node_id: str, result_json: str
+    ) -> None: ...
 
     def completed_result_raw(
         self, session_id: str, idempotency_key: str
-    ) -> tuple[bool, Any]:
-        ...
+    ) -> tuple[bool, Any]: ...
 
 
 class SQLiteCheckpointStore:

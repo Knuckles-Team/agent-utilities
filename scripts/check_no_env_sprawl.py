@@ -45,11 +45,12 @@ PATTERN_SUBSCRIPT = re.compile(
     r"""os\.environ\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\](?!\s*=[^=])"""
 )
 
-# Files allowed to read env directly: ``config.py`` is the ONE place that maps
-# env → typed fields and implements ``setting()``; ``paths.py`` resolves
-# directory overrides before config exists.
+# Files allowed to read env directly: ``config.py`` maps env → typed fields,
+# ``_env.py`` implements the dependency-free ``setting()`` accessor, and
+# ``paths.py`` resolves directory overrides before config exists.
 ALLOW_FILES = {
     "agent_utilities/core/config.py",
+    "agent_utilities/core/_env.py",
     "agent_utilities/core/paths.py",
 }
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "build", "dist"}

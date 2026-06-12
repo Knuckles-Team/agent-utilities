@@ -37,6 +37,8 @@ from dotenv import load_dotenv
 from packaging import version
 from typing_extensions import ParamSpec
 
+from agent_utilities.core.config import setting
+
 if TYPE_CHECKING:
     pass
 
@@ -190,7 +192,7 @@ def expand_env_vars(text: str) -> str:
         default_value = match.group(2)
         raw_placeholder = match.group(0)
 
-        val = os.getenv(var_name)
+        val = setting(var_name)
         if val is not None:
             if val == raw_placeholder:
                 if default_value is not None:
@@ -203,7 +205,7 @@ def expand_env_vars(text: str) -> str:
 
         # VALIDATION_MODE: Return a dummy value instead of the original placeholder
         # to prevent startup crashes in environments where secrets are not set.
-        if to_boolean(os.getenv("VALIDATION_MODE", "False")):
+        if to_boolean(setting("VALIDATION_MODE", "False")):
             # Check if this is likely a token or secret to provide a more realistic dummy
             is_secret = any(
                 k in var_name.upper()
@@ -264,7 +266,7 @@ def GET_DEFAULT_SSL_VERIFY() -> bool:
         Defaults to True if not set.
 
     """
-    return to_boolean(os.getenv("SSL_VERIFY", "true"))
+    return to_boolean(setting("SSL_VERIFY", "true"))
 
 
 def ensure_package_installed(package_name: str, auto_install: bool = False) -> bool:

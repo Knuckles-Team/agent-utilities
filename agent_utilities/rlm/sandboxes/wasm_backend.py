@@ -31,6 +31,8 @@ from pathlib import Path
 
 import platformdirs
 
+from agent_utilities.core.config import setting
+
 from .base import (
     Sandbox,
     SandboxCapabilities,
@@ -79,7 +81,7 @@ def _resolve_payload() -> Path | None:
     Returns the path if it exists, else ``None`` (backend stays unavailable). Provisioning
     (download + checksum) is an out-of-band step — see the module docstring.
     """
-    env = os.environ.get("RLM_WASM_PYTHON")
+    env = setting("RLM_WASM_PYTHON")
     if env and Path(env).is_file():
         return Path(env)
     cache = Path(platformdirs.user_cache_dir("agent-utilities")) / "rlm-wasm"

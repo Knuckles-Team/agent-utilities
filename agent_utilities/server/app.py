@@ -42,6 +42,7 @@ from agent_utilities.core.config import (
     DEFAULT_PORT,
     DEFAULT_SSL_VERIFY,
     config,
+    setting,
 )
 from agent_utilities.core.scheduler import background_processor
 from agent_utilities.core.workspace import get_skills_path
@@ -130,7 +131,7 @@ def build_agent_app(
         skill_dirs = []
 
         if enable_otel is None:
-            enable_otel = to_boolean(os.getenv("ENABLE_OTEL", "False"))
+            enable_otel = to_boolean(setting("ENABLE_OTEL", "False"))
 
         if enable_otel:
             setup_otel(
@@ -163,7 +164,7 @@ def build_agent_app(
                 debug=debug,
                 skill_types=skill_types,
                 graph_bundle=graph_bundle,
-                tool_guard_mode=os.getenv("TOOL_GUARD_MODE", "on"),
+                tool_guard_mode=setting("TOOL_GUARD_MODE", "on"),
                 isolate_mcp=isolate_mcp,
                 mcp_toolsets=mcp_toolsets,
             )
@@ -207,7 +208,7 @@ def build_agent_app(
             sid = s.id if hasattr(s, "id") else s.get("id")
             if sid:
                 env_var = f"ENABLE_{sid.upper().replace('-', '_')}"
-                if os.environ.get(env_var, "true").lower() != "false":
+                if setting(env_var, "true").lower() != "false":
                     enabled_skills.append(s)
         skills_list = enabled_skills
 
@@ -567,7 +568,7 @@ def build_agent_app(
         app.mount("/a2a", a2a_app)
 
         if enable_web_ui is None:
-            enable_web_ui = to_boolean(os.getenv("ENABLE_WEB_UI", "False"))
+            enable_web_ui = to_boolean(setting("ENABLE_WEB_UI", "False"))
 
         if custom_web_app is not None:
             web_app = custom_web_app(_agent_instance)
@@ -598,10 +599,8 @@ def build_agent_app(
                     write_workspace_file,
                 )
 
-                _provider_ui = provider or os.environ.get("PROVIDER") or "openai"
-                _model_id_ui = (
-                    model_id or os.environ.get("MODEL_ID") or "google/gemma-4-31b"
-                )
+                _provider_ui = provider or setting("PROVIDER") or "openai"
+                _model_id_ui = model_id or setting("MODEL_ID") or "google/gemma-4-31b"
 
                 def _graph_native_list_skills():
                     from ..knowledge_graph.backends import create_backend

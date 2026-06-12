@@ -12,10 +12,10 @@ Zero-config: agents and their log dirs are auto-detected; nothing to list.
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Iterator
 from pathlib import Path
 
+from agent_utilities.core.config import setting
 from agent_utilities.usage.models import ParsedSessionBundle
 
 from .agent_sources import detect_installed, ensure_parsers_loaded
@@ -114,8 +114,8 @@ def push_local_sessions(
     """
     import httpx
 
-    gateway_url = gateway_url or os.environ.get("USAGE_GATEWAY_URL", "")
-    tenant_id = tenant_id or os.environ.get("USAGE_TENANT_ID", "")
+    gateway_url = gateway_url or setting("USAGE_GATEWAY_URL", "")
+    tenant_id = tenant_id or setting("USAGE_TENANT_ID", "")
     if not gateway_url:
         logger.warning("push_local_sessions: USAGE_GATEWAY_URL unset; nothing pushed")
         return {"mode": "push", "pushed": 0, "error": "no gateway url"}

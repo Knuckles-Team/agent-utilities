@@ -24,6 +24,8 @@ import re
 
 from pydantic_ai import RunContext
 
+from agent_utilities.core.config import setting
+
 from ..models import AgentDeps
 
 logger = logging.getLogger(__name__)
@@ -37,7 +39,7 @@ _WRITE_RE = re.compile(
 
 
 def _allow_write() -> bool:
-    return os.environ.get("DB_TOOLS_ALLOW_WRITE", "0").lower() in ("1", "true", "yes")
+    return setting("DB_TOOLS_ALLOW_WRITE", "0").lower() in ("1", "true", "yes")
 
 
 def _resolve_dsn(dsn: str) -> str:
@@ -49,7 +51,7 @@ def _resolve_dsn(dsn: str) -> str:
     if "://" in dsn or dsn.startswith("sqlite") or os.path.exists(dsn):
         return dsn
     env_key = f"{dsn.upper().replace('-', '_')}_DSN"
-    return os.environ.get(env_key, dsn)
+    return setting(env_key, dsn)
 
 
 def _connect(dsn: str, kind: str | None):

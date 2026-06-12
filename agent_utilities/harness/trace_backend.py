@@ -34,7 +34,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any
 
-from agent_utilities.core.config import config
+from agent_utilities.core.config import config, setting
 
 logger = logging.getLogger(__name__)
 
@@ -441,7 +441,7 @@ class OTelTraceBackend(TraceBackend):
         endpoint: str | None = None,
         export_dir: str | None = None,
     ) -> None:
-        self.endpoint = endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+        self.endpoint = endpoint or setting("OTEL_EXPORTER_OTLP_ENDPOINT", "")
         self.export_dir = export_dir
 
     async def get_traces(self, round_id: str, **_filters: Any) -> list[dict[str, Any]]:
@@ -722,12 +722,10 @@ def create_trace_backend(
         return FileTraceBackend(trace_dir=kwargs.get("trace_dir", "."))
 
     # Auto-detect
-    if config.langfuse_secret_key or os.environ.get("LANGFUSE_SECRET_KEY"):
+    if config.langfuse_secret_key or setting("LANGFUSE_SECRET_KEY"):
         logger.info("TraceBackend: Auto-detected Langfuse credentials.")
         return LangfuseTraceBackend()
-    if config.otel_exporter_otlp_endpoint or os.environ.get(
-        "OTEL_EXPORTER_OTLP_ENDPOINT"
-    ):
+    if config.otel_exporter_otlp_endpoint or setting("OTEL_EXPORTER_OTLP_ENDPOINT"):
         logger.info("TraceBackend: Auto-detected OTel endpoint.")
         return OTelTraceBackend(**kwargs)
 

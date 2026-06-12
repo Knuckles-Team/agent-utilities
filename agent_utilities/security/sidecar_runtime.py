@@ -15,6 +15,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent_utilities.core.config import setting
+
 
 @dataclass(frozen=True, slots=True)
 class ProcessStamp:
@@ -32,7 +34,7 @@ class ProcessStamp:
 
 
 def _runtime_root(namespace: str) -> Path:
-    base = os.environ.get("AGENT_UTILITIES_RUNTIME_DIR") or os.path.join(
+    base = setting("AGENT_UTILITIES_RUNTIME_DIR") or os.path.join(
         tempfile.gettempdir(), "agent-utilities"
     )
     return Path(base) / namespace

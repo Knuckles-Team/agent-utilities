@@ -561,7 +561,7 @@ def _build_execution_config(
                     env_vars = os.environ.copy()
 
                     # Force VIRTUAL_ENV injection
-                    venv_path = os.environ.get("VIRTUAL_ENV")
+                    venv_path = setting("VIRTUAL_ENV")
                     if venv_path:
                         env_vars["VIRTUAL_ENV"] = venv_path
 
@@ -578,7 +578,7 @@ def _build_execution_config(
 
                     # Ensure PATH is correct (uv uses PATH)
                     if "PATH" in os.environ:
-                        env_vars["PATH"] = os.environ["PATH"]
+                        env_vars["PATH"] = setting("PATH")
 
                     server = MCPServerStdio(
                         command=command, args=args, env=env_vars, timeout=30.0
@@ -591,7 +591,7 @@ def _build_execution_config(
                     import os
 
                     merged_env = os.environ.copy()
-                    venv_path = os.environ.get("VIRTUAL_ENV")
+                    venv_path = setting("VIRTUAL_ENV")
                     if venv_path:
                         merged_env["VIRTUAL_ENV"] = venv_path
                     merged_env["FASTMCP_SHOW_SERVER_BANNER"] = "false"

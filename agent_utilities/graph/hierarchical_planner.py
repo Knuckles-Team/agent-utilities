@@ -38,6 +38,8 @@ from typing import Any
 from pydantic_ai import Agent
 from pydantic_graph import End
 
+from agent_utilities.core.config import setting
+
 try:
     from pydantic_graph.step import StepContext
 except ImportError:
@@ -226,7 +228,7 @@ async def planner_step(
     from pydantic_ai.usage import UsageLimits
 
     _planner_usage_limits = UsageLimits(
-        request_limit=int(os.environ.get("PLANNER_REQUEST_LIMIT", "6"))
+        request_limit=int(setting("PLANNER_REQUEST_LIMIT", "6"))
     )
 
     # 0. Discover Processes and Policies from Knowledge Graph

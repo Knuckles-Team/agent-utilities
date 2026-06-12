@@ -28,13 +28,14 @@ See docs/pillars/architecture_c4.md §CONCEPT:ORCH-1.2
 
 
 import logging
-import os
 import time
 import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
+from agent_utilities.core.config import setting
 
 from ..knowledge_graph.core.engine import cosine_similarity
 from ..knowledge_graph.core.ogm import KGMapper
@@ -56,7 +57,7 @@ logger = logging.getLogger(__name__)
 # reads keep missing with zero hits. CONCEPT:ORCH-1.2.
 _MISMATCH_WARN_AFTER_MISSES = 3
 # Strict mode (tests/CI): raise instead of warn when a mismatch is detected.
-_STRICT = os.getenv("AGENT_UTILITIES_GWT_STRICT", "").lower() in ("1", "true", "yes")
+_STRICT = setting("AGENT_UTILITIES_GWT_STRICT", "").lower() in ("1", "true", "yes")
 
 
 @dataclass

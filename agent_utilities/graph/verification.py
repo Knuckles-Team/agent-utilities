@@ -263,15 +263,15 @@ async def verifier_step(
                 ),
             )
             # CONCEPT:ORCH-1.37 (perf) — a verifier needs few requests; cap it (default 50).
-            import os as _os
-
             from pydantic_ai.usage import UsageLimits
+
+            from agent_utilities.core.config import setting
 
             async with validation_agent.run_stream(
                 "Evaluate the results",
                 deps=_agent_deps,
                 usage_limits=UsageLimits(
-                    request_limit=int(_os.environ.get("VERIFIER_REQUEST_LIMIT", "4"))
+                    request_limit=setting("VERIFIER_REQUEST_LIMIT", 4)
                 ),
             ) as stream:
                 validation = await asyncio.wait_for(

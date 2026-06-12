@@ -24,9 +24,9 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
-import os
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.models import MessagingConfig
 
 logger = logging.getLogger(__name__)
@@ -273,10 +273,10 @@ class MessagingRegistry:
         }
 
         # Try generic prefix first, then platform-native vars
-        token = os.environ.get(f"{prefix}TOKEN", "")
+        token = setting(f"{prefix}TOKEN", "")
         if not token:
             for var in native_token_vars.get(backend_id, []):
-                token = os.environ.get(var, "")
+                token = setting(var, "")
                 if token:
                     break
 
@@ -287,18 +287,20 @@ class MessagingRegistry:
             "line": "LINE_CHANNEL_ID",
             "voicecall": "TWILIO_ACCOUNT_SID",
         }
-        app_id = os.environ.get(f"{prefix}APP_ID", "")
+        app_id = setting(f"{prefix}APP_ID", "")
         if not app_id:
-            app_id = os.environ.get(app_id_vars.get(backend_id, ""), "")
+            app_id = setting(app_id_vars.get(backend_id, ""), "")
 
-        app_secret = os.environ.get(f"{prefix}APP_SECRET", "")
+        app_secret = setting(f"{prefix}APP_SECRET", "")
         if not app_secret and backend_id == "teams":
-            app_secret = os.environ.get("MSTEAMS_APP_PASSWORD", "")
+            app_secret = setting("MSTEAMS_APP_PASSWORD", "")
 
         # WhatsApp config switch
-        use_business_api = os.environ.get(
-            f"{prefix}USE_BUSINESS_API", "false"
-        ).lower() in ("true", "1", "yes")
+        use_business_api = setting(f"{prefix}USE_BUSINESS_API", "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
 
         return MessagingConfig(
             platform=backend_id,
@@ -306,7 +308,7 @@ class MessagingRegistry:
             token=token,
             app_id=app_id,
             app_secret=app_secret,
-            webhook_url=os.environ.get(f"{prefix}WEBHOOK_URL", ""),
-            webhook_port=int(os.environ.get(f"{prefix}WEBHOOK_PORT", "0")),
+            webhook_url=setting(f"{prefix}WEBHOOK_URL", ""),
+            webhook_port=int(setting(f"{prefix}WEBHOOK_PORT", "0")),
             use_business_api=use_business_api,
         )

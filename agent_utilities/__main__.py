@@ -1,7 +1,8 @@
 #!/usr/bin/python
 
 import logging
-import os
+
+from agent_utilities.core.config import setting
 
 from . import (
     build_system_prompt_from_workspace,
@@ -45,8 +46,8 @@ def agent_server():
     initialize_workspace()
     meta = load_identity()
 
-    agent_name = os.getenv("DEFAULT_AGENT_NAME", meta.get("name", "AI Agent"))
-    system_prompt = os.getenv(
+    agent_name = setting("DEFAULT_AGENT_NAME", meta.get("name", "AI Agent"))
+    system_prompt = setting(
         "AGENT_SYSTEM_PROMPT",
         meta.get("content") or build_system_prompt_from_workspace(),
     )

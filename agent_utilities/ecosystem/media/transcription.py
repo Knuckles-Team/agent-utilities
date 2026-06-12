@@ -15,8 +15,9 @@ an unreachable service raises :class:`~.gateway.MediaServiceError`.
 """
 
 import logging
-import os
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 from .gateway import MediaServiceError, _request
 
@@ -24,9 +25,9 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["Transcriber", "transcribe"]
 
-DEFAULT_WHISPER_URL = os.environ.get(
+DEFAULT_WHISPER_URL = setting(
     "WHISPER_URL",
-    os.environ.get("FASTER_WHISPER_URL", "http://faster-whisper.arpa:8000"),
+    setting("FASTER_WHISPER_URL", "http://faster-whisper.arpa:8000"),
 )
 
 

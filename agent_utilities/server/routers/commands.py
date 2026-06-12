@@ -2,6 +2,8 @@ import logging
 
 from fastapi import APIRouter, Request
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/enhanced/commands", tags=["Command Center"])
@@ -313,7 +315,7 @@ async def execute_slash_command(payload: dict, request: Request):
 
         from agent_utilities.sdd import SDDManager
 
-        workspace = os.environ.get("WORKSPACE_PATH") or os.getcwd()
+        workspace = setting("WORKSPACE_PATH") or os.getcwd()
         manager = SDDManager(workspace_path=workspace)
 
         if sub == "specs":

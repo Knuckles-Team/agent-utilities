@@ -52,6 +52,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
+from agent_utilities.core.config import setting
+
 if TYPE_CHECKING:
     pass
 
@@ -247,10 +249,10 @@ def setup_otel(
         return
 
     # Step 1: Resolve OTLP auth headers
-    resolved_headers = headers or os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
+    resolved_headers = headers or setting("OTEL_EXPORTER_OTLP_HEADERS")
     if not resolved_headers:
-        pk = public_key or os.getenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY")
-        sk = secret_key or os.getenv("OTEL_EXPORTER_OTLP_SECRET_KEY")
+        pk = public_key or setting("OTEL_EXPORTER_OTLP_PUBLIC_KEY")
+        sk = secret_key or setting("OTEL_EXPORTER_OTLP_SECRET_KEY")
         if pk and sk:
             resolved_headers = _generate_otlp_auth_header(pk, sk)
             logger.debug("Generated OTLP Basic Auth headers from public/secret keys")
@@ -262,8 +264,8 @@ def setup_otel(
         )
 
     # Step 2: Resolve endpoint and protocol
-    target_endpoint = endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-    target_protocol = protocol or os.getenv(
+    target_endpoint = endpoint or setting("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+    target_protocol = protocol or setting(
         "OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf"
     )
     target_service_name = service_name or retrieve_package_name()
@@ -365,10 +367,10 @@ def verify_otel_pipeline() -> dict[str, Any]:
     report: dict[str, Any] = {
         "initialized": _otel_initialized,
         "logfire_available": HAS_LOGFIRE,
-        "endpoint": os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
-        "headers_set": bool(os.environ.get("OTEL_EXPORTER_OTLP_HEADERS")),
-        "protocol": os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL", ""),
-        "service_name": os.environ.get("OTEL_SERVICE_NAME", ""),
+        "endpoint": setting("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+        "headers_set": bool(setting("OTEL_EXPORTER_OTLP_HEADERS")),
+        "protocol": setting("OTEL_EXPORTER_OTLP_PROTOCOL", ""),
+        "service_name": setting("OTEL_SERVICE_NAME", ""),
         "exporter_ok": False,
         "agent_instrumented": False,
     }

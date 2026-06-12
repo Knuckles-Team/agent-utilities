@@ -178,7 +178,7 @@ def create_agent_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--web",
         action=argparse.BooleanOptionalAction,
-        default=to_boolean(os.getenv("ENABLE_WEB_UI", "False")),
+        default=to_boolean(setting("ENABLE_WEB_UI", "False")),
         help="Enable/Disable Agent Web UI",
     )
 
@@ -212,7 +212,7 @@ def create_agent_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--otel",
         action=argparse.BooleanOptionalAction,
-        default=to_boolean(os.getenv("ENABLE_OTEL", "False")),
+        default=to_boolean(setting("ENABLE_OTEL", "False")),
         help="Enable/Disable OpenTelemetry tracing",
     )
     parser.add_argument(
@@ -326,16 +326,16 @@ def create_agent(
     # on so a db_query returning millions of rows is recursively processed by the
     # rlm_large_output_hook instead of overflowing the context window (CONCEPT:
     # ORCH-1.1 + ECO-4.33). An explicit ``use_rlm=`` always wins.
-    if not use_rlm and to_boolean(os.getenv("DB_TOOLS", "False")):
+    if not use_rlm and to_boolean(setting("DB_TOOLS", "False")):
         use_rlm = True
 
     # Centralized Knowledge Graph Coordination
     import sys
 
     is_testing = (
-        os.environ.get("AGENT_UTILITIES_TESTING") == "true"
+        setting("AGENT_UTILITIES_TESTING") == "true"
         or "pytest" in sys.modules
-        or os.getenv("PYTEST_CURRENT_TEST") is not None
+        or setting("PYTEST_CURRENT_TEST") is not None
     )
     if not DEFAULT_VALIDATION_MODE and not is_testing:
         try:

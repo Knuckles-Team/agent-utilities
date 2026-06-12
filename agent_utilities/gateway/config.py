@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from agent_utilities.core.config import setting
 from agent_utilities.core.paths import config_dir, data_dir, mcp_config_path
 from agent_utilities.gateway.models import (
     DashboardLayout,
@@ -321,7 +321,7 @@ class ConfigManager:
             if env_prefix:
                 url = env_vars.get(f"{env_prefix}_URL", "")
                 if not url:
-                    url = os.environ.get(f"{env_prefix}_URL", "")
+                    url = setting(f"{env_prefix}_URL", "")
 
             category = mapping["category"]
             svc = ServiceConfig(

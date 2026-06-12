@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from agent_utilities.core.config import setting
 from agent_utilities.usage.models import ParsedSessionBundle
 
 # parse_fn: (path, source) -> iterable of ParsedSessionBundle (one file may hold
@@ -34,7 +35,7 @@ class AgentSource:
 
     def resolved_dirs(self) -> list[Path]:
         """Default dirs, with an env override taking precedence when set."""
-        if self.env_var and os.environ.get(self.env_var):
+        if self.env_var and setting(self.env_var):
             return [Path(os.environ[self.env_var]).expanduser()]
         return [Path(d).expanduser() for d in self.default_dirs]
 

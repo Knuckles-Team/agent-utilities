@@ -42,11 +42,12 @@ Environment Variables:
 """
 
 import logging
-import os
 import re
 import time
 from enum import Enum
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -125,10 +126,10 @@ class QueryRouter:
         self._wsm = working_set_manager
 
         self._strategy = (
-            strategy or os.environ.get("QUERY_ROUTER_STRATEGY") or "auto"
+            strategy or setting("QUERY_ROUTER_STRATEGY") or "auto"
         ).lower()
         self._l1_threshold = l1_threshold or int(
-            os.environ.get("QUERY_ROUTER_L1_THRESHOLD", "50000")
+            setting("QUERY_ROUTER_L1_THRESHOLD", "50000")
         )
 
         # Latency tracking (exponential moving average)

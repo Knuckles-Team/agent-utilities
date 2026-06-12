@@ -9,8 +9,9 @@ than failing at import time.
 from __future__ import annotations
 
 import contextlib
-import os
 from pathlib import Path
+
+from agent_utilities.core.config import setting
 
 from ..models import SearchHit
 from ..schema import sqlite_ddl
@@ -18,7 +19,7 @@ from .sql_base import SqlUsageBackend
 
 
 def _default_path() -> Path:
-    override = os.environ.get("USAGE_DUCKDB_PATH")
+    override = setting("USAGE_DUCKDB_PATH")
     if override:
         return Path(override)
     base = Path.home() / ".local" / "share" / "agent-utilities"
@@ -58,9 +59,7 @@ class DuckDBUsageBackend(SqlUsageBackend):
         if self._schema_ready:
             return
         # DuckDB autoincrement differs; use sequences via a simplified DDL.
-        ddl = sqlite_ddl().replace(
-            "INTEGER PRIMARY KEY AUTOINCREMENT", "BIGINT"
-        )
+        ddl = sqlite_ddl().replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGINT")
         # DuckDB has no FTS5 virtual table — drop that statement.
         ddl = ddl.split("CREATE VIRTUAL TABLE", 1)[0]
         with self._connect() as conn:
@@ -92,8 +91,12 @@ class DuckDBUsageBackend(SqlUsageBackend):
             rows = cur.fetchall()
         return [
             SearchHit(
-                session_id=r[0], ordinal=int(r[1]), role=r[2], snippet=r[3] or "",
-                project=r[4] or "", agent=r[5] or "claude",
+                session_id=r[0],
+                ordinal=int(r[1]),
+                role=r[2],
+                snippet=r[3] or "",
+                project=r[4] or "",
+                agent=r[5] or "claude",
             )
             for r in rows
         ]

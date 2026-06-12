@@ -26,7 +26,6 @@ typo in config can never take the graph offline.
 
 import json
 import logging
-import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -53,7 +52,7 @@ def _from_config_json() -> str | None:
     canonical config location.
     """
     try:
-        override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
+        override = setting("AGENT_UTILITIES_CONFIG_DIR")
         if override:
             cfg_dir = Path(override).expanduser()
         else:

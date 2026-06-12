@@ -19,6 +19,8 @@ from pathlib import Path
 
 from pydantic_ai import RunContext
 
+from agent_utilities.core.config import setting
+
 from ..models import AgentDeps
 
 logger = logging.getLogger(__name__)
@@ -26,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 def _output_dir() -> Path:
     """Resolve the media output directory (``MEDIA_OUTPUT_DIR`` or a temp dir)."""
-    base = os.environ.get("MEDIA_OUTPUT_DIR") or os.path.join(
+    base = setting("MEDIA_OUTPUT_DIR") or os.path.join(
         tempfile.gettempdir(), "agent_utilities_media"
     )
     path = Path(base)

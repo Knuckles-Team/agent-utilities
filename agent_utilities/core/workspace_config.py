@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml  # type: ignore
 
+from agent_utilities.core.config import setting
 from agent_utilities.core.paths import ensure_dirs
 
 logger = logging.getLogger(__name__)
@@ -17,8 +18,7 @@ def get_workspace_yml_path() -> Path:
     ensure_dirs()
     # E.g. ~/.config/agent-utilities/workspace.yml
     config_dir = (
-        Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-        / "agent-utilities"
+        Path(setting("XDG_CONFIG_HOME", Path.home() / ".config")) / "agent-utilities"
     )
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / "workspace.yml"

@@ -8,9 +8,10 @@ same convention the sessions/durable-exec stores use.
 from __future__ import annotations
 
 import contextlib
-import os
 import sqlite3
 from pathlib import Path
+
+from agent_utilities.core.config import setting
 
 from ..models import SearchHit
 from ..schema import sqlite_ddl
@@ -18,7 +19,7 @@ from .sql_base import SqlUsageBackend
 
 
 def default_db_path() -> Path:
-    override = os.environ.get("USAGE_DB_PATH")
+    override = setting("USAGE_DB_PATH")
     if override:
         return Path(override)
     base = Path.home() / ".local" / "share" / "agent-utilities"
@@ -104,8 +105,12 @@ class SqliteUsageBackend(SqlUsageBackend):
                 rows = cur.fetchall()
         return [
             SearchHit(
-                session_id=r[0], ordinal=int(r[1]), role=r[2], snippet=r[3] or "",
-                project=r[4] or "", agent=r[5] or "claude",
+                session_id=r[0],
+                ordinal=int(r[1]),
+                role=r[2],
+                snippet=r[3] or "",
+                project=r[4] or "",
+                agent=r[5] or "claude",
             )
             for r in rows
         ]

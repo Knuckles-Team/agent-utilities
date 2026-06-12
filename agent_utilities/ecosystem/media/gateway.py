@@ -27,9 +27,10 @@ vars; ``httpx`` is imported lazily; an unreachable service raises a clear
 
 import base64
 import logging
-import os
 import time
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -48,16 +49,16 @@ __all__ = [
 ]
 
 # Consolidated ComfyUI engine (image + video on demand) — the GB10 default.
-DEFAULT_COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://comfyui.arpa:8188")
-DEFAULT_XTTS_URL = os.environ.get("XTTS_URL", "http://xtts.arpa:5002")
-DEFAULT_OPENAI_TTS_URL = os.environ.get("OPENAI_TTS_URL", "http://xtts.arpa:5002")
+DEFAULT_COMFYUI_URL = setting("COMFYUI_URL", "http://comfyui.arpa:8188")
+DEFAULT_XTTS_URL = setting("XTTS_URL", "http://xtts.arpa:5002")
+DEFAULT_OPENAI_TTS_URL = setting("OPENAI_TTS_URL", "http://xtts.arpa:5002")
 # Optional per-model REST servers (used when a backend is run standalone).
-DEFAULT_FLUX_URL = os.environ.get("FLUX_URL", DEFAULT_COMFYUI_URL)
-DEFAULT_SD35_URL = os.environ.get("SD35_URL", DEFAULT_COMFYUI_URL)
-DEFAULT_QWEN_IMAGE_URL = os.environ.get("QWEN_IMAGE_URL", DEFAULT_COMFYUI_URL)
-DEFAULT_HUNYUAN_IMAGE_URL = os.environ.get("HUNYUAN_IMAGE_URL", DEFAULT_COMFYUI_URL)
-DEFAULT_HUNYUAN_URL = os.environ.get("HUNYUAN_URL", DEFAULT_COMFYUI_URL)
-DEFAULT_LTX_URL = os.environ.get("LTX_URL", DEFAULT_COMFYUI_URL)
+DEFAULT_FLUX_URL = setting("FLUX_URL", DEFAULT_COMFYUI_URL)
+DEFAULT_SD35_URL = setting("SD35_URL", DEFAULT_COMFYUI_URL)
+DEFAULT_QWEN_IMAGE_URL = setting("QWEN_IMAGE_URL", DEFAULT_COMFYUI_URL)
+DEFAULT_HUNYUAN_IMAGE_URL = setting("HUNYUAN_IMAGE_URL", DEFAULT_COMFYUI_URL)
+DEFAULT_HUNYUAN_URL = setting("HUNYUAN_URL", DEFAULT_COMFYUI_URL)
+DEFAULT_LTX_URL = setting("LTX_URL", DEFAULT_COMFYUI_URL)
 
 # Named image backends → (transport, config). ``comfyui`` transport routes through
 # the consolidated engine with the named checkpoint; ``rest`` hits a standalone

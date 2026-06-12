@@ -159,10 +159,12 @@ signaling are still allowed.) This applies to **every** variable, not just
 When a flag is justified, give it a default and document it in
 `docs/architecture/configuration.md` and `docs/examples/config.json`. Enforced by
 `scripts/check_no_env_sprawl.py` (a guardrail gate): any new bare `os.environ.get` /
-`os.getenv` / `os.environ["…"]` **read** (any prefix) outside `core/config.py` fails
-CI. The gate carries a frozen burn-down baseline (`scripts/env_flag_baseline.txt`) of
-the remaining legacy non-KG reads — shrink it, never grow it (`--update-baseline`
-after removing reads).
+`os.getenv` / `os.environ["…"]` **read** (any prefix) outside `core/config.py` /
+`core/_env.py` fails CI. **The burn-down is complete — the baseline
+(`scripts/env_flag_baseline.txt`) is empty: ZERO bare env reads remain in the
+package.** Keep it that way; the only sanctioned reads are a typed `AgentConfig`
+field or `config.setting(...)`. (`setting()` lives in the dependency-free
+`core/_env.py` so it stays importable while `config` itself is initializing.)
 
 ## Reward / preference / RL-method primitives (AHE-3.x) — conventions
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 import time
 import uuid
@@ -12,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 # Rust-native graph compute — using GraphComputeEngine
 from pydantic import BaseModel, Field
+
+from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.analogy_engine import (
@@ -544,7 +545,7 @@ class PromptInjectionScanner:
         if self._threshold is not None:
             return self._threshold
         try:
-            return float(os.environ.get("SECURITY_PROMPT_THRESHOLD", "0.8"))
+            return float(setting("SECURITY_PROMPT_THRESHOLD", "0.8"))
         except (ValueError, TypeError):
             return 0.8
 

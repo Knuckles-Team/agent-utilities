@@ -1728,11 +1728,9 @@ class IngestionEngine:
             if source.startswith(("http://", "https://")):
                 # A2A agent card from URL
                 if hasattr(self.kg, "ingest_a2a_agent_card"):
-                    import os
-
                     import httpx
 
-                    verify_ssl = os.environ.get("AGENTS_INSECURE_SSL", "0") != "1"
+                    verify_ssl = setting("AGENTS_INSECURE_SSL", "0") != "1"
                     async with httpx.AsyncClient(
                         timeout=15.0, verify=verify_ssl
                     ) as client:

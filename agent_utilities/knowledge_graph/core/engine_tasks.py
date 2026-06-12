@@ -10,6 +10,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 
@@ -430,7 +432,6 @@ class TaskManagerMixin(GraphEngineProtocol):
             config, str(queue_db_path)
         )
 
-        import os
         import sys
 
         # ── Role-gated background daemon (CONCEPT:KG-2.8 / OS-5.0) ───────────
@@ -443,7 +444,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         # watcher) with one lifecycle.
         self._daemon_role = daemon_role()
         _test_or_staging = bool(
-            os.environ.get("AGENT_UTILITIES_TESTING") or "--stage-to-queue" in sys.argv
+            setting("AGENT_UTILITIES_TESTING") or "--stage-to-queue" in sys.argv
         )
         # Singleton election (CONCEPT:KG-2.8 / OS-5.9): only the flock holder runs
         # the consolidated daemon. ``auto`` self-heals to ``client`` when a host
