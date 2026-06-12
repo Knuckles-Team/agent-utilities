@@ -59,6 +59,9 @@ enforces that flags are declared on `AgentConfig` (`core/config.py`), not read w
 | `MCP_CHILD_RESTART_WINDOW` | `300` | Sliding window (s) for the restart budget; older restarts are forgiven; per-server `restart_window` override (CONCEPT:ECO-4.34) |
 | `MCP_CHILD_BREAKER_THRESHOLD` | `5` | Consecutive transport failures/timeouts before a child's circuit opens (typed `MCPChildCircuitOpenError`, 0 = off); per-server `breaker_threshold` override (CONCEPT:ECO-4.34) |
 | `MCP_CHILD_BREAKER_COOLDOWN` | `15` | Seconds an open child circuit waits before the half-open probe; per-server `breaker_cooldown` override (CONCEPT:ECO-4.34) |
+| `MCP_MULTIPLEXER_MODE` | `eager` | Tool-exposure strategy: `eager` spawns every child and exposes all tools at boot (historical); `dynamic` exposes only the `find_tools`/`load_tools`/`unload_tools`/`multiplexer_status` meta-tools + always-on children, mounting other tools on demand with a `tools/list_changed` notification (CONCEPT:ECO-4.36) |
+| `MCP_DYNAMIC_ALWAYS_ON` | `["graph-os"]` | Child servers mounted at boot in `dynamic` mode (in addition to meta-tools); defaults to the KG server so `find_tools` can rank semantically (CONCEPT:ECO-4.36) |
+| `MCP_DYNAMIC_TOP_K` | `8` | Default number of ranked candidates `find_tools` returns when `top_k` is unspecified (CONCEPT:ECO-4.36) |
 | `ACTION_POLICY_PATH` | shipped default | Operational ActionPolicy YAML; empty → conservative `deploy/action-policy.default.yml` (everything mutating = approval_required). KG `governance_rule` overrides win (CONCEPT:OS-5.24) |
 | `FLEET_RECONCILER` | `false` | Opt-in leader-only desired-state fleet reconciler tick — diff registry vs observed, converge through the ActionPolicy gate + actuator seam (CONCEPT:OS-5.25) |
 | `FLEET_RECONCILER_INTERVAL` | `120` | Seconds between fleet-reconciler ticks (CONCEPT:OS-5.25) |
