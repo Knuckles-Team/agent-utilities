@@ -23,6 +23,8 @@ from pydantic_ai.mcp import (
     MCPServerStreamableHTTP,
 )
 
+from agent_utilities.core.config import setting
+
 
 def load_mcp_servers(config_path: str) -> Any:
     """Load MCP servers from configuration using the centralized coordinator."""
@@ -339,8 +341,8 @@ def create_agent(
         try:
             from agent_utilities.mcp.kg_coordinator import KGCoordinator
 
-            kg_host = os.getenv("KG_SERVER_HOST", "127.0.0.1")
-            kg_port = int(os.getenv("KG_SERVER_PORT", "8100"))
+            kg_host = setting("KG_SERVER_HOST", "127.0.0.1")
+            kg_port = setting("KG_SERVER_PORT", 8100)
             KGCoordinator.get_kg_client(host=kg_host, port=kg_port)
         except Exception as e:
             logger.debug(f"Auto-coordinating KG failed in create_agent: {e}")

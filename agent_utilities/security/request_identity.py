@@ -33,6 +33,8 @@ import logging
 import os
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 from ..models.company_brain import ActorType
 from .brain_context import ActorContext, reset_actor, set_actor
 
@@ -122,14 +124,14 @@ def apply_served_security_profile(transport: str, config: Any = None) -> None:
 
     # Honor an operator who has explicitly pinned a flag (even to off); only
     # supply the secure default when the flag is unset.
-    if os.getenv("KG_AUTH_REQUIRED") is None:
+    if setting("KG_AUTH_REQUIRED") is None:
         os.environ["KG_AUTH_REQUIRED"] = "1"
     # The live middleware reads the singleton config, so mutate it too.
     try:
-        config.kg_auth_required = os.environ["KG_AUTH_REQUIRED"].strip().lower() in _TRUTHY
+        config.kg_auth_required = setting("KG_AUTH_REQUIRED", False)
     except Exception:  # noqa: BLE001 - frozen/odd config must not block startup
         pass
-    if os.getenv("KG_BRAIN_ENFORCE") is None:
+    if setting("KG_BRAIN_ENFORCE") is None:
         os.environ["KG_BRAIN_ENFORCE"] = "1"
 
     logger.warning(
@@ -137,8 +139,8 @@ def apply_served_security_profile(transport: str, config: Any = None) -> None:
         "KG_BRAIN_ENFORCE=%s, JWKS=%s. Unauthenticated requests are rejected "
         "and reads/writes are tenant-scoped. (CONCEPT:OS-5.14)",
         transport,
-        os.environ.get("KG_AUTH_REQUIRED"),
-        os.environ.get("KG_BRAIN_ENFORCE"),
+        setting("KG_AUTH_REQUIRED"),
+        setting("KG_BRAIN_ENFORCE"),
         jwks,
     )
 

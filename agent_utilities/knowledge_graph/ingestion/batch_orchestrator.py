@@ -26,9 +26,10 @@ The same path serves incremental re-ingest: a push webhook resolves to a single
 that one repo.
 """
 
-import os
 from dataclasses import dataclass, field
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 from .manifest import DeltaManifest
 
@@ -139,7 +140,7 @@ class RepoBatchIngestor:
         self.manifest = manifest or DeltaManifest(
             backend=getattr(engine, "backend", None)
         )
-        env = os.getenv("KG_INGEST_INFLIGHT")
+        env = setting("KG_INGEST_INFLIGHT")
         self.inflight_target = inflight_target or (
             int(env) if env and env.isdigit() else _DEFAULT_INFLIGHT
         )

@@ -35,6 +35,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,8 +89,8 @@ def _try_acquire() -> bool:
         "pid": os.getpid(),
         "host": _socket.gethostname(),
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "socket": os.environ.get("EPISTEMIC_GRAPH_SOCKET", "/tmp/epistemic-graph.sock"),  # nosec B108 — default UDS path, overridable via env
-        "role": os.environ.get("KG_DAEMON_ROLE", "auto"),
+        "socket": setting("EPISTEMIC_GRAPH_SOCKET", "/tmp/epistemic-graph.sock"),  # nosec B108 — default UDS path, overridable via env
+        "role": setting("KG_DAEMON_ROLE", "auto"),
     }
     try:
         data = json.dumps(meta).encode("utf-8")
@@ -116,7 +118,7 @@ def resolve_daemon_role(requested: str | None = None) -> str:
     global _effective_role
     if _effective_role is not None:
         return _effective_role
-    role = (requested or os.environ.get("KG_DAEMON_ROLE") or "auto").strip().lower()
+    role = (requested or setting("KG_DAEMON_ROLE") or "auto").strip().lower()
     if role not in {"host", "client", "auto"}:
         role = "auto"
 

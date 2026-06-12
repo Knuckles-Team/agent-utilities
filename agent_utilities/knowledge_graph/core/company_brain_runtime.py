@@ -18,7 +18,8 @@ The default :class:`TrustHierarchy` is seeded so source authority is declarative
 """
 
 import logging
-import os
+
+from agent_utilities.core.config import setting
 
 from ...models.company_brain import MergeStrategy, TrustHierarchyEntry
 from .company_brain import CompanyBrain
@@ -93,13 +94,13 @@ _DEFAULT_TRUST: tuple[dict, ...] = (
 
 def brain_enforcement_enabled() -> bool:
     """Whether trust/permission enforcement is active (``KG_BRAIN_ENFORCE``)."""
-    return os.getenv("KG_BRAIN_ENFORCE", "false").strip().lower() in _TRUTHY
+    return setting("KG_BRAIN_ENFORCE", False)
 
 
 def _seed_trust(brain: CompanyBrain) -> None:
     """Load the trust hierarchy from config.json, falling back to defaults."""
     entries: tuple[dict, ...] = _DEFAULT_TRUST
-    raw = os.getenv("KG_TRUST_HIERARCHY") or os.getenv("kg_trust_hierarchy")
+    raw = setting("KG_TRUST_HIERARCHY") or setting("kg_trust_hierarchy")
     if raw:
         try:
             import json

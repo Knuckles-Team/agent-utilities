@@ -31,6 +31,8 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
+from agent_utilities.core.config import setting
+
 from .schema_pack import SchemaPack
 from .schema_packs import get_schema_pack
 
@@ -82,7 +84,7 @@ def resolve_pack_name(explicit: str | None = None) -> str:
     """Return the active pack *name* using the documented precedence."""
     if explicit:
         return explicit
-    env = os.environ.get("GRAPH_SCHEMA_PACK")
+    env = setting("GRAPH_SCHEMA_PACK")
     if env:
         return env
     cfg = _from_config_json()

@@ -41,6 +41,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 
@@ -700,9 +702,8 @@ class IngestionEngine:
 
         Returns the number of edges written (0 if disabled/unavailable).
         """
-        import os
 
-        if not concepts or os.getenv("KG_CONCEPT_CODE_LINK", "1") == "0":
+        if not concepts or setting("KG_CONCEPT_CODE_LINK", "1") == "0":
             return 0
         add_edge = getattr(self.backend, "add_edge", None)
         search = getattr(self.backend, "semantic_search", None)

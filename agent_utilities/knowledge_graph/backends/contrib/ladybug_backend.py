@@ -18,6 +18,8 @@ from typing import Any
 
 import httpx
 
+from agent_utilities.core.config import setting
+
 from ..base import GraphBackend
 
 try:
@@ -561,8 +563,8 @@ class LadybugBackend(GraphBackend):
             return None
 
         try:
-            kg_host = os.getenv("KG_SERVER_HOST", "127.0.0.1")
-            kg_port = int(os.getenv("KG_SERVER_PORT", "8100"))
+            kg_host = setting("KG_SERVER_HOST", "127.0.0.1")
+            kg_port = setting("KG_SERVER_PORT", 8100)
             if not _is_gateway_healthy(kg_host, kg_port):
                 return None
 
@@ -598,8 +600,8 @@ class LadybugBackend(GraphBackend):
                 f"Falling back to local SQLite execution."
             )
             # Invalidate health cache on failure to trigger re-check next time
-            kg_host = os.getenv("KG_SERVER_HOST", "127.0.0.1")
-            kg_port = int(os.getenv("KG_SERVER_PORT", "8100"))
+            kg_host = setting("KG_SERVER_HOST", "127.0.0.1")
+            kg_port = setting("KG_SERVER_PORT", 8100)
             _HEALTH_CACHE.pop(f"{kg_host}:{kg_port}", None)
             return None
 
