@@ -52,7 +52,14 @@ import logging
 import os
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
+
+# Postgres connection-pool sizing (config discipline): sensible bounded defaults
+# that work everywhere — a named constant, not a per-deploy env knob.
+_PG_POOL_MIN = 2
+_PG_POOL_MAX = 10
 
 _ACTIVE_BACKEND: Any = None
 
@@ -166,7 +173,7 @@ def create_backend(
     # The unit suite pins GRAPH_BACKEND=memory (see tests/conftest.py) to stay
     # purely ephemeral.
     backend_type = (
-        (backend_type or os.environ.get("GRAPH_BACKEND") or "tiered").lower().strip()
+        (backend_type or setting("GRAPH_BACKEND") or "tiered").lower().strip()
     )
 
     from .base import GraphBackend
@@ -183,7 +190,7 @@ def create_backend(
         backend = EpistemicGraphBackend()
         if backend_type == "file":
             resolved_path = (
-                db_path or os.environ.get("GRAPH_DB_PATH") or kwargs.get("json_path")
+                db_path or setting("GRAPH_DB_PATH") or kwargs.get("json_path")
             )
             if resolved_path and os.path.exists(resolved_path):
                 try:
@@ -204,8 +211,8 @@ def create_backend(
         # Use centralized XDG-aware path resolver
         if db_path:
             resolved_path = db_path
-        elif os.environ.get("GRAPH_DB_PATH"):
-            resolved_path = os.environ["GRAPH_DB_PATH"]
+        elif setting("GRAPH_DB_PATH"):
+            resolved_path = setting("GRAPH_DB_PATH")
         else:
             from agent_utilities.core.paths import kg_db_path
 
@@ -218,9 +225,9 @@ def create_backend(
     elif backend_type == "falkordb":
         from .contrib.falkordb_backend import FalkorDBBackend
 
-        resolved_host = host or os.environ.get("GRAPH_DB_HOST") or "localhost"
-        resolved_port = port or int(os.environ.get("GRAPH_DB_PORT", "6379"))
-        resolved_name = db_name or os.environ.get("GRAPH_DB_NAME") or "agent_graph"
+        resolved_host = host or setting("GRAPH_DB_HOST") or "localhost"
+        resolved_port = port or setting("GRAPH_DB_PORT", 6379)
+        resolved_name = db_name or setting("GRAPH_DB_NAME") or "agent_graph"
         backend = FalkorDBBackend(
             host=resolved_host, port=resolved_port, db_name=resolved_name
         )
@@ -228,11 +235,9 @@ def create_backend(
     elif backend_type == "neo4j":
         from .contrib.neo4j_backend import Neo4jBackend
 
-        resolved_uri = uri or os.environ.get("GRAPH_DB_URI") or "bolt://localhost:7687"
-        resolved_user = user or os.environ.get("GRAPH_DB_USER") or "neo4j"
-        resolved_password = (
-            password or os.environ.get("GRAPH_DB_PASSWORD") or "password"
-        )
+        resolved_uri = uri or setting("GRAPH_DB_URI") or "bolt://localhost:7687"
+        resolved_user = user or setting("GRAPH_DB_USER") or "neo4j"
+        resolved_password = password or setting("GRAPH_DB_PASSWORD") or "password"
         backend = Neo4jBackend(
             uri=resolved_uri, user=resolved_user, password=resolved_password
         )
@@ -241,7 +246,7 @@ def create_backend(
         # GRAPH_PG_AGE=1 (or backend_type age/pggraph_age) selects the Apache AGE
         # backend — real openCypher-on-Postgres — over the regex-transpiler
         # PostgreSQLBackend. Both share the same DSN/pool config.
-        _use_age = backend_type in ("age", "pggraph_age") or os.environ.get(
+        _use_age = backend_type in ("age", "pggraph_age") or setting(
             "GRAPH_PG_AGE", ""
         ).lower() in ("1", "true", "yes")
         if _use_age:
@@ -251,13 +256,13 @@ def create_backend(
 
         resolved_uri = (
             uri
-            or os.environ.get("GRAPH_DB_URI")
+            or setting("GRAPH_DB_URI")
             or "postgresql://localhost:5432/agent_utilities"
         )
-        resolved_name = db_name or os.environ.get("GRAPH_DB_NAME") or "agent_graph"
-        pool_min = int(os.environ.get("GRAPH_POOL_MIN", "2"))
-        pool_max = int(os.environ.get("GRAPH_POOL_MAX", "10"))
-        pggraph_schema = os.environ.get("GRAPH_PGGRAPH_SCHEMA", "public")
+        resolved_name = db_name or setting("GRAPH_DB_NAME") or "agent_graph"
+        pool_min = _PG_POOL_MIN
+        pool_max = _PG_POOL_MAX
+        pggraph_schema = setting("GRAPH_PGGRAPH_SCHEMA", "public")
         backend = _PGBackend(
             dsn=resolved_uri,
             graph_name=resolved_name,
@@ -271,13 +276,11 @@ def create_backend(
 
         resolved_url = (
             kwargs.get("jena_fuseki_url")
-            or os.environ.get("GRAPH_FUSEKI_URL")
+            or setting("GRAPH_FUSEKI_URL")
             or "http://localhost:3030"
         )
         resolved_dataset = (
-            kwargs.get("dataset")
-            or os.environ.get("GRAPH_FUSEKI_DATASET")
-            or "agent_kg"
+            kwargs.get("dataset") or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
         )
         resolved_jena_fuseki_user = kwargs.get("username") or os.environ.get(
             "GRAPH_FUSEKI_USER"
@@ -305,9 +308,7 @@ def create_backend(
         from .epistemic_graph_backend import EpistemicGraphBackend
         from .tiered_backend import TieredGraphBackend
 
-        l1_type = (
-            (os.environ.get("GRAPH_BACKEND_L1") or "epistemic_graph").lower().strip()
-        )
+        l1_type = (setting("GRAPH_BACKEND_L1") or "epistemic_graph").lower().strip()
         if l1_type not in ("epistemic_graph", "memory", "file"):
             logger.warning(
                 "tiered L1 '%s' unsupported; falling back to epistemic_graph",
@@ -315,10 +316,8 @@ def create_backend(
             )
         l1 = EpistemicGraphBackend()
 
-        has_pg_dsn = bool(
-            uri or os.environ.get("GRAPH_DB_URI") or os.environ.get("PGGRAPH_DSN")
-        )
-        l2_type = os.environ.get("GRAPH_BACKEND_L2", "").lower().strip() or (
+        has_pg_dsn = bool(uri or setting("GRAPH_DB_URI") or setting("PGGRAPH_DSN"))
+        l2_type = setting("GRAPH_BACKEND_L2", "").lower().strip() or (
             "postgresql" if has_pg_dsn else "ladybug"
         )
 
@@ -346,14 +345,14 @@ def create_backend(
 
             resolved_uri = (
                 uri
-                or os.environ.get("GRAPH_DB_URI")
+                or setting("GRAPH_DB_URI")
                 or os.environ.get("PGGRAPH_DSN")
                 or "postgresql://localhost:5432/agent_utilities"
             )
-            resolved_name = db_name or os.environ.get("GRAPH_DB_NAME") or "agent_graph"
-            pool_min = int(os.environ.get("GRAPH_POOL_MIN", "2"))
-            pool_max = int(os.environ.get("GRAPH_POOL_MAX", "10"))
-            pggraph_schema = os.environ.get("GRAPH_PGGRAPH_SCHEMA", "public")
+            resolved_name = db_name or setting("GRAPH_DB_NAME") or "agent_graph"
+            pool_min = _PG_POOL_MIN
+            pool_max = _PG_POOL_MAX
+            pggraph_schema = setting("GRAPH_PGGRAPH_SCHEMA", "public")
             l3 = _PGBackend(
                 dsn=resolved_uri,
                 graph_name=resolved_name,
@@ -379,8 +378,8 @@ def create_backend(
             else:
                 if db_path:
                     resolved_path = db_path
-                elif os.environ.get("GRAPH_DB_PATH"):
-                    resolved_path = os.environ["GRAPH_DB_PATH"]
+                elif setting("GRAPH_DB_PATH"):
+                    resolved_path = setting("GRAPH_DB_PATH")
                 else:
                     from agent_utilities.core.paths import kg_db_path
 

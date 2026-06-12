@@ -31,9 +31,10 @@ import contextlib
 import json
 import logging
 import math
-import os
 from enum import Enum, StrEnum
 from typing import Any, Literal
+
+from agent_utilities.core.config import setting
 
 from ...core.registry.kg_adapter import FocusedSubgraph, RegistryMixin
 from ..backends import create_backend, get_active_backend
@@ -142,7 +143,7 @@ class IntelligenceGraphEngine(
         )
         self.graph = self.graph_compute
 
-        strategy_str = os.getenv("GRAPH_ROUTING_STRATEGY", "hybrid").lower()
+        strategy_str = setting("GRAPH_ROUTING_STRATEGY", "hybrid").lower()
         try:
             self.routing_strategy = RoutingStrategy(strategy_str)
         except ValueError:

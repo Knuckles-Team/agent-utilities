@@ -11,12 +11,13 @@ Extracted from the monolithic steps.py for maintainability.
 import asyncio
 import contextlib
 import logging
-import os
 import re
 from typing import Any
 
 from pydantic_ai import Agent
 from pydantic_graph import End
+
+from agent_utilities.core.config import setting
 
 try:
     from pydantic_graph.step import StepContext
@@ -336,9 +337,9 @@ async def router_step(
                         ctx.state.output_data, dict
                     ):
                         ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
-                        ctx.state.output_data[
-                            "kg_specialist_configs"
-                        ] = kg_result.specialist_configs
+                        ctx.state.output_data["kg_specialist_configs"] = (
+                            kg_result.specialist_configs
+                        )
 
                     emit_graph_event(
                         deps.event_queue,
@@ -373,7 +374,7 @@ async def router_step(
     # on empty plans) down to a single execution call. First attempt only — re-plans keep
     # the full pipeline. Disable with GRAPH_DIRECT_DISPATCH=false.
     _direct_ok = (
-        os.environ.get("GRAPH_DIRECT_DISPATCH", "true").lower() != "false"
+        setting("GRAPH_DIRECT_DISPATCH", True)
         and not ctx.state.error
         and ctx.state.verification_attempts == 0
         and len(deps.mcp_toolsets) == 1

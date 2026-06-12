@@ -31,18 +31,19 @@ See docs/overview.md §CONCEPT:ECO-4.0
 
 
 import logging
-import os
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BACKEND = os.getenv("KG_PROVIDER_ADAPTER_BACKEND", "static")
+_DEFAULT_BACKEND = setting("KG_PROVIDER_ADAPTER_BACKEND", "static")
 
 
 # ── Rule Model ────────────────────────────────────────────────────────

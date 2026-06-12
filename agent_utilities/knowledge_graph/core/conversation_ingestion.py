@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 # Parse-time guards (CONCEPT:KG-2.1): chat transcripts can contain multi-MB
@@ -492,15 +494,16 @@ def ingest_conversations_to_kg(
     if _llm is not None and pending_extractions:
         from concurrent.futures import ThreadPoolExecutor
 
+        # Auto-sized to THIS host (CPU/mem bounded) rather than an env knob
+        # (config discipline), then capped by the work actually pending.
+        from agent_utilities.knowledge_graph.core.engine_tasks import (
+            compute_ingest_worker_count,
+        )
         from agent_utilities.knowledge_graph.enrichment.extractors.text import (
             extract_text_concepts,
         )
 
-        try:
-            workers = int(os.getenv("KG_CHAT_CONCURRENCY", "8"))
-        except ValueError:
-            workers = 8
-        workers = max(1, min(workers, len(pending_extractions)))
+        workers = max(1, min(compute_ingest_worker_count(), len(pending_extractions)))
 
         def _extract(item: tuple[str, str, str, str]) -> tuple[str, str, list[Any]]:
             cid, text, title, src = item
@@ -539,7 +542,7 @@ def ingest_conversations_to_kg(
         # Cross-link chat concepts → Code/Feature (RELATES_TO/REALIZES) so chats
         # interweave with the codebase, same as docs/prompts. Best-effort + gated
         # by KG_CONCEPT_CODE_LINK. (CONCEPT:KG-2.8)
-        if all_concepts and os.getenv("KG_CONCEPT_CODE_LINK", "1") != "0":
+        if all_concepts and setting("KG_CONCEPT_CODE_LINK", "1") != "0":
             try:
                 from agent_utilities.knowledge_graph.enrichment.semantic import (
                     link_concepts_to_code,

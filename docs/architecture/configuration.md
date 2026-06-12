@@ -11,6 +11,29 @@ to operate and a frequent source of footguns. The rule for adding new flags is i
 enforces that flags are declared on `AgentConfig` (`core/config.py`), not read with bare
 `os.environ.get()` scattered across modules.
 
+## How configuration is read (two centralized paths)
+
+`core/config.py` (and `core/paths.py`) are the **only** files that touch `os.environ`.
+Every other module reads through one of two paths, both **driven by `config.json`** —
+the XDG loader injects `~/.config/agent-utilities/config.json` (or
+`AGENT_UTILITIES_CONFIG_DIR`) into `os.environ` before anything reads it, so a JSON key
+`graph_db_uri` becomes `GRAPH_DB_URI`:
+
+1. **Typed `AgentConfig` field** (`Field(alias="MY_VAR")`, read `config.my_var`) — for
+   static settings parsed once at import.
+2. **`config.setting("MY_VAR", default, cast=…)`** — the sanctioned accessor for reads
+   that must stay **live** (daemon cadences, test-varied flags, runtime toggles). It
+   reads `os.environ` at call time with a declared default and type coercion (inferred
+   from the default's type, or pass `cast`).
+
+**Decision:** field for static, `setting()` for dynamic — **never** a bare
+`os.environ.get` / `os.getenv` / `os.environ[...]` read in a module. All `KG_*` /
+`GRAPH_*` / `EPISTEMIC_*` reads have been folded onto these paths (deployment-varying →
+`setting()`/field; pure load/cadence tunables → auto-sized via
+`compute_ingest_worker_count()` or named module constants). The gate now covers **every
+prefix**, not just the KG/graph ones; the remaining non-KG reads are a tracked burn-down
+in `scripts/env_flag_baseline.txt`.
+
 **Verdict legend**
 - **KEEP** — legitimate deployment config (path / DSN / secret / port / socket). Must be
   read via the central `config` object, not bare `os.environ`.
@@ -466,15 +489,23 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `MESSAGING_VOICECALL_APP_ID` / `MESSAGING_VOICECALL_TOKEN` / `MESSAGING_VOICECALL_FROM_NUMBER` | `None` | Twilio voice/SMS credentials (account SID / auth token / from number) |
 | `MESSAGING_NEXTCLOUD_URL` / `MESSAGING_NEXTCLOUD_TOKEN` / `MESSAGING_NEXTCLOUD_APP_ID` | `None` | Nextcloud Talk credentials (URL / app token / username) |
 
-## H. Flags read outside `AgentConfig` (frozen bare-read baseline)
+## H. Former bare `KG_*`/`GRAPH_*`/`EPISTEMIC_*` reads (now folded)
 
-`scripts/check_no_env_sprawl.py` ratchets bare `KG_*`/`GRAPH_*`/`EPISTEMIC_*`
-`os.environ` reads against `scripts/env_flag_baseline.txt` (currently 75 frozen
-file+flag entries; new bare reads fail CI). Most baseline entries duplicate flags
-already documented above (`GRAPH_DB_*`, `GRAPH_BACKEND*`, `KG_DAEMON_ROLE`,
-`EPISTEMIC_GRAPH_SOCKET`/`_AUTOSTART`, `KG_BRAIN_ENFORCE`, ...). The remaining
-real, user-facing flags that exist ONLY as bare reads — with where they are read
-and their code defaults — are:
+Every governed (`KG_*`/`GRAPH_*`/`EPISTEMIC_*`) bare `os.environ` read has been
+**folded off `os.environ`** onto a centralized path, per *Configuration discipline*:
+
+- **Deployment-varying / behavioral / test-varied** → `config.setting("VAR", default)`
+  (live, config.json-driven). Still fully settable — set `var` in `config.json` or
+  `VAR` in the environment.
+- **Pure load tunables** (concurrency/batch) → **auto-sized** via
+  `compute_ingest_worker_count()`.
+- **Single-value cadences/limits/timeouts** → **named module constants** (no knob).
+
+`scripts/check_no_env_sprawl.py` now ratchets **all-prefix** bare reads against
+`scripts/env_flag_baseline.txt` (the governed reads are gone from it; what remains is
+the non-KG burn-down — `AGENT_*`, `VAULT_*`, `OTEL_*`, connector creds, …). The table
+below is the reference for these settings and how each is now resolved (defaults
+unchanged); for the `setting()` rows, the value is config.json-/env-overridable:
 
 | Flag | Default | Read in | What it sets |
 |---|---|---|---|
@@ -501,10 +532,15 @@ and their code defaults — are:
 | `GRAPH_SCHEMA_AUDIT_DIR` / `GRAPH_SCHEMA_AUDIT_VERBOSE` | unset / off | `models/schema_pack_audit.py` | Schema-audit output dir / verbosity |
 | `KG_PROVIDER_ADAPTER_BACKEND` | `static` | `prompting/provider_adapter.py` | Prompting provider-adapter backend |
 
-Per the *Configuration discipline* rule these should migrate onto `AgentConfig`
-when next touched; the baseline only prevents NEW sprawl. `MCP_CHILD_*` flags are
-NOT in this category — they are fully typed on `AgentConfig` with no bare reads
-(`mcp/child_resilience.py` consumes the config object).
+Disposition: the address / model-choice / behavioral / profile / schema rows
+(`KG_SERVER_*`, `GRAPH_ROUTING_STRATEGY`, `KG_CARD_MODEL`, `KG_GRAPH_NAME`,
+`KG_INGEST_*`, `KG_EVAL_CAPTURE`, `KG_MIN_RELEVANCE_THRESHOLD`, `KG_TRUST_HIERARCHY`,
+`GRAPH_SCHEMA_*`, `KG_PROVIDER_ADAPTER_BACKEND`, `KG_DAEMON_LOG_LEVEL`) are now
+`config.setting(...)` reads (config.json-/env-overridable). The cadence/limit/timeout
+rows (`KG_*_INTERVAL`, `KG_TASK_*`, `KG_LLM_TIMEOUT`/`_MAX_RETRIES`,
+`KG_EMBED_BACKFILL_*`, `GRAPH_SERVICE_CHECKPOINT_INTERVAL`) are now named module
+constants. `MCP_CHILD_*` flags were already fully typed on `AgentConfig` with no bare
+reads (`mcp/child_resilience.py` consumes the config object).
 
 The agent toolset gates in `tools/tool_registry.py` are also bare reads (not
 KG-prefixed, so outside the ratchet). The optional-infra toolsets all default

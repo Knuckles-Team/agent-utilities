@@ -12,12 +12,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+
+from agent_utilities.core.config import setting
 
 from .cards import CapabilityCard, LLMFn, generate_symbol_cards
 from .classify import TestThresholds, classify_test
@@ -578,7 +579,7 @@ def make_batch_parse_fn(graph_compute: Any) -> BatchParseFn | None:
     except Exception:  # noqa: BLE001
         return None
     try:
-        chunk = max(1, int(os.environ.get("KG_PARSE_BATCH", "512")))
+        chunk = max(1, setting("KG_PARSE_BATCH", 512))
     except ValueError:
         chunk = 512
 
