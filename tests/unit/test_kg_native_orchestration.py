@@ -443,7 +443,7 @@ class TestShareableTeamConfigs:
 
         g = GraphComputeEngine(backend_type="rust")
         # Isolate on this engine's own connection: wipe team_config nodes leaked
-        # by other tests into the shared __bus__ graph before asserting counts.
+        # by other tests into the shared __commons__ graph before asserting counts.
         try:
             g._client.graph.clear()
         except Exception:

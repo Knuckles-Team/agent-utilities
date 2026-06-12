@@ -77,7 +77,7 @@ __all__ = [
 
 #: Fallback default graph when no config object is reachable. The runtime
 #: default lives on ``AgentConfig.kg_default_graph`` (KG_DEFAULT_GRAPH).
-DEFAULT_GRAPH = "__bus__"
+DEFAULT_GRAPH = "__commons__"
 
 #: The historical single-endpoint default (matches the engine's own fallback).
 DEFAULT_LOCAL_ENDPOINT = "unix:///tmp/epistemic-graph.sock"  # nosec B108
@@ -96,7 +96,7 @@ def _config(config: Any = None) -> Any:
 
 
 def default_graph_name(config: Any = None) -> str:
-    """The configured default graph (``KG_DEFAULT_GRAPH``, default ``__bus__``)."""
+    """The configured default graph (``KG_DEFAULT_GRAPH``, default ``__commons__``)."""
     cfg = _config(config)
     return getattr(cfg, "kg_default_graph", DEFAULT_GRAPH) or DEFAULT_GRAPH
 

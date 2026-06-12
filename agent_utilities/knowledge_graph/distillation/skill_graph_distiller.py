@@ -119,7 +119,7 @@ class SkillGraphDistiller:
             manifest for provenance; the client itself is already bound).
     """
 
-    def __init__(self, client: Any, graph_name: str = "__bus__") -> None:
+    def __init__(self, client: Any, graph_name: str = "__commons__") -> None:
         self.client = client
         self.graph_name = graph_name
         # ``Any`` (not ``Any | None``): a ``False`` sentinel marks "tried & failed"
@@ -141,7 +141,7 @@ class SkillGraphDistiller:
         ``GraphComputeEngine``'s endpoint resolution) and return a distiller."""
         from epistemic_graph.client import EpistemicGraphClient
 
-        gname = graph_name or os.environ.get("KG_GRAPH_NAME", "__bus__")
+        gname = graph_name or os.environ.get("KG_GRAPH_NAME", "__commons__")
 
         # Resolve endpoint/secret the same way the compute engine does, so the
         # distiller reads from exactly the graph the ingestion plane writes to.
@@ -868,7 +868,7 @@ def main() -> None:
     parser.add_argument(
         "--graph-name",
         default=None,
-        help="Tenant graph (default $KG_GRAPH_NAME or __bus__).",
+        help="Tenant graph (default $KG_GRAPH_NAME or __commons__).",
     )
     parser.add_argument("--out-dir", required=True, help="Output directory.")
     parser.add_argument(
