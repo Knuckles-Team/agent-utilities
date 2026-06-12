@@ -10,8 +10,11 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from agent_utilities.mcp.multiplexer import (
     MCPMultiplexer,
+    SessionVisibilityMiddleware,
     _register_meta_tools,
     get_server_prefix,
 )
@@ -529,15 +532,51 @@ async def test_meta_tools_registered_and_load_exposes(tmp_path):
     await load.fn(servers=[CNT])
 
     names_after = await _registered_tool_names(mcp)
-    assert CNT_PREFIXED in names_after
+    assert CNT_PREFIXED in names_after  # forwarder registered process-globally
     assert CNT_PREFIXED in mux._exposed
+    # ...and made visible to this (default, context-less) session.
+    assert CNT_PREFIXED in mux.session_loaded("__default__")
 
-    # unload retracts it again.
+    # unload retracts it from THIS session; the forwarder stays registered
+    # (other sessions may still have it loaded) — visibility is the middleware's job.
     unload = await mcp.get_tool("unload_tools")
     await unload.fn(tools=[CNT_PREFIXED])
-    names_final = await _registered_tool_names(mcp)
-    assert CNT_PREFIXED not in names_final
-    assert CNT_PREFIXED not in mux._exposed
+    assert CNT_PREFIXED not in mux.session_loaded("__default__")
+    assert CNT_PREFIXED in mux._exposed  # still globally registered
+
+
+async def test_per_session_disclosure_isolation(tmp_path):
+    """Plan Phase 5: one session's load_tools must not leak to another session."""
+    from fastmcp import Client, FastMCP
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    mux._global_visible = {
+        "find_tools",
+        "list_catalog",
+        "load_tools",
+        "unload_tools",
+        "multiplexer_status",
+    }
+    mcp.add_middleware(SessionVisibilityMiddleware(mux))
+
+    async with Client(mcp) as a:
+        # Session A loads the container server's tools.
+        await a.call_tool("load_tools", {"servers": [CNT]})
+        a_tools = {t.name for t in await a.list_tools()}
+        # A fresh session B has loaded nothing.
+        async with Client(mcp) as b:
+            b_tools = {t.name for t in await b.list_tools()}
+            # B cannot even call A's tool (gated until B loads it).
+            with pytest.raises(Exception):
+                await b.call_tool(CNT_PREFIXED, {})
+
+    # A sees its loaded tool + the meta-tools; B sees only the meta-tools.
+    assert CNT_PREFIXED in a_tools
+    assert CNT_PREFIXED not in b_tools
+    assert {"find_tools", "load_tools"} <= a_tools
+    assert {"find_tools", "load_tools"} <= b_tools
 
 
 async def test_find_tools_meta_returns_structured(tmp_path):

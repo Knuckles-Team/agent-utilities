@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Any
 
 import mcp.types
+from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import Middleware
 from fastmcp.tools import FunctionTool, ToolResult
 from mcp import StdioServerParameters, stdio_client
 from mcp import types as mcp_types  # stable alias: the ``mcp`` param shadows the pkg
@@ -182,7 +184,7 @@ def _format_probe_error(exc: BaseException) -> str:
     def _walk(e: BaseException) -> None:
         subs = getattr(e, "exceptions", None)
         if isinstance(e, BaseExceptionGroup) or (
-            subs and isinstance(subs, (list, tuple))
+            subs and isinstance(subs, list | tuple)
         ):
             for sub in subs:
                 _walk(sub)
@@ -216,7 +218,16 @@ class MCPMultiplexer:
         # started. ``_exposed`` tracks prefixed tool names currently registered
         # as live FastMCP tools (so lazy mounts don't double-register).
         self._catalog: dict[str, dict] | None = None
+        # ``_exposed`` tracks prefixed tools registered as live FastMCP tools
+        # (process-global, so lazy mounts don't double-register). Visibility,
+        # however, is PER-SESSION on a shared HTTP server (CONCEPT:ECO-4.36,
+        # plan Phase 5): a forwarder is registered once but only listed/callable
+        # for sessions that have ``load_tools``-ed it. ``_session_loaded`` maps a
+        # session id -> the prefixed names that session has loaded; meta-tools and
+        # always-on tools live in ``_global_visible`` and are shown to everyone.
         self._exposed: set[str] = set()
+        self._session_loaded: dict[str, set[str]] = {}
+        self._global_visible: set[str] = set()
         # CONCEPT:ECO-4.36 — self-catalog: per-server {"tools": [...], "error": str|None}
         # learned by probing each child (connect → list_tools → release), cached so
         # find_tools ranks real fleet-wide tools without holding connections and
@@ -837,7 +848,9 @@ class MCPMultiplexer:
             )
         return out
 
-    async def discover_tools(self, query: str, top_k: int | None = None) -> dict:
+    async def discover_tools(
+        self, query: str, top_k: int | None = None, loaded: set[str] | None = None
+    ) -> dict:
         """Rank candidate tools across the whole fleet for an NL ``query``
         (CONCEPT:ECO-4.36), without exposing or holding any child.
 
@@ -900,7 +913,8 @@ class MCPMultiplexer:
                         "description": desc,
                         "score": round(score, 4),
                         "mountable": server in catalog,
-                        "mounted": prefixed in self._exposed,
+                        "mounted": prefixed
+                        in (loaded if loaded is not None else self._exposed),
                     }
                 )
 
@@ -1052,6 +1066,25 @@ class MCPMultiplexer:
         self._exposed.discard(prefixed_name)
         return owner
 
+    def session_loaded(self, session_key: str) -> set[str]:
+        """The set of prefixed tools loaded (visible) for one session."""
+        return self._session_loaded.setdefault(session_key, set())
+
+    def requested_prefixed(
+        self, tools: list[str] | None, servers: list[str] | None
+    ) -> list[str]:
+        """All catalog prefixed names a ``load_tools`` request resolves to.
+
+        Unlike ``resolve_and_mount`` (which returns only the *newly registerable*
+        names), this is the FULL set the requesting session should see — including
+        tools another session already registered. Call after ``resolve_and_mount``
+        so the owning children are mounted and known.
+        """
+        wanted: set[str] = set(tools or [])
+        for server in servers or []:
+            wanted.update(t.name for t in self.prefixed_tools_for_server(server))
+        return sorted(n for n in wanted if n in self.tool_to_server)
+
     def status_snapshot(self) -> dict[str, Any]:
         """Fleet health surface: per-child state, limits, load, restarts."""
         return {
@@ -1172,6 +1205,63 @@ async def _notify_tools_changed(mcp) -> None:
         logger.warning("Could not send tools/list_changed notification: %s", e)
 
 
+def _session_key() -> str:
+    """Stable per-connection key for session-scoped tool visibility.
+
+    On a shared streamable-http server every client gets its own
+    ``Context.session_id``; with no session context (stdio / single-client) all
+    requests fall back to one key so behaviour matches the pre-Phase-5 server.
+    """
+    try:
+        from fastmcp.server.dependencies import get_context
+
+        sid = get_context().session_id
+        if sid:
+            return str(sid)
+    except Exception:
+        pass
+    return "__default__"
+
+
+class SessionVisibilityMiddleware(Middleware):
+    """Per-session progressive disclosure (CONCEPT:ECO-4.36, plan Phase 5).
+
+    Child forwarders are registered process-globally (once) but a shared server
+    must not leak one session's ``load_tools`` to another. This middleware scopes
+    ``tools/list`` — and gates ``tools/call`` — to each session's loaded set, plus
+    the always-visible meta/always-on tools (``mux._global_visible``). Composes
+    with the Eunomia principal filter (both must allow a tool to appear).
+    """
+
+    def __init__(self, mux: MCPMultiplexer) -> None:
+        self.mux = mux
+
+    def _visible(self, name: str) -> bool:
+        if name in self.mux._global_visible:
+            return True
+        return name in self.mux._session_loaded.get(_session_key(), set())
+
+    async def on_list_tools(self, context, call_next):
+        tools = await call_next(context)
+        return [t for t in tools if self._visible(t.name)]
+
+    async def on_call_tool(self, context, call_next):
+        name = getattr(context.message, "name", None)
+        # Only gate child forwarders (registered but not globally visible); a tool
+        # this session hasn't loaded behaves as "unknown" until load_tools.
+        if (
+            name
+            and name in self.mux._exposed
+            and name not in self.mux._global_visible
+            and name not in self.mux._session_loaded.get(_session_key(), set())
+        ):
+            raise ToolError(
+                f"Tool '{name}' is not loaded in this session. "
+                f"Call load_tools(tools=['{name}']) first."
+            )
+        return await call_next(context)
+
+
 def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     """Register the dynamic-gateway meta-tools (CONCEPT:ECO-4.36):
     ``find_tools`` (semantic discovery over the whole fleet), ``list_catalog``
@@ -1180,7 +1270,8 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     plus the status tool."""
 
     async def _find_tools(query: str, top_k: int = 0) -> ToolResult:
-        discovery = await mux.discover_tools(query, top_k=top_k or None)
+        loaded = mux.session_loaded(_session_key())
+        discovery = await mux.discover_tools(query, top_k=top_k or None, loaded=loaded)
         results = discovery["results"]
         payload = {
             "query": query,
@@ -1201,18 +1292,25 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
         mounted_servers, to_expose, failed = await mux.resolve_and_mount(
             tools=tools, servers=servers
         )
-        newly: list[str] = []
+        # Register forwarders process-globally (once); visibility is per-session.
         for name in to_expose:
             tool_obj = mux.tool_object(name)
-            if tool_obj is not None and _register_forwarder(mcp, mux, tool_obj):
-                newly.append(name)
+            if tool_obj is not None:
+                _register_forwarder(mcp, mux, tool_obj)
+        # Make the full resolved set visible to THIS session (incl. tools another
+        # session already registered).
+        session_names = mux.requested_prefixed(tools, servers)
+        loaded = mux.session_loaded(_session_key())
+        newly = [n for n in session_names if n not in loaded]
+        loaded.update(session_names)
         if newly:
             await _notify_tools_changed(mcp)
         payload = {
             "mounted_servers": mounted_servers,
             "newly_exposed": newly,
             "failed": failed,
-            "total_exposed": len(mux._exposed),
+            "session_total": len(loaded),
+            "total_registered": len(mux._exposed),
         }
         return ToolResult(
             content=[
@@ -1222,19 +1320,15 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
         )
 
     async def _unload_tools(tools: list[str] | None = None) -> ToolResult:
-        removed: list[str] = []
-        for name in list(tools or []):
-            if name not in mux._exposed:
-                continue
-            try:
-                mcp.local_provider.remove_tool(name)
-            except KeyError:
-                pass
-            mux.forget_tool(name)
-            removed.append(name)
+        # Retract from THIS session only — the forwarder stays registered (other
+        # sessions may still have it loaded); the middleware just stops listing it.
+        loaded = mux.session_loaded(_session_key())
+        removed = [n for n in list(tools or []) if n in loaded]
+        for name in removed:
+            loaded.discard(name)
         if removed:
             await _notify_tools_changed(mcp)
-        payload = {"unloaded": removed, "total_exposed": len(mux._exposed)}
+        payload = {"unloaded": removed, "session_total": len(loaded)}
         return ToolResult(
             content=[
                 mcp_types.TextContent(type="text", text=json.dumps(payload, indent=2))
@@ -1436,6 +1530,18 @@ async def _serve(args, mcp, mux: MCPMultiplexer) -> None:
                 for tool in tools:
                     _register_forwarder(mcp, mux, tool)
             _register_meta_tools(mcp, mux)
+            # Tools every session always sees: the meta-tools + any always-on
+            # forwarders (snapshot now, before on-demand loads register more).
+            mux._global_visible = set(mux._exposed) | {
+                "find_tools",
+                "list_catalog",
+                "load_tools",
+                "unload_tools",
+                "multiplexer_status",
+            }
+            # Per-session progressive disclosure (plan Phase 5): scope tools/list
+            # and tools/call to each session's loaded set on a shared server.
+            mcp.add_middleware(SessionVisibilityMiddleware(mux))
             logger.info(
                 "Dynamic gateway: %d always-on tools from %d child(ren) "
                 "(%s) + meta-tools; %d more servers mountable on demand. "
