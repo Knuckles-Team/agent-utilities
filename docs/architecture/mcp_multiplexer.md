@@ -233,6 +233,15 @@ mcp-multiplexer --transport streamable-http --host 0.0.0.0 --port 8000 \
 Front it with Caddy (`reverse_proxy multiplexer:8000`) and point remote clients
 at `http://multiplexer.arpa/mcp`.
 
+**Minimal image.** The multiplexer is a thin MCP routing layer — it imports none
+of agent-utilities' heavy base deps (no KG engine, llama-index, kafka, …) and
+reaches `graph-os` over MCP as an optional child, never embedded. So
+`docker/Dockerfile.multiplexer` installs the package `--no-deps` plus only the
+~7 light runtime deps (`docker/requirements-multiplexer.txt`) — a ~370MB image
+vs multi-GB for `agent-utilities[all]`. `find_tools` works on the self-cataloging
+probe even when `graph-os` is unavailable; the KG only adds optional semantic
+re-ranking.
+
 ### C. Hybrid homelab fleet (the real setup)
 
 `graph-os` local stdio + 52 deployed `-mcp` servers as streamable-http behind
