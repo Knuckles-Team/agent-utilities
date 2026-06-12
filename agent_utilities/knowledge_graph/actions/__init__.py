@@ -56,6 +56,7 @@ from .effects import (
     evaluate_submission_criteria,
 )
 from .executor import ActionExecutor, reset_persistence_cache
+from .fleet_writeback import register_fleet_writeback
 from .models import (
     ActionEffect,
     ActionEffectSpec,
@@ -77,6 +78,7 @@ from .registry import ActionHandler, ActionRegistry
 # DEFAULT_EXECUTOR below binds these registered actions to a live governed path.
 DEFAULT_REGISTRY = ActionRegistry()
 register_builtins(DEFAULT_REGISTRY)
+register_fleet_writeback(DEFAULT_REGISTRY)
 
 DEFAULT_EXECUTOR = ActionExecutor(DEFAULT_REGISTRY)
 

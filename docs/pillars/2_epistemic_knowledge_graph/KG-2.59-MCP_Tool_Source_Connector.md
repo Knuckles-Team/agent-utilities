@@ -87,9 +87,34 @@ KG-2.8). Live-path test:
 `tests/integration/protocols/test_mcp_tool_connector_live_path.py` (in-process
 FastMCP server with canned sql-mcp / objectstore-mcp envelopes).
 
+## Write-back — the symmetric side (CONCEPT:KG-2.42)
+
+Ingestion *reads* records out of the fleet; the symmetric path *writes* a mutation
+back to the source of record. `call_tool_once()` (same module) is the write-side
+twin of the connector — one fleet tool call, reusing the identical transport
+resolution and `action`+`params_json` assembly — and the governed
+**`fleet.write_record`** ontology action (`knowledge_graph/actions/fleet_writeback.py`)
+wraps it so every external write runs through the action executor: authorization
+(`required_capability="fleet_write"`), approval-gateability, and an audited
+`ActionInvocation`. A KG decision can thus update ServiceNow / ERPNext / any fleet
+system through the same tools ingestion reads from — turning the KG into a *system
+of action*, not just a read model. The caller supplies the exact
+server/tool/action/params (no per-vendor write path is hand-coded):
+
+```python
+execute_action("fleet.write_record", {
+    "server": "servicenow-mcp", "tool": "servicenow_table_api",
+    "action": "patch_table_record",
+    "params": {"table": "incident", "sys_id": "...", "state": "6"},
+})
+```
+
 ## Implementation Details
 - **Source Code**: `agent_utilities/protocols/source_connectors/connectors/mcp_tool.py`
-  (`McpToolSourceConnector`, `McpToolSourceError`, `MCP_TOOL_PRESETS`)
+  (`McpToolSourceConnector`, `McpToolSourceError`, `MCP_TOOL_PRESETS`, `call_tool_once`);
+  write-back action in `agent_utilities/knowledge_graph/actions/fleet_writeback.py`
+  (`fleet.write_record`, registered into `DEFAULT_REGISTRY`)
 - **Tests**: `tests/unit/protocols/test_mcp_tool_source_connector.py`,
-  `tests/integration/protocols/test_mcp_tool_connector_live_path.py`
+  `tests/integration/protocols/test_mcp_tool_connector_live_path.py`,
+  `tests/unit/knowledge_graph/test_fleet_writeback.py`
 - **Pillar**: KG

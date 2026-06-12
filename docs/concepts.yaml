@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 180
+total_concepts: 183
 total_pillars: 18
 pillars:
 - AHE-3
@@ -583,13 +583,13 @@ concepts:
   - agent_utilities/http/redaction.py
   doc: Fleet HTTP Client Library
 - id: ECO-4.36
-  name: dynamic tool gateway state. The catalog is the
+  name: catalog-aware, collision-free prefix assignment
   pillar: ECO-4
   status: live
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/mcp/multiplexer.py
-  doc: dynamic tool gateway state. The catalog is the
+  doc: catalog-aware, collision-free prefix assignment
 - id: ECO-4.37
   name: Surface Gateway Client SDK
   pillar: ECO-4
@@ -1393,7 +1393,9 @@ concepts:
   - agent_utilities/knowledge_graph/actions/dispatch.py
   - agent_utilities/knowledge_graph/actions/effects.py
   - agent_utilities/knowledge_graph/actions/executor.py
+  - agent_utilities/knowledge_graph/actions/fleet_writeback.py
   - agent_utilities/knowledge_graph/actions/models.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: Palantir submission-criteria gate. An action with no
 - id: KG-2.43
   name: the write-back leg of the edit ledger. Sinks are registered
@@ -1581,6 +1583,31 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: MCP Tool Source Connector
+- id: KG-2.60
+  name: Data is private-to-its-owner by default; this is the explicit promotion path. action=
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/brain_guarded_backend.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/tenant_sharing.py
+  - agent_utilities/mcp/kg_server.py
+  doc: Data is private-to-its-owner by default; this is the explicit promotion path. action=
+- id: KG-2.61
+  name: ──
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+  doc: ──
+- id: KG-2.62
+  name: The elastic layer over KG-2.58 shard routing
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/tenant_engine_pool.py
+  doc: The elastic layer over KG-2.58 shard routing
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -2250,6 +2277,7 @@ concepts:
   pillar: OS-5
   status: live
   code_paths:
+  - agent_utilities/core/sessions.py
   - agent_utilities/gateway/fleet.py
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/security/tool_guard.py
@@ -2261,8 +2289,10 @@ concepts:
   code_paths:
   - agent_utilities/cli/__init__.py
   - agent_utilities/cli/__main__.py
+  - agent_utilities/core/sessions.py
   - agent_utilities/observability/correlation.py
   - agent_utilities/observability/langfuse_exporter.py
+  - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
   - agent_utilities/security/run_token.py
   doc: establish a run-wide correlation id so every nested
@@ -2289,6 +2319,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/core/sessions.py
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
@@ -2296,6 +2327,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ontology/permissioning.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/observability/correlation.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/security/brain_context.py
   - agent_utilities/security/request_identity.py
