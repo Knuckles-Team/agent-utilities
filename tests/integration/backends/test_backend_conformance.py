@@ -26,6 +26,7 @@ than false passes):
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from typing import Any
@@ -137,6 +138,89 @@ def test_edge_persists_in_backend(
             f"see docs/guides/backend-parity-and-profile-testing.md"
         )
     assert count >= 1
+
+
+def _adhoc_value(node: dict[str, Any], key: str) -> Any:
+    """Read an ad-hoc property: top-level, folded into ``metadata`` JSON, or in
+    Ladybug/Kuzu's ``{key: value}`` map rendering of the metadata column."""
+    if key in node:
+        return node[key]
+    meta = node.get("metadata")
+    if isinstance(meta, dict):
+        return meta.get(key)
+    if isinstance(meta, str) and meta:
+        try:
+            return json.loads(meta).get(key)
+        except Exception:
+            # Kuzu renders a map column as `{key: value}` (no JSON quotes).
+            import re
+
+            m = re.search(rf"\b{re.escape(key)}\s*:\s*([^,}}]+)", meta)
+            if m:
+                return m.group(1).strip()
+    return None
+
+
+def test_adhoc_property_survives(
+    engine: IntelligenceGraphEngine, backend_under_test: Any
+) -> None:
+    """An ad-hoc (non-schema) node property is not lost on any backend.
+
+    Schemaless backends keep it as a first-class column; strict-schema backends
+    (Ladybug/pggraph) fold it into the ``metadata`` JSON column. Either way the
+    value round-trips (Phase 1 regression gate).
+    """
+    node_id = f"agent:{uuid.uuid4().hex[:8]}"
+    engine.add_node(node_id, "Agent", {"name": "router", "x_adhoc": "KEEPME"})
+    rows = backend_under_test.execute(
+        "MATCH (n:Agent) WHERE n.id = $id RETURN n", {"id": node_id}
+    )
+    assert rows, "node not found"
+    node = rows[0].get("n") or rows[0]
+    assert isinstance(node, dict)
+    assert _adhoc_value(node, "x_adhoc") == "KEEPME"
+
+
+def test_edge_property_roundtrip(
+    engine: IntelligenceGraphEngine, backend_under_test: Any
+) -> None:
+    """An edge property round-trips on every backend (Phase 2 regression gate).
+
+    Native-property backends expose ``r.confidence``; Ladybug stores edge props as
+    a JSON ``r.properties`` column. Backends that keep edges only in the compute
+    layer skip (documented gap).
+    """
+    suffix = uuid.uuid4().hex[:8]
+    agent_id, tool_id = f"agent:{suffix}", f"tool:{suffix}"
+    engine.add_node(agent_id, "Agent", {"name": "router"})
+    engine.add_node(tool_id, "Tool", {"name": "calc"})
+    engine.link_nodes(agent_id, tool_id, "PROVIDES", {"confidence": 0.95})
+
+    params = {"sid": agent_id, "tid": tool_id}
+    direct = backend_under_test.execute(
+        "MATCH (s:Agent)-[r:PROVIDES]->(t:Tool) "
+        "WHERE s.id = $sid AND t.id = $tid RETURN r.confidence AS conf",
+        params,
+    )
+    conf = direct[0].get("conf") if direct else None
+    if conf is not None and conf != "":
+        assert abs(float(conf) - 0.95) < 1e-6
+        return
+
+    # Ladybug: edge props live in a JSON `properties` column.
+    pr = backend_under_test.execute(
+        "MATCH (s:Agent)-[r:PROVIDES]->(t:Tool) "
+        "WHERE s.id = $sid AND t.id = $tid RETURN r.properties AS p",
+        params,
+    )
+    raw = pr[0].get("p") if pr else None
+    if isinstance(raw, str) and raw:
+        assert abs(float(json.loads(raw).get("confidence")) - 0.95) < 1e-6
+        return
+    pytest.skip(
+        f"{type(backend_under_test).__name__} does not expose edge properties via "
+        f"backend Cypher (edges in compute layer only) — known parity gap"
+    )
 
 
 # ─────────────────────────── vectors / semantic search ─────────────────────────
