@@ -156,6 +156,10 @@ def __getattr__(name):
         from .server import create_agent_server
 
         return create_agent_server
+    elif name == "GatewayClient":
+        from .gateway_client import GatewayClient
+
+        return GatewayClient
     elif name == "CodemapGenerator":
         from .knowledge_graph.core.codemaps import CodemapGenerator
 
@@ -459,6 +463,7 @@ __all__ = [
     "create_agent",
     "create_agent_parser",
     "create_agent_server",
+    "GatewayClient",
     # Graph orchestration
     "GraphState",
     "create_master_graph",
