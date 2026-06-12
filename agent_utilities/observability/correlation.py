@@ -33,6 +33,10 @@ _correlation_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 TRACEPARENT_HEADER = "traceparent"
 CORRELATION_HEADER = "x-correlation-id"
 SESSION_HEADER = "x-session-id"
+# Originating identity, so an external write is joinable back to the tenant/actor
+# that caused it (CONCEPT:OS-5.14 + OS-5.11), not just the correlation id.
+TENANT_HEADER = "x-tenant-id"
+ACTOR_HEADER = "x-actor-id"
 
 
 def _hex(n: int) -> str:
@@ -125,6 +129,18 @@ def inject(headers: dict[str, str] | None = None) -> dict[str, str]:
     sid = tracing.get_session_id()
     if sid:
         headers[SESSION_HEADER] = sid
+    # Carry the originating identity alongside the trace so downstream/external
+    # writes are joinable back to the tenant/actor (CONCEPT:OS-5.14).
+    try:
+        from agent_utilities.security.brain_context import current_actor
+
+        actor = current_actor()
+        if actor.tenant_id:
+            headers[TENANT_HEADER] = actor.tenant_id
+        if actor.actor_id and actor.actor_id != "system":
+            headers[ACTOR_HEADER] = actor.actor_id
+    except Exception:  # noqa: BLE001 — identity is best-effort context
+        pass
     return headers
 
 

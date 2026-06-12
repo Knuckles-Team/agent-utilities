@@ -1,0 +1,189 @@
+# Multi-tenant graph-os over streamable-HTTP — cloud profile (CONCEPT:OS-5.14 + KG-2.58).
+#
+# Three tiers from ONE image (`graph-os`), differing from the Swarm profile only
+# in replica counts and placement:
+#   * front  — stateless streamable-HTTP MCP surface (autoscaled, KG_DAEMON_ROLE=client)
+#   * engine — per-tenant L1 shards (StatefulSet; KG-2.58 HRW routes tenant→shard)
+#   * state  — central Postgres (pggraph L3 + STATE_DB_URI) is referenced, not created here
+#
+# The front tier's served-security profile (request_identity.apply_served_security_profile)
+# refuses to start without AUTH_JWT_JWKS_URI and turns on auth + enforcement, so
+# every caller is identified and tenant-scoped. Apply deploy/postgres/tenant_rls.sql
+# to the L3 database once for DB-level isolation (KG-2.61).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: graphos
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: graphos-env
+  namespace: graphos
+data:
+  TRANSPORT: "streamable-http"
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  # Served-security profile turns these on automatically; pinned here for clarity.
+  KG_AUTH_REQUIRED: "1"
+  KG_BRAIN_ENFORCE: "1"
+  # OIDC identity (Keycloak). The JWKS URI is mandatory for the served profile.
+  AUTH_JWT_JWKS_URI: "https://keycloak.example.com/realms/agent-os/protocol/openid-connect/certs"
+  AUTH_JWT_ISSUER: "https://keycloak.example.com/realms/agent-os"
+  AUTH_JWT_AUDIENCE: "graph-os"
+  # Commons (shared, cross-org) graph name — tenants route to tenant__<slug>__<this>.
+  KG_DEFAULT_GRAPH: "__bus__"
+  # KG-2.58 engine shards (headless StatefulSet DNS). HRW routes each tenant graph
+  # to exactly one shard; add/remove endpoints to scale the engine tier.
+  GRAPH_SERVICE_ENDPOINTS: "tcp://graphos-engine-0.graphos-engine:9090,tcp://graphos-engine-1.graphos-engine:9090,tcp://graphos-engine-2.graphos-engine:9090"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: graphos-secrets
+  namespace: graphos
+type: Opaque
+stringData:
+  # Central durable state (sessions/goals/durable_checkpoints — OS-5.16) and the
+  # L3 pggraph store. Point both at the managed/HA Postgres.
+  STATE_DB_URI: "postgresql://agent:CHANGE_ME@postgres.graphos.svc:5432/agent_state"
+  GRAPH_DB_URI: "postgresql://agent:CHANGE_ME@postgres.graphos.svc:5432/agent_kg"
+---
+# ── FRONT TIER — stateless streamable-HTTP MCP surface ────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graphos-front
+  namespace: graphos
+  labels: {app: graphos, tier: front}
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: graphos, tier: front}
+  template:
+    metadata:
+      labels: {app: graphos, tier: front}
+    spec:
+      containers:
+        - name: graph-os
+          image: ghcr.io/your-org/graph-os:latest
+          args: ["graph-os", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - {name: http, containerPort: 8000}
+          envFrom:
+            - configMapRef: {name: graphos-env}
+            - secretRef: {name: graphos-secrets}
+          env:
+            # Front pods are engine CLIENTS — they never own a local L1 engine.
+            - {name: KG_DAEMON_ROLE, value: "client"}
+          readinessProbe:
+            httpGet: {path: /api/health, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /api/health, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: {cpu: "250m", memory: "512Mi"}
+            limits: {cpu: "2", memory: "2Gi"}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graphos-front
+  namespace: graphos
+spec:
+  selector: {app: graphos, tier: front}
+  ports:
+    - {name: http, port: 80, targetPort: http}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: graphos-front
+  namespace: graphos
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: graphos-front}
+  minReplicas: 3
+  maxReplicas: 50
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: graphos
+  namespace: graphos
+  annotations:
+    # MCP streamable-HTTP holds a long-lived response stream; keep the proxy from
+    # buffering/timing it out, and pin sessions so a stream stays on one pod.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  rules:
+    - host: graphos.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: graphos-front
+                port: {name: http}
+  tls:
+    - hosts: [graphos.example.com]
+      secretName: graphos-tls
+---
+# ── ENGINE TIER — per-tenant L1 shards (KG-2.58) ──────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: graphos-engine
+  namespace: graphos
+spec:
+  clusterIP: None  # headless → stable per-pod DNS for HRW endpoints
+  selector: {app: graphos, tier: engine}
+  ports:
+    - {name: engine, port: 9090, targetPort: engine}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: graphos-engine
+  namespace: graphos
+spec:
+  serviceName: graphos-engine
+  replicas: 3  # = number of shards; each owns a disjoint set of tenant graphs
+  selector:
+    matchLabels: {app: graphos, tier: engine}
+  template:
+    metadata:
+      labels: {app: graphos, tier: engine}
+    spec:
+      containers:
+        - name: engine
+          image: ghcr.io/your-org/graph-os:latest
+          # The engine host process binds the L1 compute and mirrors to L3.
+          command: ["graph-os-daemon"]
+          ports:
+            - {name: engine, containerPort: 9090}
+          envFrom:
+            - configMapRef: {name: graphos-env}
+            - secretRef: {name: graphos-secrets}
+          env:
+            - {name: KG_DAEMON_ROLE, value: "host"}
+            - {name: EPISTEMIC_GRAPH_AUTOSTART, value: "1"}
+            - {name: GRAPH_SERVICE_TCP_ADDR, value: "0.0.0.0:9090"}
+          resources:
+            requests: {cpu: "1", memory: "2Gi"}
+            limits: {cpu: "4", memory: "8Gi"}
+      # Each shard is pinned so a graph's HRW winner is stable across restarts.
+  volumeClaimTemplates:
+    - metadata: {name: engine-data}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: {requests: {storage: 20Gi}}

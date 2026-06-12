@@ -630,6 +630,14 @@ class AgentConfig(BaseSettings):
     kg_anomaly_consumer: bool = Field(default=True, alias="KG_ANOMALY_CONSUMER")
     # Interval (s) for the leaked-community-tenant GC tick (Phase A2).
     kg_tenant_gc_interval: float = Field(default=300.0, alias="KG_TENANT_GC_INTERVAL")
+
+    kg_engine_pool_size: int = Field(default=0, alias="KG_ENGINE_POOL_SIZE")
+    """Max warm per-tenant engine clients kept resident in one process
+    (CONCEPT:KG-2.62). The elastic layer over KG-2.58 shard routing: only the N
+    most-recently-used tenant graphs stay warm; cold ones are evicted (the
+    durable L3 mirror keeps them) and re-hydrated on the next access. ``0``
+    (default) disables pooling — engines are constructed per use exactly as
+    today, so single-tenant/local deployments are unaffected."""
     # Fuseki ontology distribution (CONCEPT:KG-2.52) — opt-in daemon tick that
     # pushes the bundled ontology modules to an Apache Jena Fuseki triplestore
     # (KG-2.6 distribution, operationalized). Off by default because a Fuseki

@@ -30,6 +30,7 @@ back-compat), ``KG_AUTH_TOKEN``, and the pre-existing ``AUTH_JWT_JWKS_URI`` /
 
 import json
 import logging
+import os
 from typing import Any
 
 from ..models.company_brain import ActorType
@@ -61,6 +62,86 @@ def warn_unauthenticated_identity_once() -> None:
         "_actor/_roles/_tenant kwargs are trusted as-is. Set KG_AUTH_REQUIRED=1 "
         "and AUTH_JWT_JWKS_URI to enforce server-validated JWT identity. "
         "(CONCEPT:OS-5.14)"
+    )
+
+
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+_FALSEY = frozenset({"0", "false", "no", "off"})
+
+# Network MCP transports expose graph-os to many clients at once. Serving them
+# without server-validated identity is the "security fails open" condition, so
+# the served profile is enforced for these transports (CONCEPT:OS-5.14).
+SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
+
+
+def apply_served_security_profile(transport: str, config: Any = None) -> None:
+    """Turn on fail-closed identity + enforcement for a network MCP transport.
+
+    graph-os over ``streamable-http``/``sse`` is a multi-client surface, so it
+    must not run in the honor-system mode that is fine for ``stdio``/local dev.
+    When serving such a transport this:
+
+    * **refuses to start** if ``AUTH_JWT_JWKS_URI`` is unset — a public surface
+      with no way to validate a JWT is fail-open, so we fail loud instead;
+    * turns on ``KG_AUTH_REQUIRED`` (rejects unauthenticated HTTP — which also
+      makes the privileged ``SYSTEM_ACTOR`` ambient fallback unreachable over
+      the network) and ``KG_BRAIN_ENFORCE`` (tenant scoping + ACLs), unless an
+      operator has explicitly pinned either flag.
+
+    Opt out for local network dev with ``KG_SERVED_PROFILE=0`` (logs a loud
+    warning and leaves the honor-system behaviour in place). No-op for
+    ``stdio``/unknown transports, so existing deployments are byte-for-byte
+    unaffected. Idempotent.
+    """
+    if transport not in SERVED_TRANSPORTS:
+        return
+
+    if config is None:
+        from agent_utilities.core.config import config as _config
+
+        config = _config
+
+    opt_out = os.getenv("KG_SERVED_PROFILE", "").strip().lower()
+    if opt_out in _FALSEY:
+        logger.warning(
+            "KG_SERVED_PROFILE=0: serving graph-os over %s WITHOUT enforced "
+            "identity. Every caller is trusted as-is — use only for local dev. "
+            "(CONCEPT:OS-5.14)",
+            transport,
+        )
+        warn_unauthenticated_identity_once()
+        return
+
+    jwks = getattr(config, "auth_jwt_jwks_uri", None)
+    if not jwks:
+        raise RuntimeError(
+            f"Refusing to serve graph-os over {transport}: AUTH_JWT_JWKS_URI is "
+            "not configured, so client identity cannot be validated and the "
+            "surface would be fail-open. Set AUTH_JWT_JWKS_URI (and AUTH_JWT_"
+            "ISSUER/AUDIENCE), or set KG_SERVED_PROFILE=0 to override for local "
+            "dev only. (CONCEPT:OS-5.14)"
+        )
+
+    # Honor an operator who has explicitly pinned a flag (even to off); only
+    # supply the secure default when the flag is unset.
+    if os.getenv("KG_AUTH_REQUIRED") is None:
+        os.environ["KG_AUTH_REQUIRED"] = "1"
+    # The live middleware reads the singleton config, so mutate it too.
+    try:
+        config.kg_auth_required = os.environ["KG_AUTH_REQUIRED"].strip().lower() in _TRUTHY
+    except Exception:  # noqa: BLE001 - frozen/odd config must not block startup
+        pass
+    if os.getenv("KG_BRAIN_ENFORCE") is None:
+        os.environ["KG_BRAIN_ENFORCE"] = "1"
+
+    logger.warning(
+        "graph-os served profile ACTIVE over %s: KG_AUTH_REQUIRED=%s, "
+        "KG_BRAIN_ENFORCE=%s, JWKS=%s. Unauthenticated requests are rejected "
+        "and reads/writes are tenant-scoped. (CONCEPT:OS-5.14)",
+        transport,
+        os.environ.get("KG_AUTH_REQUIRED"),
+        os.environ.get("KG_BRAIN_ENFORCE"),
+        jwks,
     )
 
 
@@ -246,9 +327,11 @@ class ActorIdentityMiddleware:
 __all__ = [
     "ActorIdentityMiddleware",
     "HEALTH_PATHS",
+    "SERVED_TRANSPORTS",
     "UNAUTHENTICATED_PATHS",
     "actor_from_bearer_token",
     "actor_from_claims",
+    "apply_served_security_profile",
     "mint_actor_from_token_sync",
     "warn_unauthenticated_identity_once",
 ]

@@ -79,3 +79,40 @@ def test_traceparent_is_w3c_shaped():
         assert parts[3] == "01"
 
     ctx.run(body)
+
+
+# --- identity propagation (CONCEPT:OS-5.14 + OS-5.11) -----------------------
+
+
+def test_inject_carries_tenant_and_actor():
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.observability.correlation import (
+        ACTOR_HEADER,
+        TENANT_HEADER,
+        ensure_correlation_id,
+        inject,
+    )
+    from agent_utilities.security.brain_context import ActorContext, use_actor
+
+    actor = ActorContext(
+        actor_id="alice", actor_type=ActorType.HUMAN, tenant_id="acme", authenticated=True
+    )
+    with use_actor(actor):
+        ensure_correlation_id()
+        headers = inject({})
+    assert headers[TENANT_HEADER] == "acme"
+    assert headers[ACTOR_HEADER] == "alice"
+
+
+def test_inject_omits_system_actor_identity():
+    from agent_utilities.observability.correlation import (
+        ACTOR_HEADER,
+        TENANT_HEADER,
+        inject,
+    )
+
+    # No actor in scope → ambient SYSTEM_ACTOR (tenant="", actor="system");
+    # identity headers must be absent (nothing to attribute).
+    headers = inject({})
+    assert TENANT_HEADER not in headers
+    assert ACTOR_HEADER not in headers
