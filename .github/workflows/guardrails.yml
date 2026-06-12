@@ -80,6 +80,13 @@ jobs:
       - name: Config-flag anti-sprawl gate
         run: python3 scripts/check_no_env_sprawl.py
 
+      # BLOCKING: liveness ratchet (CE-038) — no NEW dead pathways. Complements the
+      # static check_wiring gate with the typed-seam/contract-drift + never-executed
+      # layers; fails only on regression vs .liveness_baseline.json. Skips cleanly
+      # if the code-enhancer skill (universal-skills) is not installed.
+      - name: Liveness ratchet gate
+        run: python3 scripts/check_liveness.py
+
       # ADVISORY: the coupling gate enforces that geniusbot imports
       # agent_utilities only via the allowlisted adapter seam. Kept advisory so
       # in-flight decoupling churn cannot red the build. Flip continue-on-error

@@ -1,0 +1,9 @@
+{
+  "counts": {
+    "orphan_modules": 125,
+    "dead_definitions": 475,
+    "never_executed": 0,
+    "untyped_seams": 776,
+    "orphan_read_keys": 33
+  }
+}
