@@ -203,7 +203,11 @@ class ConnectionRegistry:
         ``fanout=True`` is the signal that callers (notably writes) require an
         *explicit* multi-target request before fanning out.
         """
-        if target is None:
+        # Only an explicit str/list is a real target. Anything else (None, or an
+        # unresolved pydantic ``FieldInfo`` default when a tool fn is called
+        # directly rather than via ``_execute_tool``) routes to the default —
+        # never a spurious fan-out.
+        if target is None or not isinstance(target, (str, list, tuple)):
             return [self._default_target], False
         if isinstance(target, (list, tuple)):
             names = [str(x).strip() for x in target if str(x).strip()]

@@ -1675,9 +1675,9 @@ async def graph_configure_doctor_endpoint(request: Request) -> JSONResponse:
 
 
 # Default agent identity for provenance tracking
-_AGENT_ID = os.environ.get("AGENT_ID", f"mcp-client-{uuid.uuid4().hex[:8]}")
-_SESSION_ID = os.environ.get("SESSION_ID", uuid.uuid4().hex)
-_WORKSPACE_PATH = os.environ.get("WORKSPACE_PATH", os.getcwd())
+_AGENT_ID = setting("AGENT_ID", f"mcp-client-{uuid.uuid4().hex[:8]}")
+_SESSION_ID = setting("SESSION_ID", uuid.uuid4().hex)
+_WORKSPACE_PATH = setting("WORKSPACE_PATH", os.getcwd())
 
 
 _ENGINE_LOCK = threading.Lock()

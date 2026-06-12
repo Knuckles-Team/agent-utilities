@@ -16,6 +16,8 @@ from typing import Any, Literal
 from pydantic_ai import Agent
 from pydantic_graph import End
 
+from agent_utilities.core.config import setting
+
 try:
     from pydantic_graph.graph_builder import Graph, GraphBuilder
     from pydantic_graph.step import StepContext
@@ -416,12 +418,10 @@ def create_agent(
         if DEFAULT_VALIDATION_MODE:
             logger.info("Registry Graph: Skipping initialization in VALIDATION_MODE.")
         else:
-            import os
-
             from agent_utilities.core.paths import data_dir
 
             ws = get_agent_workspace()
-            if os.environ.get("AGENT_UTILITIES_TESTING"):
+            if setting("AGENT_UTILITIES_TESTING"):
                 registry_db = ws / ".agent_utilities_test" / "kg" / "registry_graph.db"
             else:
                 registry_db = data_dir() / "kg" / "registry_graph.db"

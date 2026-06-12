@@ -6,11 +6,12 @@ opencode, devin) with unified support for prompts and override/auto-approve mode
 """
 
 import logging
-import os
 import shlex
 import subprocess
 import uuid
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ def launch_agent_in_terminal(
 
     try:
         # Check if we are already inside a tmux session
-        if os.environ.get("TMUX"):
+        if setting("TMUX"):
             # Launch in a new window within current session
             launch_cmd = ["tmux", "new-window", "-n", final_session_name, cmd]
         else:

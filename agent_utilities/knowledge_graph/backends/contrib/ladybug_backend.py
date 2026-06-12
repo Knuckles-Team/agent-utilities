@@ -198,7 +198,7 @@ class LadybugBackend(GraphBackend):
             )
         self._local = threading.local()
         self.db_path = db_path
-        self.read_only = os.environ.get("LADYBUG_DB_READ_ONLY", "0").lower() in (
+        self.read_only = setting("LADYBUG_DB_READ_ONLY", "0").lower() in (
             "1",
             "true",
             "yes",
@@ -217,14 +217,16 @@ class LadybugBackend(GraphBackend):
 
         # Transient connection mode closes the database connection after every query
         # to allow multiple concurrent writer processes to work without file locks.
-        transient_env = os.environ.get("LADYBUG_TRANSIENT_CONNECTIONS")
+        transient_env = setting("LADYBUG_TRANSIENT_CONNECTIONS")
         if transient_env is not None:
             self.transient = transient_env.lower() in ("1", "true", "yes")
         else:
             # Default to transient if we are in testing mode to avoid hung pytests
-            self.transient = os.environ.get(
-                "AGENT_UTILITIES_TESTING", "false"
-            ).lower() in ("1", "true", "yes")
+            self.transient = setting("AGENT_UTILITIES_TESTING", "false").lower() in (
+                "1",
+                "true",
+                "yes",
+            )
 
         if self.db_path == ":memory:":
             self.transient = False
@@ -277,7 +279,7 @@ class LadybugBackend(GraphBackend):
 
         for attempt in range(retries):
             try:
-                buffer_size = os.getenv("LADYBUG_MAX_DB_SIZE") or os.getenv(
+                buffer_size = setting("LADYBUG_MAX_DB_SIZE") or setting(
                     "LADYBUG_BUFFER_SIZE"
                 )
                 from typing import Any
@@ -549,13 +551,13 @@ class LadybugBackend(GraphBackend):
         a persistent connection pool (G2) for minimal overhead.
         """
         is_testing = (
-            os.environ.get("AGENT_UTILITIES_TESTING") == "true"
+            setting("AGENT_UTILITIES_TESTING") == "true"
             or "pytest" in sys.modules
-            or os.getenv("PYTEST_CURRENT_TEST") is not None
+            or setting("PYTEST_CURRENT_TEST") is not None
         )
-        is_validation = os.environ.get("DEFAULT_VALIDATION_MODE") == "true"
+        is_validation = setting("DEFAULT_VALIDATION_MODE") == "true"
         is_server = (
-            os.environ.get("IS_KG_SERVER") == "true"
+            setting("IS_KG_SERVER") == "true"
             or "agent_utilities.mcp.kg_server" in sys.modules
         )
 
@@ -570,11 +572,11 @@ class LadybugBackend(GraphBackend):
 
             url = f"http://{kg_host}:{kg_port}/cypher"
             headers = {
-                "X-Agent-ID": os.getenv("AGENT_NAME")
-                or os.getenv("AGENT_ID")
+                "X-Agent-ID": setting("AGENT_NAME")
+                or setting("AGENT_ID")
                 or "anonymous_agent",
-                "X-Session-ID": os.getenv("SESSION_ID")
-                or os.getenv("CHAT_SESSION_ID")
+                "X-Session-ID": setting("SESSION_ID")
+                or setting("CHAT_SESSION_ID")
                 or "default_session",
             }
 

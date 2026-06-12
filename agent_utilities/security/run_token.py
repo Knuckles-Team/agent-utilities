@@ -19,13 +19,15 @@ import os
 import time
 from dataclasses import dataclass
 
+from agent_utilities.core.config import setting
+
 # Per-process signing-secret fallback (dev/test); env-provided in production.
 _EPHEMERAL: bytes | None = None
 
 
 def _secret() -> bytes:
     """Signing secret (env-provided in production; ephemeral per-process fallback for dev/tests)."""
-    val = os.environ.get("AGENT_UTILITIES_TOKEN_SECRET")
+    val = setting("AGENT_UTILITIES_TOKEN_SECRET")
     if val:
         return val.encode()
     # Stable within a process so mint/validate agree; not persisted (dev/test default).

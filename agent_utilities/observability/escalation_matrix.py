@@ -26,13 +26,13 @@ verb genuinely pauses for a human before its handler runs.
 """
 
 import logging
-import os
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import IntEnum, StrEnum
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.observability.audit_logger import (
     RESOURCE_TOOL,
     AuditLogger,
@@ -174,7 +174,7 @@ class EscalationMatrix:
         - HIGH risk → operator approval required, 5-minute timeout, auto-deny.
         - CRITICAL risk → admin approval required, wait forever, auto-deny.
         """
-        timeout = float(os.getenv("HITL_ESCALATION_TIMEOUT", "300"))
+        timeout = float(setting("HITL_ESCALATION_TIMEOUT", "300"))
         no = EscalationRule(require_approval=False)
         return cls(
             {

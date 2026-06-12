@@ -35,12 +35,13 @@ from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from agent_utilities.core.config import setting
 from agent_utilities.models.goal import GoalIteration, GoalSpec, GoalStatus
 
 logger = logging.getLogger(__name__)
 
 # Resolved paths
-DEFAULT_AGENT_DIR = Path(os.getenv("AGENT_WORKSPACE", "workspace"))
+DEFAULT_AGENT_DIR = Path(setting("AGENT_WORKSPACE", "workspace"))
 DEFAULT_AGENT_DIR.mkdir(parents=True, exist_ok=True)
 
 # In-memory cache of active runs (durable source of truth is the goals table).
@@ -670,9 +671,9 @@ async def run_goal_loop(
         if desired:
             final = GoalStatus.PAUSED if desired == "pause" else GoalStatus.CANCELLED
             active_goals[goal_id]["status"] = final
-            active_goals[goal_id][
-                "summary"
-            ] = f"Goal {final.value} by fleet supervisor request."
+            active_goals[goal_id]["summary"] = (
+                f"Goal {final.value} by fleet supervisor request."
+            )
             _persist_goal(goal_id)
             try:
                 conn = _connect_db()
@@ -802,9 +803,9 @@ async def run_goal_loop(
 
     final_status = GoalStatus.COMPLETED if success else GoalStatus.FAILED
     active_goals[goal_id]["status"] = final_status
-    active_goals[goal_id][
-        "summary"
-    ] = f"Goal finished with status: {final_status.value}. Iterations run: {iterations_run}."
+    active_goals[goal_id]["summary"] = (
+        f"Goal finished with status: {final_status.value}. Iterations run: {iterations_run}."
+    )
     _persist_goal(goal_id)
 
     try:

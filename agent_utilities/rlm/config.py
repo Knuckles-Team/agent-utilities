@@ -1,7 +1,8 @@
-import os
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from agent_utilities.core.config import setting
 
 from ..base_utilities import to_boolean
 
@@ -42,7 +43,7 @@ class RLMConfig(BaseModel):
     """
 
     enabled: bool = Field(
-        default_factory=lambda: to_boolean(os.getenv("ENABLE_RLM", "False")),
+        default_factory=lambda: to_boolean(setting("ENABLE_RLM", "False")),
         description="Whether RLM is enabled globally (overrides all triggers).",
     )
 
@@ -62,22 +63,22 @@ class RLMConfig(BaseModel):
     )
 
     use_container: bool = Field(
-        default_factory=lambda: to_boolean(os.getenv("RLM_USE_CONTAINER", "False")),
+        default_factory=lambda: to_boolean(setting("RLM_USE_CONTAINER", "False")),
         description="Whether to run the REPL in a sandboxed container. If false, uses restricted local exec().",
     )
 
     use_wasm: bool = Field(
-        default_factory=lambda: to_boolean(os.getenv("RLM_USE_WASM", "False")),
+        default_factory=lambda: to_boolean(setting("RLM_USE_WASM", "False")),
         description="Whether to run the REPL in a high-performance WASM sandbox (WasmAgentRunner). Overrides use_container.",
     )
 
     use_monty: bool = Field(
-        default_factory=lambda: to_boolean(os.getenv("RLM_USE_MONTY", "False")),
+        default_factory=lambda: to_boolean(setting("RLM_USE_MONTY", "False")),
         description="Force the monty sandbox (fast in-process isolation with host callbacks). Overrides use_wasm/use_container.",
     )
 
     sandbox: Literal["auto", "local", "monty", "wasm", "docker"] = Field(
-        default_factory=lambda: os.getenv("RLM_SANDBOX", "auto"),  # type: ignore[arg-type]
+        default_factory=lambda: setting("RLM_SANDBOX", "auto"),  # type: ignore[arg-type]
         description=(
             "CONCEPT:ORCH-1.38 — sandbox selection. 'auto' engages the capability-driven "
             "router (cheapest capable backend, escalate on reject); any explicit value pins "

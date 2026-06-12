@@ -102,6 +102,18 @@ def test_resolve_names_modes(registry):
     assert registry.resolve_names(["a"]) == (["a"], False)
 
 
+def test_non_str_target_routes_to_default(registry):
+    # A tool fn called directly (not via _execute_tool) passes the unresolved
+    # pydantic FieldInfo default for `target`; that must route to the default
+    # connection, never a spurious fan-out.
+    class _FieldInfoLike:
+        def __str__(self):
+            return "annotation=NoneType required=False default='' description='...'"
+
+    assert registry.resolve_names(_FieldInfoLike()) == (["default"], False)
+    assert registry.resolve_names(object()) == (["default"], False)
+
+
 def test_unknown_named_target_raises(registry):
     with pytest.raises(KeyError):
         registry.get_engine("nope")

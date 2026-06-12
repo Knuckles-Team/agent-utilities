@@ -14,6 +14,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
     CAPABILITY_MATRIX,
@@ -56,9 +57,8 @@ class SignalBackend(MessagingBackend):
             raise ImportError(
                 "Install: pip install agent-utilities[messaging-signal]"
             ) from None
-        import os
 
-        phone = self.config.token or os.environ.get("SIGNAL_PHONE_NUMBER", "")
+        phone = self.config.token or setting("SIGNAL_PHONE_NUMBER", "")
         if not phone:
             raise ValueError("Set SIGNAL_PHONE_NUMBER.")
         self._bot = Bot(phone)

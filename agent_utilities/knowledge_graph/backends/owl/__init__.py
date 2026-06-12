@@ -17,7 +17,8 @@ Environment Variables:
 """
 
 import logging
-import os
+
+from agent_utilities.core.config import setting
 
 from .base import OWLBackend
 
@@ -47,7 +48,7 @@ def create_owl_backend(
         ValueError: If the requested backend type is unknown.
     """
     backend_type = (
-        (backend_type or os.environ.get("OWL_BACKEND") or "owlready2").lower().strip()
+        (backend_type or setting("OWL_BACKEND") or "owlready2").lower().strip()
     )
 
     if backend_type == "owlready2":

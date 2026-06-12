@@ -14,6 +14,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
     CAPABILITY_MATRIX,
@@ -56,9 +57,8 @@ class LINEBackend(MessagingBackend):
             raise ImportError(
                 "Install: pip install agent-utilities[messaging-line]"
             ) from None
-        import os
 
-        token = self.config.token or os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+        token = self.config.token or setting("LINE_CHANNEL_ACCESS_TOKEN", "")
         if not token:
             raise ValueError("Set LINE_CHANNEL_ACCESS_TOKEN.")
         config = Configuration(access_token=token)

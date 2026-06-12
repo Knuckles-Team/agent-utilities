@@ -4,9 +4,10 @@
 import asyncio
 import json
 import logging
-import os
 import threading
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 from .queue_backend import QueueBackend
 
@@ -23,7 +24,7 @@ class NatsQueueBackend(QueueBackend):
 
     def __init__(self, fallback_db_path: str, nats_url: str | None = None):
         self.fallback_db_path = fallback_db_path
-        self.nats_url = nats_url or os.environ.get(
+        self.nats_url = nats_url or setting(
             "AGENT_UTILITIES_NATS_URL", "nats://localhost:4222"
         )
         self._fallback_queue: Any = None
@@ -35,9 +36,7 @@ class NatsQueueBackend(QueueBackend):
         # nats-py's initial-connect retry loop ignores connect_timeout/max_reconnect_attempts when the
         # broker is absent and can spin for ~2 minutes, blowing past test/timeout budgets. wait_for
         # cancels after a few seconds so construction always degrades to the SQLite fallback promptly.
-        eager_timeout = float(
-            os.environ.get("AGENT_UTILITIES_NATS_CONNECT_TIMEOUT", "3.0")
-        )
+        eager_timeout = float(setting("AGENT_UTILITIES_NATS_CONNECT_TIMEOUT", "3.0"))
         try:
             self._loop = asyncio.new_event_loop()
             self._run_sync(

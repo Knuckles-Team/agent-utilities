@@ -13,6 +13,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
     CAPABILITY_MATRIX,
@@ -55,11 +56,10 @@ class TwitchBackend(MessagingBackend):
             raise ImportError(
                 "Install: pip install agent-utilities[messaging-twitch]"
             ) from None
-        import os
 
-        token = self.config.token or os.environ.get("TWITCH_OAUTH_TOKEN", "")
+        token = self.config.token or setting("TWITCH_OAUTH_TOKEN", "")
         channels = self.config.extra.get(
-            "channels", os.environ.get("TWITCH_CHANNELS", "").split(",")
+            "channels", setting("TWITCH_CHANNELS", "").split(",")
         )
         if not token:
             raise ValueError("Set TWITCH_OAUTH_TOKEN.")

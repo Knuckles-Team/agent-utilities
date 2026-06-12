@@ -2,6 +2,8 @@ import logging
 
 from fastapi import APIRouter, Request
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/enhanced", tags=["Enhanced API"])
@@ -112,7 +114,7 @@ async def list_sdd_specs():
 
         from ...sdd import SDDManager
 
-        workspace = os.environ.get("WORKSPACE_PATH") or os.getcwd()
+        workspace = setting("WORKSPACE_PATH") or os.getcwd()
         manager = SDDManager(workspace_path=workspace)
         raw_specs = manager.list_specs()
     except Exception as e:  # noqa: BLE001

@@ -1,6 +1,5 @@
 import base64
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +8,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
 from pydantic_ai import BinaryContent
 
-from agent_utilities.core.config import config
+from agent_utilities.core.config import config, setting
 
 from ..models import ModelDefinition, ModelRegistry
 from .models import ReloadableApp
@@ -147,7 +146,7 @@ def _build_model_from_registry(
     try:
         from agent_utilities.core.model_factory import create_model
 
-        api_key = os.getenv(definition.api_key_env) if definition.api_key_env else None
+        api_key = setting(definition.api_key_env) if definition.api_key_env else None
         return create_model(
             provider=definition.provider,
             model_id=definition.model_id,

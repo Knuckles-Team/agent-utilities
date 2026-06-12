@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.security.run_token import mint_token
 
 COMPONENTS = ("daemon", "mcp", "gateway")
@@ -26,7 +27,7 @@ COMPONENTS = ("daemon", "mcp", "gateway")
 
 def runtime_dir(namespace: str) -> Path:
     """Namespaced runtime root (isolates parallel stacks; mirrors open-design's ``.tmp/<namespace>``)."""
-    base = os.environ.get("AGENT_UTILITIES_RUNTIME_DIR") or os.path.join(
+    base = setting("AGENT_UTILITIES_RUNTIME_DIR") or os.path.join(
         tempfile.gettempdir(), "agent-utilities"
     )
     return Path(base) / namespace

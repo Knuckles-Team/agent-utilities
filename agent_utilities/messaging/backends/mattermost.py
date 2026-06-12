@@ -14,6 +14,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
     CAPABILITY_MATRIX,
@@ -55,9 +56,8 @@ class MattermostBackend(MessagingBackend):
             raise ImportError(
                 "Install: pip install agent-utilities[messaging-mattermost]"
             ) from None
-        import os
 
-        url = self.config.extra.get("url", os.environ.get("MATTERMOST_URL", ""))
+        url = self.config.extra.get("url", setting("MATTERMOST_URL", ""))
         if not url or not self.config.token:
             raise ValueError("Set MATTERMOST_URL and MATTERMOST_TOKEN.")
         self._driver = Driver(

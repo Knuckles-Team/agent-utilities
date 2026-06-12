@@ -27,12 +27,16 @@ the XDG loader injects `~/.config/agent-utilities/config.json` (or
    from the default's type, or pass `cast`).
 
 **Decision:** field for static, `setting()` for dynamic — **never** a bare
-`os.environ.get` / `os.getenv` / `os.environ[...]` read in a module. All `KG_*` /
-`GRAPH_*` / `EPISTEMIC_*` reads have been folded onto these paths (deployment-varying →
-`setting()`/field; pure load/cadence tunables → auto-sized via
-`compute_ingest_worker_count()` or named module constants). The gate now covers **every
-prefix**, not just the KG/graph ones; the remaining non-KG reads are a tracked burn-down
-in `scripts/env_flag_baseline.txt`.
+`os.environ.get` / `os.getenv` / `os.environ[...]` read in a module.
+
+**The fold is complete: ZERO bare env reads remain anywhere in `agent_utilities/`**
+(every prefix — `KG_*`, `GRAPH_*`, `AGENT_*`, `VAULT_*`, `OTEL_*`, connector creds, …).
+Deployment-varying/behavioral flags → `setting()` (or a typed field); pure load/cadence
+tunables → auto-sized via `compute_ingest_worker_count()` or named module constants.
+`scripts/check_no_env_sprawl.py` covers **every prefix** and its baseline
+(`scripts/env_flag_baseline.txt`) is **empty** — any new bare read fails CI.
+`setting()` itself lives in the dependency-free `core/_env.py` (re-exported by
+`config`) so it stays importable while `config` is still initializing.
 
 **Verdict legend**
 - **KEEP** — legitimate deployment config (path / DSN / secret / port / socket). Must be

@@ -12,6 +12,8 @@ the filters without needing per-file boilerplate.
 import os
 import warnings
 
+from agent_utilities.core.config import setting
+
 # ruff: noqa: E402, F401
 
 # ── Centralized warning suppression ──────────────────────────────────
@@ -449,7 +451,7 @@ def __getattr__(name):
 # Set environment variables without using to_boolean
 os.environ.setdefault("OTEL_ENABLE_OTEL", "false")
 os.environ.setdefault("LOGFIRE_SEND_TO_LOGFIRE", "false")
-if os.environ.get("ENABLE_OTEL", "True").lower() in ["true", "1", "yes"]:
+if setting("ENABLE_OTEL", "True").lower() in ["true", "1", "yes"]:
     os.environ.setdefault("OTEL_ENABLE_OTEL", "True")
 
 # ── Graph Integration ────────────────────────────────────────────────

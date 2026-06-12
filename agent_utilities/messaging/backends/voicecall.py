@@ -11,6 +11,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
     CAPABILITY_MATRIX,
@@ -50,10 +51,9 @@ class VoiceCallBackend(MessagingBackend):
             raise ImportError(
                 "Install: pip install agent-utilities[messaging-voicecall]"
             ) from None
-        import os
 
-        sid = self.config.app_id or os.environ.get("TWILIO_ACCOUNT_SID", "")
-        token = self.config.token or os.environ.get("TWILIO_AUTH_TOKEN", "")
+        sid = self.config.app_id or setting("TWILIO_ACCOUNT_SID", "")
+        token = self.config.token or setting("TWILIO_AUTH_TOKEN", "")
         if not sid or not token:
             raise ValueError("Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.")
         self._client = Client(sid, token)
@@ -71,10 +71,8 @@ class VoiceCallBackend(MessagingBackend):
     ) -> SendResult:
         """Send SMS via Twilio. CONCEPT:ECO-4.0"""
         try:
-            import os
-
             from_number = self.config.extra.get(
-                "from_number", os.environ.get("TWILIO_FROM_NUMBER", "")
+                "from_number", setting("TWILIO_FROM_NUMBER", "")
             )
             msg = await asyncio.to_thread(
                 self._client.messages.create,
@@ -97,10 +95,9 @@ class VoiceCallBackend(MessagingBackend):
         self, to: str, twiml: str = "", url: str = ""
     ) -> dict[str, Any]:
         """Initiate a voice call. CONCEPT:ECO-4.0"""
-        import os
 
         from_number = self.config.extra.get(
-            "from_number", os.environ.get("TWILIO_FROM_NUMBER", "")
+            "from_number", setting("TWILIO_FROM_NUMBER", "")
         )
         kwargs: dict[str, Any] = {"from_": from_number, "to": to}
         if twiml:

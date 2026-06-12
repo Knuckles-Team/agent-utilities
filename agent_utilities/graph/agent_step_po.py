@@ -26,15 +26,16 @@ Source: ``.specify/specs/reasoning-rl-2026/spec-arpo-agent-step-po.md``.
 
 import logging
 import math
-import os
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
 # Defaults are env-tunable; branching defaults ON at a sane threshold (Wire-First:
 # the live router activates it without a flag).
-DEFAULT_BRANCH_ENTROPY = float(os.getenv("ARPO_BRANCH_ENTROPY", "0.6"))
-DEFAULT_MAX_BRANCHES = int(os.getenv("ARPO_MAX_BRANCHES", "3"))
+DEFAULT_BRANCH_ENTROPY = float(setting("ARPO_BRANCH_ENTROPY", "0.6"))
+DEFAULT_MAX_BRANCHES = int(setting("ARPO_MAX_BRANCHES", "3"))
 
 
 def step_entropy(scores: list[float]) -> float:

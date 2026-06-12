@@ -30,13 +30,14 @@ URI reference resolution::
 import abc
 import json
 import logging
-import os
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 from pydantic import BaseModel, Field, SecretStr
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -340,9 +341,9 @@ class VaultBackend(SecretsBackend):
         self._path_prefix = path_prefix.rstrip("/") if path_prefix else None
         self._auth_method = auth_method
         self._auth_mount = auth_mount
-        self._role = role or os.getenv("VAULT_ROLE", "default")
-        self._role_id = role_id or os.getenv("VAULT_ROLE_ID")
-        self._secret_id = secret_id or os.getenv("VAULT_SECRET_ID")
+        self._role = role or setting("VAULT_ROLE", "default")
+        self._role_id = role_id or setting("VAULT_ROLE_ID")
+        self._secret_id = secret_id or setting("VAULT_SECRET_ID")
         self._k8s_sa_token_path = (
             k8s_sa_token_path or "/var/run/secrets/kubernetes.io/serviceaccount/token"
         )
@@ -350,7 +351,7 @@ class VaultBackend(SecretsBackend):
         self._token_auth_time: float = 0.0
 
         # Initialise hvac client — may not have a token yet
-        static_token = token or os.getenv("VAULT_TOKEN")
+        static_token = token or setting("VAULT_TOKEN")
         self._client = hvac.Client(url=url, token=static_token)
 
         # Authenticate using the configured method
@@ -638,7 +639,7 @@ class SecretsClient:
         if val is not None:
             return val
         if env_var:
-            return os.environ.get(env_var)
+            return setting(env_var)
         return None
 
     def get_secret(self, key: str) -> SecretValue | None:
@@ -654,7 +655,7 @@ class SecretsClient:
         Supported schemes:
 
         - ``vault://path/to/secret`` → backend lookup
-        - ``env://VAR_NAME`` → ``os.environ.get(VAR_NAME)``
+        - ``env://VAR_NAME`` → ``setting(VAR_NAME)``
         - ``sqlite://key`` → backend lookup
         - Plain string → backend lookup
 
@@ -666,7 +667,7 @@ class SecretsClient:
         """
         if ref.startswith("env://"):
             var_name = ref[len("env://") :]
-            return os.environ.get(var_name)
+            return setting(var_name)
         if ref.startswith("vault://") or ref.startswith("secret://"):
             key = ref.split("://", 1)[1]
             return self._backend.get(key)
@@ -703,21 +704,21 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
     """
     if config is None:
         config = SecretsConfig(
-            backend=os.getenv("SECRETS_BACKEND", "inmemory"),
-            sqlite_path=os.getenv("SECRETS_SQLITE_PATH"),
-            vault_url=os.getenv("SECRETS_VAULT_URL"),
-            vault_mount=os.getenv("SECRETS_VAULT_MOUNT", "secret"),
-            vault_auth_method=os.getenv("VAULT_AUTH_METHOD", "auto"),
-            vault_auth_mount=os.getenv("VAULT_AUTH_MOUNT", "jwt"),
-            vault_role=os.getenv("VAULT_ROLE"),
-            vault_path_prefix=os.getenv("VAULT_PATH_PREFIX"),
-            vault_role_id=os.getenv("VAULT_ROLE_ID"),
-            vault_secret_id=os.getenv("VAULT_SECRET_ID"),
-            vault_k8s_sa_token_path=os.getenv(
+            backend=setting("SECRETS_BACKEND", "inmemory"),
+            sqlite_path=setting("SECRETS_SQLITE_PATH"),
+            vault_url=setting("SECRETS_VAULT_URL"),
+            vault_mount=setting("SECRETS_VAULT_MOUNT", "secret"),
+            vault_auth_method=setting("VAULT_AUTH_METHOD", "auto"),
+            vault_auth_mount=setting("VAULT_AUTH_MOUNT", "jwt"),
+            vault_role=setting("VAULT_ROLE"),
+            vault_path_prefix=setting("VAULT_PATH_PREFIX"),
+            vault_role_id=setting("VAULT_ROLE_ID"),
+            vault_secret_id=setting("VAULT_SECRET_ID"),
+            vault_k8s_sa_token_path=setting(
                 "VAULT_K8S_SA_TOKEN_PATH",
                 "/var/run/secrets/kubernetes.io/serviceaccount/token",
             ),
-            master_key=os.getenv("AGENT_SECRETS_MASTER_KEY"),
+            master_key=setting("AGENT_SECRETS_MASTER_KEY"),
         )
 
     master_key_bytes: bytes | None = None

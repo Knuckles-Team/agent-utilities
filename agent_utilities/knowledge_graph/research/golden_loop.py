@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 from ..adaptation.topic_resolver import mark_addressed, unresolved_topics
 from .search import acquire_for_topic
@@ -59,7 +60,7 @@ class GoldenLoopController:
         regression_check: Any = None,
     ) -> None:
         self.engine = engine
-        self.codebase_root = codebase_root or os.getenv("WORKSPACE_PATH") or "."
+        self.codebase_root = codebase_root or setting("WORKSPACE_PATH") or "."
         # propose_only is always True in v1 — kept explicit so a future
         # human-approved apply path is a deliberate flip, never accidental.
         self.propose_only = propose_only

@@ -14,6 +14,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import CAPABILITY_MATRIX as CAP_MATRIX
 from agent_utilities.messaging.capabilities import MessagingCapabilities
@@ -55,13 +56,12 @@ class MatrixBackend(MessagingBackend):
             raise ImportError(
                 "Install: pip install agent-utilities[messaging-matrix]"
             ) from None
-        import os
 
         homeserver = self.config.extra.get(
-            "homeserver", os.environ.get("MATRIX_HOMESERVER", "")
+            "homeserver", setting("MATRIX_HOMESERVER", "")
         )
-        user_id = self.config.app_id or os.environ.get("MATRIX_USER_ID", "")
-        token = self.config.token or os.environ.get("MATRIX_ACCESS_TOKEN", "")
+        user_id = self.config.app_id or setting("MATRIX_USER_ID", "")
+        token = self.config.token or setting("MATRIX_ACCESS_TOKEN", "")
         if not homeserver or not token:
             raise ValueError("Set MATRIX_HOMESERVER and MATRIX_ACCESS_TOKEN.")
         self._client = AsyncClient(homeserver, user_id)

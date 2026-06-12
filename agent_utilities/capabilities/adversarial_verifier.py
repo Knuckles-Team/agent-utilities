@@ -28,10 +28,11 @@ See docs/pillars/3_agentic_harness_engineering.md §CONCEPT:AHE-3.1
 
 import asyncio
 import logging
-import os
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
+from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:
     from ..graph.state import GraphDeps, GraphState
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Default: disabled.  Set ADVERSARIAL_VERIFICATION=true to enable.
-ADVERSARIAL_ENABLED = os.getenv("ADVERSARIAL_VERIFICATION", "false").lower() in (
+ADVERSARIAL_ENABLED = setting("ADVERSARIAL_VERIFICATION", "false").lower() in (
     "true",
     "1",
     "yes",
