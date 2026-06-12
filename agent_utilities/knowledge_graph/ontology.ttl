@@ -28,11 +28,13 @@ Modular imports:
   - infrastructure: Runtime-agnostic infra topology (CONCEPT:OS-5.3)
   - banking, government, hr, legal, medical: Domain-specific extensions""" ;
     owl:imports <http://knuckles.team/kg/action>,
+        <http://knuckles.team/kg/archimate>,
         <http://knuckles.team/kg/capability>,
         <http://knuckles.team/kg/egeria>,
         <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,
         <http://knuckles.team/kg/harness>,
+        <http://knuckles.team/kg/leanix>,
         <http://knuckles.team/kg/media>,
         <http://knuckles.team/kg/personal>,
         <http://knuckles.team/kg/quant>,
