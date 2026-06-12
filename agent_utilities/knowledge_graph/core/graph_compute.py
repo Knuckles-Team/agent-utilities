@@ -112,7 +112,17 @@ class GraphComputeEngine:
             # tenant's graph (tenant__<t>__<base>) when one is in scope.
             graph_name = resolve_routing_graph(graph_name, config)
         elif graph_name is None:
-            graph_name = config.kg_default_graph
+            # Per-tenant named-graph isolation must NOT require multiple shards
+            # (CONCEPT:KG-2.60): with enforcement on, route the ambient tenant to
+            # its own named graph even on a single endpoint (HRW over one
+            # endpoint is the identity). With enforcement off this is byte-for-byte
+            # the legacy default-graph behaviour.
+            from .company_brain_runtime import brain_enforcement_enabled
+
+            if brain_enforcement_enabled():
+                graph_name = resolve_routing_graph(None, config)
+            else:
+                graph_name = config.kg_default_graph
         # Retained so downstream consumers (e.g. the delta-ingestion manifest)
         # can key state by tenant graph. (CONCEPT:KG-2.8)
         self.graph_name = graph_name
@@ -776,6 +786,22 @@ class GraphComputeEngine:
             tgt = edge_data["target"]
             props = edge_data.get("properties", {})
             self.add_edge(src, tgt, props)
+
+    def drop_graph(self) -> bool:
+        """Unload this engine's named graph from the running engine (free L1 memory).
+
+        The engine-side per-graph unload behind the KG-2.62 pool eviction hook:
+        deletes the tenant's named graph from the engine process. **Lossy unless
+        the data is durably mirrored to L3** (tiered backend), so the pool only
+        calls this when ``KG_ENGINE_POOL_DROP_ON_EVICT`` is set. Returns True on
+        success. Never raises — eviction must not crash a request.
+        """
+        try:
+            self._client.tenants.delete(self.graph_name)
+            return True
+        except Exception as exc:  # noqa: BLE001 — best-effort unload
+            logger.debug("drop_graph(%s) failed: %s", self.graph_name, exc)
+            return False
 
     def to_msgpack(self) -> bytes:
         """Serialize graph to MsgPack binary representation."""

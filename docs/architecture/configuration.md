@@ -46,6 +46,9 @@ enforces that flags are declared on `AgentConfig` (`core/config.py`), not read w
 | `KG_AUTH_REQUIRED` | `false` | Require server-validated JWT identity for KG access — 401 without it; caller `_actor`/`_roles`/`_tenant` kwargs ignored (CONCEPT:OS-5.14) |
 | `KG_AUTH_TOKEN` | — | JWT minting the stdio MCP process identity (validated against `AUTH_JWT_JWKS_URI`) (CONCEPT:OS-5.14) |
 | `KG_ACL_DEFAULT_ALLOW` | `false` | With `KG_BRAIN_ENFORCE` on: allow nodes WITHOUT an ACL (escape hatch from the fail-closed default-deny) (CONCEPT:OS-5.14) |
+| `KG_SERVED_PROFILE` | `true` | Fail-closed served-security profile for network MCP transports: refuse to start without `AUTH_JWT_JWKS_URI`, auto-enable auth + enforcement. `0` = serve open (local dev only) (CONCEPT:OS-5.14) |
+| `KG_ENGINE_POOL_SIZE` | `0` | Max warm per-tenant engine clients per process (elastic LRU pool over KG-2.58 routing); `0` = per-use construction (CONCEPT:KG-2.62) |
+| `KG_ENGINE_POOL_DROP_ON_EVICT` | `false` | On pool eviction also unload the tenant's named graph from the engine to reclaim memory — **only safe when L3 mirrors the data** (CONCEPT:KG-2.62) |
 | `GATEWAY_METRICS` | `true` | Python-tier Prometheus middleware + `GET /metrics` on the gateway (CONCEPT:OS-5.23) |
 | `GATEWAY_RATE_LIMIT` | `0` (off) | Per-tenant token-bucket rate limit, sustained req/s; buckets are per-process (CONCEPT:OS-5.23) |
 | `GATEWAY_RATE_BURST` | `0` (→ 2× rate) | Token-bucket burst capacity (CONCEPT:OS-5.23) |

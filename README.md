@@ -267,6 +267,8 @@ The detailed architectural diagrams and deep-dive documentation for `agent-utili
   * *Contains: the 6-layer model wired end-to-end — trust/conflict resolution & field-level survivorship, data permissions/tenancy/audit, feedback→rule→eval, retrieval budget, streams, `KG_BRAIN_ENFORCE`.*
 * **[Vendor-Neutral Enterprise Ontology](docs/architecture/vendor_neutral_enterprise_ontology.md)**
   * *Contains: the canonical ArchiMate crosswalk, vendor adapters, code→capability realization, and virtual REST federation.*
+* **[Multi-Tenant graph-os over Streamable-HTTP](docs/architecture/multi_tenant_streamable_http.md)**
+  * *Contains: hierarchical org→user isolation, private-by-default + commons/markings sharing, the five isolation layers (identity → named-graph → scope/visibility → Postgres RLS → audit), tenant-scoped fleet, and the elastic per-tenant engine pool.*
 
 ## External Agent Discovery (mcp_config.json)
 
@@ -369,6 +371,13 @@ queue-driven, policy-governed fleet (`STATE_DB_URI`, `GRAPH_SERVICE_ENDPOINTS`,
 > **[Enterprise Enablement Runbook](docs/guides/enterprise-enablement-runbook.md)**
 > is the ordered push → deploy → flag-enablement sequence (security → state → sharding
 > → brain → autonomy), each stage independently reversible and verified.
+
+> **Serving thousands of tenants over streamable-HTTP?** The
+> **[Multi-Tenant graph-os](docs/architecture/multi_tenant_streamable_http.md)**
+> architecture covers hierarchical org→user isolation, private-by-default sharing
+> with explicit commons/markings promotion, full tenant-stamped audit, and the
+> elastic per-tenant engine pool — with ready-to-edit k8s and Swarm manifests in
+> [`deploy/`](deploy/README.md).
 
 ## Quick Start
 

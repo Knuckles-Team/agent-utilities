@@ -31,6 +31,7 @@ def _user(actor_id="alice", tenant="acme", roles=()):
 def test_stamp_ownership_private_by_default():
     props: dict = {}
     ts.stamp_ownership(props, _user("alice", "acme"))
+    assert props[ts.TENANT_KEY] == "acme"  # drives the scope() predicate
     assert props[ts.OWNER_KEY] == "alice"
     assert props[ts.SCOPE_KEY] == ts.SCOPE_PRIVATE
 
@@ -39,6 +40,7 @@ def test_stamp_ownership_skips_privileged():
     props: dict = {}
     ts.stamp_ownership(props, _user("root", "acme", roles=("admin",)))
     assert ts.OWNER_KEY not in props  # privileged writes stay unowned/visible
+    assert props[ts.TENANT_KEY] == "acme"  # but still tenant-attributed
 
 
 def test_stamp_ownership_skips_system_actor():

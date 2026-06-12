@@ -77,3 +77,5 @@ agent_utilities/models/schema_pack_audit.py	GRAPH_SCHEMA_AUDIT_VERBOSE
 agent_utilities/models/schema_pack_loader.py	GRAPH_SCHEMA_PACK
 agent_utilities/orchestration/agent_runner.py	GRAPH_PERSISTENCE_PATH
 agent_utilities/prompting/provider_adapter.py	KG_PROVIDER_ADAPTER_BACKEND
+agent_utilities/security/request_identity.py	KG_AUTH_REQUIRED
+agent_utilities/security/request_identity.py	KG_BRAIN_ENFORCE

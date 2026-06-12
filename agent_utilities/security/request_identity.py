@@ -66,7 +66,6 @@ def warn_unauthenticated_identity_once() -> None:
 
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
-_FALSEY = frozenset({"0", "false", "no", "off"})
 
 # Network MCP transports expose graph-os to many clients at once. Serving them
 # without server-validated identity is the "security fails open" condition, so
@@ -101,8 +100,7 @@ def apply_served_security_profile(transport: str, config: Any = None) -> None:
 
         config = _config
 
-    opt_out = os.getenv("KG_SERVED_PROFILE", "").strip().lower()
-    if opt_out in _FALSEY:
+    if not getattr(config, "kg_served_profile", True):
         logger.warning(
             "KG_SERVED_PROFILE=0: serving graph-os over %s WITHOUT enforced "
             "identity. Every caller is trusted as-is — use only for local dev. "
