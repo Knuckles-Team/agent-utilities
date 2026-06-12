@@ -41,6 +41,12 @@ class EpistemicGraphBackend(GraphBackend):
         - Development/prototyping
     """
 
+    @property
+    def cypher_support(self) -> str:
+        """No Cypher engine: only the bounded operational subset the orchestration
+        engine emits is interpreted directly (CONCEPT:KG-2.63)."""
+        return "subset"
+
     def __init__(self) -> None:
         from ..core.graph_compute import GraphComputeEngine
 

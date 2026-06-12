@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 185
+total_concepts: 192
 total_pillars: 19
 pillars:
 - AHE-3
@@ -606,6 +606,72 @@ concepts:
   - agent_utilities/gateway_client/__init__.py
   - agent_utilities/gateway_client/client.py
   doc: Surface Gateway Client SDK
+- id: ECO-4.38
+  name: / ECO-4.42
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/ingestion/__init__.py
+  - agent_utilities/ingestion/agent_sources/__init__.py
+  - agent_utilities/ingestion/agent_sources/_jsonl.py
+  - agent_utilities/ingestion/agent_sources/parsers/__init__.py
+  - agent_utilities/ingestion/agent_sources/parsers/claude.py
+  - agent_utilities/ingestion/agent_sources/parsers/codex.py
+  - agent_utilities/ingestion/agent_sources/parsers/generic_jsonl.py
+  - agent_utilities/ingestion/agent_sources/registry.py
+  - agent_utilities/ingestion/collector.py
+  doc: / ECO-4.42
+- id: ECO-4.39
+  name: Usage analytics store. These pydantic models are the single
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/usage/__init__.py
+  - agent_utilities/usage/backend.py
+  - agent_utilities/usage/backends/__init__.py
+  - agent_utilities/usage/backends/duckdb_mirror.py
+  - agent_utilities/usage/backends/postgres.py
+  - agent_utilities/usage/backends/sql_base.py
+  - agent_utilities/usage/backends/sqlite_fts.py
+  - agent_utilities/usage/cost.py
+  - agent_utilities/usage/models.py
+  - agent_utilities/usage/recorder.py
+  - agent_utilities/usage/schema.py
+  - agent_utilities/usage/service.py
+  doc: Usage analytics store. These pydantic models are the single
+- id: ECO-4.40
+  name: single source of token cost for the whole stack, replacing
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/models/usage.py
+  - agent_utilities/pricing/__init__.py
+  - agent_utilities/pricing/catalog.py
+  - agent_utilities/pricing/fallback.py
+  - agent_utilities/pricing/litellm.py
+  - agent_utilities/pricing/normalize.py
+  - agent_utilities/pricing/store.py
+  doc: single source of token cost for the whole stack, replacing
+- id: ECO-4.41
+  name: usage/cost/observability surface for all 3 UIs
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/gateway/usage_api.py
+  - agent_utilities/gateway_client/client.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/server/app.py
+  doc: usage/cost/observability surface for all 3 UIs
+- id: ECO-4.42
+  name: clients parse local logs and POST normalized
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/gateway/usage_api.py
+  - agent_utilities/mcp/kg_server.py
+  doc: clients parse local logs and POST normalized
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -955,13 +1021,15 @@ concepts:
   - agent_utilities/security/threat_defense_engine.py
   doc: Generates actionable LLM artifacts from KG-ingested research
 - id: KG-2.7
-  name: / KG-2.10 — research assimilation + orchestration synthesis
+  name: the durable PostgreSQL graph tier executed via a bounded regex
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/__init__.py
+  - agent_utilities/api/sparql_server.py
   - agent_utilities/core/background_throttle.py
   - agent_utilities/core/config.py
+  - agent_utilities/gateway/graph_api.py
   - agent_utilities/graph/routing/strategies/query_tier.py
   - agent_utilities/knowledge_graph/adaptation/topic_resolver.py
   - agent_utilities/knowledge_graph/assimilation/__init__.py
@@ -973,7 +1041,9 @@ concepts:
   - agent_utilities/knowledge_graph/assimilation/pilot.py
   - agent_utilities/knowledge_graph/assimilation/plan_synthesis.py
   - agent_utilities/knowledge_graph/assimilation/synergy.py
+  - agent_utilities/knowledge_graph/backends/age_backend.py
   - agent_utilities/knowledge_graph/backends/base.py
+  - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/backends/cypher_transpiler.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
@@ -1003,7 +1073,7 @@ concepts:
   - agent_utilities/knowledge_graph/research/search.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/knowledge_graph.py
-  doc: / KG-2.10 — research assimilation + orchestration synthesis
+  doc: the durable PostgreSQL graph tier executed via a bounded regex
 - id: KG-2.8
   name: / OS-5.9 — the KG runs exactly ONE consolidated background daemon
   pillar: KG-2
@@ -1049,6 +1119,7 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/protocols/source_connectors/checkpoint.py
+  - agent_utilities/server/routers/commands.py
   doc: / OS-5.9 — the KG runs exactly ONE consolidated background daemon
 - id: KG-2.9
   name: which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle
@@ -1572,6 +1643,7 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/__init__.py
+  - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/ingest_engine.py
@@ -1616,6 +1688,19 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/core/tenant_engine_pool.py
   doc: The elastic layer over KG-2.58 shard routing
+- id: KG-2.63
+  name: Multi-Connection Graph Registry. The engine has always been
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/backends/age_backend.py
+  - agent_utilities/knowledge_graph/backends/base.py
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+  - agent_utilities/knowledge_graph/core/connection_registry.py
+  - agent_utilities/mcp/kg_server.py
+  doc: Multi-Connection Graph Registry. The engine has always been
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -2492,6 +2577,15 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/server/routers/commands.py
   doc: Declarative skill / skill-workflow scheduler
+- id: OS-5.31
+  name: persist this graph run as a runtime usage row so
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/observability/gateway_metrics.py
+  - agent_utilities/orchestration/engine.py
+  - agent_utilities/usage/recorder.py
+  doc: persist this graph run as a runtime usage row so
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

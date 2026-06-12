@@ -75,6 +75,26 @@ class GraphBackend(ABC):
         pass
 
     # ------------------------------------------------------------------
+    # Cypher portability tier  (CONCEPT:KG-2.63)
+    # ------------------------------------------------------------------
+
+    @property
+    def cypher_support(self) -> str:
+        """How much of openCypher this backend can run unchanged.
+
+        Drives capability-aware multi-connection fan-out (CONCEPT:KG-2.63): when
+        the SAME query is run against several connections, a backend that can
+        only serve a bounded subset can be surfaced honestly rather than failing
+        silently. Values:
+
+        * ``"full"`` — native openCypher (neo4j, falkordb, Apache AGE). Default.
+        * ``"subset"`` — only the bounded operational subset the engine emits
+          runs (the regex Postgres transpiler, the in-memory epistemic graph).
+
+        Override to ``"subset"`` in backends that do not run native Cypher.
+        """
+        return "full"
+
     # Optional SPARQL Capability  (CONCEPT:KG-2.7)
     # ------------------------------------------------------------------
 

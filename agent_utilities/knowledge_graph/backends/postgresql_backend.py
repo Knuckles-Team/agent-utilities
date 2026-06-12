@@ -42,6 +42,13 @@ class PostgreSQLBackend(GraphBackend):
         pggraph_schema: Schema name for pgGraph registration.
     """
 
+    @property
+    def cypher_support(self) -> str:
+        """Regex Cypher→SQL transpiler: only the bounded operational subset the
+        engine emits runs here (CONCEPT:KG-2.63). The AGE subclass overrides this
+        back to ``"full"`` for native openCypher."""
+        return "subset"
+
     def __init__(
         self,
         dsn: str = "postgresql://localhost:5432/agent_utilities",
