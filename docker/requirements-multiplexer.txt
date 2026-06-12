@@ -1,0 +1,18 @@
+# Minimal runtime deps for the mcp-multiplexer (CONCEPT:ECO-4.36).
+#
+# The multiplexer is a thin MCP routing + auth + policy layer: it imports ZERO
+# of agent-utilities' heavy base deps (no epistemic-graph engine, llama-index,
+# dspy-ai, confluent-kafka, pydantic-ai, torch...). It reaches graph-os over MCP
+# as an OPTIONAL remote child, never embedded. So the image installs
+# `agent-utilities --no-deps` plus only these ~7 light packages — `fastmcp`
+# transitively pulls mcp/starlette/uvicorn/httpx/pydantic/jsonschema.
+#
+# Result: ~370MB image vs multi-GB for agent-utilities[all]. Validated by
+# booting get_mcp_instance() in an env with only these deps.
+fastmcp>=3.3.0
+eunomia-mcp>=0.3.10
+pydantic-settings>=2.14.0
+python-dotenv>=1.2.1
+PyYAML>=6.0.0
+platformdirs>=4.0.0
+requests>=2.34.0
