@@ -68,17 +68,26 @@ Fuseki and is queryable over SPARQL.
 
 ## Parity status (the 100%-parity program)
 
-A live probe (write via the engine, read via `backend.execute`) drove a phased
-program that closed the gaps. Current state:
+A live full-matrix probe (write via the engine, read via `backend.execute`, all
+five backends running) drove a phased program that closed the gaps. **Verified
+current state:**
 
 | Capability | epistemic_graph | ladybug | pggraph (AGE) | neo4j | falkordb |
 |---|---|---|---|---|---|
 | node props (declared/ad-hoc/nested) | ✅ | ✅ (ad-hoc in `metadata`) | ✅ | ✅ | ✅ |
 | edge existence | ✅ | ✅ | ✅ | ✅ | ✅ |
 | edge properties | ✅ | ✅ (JSON `r.properties`) | ✅ | ✅ | ✅ |
-| full Cypher (count/alias/multi-hop) | subset | ✅ (Kuzu) | ✅ (AGE) | ✅ | ✅ |
-| vector search | ✅ | ⚠️ | ✅ (pgvector) | ✅ (`:Embeddable`) | ⚠️ |
+| full Cypher (count/alias/multi-hop) | subset¹ | ✅ (Kuzu) | ✅ (AGE) | ✅ | ✅ |
+| vector search | ✅ | ✅ | ✅ (pgvector) | ✅ (`:Embeddable`) | ⚠️² |
 | SPARQL (via OWL/RDF layer) | ✅ local `/sparql` | ✅ | ✅ | ✅ | ✅ |
+
+¹ epistemic_graph is the in-memory **L1 working store**; its `backend.execute`
+interprets an operational Cypher subset (id-anchored traversals), and multi-hop
+traversal is served via the compute layer / tiered L3 — by design, not a gap.
+² FalkorDB vector search is **code-correct** (Cypher DDL `CREATE VECTOR INDEX` +
+`db.idx.vector.queryNodes`, verified with small vectors) but the
+`falkordb/falkordb` image **crashes (SIGILL) on 768-dim vector ops on non-AVX
+host CPUs** — verify on AVX-capable hardware.
 
 What changed:
 - **Neo4j/FalkorDB are first-class** — they crashed on the standard write path
@@ -96,8 +105,7 @@ What changed:
 The conformance suite `skip`s with a backend-named reason rather than silently
 passing where a backend genuinely can't satisfy a check:
 
-- **Vector search** is empty on **LadybugDB** (Kuzu VECTOR-extension path) and
-  **FalkorDB** (index timing); epistemic_graph, pggraph(AGE), and Neo4j pass.
+- **FalkorDB vector search** needs an AVX-capable host (see ² above).
 - **Prune semantics differ** (importance vs `last_accessed`); the suite asserts
   only the shared no-raise contract.
 - **Per-backend ontology object/link/function parity** is exercised through the
