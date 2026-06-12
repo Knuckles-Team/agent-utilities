@@ -42,6 +42,21 @@ def _enabled() -> bool:
         return True
 
 
+def _bump_call_metric(category: str, tool_name: str, skill_name: str | None) -> None:
+    """Mirror a tool/skill/db call to Prometheus (CONCEPT:OS-5.31). No-op when
+    the metrics extra is absent."""
+    try:
+        from agent_utilities.observability import gateway_metrics as gm
+
+        gm.TOOL_CALLS.labels(category=category or "other").inc()
+        if category == "skill" and skill_name:
+            gm.SKILL_CALLS.labels(skill=skill_name).inc()
+        elif category == "db":
+            gm.DB_CALLS.labels(store=tool_name or "unknown").inc()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class UsageRecorder:
     """Thin, best-effort writer over a :class:`UsageBackend`."""
 
@@ -153,6 +168,7 @@ class UsageRecorder:
                     correlation_id=_correlation_id(),
                 )
             )
+            _bump_call_metric(category, tool_name, skill_name)
             return True
         except Exception as exc:  # noqa: BLE001
             logger.debug("usage record_tool_call failed: %s", exc)
