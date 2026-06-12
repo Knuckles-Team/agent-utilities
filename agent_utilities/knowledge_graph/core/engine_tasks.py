@@ -698,6 +698,16 @@ class TaskManagerMixin(GraphEngineProtocol):
         # PerformanceAnomaly consumer (CONCEPT:AHE-3.19) — drains unconsumed
         # PerformanceAnomaly nodes into failure_gap topics. LLM-free, bounded,
         # propose-only ⇒ ON by default (KG_ANOMALY_CONSUMER=0 to disable).
+        # Periodic code-health (liveness/dead-pathway) sweep across repos — opt-in
+        # (KG_CODE_HEALTH), LLM-free, detection-only. (CONCEPT:CE-038)
+        if _cfg.kg_code_health:
+            jobs.append(
+                (
+                    "code_health",
+                    _cfg.kg_code_health_interval,
+                    self._tick_code_health,
+                )
+            )
         if _cfg.kg_anomaly_consumer:
             jobs.append(
                 (
@@ -1520,6 +1530,28 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001
             logger.error("anomaly_consumer tick error: %s", e)
+
+    def _tick_code_health(self) -> None:
+        """Sweep workspace repos for dead pathways (CONCEPT:CE-038).
+
+        One bounded, LLM-free pass: runs the code-enhancer liveness analyzer over
+        each repo sequentially and records a ``CodeHealthReport`` node per repo, so
+        orphan modules / never-invoked functions / contract-drift seams are tracked
+        as the codebase grows. Detection only; fix proposals stay on-demand. Opt-in
+        via ``KG_CODE_HEALTH``.
+        """
+        try:
+            from ..adaptation.code_health import run_code_health_sweep
+
+            report = run_code_health_sweep(self)
+            if report.get("swept"):
+                logger.info(
+                    "code_health sweep: %s repo(s); lowest=%s",
+                    report["swept"],
+                    report.get("lowest"),
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.error("code_health tick error: %s", e)
 
     def _tick_fuseki_publish(self) -> None:
         """Push the bundled ontology modules to Apache Jena Fuseki.
