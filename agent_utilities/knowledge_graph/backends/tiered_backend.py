@@ -82,23 +82,75 @@ def _sanitize_label(label: str) -> str:
 class TieredGraphBackend(GraphBackend):
     """Write-through wrapper: L1 working store + L3 durable persistence."""
 
-    def __init__(self, l1: GraphBackend, l3: GraphBackend) -> None:
+    def __init__(
+        self,
+        l1: GraphBackend,
+        l3: GraphBackend,
+        *,
+        write_behind: bool | None = None,
+        wb_queue_size: int = 10000,
+    ) -> None:
         self.l1 = l1
         self.l3 = l3
         self._l3_failures = 0
         self._l3_writes = 0
         self._l1_reads = 0
         self._l3_reads = 0
+        # Write-behind (CONCEPT:KG-2.7, B4): when enabled, node/edge mirrors to the
+        # durable L3 are queued and drained on a background thread so L1 (the
+        # authoritative working store) acks immediately instead of paying L3 latency
+        # inline. OFF by default — durability timing only changes when an operator
+        # opts in (KG_TIERED_WRITE_BEHIND=1). Embeddings always mirror SYNCHRONOUSLY
+        # (semantic_search reads L3, so the vector must be there before the next
+        # query). The queue is bounded; on saturation a mirror runs inline
+        # (backpressure, never dropped). Failures are surfaced via durability_stats.
+        if write_behind is None:
+            from agent_utilities.core.config import setting
+
+            write_behind = str(setting("KG_TIERED_WRITE_BEHIND", "0")).strip().lower() in (
+                "1",
+                "true",
+                "yes",
+            )
+        self._write_behind = bool(write_behind)
+        self._wb_inline = 0
+        self._wb_queue: Any = None
+        self._wb_thread: Any = None
+        if self._write_behind:
+            import queue as _queue
+            import threading
+
+            self._wb_queue = _queue.Queue(maxsize=max(1, wb_queue_size))
+            self._wb_thread = threading.Thread(
+                target=self._wb_drain, name="kg-l3-backfeed", daemon=True
+            )
+            self._wb_thread.start()
         logger.info(
-            "TieredGraphBackend initialized (L1=%s, L3=%s)",
+            "TieredGraphBackend initialized (L1=%s, L3=%s, write_behind=%s)",
             type(l1).__name__,
             type(l3).__name__,
+            self._write_behind,
         )
 
     # ------------------------------------------------------------------
     # L3 mirroring helper — never raises
     # ------------------------------------------------------------------
-    def _mirror(self, op: str, fn) -> None:
+    def _mirror(self, op: str, fn, *, force_sync: bool = False) -> None:
+        # In write-behind mode, queue the mirror for the background drainer so L1
+        # acks without waiting on L3. `force_sync` (embeddings) bypasses the queue.
+        if self._write_behind and not force_sync and self._wb_queue is not None:
+            try:
+                self._wb_queue.put_nowait((op, fn))
+                return
+            except Exception:  # noqa: BLE001 — queue.Full → backpressure, run inline
+                self._wb_inline += 1
+                logger.warning(
+                    "TieredGraphBackend: L3 backfeed queue full; mirroring %s inline",
+                    op,
+                )
+        self._mirror_sync(op, fn)
+
+    def _mirror_sync(self, op: str, fn) -> None:
         try:
             fn()
             self._l3_writes += 1
@@ -110,6 +162,25 @@ class TieredGraphBackend(GraphBackend):
                 self._l3_failures,
                 exc,
             )
+
+    def _wb_drain(self) -> None:
+        """Background drainer: applies queued L3 mirrors in order. A ``None`` item
+        is the shutdown sentinel."""
+        while True:
+            item = self._wb_queue.get()
+            try:
+                if item is None:
+                    return
+                op, fn = item
+                self._mirror_sync(op, fn)
+            finally:
+                self._wb_queue.task_done()
+
+    def flush_backfeed(self) -> None:
+        """Block until all queued L3 mirrors have drained (called at checkpoint, so
+        the durable tier is caught up to L1 before the snapshot)."""
+        if self._write_behind and self._wb_queue is not None:
+            self._wb_queue.join()
 
     # ------------------------------------------------------------------
     # Core CRUD & Query
@@ -173,7 +244,13 @@ class TieredGraphBackend(GraphBackend):
     # ------------------------------------------------------------------
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         self.l1.add_embedding(node_id, embedding)
-        self._mirror("add_embedding", lambda: self.l3.add_embedding(node_id, embedding))
+        # Synchronous even in write-behind mode: semantic_search reads L3, so the
+        # vector must be durable before the next query (read-after-write).
+        self._mirror(
+            "add_embedding",
+            lambda: self.l3.add_embedding(node_id, embedding),
+            force_sync=True,
+        )
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5
@@ -206,6 +283,15 @@ class TieredGraphBackend(GraphBackend):
         self._mirror("prune", lambda: self.l3.prune(criteria))
 
     def close(self) -> None:
+        # Drain pending L3 mirrors and stop the drainer BEFORE closing the tiers,
+        # so a write-behind backlog isn't lost on shutdown.
+        if self._write_behind and self._wb_thread is not None:
+            try:
+                self._wb_queue.join()
+                self._wb_queue.put(None)  # shutdown sentinel
+                self._wb_thread.join(timeout=30.0)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("TieredGraphBackend: backfeed drain on close failed: %s", exc)
         try:
             self.l1.close()
         finally:
@@ -424,10 +510,22 @@ class TieredGraphBackend(GraphBackend):
     # Observability
     # ------------------------------------------------------------------
     def durability_stats(self) -> dict[str, int]:
-        """Mirror counters for monitoring the durable tier + read routing."""
+        """Mirror counters for monitoring the durable tier + read routing.
+
+        In write-behind mode a growing ``backfeed_queued`` (or any
+        ``backfeed_inline`` from queue saturation) is the LOUD signal that L3 is
+        falling behind L1 — alarm on it rather than letting durability drift
+        silently."""
+        depth = (
+            self._wb_queue.qsize()
+            if (self._write_behind and self._wb_queue is not None)
+            else 0
+        )
         return {
             "l3_writes": self._l3_writes,
             "l3_failures": self._l3_failures,
             "l1_reads": self._l1_reads,
             "l3_reads": self._l3_reads,
+            "backfeed_queued": depth,
+            "backfeed_inline": self._wb_inline,
         }
