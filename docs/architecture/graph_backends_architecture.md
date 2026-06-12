@@ -7,10 +7,23 @@ optional SPARQL support.
 
 The **default** backend is the zero-dependency Rust-native `EpistemicGraph`
 (`GRAPH_BACKEND=memory`/`file`/`epistemic_graph`); the **production** durable
-backend is PostgreSQL + pgGraph (`GRAPH_BACKEND=postgresql`), optionally fronted
-by the `tiered` write-through store (L1 EpistemicGraph + L3 Postgres). The
-LadybugDB, Neo4j, and FalkorDB backends are **opt-in contrib** drivers (under
-`backends/contrib/`) imported only when explicitly requested.
+backend is PostgreSQL (`GRAPH_BACKEND=postgresql`), optionally fronted by the
+`tiered` write-through store (L1 EpistemicGraph + L3 Postgres). LadybugDB, Neo4j,
+and FalkorDB are first-class backends whose drivers install as optional extras
+(`backends/contrib/`).
+
+> **Verified parity (KG-2.7).** Node properties (declared / ad-hoc / nested),
+> edge existence, **edge properties**, and vector search round-trip on **every**
+> backend; the full cross-backend matrix and how to run it live are in
+> [backend-parity-and-profile-testing](../guides/backend-parity-and-profile-testing.md).
+> SPARQL is served **locally over any backend** via the OWL/RDF layer (see
+> [owl_rdf_layer](owl_rdf_layer.md)).
+
+> **PostgreSQL runs Apache AGE (`GRAPH_PG_AGE=1` / `backend_type=age`).** This
+> executes **real openCypher** via AGE's `cypher()` function — `count(r)`,
+> `RETURN … AS alias`, multi-hop and variable-length traversal all work natively —
+> retiring the bounded regex Cypher→SQL transpiler (still the default when AGE is
+> off). pgvector continues to back embeddings. Image: `docker/pggraph-age.compose.yml`.
 
 ## Architecture Overview
 
@@ -49,10 +62,12 @@ graph TB
         I -->|falkordb| L["KG-2.0: Cypher via\nRedis Protocol"]
     end
 
-    subgraph "PostgreSQL + pgGraph (Production durable)"
-        I -->|postgresql| M["KG-2.0: Cypher → SQL\nTranspiler"]
+    subgraph "PostgreSQL (Production durable)"
+        I -->|postgresql| M["KG-2.0: Cypher → SQL\nTranspiler (default)"]
+        I -->|age / GRAPH_PG_AGE=1| AGE["KG-2.7: Apache AGE\ncypher() — real openCypher"]
         M --> N["PostgreSQL Tables"]
         M --> O["KG-2.0: pgGraph Extension\n(CSR Traversal)"]
+        AGE --> AGN["AGE graph (agtype)\n+ kg_embeddings (pgvector)"]
         F --> P["KG-2.3: pgvector\n(Cosine Search)"]
         F --> Q["KG-2.3: ParadeDB BM25\n(Lexical Search)"]
     end
@@ -69,19 +84,24 @@ graph TB
 
 ## Backend Comparison
 
-| Capability | LadybugDB | Neo4j | FalkorDB | PostgreSQL + pgGraph | Jena Fuseki / EpistemicGraph Compute | Fuseki | Memory |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Status** | contrib (opt-in) | contrib (opt-in) | contrib (opt-in) | **Production (durable)** | Production | Production | **Default (Rust-native)** |
-| Cypher Support | Native | Native | Native | Transpiled | Transpiled | Transpiled | Basic |
-| SPARQL Support | — | — | — | — | ✅ Native | ✅ Native | — |
-| Vector Search (HNSW) | ✅ | ✅ | ✅ | ✅ pgvector | ✅ Brute-force | ✅ Brute-force | ✅ Brute-force |
-| BM25 Lexical Search | — | — | — | ✅ ParadeDB | — | ✅ (Jena) | — |
-| Graph Traversal | Cypher | Cypher | Cypher | ✅ pgGraph CSR | SPARQL | SPARQL | Rust Engine |
-| Connection Pooling | — | ✅ | — | ✅ psycopg_pool | — | ✅ httpx | — |
-| ACID Transactions | SQLite WAL | ✅ | — | ✅ | — | ✅ TDB2 | — |
-| Multi-Agent Concurrent | File Lock | ✅ | ✅ | ✅ | — | ✅ | — |
-| Persistence | File | Server | Redis | Server | Optional | Server | None |
-| Zero Config | ✅ | — | — | — | ✅ | — | ✅ |
+| Capability | epistemic_graph (default) | LadybugDB | PostgreSQL (AGE) | Neo4j | FalkorDB |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Status** | **Default (Rust-native)** | first-class (extra) | **Production (durable)** | first-class (extra) | first-class (extra) |
+| Cypher Support | subset (id-anchored)¹ | Native (Kuzu) | **Native (AGE)** / transpiled | Native | Native |
+| Node props (declared/ad-hoc/nested) | ✅ | ✅ (ad-hoc in `metadata`) | ✅ | ✅ | ✅ |
+| **Edge properties** | ✅ | ✅ (JSON `r.properties`) | ✅ | ✅ | ✅ |
+| Vector Search | ✅ | ✅ | ✅ pgvector | ✅ (`:Embeddable`) | ⚠️ AVX2 host² |
+| SPARQL (via OWL/RDF layer) | ✅ local | ✅ local | ✅ local | ✅ local | ✅ local |
+| Graph Traversal (multi-hop) | compute/L3¹ | ✅ | ✅ (AGE) | ✅ | ✅ |
+| Connection Pooling | UDS client | File Lock | ✅ psycopg_pool | ✅ | — |
+| Persistence | optional/in-mem | File | Server | Server | Redis |
+| Zero Config | ✅ | ✅ | — | — | — |
+
+¹ epistemic_graph is the in-memory **L1 working store**; `backend.execute` interprets
+an operational id-anchored Cypher subset, and multi-hop traversal is served via the
+compute layer / tiered L3 — by design. ² FalkorDB vector search is code-correct
+(Cypher `CREATE VECTOR INDEX` + `db.idx.vector.queryNodes`) but the `falkordb` image
+SIGILLs on 768-dim vector ops on non-AVX2 host CPUs.
 
 ## PostgreSQL Backend Deep Dive
 
