@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import threading
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -24,6 +23,13 @@ from pydantic import BaseModel, Field
 from .models import CodeEntity
 
 logger = logging.getLogger(__name__)
+
+# Bounded LLM-card extraction limits (config discipline): the OpenAI client
+# defaults to a 600s timeout, which would wedge a whole ingest on one stalled
+# request — these are fixed sane caps, not per-deploy env knobs (replacing
+# KG_LLM_TIMEOUT / KG_LLM_MAX_RETRIES).
+_LLM_CARD_TIMEOUT_S = 30.0
+_LLM_CARD_MAX_RETRIES = 1
 
 # prompt -> completion text
 LLMFn = Callable[[str], str]
@@ -454,17 +460,12 @@ def make_llm_fn(model: str | None = None, base_url: str | None = None) -> LLMFn:
         cfg = config.default_chat_model
         # Bounded timeout + retries: the OpenAI client defaults to a 600s (10min)
         # timeout, so a single stalled vLLM request would wedge a whole ingest
-        # run indefinitely. Cap it (env-overridable) and let the client retry
-        # transient failures; on exhaustion the caller's try/except degrades to
-        # empty extraction for that item and ingestion proceeds. (CONCEPT:KG-2.8)
-        try:
-            _timeout = float(os.getenv("KG_LLM_TIMEOUT", "30"))
-        except ValueError:
-            _timeout = 30.0
-        try:
-            _retries = int(os.getenv("KG_LLM_MAX_RETRIES", "1"))
-        except ValueError:
-            _retries = 1
+        # run indefinitely. Cap it and let the client retry transient failures;
+        # on exhaustion the caller's try/except degrades to empty extraction for
+        # that item and ingestion proceeds. Fixed bounded values (config
+        # discipline: one correct value, not an env knob). (CONCEPT:KG-2.8)
+        _timeout = _LLM_CARD_TIMEOUT_S
+        _retries = _LLM_CARD_MAX_RETRIES
         client = OpenAI(
             base_url=base_url
             or (cfg.base_url if cfg else None)

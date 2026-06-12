@@ -33,7 +33,6 @@ See docs/pillars/2_epistemic_knowledge_graph.md §Retrieval Quality Gate.
 
 import logging
 import math
-import os
 import time
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -41,13 +40,15 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from agent_utilities.core.config import setting
+
 if TYPE_CHECKING:
     from ..core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 
 # Default: enabled (opt-out pattern matching OWL reasoning)
-_GATE_ENABLED = os.getenv("KG_RETRIEVAL_QUALITY_GATE", "true").lower() != "false"
+_GATE_ENABLED = setting("KG_RETRIEVAL_QUALITY_GATE", True)
 
 
 class RetrievalFailureMode(StrEnum):
@@ -179,7 +180,7 @@ class RetrievalQualityGate:
         self._min_composite_quality = min_composite_quality
 
         # Resolve threshold: env var > explicit arg > schema pack > default
-        env_threshold = os.getenv("KG_MIN_RELEVANCE_THRESHOLD")
+        env_threshold = setting("KG_MIN_RELEVANCE_THRESHOLD")
         if env_threshold is not None:
             self._threshold = float(env_threshold)
         elif min_relevance_threshold is not None:

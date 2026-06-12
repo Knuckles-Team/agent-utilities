@@ -50,6 +50,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 # Manifest schema id — bump when the on-disk shape changes.
@@ -141,7 +143,7 @@ class SkillGraphDistiller:
         ``GraphComputeEngine``'s endpoint resolution) and return a distiller."""
         from epistemic_graph.client import EpistemicGraphClient
 
-        gname = graph_name or os.environ.get("KG_GRAPH_NAME", "__bus__")
+        gname = graph_name or setting("KG_GRAPH_NAME", "__bus__")
 
         # Resolve endpoint/secret the same way the compute engine does, so the
         # distiller reads from exactly the graph the ingestion plane writes to.

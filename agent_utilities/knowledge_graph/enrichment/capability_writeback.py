@@ -21,6 +21,8 @@ import logging
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 from .models import GraphNode
 
 logger = logging.getLogger(__name__)
@@ -173,9 +175,8 @@ def resolve_writeback_fn(
     resolves Archi/LeanIX clients (passed in, or best-effort from the EA bridge), seeds existing
     capability names for idempotency, and returns the callable the pipeline invokes on minted caps.
     """
-    import os
 
-    if os.environ.get("KG_EA_WRITEBACK", "0") not in ("1", "true", "True"):
+    if not setting("KG_EA_WRITEBACK", False):
         return None
     if archi_client is None and leanix_client is None:
         try:  # best-effort: a deployment may expose EA clients via the ecosystem bridge

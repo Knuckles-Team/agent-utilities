@@ -53,6 +53,8 @@ from typing import Any
 
 from pydantic import Field
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 
@@ -1705,7 +1707,7 @@ def _get_engine():
         ensure_dirs()
         db_path = str(kg_db_path())
         logger.info("KG MCP Server using database: %s", db_path)
-        backend_type = os.environ.get("GRAPH_BACKEND")
+        backend_type = setting("GRAPH_BACKEND")
         backend = create_backend(backend_type=backend_type, db_path=db_path)
         engine = IntelligenceGraphEngine(backend=backend)
         return engine

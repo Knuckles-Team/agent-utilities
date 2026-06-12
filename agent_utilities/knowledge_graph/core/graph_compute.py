@@ -9,7 +9,14 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
+
+# Engine snapshot checkpoint cadence in seconds (config discipline): one correct
+# default, passed to the spawned engine — a named constant, not an env knob
+# (replaces GRAPH_SERVICE_CHECKPOINT_INTERVAL).
+_CHECKPOINT_INTERVAL_S = 60
 
 
 def _load_or_create_engine_secret() -> str:
@@ -180,7 +187,7 @@ class GraphComputeEngine:
         # invisible islands (same fail-loud convention as KG-2.55). The flock
         # host role (host_lock.py) likewise elects a daemon owner for the
         # local engine only.
-        autostart_allowed = os.environ.get("EPISTEMIC_GRAPH_AUTOSTART") == "1" and (
+        autostart_allowed = setting("EPISTEMIC_GRAPH_AUTOSTART", "") == "1" and (
             not sharded or is_local_endpoint(endpoint)
         )
 
@@ -322,7 +329,7 @@ class GraphComputeEngine:
         # so an auto-spawned engine warm-restarts from the last checkpoint instead
         # of starting empty. pggraph stays the durable system-of-record; this is
         # the fast local cache.
-        persist_dir = os.environ.get("GRAPH_SERVICE_PERSIST_DIR")
+        persist_dir = setting("GRAPH_SERVICE_PERSIST_DIR")
         if persist_dir is None:
             try:
                 from agent_utilities.core.paths import data_dir
@@ -335,7 +342,7 @@ class GraphComputeEngine:
                 "--persist-dir",
                 persist_dir,
                 "--checkpoint-interval",
-                os.environ.get("GRAPH_SERVICE_CHECKPOINT_INTERVAL", "60"),
+                str(_CHECKPOINT_INTERVAL_S),
             ]
         # Engine auth (CONCEPT:OS-5.14): the spawned engine gets the SAME secret
         # this client authenticates with (the engine reads GRAPH_SERVICE_AUTH_SECRET).

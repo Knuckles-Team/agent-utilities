@@ -18,7 +18,8 @@ faithfully re-materialisable (e.g. distilled back into a skill-graph).
 import argparse
 import asyncio
 import json
-import os
+
+from agent_utilities.core.config import setting
 
 from .engine import ContentType, IngestionEngine, IngestionManifest
 
@@ -39,7 +40,7 @@ def _build_engine():
         return active
     ensure_dirs()
     backend = create_backend(
-        backend_type=os.environ.get("GRAPH_BACKEND"), db_path=str(kg_db_path())
+        backend_type=setting("GRAPH_BACKEND"), db_path=str(kg_db_path())
     )
     return IntelligenceGraphEngine(backend=backend)
 

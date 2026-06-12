@@ -30,15 +30,24 @@ ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "agent_utilities"
 BASELINE = ROOT / "scripts" / "env_flag_baseline.txt"
 
-# Bare env reads of governed prefixes.
-PATTERN = re.compile(
-    r"""os\.(?:environ\.get|getenv)\(\s*["'](KG_|GRAPH_|EPISTEMIC_)[A-Z0-9_]+["']"""
+# Bare env *reads* of ANY variable (not just KG_/GRAPH_/EPISTEMIC_). Modules must
+# route every read through ``config.setting(...)`` or a typed ``AgentConfig``
+# field — never ``os.environ.get``/``os.getenv``/``os.environ[...]`` directly.
+# Two read forms are caught:
+#   1. the read APIs: os.environ.get("X") / os.getenv("X")
+#   2. subscript reads: os.environ["X"]  (a trailing ``=`` → a write, exempt)
+# Writes (os.environ["X"] = ...) are legitimate cross-process signaling and are
+# NOT flagged.
+PATTERN_GET = re.compile(
+    r"""os\.(?:environ\.get|getenv)\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']"""
 )
-KEY_RE = re.compile(r"""["']((?:KG_|GRAPH_|EPISTEMIC_)[A-Z0-9_]+)["']""")
+PATTERN_SUBSCRIPT = re.compile(
+    r"""os\.environ\[\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\](?!\s*=[^=])"""
+)
 
-# Files allowed to read env directly: the central config object is the ONE place
-# that maps env → typed fields; paths.py resolves directory overrides; the gate
-# itself names the prefixes.
+# Files allowed to read env directly: ``config.py`` is the ONE place that maps
+# env → typed fields and implements ``setting()``; ``paths.py`` resolves
+# directory overrides before config exists.
 ALLOW_FILES = {
     "agent_utilities/core/config.py",
     "agent_utilities/core/paths.py",
@@ -47,7 +56,7 @@ SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "build", "dist"}
 
 
 def scan() -> set[tuple[str, str]]:
-    """Return the set of (relpath, FLAG) bare env reads under the package."""
+    """Return the set of (relpath, KEY) bare env reads under the package."""
     found: set[tuple[str, str]] = set()
     for py in PKG.rglob("*.py"):
         if any(part in SKIP_DIRS for part in py.parts):
@@ -60,10 +69,10 @@ def scan() -> set[tuple[str, str]]:
         except (OSError, UnicodeDecodeError):
             continue
         for line in text.splitlines():
-            if PATTERN.search(line):
-                key = KEY_RE.search(line)
-                if key:
-                    found.add((rel, key.group(1)))
+            for m in PATTERN_GET.finditer(line):
+                found.add((rel, m.group(1)))
+            for m in PATTERN_SUBSCRIPT.finditer(line):
+                found.add((rel, m.group(1)))
     return found
 
 
@@ -84,10 +93,13 @@ def load_baseline() -> set[tuple[str, str]]:
 def write_baseline(entries: set[tuple[str, str]]) -> None:
     body = "\n".join(f"{rel}\t{key}" for rel, key in sorted(entries))
     BASELINE.write_text(
-        "# Frozen baseline of bare KG_/GRAPH_/EPISTEMIC_ env reads (ratchet).\n"
-        "# New entries fail scripts/check_no_env_sprawl.py — add flags to AgentConfig\n"
-        "# (core/config.py) instead. Regenerate with --update-baseline after removing\n"
-        "# reads. See docs/architecture/configuration.md.\n" + body + "\n",
+        "# Frozen baseline of bare os.environ/os.getenv reads across ALL prefixes\n"
+        "# (ratchet — burn-down toward zero). The KG_/GRAPH_/EPISTEMIC_ reads were\n"
+        "# folded onto config.setting()/AgentConfig fields; what remains here (AGENT_/\n"
+        "# VAULT_/OTEL_/connector creds/…) is the tracked burn-down. New entries fail\n"
+        "# scripts/check_no_env_sprawl.py — route reads through config.setting(...) or a\n"
+        "# typed AgentConfig field instead. Regenerate with --update-baseline after\n"
+        "# removing reads. See docs/architecture/configuration.md.\n" + body + "\n",
         encoding="utf-8",
     )
 

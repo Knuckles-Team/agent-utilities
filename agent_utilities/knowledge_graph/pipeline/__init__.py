@@ -4,6 +4,7 @@
 import logging
 import time
 
+from agent_utilities.core.config import setting
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from ...models.knowledge_graph import PipelineConfig, RegistryGraphMetadata
@@ -45,11 +46,9 @@ class IntelligencePipeline:
         )
         ctx.metadata["ingestion_timestamp"] = run_start_timestamp
 
-        import os as _os
-
         from .phases import select_phases
 
-        _profile = _os.environ.get("KG_INGEST_PROFILE")
+        _profile = setting("KG_INGEST_PROFILE")
         _phases = select_phases(_profile)
         if _profile:
             logger.info("Pipeline profile=%s (%d phases)", _profile, len(_phases))
