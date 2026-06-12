@@ -106,33 +106,45 @@ async def test_start_children_eager_unchanged(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def _kg_responder(index_rows, search_hits=None):
-    async def _call(bare_tool, arguments):
-        if bare_tool == "graph_query":
-            return index_rows
-        if bare_tool == "graph_search":
-            return search_hits or []
-        return None
+def _seed_probe(mux, mapping):
+    """Pre-populate the self-catalog probe cache. Values are either a list of
+    ``(tool, description)`` (reachable) or an error string (unreachable)."""
+    for server, val in mapping.items():
+        if isinstance(val, str):
+            mux._probe_cache[server] = {"tools": [], "error": val}
+        else:
+            mux._probe_cache[server] = {
+                "tools": [
+                    {"name": n, "description": d, "inputSchema": {}} for n, d in val
+                ],
+                "error": None,
+            }
 
-    return AsyncMock(side_effect=_call)
+
+def _fake_session(tools):
+    sess = AsyncMock()
+    res = MagicMock()
+    res.tools = [_fake_tool(n, d) for n, d in tools]
+    sess.list_tools = AsyncMock(return_value=res)
+    return sess
 
 
 async def test_discover_tools_ranks_and_maps(tmp_path):
     mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
-    rows = [
-        {"server": CNT, "tool": CNT_TOOL, "description": "manage docker containers"},
-        {"server": CNT, "tool": "cm_image_operations", "description": "build images"},
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(
+        mux,
         {
-            "server": "ghost-mcp",
-            "tool": "ghost_op",
-            "description": "manage docker swarm",
+            CNT: [
+                (CNT_TOOL, "manage docker containers"),
+                ("cm_image_operations", "build images"),
+            ],
+            "ghost-mcp": [("ghost_op", "manage docker swarm")],  # not in catalog
         },
-    ]
-    mux._kg_call = _kg_responder(  # type: ignore[method-assign]
-        rows, search_hits=[{"name": CNT_TOOL, "score": 5.0}]
     )
 
-    results = await mux.discover_tools("manage docker containers", top_k=5)
+    discovery = await mux.discover_tools("manage docker containers", top_k=5)
+    results = discovery["results"]
     assert results, "expected ranked results"
     top = results[0]
     assert top["tool"] == CNT_TOOL
@@ -146,26 +158,90 @@ async def test_discover_tools_ranks_and_maps(tmp_path):
     assert ghost and ghost[0]["mountable"] is False
 
 
-async def test_discover_tools_server_level_fallback_when_kg_cold(tmp_path):
-    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
-    # KG returns nothing for every call (cold / unavailable).
+async def test_discover_reports_unavailable_servers(tmp_path):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "c")], "leanix-mcp": []})
     mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(
+        mux, {CNT: [(CNT_TOOL, "manage docker")], "leanix-mcp": "timeout after 15s"}
+    )
 
-    results = await mux.discover_tools("anything", top_k=5)
-    assert results
-    assert all(r["tool"] == "*" for r in results)
-    assert CNT in {r["server"] for r in results}
+    discovery = await mux.discover_tools("docker", top_k=5)
+    assert "leanix-mcp" in discovery["unavailable"]
+    assert "timeout" in discovery["unavailable"]["leanix-mcp"]
+    assert all(r["server"] != "leanix-mcp" for r in discovery["results"])
+
+
+async def test_discover_server_level_fallback_on_no_match(tmp_path):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "x")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(mux, {CNT: [(CNT_TOOL, "containers")]})
+
+    # Query matches nothing, but the server probed fine → list servers to load.
+    discovery = await mux.discover_tools("zzznomatch", top_k=5)
+    results = discovery["results"]
+    assert results and all(r["tool"] == "*" for r in results)
+
+
+async def test_discover_all_unreachable_yields_empty_results(tmp_path):
+    mux = _mux_with_children(tmp_path, {"leanix-mcp": []})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(mux, {"leanix-mcp": "timeout after 15s"})
+
+    discovery = await mux.discover_tools("anything", top_k=5)
+    assert discovery["results"] == []
+    assert "leanix-mcp" in discovery["unavailable"]
 
 
 async def test_discover_marks_mounted(tmp_path):
     mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
-    rows = [{"server": CNT, "tool": CNT_TOOL, "description": "docker"}]
-    mux._kg_call = _kg_responder(rows)  # type: ignore[method-assign]
-    await mux.mount_child(CNT)
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    await mux.mount_child(CNT)  # mounted server is probed from live tools
     mux._exposed.add(CNT_PREFIXED)
 
-    results = await mux.discover_tools("docker", top_k=5)
-    assert results[0]["mounted"] is True
+    discovery = await mux.discover_tools("containers", top_k=5)
+    assert discovery["results"][0]["mounted"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Self-catalog probe
+# --------------------------------------------------------------------------- #
+
+
+async def test_probe_server_success_and_caches(tmp_path):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "c")]})
+
+    async def _open(server, cfg, stack):
+        return _fake_session([(CNT_TOOL, "manage containers")])
+
+    mux._open_one_session = AsyncMock(side_effect=_open)  # type: ignore[method-assign]
+    info = await mux.probe_server(CNT)
+    assert info["error"] is None
+    assert info["tools"][0]["name"] == CNT_TOOL
+    assert mux._probe_cache[CNT] is info  # cached
+
+
+async def test_probe_server_records_unreachable(tmp_path):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "c")]})
+
+    async def _boom(server, cfg, stack):
+        raise OSError("connection refused")
+
+    mux._open_one_session = AsyncMock(side_effect=_boom)  # type: ignore[method-assign]
+    info = await mux.probe_server(CNT, timeout=1)
+    assert info["tools"] == []
+    assert "connection refused" in info["error"]
+
+
+async def test_probe_server_uses_live_tools_when_mounted(tmp_path):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
+    await mux.mount_child(CNT)
+    # Should NOT reconnect for an already-mounted child.
+    mux._open_one_session = AsyncMock(  # type: ignore[method-assign]
+        side_effect=AssertionError("must not reconnect")
+    )
+    info = await mux.probe_server(CNT)
+    assert info["error"] is None
+    assert info["tools"][0]["name"] == CNT_TOOL
 
 
 # --------------------------------------------------------------------------- #
@@ -177,9 +253,10 @@ async def test_resolve_and_mount_by_server(tmp_path):
     mux = _mux_with_children(
         tmp_path, {CNT: [(CNT_TOOL, "a"), ("cm_image_operations", "b")]}
     )
-    servers, to_expose = await mux.resolve_and_mount(servers=[CNT])
+    servers, to_expose, failed = await mux.resolve_and_mount(servers=[CNT])
     assert servers == [CNT]
     assert set(to_expose) == {CNT_PREFIXED, "cnt__cm_image_operations"}
+    assert failed == {}
     assert CNT in mux.children
 
 
@@ -188,17 +265,38 @@ async def test_resolve_and_mount_by_prefixed_tool(tmp_path):
         tmp_path, {CNT: [(CNT_TOOL, "a"), ("cm_image_operations", "b")]}
     )
     # Request a single tool by its prefixed name (server derived from prefix).
-    servers, to_expose = await mux.resolve_and_mount(tools=[CNT_PREFIXED])
+    servers, to_expose, failed = await mux.resolve_and_mount(tools=[CNT_PREFIXED])
     assert servers == [CNT]
     assert to_expose == [CNT_PREFIXED]  # only the requested subset
+    assert failed == {}
 
 
 async def test_resolve_and_mount_skips_already_exposed(tmp_path):
     mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "a")]})
     await mux.resolve_and_mount(servers=[CNT])
     mux._exposed.add(CNT_PREFIXED)
-    _servers, to_expose = await mux.resolve_and_mount(servers=[CNT])
+    _servers, to_expose, _failed = await mux.resolve_and_mount(servers=[CNT])
     assert to_expose == []
+
+
+async def test_resolve_and_mount_reports_failed(tmp_path):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "a")], "leanix-mcp": []})
+    good = mux._start_child.side_effect
+
+    async def _fail_leanix(server_name, cfg):
+        if server_name == "leanix-mcp":
+            return None  # mount fails
+        return await good(server_name, cfg)
+
+    mux._start_child = AsyncMock(side_effect=_fail_leanix)  # type: ignore[method-assign]
+    _seed_probe(mux, {"leanix-mcp": "timeout after 15s"})  # reason for the failure
+
+    mounted, to_expose, failed = await mux.resolve_and_mount(
+        servers=[CNT, "leanix-mcp"]
+    )
+    assert mounted == [CNT]
+    assert CNT_PREFIXED in to_expose
+    assert "leanix-mcp" in failed and "timeout" in failed["leanix-mcp"]
 
 
 def test_forget_tool(tmp_path):
@@ -262,10 +360,8 @@ async def test_find_tools_meta_returns_structured(tmp_path):
     from fastmcp import FastMCP
 
     mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
-    rows = [
-        {"server": CNT, "tool": CNT_TOOL, "description": "manage docker containers"}
-    ]
-    mux._kg_call = _kg_responder(rows)  # type: ignore[method-assign]
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(mux, {CNT: [(CNT_TOOL, "manage docker containers")]})
 
     mcp = FastMCP("test-mux")
     _register_meta_tools(mcp, mux)
@@ -275,6 +371,7 @@ async def test_find_tools_meta_returns_structured(tmp_path):
     payload = result.structured_content
     assert payload["count"] >= 1
     assert payload["results"][0]["prefixed_name"] == CNT_PREFIXED
+    assert "unavailable" in payload
 
 
 def test_prefix_sanity():
