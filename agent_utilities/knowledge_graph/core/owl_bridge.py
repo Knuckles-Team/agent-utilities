@@ -8,7 +8,6 @@ enriches the LPG with OWL-inferred facts.
 """
 
 
-import asyncio
 import json
 import logging
 import time
@@ -962,77 +961,55 @@ class OWLBridge:
     def _sync_inferred_to_backend(
         self, inferences: list[dict[str, Any]], count: int
     ) -> None:
-        """Attempt to write inferred edges to the graph backend (Cypher) asynchronously via batches."""
-        try:
-            # We initialize the queue and background task here to ensure they run on the correct event loop
-            if not hasattr(self, "_mutation_queue"):
-                self._mutation_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
-                self._mutation_task = asyncio.create_task(self._mutation_worker())
+        """Persist inferred edges to the durable backend, synchronously and idempotently.
 
-            for inference in inferences[:count]:
-                subject = inference.get("subject", "")
-                predicate = inference.get("predicate", "")
-                obj = inference.get("object", "")
+        Inferred relationships must survive on the durable tier (not just the
+        in-memory reasoning graph) so other engines and restarts see them. The
+        previous implementation queued mutations onto an asyncio queue + background
+        task, which silently no-op'd whenever no event loop was running — and the
+        daemon tick and pipeline phase both call this **synchronously**, so inferred
+        triples never reached the backend. This writes them now via the active
+        engine's ``link_nodes`` (MERGE-based; carries edge properties + provenance),
+        with a direct-backend MERGE fallback. (CONCEPT:KG-2.7 — durable backfeed.)
+        """
+        import re as _re
 
-                if not subject or not predicate or not obj:
-                    continue
+        from .engine import IntelligenceGraphEngine
 
-                subject_match = self._find_node_by_owl_id(subject) or subject
-                obj_match = self._find_node_by_owl_id(obj) or obj
-
-                # Put onto background queue for async batching
-                self._mutation_queue.put_nowait(
-                    {"src": subject_match, "tgt": obj_match, "pred": predicate}
-                )
-        except Exception as e:
-            logger.debug("Backend sync queuing failed: %s", e)
-
-    async def _mutation_worker(self) -> None:
-        """Background worker that batches mutations and flushes to the backend."""
-        batch: list[dict[str, Any]] = []
-        last_flush = asyncio.get_event_loop().time()
-
-        while True:
+        engine = IntelligenceGraphEngine.get_active()
+        written = 0
+        for inference in inferences[:count]:
+            subject = inference.get("subject", "")
+            predicate = inference.get("predicate", "")
+            obj = inference.get("object", "")
+            if not subject or not predicate or not obj:
+                continue
+            src = self._find_node_by_owl_id(subject) or subject
+            tgt = self._find_node_by_owl_id(obj) or obj
+            props = {
+                "inferred": True,
+                "inferred_from": "owl_reasoner",
+                "inference_type": inference.get("inference_type", "unknown"),
+            }
             try:
-                # Wait up to 2 seconds for a mutation
-                timeout = max(0.1, 2.0 - (asyncio.get_event_loop().time() - last_flush))
-                mutation = await asyncio.wait_for(
-                    self._mutation_queue.get(), timeout=timeout
-                )
-                batch.append(mutation)
-            except TimeoutError:
-                pass
-            except asyncio.CancelledError:
-                break
-
-            now = asyncio.get_event_loop().time()
-            if batch and (len(batch) >= 100 or (now - last_flush) >= 2.0):
-                await self._flush_batch(batch)
-                batch.clear()
-                last_flush = now
-
-    async def _flush_batch(self, batch: list[dict[str, Any]]) -> None:
-        """Flush a batch of mutations to the backend."""
-        if not self.backend:
-            return
-
-        try:
-            # For JenaFuseki, ideally we would do a single large SPARQL UPDATE,
-            # but if the backend is generic, we use execute_batch.
-            if hasattr(self.backend, "execute_batch"):
-                query = (
-                    "MATCH (a {id: $src}), (b {id: $tgt}) "
-                    "MERGE (a)-[r:INFERRED_RELATION {type: $pred}]->(b) "
-                    "SET r.inferred = true, r.inferred_from = 'owl_reasoner'"
-                )
-                # If backend has async execution, we could await it, but execute_batch is sync in SparqlAdapter
-                # We offload the blocking execute_batch to a thread pool
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(
-                    None, self.backend.execute_batch, query, batch
-                )
-        except Exception as e:
-            logger.debug("Background batch flush failed: %s", e)
+                if (
+                    engine is not None
+                    and getattr(engine, "backend", None) is self.backend
+                ):
+                    engine.link_nodes(src, tgt, predicate, props)
+                else:
+                    rel = _re.sub(r"\W", "_", predicate).upper() or "INFERRED_RELATION"
+                    self.backend.execute(
+                        f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
+                        f"MERGE (s)-[r:{rel}]->(t) "
+                        f"SET r.inferred = true, r.inferred_from = 'owl_reasoner'",
+                        {"sid": src, "tid": tgt},
+                    )
+                written += 1
+            except Exception as e:  # noqa: BLE001 — best-effort per inferred edge
+                logger.debug("Inferred-edge backfeed failed (%s->%s): %s", src, tgt, e)
+        if written:
+            logger.info("Backfed %d inferred edges to the durable backend", written)
 
     def query_sparql(self, sparql: str) -> list[dict[str, Any]]:
         """Execute a SPARQL query against the OWL backend or rdflib materialization.
