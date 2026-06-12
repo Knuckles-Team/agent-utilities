@@ -63,6 +63,7 @@ The **Single Company Brain** (`CONCEPT:KG-2.7`) is the operational state layer t
 | **[Agent Dispatch](architecture/agent_dispatch.md)** | Queue-driven agent dispatch: session-keyed `agent_turns` queue + stateless `agent-dispatch-worker` fleet (ORCH-1.45) |
 | **[Fleet Autonomy](architecture/fleet_autonomy.md)** | ActionPolicy decision point, desired-state reconciler, remediation playbooks, health-gated deploy watch, reactive autoscaler (OS-5.24–5.27, OS-5.29) |
 | **[Gateway Scaling](architecture/gateway_scaling.md)** | `GATEWAY_WORKERS` pre-fork, per-tenant rate limiting, engine circuit breaker, Prometheus `/metrics` (OS-5.23) |
+| **[MCP Multiplexer](architecture/mcp_multiplexer.md)** | Dynamic tool gateway: progressive disclosure (`find_tools`/`list_catalog`/`load_tools`), self-cataloging probe, collision-free prefixes, hybrid stdio+http children, lazy mounting (ECO-4.36) |
 | **[Autonomous Evolution](guides/autonomous-evolution.md)** | The governed self-evolution chain: propose-only loops → governance validation → regression gate → policy-gated branch publication (AHE-3.18–3.21) |
 | **[Metrics Reference](reference/metrics.md)** | Catalog of every `agent_utilities_*` Prometheus series |
 
