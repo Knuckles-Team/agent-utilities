@@ -5,13 +5,11 @@
 import collections
 import inspect
 import logging
-import warnings
 from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-#: Values accepted by ``TASK_QUEUE_BACKEND``. ``nats`` is supported only via the
-#: deprecated ``QUEUE_BACKEND`` alias (kept for existing deployments).
+#: Values accepted by ``TASK_QUEUE_BACKEND``.
 TASK_QUEUE_BACKENDS = ("sqlite", "postgres", "kafka")
 
 
@@ -31,10 +29,7 @@ def resolve_task_queue_backend(config: Any) -> tuple[str, bool]:
     Resolution order (CONCEPT:KG-2.55):
 
     1. ``task_queue_backend`` (``TASK_QUEUE_BACKEND``) — explicit, fail-loud.
-    2. Deprecated ``queue_backend`` (``QUEUE_BACKEND``) when set to a
-       non-default value — honored with a :class:`DeprecationWarning` and the
-       legacy *graceful-fallback* semantics (``explicit=False``).
-    3. Auto: ``postgres`` when ``state_db_uri`` is set (durable state
+    2. Auto: ``postgres`` when ``state_db_uri`` is set (durable state
        externalized, CONCEPT:OS-5.16/KG-2.54), else ``sqlite`` (zero-infra).
     """
     raw = getattr(config, "task_queue_backend", None)
@@ -45,17 +40,6 @@ def resolve_task_queue_backend(config: Any) -> tuple[str, bool]:
                 f"TASK_QUEUE_BACKEND={choice!r} is not one of {TASK_QUEUE_BACKENDS}"
             )
         return choice, True
-
-    legacy = str(getattr(config, "queue_backend", "sqlite") or "sqlite").strip().lower()
-    if legacy and legacy != "sqlite":
-        warnings.warn(
-            "QUEUE_BACKEND is deprecated; set TASK_QUEUE_BACKEND="
-            f"{legacy!r} instead (explicit selection is fail-loud; the legacy "
-            "alias keeps the old silent-fallback behavior).",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return legacy, False
 
     if getattr(config, "state_db_uri", None):
         return "postgres", False
@@ -87,17 +71,6 @@ def create_task_queue(config: Any, fallback_db_path: str) -> tuple["QueueBackend
                 partitions=int(getattr(config, "kg_tasks_partitions", 6) or 6),
             ),
             "kafka",
-        )
-
-    if choice == "nats":  # legacy QUEUE_BACKEND=nats only
-        from .nats_queue_backend import NatsQueueBackend
-
-        return (
-            NatsQueueBackend(
-                fallback_db_path=fallback_db_path,
-                nats_url=getattr(config, "nats_url", None),
-            ),
-            "nats",
         )
 
     if choice == "postgres":
@@ -161,12 +134,6 @@ class QueueBackend(Protocol):
         """Factory method to instantiate a pluggable queue backend."""
         if backend_type == "memory":
             return MemoryQueueBackend()
-        elif backend_type == "nats":
-            from .nats_queue_backend import NatsQueueBackend
-
-            fallback_db = kwargs.pop("fallback_db_path", ".tmp/nats_fallback.db")  # nosec B108
-            nats_url = kwargs.pop("nats_url", kwargs.pop("servers", [None])[0])
-            return NatsQueueBackend(fallback_db_path=fallback_db, nats_url=nats_url)
         elif backend_type == "kafka":
             from .kafka_queue_backend import KafkaQueueBackend
 

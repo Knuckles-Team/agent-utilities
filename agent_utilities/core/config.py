@@ -577,9 +577,6 @@ class AgentConfig(BaseSettings):
     graph_backend_l1: str = Field(default="epistemic_graph", alias="GRAPH_BACKEND_L1")
     graph_backend_l2: str | None = Field(default=None, alias="GRAPH_BACKEND_L2")
     graph_db_uri: str | None = Field(default=None, alias="GRAPH_DB_URI")
-    queue_backend: str = Field(default="sqlite", alias="QUEUE_BACKEND")
-    """DEPRECATED alias for :attr:`task_queue_backend` — honored only when the
-    new flag is unset, with a deprecation warning. Will be removed."""
     # Ingest task-queue selection (CONCEPT:KG-2.55): which durable queue carries
     # KG ingest tasks. Unset (default) = auto: ``postgres`` when ``state_db_uri``
     # is set, else the zero-infra per-host ``sqlite`` file — mirroring the

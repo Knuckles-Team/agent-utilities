@@ -79,7 +79,7 @@ Each integration is a single config switch — set only the ones your profile us
 | Integration | Switch | Profile |
 |---|---|---|
 | Durable KG (Postgres/pggraph) | `GRAPH_DB_URI=postgresql://…` | single-node-prod, enterprise |
-| Ingest queue scale-out (Kafka) | `TASK_QUEUE_BACKEND=kafka` + `KAFKA_BOOTSTRAP_SERVERS=…` (fail-loud; deprecated alias `QUEUE_BACKEND`) | enterprise |
+| Ingest queue scale-out (Kafka) | `TASK_QUEUE_BACKEND=kafka` + `KAFKA_BOOTSTRAP_SERVERS=…` (fail-loud) | enterprise |
 | Secrets (OpenBao/Vault) | `SECRETS_VAULT_URL=…` + `VAULT_AUTH_METHOD=…` | single-node-prod, enterprise |
 | SSO (Keycloak/OIDC) | `AUTH_JWT_JWKS_URI=…` / `OIDC_CONFIG_URL=…` | enterprise |
 | Observability (Langfuse) | `LANGFUSE_HOST` + `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | any (optional) |

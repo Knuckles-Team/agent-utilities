@@ -7,8 +7,7 @@ CONCEPT:KG-2.55 — Fail-loud selectable ingest task-queue backend: when Kafka i
 EXPLICITLY selected (``TASK_QUEUE_BACKEND=kafka``) an unreachable broker raises
 :class:`~.queue_backend.TaskQueueUnavailable` at startup instead of silently
 degrading to the per-host SQLite file (which would split the fleet's queue into
-invisible islands). The legacy ``QUEUE_BACKEND=kafka`` alias keeps the old
-graceful SQLite fallback.
+invisible islands).
 
 CONCEPT:KG-2.56 — Keyed ingest partitions for per-tenant and per-repo ordering
 without global serialization: every task is produced to the
@@ -127,8 +126,8 @@ class KafkaQueueBackend(QueueBackend):
     ``fail_loud=True`` (explicit ``TASK_QUEUE_BACKEND=kafka``) raises
     :class:`TaskQueueUnavailable` when the broker is unreachable at startup
     and on produce failure — never a silent SQLite degrade. With
-    ``fail_loud=False`` and a ``fallback_db_path`` the legacy graceful SQLite
-    fallback is preserved (deprecated ``QUEUE_BACKEND=kafka`` alias).
+    ``fail_loud=False`` and a ``fallback_db_path`` (auto-selected mode) the
+    graceful per-host SQLite fallback is preserved.
 
     Test seams: ``producer``/``admin_client``/``consumer_factory`` accept
     pre-built (fake) confluent-kafka-shaped clients so unit tests never need a
@@ -222,7 +221,7 @@ class KafkaQueueBackend(QueueBackend):
             ) from e
         logger.warning(
             "Kafka unavailable (%s: %s) — falling back to local SQLite "
-            "(deprecated QUEUE_BACKEND alias semantics).",
+            "(auto-selected mode).",
             op,
             e,
         )
