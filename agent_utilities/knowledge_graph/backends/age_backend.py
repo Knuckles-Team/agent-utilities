@@ -84,6 +84,12 @@ def _parse_agtype(raw: Any) -> Any:
 class AGEBackend(PostgreSQLBackend):
     """openCypher-on-Postgres via Apache AGE (graph) + pgvector (embeddings)."""
 
+    @property
+    def cypher_support(self) -> str:
+        """Apache AGE runs native openCypher (count/alias/multi-hop/variable-length/
+        edge-props), so the full query surface is portable here (CONCEPT:KG-2.63)."""
+        return "full"
+
     # ── Cypher → AGE translation ─────────────────────────────────────────────
 
     def _inline_params(self, cypher: str, params: dict[str, Any]) -> str:

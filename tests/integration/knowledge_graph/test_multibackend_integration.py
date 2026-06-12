@@ -353,3 +353,123 @@ class TestMultiBackendIntegration:
             except Exception as e:
                 print(f"Teardown warning: {e}")
             print(f"Teardown for {backend_type} completed.")
+
+
+# CONCEPT:KG-2.63 — three live backends side by side through the named
+# multi-connection registry: the SAME tool runs against any one (target=<name>)
+# or fans out to all (target="all"), with partial success when one is down.
+_MULTICONN_BACKENDS = [
+    (
+        "team-falkor",
+        "falkordb",
+        "docker/falkordb.compose.yml",
+        6380,
+        {"host": "localhost", "port": 6380, "db_name": "agent_graph"},
+    ),
+    (
+        "prod-neo4j",
+        "neo4j",
+        "docker/neo4j.compose.yml",
+        7687,
+        {"uri": "bolt://localhost:7687", "user": "neo4j", "password": "password"},
+    ),
+    (
+        # Register Postgres as AGE for native openCypher portability — one query
+        # runs unchanged across all three.
+        "pg-main",
+        "age",
+        "docker/pggraph-age.compose.yml",
+        5434,
+        {
+            "uri": "postgresql://agent:agent@localhost:5434/agent_kg",
+            "db_name": "agent_graph",
+        },
+    ),
+]
+
+
+@pytest.mark.live
+@pytest.mark.skipif(not DOCKER_AVAILABLE, reason="Docker is not active or installed")
+class TestMultiConnectionRegistryLive:
+    """Bring up falkordb + neo4j + pggraph-AGE at once and route the registry."""
+
+    def test_named_routing_and_fanout(self):
+        from agent_utilities.knowledge_graph.core.connection_registry import (
+            ConnectionRegistry,
+        )
+
+        workspace_dir = "/home/apps/workspace/agent-packages/agent-utilities"
+        IntelligenceGraphEngine._ACTIVE_ENGINE = None
+        set_active_backend(None)
+
+        # A zero-infra in-memory default keeps "default" addressable without infra.
+        default_engine = IntelligenceGraphEngine(
+            backend=create_backend(backend_type="memory")
+        )
+        IntelligenceGraphEngine.set_active(default_engine)
+        registry = ConnectionRegistry(default_engine_provider=lambda: default_engine)
+
+        started: list[str] = []
+        try:
+            for name, backend_type, compose, port, conn in _MULTICONN_BACKENDS:
+                abs_compose = os.path.join(workspace_dir, compose)
+                try:
+                    manage_container(abs_compose, "down")
+                except Exception:
+                    pass
+                manage_container(abs_compose, "up")
+                started.append(abs_compose)
+                assert wait_for_port(port, timeout=60.0), f"{name} port {port} not open"
+                assert wait_for_db_ready(backend_type, conn, timeout=90.0), (
+                    f"{name} not ready"
+                )
+                # Schema first (idempotent), then register the live connection.
+                create_backend(backend_type=backend_type, **conn).create_schema()
+                registry.register(name, {"backend": backend_type, **conn})
+
+            names = [b[0] for b in _MULTICONN_BACKENDS]
+
+            # 1. Single named write+read against EACH backend, same Cypher surface.
+            for name in names:
+                eng = registry.get_engine(name)
+                eng.add_node(f"id::{name}", "Probe", {"id": f"id::{name}", "who": name})
+                rows = eng.query_cypher(
+                    "MATCH (n:Probe) RETURN n.id AS id, n.who AS who"
+                )
+                ids = {r.get("id") for r in rows}
+                assert f"id::{name}" in ids, f"{name} did not persist/read its own node"
+
+            # 2. Fan-out read across all named connections — labeled per-connection.
+            all_names, fanout = registry.resolve_names(names)
+            assert fanout and set(all_names) == set(names)
+            results = {}
+            for n in all_names:
+                eng, err = registry.safe_get_engine(n)
+                assert err is None, f"{n}: {err}"
+                results[n] = eng.query_cypher("MATCH (n:Probe) RETURN n.id AS id")
+            assert all(results[n] for n in names), "every backend should answer"
+
+            # 3. Partial success: stop one backend, fan-out still serves the rest.
+            down_name, _bt, down_compose, _p, _c = _MULTICONN_BACKENDS[0]
+            manage_container(os.path.join(workspace_dir, down_compose), "down")
+            started.remove(os.path.join(workspace_dir, down_compose))
+            registry.remove(down_name)  # drop the dead connection from the registry
+            ok, errs = {}, {}
+            for n in names:
+                if n == down_name:
+                    continue
+                eng, err = registry.safe_get_engine(n)
+                if err:
+                    errs[n] = err
+                else:
+                    ok[n] = eng.query_cypher("MATCH (n:Probe) RETURN n.id AS id")
+            assert ok, "surviving backends must still answer after one is removed"
+        finally:
+            registry.close_all()
+            IntelligenceGraphEngine._ACTIVE_ENGINE = None
+            set_active_backend(None)
+            for abs_compose in started:
+                try:
+                    manage_container(abs_compose, "down")
+                except Exception as e:
+                    print(f"Teardown warning ({abs_compose}): {e}")
