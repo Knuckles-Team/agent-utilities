@@ -183,9 +183,11 @@ class MCPMultiplexer:
         # as live FastMCP tools (so lazy mounts don't double-register).
         self._catalog: dict[str, dict] | None = None
         self._exposed: set[str] = set()
-        # Cached authoritative (server, tool, description) index from the KG,
-        # used by find_tools to name the owning server of an unmounted tool.
-        self._kg_tool_index: list[dict] | None = None
+        # CONCEPT:ECO-4.36 — self-catalog: per-server {"tools": [...], "error": str|None}
+        # learned by probing each child (connect → list_tools → release), cached so
+        # find_tools ranks real fleet-wide tools without holding connections and
+        # without depending on the (separately-flaky) KG live discovery.
+        self._probe_cache: dict[str, dict] = {}
 
     async def call_proxied_tool(
         self, prefixed_name: str, arguments: dict[str, Any] | None = None
@@ -239,6 +241,66 @@ class MCPMultiplexer:
                 isError=True,
             )
 
+    async def _open_one_session(
+        self, server_name: str, cfg: dict, stack: contextlib.AsyncExitStack
+    ) -> ClientSession:
+        """Open + initialize ONE ``ClientSession`` for a child (stdio or remote),
+        entering its transports on ``stack``. Raises on failure. Shared by
+        :meth:`_start_child` (session pool) and :meth:`probe_server` (catalog
+        probe) so the transport-construction logic lives in one place."""
+        command = cfg.get("command")
+        url = os.path.expandvars(str(cfg.get("url", "")))
+        explicit_transport = str(cfg.get("transport", "")).lower()
+        is_remote = bool(url) or explicit_transport in (
+            "streamable-http",
+            "streamable_http",
+            "http",
+            "sse",
+        )
+        if not command and not is_remote:
+            raise RuntimeError(
+                f"Server '{server_name}' has neither 'command' nor 'url'"
+            )
+
+        if is_remote:
+            headers = cfg.get("headers")
+            if headers:
+                headers = {k: os.path.expandvars(str(v)) for k, v in headers.items()}
+            use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
+            if use_sse:
+                if sse_client is None:
+                    raise RuntimeError("mcp SDK has no sse_client for SSE transport")
+                transport = sse_client(url, headers=headers)
+            else:
+                if streamablehttp_client is None:
+                    raise RuntimeError(
+                        "mcp SDK has no streamablehttp_client for "
+                        "streamable-http transport"
+                    )
+                transport = streamablehttp_client(url, headers=headers)
+            # streamable-http yields (read, write, get_session_id); sse yields
+            # (read, write). Take the first two streams either way.
+            streams = await stack.enter_async_context(transport)
+            read_stream, write_stream = streams[0], streams[1]
+        else:
+            merged_env = os.environ.copy()
+            for k, v in (cfg.get("env") or {}).items():
+                merged_env[k] = os.path.expandvars(str(v))
+            if "PYTHONPATH" not in merged_env and "PYTHONPATH" in os.environ:
+                merged_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
+            server_params = StdioServerParameters(
+                command=command, args=cfg.get("args", []), env=merged_env
+            )
+            read_stream, write_stream = await stack.enter_async_context(
+                stdio_client(server_params)
+            )
+
+        session = await stack.enter_async_context(
+            ClientSession(read_stream, write_stream)
+        )
+        await session.initialize()
+        return session
+
     async def _start_child(
         self, server_name: str, cfg: dict
     ) -> tuple[str, ClientSession, list[mcp.types.Tool], dict] | None:
@@ -262,7 +324,6 @@ class MCPMultiplexer:
             return None
 
         args = cfg.get("args", [])
-        env = cfg.get("env", None)
         timeout = float(cfg.get("timeout", 300.0))
 
         # Session-pool sizing (CONCEPT:ECO-4.34): remote children may hold N
@@ -276,68 +337,16 @@ class MCPMultiplexer:
                 1, int(cfg.get("pool_size") or agent_config.mcp_child_pool_size)
             )
 
-        # Build environment dict with dynamic expansions (stdio children only).
-        merged_env = os.environ.copy()
-        if env:
-            for k, v in env.items():
-                merged_env[k] = os.path.expandvars(str(v))
-
-        # Ensure PYTHONPATH and active path are preserved
-        if "PYTHONPATH" not in merged_env and "PYTHONPATH" in os.environ:
-            merged_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
-
-        # Expand any ${VAR} in remote headers (e.g. auth tokens).
-        headers = cfg.get("headers")
-        if headers:
-            headers = {k: os.path.expandvars(str(v)) for k, v in headers.items()}
-
-        # SSE when explicitly requested or the url path ends in ``/sse``; else
-        # streamable-http (the default for a remote child).
-        use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
-
         logger.info(
             "Starting child server '%s' (timeout %ss) via %s: %s",
             server_name,
             timeout,
-            ("sse" if use_sse else "streamable-http") if is_remote else "stdio",
+            "streamable-http/sse" if is_remote else "stdio",
             url if is_remote else f"{command} {' '.join(args)}",
         )
 
         async def _connect_one(stack: contextlib.AsyncExitStack):
-            if is_remote:
-                if use_sse:
-                    if sse_client is None:
-                        raise RuntimeError(
-                            "mcp SDK has no sse_client for SSE transport"
-                        )
-                    transport = sse_client(url, headers=headers)
-                else:
-                    if streamablehttp_client is None:
-                        raise RuntimeError(
-                            "mcp SDK has no streamablehttp_client for "
-                            "streamable-http transport"
-                        )
-                    transport = streamablehttp_client(url, headers=headers)
-                # streamable-http yields (read, write, get_session_id); sse
-                # yields (read, write). Take the first two streams either way.
-                streams = await stack.enter_async_context(transport)
-                read_stream, write_stream = streams[0], streams[1]
-            else:
-                server_params = StdioServerParameters(
-                    command=command, args=args, env=merged_env
-                )
-                # Connect via stdio transport
-                read_stream, write_stream = await stack.enter_async_context(
-                    stdio_client(server_params)
-                )
-
-            # Create client session (transport-agnostic from here on)
-            session = await stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            )
-
-            await session.initialize()
-            return session
+            return await self._open_one_session(server_name, cfg, stack)
 
         async def _connect(stack: contextlib.AsyncExitStack):
             """One connection generation: full session pool + tool list.
@@ -591,31 +600,93 @@ class MCPMultiplexer:
         except (ValueError, TypeError):
             return text
 
-    async def refresh_kg_index(self, force: bool = False) -> list[dict]:
-        """Load (and cache) the authoritative ``(server, tool, description)``
-        catalog from the KG's ``Server -[:PROVIDES]-> CallableResource`` graph.
-        This mapping is what lets discovery name the owning server for a tool
-        without spawning it."""
-        if self._kg_tool_index is not None and not force:
-            return self._kg_tool_index
-        cypher = (
-            "MATCH (s:Server)-[:PROVIDES]->(r:CallableResource) "
-            "RETURN s.name AS server, r.name AS tool, r.description AS description"
+    def _live_tools_for_server(self, server_name: str) -> list[dict]:
+        """Raw ``[{name, description, inputSchema}]`` for an already-mounted
+        child, reconstructed from the aggregation maps (no reconnect)."""
+        out: list[dict] = []
+        for prefixed, (srv, original) in self.tool_to_server.items():
+            if srv != server_name:
+                continue
+            tobj = self.tool_object(prefixed)
+            out.append(
+                {
+                    "name": original,
+                    "description": (tobj.description if tobj else "") or "",
+                    "inputSchema": (tobj.inputSchema if tobj else {}) or {},
+                }
+            )
+        return out
+
+    async def probe_server(
+        self, server_name: str, force: bool = False, timeout: float | None = None
+    ) -> dict:
+        """Probe ONE catalog server for its tool list: connect → list_tools →
+        release (CONCEPT:ECO-4.36). Returns (and caches) ``{"tools": [...],
+        "error": str|None}``. An already-mounted child reuses its live tools
+        instead of reconnecting; an unreachable server records its error string
+        (so find_tools/load_tools can report *why* it is unavailable) rather
+        than raising."""
+        if not force and server_name in self._probe_cache:
+            return self._probe_cache[server_name]
+
+        if server_name in self.children:
+            info = {"tools": self._live_tools_for_server(server_name), "error": None}
+            self._probe_cache[server_name] = info
+            return info
+
+        cfg = self.load_catalog().get(server_name)
+        if cfg is None:
+            info = {"tools": [], "error": "not in catalog"}
+            self._probe_cache[server_name] = info
+            return info
+
+        probe_to = float(
+            timeout
+            if timeout is not None
+            else cfg.get("probe_timeout", cfg.get("timeout", 10.0))
         )
-        rows = await self._kg_call("graph_query", {"cypher": cypher, "params": "{}"})
-        index: list[dict] = []
-        if isinstance(rows, list):
-            for row in rows:
-                if isinstance(row, dict) and row.get("server") and row.get("tool"):
-                    index.append(
-                        {
-                            "server": row["server"],
-                            "tool": row["tool"],
-                            "description": row.get("description") or "",
-                        }
-                    )
-        self._kg_tool_index = index
-        return index
+        try:
+            async with contextlib.AsyncExitStack() as stack:
+                session = await asyncio.wait_for(
+                    self._open_one_session(server_name, cfg, stack), timeout=probe_to
+                )
+                result = await asyncio.wait_for(session.list_tools(), timeout=probe_to)
+            tools = [
+                {
+                    "name": t.name,
+                    "description": t.description or "",
+                    "inputSchema": t.inputSchema or {},
+                }
+                for t in result.tools
+            ]
+            info = {"tools": tools, "error": None}
+        except TimeoutError:
+            info = {"tools": [], "error": f"timeout after {probe_to:g}s"}
+        except Exception as e:
+            info = {"tools": [], "error": f"{type(e).__name__}: {e}"}
+        self._probe_cache[server_name] = info
+        return info
+
+    async def probe_catalog(
+        self, force: bool = False, timeout: float | None = None
+    ) -> dict[str, dict]:
+        """Probe every catalog server concurrently (bounded) and cache the
+        result, so find_tools can rank the whole fleet's real tools. Cached, so
+        only the first call pays the cost; unreachable servers fail fast and are
+        recorded, never blocking the reachable ones."""
+        catalog = self.load_catalog()
+        targets = [s for s in catalog if force or s not in self._probe_cache]
+        if not targets:
+            return self._probe_cache
+
+        sem = asyncio.Semaphore(16)
+
+        async def _guarded(s: str) -> None:
+            async with sem:
+                await self.probe_server(s, force=force, timeout=timeout)
+
+        await asyncio.gather(*[_guarded(s) for s in targets], return_exceptions=True)
+        return self._probe_cache
 
     @staticmethod
     def _relevance(query: str, text: str) -> float:
@@ -650,32 +721,24 @@ class MCPMultiplexer:
             )
         return out
 
-    async def discover_tools(self, query: str, top_k: int | None = None) -> list[dict]:
+    async def discover_tools(self, query: str, top_k: int | None = None) -> dict:
         """Rank candidate tools across the whole fleet for an NL ``query``
-        (CONCEPT:ECO-4.36), without spawning any child.
+        (CONCEPT:ECO-4.36), without exposing or holding any child.
 
-        Backbone is the KG tool index (authoritative server↔tool mapping) ranked
-        by token overlap; KG semantic search scores are blended in when
-        available. Falls back to a server-level listing if the KG has no index.
+        Backbone is the self-catalog (:meth:`probe_catalog` — each server's real
+        tools, learned by a cached connect→list→release probe), ranked by token
+        overlap; KG semantic-search scores are blended in when the KG is warm.
+        Returns ``{"results": [...], "unavailable": {server: error}}`` so the
+        caller can both pick tools and see which servers couldn't be reached.
         """
         from agent_utilities.core.config import config as agent_config
 
         if not top_k or top_k <= 0:
             top_k = agent_config.mcp_dynamic_top_k
         catalog = self.load_catalog()
+        probe = await self.probe_catalog()
 
-        index = await self.refresh_kg_index()
-        if not index:
-            # Cold KG: one best-effort hydration pass from this config, then retry.
-            await self._kg_call(
-                "graph_ingest",
-                {"action": "agent_toolkit", "target_path": str(self.config_path)},
-            )
-            index = await self.refresh_kg_index(force=True)
-        if not index:
-            return self._server_level_fallback()
-
-        # Best-effort semantic scores keyed by bare tool name.
+        # Best-effort semantic scores keyed by bare tool name (KG, if warm).
         semantic: dict[str, float] = {}
         search = await self._kg_call(
             "graph_search",
@@ -694,38 +757,54 @@ class MCPMultiplexer:
                         pass
 
         ranked: list[dict] = []
-        for entry in index:
-            server, tool, desc = entry["server"], entry["tool"], entry["description"]
-            score = semantic.get(tool, 0.0) + self._relevance(query, f"{tool} {desc}")
-            if score <= 0:
+        unavailable: dict[str, str] = {}
+        for server, info in probe.items():
+            if info.get("error"):
+                unavailable[server] = info["error"]
                 continue
-            prefixed = clean_tool_name(get_server_prefix(server), server, tool)
-            ranked.append(
-                {
-                    "server": server,
-                    "tool": tool,
-                    "prefixed_name": prefixed,
-                    "description": desc,
-                    "score": round(score, 4),
-                    "mountable": server in catalog,
-                    "mounted": prefixed in self._exposed,
-                }
-            )
+            for entry in info.get("tools", []):
+                tool = entry["name"]
+                desc = entry.get("description", "")
+                score = semantic.get(tool, 0.0) + self._relevance(
+                    query, f"{tool} {desc}"
+                )
+                if score <= 0:
+                    continue
+                prefixed = clean_tool_name(get_server_prefix(server), server, tool)
+                ranked.append(
+                    {
+                        "server": server,
+                        "tool": tool,
+                        "prefixed_name": prefixed,
+                        "description": desc,
+                        "score": round(score, 4),
+                        "mountable": server in catalog,
+                        "mounted": prefixed in self._exposed,
+                    }
+                )
 
         ranked.sort(key=lambda r: r["score"], reverse=True)
-        return ranked[:top_k] if ranked else self._server_level_fallback()
+        results = ranked[:top_k]
+        # Nothing matched but reachable servers exist → list them so the caller
+        # can still load by server. If every server errored, leave results empty
+        # and let ``unavailable`` tell the story.
+        if not results and any(not info.get("error") for info in probe.values()):
+            results = self._server_level_fallback()
+        return {"results": results, "unavailable": unavailable}
 
     async def resolve_and_mount(
         self,
         tools: list[str] | None = None,
         servers: list[str] | None = None,
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[str], list[str], dict[str, str]]:
         """Mount whatever children are needed to satisfy a ``load_tools``
         request and compute the set of prefixed names to expose.
 
-        Returns ``(target_servers, prefixed_names_to_expose)``. Does NOT touch
-        FastMCP — registration of the live tools (and the list_changed
-        notification) is the caller's job so this stays unit-testable.
+        Returns ``(mounted_servers, prefixed_names_to_expose, failed)`` where
+        ``failed`` maps each server that could not be mounted to a human-readable
+        reason (e.g. an unreachable remote server). Does NOT touch FastMCP —
+        registration of the live tools (and the list_changed notification) is the
+        caller's job so this stays unit-testable.
         """
         requested_tools = list(tools or [])
         target_servers: set[str] = set(servers or [])
@@ -734,14 +813,22 @@ class MCPMultiplexer:
             if owner:
                 target_servers.add(owner)
 
+        mounted: list[str] = []
+        failed: dict[str, str] = {}
         for server in sorted(target_servers):
             await self.mount_child(server)
+            if server in self.children:
+                mounted.append(server)
+            else:
+                # Mount failed — surface *why* via a targeted probe (cached).
+                info = await self.probe_server(server)
+                failed[server] = info.get("error") or "could not mount (unreachable?)"
 
         if requested_tools:
             wanted = set(requested_tools)
         else:
             wanted = set()
-            for server in target_servers:
+            for server in mounted:
                 wanted.update(t.name for t in self.prefixed_tools_for_server(server))
 
         to_expose = [
@@ -749,7 +836,7 @@ class MCPMultiplexer:
             for name in sorted(wanted)
             if name in self.tool_to_server and name not in self._exposed
         ]
-        return sorted(target_servers), to_expose
+        return mounted, to_expose, failed
 
     def tool_object(self, prefixed_name: str) -> mcp.types.Tool | None:
         """The aggregated ``Tool`` object for a prefixed name, if known."""
@@ -898,8 +985,14 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     runtime, notifying the client each time). Plus the status tool."""
 
     async def _find_tools(query: str, top_k: int = 0) -> ToolResult:
-        results = await mux.discover_tools(query, top_k=top_k or None)
-        payload = {"query": query, "count": len(results), "results": results}
+        discovery = await mux.discover_tools(query, top_k=top_k or None)
+        results = discovery["results"]
+        payload = {
+            "query": query,
+            "count": len(results),
+            "results": results,
+            "unavailable": discovery["unavailable"],
+        }
         return ToolResult(
             content=[
                 mcp_types.TextContent(type="text", text=json.dumps(payload, indent=2))
@@ -910,7 +1003,7 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     async def _load_tools(
         tools: list[str] | None = None, servers: list[str] | None = None
     ) -> ToolResult:
-        target_servers, to_expose = await mux.resolve_and_mount(
+        mounted_servers, to_expose, failed = await mux.resolve_and_mount(
             tools=tools, servers=servers
         )
         newly: list[str] = []
@@ -921,8 +1014,9 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
         if newly:
             await _notify_tools_changed(mcp)
         payload = {
-            "mounted_servers": target_servers,
+            "mounted_servers": mounted_servers,
             "newly_exposed": newly,
+            "failed": failed,
             "total_exposed": len(mux._exposed),
         }
         return ToolResult(
@@ -958,10 +1052,12 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
             name="find_tools",
             description=(
                 "Discover the most relevant tools across the ENTIRE MCP fleet "
-                "for a natural-language task, without loading them. Ranks tools "
-                "via the knowledge graph and returns their prefixed names; pass "
-                "the ones you need to load_tools to make them callable. Use this "
-                "first whenever the tool you want isn't already available."
+                "for a natural-language task, without loading them. Returns "
+                "ranked prefixed tool names plus an 'unavailable' map of any "
+                "servers that couldn't be reached. Pass the names you need to "
+                "load_tools to make them callable. Use this first whenever the "
+                "tool you want isn't already available. The first call probes "
+                "the fleet (a few seconds); later calls are cached."
             ),
             parameters={
                 "type": "object",
@@ -989,7 +1085,9 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
                 "callable. Pass prefixed tool names (from find_tools) via "
                 "'tools', and/or whole server names via 'servers' to load all "
                 "of a server's tools. Spawns the owning child servers on first "
-                "use and notifies the client that the tool list changed."
+                "use and notifies the client that the tool list changed. Any "
+                "server that can't be reached is reported in the 'failed' map "
+                "(with the reason) instead of erroring the whole call."
             ),
             parameters={
                 "type": "object",
