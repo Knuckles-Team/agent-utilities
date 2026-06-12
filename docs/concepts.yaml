@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 178
+total_concepts: 180
 total_pillars: 18
 pillars:
 - AHE-3
@@ -582,6 +582,22 @@ concepts:
   - agent_utilities/http/rate_limit.py
   - agent_utilities/http/redaction.py
   doc: Fleet HTTP Client Library
+- id: ECO-4.36
+  name: dynamic tool gateway state. The catalog is the
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/mcp/multiplexer.py
+  doc: dynamic tool gateway state. The catalog is the
+- id: ECO-4.37
+  name: Surface Gateway Client SDK
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/gateway_client/__init__.py
+  - agent_utilities/gateway_client/client.py
+  doc: Surface Gateway Client SDK
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
