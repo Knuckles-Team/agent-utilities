@@ -197,6 +197,23 @@ class LadybugBackend(GraphBackend):
                 "ladybug package is not installed. Install with 'pip install ladybug'"
             )
         self._local = threading.local()
+        # Never anchor the DB (and its sibling .lock/.wal/.corrupted files) to the
+        # CWD: a relative default scattered them into whatever directory the process
+        # happened to start in — the workspace-root `knowledge_graph.db.corrupted`
+        # incident. Resolve a relative path under the agent-utilities data dir so it
+        # is deterministic regardless of cwd.
+        if db_path != ":memory:" and not os.path.isabs(db_path):
+            from agent_utilities.core.paths import data_dir
+
+            resolved = data_dir() / db_path
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            logger.warning(
+                "LadybugBackend: relative db_path %r resolved to %s (avoiding "
+                "cwd-relative DB files).",
+                db_path,
+                resolved,
+            )
+            db_path = str(resolved)
         self.db_path = db_path
         self.read_only = setting("LADYBUG_DB_READ_ONLY", "0").lower() in (
             "1",

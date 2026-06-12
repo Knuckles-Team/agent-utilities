@@ -88,6 +88,22 @@ def test_read_served_from_l1_only():
     assert l3.calls == []  # read never touches L3
 
 
+def test_explicit_is_write_overrides_regex():
+    # E5: a READ whose literal mentions a mutation keyword regex-false-positives;
+    # an explicit is_write=False keeps it off L3. is_write=True forces a mirror
+    # for a query the regex wouldn't flag.
+    l1, l3 = RecordingBackend("l1"), RecordingBackend("l3")
+    t = TieredGraphBackend(l1, l3)
+
+    # Regex would treat this read as a write (it contains 'SET'); explicit override.
+    t.execute("MATCH (n) WHERE n.label = 'SET' RETURN n", is_write=False)
+    assert l3.calls == [], "explicit read must not mirror to L3"
+
+    # Explicit write of a query the keyword regex wouldn't match.
+    t.execute("CALL custom.mutate()", is_write=True)
+    assert _ops(l3) == ["execute"], "explicit write must mirror to L3"
+
+
 def test_write_mirrored_to_both():
     l1, l3 = RecordingBackend("l1"), RecordingBackend("l3")
     t = TieredGraphBackend(l1, l3)
@@ -100,6 +116,8 @@ def test_write_mirrored_to_both():
         "l3_failures": 0,
         "l1_reads": 0,
         "l3_reads": 0,
+        "backfeed_queued": 0,
+        "backfeed_inline": 0,
     }
 
 
@@ -125,6 +143,8 @@ def test_l3_failure_is_non_fatal():
         "l3_failures": 1,
         "l1_reads": 0,
         "l3_reads": 0,
+        "backfeed_queued": 0,
+        "backfeed_inline": 0,
     }
 
 
@@ -198,3 +218,34 @@ def test_reconcile_to_durable_copies_graph():
     assert len(writes) == 3  # 2 node CREATE + 1 edge MERGE
     # Exact-drift keys present (the recording L3 can't be counted → reported missing).
     assert "nodes_missing" in summary and "edges_missing" in summary
+
+
+def test_write_behind_drains_async_and_flushes():
+    """B4: with write_behind on, L1 acks immediately and L3 mirrors drain on a
+    background thread; flush_backfeed/close wait for the backlog (no loss)."""
+    l1, l3 = RecordingBackend("l1"), RecordingBackend("l3")
+    t = TieredGraphBackend(l1, l3, write_behind=True)
+    try:
+        for i in range(5):
+            t.execute(f"CREATE (n:Foo {{id:'{i}'}})")
+        # L1 has all writes immediately; L3 drains asynchronously.
+        assert len(l1.calls) == 5
+        t.flush_backfeed()  # block until the backfeed catches up
+        assert _ops(l3) == ["execute"] * 5
+        assert t.durability_stats()["l3_writes"] == 5
+        assert t.durability_stats()["backfeed_queued"] == 0
+    finally:
+        t.close()
+
+
+def test_write_behind_embeddings_stay_synchronous():
+    """Embeddings mirror synchronously even in write-behind mode (semantic_search
+    reads L3, so the vector must be durable before the next query)."""
+    l1, l3 = RecordingBackend("l1"), RecordingBackend("l3")
+    t = TieredGraphBackend(l1, l3, write_behind=True)
+    try:
+        t.add_embedding("n1", [0.1, 0.2, 0.3])
+        # No flush needed — the embedding mirror is synchronous.
+        assert ("add_embedding", "n1") in l3.calls
+    finally:
+        t.close()

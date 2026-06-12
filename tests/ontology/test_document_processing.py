@@ -210,3 +210,47 @@ def test_bytes_input_is_decoded_and_processed():
     result = proc.process(DOC_TEXT.encode("utf-8"), source="memory://bytes")
     assert result.chunk_count >= 1
     assert result.document_node["type"] == DOCUMENT_NODE_TYPE
+
+
+def test_persist_uses_engine_bulk_path_when_available():
+    """B6: when the backend exposes an engine bulk path, the slice is materialized
+    via batched RPCs (batch_update) instead of one add_node per element."""
+
+    class _Graph:
+        def __init__(self):
+            self.batches = []
+
+        def batch_update(self, ops):
+            self.batches.append(list(ops))
+            return {"ok": True}
+
+    class _BulkBackend:
+        def __init__(self):
+            self._graph = _Graph()
+            self.per_item_nodes = 0
+
+        def add_node(self, *a, **k):  # must NOT be hit when bulk works
+            self.per_item_nodes += 1
+
+        def add_edge(self, *a, **k):
+            pass
+
+    backend = _BulkBackend()
+    proc = DocumentProcessor(
+        _FakeFacade(backend),
+        chunking=ChunkingConfig(chunk_size=200, overlap=50),
+        embed_fn=_fake_embed,
+        embedding_dim=EMBED_DIM,
+    )
+    result = proc.process(DOC_TEXT, source="memory://bulk")
+
+    assert result.persisted is True
+    assert backend._graph.batches, "batch_update should have been called"
+    assert backend.per_item_nodes == 0, "must not fall back to per-item when bulk works"
+    node_ops = [
+        op
+        for batch in backend._graph.batches
+        for op in batch
+        if op.get("op") == "add_node"
+    ]
+    assert len(node_ops) == 1 + result.chunk_count  # document + every chunk
