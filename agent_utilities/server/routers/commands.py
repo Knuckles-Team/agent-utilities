@@ -107,28 +107,97 @@ async def execute_slash_command(payload: dict, request: Request):
         sub = sub_parts[0].lower() if sub_parts else "stats"
         rest = sub_parts[1] if len(sub_parts) > 1 else ""
 
-        # Access Graph DB stats centrally
-        response_md = (
-            "### Knowledge Graph Statistics\n\n"
-            "- **Total Nodes**: 42\n"
-            "- **Total Relationships**: 89\n"
-            "- **Backend Status**: Online (LadybugDB)\n"
+        # Route to the live engine (CONCEPT:KG-2.8). Never fabricate counts,
+        # search hits, or impact percentages — if the engine is cold, say so.
+        from agent_utilities.knowledge_graph.core.engine import (
+            IntelligenceGraphEngine,
         )
+
+        engine = IntelligenceGraphEngine.get_active()
+        backend = getattr(engine, "backend", None) if engine else None
+
         if sub == "search":
             if not rest:
                 response_md = "Usage: `/graph search <query>`"
+            elif backend is None:
+                response_md = "Graph backend not active — cannot run search."
             else:
-                response_md = f"### Graph Search Results for `{rest}`:\n\n- **[ORCH-1.8]** (Concept): Unified Parallel Engine Scheduler\n"
+                try:
+                    rows = (
+                        backend.execute(
+                            "MATCH (n) WHERE toLower(n.name) CONTAINS toLower($q) "
+                            "OR toLower(n.id) CONTAINS toLower($q) "
+                            "RETURN n.id AS id, n.name AS name, labels(n)[0] AS type "
+                            "LIMIT 10",
+                            {"q": rest},
+                        )
+                        or []
+                    )
+                except Exception as e:  # noqa: BLE001
+                    rows = []
+                    logger.warning("Graph search failed: %s", e)
+                if not rows:
+                    response_md = f"No graph nodes matched `{rest}`."
+                else:
+                    lines = [
+                        f"- **[{r.get('type', 'Node')}]** `{r.get('id')}`: "
+                        f"{r.get('name') or r.get('id')}"
+                        for r in rows
+                    ]
+                    response_md = (
+                        f"### Graph Search Results for `{rest}`:\n\n" + "\n".join(lines)
+                    )
         elif sub == "impact":
             if not rest:
                 response_md = "Usage: `/graph impact <symbol>`"
+            elif engine is None:
+                response_md = "Graph backend not active — cannot run impact analysis."
             else:
+                try:
+                    radius = engine.get_blast_radius(rest, depth=2) or []
+                except Exception as e:  # noqa: BLE001
+                    radius = []
+                    logger.warning("Blast radius query failed: %s", e)
+                if not radius:
+                    response_md = (
+                        f"### Blast Radius Impact Analysis for `{rest}`\n\n"
+                        f"No downstream dependencies found (or `{rest}` is not a known node)."
+                    )
+                else:
+                    lines = [
+                        f"- `{item.get('id')}` ({item.get('type', 'Node')}, "
+                        f"depth {item.get('depth')})"
+                        for item in radius
+                    ]
+                    response_md = (
+                        f"### Blast Radius Impact Analysis for `{rest}`\n\n"
+                        f"**{len(radius)}** downstream node(s) affected:\n\n"
+                        + "\n".join(lines)
+                    )
+        else:
+            # stats (default)
+            if backend is None:
                 response_md = (
-                    f"### Blast Radius Impact Analysis for `{rest}`\n\n"
-                    f"1. **Direct Dependencies**: High Risk (2 items affected)\n"
-                    f"2. **Downstream Pipelines**: Medium Risk (1 workflow affected)\n"
-                    f"3. **Zero-Trust Security Alignment**: 100% Secure\n"
+                    "### Knowledge Graph Statistics\n\n"
+                    "Graph backend not active — no live counts available."
                 )
+            else:
+                try:
+                    node_rows = backend.execute("MATCH (n) RETURN count(n) AS c") or []
+                    edge_rows = (
+                        backend.execute("MATCH ()-[r]->() RETURN count(r) AS c") or []
+                    )
+                    nodes = int(node_rows[0]["c"]) if node_rows else 0
+                    edges = int(edge_rows[0]["c"]) if edge_rows else 0
+                    response_md = (
+                        "### Knowledge Graph Statistics\n\n"
+                        f"- **Total Nodes**: {nodes}\n"
+                        f"- **Total Relationships**: {edges}\n"
+                        f"- **Backend**: {type(backend).__name__} (active)\n"
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("Graph stats query failed: %s", e)
+                    response_md = f"Graph stats query failed: {e}"
         return {"response_markdown": response_md, "client_actions": []}
 
     elif cmd_name == "kb":
@@ -136,26 +205,102 @@ async def execute_slash_command(payload: dict, request: Request):
         sub = sub_parts[0].lower() if sub_parts else "list"
         rest = sub_parts[1] if len(sub_parts) > 1 else ""
 
+        from agent_utilities.knowledge_graph.core.engine import (
+            IntelligenceGraphEngine,
+        )
+
+        engine = IntelligenceGraphEngine.get_active()
+        backend = getattr(engine, "backend", None) if engine else None
+
         if sub == "list":
-            response_md = (
-                "### Connected Knowledge Bases:\n\n"
-                "- `workspace-docs` (Local markdown and specification guides)\n"
-                "- `mcp-servers-index` (Standard definitions of available tool categories)\n"
-            )
+            if backend is None:
+                response_md = (
+                    "### Connected Knowledge Bases:\n\n"
+                    "Knowledge Graph backend not active — no knowledge bases available."
+                )
+            else:
+                try:
+                    rows = (
+                        backend.execute(
+                            "MATCH (kb:KnowledgeBase) RETURN kb.id AS id, "
+                            "kb.name AS name, kb.description AS description"
+                        )
+                        or []
+                    )
+                except Exception as e:  # noqa: BLE001
+                    rows = []
+                    logger.warning("KB list query failed: %s", e)
+                if not rows:
+                    response_md = (
+                        "### Connected Knowledge Bases:\n\n"
+                        "No knowledge bases registered yet. "
+                        "Use `/kb ingest <url_or_path>` to create one."
+                    )
+                else:
+                    lines = [
+                        f"- `{r.get('name') or r.get('id')}` "
+                        f"({r.get('description', '') or 'no description'})"
+                        for r in rows
+                    ]
+                    response_md = "### Connected Knowledge Bases:\n\n" + "\n".join(
+                        lines
+                    )
         elif sub == "search":
             if not rest:
                 response_md = "Usage: `/kb search <query>`"
+            elif backend is None:
+                response_md = "Knowledge Graph backend not active — cannot search."
             else:
-                response_md = (
-                    f"### KB Search Results for `{rest}`:\n\n"
-                    f"1. **[ORCH-1.8] Unified Parallel Engine.md** (Relevance: 95%)\n"
-                    f"   > The parallel scheduler orchestrates agent workflows natively across multiple background worker pools...\n"
-                )
+                try:
+                    rows = (
+                        backend.execute(
+                            "MATCH (a:Article) "
+                            "WHERE toLower(a.name) CONTAINS toLower($q) "
+                            "OR toLower(a.content) CONTAINS toLower($q) "
+                            "RETURN a.id AS id, a.name AS name, "
+                            "a.description AS description LIMIT 5",
+                            {"q": rest},
+                        )
+                        or []
+                    )
+                except Exception as e:  # noqa: BLE001
+                    rows = []
+                    logger.warning("KB search failed: %s", e)
+                if not rows:
+                    response_md = f"No KB articles matched `{rest}`."
+                else:
+                    lines = []
+                    for i, r in enumerate(rows, 1):
+                        excerpt = (r.get("description") or "")[:200]
+                        lines.append(
+                            f"{i}. **{r.get('name') or r.get('id')}**"
+                            + (f"\n   > {excerpt}" if excerpt else "")
+                        )
+                    response_md = (
+                        f"### KB Search Results for `{rest}`:\n\n" + "\n".join(lines)
+                    )
         elif sub == "ingest":
             if not rest:
                 response_md = "Usage: `/kb ingest <url_or_path>`"
+            elif engine is None:
+                response_md = (
+                    "Knowledge Graph engine not active — cannot enqueue ingestion."
+                )
             else:
-                response_md = f"Successfully initiated background KB ingestion task for `{rest}` into `workspace-docs`."
+                try:
+                    job_id = engine.submit_task(
+                        target_path=rest,
+                        is_codebase=False,
+                        provenance={"source": "slash_command:/kb ingest"},
+                        task_type="document",
+                    )
+                    response_md = (
+                        f"Enqueued KB ingestion task `{job_id}` for `{rest}`. "
+                        "Track progress via the pipeline status."
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("KB ingest enqueue failed: %s", e)
+                    response_md = f"Failed to enqueue ingestion for `{rest}`: {e}"
         else:
             response_md = f"Unknown `/kb` subcommand: `{sub}`"
 
@@ -163,22 +308,92 @@ async def execute_slash_command(payload: dict, request: Request):
 
     elif cmd_name == "sdd":
         sub = args.strip().lower() or "specs"
+
+        import os
+
+        from agent_utilities.sdd import SDDManager
+
+        workspace = os.environ.get("WORKSPACE_PATH") or os.getcwd()
+        manager = SDDManager(workspace_path=workspace)
+
         if sub == "specs":
-            response_md = (
-                "### Active Spec-Driven Specifications:\n\n"
-                "- **[ORCH-1.8]**: Parallel Execution Engine & Lock Protocols (Status: `Approved`)\n"
-                "- **[KG-2.0]**: Epistemic Graph Database Schema (Status: `Draft`)\n"
-                "- **[TUI-2.0]**: Keyboard Event Bindings and Screen Layers (Status: `In Review`)\n"
-            )
+            try:
+                specs = manager.list_specs()
+            except Exception as e:  # noqa: BLE001
+                specs = []
+                logger.warning("SDD spec listing failed: %s", e)
+            if not specs:
+                response_md = (
+                    "### Active Spec-Driven Specifications:\n\n"
+                    f"No specs found under `{workspace}/.specify/specs/`."
+                )
+            else:
+                lines = [
+                    f"- **[{s.get('id')}]**: {s.get('title', s.get('id'))}"
+                    for s in specs
+                ]
+                response_md = "### Active Spec-Driven Specifications:\n\n" + "\n".join(
+                    lines
+                )
         elif sub == "constitution":
-            response_md = (
-                "### Spec-Driven Development Governance Rules:\n\n"
-                "1. **Design Before Execution**: No code changes allowed until a spec has been written and approved.\n"
-                "2. **TDD Compliance**: Every new feature must be verified by a robust suite of pytest unit tests.\n"
-                "3. **Zero Drift**: Client interfaces (TUI, Web UI, GUI) must match the backend API schema 1:1.\n"
-            )
+            try:
+                constitution = manager.get_constitution()
+            except Exception as e:  # noqa: BLE001
+                constitution = None
+                logger.warning("SDD constitution load failed: %s", e)
+            if not constitution:
+                response_md = (
+                    "### Spec-Driven Development Governance:\n\n"
+                    f"No constitution found at `{workspace}/.specify/constitution.md`."
+                )
+            else:
+                principles = constitution.get("core_principles") or []
+                gates = constitution.get("quality_gates") or []
+                sections = []
+                vision = constitution.get("vision")
+                mission = constitution.get("mission")
+                if vision:
+                    sections.append(f"**Vision**: {vision}")
+                if mission:
+                    sections.append(f"**Mission**: {mission}")
+                if principles:
+                    sections.append(
+                        "**Core Principles**:\n"
+                        + "\n".join(f"{i}. {p}" for i, p in enumerate(principles, 1))
+                    )
+                if gates:
+                    sections.append(
+                        "**Quality Gates**:\n" + "\n".join(f"- {g}" for g in gates)
+                    )
+                body = "\n\n".join(sections) if sections else "(constitution is empty)"
+                response_md = "### Spec-Driven Development Governance:\n\n" + body
         elif sub == "sync":
-            response_md = "Synchronizing local workspace specification documents with the central Knowledge Graph... Done! All indexes updated."
+            from agent_utilities.knowledge_graph.core.engine import (
+                IntelligenceGraphEngine,
+            )
+
+            engine = IntelligenceGraphEngine.get_active()
+            if engine is None or not getattr(engine, "backend", None):
+                response_md = (
+                    "Knowledge Graph backend not active — cannot sync specs to KG."
+                )
+            else:
+                try:
+                    from agent_utilities.models import Spec
+
+                    specs = manager.list_specs()
+                    for s in specs:
+                        spec_model = manager.load(Spec, s.get("id"))
+                        if spec_model is not None:
+                            manager.record_sdd_outcome(spec_model, s.get("id"))
+                    response_md = (
+                        f"Synchronized {len(specs)} spec(s) from "
+                        f"`{workspace}/.specify/specs/` into the Knowledge Graph "
+                        "as `SDDArtifact` nodes."
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("SDD sync failed: %s", e)
+                    response_md = f"SDD sync failed: {e}"
         else:
             response_md = f"Unknown `/sdd` subcommand: `{sub}`"
 
@@ -225,18 +440,82 @@ async def execute_slash_command(payload: dict, request: Request):
         rest = sub_parts[1] if len(sub_parts) > 1 else ""
 
         if sub in ("", "list"):
-            response_md = (
-                "### Spawned Subagents and Background Tasks:\n\n"
-                "- **ID: `agent-research-01`** - Type: `ScholarX Searcher` - Status: `Idle`\n"
-                "- **ID: `agent-tui-helper`** - Type: `ACP Protocol Client` - Status: `Running`\n"
-            )
+            lines = []
+            # Registered specialist agents (same source as /agents).
+            try:
+                from agent_utilities.agent.discovery import (
+                    discover_all_specialists,
+                )
+
+                for s in discover_all_specialists():
+                    lines.append(
+                        f"- **{s.name}** - Type: `{s.source or 'specialist'}`"
+                        + (f" - Server: `{s.mcp_server}`" if s.mcp_server else "")
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Specialist discovery failed: %s", e)
+            # Live dispatch workers (heartbeat-fresh).
+            try:
+                from agent_utilities.orchestration.agent_dispatch import (
+                    list_dispatch_workers,
+                )
+
+                for w in list_dispatch_workers():
+                    active = len(w.get("active_sessions", []))
+                    lines.append(
+                        f"- **worker `{w.get('worker_id')}`** on `{w.get('host')}` "
+                        f"- active sessions: {active} - backend: "
+                        f"`{w.get('queue_backend')}`"
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Dispatch worker listing unavailable: %s", e)
+
+            if not lines:
+                response_md = (
+                    "### Spawned Subagents and Background Tasks:\n\n"
+                    "No registered specialists or live dispatch workers."
+                )
+            else:
+                response_md = (
+                    "### Registered Specialists and Live Workers:\n\n"
+                    + "\n".join(lines)
+                )
         elif sub == "spawn":
             if not rest:
                 response_md = "Usage: `/resources spawn <name>`"
             else:
-                response_md = (
-                    f"Successfully spawned background agent subtask **{rest}**."
+                from agent_utilities.orchestration.agent_dispatch import (
+                    dispatch_queue_enabled,
                 )
+
+                if not dispatch_queue_enabled():
+                    response_md = (
+                        "Agent dispatch is in `inline` mode (no background queue). "
+                        "Set `AGENT_DISPATCH_BACKEND=queue` to enqueue background "
+                        f"subagent turns; `{rest}` was not spawned."
+                    )
+                else:
+                    try:
+                        import uuid as _uuid
+
+                        from agent_utilities.orchestration.agent_dispatch import (
+                            AgentTurnEnvelope,
+                            enqueue_agent_turn,
+                        )
+
+                        envelope = AgentTurnEnvelope(
+                            session_id=f"slash-spawn-{_uuid.uuid4().hex[:8]}",
+                            agent_name=rest,
+                        )
+                        handle = enqueue_agent_turn(envelope)
+                        response_md = (
+                            f"Enqueued background agent turn `{handle['job_id']}` "
+                            f"for **{rest}** (session `{handle['session_id']}`, "
+                            f"status: {handle['status']})."
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("Agent spawn enqueue failed: %s", e)
+                        response_md = f"Failed to spawn **{rest}**: {e}"
         else:
             response_md = f"Unknown `/resources` subcommand: `{sub}`"
 
