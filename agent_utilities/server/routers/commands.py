@@ -186,20 +186,34 @@ async def execute_slash_command(payload: dict, request: Request):
 
     elif cmd_name == "cron":
         sub = args.strip().lower() or "calendar"
-        if sub == "calendar":
-            response_md = (
-                "### Scheduled Background Tasks:\n\n"
-                "- `hourly-research-survey`: Runs ScholarX paper queries every 60 minutes.\n"
-                "- `nightly-alpha-discovery`: Runs quant backtests and factor analysis daily at 02:00 AM.\n"
-                "- `weekly-ecosystem-audit`: Scans all workspace projects for design token drift every Sunday at midnight.\n"
-            )
-        elif sub == "logs":
-            response_md = (
-                "### Cron Job Execution Logs (Last 3 entries):\n\n"
-                "- `2026-05-25 04:00:00` - `hourly-research-survey` - Success (found 3 new papers)\n"
-                "- `2026-05-25 03:00:00` - `hourly-research-survey` - Success (zero new papers)\n"
-                "- `2026-05-25 02:00:00` - `nightly-alpha-discovery` - Success (updated 14 risk factors)\n"
-            )
+        # Real registry (CONCEPT:OS-5.30) — declarative deploy/schedules.yml + last-run
+        # state, NOT hardcoded placeholder text.
+        try:
+            from agent_utilities.core.skill_scheduler import calendar
+
+            entries = calendar()
+        except Exception as e:  # noqa: BLE001
+            return {
+                "response_markdown": f"Scheduler unavailable: {e}",
+                "client_actions": [],
+            }
+        if sub in ("calendar", "logs"):
+            if not entries:
+                response_md = (
+                    "No scheduled skills/workflows declared in `deploy/schedules.yml`."
+                )
+            elif sub == "calendar":
+                lines = [
+                    f"- `{e['name']}` (`{e['cron']}`, {e['kind']}:{e['ref']}): "
+                    f"{e['description']} — last run: {e['last_run']}"
+                    for e in entries
+                ]
+                response_md = "### Scheduled Skills / Workflows:\n\n" + "\n".join(lines)
+            else:  # logs — last-run per declared schedule
+                lines = [
+                    f"- `{e['name']}` — last run: {e['last_run']}" for e in entries
+                ]
+                response_md = "### Schedule Last-Run:\n\n" + "\n".join(lines)
         else:
             response_md = f"Unknown `/cron` subcommand: `{sub}`"
 

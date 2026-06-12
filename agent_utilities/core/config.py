@@ -617,13 +617,6 @@ class AgentConfig(BaseSettings):
         default=3600.0, alias="KG_GOLDEN_LOOP_INTERVAL"
     )
     kg_golden_loop_topics: int = Field(default=5, alias="KG_GOLDEN_LOOP_TOPICS")
-    # Periodic code-health (liveness/dead-pathway) sweep across workspace repos —
-    # opt-in, off by default; runs the deterministic CE-038 analyzer sequentially
-    # per repo and records a CodeHealthReport node (detection only). Default 4h.
-    kg_code_health: bool = Field(default=False, alias="KG_CODE_HEALTH")
-    kg_code_health_interval: float = Field(
-        default=14400.0, alias="KG_CODE_HEALTH_INTERVAL"
-    )
     # Failure-driven evolution — opt-in, off by default; pulls failures from
     # Langfuse into failure-gap topics the golden loop remediates (CONCEPT:AHE-3.18).
     kg_failure_evolution: bool = Field(default=False, alias="KG_FAILURE_EVOLUTION")

@@ -698,16 +698,11 @@ class TaskManagerMixin(GraphEngineProtocol):
         # PerformanceAnomaly consumer (CONCEPT:AHE-3.19) — drains unconsumed
         # PerformanceAnomaly nodes into failure_gap topics. LLM-free, bounded,
         # propose-only ⇒ ON by default (KG_ANOMALY_CONSUMER=0 to disable).
-        # Periodic code-health (liveness/dead-pathway) sweep across repos — opt-in
-        # (KG_CODE_HEALTH), LLM-free, detection-only. (CONCEPT:CE-038)
-        if _cfg.kg_code_health:
-            jobs.append(
-                (
-                    "code_health",
-                    _cfg.kg_code_health_interval,
-                    self._tick_code_health,
-                )
-            )
+        # Declarative skill / skill-workflow scheduler (CONCEPT:OS-5.30) — the ONE
+        # generic tick that dispatches everything in deploy/schedules.yml on its cron.
+        # Always registered; the registry (and per-entry `enabled`) is the control, so
+        # no recurring job is ever a hardcoded daemon tick. Runs every minute.
+        jobs.append(("skill_scheduler", 60.0, self._tick_skill_scheduler))
         if _cfg.kg_anomaly_consumer:
             jobs.append(
                 (
@@ -1531,27 +1526,23 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception as e:  # noqa: BLE001
             logger.error("anomaly_consumer tick error: %s", e)
 
-    def _tick_code_health(self) -> None:
-        """Sweep workspace repos for dead pathways (CONCEPT:CE-038).
+    def _tick_skill_scheduler(self) -> None:
+        """Dispatch every declaratively-scheduled skill / skill-workflow that is due.
 
-        One bounded, LLM-free pass: runs the code-enhancer liveness analyzer over
-        each repo sequentially and records a ``CodeHealthReport`` node per repo, so
-        orphan modules / never-invoked functions / contract-drift seams are tracked
-        as the codebase grows. Detection only; fix proposals stay on-demand. Opt-in
-        via ``KG_CODE_HEALTH``.
+        The ONLY scheduling code in the daemon (CONCEPT:OS-5.30): it reads
+        ``deploy/schedules.yml`` and runs whatever cron fires this minute — there are
+        no hardcoded per-job ticks. New recurring jobs (e.g. the code-health sweep)
+        are registry entries, not daemon edits. ``/cron calendar`` reads the same
+        registry.
         """
         try:
-            from ..adaptation.code_health import run_code_health_sweep
+            from agent_utilities.core.skill_scheduler import run_due_schedules
 
-            report = run_code_health_sweep(self)
-            if report.get("swept"):
-                logger.info(
-                    "code_health sweep: %s repo(s); lowest=%s",
-                    report["swept"],
-                    report.get("lowest"),
-                )
+            result = run_due_schedules(self)
+            if result.get("fired"):
+                logger.info("skill_scheduler fired: %s", result["fired"])
         except Exception as e:  # noqa: BLE001
-            logger.error("code_health tick error: %s", e)
+            logger.error("skill_scheduler tick error: %s", e)
 
     def _tick_fuseki_publish(self) -> None:
         """Push the bundled ontology modules to Apache Jena Fuseki.

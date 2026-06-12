@@ -1,0 +1,29 @@
+# Declarative schedule registry (CONCEPT:OS-5.30).
+#
+# ONE entry per scheduled skill / skill-workflow. The daemon runs a single generic
+# scheduler tick (agent_utilities.core.skill_scheduler.run_due_schedules) that reads
+# THIS file and dispatches whatever is due — there are NO hardcoded per-job ticks.
+# Adding a recurring job = adding an entry here. `/cron calendar` surfaces this list.
+#
+# Fields:
+#   name        unique id (also the last-run state key)
+#   description human summary (shown by /cron calendar)
+#   cron        standard 5-field "min hour dom month dow"
+#   kind        skill | script | workflow | agent
+#   ref         skill name / script path / workflow id
+#   action      sub-action for kind=skill (routed via _SKILL_HANDLERS)
+#   dispatch    deterministic (default) | agent  — agent = LLM, opt-in per entry
+#   enabled     true | false
+#
+# DESIGN SPLIT: detection-style jobs are DETERMINISTIC (run unattended here); LLM
+# enhancement / fix-proposal is left to a reviewed on-demand agent run.
+
+schedules:
+  - name: code-health-sweep
+    description: Run the code-enhancer liveness analyzer across all workspace repos (CE-038).
+    cron: "0 */4 * * *" # every 4 hours, on the hour
+    kind: skill
+    ref: code-enhancer
+    action: liveness
+    dispatch: deterministic
+    enabled: true
