@@ -37,13 +37,34 @@ class Neo4jBackend(GraphBackend):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
         logger.info(f"Initialized Neo4j backend at {uri}")
 
+    @staticmethod
+    def _normalize_value(value: Any) -> Any:
+        """Unwrap neo4j driver Node/Relationship objects into plain property dicts.
+
+        ``dict(record)`` leaves graph entities as opaque ``Node``/``Relationship``
+        objects, so a ``RETURN n`` row carries no readable properties for callers
+        that expect dicts. Unwrap to ``dict(entity)`` (its properties) so reads are
+        on par with the other backends.
+        """
+        # neo4j Node/Relationship are Mapping-like; ``.labels``/``.type`` distinguish them.
+        if hasattr(value, "items") and (
+            hasattr(value, "labels") or hasattr(value, "type")
+        ):
+            return dict(value)
+        if isinstance(value, list):
+            return [Neo4jBackend._normalize_value(v) for v in value]
+        return value
+
     def execute(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         params = params or {}
         with self.driver.session() as session:
             result = session.run(query, params)
-            return [dict(record) for record in result]
+            return [
+                {k: self._normalize_value(v) for k, v in record.items()}
+                for record in result
+            ]
 
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]]
