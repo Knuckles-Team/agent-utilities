@@ -12,7 +12,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 import platformdirs
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -786,6 +786,33 @@ class AgentConfig(BaseSettings):
             return v
         items = [str(e).strip() for e in to_list(v) if str(e).strip()]
         return items or None
+
+    @model_validator(mode="after")
+    def _auto_enable_from_dependencies(self) -> "AgentConfig":
+        """Configure-by-default, opt-out: a capability auto-engages once its
+        deployment *dependency* is configured, rather than requiring a second
+        explicit flag. This keeps the zero-infra default fully intact — with no
+        JWT / Fuseki configured, nothing turns on — while a real deployment that
+        wires the dependency gets the capability without remembering to also flip
+        the flag (the AGENTS.md "detect and self-configure over a knob" rule).
+
+        - ``KG_AUTH_REQUIRED`` engages once a JWT issuer / JWKS is configured (you
+          set up identity → you want it enforced). Opt out with ``KG_AUTH_REQUIRED=false``.
+        - ``KG_FUSEKI_PUBLISH`` engages once a Fuseki endpoint is configured.
+
+        An explicit value for either flag (env/config) always wins — it lands in
+        ``model_fields_set`` and is left untouched.
+        """
+        explicit = self.model_fields_set
+        if "kg_auth_required" not in explicit and (
+            self.auth_jwt_issuer or self.auth_jwt_jwks_uri
+        ):
+            self.kg_auth_required = True
+        if "kg_fuseki_publish" not in explicit and (
+            self.kg_fuseki_endpoint or self.jena_fuseki_url
+        ):
+            self.kg_fuseki_publish = True
+        return self
 
     kg_default_graph: str = Field(default="__bus__", alias="KG_DEFAULT_GRAPH")
     """Default named graph for engine clients that don't target an explicit

@@ -156,3 +156,64 @@ def test_lazy_mcp_utilities_getattr():
     from agent_utilities.mcp_utilities import DEFAULT_LLM_PROVIDER
 
     assert DEFAULT_LLM_PROVIDER == "openai" or DEFAULT_LLM_PROVIDER is not None
+
+
+_AUTO_FLAG_ENV = (
+    "KG_AUTH_REQUIRED",
+    "AUTH_JWT_ISSUER",
+    "AUTH_JWT_JWKS_URI",
+    "KG_FUSEKI_PUBLISH",
+    "KG_FUSEKI_ENDPOINT",
+    "JENA_FUSEKI_URL",
+)
+
+
+def _clear_auto_flag_env() -> None:
+    for key in _AUTO_FLAG_ENV:
+        os.environ.pop(key, None)
+
+
+@pytest.mark.concept("CONCEPT:OS-5.14")
+def test_zero_infra_default_auto_enables_nothing():
+    """No dependency configured -> auth + fuseki stay off (zero-infra intact)."""
+    _clear_auto_flag_env()
+    try:
+        config = AgentConfig()
+        assert config.kg_auth_required is False
+        assert config.kg_fuseki_publish is False
+    finally:
+        _clear_auto_flag_env()
+
+
+@pytest.mark.concept("CONCEPT:OS-5.14")
+def test_auth_auto_enables_when_jwt_configured():
+    """Configuring a JWT issuer/JWKS engages KG_AUTH_REQUIRED by default."""
+    _clear_auto_flag_env()
+    os.environ["AUTH_JWT_ISSUER"] = "https://idp.example/"
+    try:
+        assert AgentConfig().kg_auth_required is True
+    finally:
+        _clear_auto_flag_env()
+
+
+@pytest.mark.concept("CONCEPT:OS-5.14")
+def test_explicit_flag_opts_out_of_auto_enable():
+    """An explicit KG_AUTH_REQUIRED=false wins over dependency auto-enable."""
+    _clear_auto_flag_env()
+    os.environ["AUTH_JWT_ISSUER"] = "https://idp.example/"
+    os.environ["KG_AUTH_REQUIRED"] = "false"
+    try:
+        assert AgentConfig().kg_auth_required is False
+    finally:
+        _clear_auto_flag_env()
+
+
+@pytest.mark.concept("CONCEPT:KG-2.52")
+def test_fuseki_publish_auto_enables_when_endpoint_configured():
+    """Configuring a Fuseki endpoint engages KG_FUSEKI_PUBLISH by default."""
+    _clear_auto_flag_env()
+    os.environ["KG_FUSEKI_ENDPOINT"] = "http://fuseki.arpa/ds"
+    try:
+        assert AgentConfig().kg_fuseki_publish is True
+    finally:
+        _clear_auto_flag_env()
