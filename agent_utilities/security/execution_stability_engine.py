@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from agent_utilities.core.config import setting
+
 if TYPE_CHECKING:
     from agent_utilities.models.knowledge_graph import DoomLoopIncidentNode
 
@@ -115,10 +117,10 @@ class RepetitionGuard:
         max_calls_per_session: int | None = None,
     ) -> None:
         self._max_consecutive = max_consecutive_repeats or int(
-            os.environ.get("MAX_TOOL_REPEATS", "3")
+            setting("MAX_TOOL_REPEATS", "3")
         )
         self._max_per_session = max_calls_per_session or int(
-            os.environ.get("MAX_TOOL_CALLS_PER_SESSION", "50")
+            setting("MAX_TOOL_CALLS_PER_SESSION", "50")
         )
 
         # State tracking
@@ -902,7 +904,7 @@ class RetryManager:
         if config.timeout_seconds is not None:
             return config.timeout_seconds
         try:
-            return int(os.environ.get(ENV_RETRY_TIMEOUT, ""))
+            return int(setting(ENV_RETRY_TIMEOUT, ""))
         except (ValueError, TypeError):
             return DEFAULT_RETRY_TIMEOUT_SECONDS
 
@@ -911,7 +913,7 @@ class RetryManager:
         if config.on_failure_timeout_seconds is not None:
             return config.on_failure_timeout_seconds
         try:
-            return int(os.environ.get(ENV_ON_FAILURE_TIMEOUT, ""))
+            return int(setting(ENV_ON_FAILURE_TIMEOUT, ""))
         except (ValueError, TypeError):
             return DEFAULT_ON_FAILURE_TIMEOUT_SECONDS
 
@@ -920,7 +922,7 @@ class RetryManager:
         if config.idle_timeout_seconds is not None:
             return config.idle_timeout_seconds
         try:
-            return int(os.environ.get(ENV_IDLE_TIMEOUT, ""))
+            return int(setting(ENV_IDLE_TIMEOUT, ""))
         except (ValueError, TypeError):
             return DEFAULT_IDLE_TIMEOUT_SECONDS
 

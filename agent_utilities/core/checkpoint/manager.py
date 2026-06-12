@@ -11,7 +11,6 @@ Supports multiple backends (File, Postgres, Redis, and KG).
 
 import json
 import logging
-import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -21,6 +20,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from pydantic import TypeAdapter
+
+from agent_utilities.core.config import setting
 
 from ...models.knowledge_graph import RegistryNodeType
 
@@ -513,11 +514,11 @@ class CheckpointManager:
             filename = kwargs.get("filename", f"{run_id or 'default'}.json")
             backend = FileBackend(json_file=Path(path) / filename)
         elif ptype == "postgres":
-            dsn = kwargs.get("dsn") or os.getenv("POSTGRES_DSN")
+            dsn = kwargs.get("dsn") or setting("POSTGRES_DSN")
             if dsn:
                 backend = PostgresBackend(dsn=dsn)
         elif ptype == "redis":
-            url = kwargs.get("url") or os.getenv("REDIS_URL")
+            url = kwargs.get("url") or setting("REDIS_URL")
             if url:
                 backend = RedisBackend(url=url)
         elif ptype == "kg":

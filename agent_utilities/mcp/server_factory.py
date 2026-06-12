@@ -16,6 +16,8 @@ import sys
 import warnings
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 # Global suppression for Authlib deprecations to prevent standard output pollution
 # that breaks JSON-RPC protocol parser and leads to "0 tools" or "EOF" errors
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="authlib")
@@ -32,22 +34,22 @@ logger = logging.getLogger(__name__)
 
 # MCP-specific auth/delegation config (not in config.py)
 mcp_auth_config = {
-    "enable_delegation": to_boolean(os.environ.get("ENABLE_DELEGATION", "False")),
-    "audience": os.environ.get("AUDIENCE", None),
-    "delegated_scopes": os.environ.get("DELEGATED_SCOPES", "api"),
+    "enable_delegation": to_boolean(setting("ENABLE_DELEGATION", "False")),
+    "audience": setting("AUDIENCE", None),
+    "delegated_scopes": setting("DELEGATED_SCOPES", "api"),
     "token_endpoint": None,
-    "oidc_client_id": os.environ.get("OIDC_CLIENT_ID", None),
-    "oidc_client_secret": os.environ.get("OIDC_CLIENT_SECRET", None),
-    "oidc_config_url": os.environ.get("OIDC_CONFIG_URL", None),
-    "jwt_jwks_uri": os.getenv("FASTMCP_SERVER_AUTH_JWT_JWKS_URI", None),
-    "jwt_issuer": os.getenv("FASTMCP_SERVER_AUTH_JWT_ISSUER", None),
-    "jwt_audience": os.getenv("FASTMCP_SERVER_AUTH_JWT_AUDIENCE", None),
-    "jwt_algorithm": os.getenv("FASTMCP_SERVER_AUTH_JWT_ALGORITHM", None),
-    "jwt_secret": os.getenv("FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY", None),
-    "jwt_required_scopes": os.getenv("FASTMCP_SERVER_AUTH_JWT_REQUIRED_SCOPES", None),
+    "oidc_client_id": setting("OIDC_CLIENT_ID", None),
+    "oidc_client_secret": setting("OIDC_CLIENT_SECRET", None),
+    "oidc_config_url": setting("OIDC_CONFIG_URL", None),
+    "jwt_jwks_uri": setting("FASTMCP_SERVER_AUTH_JWT_JWKS_URI", None),
+    "jwt_issuer": setting("FASTMCP_SERVER_AUTH_JWT_ISSUER", None),
+    "jwt_audience": setting("FASTMCP_SERVER_AUTH_JWT_AUDIENCE", None),
+    "jwt_algorithm": setting("FASTMCP_SERVER_AUTH_JWT_ALGORITHM", None),
+    "jwt_secret": setting("FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY", None),
+    "jwt_required_scopes": setting("FASTMCP_SERVER_AUTH_JWT_REQUIRED_SCOPES", None),
 }  # nosec B105
 
-DEFAULT_TRANSPORT = os.environ.get("TRANSPORT", "stdio")
+DEFAULT_TRANSPORT = setting("TRANSPORT", "stdio")
 DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
 
 __version__ = "0.3.0"
@@ -65,18 +67,16 @@ def create_mcp_parser() -> argparse.ArgumentParser:
 
     """
     # Keycloak defaults integration
-    keycloak_url = os.environ.get("KEYCLOAK_URL")
-    keycloak_realm = os.environ.get("KEYCLOAK_REALM", "master")
-    default_oidc_config = os.environ.get("OIDC_CONFIG_URL")
+    keycloak_url = setting("KEYCLOAK_URL")
+    keycloak_realm = setting("KEYCLOAK_REALM", "master")
+    default_oidc_config = setting("OIDC_CONFIG_URL")
     if not default_oidc_config and keycloak_url:
         default_oidc_config = (
             f"{keycloak_url}/realms/{keycloak_realm}/.well-known/openid-configuration"
         )
 
-    default_oidc_client_id = os.environ.get("OIDC_CLIENT_ID") or os.environ.get(
-        "KEYCLOAK_CLIENT_ID"
-    )
-    default_oidc_client_secret = os.environ.get("OIDC_CLIENT_SECRET") or os.environ.get(
+    default_oidc_client_id = setting("OIDC_CLIENT_ID") or setting("KEYCLOAK_CLIENT_ID")
+    default_oidc_client_secret = setting("OIDC_CLIENT_SECRET") or setting(
         "KEYCLOAK_CLIENT_SECRET"
     )
 
@@ -103,28 +103,28 @@ def create_mcp_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--auth-type",
-        default=os.environ.get("AUTH_TYPE", "none"),
+        default=setting("AUTH_TYPE", "none"),
         choices=["none", "static", "jwt", "oauth-proxy", "oidc-proxy", "remote-oauth"],
         help="Authentication type for MCP server: 'none' (disabled), 'static' (internal), 'jwt' (external token verification), 'oauth-proxy', 'oidc-proxy', 'remote-oauth' (external) (default: none)",
     )
     parser.add_argument(
         "--token-jwks-uri",
-        default=os.getenv("FASTMCP_SERVER_AUTH_JWT_JWKS_URI"),
+        default=setting("FASTMCP_SERVER_AUTH_JWT_JWKS_URI"),
         help="JWKS URI for JWT verification",
     )
     parser.add_argument(
         "--token-issuer",
-        default=os.getenv("FASTMCP_SERVER_AUTH_JWT_ISSUER"),
+        default=setting("FASTMCP_SERVER_AUTH_JWT_ISSUER"),
         help="Issuer for JWT verification",
     )
     parser.add_argument(
         "--token-audience",
-        default=os.getenv("FASTMCP_SERVER_AUTH_JWT_AUDIENCE"),
+        default=setting("FASTMCP_SERVER_AUTH_JWT_AUDIENCE"),
         help="Audience for JWT verification",
     )
     parser.add_argument(
         "--token-algorithm",
-        default=os.getenv("FASTMCP_SERVER_AUTH_JWT_ALGORITHM"),
+        default=setting("FASTMCP_SERVER_AUTH_JWT_ALGORITHM"),
         choices=[
             "HS256",
             "HS384",
@@ -140,17 +140,17 @@ def create_mcp_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--token-secret",
-        default=os.getenv("FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY"),
+        default=setting("FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY"),
         help="Shared secret for HMAC (HS*) or PEM public key for static asymmetric verification.",
     )
     parser.add_argument(
         "--token-public-key",
-        default=os.getenv("FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY"),
+        default=setting("FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY"),
         help="Path to PEM public key file or inline PEM string (for static asymmetric keys).",
     )
     parser.add_argument(
         "--required-scopes",
-        default=os.getenv("FASTMCP_SERVER_AUTH_JWT_REQUIRED_SCOPES"),
+        default=setting("FASTMCP_SERVER_AUTH_JWT_REQUIRED_SCOPES"),
         help="Comma-separated list of required scopes (e.g., gitlab.read,gitlab.write).",
     )
     parser.add_argument(
@@ -193,7 +193,7 @@ def create_mcp_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--oidc-base-url",
-        default=os.environ.get("OIDC_BASE_URL"),
+        default=setting("OIDC_BASE_URL"),
         help="Base URL for OIDC Proxy",
     )
     parser.add_argument(
@@ -211,34 +211,34 @@ def create_mcp_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--eunomia-type",
-        default=os.environ.get("EUNOMIA_TYPE", "none"),
+        default=setting("EUNOMIA_TYPE", "none"),
         choices=["none", "embedded", "remote"],
         help="Eunomia authorization type: 'none' (disabled), 'embedded' (built-in), 'remote' (external) (default: none)",
     )
     parser.add_argument(
         "--eunomia-policy-file",
-        default=os.environ.get("EUNOMIA_POLICY_FILE", "mcp_policies.json"),
+        default=setting("EUNOMIA_POLICY_FILE", "mcp_policies.json"),
         help="Policy file for embedded Eunomia (default: mcp_policies.json)",
     )
     parser.add_argument(
         "--eunomia-remote-url",
-        default=os.environ.get("EUNOMIA_REMOTE_URL", None),
+        default=setting("EUNOMIA_REMOTE_URL", None),
         help="URL for remote Eunomia server",
     )
     parser.add_argument(
         "--enable-delegation",
         action="store_true",
-        default=to_boolean(os.environ.get("ENABLE_DELEGATION", "False")),
+        default=to_boolean(setting("ENABLE_DELEGATION", "False")),
         help="Enable OIDC token delegation",
     )
     parser.add_argument(
         "--audience",
-        default=os.environ.get("AUDIENCE", None),
+        default=setting("AUDIENCE", None),
         help="Audience for the delegated token",
     )
     parser.add_argument(
         "--delegated-scopes",
-        default=os.environ.get("DELEGATED_SCOPES", "api"),
+        default=setting("DELEGATED_SCOPES", "api"),
         help="Scopes for the delegated token (space-separated)",
     )
     parser.add_argument(
@@ -259,38 +259,38 @@ def create_mcp_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--openapi-username",
-        default=os.getenv("OPENAPI_USERNAME"),
+        default=setting("OPENAPI_USERNAME"),
         help="Username for basic auth during OpenAPI import",
     )
 
     parser.add_argument(
         "--openapi-password",
-        default=os.getenv("OPENAPI_PASSWORD"),
+        default=setting("OPENAPI_PASSWORD"),
         help="Password for basic auth during OpenAPI import",
     )
 
     parser.add_argument(
         "--openapi-client-id",
-        default=os.getenv("OPENAPI_CLIENT_ID"),
+        default=setting("OPENAPI_CLIENT_ID"),
         help="OAuth client ID for OpenAPI import",
     )
 
     parser.add_argument(
         "--openapi-client-secret",
-        default=os.getenv("OPENAPI_CLIENT_SECRET"),
+        default=setting("OPENAPI_CLIENT_SECRET"),
         help="OAuth client secret for OpenAPI import",
     )
 
     parser.add_argument(
         "--tools",
         "--toolsets",
-        default=os.getenv("MCP_ENABLED_TOOLS"),
+        default=setting("MCP_ENABLED_TOOLS"),
         help="Comma-separated list of enabled tools or toolsets to expose",
     )
     parser.add_argument(
         "--disabled-tools",
         "--disabled-toolsets",
-        default=os.getenv("MCP_DISABLED_TOOLS"),
+        default=setting("MCP_DISABLED_TOOLS"),
         help="Comma-separated list of disabled tools or toolsets to exclude",
     )
 
@@ -464,9 +464,9 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
 
     from fastmcp.server.auth.providers.jwt import JWTVerifier
 
-    jwks_uri = args.token_jwks_uri or os.getenv("FASTMCP_SERVER_AUTH_JWT_JWKS_URI")
-    issuer = args.token_issuer or os.getenv("FASTMCP_SERVER_AUTH_JWT_ISSUER")
-    audience = args.token_audience or os.getenv("FASTMCP_SERVER_AUTH_JWT_AUDIENCE")
+    jwks_uri = args.token_jwks_uri or setting("FASTMCP_SERVER_AUTH_JWT_JWKS_URI")
+    issuer = args.token_issuer or setting("FASTMCP_SERVER_AUTH_JWT_ISSUER")
+    audience = args.token_audience or setting("FASTMCP_SERVER_AUTH_JWT_AUDIENCE")
     algorithm = args.token_algorithm
     secret_or_key = args.token_secret or args.token_public_key
     public_key_pem = None
@@ -705,14 +705,14 @@ def create_mcp_server(
                 query_filter = None
 
                 # 1. Start with environment variable defaults
-                enabled_tags_env = os.environ.get("MCP_ENABLED_TAGS")
-                disabled_tags_env = os.environ.get("MCP_DISABLED_TAGS")
-                enabled_components_env = os.environ.get(
-                    "MCP_ENABLED_TOOLS"
-                ) or os.environ.get("MCP_ENABLED_COMPONENTS")
-                disabled_components_env = os.environ.get(
-                    "MCP_DISABLED_TOOLS"
-                ) or os.environ.get("MCP_DISABLED_COMPONENTS")
+                enabled_tags_env = setting("MCP_ENABLED_TAGS")
+                disabled_tags_env = setting("MCP_DISABLED_TAGS")
+                enabled_components_env = setting("MCP_ENABLED_TOOLS") or setting(
+                    "MCP_ENABLED_COMPONENTS"
+                )
+                disabled_components_env = setting("MCP_DISABLED_TOOLS") or setting(
+                    "MCP_DISABLED_COMPONENTS"
+                )
 
                 if enabled_components_env:
                     enabled_tools_list.extend(

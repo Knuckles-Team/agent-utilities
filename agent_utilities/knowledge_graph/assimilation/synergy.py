@@ -26,6 +26,8 @@ Concept: synergy-ranking
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 from ...models.knowledge_graph import RegistryEdgeType
 from .dedup import iter_all_edges
 from .gap_analysis import _FEATURE_TYPES, open_features
@@ -199,9 +201,8 @@ def _centrality(
     live backend to rank a few dozen features — so it is opt-in via
     ``ASSIMILATION_ENGINE_PAGERANK=1``.
     """
-    import os
 
-    if os.environ.get("ASSIMILATION_ENGINE_PAGERANK", "").lower() in (
+    if setting("ASSIMILATION_ENGINE_PAGERANK", "").lower() in (
         "1",
         "true",
         "yes",

@@ -18,6 +18,8 @@ from typing import Any, cast
 from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_graph import End
 
+from agent_utilities.core.config import setting
+
 try:
     from pydantic_graph.step import StepContext
 except ImportError:
@@ -174,7 +176,7 @@ def pick_specialist_model(
             try:
                 from agent_utilities.core.model_factory import create_model
 
-                api_key = os.getenv(chosen.api_key_env) if chosen.api_key_env else None
+                api_key = setting(chosen.api_key_env) if chosen.api_key_env else None
                 logger.info(
                     "Spawning specialist '%s' with Conductor-assigned model '%s'",
                     node_id,
@@ -205,7 +207,7 @@ def pick_specialist_model(
             try:
                 from agent_utilities.core.model_factory import create_model
 
-                api_key = os.getenv(chosen.api_key_env) if chosen.api_key_env else None
+                api_key = setting(chosen.api_key_env) if chosen.api_key_env else None
                 logger.info(
                     "Spawning specialist '%s' with user-requested model '%s'",
                     node_id,
@@ -334,7 +336,7 @@ def pick_specialist_model(
                 routing_percentile,
             )
 
-        api_key = os.getenv(chosen.api_key_env) if chosen.api_key_env else None
+        api_key = setting(chosen.api_key_env) if chosen.api_key_env else None
         logger.debug(
             "Spawning specialist '%s' with model '%s' (tier=%s, tags=%s, confidence=%.2f)",
             node_id,
@@ -644,11 +646,9 @@ def spawn_usage_limits(state: Any, *, request_limit: int = 8) -> Any:
     token budget (``GraphState.invoker_budget_tokens``), also enforce it as
     ``total_tokens_limit`` so the spawned agent cannot exceed the budget the invoker allotted.
     """
-    import os as _os
-
     from pydantic_ai.usage import UsageLimits
 
-    req = int(_os.environ.get("AGENT_REQUEST_LIMIT", str(request_limit)))
+    req = setting("AGENT_REQUEST_LIMIT", request_limit)
     budget = getattr(state, "invoker_budget_tokens", None)
     if budget and int(budget) > 0:
         return UsageLimits(request_limit=req, total_tokens_limit=int(budget))
@@ -1829,7 +1829,7 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
 
     original_env = {}
     for tag, env_var in deps.tag_env_vars.items():
-        original_env[env_var] = os.environ.get(env_var)
+        original_env[env_var] = setting(env_var)
         os.environ[env_var] = "True" if tag == domain else "False"
 
     try:

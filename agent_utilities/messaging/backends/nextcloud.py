@@ -11,6 +11,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
     CAPABILITY_MATRIX,
@@ -55,13 +56,12 @@ class NextcloudTalkBackend(MessagingBackend):
             raise ImportError(
                 "Install: pip install agent-utilities[messaging-nextcloud]"
             ) from None
-        import os
 
         self._base_url = self.config.extra.get(
-            "url", os.environ.get("NEXTCLOUD_URL", "")
+            "url", setting("NEXTCLOUD_URL", "")
         ).rstrip("/")
-        user = self.config.app_id or os.environ.get("NEXTCLOUD_USER", "")
-        token = self.config.token or os.environ.get("NEXTCLOUD_TOKEN", "")
+        user = self.config.app_id or setting("NEXTCLOUD_USER", "")
+        token = self.config.token or setting("NEXTCLOUD_TOKEN", "")
         if not self._base_url or not token:
             raise ValueError("Set NEXTCLOUD_URL and NEXTCLOUD_TOKEN.")
         self._client = httpx.AsyncClient(

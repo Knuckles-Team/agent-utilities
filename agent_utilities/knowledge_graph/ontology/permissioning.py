@@ -44,8 +44,9 @@ engine is introduced.
 
 import json
 import logging
-import os
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 from ...models.company_brain import (
     ActorType,
@@ -155,7 +156,7 @@ def _resolve_marking_store() -> Any:
     if _marking_store_resolved:
         return _marking_store
     _marking_store_resolved = True
-    if os.environ.get("AGENT_UTILITIES_TESTING"):
+    if setting("AGENT_UTILITIES_TESTING"):
         return None
     try:
         from ..facade import KnowledgeGraph
@@ -212,8 +213,7 @@ def _persist_markings(node_id: str) -> None:
         return
     try:
         store.execute(
-            "MERGE (m {id: $id}) SET m.type = $t, m.node_id = $n, "
-            "m.markings = $marks",
+            "MERGE (m {id: $id}) SET m.type = $t, m.node_id = $n, m.markings = $marks",
             {
                 "id": f"marking::{node_id}",
                 "t": MARKING_NODE_TYPE,

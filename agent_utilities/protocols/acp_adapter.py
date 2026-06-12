@@ -12,11 +12,12 @@ bridges, and high-fidelity interaction modes.
 
 
 import logging
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent
+
+from agent_utilities.core.config import setting
 
 # Guarded imports for optional ACP features
 try:
@@ -94,7 +95,7 @@ def build_acp_config(
 
     """
     if not session_root:
-        session_root = Path(os.getenv("ACP_SESSION_ROOT", ".acp-sessions"))
+        session_root = Path(setting("ACP_SESSION_ROOT", ".acp-sessions"))
 
     try:
         session_root.mkdir(parents=True, exist_ok=True)

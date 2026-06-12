@@ -26,6 +26,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 
@@ -625,7 +627,7 @@ class ServiceRegistry:
                 ExternalPluginAdapter,
             )
 
-            plugin_dir = os.environ.get(
+            plugin_dir = setting(
                 "EXTERNAL_PLUGIN_DIR", os.path.join(os.getcwd(), "plugins")
             )
             external_plugins = ExternalPluginAdapter.load_plugins_from_directory(

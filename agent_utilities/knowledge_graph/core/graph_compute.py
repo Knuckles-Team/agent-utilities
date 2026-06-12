@@ -292,8 +292,8 @@ class GraphComputeEngine:
 
         # Bridging local events to the rust service when kafka isn't running
         if (
-            os.environ.get("KAFKA_BOOTSTRAP_SERVERS") is None
-            or os.environ.get("KAFKA_BOOTSTRAP_SERVERS") == ""
+            setting("KAFKA_BOOTSTRAP_SERVERS") is None
+            or setting("KAFKA_BOOTSTRAP_SERVERS") == ""
         ):
             self._start_event_bridge()
 

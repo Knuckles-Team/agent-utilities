@@ -15,6 +15,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
     CAPABILITY_MATRIX,
@@ -55,11 +56,8 @@ class GoogleMeetBackend(MessagingBackend):
             raise ImportError(
                 "Install: pip install agent-utilities[messaging-googlemeet]"
             ) from None
-        import os
 
-        creds_path = self.config.token or os.environ.get(
-            "GOOGLE_MEET_SERVICE_ACCOUNT", ""
-        )
+        creds_path = self.config.token or setting("GOOGLE_MEET_SERVICE_ACCOUNT", "")
         if not creds_path:
             raise ValueError("Set GOOGLE_MEET_SERVICE_ACCOUNT path.")
         creds = service_account.Credentials.from_service_account_file(

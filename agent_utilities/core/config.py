@@ -19,6 +19,12 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
+# Re-export the dependency-free env accessor (config discipline). Kept in its own
+# module so it stays importable while this module is still initializing — see
+# agent_utilities/core/_env.py. Modules use `from agent_utilities.core.config
+# import setting`.
+from agent_utilities.core._env import setting  # noqa: F401
+
 DEFAULT_DB_PATH = str(
     platformdirs.user_data_path("agent-utilities", "knuckles-team") / "graph_state"
 )
@@ -92,63 +98,6 @@ def _ensure_env_loaded():
         pass
 
     _load_xdg_json_config()
-
-
-# Sentinel distinguishing "no default given" from an explicit ``default=None``.
-_UNSET = object()
-
-
-def setting(key: str, default: Any = _UNSET, cast: Any = None) -> Any:
-    """Centralized, typed, **live** environment read — the one sanctioned way to
-    read an env var outside ``core/config.py``/``core/paths.py``.
-
-    *Configuration discipline (READ the rule in AGENTS.md).* Modules must NEVER
-    call ``os.environ.get``/``os.getenv`` directly; route every read through this
-    accessor (or a typed ``AgentConfig`` field for static, schema-worthy infra).
-    Enforced by ``scripts/check_no_env_sprawl.py``.
-
-    Unlike an ``AgentConfig`` field (parsed once at import), this reads
-    ``os.environ`` at call time, so:
-
-    * values injected from ``config.json`` by ``_load_xdg_json_config()`` apply,
-      and
-    * runtime/daemon/test changes (``monkeypatch.setenv``) take effect — which
-      is why call-time daemon tunables and test-varied flags use this, not a
-      frozen field.
-
-    Args:
-        key: The environment variable name (e.g. ``"KG_DAEMON_ROLE"``).
-        default: Value when unset/empty. If omitted, an unset var returns ``None``.
-        cast: A coercion callable. If ``None`` it is inferred from ``type(default)``:
-            ``bool`` → :func:`to_boolean`, ``int`` → ``int``, ``float`` → ``float``,
-            ``list`` → :func:`to_list`, ``dict`` → :func:`to_dict`, else ``str``
-            (the raw string). Pass an explicit callable to override.
-
-    Returns:
-        The coerced value, or ``default`` when the variable is unset/empty.
-    """
-    _ensure_env_loaded()
-    dflt = None if default is _UNSET else default
-    raw = os.environ.get(key)
-    if raw is None or raw == "":
-        return dflt
-    if cast is None:
-        if isinstance(dflt, bool):
-            cast = to_boolean
-        elif isinstance(dflt, int):
-            cast = int
-        elif isinstance(dflt, float):
-            cast = float
-        elif isinstance(dflt, list):
-            cast = to_list
-        elif isinstance(dflt, dict):
-            cast = to_dict
-        else:
-            cast = str
-    try:
-        return cast(raw)
-    except (TypeError, ValueError):
-        return dflt
 
 
 def _load_xdg_json_config():

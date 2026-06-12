@@ -14,6 +14,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
     CAPABILITY_MATRIX,
@@ -57,13 +58,10 @@ class IRCBackend(MessagingBackend):
             raise ImportError(
                 "Install: pip install agent-utilities[messaging-irc]"
             ) from None
-        import os
 
-        server = self.config.extra.get("server", os.environ.get("IRC_SERVER", ""))
-        port = int(self.config.extra.get("port", os.environ.get("IRC_PORT", "6667")))
-        nick = self.config.extra.get(
-            "nickname", os.environ.get("IRC_NICKNAME", "agent_bot")
-        )
+        server = self.config.extra.get("server", setting("IRC_SERVER", ""))
+        port = int(self.config.extra.get("port", setting("IRC_PORT", "6667")))
+        nick = self.config.extra.get("nickname", setting("IRC_NICKNAME", "agent_bot"))
         if not server:
             raise ValueError("Set IRC_SERVER.")
         self._reactor = irc.client.Reactor()

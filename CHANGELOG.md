@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Configuration discipline — the env-read fold is COMPLETE: zero bare
+  `os.environ`/`os.getenv` reads remain anywhere in `agent_utilities/`** (every
+  prefix, not just KG/graph — `AGENT_*`, `VAULT_*`, `OTEL_*`, connector creds, …).
+  ~310 remaining reads across ~107 modules were routed through `config.setting()`
+  behavior-preservingly. `setting()` moved to a dependency-free `core/_env.py`
+  (re-exported by `config`) so it's importable while `config` is still
+  initializing — fixing the circular-import deadlock that a package-wide fold would
+  otherwise hit. The `check_no_env_sprawl.py` baseline is now **empty**; any new
+  bare read (any prefix) fails CI. Also hardened `ConnectionRegistry.resolve_names`
+  to route a non-str/list `target` (an unresolved pydantic `FieldInfo` when a tool
+  fn is called directly in tests) to the default instead of a spurious fan-out.
 - **Configuration discipline — every `KG_*`/`GRAPH_*`/`EPISTEMIC_*` env read folded
   off `os.environ`.** All 100+ governed bare reads across ~35 modules now go through
   one of two centralized, `config.json`-driven paths instead of scattered

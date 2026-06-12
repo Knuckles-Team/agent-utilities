@@ -31,7 +31,6 @@ See docs/pillars/5_agent_os_infrastructure.md §CONCEPT:OS-5.2
 
 
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -39,11 +38,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 # Budget: 0 = unlimited (per user request)
-DEFAULT_TOKEN_BUDGET = int(os.getenv("MAINTENANCE_TOKEN_BUDGET", "0"))
-DEFAULT_PRIORITY = os.getenv("MAINTENANCE_PRIORITY", "LOW")
+DEFAULT_TOKEN_BUDGET = int(setting("MAINTENANCE_TOKEN_BUDGET", "0"))
+DEFAULT_PRIORITY = setting("MAINTENANCE_PRIORITY", "LOW")
 
 
 class MaintenanceFrequency(str, Enum):  # noqa: UP042

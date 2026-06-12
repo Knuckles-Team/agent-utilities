@@ -282,10 +282,10 @@ def create_backend(
         resolved_dataset = (
             kwargs.get("dataset") or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
         )
-        resolved_jena_fuseki_user = kwargs.get("username") or os.environ.get(
+        resolved_jena_fuseki_user = kwargs.get("username") or setting(
             "GRAPH_FUSEKI_USER"
         )
-        resolved_jena_fuseki_password = kwargs.get("password") or os.environ.get(
+        resolved_jena_fuseki_password = kwargs.get("password") or setting(
             "GRAPH_FUSEKI_PASSWORD"
         )
         backend = JenaFusekiBackend(
@@ -336,7 +336,7 @@ def create_backend(
         l3: GraphBackend | None = None
         if l2_type in ("postgres", "postgresql", "pggraph", "age", "pggraph_age"):
             # AGE durable tier when GRAPH_PG_AGE=1 or L2 explicitly names age.
-            if l2_type in ("age", "pggraph_age") or os.environ.get(
+            if l2_type in ("age", "pggraph_age") or setting(
                 "GRAPH_PG_AGE", ""
             ).lower() in ("1", "true", "yes"):
                 from .age_backend import AGEBackend as _PGBackend
@@ -346,7 +346,7 @@ def create_backend(
             resolved_uri = (
                 uri
                 or setting("GRAPH_DB_URI")
-                or os.environ.get("PGGRAPH_DSN")
+                or setting("PGGRAPH_DSN")
                 or "postgresql://localhost:5432/agent_utilities"
             )
             resolved_name = db_name or setting("GRAPH_DB_NAME") or "agent_graph"
@@ -420,7 +420,7 @@ def create_backend(
             # Run schema migrations to add any missing columns/properties
             if (
                 backend_type == "ladybug"
-                and os.environ.get("AGENT_UTILITIES_TESTING") != "true"
+                and setting("AGENT_UTILITIES_TESTING") != "true"
             ):
                 from ..migrations import migrate_graph
 

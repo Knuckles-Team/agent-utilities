@@ -39,6 +39,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 # Default socket if a caller passes None (matches host_lock's default).
@@ -56,7 +58,7 @@ def _runtime_base() -> Path:
 
         base = Path(platformdirs.user_runtime_dir("agent-utilities"))
     except Exception:  # pragma: no cover - platformdirs present in practice
-        base = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "agent-utilities"  # nosec B108 — XDG fallback
+        base = Path(setting("XDG_RUNTIME_DIR") or "/tmp") / "agent-utilities"  # nosec B108 — XDG fallback
     base.mkdir(parents=True, exist_ok=True)
     return base
 

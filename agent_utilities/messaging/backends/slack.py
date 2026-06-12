@@ -23,6 +23,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
     CAPABILITY_MATRIX,
@@ -79,10 +80,9 @@ class SlackBackend(MessagingBackend):
             raise ValueError("Set SLACK_BOT_TOKEN or MESSAGING_SLACK_TOKEN.")
 
         app_token = self.config.extra.get("app_token", "")
-        import os
 
         if not app_token:
-            app_token = os.environ.get("SLACK_APP_TOKEN", "")
+            app_token = setting("SLACK_APP_TOKEN", "")
 
         self._app = AsyncApp(token=self.config.token)
         self._client = self._app.client

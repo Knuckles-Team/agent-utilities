@@ -9,9 +9,9 @@ all backends (SQLite, Vault, InMemory).
 """
 
 import argparse
-import os
 import sys
 
+from agent_utilities.core.config import setting
 from agent_utilities.security.secrets_client import SecretsConfig, create_secrets_client
 
 
@@ -72,38 +72,38 @@ def main() -> None:
     config_kwargs = {}
     if args.backend:
         config_kwargs["backend"] = args.backend
-    elif os.getenv("SECRETS_BACKEND"):
-        config_kwargs["backend"] = os.getenv("SECRETS_BACKEND")
+    elif setting("SECRETS_BACKEND"):
+        config_kwargs["backend"] = setting("SECRETS_BACKEND")
 
     if args.sqlite_path:
         config_kwargs["sqlite_path"] = args.sqlite_path
-    elif os.getenv("SECRETS_SQLITE_PATH"):
-        config_kwargs["sqlite_path"] = os.getenv("SECRETS_SQLITE_PATH")
+    elif setting("SECRETS_SQLITE_PATH"):
+        config_kwargs["sqlite_path"] = setting("SECRETS_SQLITE_PATH")
 
     if args.vault_url:
         config_kwargs["vault_url"] = args.vault_url
-    elif os.getenv("SECRETS_VAULT_URL"):
-        config_kwargs["vault_url"] = os.getenv("SECRETS_VAULT_URL")
+    elif setting("SECRETS_VAULT_URL"):
+        config_kwargs["vault_url"] = setting("SECRETS_VAULT_URL")
 
     if getattr(args, "vault_auth", None):
         config_kwargs["vault_auth_method"] = args.vault_auth
-    elif os.getenv("VAULT_AUTH_METHOD"):
-        config_kwargs["vault_auth_method"] = os.getenv("VAULT_AUTH_METHOD")
+    elif setting("VAULT_AUTH_METHOD"):
+        config_kwargs["vault_auth_method"] = setting("VAULT_AUTH_METHOD")
 
     if getattr(args, "vault_auth_mount", None):
         config_kwargs["vault_auth_mount"] = args.vault_auth_mount
-    elif os.getenv("VAULT_AUTH_MOUNT"):
-        config_kwargs["vault_auth_mount"] = os.getenv("VAULT_AUTH_MOUNT")
+    elif setting("VAULT_AUTH_MOUNT"):
+        config_kwargs["vault_auth_mount"] = setting("VAULT_AUTH_MOUNT")
 
     if getattr(args, "vault_role", None):
         config_kwargs["vault_role"] = args.vault_role
-    elif os.getenv("VAULT_ROLE"):
-        config_kwargs["vault_role"] = os.getenv("VAULT_ROLE")
+    elif setting("VAULT_ROLE"):
+        config_kwargs["vault_role"] = setting("VAULT_ROLE")
 
     if getattr(args, "vault_path_prefix", None):
         config_kwargs["vault_path_prefix"] = args.vault_path_prefix
-    elif os.getenv("VAULT_PATH_PREFIX"):
-        config_kwargs["vault_path_prefix"] = os.getenv("VAULT_PATH_PREFIX")
+    elif setting("VAULT_PATH_PREFIX"):
+        config_kwargs["vault_path_prefix"] = setting("VAULT_PATH_PREFIX")
 
     if config_kwargs:
         config = SecretsConfig(**config_kwargs)  # type: ignore[arg-type]

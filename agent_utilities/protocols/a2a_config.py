@@ -35,11 +35,10 @@ Example ``a2a_config.json``::
 import asyncio
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
-from agent_utilities.core.config import config
+from agent_utilities.core.config import config, setting
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +119,7 @@ def _resolve_auth_token(auth_token_ref: str | None) -> str | None:
     # Fast path: env:// can be resolved without the secrets client
     if auth_token_ref.startswith("env://"):
         var_name = auth_token_ref[len("env://") :]
-        return os.environ.get(var_name)
+        return setting(var_name)
 
     # Use the secrets client for secret:// and vault://
     try:

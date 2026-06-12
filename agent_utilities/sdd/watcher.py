@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 # Cache of seen file hashes to avoid redundant writes/ingestions
@@ -513,7 +515,7 @@ def get_all_skills_directories(workspace_path: Path) -> list[Path]:
         "~/.codeium/windsurf/skills",
         "~/.windsurf/skills",
         "~/.config/agent-utilities/skills",
-        os.environ.get("AGENT_SKILLS_DIR"),
+        setting("AGENT_SKILLS_DIR"),
     ]
     resolved = []
     for d in raw_dirs:
@@ -541,8 +543,8 @@ def get_scholarx_directories() -> list[Path]:
     raw_dirs = [
         "~/.local/share/agent-utilities/research",
         "~/.local/share/scholarx/papers",
-        os.environ.get("SCHOLARX_PAPERS_DIR"),
-        os.environ.get("AGENT_RESEARCH_DIR"),
+        setting("SCHOLARX_PAPERS_DIR"),
+        setting("AGENT_RESEARCH_DIR"),
     ]
     resolved = []
     for d in raw_dirs:
@@ -568,8 +570,8 @@ def get_kg_ingest_paths(workspace_path: Path) -> list[Path]:
             / "ontology_infrastructure.ttl"
         ),
         str(workspace_path / "agent_utilities" / "workflows" / "catalog.yaml"),
-        os.environ.get("AGENT_INVENTORY_YAML"),
-        os.environ.get("AGENT_MCP_CONFIG_JSON"),
+        setting("AGENT_INVENTORY_YAML"),
+        setting("AGENT_MCP_CONFIG_JSON"),
     ]
     resolved = []
     for rp in raw_paths:
@@ -947,7 +949,7 @@ def seed_plans_from_prompts(
 
 def get_workspace_path() -> Path:
     """Resolve the active workspace path using env vars or current folder hierarchy."""
-    env_path = os.environ.get("WORKSPACE_PATH")
+    env_path = setting("WORKSPACE_PATH")
     if env_path:
         return Path(env_path).resolve()
     cwd = Path(os.getcwd()).resolve()

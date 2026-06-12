@@ -14,20 +14,21 @@ See docs/pillars/architecture_c4.md §CONCEPT:OS-5.2
 
 
 import logging
-import os
 import time
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_TOKEN_BUDGET = int(os.getenv("SESSION_TOKEN_BUDGET", "500000"))
-DEFAULT_COST_BUDGET = float(os.getenv("SESSION_COST_BUDGET_USD", "5.0"))
-DEFAULT_LATENCY_BUDGET = int(os.getenv("SESSION_LATENCY_BUDGET_MS", "30000"))
-WEIGHT_COST = float(os.getenv("RESOURCE_WEIGHT_COST", "0.4"))
-WEIGHT_LATENCY = float(os.getenv("RESOURCE_WEIGHT_LATENCY", "0.3"))
-WEIGHT_QUALITY = float(os.getenv("RESOURCE_WEIGHT_QUALITY", "0.3"))
+DEFAULT_TOKEN_BUDGET = int(setting("SESSION_TOKEN_BUDGET", "500000"))
+DEFAULT_COST_BUDGET = float(setting("SESSION_COST_BUDGET_USD", "5.0"))
+DEFAULT_LATENCY_BUDGET = int(setting("SESSION_LATENCY_BUDGET_MS", "30000"))
+WEIGHT_COST = float(setting("RESOURCE_WEIGHT_COST", "0.4"))
+WEIGHT_LATENCY = float(setting("RESOURCE_WEIGHT_LATENCY", "0.3"))
+WEIGHT_QUALITY = float(setting("RESOURCE_WEIGHT_QUALITY", "0.3"))
 
 
 class AllocationSlice(BaseModel):

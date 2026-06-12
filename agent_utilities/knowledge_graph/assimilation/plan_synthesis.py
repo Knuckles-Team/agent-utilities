@@ -27,6 +27,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 from ...models.knowledge_graph import RegistryEdgeType
 from .ledger import _get_node, set_status
 from .synergy import _pillar_of, rank_features
@@ -113,7 +115,6 @@ def _llm_synth(neighborhood: dict[str, Any]) -> dict[str, str] | None:
     golden-loop assimilation tick non-blocking when no model is reachable.
     """
     import concurrent.futures
-    import os
 
     try:
         from agent_utilities.agent.factory import Agent
@@ -128,7 +129,7 @@ def _llm_synth(neighborhood: dict[str, Any]) -> dict[str, str] | None:
         )
         agent = Agent(model=model, system_prompt="You are an SDD plan synthesizer.")
         try:
-            timeout_s = float(os.environ.get("ASSIMILATION_SYNTH_TIMEOUT_S", "30"))
+            timeout_s = float(setting("ASSIMILATION_SYNTH_TIMEOUT_S", "30"))
         except ValueError:
             timeout_s = 30.0
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)

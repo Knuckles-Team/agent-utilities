@@ -23,8 +23,9 @@ them one redeploy at a time.
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
+
+from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from agent_utilities.core.config import AgentConfig
@@ -79,7 +80,7 @@ def is_production_profile(profile: str | None = None) -> bool:
         environment variable is consulted.
     """
     if profile is None:
-        profile = os.environ.get(PROFILE_ENV_VAR)
+        profile = setting(PROFILE_ENV_VAR)
     if not profile:
         return False
     return profile.strip().lower() in PROD_PROFILE_VALUES
@@ -169,9 +170,7 @@ def assert_production_safe(config: AgentConfig, *, profile: str | None = None) -
     :param profile: Optional explicit profile override (otherwise ``APP_PROFILE``).
     :raises ProductionProfileError: If running as production with unsafe settings.
     """
-    active_profile = (
-        profile if profile is not None else os.environ.get(PROFILE_ENV_VAR, "")
-    )
+    active_profile = profile if profile is not None else setting(PROFILE_ENV_VAR, "")
     if not is_production_profile(active_profile):
         return
 

@@ -16,10 +16,11 @@ Supported Agents:
 
 import json
 import logging
-import os
 import platform
 from pathlib import Path
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,12 @@ def _home() -> Path:
 
 def _appdata() -> Path:
     """Windows %APPDATA% or fallback to home."""
-    return Path(os.environ.get("APPDATA", _home()))
+    return Path(setting("APPDATA", _home()))
 
 
 def _localappdata() -> Path:
     """Windows %LOCALAPPDATA% or fallback."""
-    return Path(os.environ.get("LOCALAPPDATA", _home() / "AppData" / "Local"))
+    return Path(setting("LOCALAPPDATA", _home() / "AppData" / "Local"))
 
 
 # -- Hook Config Templates --
@@ -158,7 +159,7 @@ AGENT_SURFACES: dict[str, dict[str, Any]] = {
     "hermes": {
         "name": "Hermes",
         "config_path": lambda: (
-            Path(os.environ.get("HERMES_HOME", _home() / ".hermes"))
+            Path(setting("HERMES_HOME", _home() / ".hermes"))
             / "plugins"
             / "agent-utilities-memory.json"
         ),
