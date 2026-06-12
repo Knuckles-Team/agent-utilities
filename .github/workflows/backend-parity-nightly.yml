@@ -1,0 +1,53 @@
+# Nightly live cross-backend parity ratchet (CONCEPT:KG-2.7).
+#
+# Runs the full backend conformance matrix against throwaway containers
+# (pggraph/AGE, Neo4j, FalkorDB, Fuseki via testcontainers) plus the embedded
+# (ladybug) and in-process (epistemic_graph) backends. This is the regression
+# gate that keeps every backend at parity — a backend that drops a capability
+# fails the job. The fast PR suite stays Docker-free (`-m "not live"`); this
+# heavier matrix runs nightly and on manual dispatch.
+name: backend-parity-nightly
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 06:00 UTC daily
+  workflow_dispatch: {}
+
+jobs:
+  parity-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build the epistemic-graph engine (L0 compute)
+        run: |
+          # The conformance suite's session fixture builds/starts the engine from
+          # the sibling checkout; clone it next to this repo.
+          git clone --depth 1 https://github.com/Knuckles-Team/epistemic-graph ../epistemic-graph || true
+
+      - name: Install test-backends extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test-backends]"
+
+      - name: Run the live backend parity matrix
+        env:
+          AGENT_UTILITIES_TESTING: "true"
+        run: |
+          # Docker is available on ubuntu-latest; testcontainers spins the
+          # ephemeral pggraph/neo4j/falkordb/fuseki/kafka on random ports.
+          python -m pytest tests/integration/backends -m live -v -rs \
+            --timeout=900 || exit 1
+
+      - name: Run the deployment-profile e2e (enterprise)
+        if: always()
+        env:
+          AGENT_UTILITIES_TESTING: "true"
+        run: |
+          python -m pytest tests/integration/profiles/test_profile_enterprise_full.py \
+            -m live -v -rs --timeout=900 || true

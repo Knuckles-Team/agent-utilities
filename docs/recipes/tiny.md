@@ -15,8 +15,15 @@ daemon plus embedded LadybugDB); the only thing you need is a model provider
 |---|---|
 | agent-utilities | pip/uv install, in-process |
 | Knowledge graph | `GRAPH_BACKEND=tiered` → `epistemic_graph` (L1) + embedded LadybugDB (L2) |
+| **OWL/RDF + reasoning** | **on by default** — local OWL-RL inference (epistemic-graph) over the LPG, no external triplestore |
+| **SPARQL** | **local endpoint** at `GET/POST {gateway}/api/sparql` (rdflib materialization + engine `GetTriples` fast path) — zero external deps |
 | graph-os MCP | optional, `uv run graph-os` (stdio) |
 | External services | **none** |
+
+OWL/RDF is a **core, always-on** layer here — not an enterprise add-on. The tiny
+profile consumes the bundled ontologies, infers new relationships, and serves
+SPARQL **locally** with no Fuseki/Stardog. (Fuseki/Stardog are an *optional*
+enterprise scale-out, configured only in the [enterprise recipe](enterprise.md).)
 
 ## Steps
 
