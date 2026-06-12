@@ -645,20 +645,27 @@ class MCPMultiplexer:
             if timeout is not None
             else cfg.get("probe_timeout", cfg.get("timeout", 10.0))
         )
-        try:
+        async def _probe() -> list[dict]:
+            # Enter AND exit the transports within this single coroutine so the
+            # anyio cancel scopes are not crossed between tasks. ``wait_for``
+            # runs this whole coroutine as one task, so the stack is opened and
+            # closed in the same task even on timeout-cancellation. (Wrapping
+            # only the connect in wait_for would exit the scope in a different
+            # task — "Attempted to exit cancel scope in a different task".)
             async with contextlib.AsyncExitStack() as stack:
-                session = await asyncio.wait_for(
-                    self._open_one_session(server_name, cfg, stack), timeout=probe_to
-                )
-                result = await asyncio.wait_for(session.list_tools(), timeout=probe_to)
-            tools = [
-                {
-                    "name": t.name,
-                    "description": t.description or "",
-                    "inputSchema": t.inputSchema or {},
-                }
-                for t in result.tools
-            ]
+                session = await self._open_one_session(server_name, cfg, stack)
+                result = await session.list_tools()
+                return [
+                    {
+                        "name": t.name,
+                        "description": t.description or "",
+                        "inputSchema": t.inputSchema or {},
+                    }
+                    for t in result.tools
+                ]
+
+        try:
+            tools = await asyncio.wait_for(_probe(), timeout=probe_to)
             info = {"tools": tools, "error": None}
         except TimeoutError:
             info = {"tools": [], "error": f"timeout after {probe_to:g}s"}
