@@ -151,3 +151,65 @@ security) so you never widen blast radius while a higher layer is still trusting
   [engine_sharding](../architecture/engine_sharding.md) ·
   [fleet_autonomy](../architecture/fleet_autonomy.md) ·
   [gateway_scaling](../architecture/gateway_scaling.md)
+- Thin/scalable frontends: [scalable-frontends.md](scalable-frontends.md)
+
+---
+
+## Where each flag and secret lives
+
+Three homes, by kind:
+
+- **Secrets** (engine HMAC secret, the state-DB DSN with credentials) → **OpenBao**,
+  `kv2` mount `apps/`, path **`apps/agent-utilities/deployment`**. Mirrored into the
+  gitignored deployment `.env`. Pull at runtime by setting `SECRETS_BACKEND=vault` +
+  `SECRETS_VAULT_URL=http://openbao.arpa` + `SECRETS_VAULT_MOUNT=apps`.
+- **Flags / endpoints** (non-secret booleans + URIs) → the deployment **`.env`**
+  (`agent-utilities/.env`, gitignored) or the XDG `config.json` key.
+- **Defaults** → `agent_utilities/core/config.py` (`AgentConfig`).
+
+| Capability | Env / config key | Default | Secret? (OpenBao key) | Auto-config |
+|---|---|---|---|---|
+| Engine HMAC auth | `GRAPH_SERVICE_AUTH_SECRET` | unset | **yes** (`GRAPH_SERVICE_AUTH_SECRET`) | engine refuses empty |
+| Request auth (OS-5.14) | `KG_AUTH_REQUIRED` | `false` | no | **auto-on** when `AUTH_JWT_ISSUER`/`AUTH_JWT_JWKS_URI` set |
+| Fail-closed ACL | `KG_ACL_DEFAULT_ALLOW` | `false` | no | deny-by-default |
+| Shared state (OS-5.16) | `STATE_DB_URI` | unset | **yes** (`STATE_DB_URI`) | uses Postgres when set, else SQLite |
+| Sharding (KG-2.58) | `GRAPH_SERVICE_ENDPOINTS` | unset | no | 2+ endpoints → HRW sharding |
+| Company Brain | `KG_BRAIN_ENFORCE` | `false` | no | explicit |
+| Golden loop | `KG_GOLDEN_LOOP` | `false` | no | explicit (propose-only) |
+| Failure evolution | `KG_FAILURE_EVOLUTION` | `false` | no | explicit (propose-only) |
+| Queue dispatch | `AGENT_DISPATCH_BACKEND` | `inline` | no | explicit |
+| Kafka ingest | `TASK_QUEUE_BACKEND` | unset | no | fail-loud when set |
+| Fuseki publish (KG-2.52) | `KG_FUSEKI_PUBLISH` | `false` | no | **auto-on** when `KG_FUSEKI_ENDPOINT`/`JENA_FUSEKI_URL` set |
+| Thin frontend | `KG_DAEMON_ROLE` | `auto` (host) | no | `client` → reach shared host |
+
+### Configure-by-default (and how to opt out)
+
+Two flags **engage automatically once their deployment dependency is configured**, so a
+real deployment does not have to remember a second knob — while the zero-infra laptop
+default stays byte-for-byte unchanged (no dependency → nothing turns on). This is the
+`AgentConfig` model validator `_auto_enable_from_dependencies` (`core/config.py`):
+
+- Configure a JWT issuer/JWKS → **`KG_AUTH_REQUIRED` engages**. Opt out with an explicit
+  `KG_AUTH_REQUIRED=false` (an explicit value always wins — it lands in `model_fields_set`).
+- Configure a Fuseki endpoint → **`KG_FUSEKI_PUBLISH` engages**. Opt out with `KG_FUSEKI_PUBLISH=false`.
+
+### Storing / rotating the secrets
+
+Write or rotate a secret in OpenBao, then mirror it into the deployment `.env`:
+
+```bash
+TOKEN=$(grep BAO_ROOT_TOKEN services/openbao/.env | cut -d= -f2)
+# read current deployment secrets
+curl -s -H "X-Vault-Token: $TOKEN" \
+  http://openbao.arpa/v1/apps/data/agent-utilities/deployment | jq '.data.data | keys'
+# rotate the engine secret
+curl -s -X POST -H "X-Vault-Token: $TOKEN" \
+  -d '{"data":{"GRAPH_SERVICE_AUTH_SECRET":"<new>","STATE_DB_URI":"<dsn>"}}' \
+  http://openbao.arpa/v1/apps/data/agent-utilities/deployment
+```
+
+> **Local dev vs deployment.** The local/laptop instance resolves its config from the
+> *workspace* path and stays zero-infra; the per-repo `agent-utilities/.env` is the
+> *deployment* config (read when agent-utilities runs from its own directory or a
+> container). Keeping auth/secrets in the deployment `.env` + OpenBao therefore does not
+> arm the local dev instance — exactly the configure-by-default / opt-out split.
