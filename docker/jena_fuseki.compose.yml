@@ -1,0 +1,34 @@
+# Apache Jena Fuseki — SPARQL 1.1 server for agent-utilities
+#
+# CONCEPT:KG-2.7 / KG-2.52 — Optional SPARQL/RDF tier. Backs the JenaFusekiBackend
+# (GRAPH_FUSEKI_*) and the ontology publish daemon tick (KG_FUSEKI_PUBLISH).
+#
+# This is for manual/enterprise use; the live test suite stands Fuseki up on a
+# random port via testcontainers (tests/integration/conftest.py::ephemeral_fuseki),
+# so it never collides with this fixed-port instance.
+#
+# Usage:
+#   docker compose -f docker/jena_fuseki.compose.yml up -d
+#
+# Environment:
+#   GRAPH_FUSEKI_URL=http://localhost:3030
+#   GRAPH_FUSEKI_DATASET=agent_kg
+#   GRAPH_FUSEKI_USER=admin
+#   GRAPH_FUSEKI_PASSWORD=admin
+
+services:
+  fuseki:
+    image: stain/jena-fuseki:latest
+    container_name: agent-fuseki
+    environment:
+      ADMIN_PASSWORD: admin
+      # Persist a TDB2 dataset named agent_kg across restarts.
+      FUSEKI_DATASET_1: agent_kg
+    ports:
+      - "3030:3030"
+    volumes:
+      - fuseki-data:/fuseki
+    restart: unless-stopped
+
+volumes:
+  fuseki-data:
