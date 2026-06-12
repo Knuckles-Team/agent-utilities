@@ -56,6 +56,13 @@ client session per run reused across every page and detail call.
   `objects get` per key in the same session: extend with
   `{"params": {"bucket": "docs", "prefix": "kb/"}}`.
 - **`servicenow-table`** — any Table-API table via `sysparm_offset` paging.
+- **`github-repos`** — list repositories from github-mcp as `repository` documents
+  (`github_repos` action=list → `data[]`; id/full_name/description/updated_at).
+  Extend with the listing scope, e.g. `{"params": {"org": "Knuckles-Team"}}`.
+- **`okta-users`** — list identities from okta-mcp as `identity` documents
+  (`okta_users` action=list → `data[]`; the client auto-follows Okta's `after`
+  cursor, login/email under the nested `profile`). Extend with a filter, e.g.
+  `{"params": {"filter": "status eq \"ACTIVE\""}}`.
 
 SaaS sources without a shipped preset follow the same pattern — point the config at
 the fleet server's listing tool:

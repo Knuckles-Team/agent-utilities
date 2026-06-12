@@ -164,6 +164,42 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "page_size": 100,
         "doc_type": "ticket",
     },
+    # github-mcp: list repositories as Document records. ``github_repos`` with
+    # action="list" returns ``{"status", "data": [Repository.model_dump()...]}``
+    # (github_agent/mcp/mcp_repo.py — list → client.get_repositories()). Repository
+    # fields are flat: id/name/full_name/description/updated_at
+    # (github_response_models.py). Extend with the listing scope, e.g.
+    #   {"params": {"org": "Knuckles-Team", "type": "all"}}
+    "github-repos": {
+        "server": "github-mcp",
+        "tool": "github_repos",
+        "action": "list",
+        "records_path": "data",
+        "id_field": "id",
+        "title_field": "full_name",
+        "text_field": "description",
+        "updated_field": "updated_at",
+        "doc_type": "repository",
+    },
+    # okta-mcp: list users (identities) as Document records. ``okta_users`` with
+    # action="list" returns the API-client envelope ``{"data": [user...],
+    # "count", "truncated", "next_cursor"}`` (okta_agent/api/api_client_base.py
+    # envelope()/paginate(); the client auto-follows Okta's ``after`` cursor up to
+    # max_items, so no connector-level pagination is needed). Okta user objects
+    # carry a flat ``id`` and ``lastUpdated`` with login/email under ``profile``
+    # (dotted field maps are supported). Extend with a filter, e.g.
+    #   {"params": {"filter": "status eq \"ACTIVE\""}}
+    "okta-users": {
+        "server": "okta-mcp",
+        "tool": "okta_users",
+        "action": "list",
+        "records_path": "data",
+        "id_field": "id",
+        "title_field": "profile.login",
+        "text_field": "profile.email",
+        "updated_field": "lastUpdated",
+        "doc_type": "identity",
+    },
 }
 
 
