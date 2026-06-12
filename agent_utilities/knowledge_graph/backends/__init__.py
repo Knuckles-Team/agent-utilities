@@ -237,8 +237,17 @@ def create_backend(
             uri=resolved_uri, user=resolved_user, password=resolved_password
         )
 
-    elif backend_type == "postgresql":
-        from .postgresql_backend import PostgreSQLBackend
+    elif backend_type in ("postgresql", "age", "pggraph_age"):
+        # GRAPH_PG_AGE=1 (or backend_type age/pggraph_age) selects the Apache AGE
+        # backend — real openCypher-on-Postgres — over the regex-transpiler
+        # PostgreSQLBackend. Both share the same DSN/pool config.
+        _use_age = backend_type in ("age", "pggraph_age") or os.environ.get(
+            "GRAPH_PG_AGE", ""
+        ).lower() in ("1", "true", "yes")
+        if _use_age:
+            from .age_backend import AGEBackend as _PGBackend
+        else:
+            from .postgresql_backend import PostgreSQLBackend as _PGBackend
 
         resolved_uri = (
             uri
@@ -249,7 +258,7 @@ def create_backend(
         pool_min = int(os.environ.get("GRAPH_POOL_MIN", "2"))
         pool_max = int(os.environ.get("GRAPH_POOL_MAX", "10"))
         pggraph_schema = os.environ.get("GRAPH_PGGRAPH_SCHEMA", "public")
-        backend = PostgreSQLBackend(
+        backend = _PGBackend(
             dsn=resolved_uri,
             graph_name=resolved_name,
             pool_min=pool_min,
@@ -326,8 +335,14 @@ def create_backend(
         _role = effective_daemon_role()
 
         l3: GraphBackend | None = None
-        if l2_type in ("postgres", "postgresql", "pggraph"):
-            from .postgresql_backend import PostgreSQLBackend
+        if l2_type in ("postgres", "postgresql", "pggraph", "age", "pggraph_age"):
+            # AGE durable tier when GRAPH_PG_AGE=1 or L2 explicitly names age.
+            if l2_type in ("age", "pggraph_age") or os.environ.get(
+                "GRAPH_PG_AGE", ""
+            ).lower() in ("1", "true", "yes"):
+                from .age_backend import AGEBackend as _PGBackend
+            else:
+                from .postgresql_backend import PostgreSQLBackend as _PGBackend
 
             resolved_uri = (
                 uri
@@ -339,7 +354,7 @@ def create_backend(
             pool_min = int(os.environ.get("GRAPH_POOL_MIN", "2"))
             pool_max = int(os.environ.get("GRAPH_POOL_MAX", "10"))
             pggraph_schema = os.environ.get("GRAPH_PGGRAPH_SCHEMA", "public")
-            l3 = PostgreSQLBackend(
+            l3 = _PGBackend(
                 dsn=resolved_uri,
                 graph_name=resolved_name,
                 pool_min=pool_min,
