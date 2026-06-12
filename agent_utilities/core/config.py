@@ -464,6 +464,31 @@ class AgentConfig(BaseSettings):
     single half-open probe call; the probe's outcome closes or re-opens the
     circuit. Per-server override: ``breaker_cooldown``."""
 
+    # --- MCP multiplexer dynamic tool gateway (CONCEPT:ECO-4.36) ---
+
+    mcp_multiplexer_mode: str = Field(default="eager", alias="MCP_MULTIPLEXER_MODE")
+    """Tool-exposure strategy for the mcp-multiplexer. ``eager`` (default)
+    spawns every configured child at boot and exposes all aggregated tools —
+    the historical behaviour. ``dynamic`` boots exposing only the meta-tools
+    (``find_tools``/``load_tools``/``unload_tools``/``multiplexer_status``)
+    plus the always-on children; child servers are then spawned lazily and
+    their tools mounted on demand via ``load_tools``, with a
+    ``notifications/tools/list_changed`` sent to the client. This keeps a
+    client's visible tool count tiny when the fleet has hundreds of tools."""
+
+    mcp_dynamic_always_on: list[str] = Field(
+        default_factory=lambda: ["graph-os"], alias="MCP_DYNAMIC_ALWAYS_ON"
+    )
+    """Child server names mounted at boot in ``dynamic`` mode (in addition to
+    the meta-tools). Defaults to the knowledge-graph server (``graph-os``) so
+    ``find_tools`` can rank candidate tools semantically out of the box. Any
+    name here must also exist in the active ``mcp_config.json``."""
+
+    mcp_dynamic_top_k: int = Field(default=8, alias="MCP_DYNAMIC_TOP_K")
+    """Default number of ranked tool candidates ``find_tools`` returns when the
+    caller does not specify ``top_k``. Kept small so the discovery result is
+    itself cheap to read; callers can request more explicitly."""
+
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:ECO-4.0) ---
 
     oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")
@@ -1430,20 +1455,20 @@ def _init_lazy_config():
 
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT"] = cfg.otel_exporter_otlp_endpoint
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_HEADERS"] = cfg.otel_exporter_otlp_headers
-    _LAZY_CACHE[
-        "DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"
-    ] = cfg.otel_exporter_otlp_public_key
-    _LAZY_CACHE[
-        "DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"
-    ] = cfg.otel_exporter_otlp_secret_key
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"] = (
+        cfg.otel_exporter_otlp_public_key
+    )
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"] = (
+        cfg.otel_exporter_otlp_secret_key
+    )
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
 
     _LAZY_CACHE["DEFAULT_LANGFUSE_PUBLIC_KEY"] = cfg.langfuse_public_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_SECRET_KEY"] = cfg.langfuse_secret_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE[
-        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"
-    ] = cfg.langfuse_dataset_capture_threshold
+    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
+        cfg.langfuse_dataset_capture_threshold
+    )
 
     _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
     _LAZY_CACHE["DEFAULT_A2A_BROKER_URL"] = cfg.a2a_broker_url
@@ -1517,9 +1542,9 @@ def _init_lazy_config():
         _kg_model.id if _kg_model else None
     ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
     _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
-    _LAZY_CACHE[
-        "DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
-    ] = cfg.knowledge_graph_sync_background
+    _LAZY_CACHE["DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"] = (
+        cfg.knowledge_graph_sync_background
+    )
     _LAZY_CACHE["DEFAULT_GRAPH_DIRECT_EXECUTION"] = cfg.graph_direct_execution
 
     # --- Parallel Engine Defaults ---
@@ -1529,9 +1554,9 @@ def _init_lazy_config():
     _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
     _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
     _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE[
-        "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"
-    ] = cfg.enable_progressive_synthesis
+    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
+        cfg.enable_progressive_synthesis
+    )
 
     _LAZY_CACHE["AGENT_API_KEY"] = cfg.agent_api_key
     _LAZY_CACHE["ENABLE_API_AUTH"] = cfg.enable_api_auth
@@ -2407,14 +2432,14 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"][
-                            "PYTHONWARNINGS"
-                        ] = "ignore:urllib3 (2.3.0) or chardet"
+                        cfg["env"]["PYTHONWARNINGS"] = (
+                            "ignore:urllib3 (2.3.0) or chardet"
+                        )
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"][
-                                "PYTHONWARNINGS"
-                            ] += ",ignore:urllib3 (2.3.0) or chardet"
+                            cfg["env"]["PYTHONWARNINGS"] += (
+                                ",ignore:urllib3 (2.3.0) or chardet"
+                            )
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.

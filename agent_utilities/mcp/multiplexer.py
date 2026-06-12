@@ -24,6 +24,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ from typing import Any
 import mcp.types
 from fastmcp.tools import FunctionTool, ToolResult
 from mcp import StdioServerParameters, stdio_client
+from mcp import types as mcp_types  # stable alias: the ``mcp`` param shadows the pkg
 from mcp.client.session import ClientSession
 
 from agent_utilities.mcp.child_resilience import (
@@ -174,6 +176,16 @@ class MCPMultiplexer:
             str, tuple[str, str]
         ] = {}  # prefixed_name -> (server_name, original_name)
         self.aggregated_tools: list[mcp.types.Tool] = []
+        # CONCEPT:ECO-4.36 — dynamic tool gateway state. The catalog is the
+        # full set of mountable servers parsed from config WITHOUT spawning
+        # them, so find_tools/load_tools know what exists before any child is
+        # started. ``_exposed`` tracks prefixed tool names currently registered
+        # as live FastMCP tools (so lazy mounts don't double-register).
+        self._catalog: dict[str, dict] | None = None
+        self._exposed: set[str] = set()
+        # Cached authoritative (server, tool, description) index from the KG,
+        # used by find_tools to name the owning server of an unmounted tool.
+        self._kg_tool_index: list[dict] | None = None
 
     async def call_proxied_tool(
         self, prefixed_name: str, arguments: dict[str, Any] | None = None
@@ -361,17 +373,27 @@ class MCPMultiplexer:
         )
         return server_name, runtime, tools, cfg
 
-    async def start_children(self):
-        """Parse configuration and start all child processes concurrently."""
+    def load_catalog(self) -> dict[str, dict]:
+        """Parse the config once into the mountable-server catalog WITHOUT
+        spawning any child (CONCEPT:ECO-4.36).
+
+        Idempotent: the parsed ``{server_name: cfg}`` map is cached on
+        ``self._catalog`` and reused. Self (``mcp-multiplexer``) and entries
+        flagged ``disabled`` are excluded — they are never mountable.
+        """
+        if self._catalog is not None:
+            return self._catalog
+
+        self._catalog = {}
         if not self.config_path.exists():
             logger.error(f"Config path {self.config_path} does not exist.")
-            return
+            return self._catalog
 
         try:
             content = self.config_path.read_text(encoding="utf-8")
         except Exception as e:
             logger.error(f"Failed to read config file {self.config_path}: {e}")
-            return
+            return self._catalog
 
         # Attempt to expand env vars using the project's helper
         try:
@@ -387,86 +409,367 @@ class MCPMultiplexer:
                 config_data = json.loads(content)
             except Exception as json_err:
                 logger.error(f"Failed to parse config as JSON: {json_err}")
-                return
+                return self._catalog
 
-        mcp_servers = config_data.get("mcpServers", {})
-
-        tasks = []
-        for server_name, cfg in mcp_servers.items():
+        for server_name, cfg in config_data.get("mcpServers", {}).items():
             # Skip ourselves to avoid self-infinite recursion loops
             if server_name == "mcp-multiplexer" or cfg.get("disabled", False):
                 continue
-            tasks.append(self._start_child(server_name, cfg))
+            self._catalog[server_name] = cfg
+        return self._catalog
 
-        if not tasks:
+    def _register_child_result(
+        self,
+        server_name: str,
+        payload: Any,
+        tools: list[mcp.types.Tool],
+        cfg: dict,
+    ) -> list[mcp.types.Tool]:
+        """Record a freshly started child's runtime, session, and (filtered)
+        tools into the aggregation maps. Returns the prefixed ``Tool`` objects
+        that were registered for this child.
+
+        Shared by eager :meth:`start_children` and lazy :meth:`mount_child` so
+        the enable/disable filtering and prefixing logic lives in one place.
+        """
+        # The per-child hardening runtime (CONCEPT:ECO-4.34) carries the
+        # session pool, concurrency limits, and restart supervisor. Plain
+        # session payloads (externally owned connections) are wrapped in a
+        # supervisor-less runtime: limits apply, auto-restart does not.
+        if isinstance(payload, ChildRuntime):
+            runtime = payload
+        else:
+            sessions = list(payload) if isinstance(payload, list | tuple) else [payload]
+            runtime = ChildRuntime(server_name, cfg)
+            runtime.adopt_sessions(sessions)
+        self.children[server_name] = runtime
+        self.sessions[server_name] = runtime.primary_session
+
+        disabled_tools = cfg.get("disabledTools", [])
+        enabled_tools = cfg.get("enabledTools", None)
+
+        registered: list[mcp.types.Tool] = []
+        for tool in tools:
+            # 1. Whitelist Check (if enabledTools is defined)
+            if enabled_tools is not None:
+                import fnmatch
+
+                matched = any(fnmatch.fnmatch(tool.name, pat) for pat in enabled_tools)
+                if not matched:
+                    logger.info(
+                        f"Skipping non-whitelisted tool '{tool.name}' from child server '{server_name}'"
+                    )
+                    continue
+
+            # 2. Blacklist Check
+            if disabled_tools:
+                import fnmatch
+
+                matched_disabled = any(
+                    fnmatch.fnmatch(tool.name, pat) for pat in disabled_tools
+                )
+                if matched_disabled:
+                    logger.info(
+                        f"Skipping disabled tool '{tool.name}' from child server '{server_name}'"
+                    )
+                    continue
+
+            prefix = get_server_prefix(server_name)
+            prefixed_name = clean_tool_name(prefix, server_name, tool.name)
+            self.tool_to_server[prefixed_name] = (server_name, tool.name)
+
+            prefixed_tool = mcp.types.Tool(
+                name=prefixed_name,
+                description=tool.description or "",
+                inputSchema=tool.inputSchema,
+            )
+            self.aggregated_tools.append(prefixed_tool)
+            registered.append(prefixed_tool)
+        return registered
+
+    async def mount_child(self, server_name: str) -> list[mcp.types.Tool]:
+        """Start ONE configured child on demand and register its tools
+        (CONCEPT:ECO-4.36).
+
+        Idempotent: if the child is already mounted, its already-registered
+        prefixed tools are returned without re-spawning. Returns ``[]`` for an
+        unknown/unconfigured server. Loop-safe because it is invoked from
+        inside the serving event loop (either at boot or from a tool call), so
+        the child ``ClientSession`` objects bind to the running loop.
+        """
+        catalog = self.load_catalog()
+        if server_name in self.children:
+            return self.prefixed_tools_for_server(server_name)
+        cfg = catalog.get(server_name)
+        if cfg is None:
+            logger.warning(
+                "mount_child: server '%s' is not in the catalog", server_name
+            )
+            return []
+        result = await self._start_child(server_name, cfg)
+        if not isinstance(result, tuple):
+            return []
+        s_name, payload, tools, r_cfg = result
+        return self._register_child_result(s_name, payload, tools, r_cfg)
+
+    def prefixed_tools_for_server(self, server_name: str) -> list[mcp.types.Tool]:
+        """All aggregated prefixed tools currently owned by ``server_name``."""
+        names = {
+            pn for pn, (srv, _orig) in self.tool_to_server.items() if srv == server_name
+        }
+        return [t for t in self.aggregated_tools if t.name in names]
+
+    async def start_children(self):
+        """Parse configuration and start all child processes concurrently
+        (eager mode). Lazy mode uses :meth:`mount_child` instead."""
+        catalog = self.load_catalog()
+        if not catalog:
             logger.info("No active child servers configured.")
             return
 
+        tasks = [
+            self._start_child(server_name, cfg) for server_name, cfg in catalog.items()
+        ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for result in results:
             if isinstance(result, BaseException):
                 # An exception propagated from asyncio.gather, already logged inside task
                 continue
-
             if not isinstance(result, tuple):
                 continue
-
             server_name, payload, tools, cfg = result
-            # The per-child hardening runtime (CONCEPT:ECO-4.34) carries the
-            # session pool, concurrency limits, and restart supervisor. Plain
-            # session payloads (externally owned connections) are wrapped in a
-            # supervisor-less runtime: limits apply, auto-restart does not.
-            if isinstance(payload, ChildRuntime):
-                runtime = payload
-            else:
-                sessions = (
-                    list(payload) if isinstance(payload, list | tuple) else [payload]
-                )
-                runtime = ChildRuntime(server_name, cfg)
-                runtime.adopt_sessions(sessions)
-            self.children[server_name] = runtime
-            self.sessions[server_name] = runtime.primary_session
+            self._register_child_result(server_name, payload, tools, cfg)
 
-            disabled_tools = cfg.get("disabledTools", [])
-            enabled_tools = cfg.get("enabledTools", None)
+    # ------------------------------------------------------------------
+    # Dynamic tool gateway (CONCEPT:ECO-4.36)
+    # ------------------------------------------------------------------
 
-            for tool in tools:
-                # 1. Whitelist Check (if enabledTools is defined)
-                if enabled_tools is not None:
-                    import fnmatch
+    def _server_for_prefixed(self, prefixed_name: str) -> str | None:
+        """Resolve which child server owns a prefixed tool name, even before
+        that child is mounted (by reversing the server prefix against the
+        catalog). Returns None if ambiguous or unknown."""
+        if prefixed_name in self.tool_to_server:
+            return self.tool_to_server[prefixed_name][0]
+        prefix = prefixed_name.split("__", 1)[0]
+        candidates = [s for s in self.load_catalog() if get_server_prefix(s) == prefix]
+        return candidates[0] if len(candidates) == 1 else None
 
-                    matched = any(
-                        fnmatch.fnmatch(tool.name, pat) for pat in enabled_tools
+    def _kg_prefixed(self, bare_tool: str) -> str | None:
+        """Find the live prefixed name for a knowledge-graph child tool
+        (e.g. ``graph_query`` -> ``kg__graph_query``) regardless of how the
+        always-on KG server is nicknamed. Requires the KG child to be mounted."""
+        suffix = f"__{bare_tool}"
+        for prefixed, (_srv, original) in self.tool_to_server.items():
+            if original == bare_tool and prefixed.endswith(suffix):
+                return prefixed
+        return None
+
+    async def _kg_call(self, bare_tool: str, arguments: dict[str, Any]) -> Any:
+        """Best-effort call to a knowledge-graph child tool, returning parsed
+        JSON (or raw text), or ``None`` if the KG child is unavailable or the
+        call fails. Used by discovery so a cold/absent KG degrades gracefully
+        rather than raising into the meta-tool."""
+        prefixed = self._kg_prefixed(bare_tool)
+        if prefixed is None:
+            return None
+        try:
+            result = await self.call_proxied_tool(prefixed, arguments)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning("KG call '%s' raised: %s", prefixed, e)
+            return None
+        if getattr(result, "isError", False):
+            return None
+        text = "".join(
+            getattr(block, "text", "")
+            for block in (getattr(result, "content", []) or [])
+            if getattr(block, "type", None) == "text"
+        )
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except (ValueError, TypeError):
+            return text
+
+    async def refresh_kg_index(self, force: bool = False) -> list[dict]:
+        """Load (and cache) the authoritative ``(server, tool, description)``
+        catalog from the KG's ``Server -[:PROVIDES]-> CallableResource`` graph.
+        This mapping is what lets discovery name the owning server for a tool
+        without spawning it."""
+        if self._kg_tool_index is not None and not force:
+            return self._kg_tool_index
+        cypher = (
+            "MATCH (s:Server)-[:PROVIDES]->(r:CallableResource) "
+            "RETURN s.name AS server, r.name AS tool, r.description AS description"
+        )
+        rows = await self._kg_call("graph_query", {"cypher": cypher, "params": "{}"})
+        index: list[dict] = []
+        if isinstance(rows, list):
+            for row in rows:
+                if isinstance(row, dict) and row.get("server") and row.get("tool"):
+                    index.append(
+                        {
+                            "server": row["server"],
+                            "tool": row["tool"],
+                            "description": row.get("description") or "",
+                        }
                     )
-                    if not matched:
-                        logger.info(
-                            f"Skipping non-whitelisted tool '{tool.name}' from child server '{server_name}'"
-                        )
-                        continue
+        self._kg_tool_index = index
+        return index
 
-                # 2. Blacklist Check
-                if disabled_tools:
-                    import fnmatch
+    @staticmethod
+    def _relevance(query: str, text: str) -> float:
+        """Cheap, deterministic token-overlap relevance in [0, 1] — the
+        embedding-free backbone so discovery (and its tests) never depend on a
+        live model. Semantic scores from the KG are layered on top when present."""
+        q_tokens = set(re.findall(r"[a-z0-9]+", query.lower()))
+        if not q_tokens:
+            return 0.0
+        t_tokens = set(re.findall(r"[a-z0-9]+", text.lower()))
+        return len(q_tokens & t_tokens) / len(q_tokens)
 
-                    matched_disabled = any(
-                        fnmatch.fnmatch(tool.name, pat) for pat in disabled_tools
-                    )
-                    if matched_disabled:
-                        logger.info(
-                            f"Skipping disabled tool '{tool.name}' from child server '{server_name}'"
-                        )
-                        continue
+    def _server_level_fallback(self) -> list[dict]:
+        """When the KG yields no tool-level index (cold/absent KG), still let
+        the caller act: surface mountable servers so they can ``load_tools`` by
+        server name."""
+        out: list[dict] = []
+        for server in self.load_catalog():
+            out.append(
+                {
+                    "server": server,
+                    "tool": "*",
+                    "prefixed_name": None,
+                    "description": (
+                        f"All tools for '{server}'. KG tool-level discovery "
+                        "is unavailable; load the whole server by name."
+                    ),
+                    "score": 0.0,
+                    "mountable": True,
+                    "mounted": server in self.children,
+                }
+            )
+        return out
 
-                prefix = get_server_prefix(server_name)
-                prefixed_name = clean_tool_name(prefix, server_name, tool.name)
-                self.tool_to_server[prefixed_name] = (server_name, tool.name)
+    async def discover_tools(self, query: str, top_k: int | None = None) -> list[dict]:
+        """Rank candidate tools across the whole fleet for an NL ``query``
+        (CONCEPT:ECO-4.36), without spawning any child.
 
-                prefixed_tool = mcp.types.Tool(
-                    name=prefixed_name,
-                    description=tool.description or "",
-                    inputSchema=tool.inputSchema,
-                )
-                self.aggregated_tools.append(prefixed_tool)
+        Backbone is the KG tool index (authoritative server↔tool mapping) ranked
+        by token overlap; KG semantic search scores are blended in when
+        available. Falls back to a server-level listing if the KG has no index.
+        """
+        from agent_utilities.core.config import config as agent_config
+
+        if not top_k or top_k <= 0:
+            top_k = agent_config.mcp_dynamic_top_k
+        catalog = self.load_catalog()
+
+        index = await self.refresh_kg_index()
+        if not index:
+            # Cold KG: one best-effort hydration pass from this config, then retry.
+            await self._kg_call(
+                "graph_ingest",
+                {"action": "agent_toolkit", "target_path": str(self.config_path)},
+            )
+            index = await self.refresh_kg_index(force=True)
+        if not index:
+            return self._server_level_fallback()
+
+        # Best-effort semantic scores keyed by bare tool name.
+        semantic: dict[str, float] = {}
+        search = await self._kg_call(
+            "graph_search",
+            {"query": query, "mode": "hybrid", "top_k": max(top_k * 3, 20)},
+        )
+        if isinstance(search, list):
+            for hit in search:
+                if not isinstance(hit, dict):
+                    continue
+                name = hit.get("name") or hit.get("tool") or ""
+                score = hit.get("score") or hit.get("relevance_score") or 0.0
+                if name:
+                    try:
+                        semantic[name] = max(semantic.get(name, 0.0), float(score))
+                    except (ValueError, TypeError):
+                        pass
+
+        ranked: list[dict] = []
+        for entry in index:
+            server, tool, desc = entry["server"], entry["tool"], entry["description"]
+            score = semantic.get(tool, 0.0) + self._relevance(query, f"{tool} {desc}")
+            if score <= 0:
+                continue
+            prefixed = clean_tool_name(get_server_prefix(server), server, tool)
+            ranked.append(
+                {
+                    "server": server,
+                    "tool": tool,
+                    "prefixed_name": prefixed,
+                    "description": desc,
+                    "score": round(score, 4),
+                    "mountable": server in catalog,
+                    "mounted": prefixed in self._exposed,
+                }
+            )
+
+        ranked.sort(key=lambda r: r["score"], reverse=True)
+        return ranked[:top_k] if ranked else self._server_level_fallback()
+
+    async def resolve_and_mount(
+        self,
+        tools: list[str] | None = None,
+        servers: list[str] | None = None,
+    ) -> tuple[list[str], list[str]]:
+        """Mount whatever children are needed to satisfy a ``load_tools``
+        request and compute the set of prefixed names to expose.
+
+        Returns ``(target_servers, prefixed_names_to_expose)``. Does NOT touch
+        FastMCP — registration of the live tools (and the list_changed
+        notification) is the caller's job so this stays unit-testable.
+        """
+        requested_tools = list(tools or [])
+        target_servers: set[str] = set(servers or [])
+        for prefixed in requested_tools:
+            owner = self._server_for_prefixed(prefixed)
+            if owner:
+                target_servers.add(owner)
+
+        for server in sorted(target_servers):
+            await self.mount_child(server)
+
+        if requested_tools:
+            wanted = set(requested_tools)
+        else:
+            wanted = set()
+            for server in target_servers:
+                wanted.update(t.name for t in self.prefixed_tools_for_server(server))
+
+        to_expose = [
+            name
+            for name in sorted(wanted)
+            if name in self.tool_to_server and name not in self._exposed
+        ]
+        return sorted(target_servers), to_expose
+
+    def tool_object(self, prefixed_name: str) -> mcp.types.Tool | None:
+        """The aggregated ``Tool`` object for a prefixed name, if known."""
+        for tool in self.aggregated_tools:
+            if tool.name == prefixed_name:
+                return tool
+        return None
+
+    def forget_tool(self, prefixed_name: str) -> str | None:
+        """Drop a prefixed tool from the aggregation maps (used by unload).
+        Returns the owning server name, if any."""
+        owner = None
+        mapping = self.tool_to_server.pop(prefixed_name, None)
+        if mapping:
+            owner = mapping[0]
+        self.aggregated_tools = [
+            t for t in self.aggregated_tools if t.name != prefixed_name
+        ]
+        self._exposed.discard(prefixed_name)
+        return owner
 
     def status_snapshot(self) -> dict[str, Any]:
         """Fleet health surface: per-child state, limits, load, restarts."""
@@ -506,42 +809,49 @@ def _resolve_config_path(explicit: str | None) -> Path:
     return candidates[0]
 
 
-def _register_forwarding_tools(mcp, mux: MCPMultiplexer) -> None:
-    """Register one FastMCP forwarding tool per aggregated child tool.
+def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
+    """Build the async fn that forwards a prefixed tool call to its child."""
 
-    Each tool keeps the multiplexer's prefixed name and the child's published
-    input schema; calling it forwards the validated arguments to the owning
-    child session via :meth:`MCPMultiplexer.call_proxied_tool`.
-    """
-
-    def _make_forwarder(prefixed_name: str):
-        async def _forward(**kwargs: Any) -> ToolResult:
-            result = await mux.call_proxied_tool(prefixed_name, kwargs)
-            return ToolResult(
-                content=list(getattr(result, "content", []) or []),
-                structured_content=getattr(result, "structuredContent", None),
-            )
-
-        return _forward
-
-    for tool in mux.aggregated_tools:
-        schema = tool.inputSchema or {"type": "object", "properties": {}}
-        mcp.add_tool(
-            FunctionTool(
-                name=tool.name,
-                description=tool.description or "",
-                parameters=schema,
-                fn=_make_forwarder(tool.name),
-            )
+    async def _forward(**kwargs: Any) -> ToolResult:
+        result = await mux.call_proxied_tool(prefixed_name, kwargs)
+        return ToolResult(
+            content=list(getattr(result, "content", []) or []),
+            structured_content=getattr(result, "structuredContent", None),
         )
 
-    # Fleet health surface (CONCEPT:ECO-4.34): per-child state
-    # (up/restarting/failed), restart counts, concurrency limits, and load.
+    return _forward
+
+
+def _register_forwarder(mcp, mux: MCPMultiplexer, tool: mcp.types.Tool) -> bool:
+    """Register ONE aggregated child tool as a live FastMCP forwarding tool.
+
+    Idempotent via ``mux._exposed`` so lazy mounts never double-register.
+    Returns True if a new tool was added. Shared by eager startup and the
+    dynamic ``load_tools`` meta-tool.
+    """
+    if tool.name in mux._exposed:
+        return False
+    schema = tool.inputSchema or {"type": "object", "properties": {}}
+    mcp.add_tool(
+        FunctionTool(
+            name=tool.name,
+            description=tool.description or "",
+            parameters=schema,
+            fn=_make_forwarder(mux, tool.name),
+        )
+    )
+    mux._exposed.add(tool.name)
+    return True
+
+
+def _register_status_tool(mcp, mux: MCPMultiplexer) -> None:
+    """Register the always-present fleet-health meta-tool (CONCEPT:ECO-4.34)."""
+
     async def _status() -> ToolResult:
         snapshot = mux.status_snapshot()
         return ToolResult(
             content=[
-                mcp.types.TextContent(type="text", text=json.dumps(snapshot, indent=2))
+                mcp_types.TextContent(type="text", text=json.dumps(snapshot, indent=2))
             ],
             structured_content=snapshot,
         )
@@ -552,12 +862,176 @@ def _register_forwarding_tools(mcp, mux: MCPMultiplexer) -> None:
             description=(
                 "Health of every aggregated child MCP server: state "
                 "(up/restarting/failed), restart count, concurrency "
-                "limits, in-flight and queued calls."
+                "limits, in-flight and queued calls. In dynamic mode also "
+                "reflects which children are currently mounted."
             ),
             parameters={"type": "object", "properties": {}},
             fn=_status,
         )
     )
+
+
+def _register_forwarding_tools(mcp, mux: MCPMultiplexer) -> None:
+    """Register a forwarding tool for every aggregated child tool plus the
+    status meta-tool. This is the EAGER path (all tools exposed up front)."""
+    for tool in mux.aggregated_tools:
+        _register_forwarder(mcp, mux, tool)
+    _register_status_tool(mcp, mux)
+
+
+async def _notify_tools_changed(mcp) -> None:
+    """Emit ``notifications/tools/list_changed`` so the client re-fetches the
+    tool list after a dynamic mount/unmount. Best-effort: a missing request
+    context (e.g. no client attached) must not fail the meta-tool."""
+    try:
+        from fastmcp.server.dependencies import get_context
+
+        await get_context().send_notification(mcp_types.ToolListChangedNotification())
+    except Exception as e:  # pragma: no cover - context not always present
+        logger.warning("Could not send tools/list_changed notification: %s", e)
+
+
+def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
+    """Register the dynamic-gateway meta-tools (CONCEPT:ECO-4.36):
+    ``find_tools`` (semantic discovery over the whole fleet) and
+    ``load_tools`` / ``unload_tools`` (mount/expose and retract tools at
+    runtime, notifying the client each time). Plus the status tool."""
+
+    async def _find_tools(query: str, top_k: int = 0) -> ToolResult:
+        results = await mux.discover_tools(query, top_k=top_k or None)
+        payload = {"query": query, "count": len(results), "results": results}
+        return ToolResult(
+            content=[
+                mcp_types.TextContent(type="text", text=json.dumps(payload, indent=2))
+            ],
+            structured_content=payload,
+        )
+
+    async def _load_tools(
+        tools: list[str] | None = None, servers: list[str] | None = None
+    ) -> ToolResult:
+        target_servers, to_expose = await mux.resolve_and_mount(
+            tools=tools, servers=servers
+        )
+        newly: list[str] = []
+        for name in to_expose:
+            tool_obj = mux.tool_object(name)
+            if tool_obj is not None and _register_forwarder(mcp, mux, tool_obj):
+                newly.append(name)
+        if newly:
+            await _notify_tools_changed(mcp)
+        payload = {
+            "mounted_servers": target_servers,
+            "newly_exposed": newly,
+            "total_exposed": len(mux._exposed),
+        }
+        return ToolResult(
+            content=[
+                mcp_types.TextContent(type="text", text=json.dumps(payload, indent=2))
+            ],
+            structured_content=payload,
+        )
+
+    async def _unload_tools(tools: list[str] | None = None) -> ToolResult:
+        removed: list[str] = []
+        for name in list(tools or []):
+            if name not in mux._exposed:
+                continue
+            try:
+                mcp.local_provider.remove_tool(name)
+            except KeyError:
+                pass
+            mux.forget_tool(name)
+            removed.append(name)
+        if removed:
+            await _notify_tools_changed(mcp)
+        payload = {"unloaded": removed, "total_exposed": len(mux._exposed)}
+        return ToolResult(
+            content=[
+                mcp_types.TextContent(type="text", text=json.dumps(payload, indent=2))
+            ],
+            structured_content=payload,
+        )
+
+    mcp.add_tool(
+        FunctionTool(
+            name="find_tools",
+            description=(
+                "Discover the most relevant tools across the ENTIRE MCP fleet "
+                "for a natural-language task, without loading them. Ranks tools "
+                "via the knowledge graph and returns their prefixed names; pass "
+                "the ones you need to load_tools to make them callable. Use this "
+                "first whenever the tool you want isn't already available."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural-language description of the task or capability needed.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Max candidates to return (0 = server default).",
+                        "default": 0,
+                    },
+                },
+                "required": ["query"],
+            },
+            fn=_find_tools,
+        )
+    )
+    mcp.add_tool(
+        FunctionTool(
+            name="load_tools",
+            description=(
+                "Mount and expose tools at runtime so they become directly "
+                "callable. Pass prefixed tool names (from find_tools) via "
+                "'tools', and/or whole server names via 'servers' to load all "
+                "of a server's tools. Spawns the owning child servers on first "
+                "use and notifies the client that the tool list changed."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Prefixed tool names to expose (e.g. 'cnt__cm_container_operations').",
+                    },
+                    "servers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Server names whose every tool should be exposed (e.g. 'container-manager-mcp').",
+                    },
+                },
+            },
+            fn=_load_tools,
+        )
+    )
+    mcp.add_tool(
+        FunctionTool(
+            name="unload_tools",
+            description=(
+                "Retract previously loaded tools to reclaim context. Pass the "
+                "prefixed tool names to remove; the client is notified that the "
+                "tool list changed. Meta-tools and always-on tools are kept."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Prefixed tool names to unload.",
+                    }
+                },
+                "required": ["tools"],
+            },
+            fn=_unload_tools,
+        )
+    )
+    _register_status_tool(mcp, mux)
 
 
 def get_mcp_instance():
@@ -586,7 +1060,12 @@ def get_mcp_instance():
         instructions=(
             "Aggregates multiple child MCP servers (declared in mcp_config.json) "
             "into a single unified server. Tools are namespaced by a short, "
-            "host-aware server prefix; calls are forwarded to the owning child."
+            "host-aware server prefix; calls are forwarded to the owning child. "
+            "In dynamic mode (MCP_MULTIPLEXER_MODE=dynamic) only a few meta-tools "
+            "are exposed up front: call find_tools(query) to discover the right "
+            "tools across the whole fleet, then load_tools(tools=[...]) to make "
+            "them callable (the tool list updates live), and unload_tools(...) to "
+            "free them again. multiplexer_status reports mounted children."
         ),
     )
     for middleware in middlewares:
@@ -600,14 +1079,38 @@ async def _serve(args, mcp, mux: MCPMultiplexer) -> None:
     event loop so the child ``ClientSession`` objects stay bound to the loop
     that runs the server."""
     try:
-        await mux.start_children()
-        _register_forwarding_tools(mcp, mux)
-        logger.info(
-            "Aggregated %d tools from %d child servers. Serving over %s.",
-            len(mux.aggregated_tools),
-            len(mux.sessions),
-            getattr(args, "transport", "stdio"),
-        )
+        from agent_utilities.core.config import config as agent_config
+
+        mode = (agent_config.mcp_multiplexer_mode or "eager").lower()
+        if mode == "dynamic":
+            # CONCEPT:ECO-4.36 — expose only the meta-tools plus the always-on
+            # children at boot; everything else is mounted on demand.
+            mux.load_catalog()
+            always_on = agent_config.mcp_dynamic_always_on or []
+            for server_name in always_on:
+                tools = await mux.mount_child(server_name)
+                for tool in tools:
+                    _register_forwarder(mcp, mux, tool)
+            _register_meta_tools(mcp, mux)
+            logger.info(
+                "Dynamic gateway: %d always-on tools from %d child(ren) "
+                "(%s) + meta-tools; %d more servers mountable on demand. "
+                "Serving over %s.",
+                len(mux.aggregated_tools),
+                len(mux.children),
+                ", ".join(always_on) or "none",
+                max(0, len(mux.load_catalog()) - len(mux.children)),
+                getattr(args, "transport", "stdio"),
+            )
+        else:
+            await mux.start_children()
+            _register_forwarding_tools(mcp, mux)
+            logger.info(
+                "Aggregated %d tools from %d child servers. Serving over %s.",
+                len(mux.aggregated_tools),
+                len(mux.sessions),
+                getattr(args, "transport", "stdio"),
+            )
 
         transport = getattr(args, "transport", "stdio")
         host = getattr(args, "host", "0.0.0.0")
