@@ -838,17 +838,25 @@ class LadybugBackend(GraphBackend):
                 if "already exists" not in str(e).lower():
                     logger.warning(f"Node table creation issue ({node.name}): {e}")
 
-        # 2. Create Rel Tables
+        # 2. Create Rel Tables. Every rel table carries a single JSON ``properties``
+        # column so edges persist their properties (confidence/source/bitemporal
+        # stamps/inferred flags) — Kuzu REL tables otherwise drop edge props, which
+        # was a data-loss gap vs the schemaless backends (CONCEPT:KG-2.7 parity).
         for rel in SCHEMA.edges:
             conns = ", ".join(
                 [f"FROM {c['from']} TO {c['to']}" for c in rel.connections]
             )
-            stmt = f"CREATE REL TABLE IF NOT EXISTS {rel.type} ({conns});"
+            stmt = f"CREATE REL TABLE IF NOT EXISTS {rel.type} ({conns}, properties STRING);"
             try:
                 self.conn.execute(stmt)
             except Exception as e:
                 if "already exists" not in str(e).lower():
                     logger.warning(f"Rel table creation issue ({rel.type}): {e}")
+            # Best-effort migration: add the column to pre-existing rel tables.
+            try:
+                self.conn.execute(f"ALTER TABLE {rel.type} ADD properties STRING;")
+            except Exception:  # noqa: BLE001 — already present / unsupported → ignore
+                pass
 
     def create_schema(self) -> None:
         """Create LadybugDB schema from the unified schema definition.
