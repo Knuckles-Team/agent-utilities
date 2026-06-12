@@ -115,6 +115,21 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
     """
 
     def _fn(node_ids: list[str], edges: list[tuple[str, str]]) -> list[list[str]]:
+        # Stateless path (preferred): hand the call graph to the engine INLINE so it
+        # runs detection on an in-memory throwaway graph — NO bulk-load into a tenant,
+        # NO per-job comm-tenant sprawl, NO comm checkpoint. This removes the dominant
+        # cost of the community stage (the ~160k-edge bulk load) and the tenant churn
+        # the GC/dedicated-engine work was compensating for. Falls back to the
+        # tenant-load path below on any error or against an older engine. (KG-2.58)
+        ephemeral = getattr(graph_compute, "community_detect_ephemeral", None)
+        if ephemeral is not None:
+            try:
+                return ephemeral(node_ids, edges, resolution)
+            except Exception as e:  # noqa: BLE001 — degrade to the tenant-load path
+                logger.debug(
+                    "ephemeral community detect failed (%s); tenant-load fallback", e
+                )
+
         # Load the call graph into the scratch tenant in ONE bulk pass instead of
         # a per-element add_node/add_edge round-trip each (a big repo is tens of
         # thousands of symbols → tens of thousands of socket round-trips). The
