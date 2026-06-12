@@ -155,7 +155,7 @@ def test_presets_are_data():
 def test_enterprise_presets_build_with_verified_shape():
     # github-mcp + okta-mcp: source-control and identity, grounded in each
     # agent's actual list tool + response envelope (not guessed).
-    assert {"github-repos", "okta-users"} <= set(list_tool_presets())
+    assert {"github-repos", "okta-users", "keycloak-users"} <= set(list_tool_presets())
 
     gh = build_connector("mcp_tool", {"preset": "github-repos"})
     assert gh.server == "github-mcp"
@@ -176,6 +176,14 @@ def test_enterprise_presets_build_with_verified_shape():
     # login/email live under the nested ``profile`` object (dotted field maps).
     assert okta.title_field == "profile.login"
     assert okta.text_field == "profile.email"
+
+    kc = build_connector("mcp_tool", {"preset": "keycloak-users"})
+    assert kc.server == "keycloak-mcp"
+    assert kc.tool == "keycloak_agent_users"
+    assert kc.action == "list_users"
+    # Keycloak returns a bare user array → records_path stays "" (whole result).
+    assert kc.records_path == ""
+    assert (kc.id_field, kc.title_field, kc.text_field) == ("id", "username", "email")
 
 
 # ── sql-mcp shapes ───────────────────────────────────────────────────────────

@@ -200,6 +200,21 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "updated_field": "lastUpdated",
         "doc_type": "identity",
     },
+    # keycloak-mcp: list realm users (identities) as Document records.
+    # ``keycloak_agent_users`` with action="list_users" returns the Keycloak Admin
+    # API's bare JSON array of UserRepresentations — so ``records_path`` stays ""
+    # (the whole result is the list). Fields id/username/email are flat
+    # (keycloak_agent/api/api_client_users.list_users → GET /admin/realms/{realm}/users).
+    # Realm is required — extend with {"params": {"realm": "master"}}.
+    "keycloak-users": {
+        "server": "keycloak-mcp",
+        "tool": "keycloak_agent_users",
+        "action": "list_users",
+        "id_field": "id",
+        "title_field": "username",
+        "text_field": "email",
+        "doc_type": "identity",
+    },
 }
 
 
