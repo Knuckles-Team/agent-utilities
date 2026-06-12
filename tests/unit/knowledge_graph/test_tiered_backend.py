@@ -88,6 +88,22 @@ def test_read_served_from_l1_only():
     assert l3.calls == []  # read never touches L3
 
 
+def test_explicit_is_write_overrides_regex():
+    # E5: a READ whose literal mentions a mutation keyword regex-false-positives;
+    # an explicit is_write=False keeps it off L3. is_write=True forces a mirror
+    # for a query the regex wouldn't flag.
+    l1, l3 = RecordingBackend("l1"), RecordingBackend("l3")
+    t = TieredGraphBackend(l1, l3)
+
+    # Regex would treat this read as a write (it contains 'SET'); explicit override.
+    t.execute("MATCH (n) WHERE n.label = 'SET' RETURN n", is_write=False)
+    assert l3.calls == [], "explicit read must not mirror to L3"
+
+    # Explicit write of a query the keyword regex wouldn't match.
+    t.execute("CALL custom.mutate()", is_write=True)
+    assert _ops(l3) == ["execute"], "explicit write must mirror to L3"
+
+
 def test_write_mirrored_to_both():
     l1, l3 = RecordingBackend("l1"), RecordingBackend("l3")
     t = TieredGraphBackend(l1, l3)
