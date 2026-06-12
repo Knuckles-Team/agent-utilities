@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 184
+total_concepts: 185
 total_pillars: 19
 pillars:
 - AHE-3
@@ -280,7 +280,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/adaptation/code_health.py
-  - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: periodic code-health
 - id: CTX-1.0
   name: Nested Subfolder Instructions
@@ -2484,6 +2483,15 @@ concepts:
   - agent_utilities/orchestration/fleet_reconciler.py
   - agent_utilities/orchestration/scaling_signals.py
   doc: Reactive replica autoscaling
+- id: OS-5.30
+  name: Declarative skill / skill-workflow scheduler
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/skill_scheduler.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/server/routers/commands.py
+  doc: Declarative skill / skill-workflow scheduler
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
