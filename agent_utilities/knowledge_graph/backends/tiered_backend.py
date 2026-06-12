@@ -115,7 +115,11 @@ class TieredGraphBackend(GraphBackend):
     # Core CRUD & Query
     # ------------------------------------------------------------------
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        is_write: bool | None = None,
     ) -> list[dict[str, Any]]:
         """Reads → L1; writes → L1 (authoritative) then mirrored to L3.
 
@@ -126,7 +130,13 @@ class TieredGraphBackend(GraphBackend):
         ``(a)-[:R]->(b)`` to a ``kg_edges`` JOIN; that path falls back to L1 if L3
         is unavailable. (CONCEPT:KG-2.7 P1 — L1 native traversal.)
         """
-        if _is_write(query):
+        # Prefer the caller's explicit intent over the keyword regex. The regex
+        # false-positives on READS that merely mention a mutation keyword (e.g.
+        # `WHERE n.x = 'SET'`), needlessly mirroring them to L3; an explicit
+        # `is_write` is authoritative. The regex remains only the fallback for
+        # genuinely ad-hoc cypher whose intent the caller didn't declare.
+        write = _is_write(query) if is_write is None else is_write
+        if write:
             result = self.l1.execute(query, params)
             self._mirror("execute", lambda: self.l3.execute(query, params))
             return result
