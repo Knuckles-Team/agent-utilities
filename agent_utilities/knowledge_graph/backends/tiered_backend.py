@@ -322,6 +322,8 @@ class TieredGraphBackend(GraphBackend):
         except Exception as exc:  # noqa: BLE001
             logger.warning("reconcile_to_durable: cannot enumerate L1 nodes: %s", exc)
             node_ids = []
+        import json as _json
+
         l1_by_label: dict[str, int] = {}
         for nid in node_ids:
             try:
@@ -330,10 +332,21 @@ class TieredGraphBackend(GraphBackend):
                     props.get("type") or props.get("label") or "Node"
                 )
                 l1_by_label[label] = l1_by_label.get(label, 0) + 1
-                self.l3.execute(
-                    f"CREATE (n:{label} {{id: $id, name: $name, type: $type}})",
-                    {"id": nid, "name": str(props.get("name") or nid), "type": label},
-                )
+                # Mirror the FULL property set (was only id/name/type, which made the
+                # durable tier a property-poor shadow). JSON-encode nested values;
+                # skip ``embedding`` (re-mirrored via add_embedding into the vector
+                # column, not as a JSON property). L3 auto-DDL heals new columns.
+                clean: dict[str, Any] = {"id": nid}
+                for k, v in props.items():
+                    if k in ("id", "embedding") or v is None:
+                        continue
+                    clean[k] = (
+                        _json.dumps(v, default=str) if isinstance(v, dict | list) else v
+                    )
+                clean.setdefault("type", label)
+                clean.setdefault("name", str(props.get("name") or nid))
+                cols = ", ".join(f"`{k}`: ${k}" for k in clean)
+                self.l3.execute(f"CREATE (n:{label} {{{cols}}})", clean)
                 summary["nodes"] += 1
             except Exception as exc:  # noqa: BLE001
                 summary["errors"] += 1
@@ -343,14 +356,30 @@ class TieredGraphBackend(GraphBackend):
         l1_edges = self._l1_edges(graph)
         for src, dst, edata in l1_edges:
             try:
-                rel = _sanitize_label((edata or {}).get("type", "RELATED_TO"))
-                # The transpiler recognizes UPSERT_EDGE only with the node-MATCH
+                edata = edata or {}
+                rel = _sanitize_label(edata.get("type", "RELATED_TO"))
+                # Carry the edge's properties (confidence/provenance/bitemporal/
+                # inferred flags) — not just the type — so the durable edge matches
+                # L1. The transpiler recognizes UPSERT_EDGE only with the node-MATCH
                 # prefix (→ INSERT INTO kg_edges); the bare ``MERGE (a)-[r]->(b)``
                 # is UNKNOWN and silently no-ops.
+                eprops = {
+                    k: v for k, v in edata.items() if k != "type" and v is not None
+                }
+                eparams: dict[str, Any] = {"source_id": src, "target_id": dst}
+                set_clause = ""
+                if eprops:
+                    set_clause = " SET " + ", ".join(f"r.`{k}` = ${k}" for k in eprops)
+                    for k, v in eprops.items():
+                        eparams[k] = (
+                            _json.dumps(v, default=str)
+                            if isinstance(v, dict | list)
+                            else v
+                        )
                 self.l3.execute(
                     f"MATCH (a {{id: $source_id}}), (b {{id: $target_id}}) "
-                    f"MERGE (a)-[r:{rel}]->(b)",
-                    {"source_id": src, "target_id": dst},
+                    f"MERGE (a)-[r:{rel}]->(b){set_clause}",
+                    eparams,
                 )
                 summary["edges"] += 1
             except Exception as exc:  # noqa: BLE001
