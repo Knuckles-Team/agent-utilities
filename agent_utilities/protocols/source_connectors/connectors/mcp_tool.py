@@ -66,6 +66,7 @@ __all__ = [
     "MCP_TOOL_PRESETS",
     "get_tool_preset",
     "list_tool_presets",
+    "call_tool_once",
 ]
 
 
@@ -912,3 +913,53 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
                 state=new_state,
             )
         return CheckpointedBatch(documents=docs, checkpoint=cp)
+
+
+async def call_tool_once(
+    *,
+    tool: str,
+    server: str = "",
+    action: str = "",
+    params: dict[str, Any] | None = None,
+    client: Any = None,
+    url: str = "",
+    command: str = "",
+    args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    params_style: str = "json",
+    params_arg: str = "params_json",
+    action_param: str = "action",
+    timeout: float = 60.0,
+) -> Any:
+    """One-shot fleet MCP tool call — the **write-side twin** of the KG-2.59 source
+    connector (CONCEPT:KG-2.42).
+
+    The source connector *reads* records out of a fleet MCP server; this calls one
+    fleet tool *once* and returns its decoded result, reusing the very same transport
+    resolution (``server`` resolved through ``mcp_config``, or an injected ``client`` /
+    explicit ``url``/``command``), the fleet ``action`` + ``params_json`` argument
+    assembly, and the result decode. It exists so a *governed* ontology Action can push
+    a mutation back to any fleet system without a bespoke client — symmetric with how
+    ingestion pulls from one.
+
+    Args mirror the connector: identify the server (``server`` / ``client`` / ``url`` /
+    ``command``), the ``tool`` and its routing ``action``, and the ``params`` dict
+    (JSON-encoded into ``params_json`` under the fleet convention by default).
+    """
+    conn = McpToolSourceConnector(
+        server=server,
+        tool=tool,
+        action=action,
+        client=client,
+        url=url,
+        command=command,
+        args=args,
+        env=env,
+        params_style=params_style,
+        params_arg=params_arg,
+        action_param=action_param,
+        timeout=timeout,
+    )
+    arguments = conn._build_arguments(dict(params or {}))
+    async with conn._open_client() as open_client:
+        return await conn._call(open_client, tool, arguments)
