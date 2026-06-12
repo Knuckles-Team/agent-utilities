@@ -381,6 +381,15 @@ class QueryMixin(_Base):
             results = [
                 r for r in results if str(r.get("status", "")).upper() != "ARCHIVED"
             ]
+        # Public contract: every search result exposes its relevance under the
+        # `score` key. The hybrid retriever ranks into the internal `_score` (it
+        # re-weights it during fusion); without this projection the MCP formatter
+        # and other consumers read `score`, miss the value, and show 0.00 even
+        # though the ranking is correct. (Fix: producer wrote `_score`, consumers
+        # read `score`, no layer mapped them.)
+        for r in results:
+            if isinstance(r, dict) and r.get("score") is None and "_score" in r:
+                r["score"] = r["_score"]
         return results[:top_k]
 
     def search_dci(
