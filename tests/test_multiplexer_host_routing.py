@@ -10,33 +10,37 @@ from agent_utilities.mcp.multiplexer import (
 
 
 def test_get_server_prefix_hosts():
-    # Test standard systems-manager hosts
-    assert get_server_prefix("systems-manager-mcp-r510") == "sys_r510"
-    assert get_server_prefix("systems-manager-mcp-rw710") == "sys_rw710"
-    assert get_server_prefix("systems-manager-mcp-gr1080") == "sys_gr1080"
+    # Prefixes are 100% auto-derived (no lookup table). Multi-instance servers
+    # keep a readable trailing host id: initials of the rest + "_" + id.
+    assert get_server_prefix("systems-manager-mcp-r510") == "sm_r510"
+    assert get_server_prefix("systems-manager-mcp-rw710") == "sm_rw710"
+    assert get_server_prefix("systems-manager-mcp-gr1080") == "sm_gr1080"
+    assert get_server_prefix("container-manager-mcp-r510") == "cm_r510"
+    assert get_server_prefix("container-manager-mcp-gr1080") == "cm_gr1080"
 
-    # Test standard container-manager hosts
-    assert get_server_prefix("container-manager-mcp-r510") == "cnt_r510"
-    assert get_server_prefix("container-manager-mcp-gr1080") == "cnt_gr1080"
+    # Plain servers → initials acronym (multi-word) or short stem (single word).
+    assert get_server_prefix("graph-os") == "go"
+    assert get_server_prefix("repository-manager-mcp") == "rm"
+    assert get_server_prefix("some-random-mcp-server") == "sr"
 
-    # Test other standard nicknamable servers
-    assert get_server_prefix("graph-os") == "kg"
-    assert get_server_prefix("repository-manager-mcp") == "rep"
+    # camelCase / third-party styles are handled too.
+    assert get_server_prefix("NotionMCP") == "noti"
+    assert get_server_prefix("weather-api") == "weat"
 
-    # Test fallback
-    assert get_server_prefix("some-random-mcp-server") == "some"
+    # An explicit config 'prefix' override always wins.
+    assert get_server_prefix("anything-mcp", {"prefix": "Pin-It!"}) == "pin_it"
 
 
 def test_clean_tool_name_prefixing():
     # Verify that clean_tool_name applies prefixes correctly without collisions and within length budgets
     prefix = get_server_prefix("systems-manager-mcp-r510")
-    assert prefix == "sys_r510"
+    assert prefix == "sm_r510"
 
     cleaned = clean_tool_name(
         prefix, "systems-manager-mcp-r510", "systems_manager_mcp_run_command"
     )
-    # Prefix (sys_r510) + "__" + stripped tool name (run_command)
-    assert cleaned == "sys_r510__run_command"
+    # Prefix (sm_r510) + "__" + stripped tool name (run_command)
+    assert cleaned == "sm_r510__run_command"
 
 
 def test_multiplexer_tool_filtering():
@@ -134,7 +138,9 @@ async def test_multiplexer_start_children_aggregation():
 
     assert "healthy-server" in multiplexer.sessions
     assert len(multiplexer.aggregated_tools) == 1
-    assert multiplexer.aggregated_tools[0].name == "healt__healthy_tool"
+    # "healthy-server" auto-derives to "heal" (single meaningful token, 'server'
+    # dropped as noise) — no nickname table entry needed.
+    assert multiplexer.aggregated_tools[0].name == "heal__healthy_tool"
 
 
 @pytest.mark.asyncio
