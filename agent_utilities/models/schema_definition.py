@@ -1441,6 +1441,7 @@ SCHEMA = GraphSchemaDefinition(
                 "content": "STRING",
                 "word_count": "INT64",
                 "tags": "STRING[]",
+                "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
                 "metadata": "STRING",
