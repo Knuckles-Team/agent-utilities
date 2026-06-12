@@ -68,11 +68,19 @@ class FalkorDBBackend(GraphBackend):
         # it in add_embedding). The old index targeted ``Chunk`` — a label no node
         # carries — so vector search silently returned nothing.
         logger.info("Creating FalkorDB vector index for embeddings (Embeddable).")
-        query = "CALL db.idx.vector.create('idx_embedding', 'Embeddable', 'embedding', 768, 'cosine')"
+        # FalkorDB >=4 uses Cypher DDL for vector indexes; the older
+        # `db.idx.vector.create` procedure is not registered. Index a shared
+        # `:Embeddable` label (add_embedding tags nodes with it); FalkorDB
+        # backfills existing matching nodes when the index is created.
+        query = (
+            "CREATE VECTOR INDEX FOR (n:Embeddable) ON (n.embedding) "
+            "OPTIONS {dimension: 768, similarityFunction: 'cosine'}"
+        )
         try:
             self.execute(query)
         except Exception as e:
-            logger.warning(f"Could not create vector index in FalkorDB: {e}")
+            if "already" not in str(e).lower():
+                logger.warning(f"Could not create vector index in FalkorDB: {e}")
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         # Tag ``:Embeddable`` so the node enters the vector index regardless of label.
