@@ -181,8 +181,6 @@ Selection contract (KG-2.55):
 - `TASK_QUEUE_BACKEND=kafka|postgres` set **explicitly** → fail-loud: an
   unreachable broker/state store raises `TaskQueueUnavailable` at startup
   with the endpoint and fall-back instructions. Never a silent degrade.
-- The old `QUEUE_BACKEND` env is a **deprecated alias**: honored with a
-  `DeprecationWarning` and the legacy silent-fallback semantics.
 
 ### Partition-key hierarchy (KG-2.56)
 
