@@ -189,3 +189,41 @@ class TestSingleConnPool:
         pool = _SingleConnPool(mock_conn)
         pool.close()
         mock_conn.close.assert_called_once()
+
+
+class TestRowLevelSecurity:
+    """Tenant-isolation RLS DDL/GUC generation (CONCEPT:KG-2.61)."""
+
+    def test_rls_statements_idempotent_and_complete(self):
+        stmts = PostgreSQLBackend.rls_statements("Agent")
+        joined = " | ".join(stmts)
+        assert 'ADD COLUMN IF NOT EXISTS tenant_id TEXT' in joined
+        assert 'ENABLE ROW LEVEL SECURITY' in joined
+        assert 'FORCE ROW LEVEL SECURITY' in joined  # owners must not bypass
+        assert 'DROP POLICY IF EXISTS tenant_isolation' in joined  # re-runnable
+        assert 'CREATE POLICY tenant_isolation' in joined
+        assert "current_setting('app.tenant_id', true)" in joined
+
+    def test_rls_policy_admits_commons_and_unscoped(self):
+        policy = next(s for s in PostgreSQLBackend.rls_statements("kg_edges") if "CREATE POLICY" in s)
+        # commons rows (empty/NULL tenant) and the unscoped/admin path are allowed.
+        assert "tenant_id IS NULL OR tenant_id = ''" in policy
+        assert "current_setting('app.tenant_id', true) = ''" in policy
+
+    def test_tenant_guc_sql_scoped(self):
+        assert PostgreSQLBackend.tenant_guc_sql("acme") == "SET LOCAL app.tenant_id = 'acme'"
+
+    def test_tenant_guc_sql_unscoped_is_empty(self):
+        assert PostgreSQLBackend.tenant_guc_sql(None) == "SET LOCAL app.tenant_id = ''"
+        assert PostgreSQLBackend.tenant_guc_sql("") == "SET LOCAL app.tenant_id = ''"
+
+    def test_tenant_guc_sql_escapes_quotes(self):
+        out = PostgreSQLBackend.tenant_guc_sql("ac'me")
+        assert out == "SET LOCAL app.tenant_id = 'ac''me'"
+
+    def test_enable_rls_covers_all_tables(self, mock_backend):
+        backend, mock_cur, _ = mock_backend
+        n = backend.enable_row_level_security()
+        assert n == 4  # Agent, Tool, Memory + kg_edges
+        executed = " ".join(str(c.args[0]) for c in mock_cur.execute.call_args_list)
+        assert "kg_edges" in executed and "Agent" in executed

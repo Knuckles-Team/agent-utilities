@@ -238,3 +238,76 @@ async def test_fleet_grant_denial_stamps_denied(monkeypatch):
     data = await _payload(resp)
     assert data["result"]["decision"] == "denied"
     assert eng.nodes["action_approval:1"]["status"] == "denied"
+
+
+@pytest.fixture
+def tenant_session_db(tmp_path, monkeypatch):
+    """Sessions tagged with two different tenants for isolation tests."""
+    db = tmp_path / "tenant_sessions.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(fleet._sessions._SQLITE_DDL)
+    rows = [
+        ("a1", "active", json.dumps({"tenant": "acme", "domain": "finance"})),
+        ("a2", "failed", json.dumps({"tenant": "acme", "domain": "finance"})),
+        ("b1", "active", json.dumps({"tenant": "globex", "domain": "itops"})),
+    ]
+    now = time.time()
+    for i, (sid, status, meta) in enumerate(rows):
+        conn.execute(
+            "INSERT INTO sessions (id, status, created_at, updated_at, metadata_json) VALUES (?,?,?,?,?)",
+            (sid, status, now, now + i, meta),
+        )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(fleet._sessions, "_get_db_path", lambda: db)
+    monkeypatch.setattr(fleet._sessions, "_rehydrated", True)
+    return db
+
+
+def _actor(actor_id="alice", tenant="acme", roles=()):
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
+
+    return ActorContext(
+        actor_id=actor_id, actor_type=ActorType.HUMAN, roles=tuple(roles),
+        tenant_id=tenant, authenticated=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_fleet_health_scoped_to_caller_tenant(tenant_session_db):
+    from agent_utilities.security.brain_context import use_actor
+
+    with use_actor(_actor(tenant="acme")):
+        data = await _payload(await fleet.fleet_health(_Req()))
+    # Caller in 'acme' sees only its 2 sessions, never globex's.
+    assert data["sessions"]["total"] == 2
+    assert "globex" not in {d for d in data["domains"]}
+
+
+@pytest.mark.asyncio
+async def test_fleet_topology_isolated_by_tenant(tenant_session_db):
+    from agent_utilities.security.brain_context import use_actor
+
+    with use_actor(_actor(tenant="globex", actor_id="bob")):
+        data = await _payload(await fleet.fleet_topology(_Req()))
+    ids = {s["id"] for d in data["domains"] for s in d["sessions"]}
+    assert ids == {"b1"}  # globex caller sees only b1
+    assert data["totals"]["sessions"] == 1
+
+
+@pytest.mark.asyncio
+async def test_platform_admin_sees_whole_fleet(tenant_session_db):
+    from agent_utilities.security.brain_context import use_actor
+
+    with use_actor(_actor(actor_id="root", tenant="acme", roles=("admin",))):
+        data = await _payload(await fleet.fleet_health(_Req()))
+    assert data["sessions"]["total"] == 3  # admin sees acme + globex
+
+
+@pytest.mark.asyncio
+async def test_legacy_unscoped_caller_sees_all(tenant_session_db):
+    # No actor in scope (ambient SYSTEM_ACTOR, tenant="") → unfiltered, preserving
+    # single-tenant/local behaviour.
+    data = await _payload(await fleet.fleet_health(_Req()))
+    assert data["sessions"]["total"] == 3

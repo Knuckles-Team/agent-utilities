@@ -55,6 +55,20 @@ _ASSERTION_FOR: dict[ActorType, AssertionType] = {
 _PROV_KEYS = {"_source_system", "_actor_id", "_confidence", "_ts", "_field_prov"}
 
 
+def _stamp_ownership(properties: dict[str, Any], actor: Any) -> None:
+    """Stamp private-by-default owner/scope markers (CONCEPT:KG-2.60).
+
+    Lazy-imported so the backend layer never hard-depends on the sharing module;
+    any failure is non-fatal (ownership is additive metadata, not correctness).
+    """
+    try:
+        from ..core.tenant_sharing import stamp_ownership
+
+        stamp_ownership(properties, actor)
+    except Exception as exc:  # pragma: no cover - ownership is best-effort
+        logger.debug("ownership stamp skipped for write: %s", exc)
+
+
 class BrainGuardedBackend:
     """Delegating proxy adding provenance + authority arbitration.
 
@@ -249,6 +263,7 @@ class BrainGuardedBackend:
         merged["_actor_id"] = actor.actor_id
         merged["_confidence"] = round(base_auth, 4)
         merged["_ts"] = self._iso()
+        _stamp_ownership(merged, actor)
         self._record_node(node_id, actor, source, base_auth)
         self._seen[node_id] = (source, base_auth, now_mono)
         self._inner.add_node(node_id, **merged)
@@ -291,6 +306,7 @@ class BrainGuardedBackend:
         properties.setdefault("_actor_id", actor.actor_id)
         properties.setdefault("_confidence", round(base_auth, 4))
         properties.setdefault("_ts", self._iso())
+        _stamp_ownership(properties, actor)
         self._record_node(node_id, actor, source, base_auth)
         self._seen[node_id] = (source, base_auth, now)
         self._inner.add_node(node_id, **properties)

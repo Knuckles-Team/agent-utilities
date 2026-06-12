@@ -63,17 +63,32 @@ def audit_read(
 
 
 def scope(cypher: str, actor: ActorContext | None = None) -> str:
-    """Tenant-scope a Cypher read query for ``actor`` (no-op when off/no tenant)."""
+    """Tenant-scope + owner/scope-gate a Cypher read query for ``actor``.
+
+    Two composed gates, both no-ops when enforcement is off:
+
+    * **Tenant scoping** (KG-2.6) — ``n.tenant_id = <tenant>`` when the actor
+      carries one. Cross-org isolation; the primary boundary.
+    * **Owner/scope visibility** (KG-2.60) — within a tenant, a non-privileged
+      actor sees only their own, org-shared, or unowned nodes. Private-by-default.
+    """
     if not brain_enforcement_enabled():
         return cypher
     actor = actor or current_actor()
-    if not actor.tenant_id:
-        return cypher
+    if actor.tenant_id:
+        try:
+            cypher = get_company_brain().tenancy.scope_cypher_query(
+                cypher, actor.tenant_id
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("tenant scope() failed, leaving unscoped: %s", exc)
     try:
-        return get_company_brain().tenancy.scope_cypher_query(cypher, actor.tenant_id)
+        from .tenant_sharing import apply_visibility
+
+        cypher = apply_visibility(cypher, actor)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("scope() failed, returning original: %s", exc)
-        return cypher
+        logger.debug("visibility scope() failed, leaving as-is: %s", exc)
+    return cypher
 
 
 _CLASS_ORDER = {"public": 0, "internal": 1, "confidential": 2, "restricted": 3}

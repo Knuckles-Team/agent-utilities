@@ -61,6 +61,29 @@ def _owner_token() -> str:
     return f"{_HOSTNAME}:{os.getpid()}"
 
 
+def _identity_metadata() -> dict:
+    """Ambient ``{tenant_id, actor_id}`` for stamping into session metadata.
+
+    The tenant-scoped fleet plane (CONCEPT:OS-5.10) aggregates sessions by
+    ``metadata.tenant``; stamping the server-minted identity here is what makes
+    "show me org X's sessions / which agents client Y spawned" a tenant-scoped
+    query (CONCEPT:OS-5.11 + OS-5.14). Best-effort: no actor → ``{}``.
+    """
+    try:
+        from agent_utilities.security.brain_context import current_actor
+
+        actor = current_actor()
+        out: dict = {}
+        if actor.tenant_id:
+            out["tenant"] = actor.tenant_id
+            out["tenant_id"] = actor.tenant_id
+        if actor.actor_id and actor.actor_id != "system":
+            out["actor_id"] = actor.actor_id
+        return out
+    except Exception:  # noqa: BLE001 — identity stamping is best-effort
+        return {}
+
+
 class StartGoalPayload(BaseModel):
     objective: str
     max_iterations: int = 20
@@ -841,19 +864,19 @@ async def create_goal(request: Request) -> JSONResponse:
 
     import json as _json
 
-    session_metadata = "{}"
+    # Stamp the originating identity into session metadata so the audit trail
+    # and the tenant-scoped fleet plane can attribute this goal to a tenant/actor
+    # (CONCEPT:OS-5.14 + OS-5.11). Best-effort: no actor in scope → empty.
+    meta: dict = _identity_metadata()
     if queue_mode:
-        session_metadata = _json.dumps(
-            {
-                "goal_spec": {
-                    "objective": spec.objective,
-                    "end_state": spec.end_state,
-                    "validation_cmd": spec.validation_cmd,
-                    "max_iterations": spec.max_iterations,
-                    "constraints": list(spec.constraints or []),
-                }
-            }
-        )
+        meta["goal_spec"] = {
+            "objective": spec.objective,
+            "end_state": spec.end_state,
+            "validation_cmd": spec.validation_cmd,
+            "max_iterations": spec.max_iterations,
+            "constraints": list(spec.constraints or []),
+        }
+    session_metadata = _json.dumps(meta)
 
     try:
         conn = _connect_db()

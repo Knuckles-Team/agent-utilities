@@ -701,6 +701,33 @@ async def _execute_graph(
 # ---------------------------------------------------------------------------
 
 
+def _stamp_run_identity(props: dict[str, Any]) -> None:
+    """Add tenant_id/actor_id + correlation_id to an audit record in place.
+
+    Best-effort: identity and correlation are ambient context, so any failure
+    (no actor in scope, observability not wired) leaves the record unstamped
+    rather than failing the write.
+    """
+    try:
+        from agent_utilities.security.brain_context import current_actor
+
+        actor = current_actor()
+        if actor.actor_id:
+            props.setdefault("actor_id", actor.actor_id)
+        if actor.tenant_id:
+            props.setdefault("tenant_id", actor.tenant_id)
+    except Exception as exc:  # pragma: no cover - identity best-effort
+        logger.debug("run identity stamp skipped: %s", exc)
+    try:
+        from agent_utilities.observability.correlation import get_correlation_id
+
+        cid = get_correlation_id()
+        if cid:
+            props.setdefault("correlation_id", cid)
+    except Exception as exc:  # pragma: no cover - correlation best-effort
+        logger.debug("correlation stamp skipped: %s", exc)
+
+
 def _record_execution_trace(
     engine: IntelligenceGraphEngine,
     run_id: str,
@@ -736,6 +763,11 @@ def _record_execution_trace(
         props["duration_ms"] = round(duration_ms, 1)
     if result_preview:
         props["result_preview"] = result_preview[:500]
+
+    # Stamp the originating identity + correlation so the audit trail answers
+    # "which tenant/actor ran this, and which agents share its run?" as a
+    # tenant-scoped graph query (CONCEPT:OS-5.11 + OS-5.14 + KG-2.60).
+    _stamp_run_identity(props)
 
     try:
         engine.add_node(trace_id, "RunTrace", properties=props)

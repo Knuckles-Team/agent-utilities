@@ -65,6 +65,40 @@ def _domain_sql(dialect: str) -> str:
     return f"CASE WHEN {valid} THEN {coalesce} ELSE 'default' END"
 
 
+def _tenant_sql(dialect: str) -> str:
+    """SQL expression extracting a session's tenant from its metadata."""
+    if dialect == "postgres":
+        return (
+            "CASE WHEN pg_input_is_valid(metadata_json, 'jsonb') "
+            "THEN NULLIF(metadata_json::jsonb ->> 'tenant', '') ELSE NULL END"
+        )
+    return (
+        "CASE WHEN json_valid(metadata_json) "
+        "THEN NULLIF(json_extract(metadata_json, '$.tenant'), '') ELSE NULL END"
+    )
+
+
+def _tenant_scope(dialect: str) -> tuple[str, list[Any]]:
+    """Return an ``(sql_predicate, params)`` restricting rows to the caller's org.
+
+    The tenant-scoped supervisory plane (CONCEPT:OS-5.10 + OS-5.14): an org's
+    caller sees only its own sessions/agents; a platform admin (``admin``/
+    ``system`` role) sees the whole fleet. Returns ``("", [])`` — unfiltered —
+    for privileged callers, and for the legacy/local path where no tenant is in
+    scope, so single-tenant deployments and existing tests are unaffected.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.tenant_sharing import is_privileged
+        from agent_utilities.security.brain_context import current_actor
+
+        actor = current_actor()
+        if is_privileged(actor) or not actor.tenant_id:
+            return "", []
+        return f"{_tenant_sql(dialect)} = ?", [actor.tenant_id]
+    except Exception:  # noqa: BLE001 — supervisory plane must answer regardless
+        return "", []
+
+
 def _page_params(
     request: Request, default_limit: int = 200
 ) -> tuple[int, int, str | None]:
@@ -100,6 +134,10 @@ def _fetch_sessions(
         if domain:
             where.append(f"{dom} = ?")
             params.append(domain)
+        scope_sql, scope_params = _tenant_scope(conn.dialect)
+        if scope_sql:
+            where.append(scope_sql)
+            params.extend(scope_params)
         sql = f"SELECT *, {dom} AS domain FROM sessions"  # nosec B608 — expr is a dialect constant
         if where:
             sql += " WHERE " + " AND ".join(where)
@@ -135,7 +173,12 @@ async def fleet_health(request: Request) -> JSONResponse:
     conn = _sessions._connect_db()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT status, COUNT(*) FROM sessions GROUP BY status")
+        scope_sql, scope_params = _tenant_scope(conn.dialect)
+        where = f" WHERE {scope_sql}" if scope_sql else ""
+        cur.execute(
+            f"SELECT status, COUNT(*) FROM sessions{where} GROUP BY status",  # nosec B608 — scope_sql is a dialect constant
+            scope_params,
+        )
         for row in cur.fetchall():
             by_status[str(row[0] or "unknown")] = int(row[1])
         total = sum(by_status.values())
@@ -147,8 +190,9 @@ async def fleet_health(request: Request) -> JSONResponse:
                    COUNT(*) AS total,
                    SUM(CASE WHEN status IN {_sql_in(_ACTIVE_STATUSES)} THEN 1 ELSE 0 END) AS active,
                    SUM(CASE WHEN status IN {_sql_in(_ERROR_STATUSES)} THEN 1 ELSE 0 END) AS errored
-            FROM sessions GROUP BY 1
-            """  # nosec B608 — all interpolations are module constants
+            FROM sessions{where} GROUP BY 1
+            """,  # nosec B608 — all interpolations are module constants
+            scope_params,
         )
         for row in cur.fetchall():
             n_total = int(row[1])
@@ -201,7 +245,12 @@ async def fleet_topology(request: Request) -> JSONResponse:
     conn = _sessions._connect_db()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM sessions")
+        scope_sql, scope_params = _tenant_scope(conn.dialect)
+        where = f" WHERE {scope_sql}" if scope_sql else ""
+        cur.execute(
+            f"SELECT COUNT(*) FROM sessions{where}",  # nosec B608 — scope_sql is a dialect constant
+            scope_params,
+        )
         row = cur.fetchone()
         total_sessions = int(row[0]) if row else 0
     finally:

@@ -293,6 +293,87 @@ class PostgreSQLBackend(GraphBackend):
             logger.debug("edge_count failed: %s", e)
             return None
 
+    # ── Row-Level Security: DB-level tenant isolation (CONCEPT:KG-2.61) ──
+    #
+    # Defense-in-depth BENEATH the KG-2.58 named-graph partition: even a
+    # hand-crafted Cypher/SQL that forgets the tenant predicate cannot read
+    # another org's rows, because Postgres itself filters them. The contract is
+    # a per-session GUC ``app.tenant_id``:
+    #
+    #   * set to an org id  → that org's rows + commons (tenant_id '' / NULL)
+    #   * unset or empty    → unrestricted (the platform-admin / system path)
+    #
+    # ``FORCE ROW LEVEL SECURITY`` is required because the app's DB role usually
+    # owns the tables (owners otherwise bypass RLS).
+    RLS_GUC = "app.tenant_id"
+
+    @staticmethod
+    def rls_statements(table: str) -> list[str]:
+        """Idempotent DDL enabling tenant-isolation RLS on one table.
+
+        Pure (no I/O) so it is unit-testable and reusable by the migration. The
+        policy admits the row when it belongs to the session's tenant, is commons
+        (empty/NULL tenant), or no tenant scope is set (privileged/legacy path).
+        """
+        guc = PostgreSQLBackend.RLS_GUC
+        q = f'"{table}"'
+        cond = (
+            f"(tenant_id = current_setting('{guc}', true) "
+            f"OR tenant_id IS NULL OR tenant_id = '' "
+            f"OR current_setting('{guc}', true) IS NULL "
+            f"OR current_setting('{guc}', true) = '')"
+        )
+        return [
+            f"ALTER TABLE {q} ADD COLUMN IF NOT EXISTS tenant_id TEXT",
+            f"ALTER TABLE {q} ENABLE ROW LEVEL SECURITY",
+            f"ALTER TABLE {q} FORCE ROW LEVEL SECURITY",
+            f"DROP POLICY IF EXISTS tenant_isolation ON {q}",
+            f"CREATE POLICY tenant_isolation ON {q} USING {cond} WITH CHECK {cond}",
+            f'CREATE INDEX IF NOT EXISTS "idx_{table}_tenant" ON {q}(tenant_id)',
+        ]
+
+    @staticmethod
+    def tenant_guc_sql(tenant_id: str | None) -> str:
+        """The ``SET LOCAL app.tenant_id`` statement for a request's tenant.
+
+        Empty/None → ``''`` (no restriction, privileged path). The value is
+        single-quote-escaped; callers pass a server-minted tenant id.
+        """
+        safe = (tenant_id or "").replace("'", "''")
+        return f"SET LOCAL {PostgreSQLBackend.RLS_GUC} = '{safe}'"
+
+    def enable_row_level_security(self) -> int:
+        """Apply tenant-isolation RLS to every node table + ``kg_edges``.
+
+        Idempotent and self-contained (run once after ``create_schema`` or via
+        the ``deploy/postgres/tenant_rls.sql`` migration). Returns the number of
+        tables secured. A per-table failure is logged and skipped so a single
+        problem table never aborts the whole rollout.
+        """
+        tables = sorted(self._known_tables | {"kg_edges"})
+        secured = 0
+        with self._conn() as conn:
+            for table in tables:
+                try:
+                    with conn.cursor() as cur:
+                        for stmt in self.rls_statements(table):
+                            cur.execute(stmt)
+                    conn.commit()
+                    secured += 1
+                except Exception as e:  # noqa: BLE001 — skip the bad table, keep going
+                    logger.warning("RLS enable failed for %s: %s", table, e)
+                    conn.rollback()
+        logger.info("Row-level security enabled on %d tables", secured)
+        return secured
+
+    def set_request_tenant(self, conn: Any, tenant_id: str | None) -> None:
+        """Scope a connection/transaction to ``tenant_id`` via the RLS GUC."""
+        try:
+            with conn.cursor() as cur:
+                cur.execute(self.tenant_guc_sql(tenant_id))
+        except Exception as e:  # noqa: BLE001 — scoping must not crash the query
+            logger.debug("set_request_tenant failed: %s", e)
+
     def _translate_columns(self, columns: dict[str, str]) -> str:
         """Translate schema column definitions to PostgreSQL DDL."""
         type_map = {

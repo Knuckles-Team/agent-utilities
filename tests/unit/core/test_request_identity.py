@@ -302,3 +302,83 @@ class TestKgServerIdentityResolution:
             use_actor(minted),
         ):
             assert await kg_server._execute_tool("graph_write") == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Served security profile (CONCEPT:OS-5.14)
+# ---------------------------------------------------------------------------
+
+
+class TestServedSecurityProfile:
+    """apply_served_security_profile() — fail-closed network MCP transports."""
+
+    def _clear_env(self, monkeypatch):
+        for var in ("KG_SERVED_PROFILE", "KG_AUTH_REQUIRED", "KG_BRAIN_ENFORCE"):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_stdio_is_noop(self, monkeypatch):
+        from agent_utilities.security.request_identity import (
+            apply_served_security_profile,
+        )
+
+        self._clear_env(monkeypatch)
+        cfg = _make_config(auth_jwt_jwks_uri=None)
+        # stdio must never be touched even with no JWKS configured.
+        apply_served_security_profile("stdio", config=cfg)
+        assert "KG_AUTH_REQUIRED" not in __import__("os").environ
+        assert "KG_BRAIN_ENFORCE" not in __import__("os").environ
+
+    def test_network_without_jwks_fails_loud(self, monkeypatch):
+        from agent_utilities.security.request_identity import (
+            apply_served_security_profile,
+        )
+
+        self._clear_env(monkeypatch)
+        cfg = _make_config(auth_jwt_jwks_uri=None)
+        with pytest.raises(RuntimeError, match="AUTH_JWT_JWKS_URI"):
+            apply_served_security_profile("streamable-http", config=cfg)
+
+    def test_network_with_jwks_turns_on_enforcement(self, monkeypatch):
+        import os
+
+        from agent_utilities.security.request_identity import (
+            apply_served_security_profile,
+        )
+
+        self._clear_env(monkeypatch)
+        cfg = _make_config(auth_jwt_jwks_uri="https://kc/realms/x/certs")
+        apply_served_security_profile("streamable-http", config=cfg)
+        assert os.environ["KG_AUTH_REQUIRED"] == "1"
+        assert os.environ["KG_BRAIN_ENFORCE"] == "1"
+        assert cfg.kg_auth_required is True
+
+    def test_explicit_opt_out_leaves_open(self, monkeypatch):
+        import os
+
+        from agent_utilities.security.request_identity import (
+            apply_served_security_profile,
+        )
+
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("KG_SERVED_PROFILE", "0")
+        cfg = _make_config(auth_jwt_jwks_uri=None)
+        # Opt-out: no JWKS required, no flags forced, no raise.
+        apply_served_security_profile("streamable-http", config=cfg)
+        assert "KG_AUTH_REQUIRED" not in os.environ
+
+    def test_operator_pinned_flag_is_honored(self, monkeypatch):
+        import os
+
+        from agent_utilities.security.request_identity import (
+            apply_served_security_profile,
+        )
+
+        self._clear_env(monkeypatch)
+        # Operator explicitly pinned auth off; the profile must not override it.
+        monkeypatch.setenv("KG_AUTH_REQUIRED", "0")
+        cfg = _make_config(auth_jwt_jwks_uri="https://kc/realms/x/certs")
+        apply_served_security_profile("streamable-http", config=cfg)
+        assert os.environ["KG_AUTH_REQUIRED"] == "0"
+        assert cfg.kg_auth_required is False
+        # Enforcement default still supplied since it was unset.
+        assert os.environ["KG_BRAIN_ENFORCE"] == "1"

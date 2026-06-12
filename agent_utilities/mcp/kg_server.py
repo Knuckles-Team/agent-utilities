@@ -550,6 +550,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "object_index": "/object/index",
     "object_permissioning": "/object/permissioning",
     "object_set": "/object/set",
+    "graph_share": "/graph/share",
 }
 
 
@@ -4612,6 +4613,49 @@ def _build_server(bootstrap: bool = True):
     REGISTERED_TOOLS["object_permissioning"] = object_permissioning
 
     @mcp.tool(
+        name="graph_share",
+        description="Share a private node (CONCEPT:KG-2.60). Data is private-to-its-owner by default; this is the explicit promotion path. action='org' shares with the owner's org (in-place), 'commons' promotes a copy into the shared cross-org commons graph (share by WHERE placed), 'mark' attaches a mandatory marking (share by HOW placed), 'private' restricts it back. Actor/owner is the ambient identity — never caller-supplied.",
+        tags=["graph-os", "tenancy"],
+    )
+    def graph_share(
+        action: str = Field(
+            default="org",
+            description="'org' share with my org | 'commons' promote to the shared commons graph | 'mark' attach a marking | 'private' restrict back to me.",
+        ),
+        node_id: str = Field(default="", description="Id of the node to share."),
+        marking: str = Field(
+            default="", description="Marking name (action='mark')."
+        ),
+    ) -> str:
+        """Explicit, private-by-default sharing for the AMBIENT actor (KG-2.60)."""
+        from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
+
+        if not node_id:
+            return json.dumps({"error": "node_id is required"})
+        try:
+            if action == "org":
+                _ts.share_with_org(node_id)
+                return json.dumps({"node_id": node_id, "shared_scope": "org"})
+            if action == "commons":
+                ok = _ts.promote_to_commons(node_id)
+                return json.dumps(
+                    {"node_id": node_id, "shared_scope": "commons", "promoted": ok}
+                )
+            if action == "mark":
+                if not marking:
+                    return json.dumps({"error": "marking is required for action='mark'"})
+                _ts.share(node_id, marking)
+                return json.dumps({"node_id": node_id, "marking": marking})
+            if action == "private":
+                _ts.make_private(node_id)
+                return json.dumps({"node_id": node_id, "shared_scope": "private"})
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["graph_share"] = graph_share
+
+    @mcp.tool(
         name="object_set",
         description="Object Set Service (CONCEPT:KG-2.45/2.38): search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object sets.",
         tags=["graph-os", "ontology"],
@@ -5332,6 +5376,11 @@ def mcp_server() -> None:
     )
 
     from agent_utilities.mcp.server_factory import protect_stdio_jsonrpc
+    from agent_utilities.security.request_identity import apply_served_security_profile
+
+    # Network transports serve many clients at once: enforce server-validated
+    # identity + tenant scoping, or fail loud (CONCEPT:OS-5.14). No-op for stdio.
+    apply_served_security_profile(transport)
 
     if transport == "stdio":
         protect_stdio_jsonrpc()

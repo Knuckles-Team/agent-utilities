@@ -1,0 +1,75 @@
+# Multi-tenant graph-os — homelab/Swarm profile (CONCEPT:OS-5.14 + KG-2.58).
+#
+# The SAME `graph-os` image and env contract as deploy/k8s/graphos.yaml, downscaled
+# to a single Swarm: front service (streamable-HTTP, replicated) + one engine host
+# + an external/managed Postgres (kg-backbone_pggraph). Differs from the cloud
+# profile ONLY in replica counts and placement — the code path is identical.
+#
+#   docker stack deploy -c deploy/swarm/graphos.stack.yml graphos
+#
+# Put the real secrets in an .env / Swarm secrets and apply deploy/postgres/tenant_rls.sql
+# to the L3 database once (KG-2.61).
+version: "3.9"
+
+networks:
+  graphos:
+    driver: overlay
+    attachable: true
+
+services:
+  front:
+    image: ghcr.io/your-org/graph-os:latest
+    command: ["graph-os", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
+    networks: [graphos]
+    environment:
+      TRANSPORT: "streamable-http"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      KG_AUTH_REQUIRED: "1"
+      KG_BRAIN_ENFORCE: "1"
+      KG_DAEMON_ROLE: "client"          # front never owns a local engine
+      KG_DEFAULT_GRAPH: "__bus__"       # commons graph
+      AUTH_JWT_JWKS_URI: "https://keycloak.arpa/realms/agent-os/protocol/openid-connect/certs"
+      AUTH_JWT_ISSUER: "https://keycloak.arpa/realms/agent-os"
+      AUTH_JWT_AUDIENCE: "graph-os"
+      # Single-shard homelab: point at the one engine host below. Add more
+      # endpoints (and engine replicas) to shard tenants across hosts.
+      GRAPH_SERVICE_ENDPOINTS: "tcp://engine:9090"
+      STATE_DB_URI: "postgresql://agent:agent@pggraph:5432/agent_state"
+      GRAPH_DB_URI: "postgresql://agent:agent@pggraph:5432/agent_kg"
+    ports:
+      - target: 8000
+        published: 8080
+        protocol: tcp
+    deploy:
+      replicas: 2
+      placement:
+        constraints: [node.role == worker]
+      restart_policy: {condition: any}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/api/health'); sys.exit(0)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  engine:
+    image: ghcr.io/your-org/graph-os:latest
+    command: ["graph-os-daemon"]
+    networks: [graphos]
+    environment:
+      KG_DAEMON_ROLE: "host"            # owns the L1 compute, mirrors to L3
+      EPISTEMIC_GRAPH_AUTOSTART: "1"
+      GRAPH_SERVICE_TCP_ADDR: "0.0.0.0:9090"
+      KG_DEFAULT_GRAPH: "__bus__"
+      GRAPH_DB_URI: "postgresql://agent:agent@pggraph:5432/agent_kg"
+    volumes:
+      - engine-data:/data
+    deploy:
+      replicas: 1
+      placement:
+        # Pin the shard so a graph's HRW winner is stable across restarts.
+        constraints: [node.labels.graphos_engine == true]
+      restart_policy: {condition: any}
+
+volumes:
+  engine-data:
