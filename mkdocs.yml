@@ -101,6 +101,8 @@ nav:
       - Fleet Autonomy Control Plane: architecture/fleet_autonomy.md
       - Event Backbone (Kafka): architecture/event_backbone_architecture.md
       - Ontology System: architecture/ontology_system.md
+      - Graph Backend Architecture: architecture/graph_backends_architecture.md
+      - OWL/RDF Layer (local, always-on): architecture/owl_rdf_layer.md
       - Capacity Model: scaling/capacity_model.md
   - Reference:
       - Metrics Reference: reference/metrics.md
