@@ -551,6 +551,8 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "object_permissioning": "/object/permissioning",
     "object_set": "/object/set",
     "graph_share": "/graph/share",
+    "usage_query": "/usage/query",
+    "ingest_sessions": "/usage/ingest-sessions",
 }
 
 
@@ -1709,6 +1711,76 @@ def _get_engine():
         return engine
 
 
+# ── CONCEPT:KG-2.63 — Named multi-connection graph registry ────────────────
+_CONNECTION_REGISTRY = None
+_REGISTRY_LOCK = threading.Lock()
+
+
+def get_connection_registry():
+    """Process-wide :class:`ConnectionRegistry` singleton.
+
+    Seeds its ``"default"`` connection from the legacy ``_get_engine`` singleton
+    (so the default is never duplicated) and from ``config.kg_connections``
+    (CONCEPT:KG-2.63) on first build.
+    """
+    global _CONNECTION_REGISTRY
+    if _CONNECTION_REGISTRY is not None:
+        return _CONNECTION_REGISTRY
+    with _REGISTRY_LOCK:
+        if _CONNECTION_REGISTRY is not None:
+            return _CONNECTION_REGISTRY
+        from agent_utilities.knowledge_graph.core.connection_registry import (
+            ConnectionRegistry,
+        )
+
+        registry = ConnectionRegistry(default_engine_provider=_get_engine)
+        # Seed declarative connections from config (KG_CONNECTIONS).
+        try:
+            from agent_utilities.core.config import config as _cfg
+
+            for spec in _cfg.kg_connections or []:
+                spec = dict(spec)
+                name = spec.pop("name", "")
+                if name:
+                    try:
+                        registry.register(name, spec)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(
+                            "Skipping invalid kg_connections entry %r: %s", name, e
+                        )
+        except Exception:  # noqa: BLE001 — config-less environments
+            logger.debug("No kg_connections to seed", exc_info=True)
+        _CONNECTION_REGISTRY = registry
+        return _CONNECTION_REGISTRY
+
+
+def _resolve_target_engines(
+    target: Any,
+) -> tuple[list[tuple[str, Any]], dict[str, str], bool]:
+    """Resolve a tool ``target`` into live engines for execution.
+
+    Returns ``(entries, errors, fanout)`` where ``entries`` is a list of
+    ``(name, engine)`` to run against and ``errors`` maps any name that could not
+    be resolved to its error string. For a non-fan-out target, resolution errors
+    propagate (fail-loud); for fan-out they are captured into ``errors`` so one
+    bad connection never aborts the others (partial-success contract).
+    """
+    registry = get_connection_registry()
+    names, fanout = registry.resolve_names(target)
+    entries: list[tuple[str, Any]] = []
+    errors: dict[str, str] = {}
+    for name in names:
+        if fanout:
+            engine, err = registry.safe_get_engine(name)
+            if err is not None:
+                errors[name] = err
+            else:
+                entries.append((name, engine))
+        else:
+            entries.append((name, registry.get_engine(name)))
+    return entries, errors, fanout
+
+
 def _provenance_props(agent_id: str | None = None) -> dict[str, Any]:
     """Build standard provenance metadata for multi-agent write tracking."""
     return {
@@ -2002,12 +2074,21 @@ def _build_server(bootstrap: bool = True):
                 "answering 'what was true as of date T'."
             ),
         ),
+        target: str = Field(
+            default="",
+            description=(
+                "CONCEPT:KG-2.63 — named graph connection to query (default = primary). "
+                "Use a registered connection name (e.g. 'prod-neo4j'), or 'all' (or a "
+                "comma-separated list) to fan out the same query to several backends and "
+                "get per-connection labeled results."
+            ),
+        ),
     ) -> str:
         """Execute a read-only Cypher query against the Knowledge Graph. Use this to fetch graph data, explore relationships, and read node properties."""
-        engine = _get_engine()
         parsed_params = json.loads(params) if params else {}
 
         if scope == "federated":
+            engine = _get_engine()
             if not reference_id:
                 return json.dumps(
                     {"error": "reference_id required for federated queries"}
@@ -2029,11 +2110,34 @@ def _build_server(bootstrap: bool = True):
                         "error": f"Write operation '{kw}' not allowed. Use kg_write for mutations."
                     }
                 )
+
+        # CONCEPT:KG-2.63 — resolve the target connection(s).
         try:
-            results = engine.query_cypher(cypher, parsed_params, as_of=as_of or None)
-            return json.dumps(results, default=str)
+            entries, errors, fanout = _resolve_target_engines(target)
         except Exception as e:
             return json.dumps({"error": str(e)})
+
+        if not fanout:
+            # Single connection (default or one named) — identical shape to legacy.
+            _name, engine = entries[0]
+            try:
+                results = engine.query_cypher(
+                    cypher, parsed_params, as_of=as_of or None
+                )
+                return json.dumps(results, default=str)
+            except Exception as e:
+                return json.dumps({"error": str(e)})
+
+        # Fan-out — per-connection labeled results, partial success.
+        out: dict[str, Any] = {"targets": {}, "errors": dict(errors)}
+        for name, engine in entries:
+            try:
+                out["targets"][name] = engine.query_cypher(
+                    cypher, parsed_params, as_of=as_of or None
+                )
+            except Exception as e:
+                out["errors"][name] = str(e)
+        return json.dumps(out, default=str)
 
     REGISTERED_TOOLS["graph_query"] = graph_query
 
@@ -2258,12 +2362,26 @@ def _build_server(bootstrap: bool = True):
             default="",
             description="Optional ISO-8601 instant. Pack-driven recency decay is measured relative to this time, enabling knowledge-state-as-of-date-D retrieval such as an academic literature state. Defaults to now (CONCEPT:KG-2.22).",
         ),
+        target: str = Field(
+            default="",
+            description=(
+                "CONCEPT:KG-2.63 — named graph connection to search (default = primary). "
+                "Use a registered connection name, or 'all' (or a comma-separated list) to "
+                "fan out and get per-connection labeled results."
+            ),
+        ),
     ) -> str:
         """Search the Knowledge Graph using multiple strategies. Useful for finding context, concepts, memories, and capabilities across the ecosystem."""
-        engine = _get_engine()
-        if not engine:
-            return "Error: IntelligenceGraphEngine not active."
-        try:
+
+        def _run_search(engine: Any) -> str:
+            if not engine:
+                return "Error: IntelligenceGraphEngine not active."
+            try:
+                return _search_with_engine(engine)
+            except Exception as e:
+                return f"Search error: {str(e)}"
+
+        def _search_with_engine(engine: Any) -> str:
             if mode in ("hyde", "deep"):
                 results = engine.search_hybrid(
                     query=query, top_k=top_k, mode=mode, self_correct=self_correct
@@ -2313,8 +2431,22 @@ def _build_server(bootstrap: bool = True):
                     f"[{label}] {name} (ID: {nid}) - Score: {score:.2f}\n{desc}"
                 )
             return "\n---\n".join(formatted_results)
+
+        # CONCEPT:KG-2.63 — resolve target connection(s).
+        try:
+            entries, errors, fanout = _resolve_target_engines(target)
         except Exception as e:
             return f"Search error: {str(e)}"
+
+        if not fanout:
+            return _run_search(entries[0][1])
+
+        # Fan-out — per-connection labeled blocks, partial success.
+        out_lines = [
+            f"=== {name} ===\n{_run_search(engine)}" for name, engine in entries
+        ]
+        out_lines += [f"=== {name} (error) ===\n{err}" for name, err in errors.items()]
+        return "\n\n".join(out_lines)
 
     REGISTERED_TOOLS["graph_search"] = graph_search
 
@@ -2359,98 +2491,125 @@ def _build_server(bootstrap: bool = True):
             default="[]",
             description="JSON-encoded list of nodes or tags for bulk operations.",
         ),
+        target: str = Field(
+            default="",
+            description=(
+                "CONCEPT:KG-2.63 — named graph connection to write to (default = primary). "
+                "Use a registered connection name, or 'all' (or a comma-separated list) to "
+                "mirror the SAME write to several backends. Fan-out requires an explicit "
+                "multi-target value; the default and a single named target stay single-write."
+            ),
+        ),
     ) -> str:
         """Write nodes, relationships, or register external graphs. This is the primary mutation interface for the Knowledge Graph."""
-        engine = _get_engine()
-        if not engine:
-            return "Error: IntelligenceGraphEngine not active."
+
+        def _write_with_engine(engine: Any) -> str:
+            if not engine:
+                return "Error: IntelligenceGraphEngine not active."
+            try:
+                import json
+
+                props = json.loads(properties) if properties else {}
+
+                if action == "add_node":
+                    if not node_id or not node_type:
+                        return "Error: node_id and node_type required"
+                    engine.add_node(node_id, node_type, props)
+                    return f"Node {node_id} added."
+                elif action == "add_edge":
+                    if not source_id or not target_id or not rel_type:
+                        return "Error: source_id, target_id, and rel_type required"
+                    engine.link_nodes(source_id, target_id, rel_type, props)
+                    return f"Edge {source_id} -> {target_id} added."
+                elif action == "delete_node":
+                    engine.delete_node(node_id)
+                    return f"Node {node_id} deleted."
+                elif action == "delete_edge":
+                    engine.delete_edge(source_id, target_id, rel_type)
+                    return f"Edge {source_id} -> {target_id} deleted."
+                elif action == "register_external_graph":
+                    if not endpoint_url:
+                        return "Error: endpoint_url required"
+                    engine.add_node(
+                        endpoint_url, "ExternalGraphReference", {"type": graph_type}
+                    )
+                    return f"Registered external graph at {endpoint_url}"
+                elif action == "bulk_ingest":
+                    nodes_list = json.loads(nodes) if nodes else []
+                    for n in nodes_list:
+                        engine.add_node(
+                            n.get("id"), n.get("type", "Node"), n.get("properties", {})
+                        )
+                    return f"Bulk ingested {len(nodes_list)} nodes."
+                elif action in ("store_memory", "recall_memory"):
+                    try:
+                        from agent_utilities.memory.manager import MemoryManager
+
+                        mm = MemoryManager(engine)
+                        if action == "store_memory":
+                            mm.store(
+                                agent_id=agent_id,
+                                content=properties,
+                                memory_type=node_type,
+                                tags=json.loads(nodes) if nodes else [],
+                            )
+                            return "Memory stored."
+                        else:
+                            res = mm.recall(
+                                query=properties, memory_type=node_type, top_k=5
+                            )
+                            return "\n".join([str(r) for r in res])
+                    except ImportError:
+                        return "Error: memory module not available"
+                elif action in (
+                    "log_chat",
+                    "submit_sdd",
+                    "register_execution",
+                    "check_loop",
+                ):
+                    if action == "log_chat":
+                        engine.add_node(
+                            f"chat_{agent_id}_{hash(properties)}",
+                            "ChatLog",
+                            {"content": properties, "agent_id": agent_id},
+                        )
+                        return "Chat logged."
+                    elif action == "submit_sdd":
+                        engine.add_node(
+                            f"sdd_{agent_id}_{hash(properties)}",
+                            "SDD",
+                            {"content": properties, "agent_id": agent_id},
+                        )
+                        return "SDD submitted."
+                    elif action == "register_execution":
+                        engine.add_node(
+                            f"exec_{agent_id}", "Execution", {"status": "running"}
+                        )
+                        return "Execution registered."
+                    elif action == "check_loop":
+                        return "Loop status: OK"
+                    return f"Error: Action '{action}' not implemented."
+                else:
+                    return f"Error: Unknown write action '{action}'"
+            except Exception as e:
+                return f"Write error: {str(e)}"
+
+        # CONCEPT:KG-2.63 — resolve target connection(s). Writes only fan out on
+        # an EXPLICIT multi-target request ('all' or a list); the default and a
+        # single named target stay single-write to avoid accidental multi-store
+        # writes.
         try:
-            import json
-
-            props = json.loads(properties) if properties else {}
-
-            if action == "add_node":
-                if not node_id or not node_type:
-                    return "Error: node_id and node_type required"
-                engine.add_node(node_id, node_type, props)
-                return f"Node {node_id} added."
-            elif action == "add_edge":
-                if not source_id or not target_id or not rel_type:
-                    return "Error: source_id, target_id, and rel_type required"
-                engine.link_nodes(source_id, target_id, rel_type, props)
-                return f"Edge {source_id} -> {target_id} added."
-            elif action == "delete_node":
-                engine.delete_node(node_id)
-                return f"Node {node_id} deleted."
-            elif action == "delete_edge":
-                engine.delete_edge(source_id, target_id, rel_type)
-                return f"Edge {source_id} -> {target_id} deleted."
-            elif action == "register_external_graph":
-                if not endpoint_url:
-                    return "Error: endpoint_url required"
-                engine.add_node(
-                    endpoint_url, "ExternalGraphReference", {"type": graph_type}
-                )
-                return f"Registered external graph at {endpoint_url}"
-            elif action == "bulk_ingest":
-                nodes_list = json.loads(nodes) if nodes else []
-                for n in nodes_list:
-                    engine.add_node(
-                        n.get("id"), n.get("type", "Node"), n.get("properties", {})
-                    )
-                return f"Bulk ingested {len(nodes_list)} nodes."
-            elif action in ("store_memory", "recall_memory"):
-                try:
-                    from agent_utilities.memory.manager import MemoryManager
-
-                    mm = MemoryManager(engine)
-                    if action == "store_memory":
-                        mm.store(
-                            agent_id=agent_id,
-                            content=properties,
-                            memory_type=node_type,
-                            tags=json.loads(nodes) if nodes else [],
-                        )
-                        return "Memory stored."
-                    else:
-                        res = mm.recall(
-                            query=properties, memory_type=node_type, top_k=5
-                        )
-                        return "\n".join([str(r) for r in res])
-                except ImportError:
-                    return "Error: memory module not available"
-            elif action in (
-                "log_chat",
-                "submit_sdd",
-                "register_execution",
-                "check_loop",
-            ):
-                if action == "log_chat":
-                    engine.add_node(
-                        f"chat_{agent_id}_{hash(properties)}",
-                        "ChatLog",
-                        {"content": properties, "agent_id": agent_id},
-                    )
-                    return "Chat logged."
-                elif action == "submit_sdd":
-                    engine.add_node(
-                        f"sdd_{agent_id}_{hash(properties)}",
-                        "SDD",
-                        {"content": properties, "agent_id": agent_id},
-                    )
-                    return "SDD submitted."
-                elif action == "register_execution":
-                    engine.add_node(
-                        f"exec_{agent_id}", "Execution", {"status": "running"}
-                    )
-                    return "Execution registered."
-                elif action == "check_loop":
-                    return "Loop status: OK"
-                return f"Error: Action '{action}' not implemented."
-            else:
-                return f"Error: Unknown write action '{action}'"
+            entries, errors, fanout = _resolve_target_engines(target)
         except Exception as e:
             return f"Write error: {str(e)}"
+
+        if not fanout:
+            return _write_with_engine(entries[0][1])
+
+        out: dict[str, Any] = {"targets": {}, "errors": dict(errors)}
+        for name, eng in entries:
+            out["targets"][name] = _write_with_engine(eng)
+        return json.dumps(out, default=str)
 
     REGISTERED_TOOLS["graph_write"] = graph_write
 
@@ -3038,8 +3197,12 @@ def _build_server(bootstrap: bool = True):
         f = {
             k: v
             for k, v in {
-                "from_date": from_date, "to_date": to_date, "project": project,
-                "agent": agent, "model": model, "origin": origin,
+                "from_date": from_date,
+                "to_date": to_date,
+                "project": project,
+                "agent": agent,
+                "model": model,
+                "origin": origin,
                 "tenant_id": tenant_id,
             }.items()
             if v
@@ -3092,9 +3255,7 @@ def _build_server(bootstrap: bool = True):
         tags=["graph-os", "ingest", "observability"],
     )
     async def ingest_sessions(
-        action: str = Field(
-            default="collect", description="collect | upload | paths"
-        ),
+        action: str = Field(default="collect", description="collect | upload | paths"),
         bundles_json: str = Field(
             default="",
             description="For action=upload: JSON array of ParsedSessionBundle objects.",
@@ -3874,11 +4035,11 @@ def _build_server(bootstrap: bool = True):
     def graph_configure(
         action: str = Field(
             default="register_mcp",
-            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35).",
+            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health; 'set_default_connection' (config_key=name) repoints the default target.",
         ),
         config_key: str = Field(
             default="",
-            description="The key or ID of the configuration/secret (for 'schema_pack', the pack name e.g. 'research-state').",
+            description="The key or ID of the configuration/secret (for 'schema_pack', the pack name e.g. 'research-state'; for connection actions, the connection name).",
         ),
         config_value: str = Field(
             default="",
@@ -3929,6 +4090,55 @@ def _build_server(bootstrap: bool = True):
                     except Exception as e:
                         return json.dumps({"error": f"Invalid config_value JSON: {e}"})
                 return json.dumps({"error": "MCP config not found in workspace."})
+            # ── CONCEPT:KG-2.63: Named multi-connection graph registry ──
+            if action in (
+                "add_connection",
+                "remove_connection",
+                "list_connections",
+                "set_default_connection",
+            ):
+                registry = get_connection_registry()
+                if action == "list_connections":
+                    return json.dumps(registry.status(), default=str)
+                if not config_key:
+                    return json.dumps(
+                        {"error": f"config_key (connection name) required for {action}"}
+                    )
+                if action == "add_connection":
+                    try:
+                        spec = json.loads(config_value) if config_value else {}
+                    except Exception as e:
+                        return json.dumps({"error": f"Invalid config_value JSON: {e}"})
+                    if not isinstance(spec, dict):
+                        return json.dumps(
+                            {
+                                "error": "config_value must be a JSON object (backend spec)"
+                            }
+                        )
+                    try:
+                        name = registry.register(config_key, spec)
+                    except Exception as e:
+                        return json.dumps({"error": str(e)})
+                    return json.dumps(
+                        {"status": "success", "action": action, "connection": name}
+                    )
+                if action == "remove_connection":
+                    removed = registry.remove(config_key)
+                    return json.dumps(
+                        {
+                            "status": "success" if removed else "not_found",
+                            "action": action,
+                            "connection": config_key,
+                        }
+                    )
+                # set_default_connection
+                try:
+                    name = registry.set_default(config_key)
+                except Exception as e:
+                    return json.dumps({"error": str(e)})
+                return json.dumps(
+                    {"status": "success", "action": action, "default_target": name}
+                )
             # ── KG-2.7 / ECO-4.6: Memory Hook Management ──
             if action == "install_hooks":
                 try:
@@ -4767,9 +4977,7 @@ def _build_server(bootstrap: bool = True):
             description="'org' share with my org | 'commons' promote to the shared commons graph | 'mark' attach a marking | 'private' restrict back to me.",
         ),
         node_id: str = Field(default="", description="Id of the node to share."),
-        marking: str = Field(
-            default="", description="Marking name (action='mark')."
-        ),
+        marking: str = Field(default="", description="Marking name (action='mark')."),
     ) -> str:
         """Explicit, private-by-default sharing for the AMBIENT actor (KG-2.60)."""
         from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
@@ -4787,7 +4995,9 @@ def _build_server(bootstrap: bool = True):
                 )
             if action == "mark":
                 if not marking:
-                    return json.dumps({"error": "marking is required for action='mark'"})
+                    return json.dumps(
+                        {"error": "marking is required for action='mark'"}
+                    )
                 _ts.share(node_id, marking)
                 return json.dumps({"node_id": node_id, "marking": marking})
             if action == "private":

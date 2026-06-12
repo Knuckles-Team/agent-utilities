@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Named multi-connection graph registry (CONCEPT:KG-2.63)** — register several
+  live graph backends side by side (e.g. `prod-neo4j`, `team-falkor`, `pg-main`)
+  and run the *same* `graph_*` tools against any one or fan out to all, with the
+  backend choice abstracted behind an optional `target` parameter. No code is
+  forked into a separate server — every existing MCP tool and its REST twin gains
+  this for free.
+  - New `ConnectionRegistry` (`knowledge_graph/core/connection_registry.py`):
+    lazy-connect, per-connection `IntelligenceGraphEngine`, the reserved
+    `default` name aliases the existing active engine (never duplicated),
+    thread-safe with double-checked caching, `status()` health surface.
+  - `target` on `graph_query` / `graph_search` / `graph_write`: omitted/`default`
+    = legacy behaviour (backward compatible); a single name targets one
+    connection; `all`/list/`a,b` fans out to per-connection labeled results with
+    partial success. **Writes only fan out on an explicit multi-target value.**
+  - `graph_configure` actions: `add_connection`, `remove_connection`,
+    `list_connections`, `set_default_connection`.
+  - `KG_CONNECTIONS` (`AgentConfig.kg_connections`): declarative JSON list of
+    named connections, seeded into the registry at first use. Zero-infra default
+    fully preserved.
+  - Per-backend `cypher_support` tier on `GraphBackend` (`full` for
+    neo4j/falkordb/Apache AGE; `subset` for the regex Postgres transpiler and the
+    in-memory epistemic graph) so portability is honest in fan-out. **Register
+    Postgres as `age`** for one-query-runs-everywhere openCypher.
+- Closed a pre-existing gateway/MCP parity gap: `usage_query` and
+  `ingest_sessions` now have REST twins (`/usage/query`, `/usage/ingest-sessions`).
+
 ### Changed
 - **Resilience/HTTP unification** — forked circuit breakers, hand-rolled retry
   loops, and inline httpx client constructions collapsed onto the canonical
