@@ -117,6 +117,87 @@ mcp-multiplexer --config mcp_config.json --transport streamable-http --host 0.0.
 `enabledTools` / `disabledTools` (fnmatch) and `timeout` are honored; the
 multiplexer skips itself and any `disabled` server to avoid recursion.
 
+**Eager vs. dynamic (`MCP_MULTIPLEXER_MODE`).** The default `eager` mode mounts
+every child's tools up front. `dynamic` mode (CONCEPT:ECO-4.36) boots with only the
+meta-tools `find_tools` / `load_tools` / `unload_tools` and lazily mounts child tools
+at runtime via FastMCP `tools/list_changed` — use it when the aggregated fleet would
+otherwise blow past a client's tool-count limit.
+
+### Four ways to wire the multiplexer into a client
+
+Like any MCP server, the multiplexer can be consumed four ways. The child
+`mcp_config.json` it aggregates is the same file in every case (mount it for the
+container options).
+
+=== "1. stdio (client launches it)"
+
+    The common case — the client spawns the multiplexer and reads its consolidated
+    tool surface over stdio:
+
+    ```json
+    {
+      "mcpServers": {
+        "mcp-multiplexer": {
+          "command": "uvx",
+          "args": ["--from", "agent-utilities", "mcp-multiplexer",
+                   "--config", "mcp_config.json", "--transport", "stdio"],
+          "env": { "MCP_MULTIPLEXER_MODE": "dynamic" }
+        }
+      }
+    }
+    ```
+
+=== "2. streamable-http (local process)"
+
+    Run it as a long-lived HTTP process, then point the client at the URL:
+
+    ```bash
+    mcp-multiplexer --config mcp_config.json --transport streamable-http --host 0.0.0.0 --port 8005
+    curl -s http://localhost:8005/health        # {"status":"OK"}
+    ```
+
+    ```json
+    { "mcpServers": { "mcp-multiplexer": { "url": "http://localhost:8005/mcp" } } }
+    ```
+
+=== "3. Local container / uv"
+
+    Build the image from this repo's `docker/Dockerfile` (or run via `uv`), mounting
+    the child config. Launch directly from `mcp_config.json` (swap `docker`→`podman`):
+
+    ```json
+    {
+      "mcpServers": {
+        "mcp-multiplexer": {
+          "command": "docker",
+          "args": [
+            "run", "-i", "--rm",
+            "-e", "TRANSPORT=stdio",
+            "-e", "MCP_CONFIG=/config/mcp_config.json",
+            "-v", "./mcp_config.json:/config/mcp_config.json:ro",
+            "agent-utilities:local", "mcp-multiplexer"
+          ]
+        }
+      }
+    }
+    ```
+
+    Or run a local streamable-http container and connect by `url`
+    (`uv run mcp-multiplexer --transport streamable-http --port 8005` for the uv variant).
+
+=== "4. Remote URL (deployed gateway)"
+
+    When the multiplexer is deployed remotely (e.g. as a streamable-http service
+    fronted by Caddy on the internal `*.arpa` zone), connect with the `"url"` key — no
+    local process or image required:
+
+    ```json
+    { "mcpServers": { "mcp-multiplexer": { "url": "http://mcp-gateway.arpa/mcp" } } }
+    ```
+
+    Fronting it with Caddy follows the same reverse-proxy → `:8005` pattern as the
+    connector fleet (`http://<host>.arpa` → container port).
+
 ---
 
 ## 5. The centralized REST API (API gateway)
