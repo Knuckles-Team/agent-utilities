@@ -123,6 +123,11 @@ class EpistemicGraphBackend(GraphBackend):
             handled, result = self._exec_rel_match(q, params)
             if handled:
                 return result
+            # Edge existence/count/property reads (count(r), r.prop, r) anchored by
+            # WHERE or inline ids — makes written edges readable from L1.
+            handled, result = self._exec_rel_aggregate(q, params)
+            if handled:
+                return result
             logger.debug(
                 "epistemic_graph backend: unhandled relationship read; "
                 "returning [] (no full-graph fallback): %s",
@@ -235,6 +240,89 @@ class EpistemicGraphBackend(GraphBackend):
             matched.sort(key=_sort_key, reverse=reverse)
 
         return True, self._project(q, tgt_var, matched, params)
+
+    def _exec_rel_aggregate(
+        self, q: str, params: dict[str, Any]
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        """Edge existence / count / property read, anchored by WHERE or inline ids.
+
+        Handles the shapes the conformance contract and ``query_cypher`` emit that
+        ``_exec_rel_match`` (target-projection only) does not:
+
+          MATCH (s[:L])-[r:REL]->(t[:L]) WHERE s.id=$s AND t.id=$t
+            RETURN count(r) AS c | r.<prop> AS alias | r
+
+        Resolves endpoints by id, matches the edge (and ``rel_type`` if given), and
+        projects a count, an edge property, or the full edge-property map. This is
+        what makes edges *readable* from the L1 backend (they were write-only before
+        — present in the compute graph but not returned by ``backend.execute``).
+        """
+        pat = re.search(
+            r"\(\s*(\w+)[^)]*\)\s*-\s*\[\s*(\w*)\s*:?\s*(\w+)?[^\]]*\]\s*->\s*"
+            r"\(\s*(\w+)[^)]*\)",
+            q,
+            re.I,
+        )
+        if not pat:
+            return False, []
+        s_var, r_var, rel, t_var = (
+            pat.group(1),
+            pat.group(2),
+            pat.group(3),
+            pat.group(4),
+        )
+
+        idmap: dict[str, Any] = {}
+        for mv in re.finditer(r"(\w+)\.id\s*=\s*(\$\w+|'[^']*'|\"[^\"]*\")", q, re.I):
+            idmap[mv.group(1)] = self._coerce_literal(mv.group(2), params)
+        for mv in re.finditer(
+            r"\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*(\$\w+|'[^']*'|\"[^\"]*\")\s*\}",
+            q,
+            re.I,
+        ):
+            idmap[mv.group(1)] = self._coerce_literal(mv.group(2), params)
+        s_id, t_id = idmap.get(s_var), idmap.get(t_var)
+        rel_upper = rel.upper() if rel else None
+
+        def _edge_between(a: Any, b: Any) -> dict[str, Any] | None:
+            ep = self._graph._get_edge_properties(a, b) or {}
+            if not ep and not self._graph.has_edge(a, b):
+                return None
+            if rel_upper:
+                er = str(ep.get("rel_type") or ep.get("type") or "").upper()
+                if er != rel_upper:
+                    return None
+            return ep
+
+        matches: list[dict[str, Any]] = []
+        if s_id is not None and t_id is not None:
+            ep = _edge_between(s_id, t_id)
+            if ep is not None:
+                matches.append(ep)
+        elif s_id is not None and self._graph.has_node(s_id):
+            for tgt in self._graph.get_successors(s_id):
+                ep = _edge_between(s_id, tgt)
+                if ep is not None:
+                    matches.append(ep)
+        elif t_id is not None and self._graph.has_node(t_id):
+            for src in self._graph.get_predecessors(t_id):
+                ep = _edge_between(src, t_id)
+                if ep is not None:
+                    matches.append(ep)
+        else:
+            return False, []  # no resolvable anchor → defer
+
+        cnt = re.search(r"RETURN\s+count\s*\(\s*\w+\s*\)\s*(?:AS\s+(\w+))?", q, re.I)
+        if cnt:
+            return True, [{cnt.group(1) or "count": len(matches)}]
+        if r_var:
+            propm = re.search(rf"RETURN\s+{r_var}\.(\w+)\s*(?:AS\s+(\w+))?", q, re.I)
+            if propm:
+                key, alias = propm.group(1), (propm.group(2) or propm.group(1))
+                return True, [{alias: ep.get(key)} for ep in matches]
+            if re.search(rf"RETURN\s+{r_var}\b", q, re.I):
+                return True, [{r_var: ep} for ep in matches]
+        return False, []
 
     def _exec_var_length_match(
         self, q: str, params: dict[str, Any]
@@ -349,13 +437,18 @@ class EpistemicGraphBackend(GraphBackend):
         import re
 
         mm = re.search(
-            r"MERGE\s*\(\s*(\w+)\s*\)\s*-\s*\[\s*:?\s*(\w+)?[^\]]*\]\s*->\s*\(\s*(\w+)\s*\)",
+            r"MERGE\s*\(\s*(\w+)\s*\)\s*-\s*\[\s*(\w*)\s*:?\s*(\w+)?[^\]]*\]\s*->\s*\(\s*(\w+)\s*\)",
             q,
             re.I,
         )
         if not mm:
             return False, []
-        src_var, rel, tgt_var = mm.group(1), (mm.group(2) or "RELATED"), mm.group(3)
+        src_var, rel_var, rel, tgt_var = (
+            mm.group(1),
+            mm.group(2),
+            (mm.group(3) or "RELATED"),
+            mm.group(4),
+        )
 
         # Resolve each var's id from WHERE (``v.id = $param``) or inline
         # (``(v:Label {id: $param})``).
@@ -370,8 +463,20 @@ class EpistemicGraphBackend(GraphBackend):
         src_id, tgt_id = idmap.get(src_var), idmap.get(tgt_var)
         if not src_id or not tgt_id:
             return False, []  # unrecognised shape → defer to legacy
+
+        # Persist edge properties (confidence, source, bitemporal stamps, …) from
+        # the SET clause and inline relationship props — not just rel_type — so the
+        # durable L1 edge carries the same data as the compute edge (KG-2.7 parity).
+        edge_props: dict[str, Any] = {"rel_type": rel}
+        if rel_var:
+            for sm in re.finditer(
+                rf"\b{rel_var}\.(\w+)\s*=\s*(\$\w+|'[^']*'|\"[^\"]*\"|-?[\d.]+)",
+                q,
+                re.I,
+            ):
+                edge_props[sm.group(1)] = self._coerce_literal(sm.group(2), params)
         try:
-            self._graph.add_edge(src_id, tgt_id, {"rel_type": rel})
+            self._graph.add_edge(src_id, tgt_id, edge_props)
         except Exception:  # noqa: BLE001
             pass
         return True, []
