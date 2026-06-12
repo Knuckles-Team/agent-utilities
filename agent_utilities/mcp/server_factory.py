@@ -561,10 +561,19 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
                 )
             else:
                 policy_file = args.eunomia_policy_file or "mcp_policies.json"
-                eunomia_mw = create_eunomia_middleware(
-                    policy_file=policy_file,
-                    use_remote_eunomia=False,
-                )
+                if args.auth_type == "jwt":
+                    # Zero-trust: bind the principal to the verified JWT rather
+                    # than the spoofable x-agent-id header (embedded PDP).
+                    from agent_utilities.mcp.eunomia_principal import (
+                        create_jwt_eunomia_middleware,
+                    )
+
+                    eunomia_mw = create_jwt_eunomia_middleware(policy_file)
+                else:
+                    eunomia_mw = create_eunomia_middleware(
+                        policy_file=policy_file,
+                        use_remote_eunomia=False,
+                    )
             middlewares.append(eunomia_mw)
         except Exception as e:
             logger.error(f"Failed to load Eunomia middleware: {e}")
