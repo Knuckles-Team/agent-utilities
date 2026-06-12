@@ -5,7 +5,7 @@
     "never_executed": 0,
     "untyped_seams": 781,
     "orphan_read_keys": 33,
-    "facade_handlers": 38,
+    "facade_handlers": 32,
     "placeholder_markers": 167
   }
 }
