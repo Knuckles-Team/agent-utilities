@@ -145,6 +145,103 @@ class GatewayClient:
         body = self._body(await self._api.post(endpoint, json=payload))
         return body if isinstance(body, dict) else {}
 
+    # --- Observability / usage / cost (CONCEPT:ECO-4.41) -------------------- #
+
+    async def usage_summary(self, **filters: Any) -> dict[str, Any]:
+        """Token/cost/cache totals (``/api/observability/summary``)."""
+        body = self._body(
+            await self._api.get("/api/observability/summary", params=filters or None)
+        )
+        return body if isinstance(body, dict) else {}
+
+    async def usage_by_model(self, **filters: Any) -> list[dict[str, Any]]:
+        """Cost+tokens grouped by model."""
+        body = self._body(
+            await self._api.get("/api/observability/by-model", params=filters or None)
+        )
+        return body if isinstance(body, list) else []
+
+    async def usage_by_project(self, **filters: Any) -> list[dict[str, Any]]:
+        body = self._body(
+            await self._api.get(
+                "/api/observability/by-project", params=filters or None
+            )
+        )
+        return body if isinstance(body, list) else []
+
+    async def usage_by_agent(self, **filters: Any) -> list[dict[str, Any]]:
+        body = self._body(
+            await self._api.get("/api/observability/by-agent", params=filters or None)
+        )
+        return body if isinstance(body, list) else []
+
+    async def analytics_tools(self, **filters: Any) -> list[dict[str, Any]]:
+        """Tool/skill/db call frequency + success rate."""
+        body = self._body(
+            await self._api.get(
+                "/api/observability/analytics/tools", params=filters or None
+            )
+        )
+        return body if isinstance(body, list) else []
+
+    async def analytics_activity(self, **filters: Any) -> list[dict[str, Any]]:
+        """Day-of-week × hour activity heatmap."""
+        body = self._body(
+            await self._api.get(
+                "/api/observability/analytics/activity", params=filters or None
+            )
+        )
+        return body if isinstance(body, list) else []
+
+    async def analytics_session_shape(self, **filters: Any) -> dict[str, Any]:
+        body = self._body(
+            await self._api.get(
+                "/api/observability/analytics/session-shape", params=filters or None
+            )
+        )
+        return body if isinstance(body, dict) else {}
+
+    async def usage_sessions(
+        self, *, limit: int = 100, **filters: Any
+    ) -> list[dict[str, Any]]:
+        params = {"limit": limit, **filters}
+        body = self._body(
+            await self._api.get("/api/observability/sessions", params=params)
+        )
+        return body if isinstance(body, list) else []
+
+    async def usage_top_sessions(
+        self, *, limit: int = 20, **filters: Any
+    ) -> list[dict[str, Any]]:
+        params = {"limit": limit, **filters}
+        body = self._body(
+            await self._api.get("/api/observability/top-sessions", params=params)
+        )
+        return body if isinstance(body, list) else []
+
+    async def usage_session_detail(self, session_id: str) -> dict[str, Any]:
+        body = self._body(
+            await self._api.get(f"/api/observability/sessions/{session_id}")
+        )
+        return body if isinstance(body, dict) else {}
+
+    async def usage_search(
+        self, query: str, *, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        body = self._body(
+            await self._api.get(
+                "/api/observability/search", params={"q": query, "limit": limit}
+            )
+        )
+        return body if isinstance(body, list) else []
+
+    async def usage_traces(self, **filters: Any) -> dict[str, Any]:
+        """Langfuse trace links (gated server-side on credentials)."""
+        body = self._body(
+            await self._api.get("/api/observability/traces", params=filters or None)
+        )
+        return body if isinstance(body, dict) else {"enabled": False, "traces": []}
+
     # --- Streaming (AG-UI Server-Sent Events over ``/stream``) -------------- #
 
     async def stream(

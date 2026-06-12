@@ -42,6 +42,7 @@ __all__ = [
     "GATEWAY_RATE_LIMITED",
     "GATEWAY_REQUEST_DURATION",
     "GATEWAY_REQUESTS",
+    "DB_CALLS",
     "DISPATCH_QUEUE_DEPTH",
     "DISPATCH_TURNS",
     "DISPATCH_WORKERS",
@@ -56,6 +57,8 @@ __all__ = [
     "MCP_CHILD_QUEUE_DEPTH",
     "MCP_CHILD_RESTARTS",
     "PROMETHEUS_AVAILABLE",
+    "SKILL_CALLS",
+    "TOOL_CALLS",
     "GatewayMetricsMiddleware",
     "metrics_asgi_endpoint",
     "metrics_endpoint",
@@ -222,6 +225,25 @@ MCP_CHILD_QUEUE_DEPTH = _gauge(
     "agent_utilities_mcp_child_queue_depth",
     "Tool calls queued behind a child's concurrency limit right now.",
     ("server",),
+)
+
+# Runtime usage granularity (CONCEPT:OS-5.31): per-tool / per-skill / per-db
+# call counters, siblings of MCP_CHILD_CALLS. Emitted alongside the usage-store
+# rows so the same data is visible in both Prometheus and /api/observability.
+TOOL_CALLS = _counter(
+    "agent_utilities_tool_calls_total",
+    "Tool invocations by coarse category (read|edit|bash|search|mcp|tool|db).",
+    ("category",),
+)
+SKILL_CALLS = _counter(
+    "agent_utilities_skill_calls_total",
+    "Skill invocations by skill name.",
+    ("skill",),
+)
+DB_CALLS = _counter(
+    "agent_utilities_db_calls_total",
+    "Database/graph-engine calls by store (usage|kg|state).",
+    ("store",),
 )
 
 # Queue-driven agent dispatch visibility (CONCEPT:ORCH-1.45): sampled by the
