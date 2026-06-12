@@ -1548,9 +1548,11 @@ concepts:
   - agent_utilities/knowledge_graph/__init__.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/ingest_engine.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/facade.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/observability/gateway_metrics.py
   doc: Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement
     over GRAPH_SERVICE_ENDPOINTS
