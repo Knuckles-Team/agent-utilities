@@ -20,12 +20,12 @@ from ..models import (
     ParsedSessionBundle,
     SessionDetail,
     SessionRow,
+    TokenTotals,
     ToolStat,
     UsageEvent,
     UsageMessage,
     UsageSummary,
     UsageToolCall,
-    TokenTotals,
 )
 
 _SESSION_FILTER_COLS = {

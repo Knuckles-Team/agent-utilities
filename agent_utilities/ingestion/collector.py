@@ -153,7 +153,7 @@ def collect_paths(paths: list[str | Path]) -> dict:
     from agent_utilities.usage import get_usage_backend
     from agent_utilities.usage.recorder import get_usage_recorder
 
-    backend = get_usage_backend()
+    get_usage_backend()  # ensure schema before the recorder writes
     recorder = get_usage_recorder()
     from .agent_sources import all_sources
 
