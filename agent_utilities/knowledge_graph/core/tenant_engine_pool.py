@@ -126,10 +126,18 @@ class TenantEnginePool:
 
         with self._lock:
             engine = self._warm.get(graph)
-            if engine is not None:
+            if engine is not None and self._is_live(engine):
                 self._warm.move_to_end(graph)  # most-recently-used
                 self.hits += 1
                 return engine
+            if engine is not None:
+                # Warm engine failed its liveness probe (dead socket) — discard it
+                # and rebuild below, so a stale connection isn't handed out.
+                self._warm.pop(graph, None)
+                try:
+                    self._on_evict(graph, engine)
+                except Exception:  # noqa: BLE001 — eviction must not raise
+                    pass
 
             self.misses += 1
             engine = self._factory(graph)
@@ -141,6 +149,24 @@ class TenantEnginePool:
             self._warm[graph] = engine
             self._evict_to_capacity()
             return engine
+
+    @staticmethod
+    def _is_live(engine: Any) -> bool:
+        """Best-effort liveness check before handing out a warm engine.
+
+        Probes a ``ping``/``health`` method if the engine exposes one; otherwise
+        trusts the circuit-breaker to fast-fail a dead endpoint on first use (so
+        this is a safe no-op for engine types without a probe). Keeps a stale
+        warm connection from being silently reused after the socket died.
+        """
+        probe = getattr(engine, "ping", None) or getattr(engine, "health", None)
+        if not callable(probe):
+            return True
+        try:
+            probe()
+            return True
+        except Exception:  # noqa: BLE001 — any failure ⇒ treat as dead
+            return False
 
     def _evict_to_capacity(self) -> None:
         while len(self._warm) > self.capacity:
