@@ -926,6 +926,20 @@ class GraphComputeEngine:
         """Detect communities using label propagation."""
         return self._client.graph.community_detection(resolution)
 
+    def community_detect_ephemeral(
+        self,
+        node_ids: list[str],
+        edges: list[tuple[str, str]],
+        resolution: float = 1.0,
+    ) -> list[list[str]]:
+        """Stateless community detection over an inline call graph (KG-2.58).
+
+        Runs detection on the passed nodes/edges in an in-memory throwaway graph on
+        the engine — no tenant load, no persistence. Eliminates the bulk-load
+        round-trip + comm-tenant churn of the load-then-detect pattern.
+        """
+        return self._client.graph.community_detect_ephemeral(node_ids, edges, resolution)
+
     def betweenness_centrality(self) -> list[tuple[str, float]]:
         """Compute betweenness centrality via Brandes' algorithm."""
         return self._client.analytics.betweenness_centrality()
