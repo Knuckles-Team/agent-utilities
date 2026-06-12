@@ -245,6 +245,74 @@ async def test_probe_server_uses_live_tools_when_mounted(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Catalog browse
+# --------------------------------------------------------------------------- #
+
+
+async def test_list_catalog_all_servers(tmp_path):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "c")], "leanix-mcp": []})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(
+        mux,
+        {
+            CNT: [(CNT_TOOL, "containers"), ("cm_image_operations", "images")],
+            "leanix-mcp": "timeout after 15s",
+        },
+    )
+
+    cat = await mux.list_catalog()
+    assert cat["total_servers"] == 2
+    assert cat["total_tools"] == 2  # only the reachable server's tools
+    assert "leanix-mcp" in cat["unavailable"]
+
+    by_name = {s["server"]: s for s in cat["servers"]}
+    assert by_name[CNT]["tool_count"] == 2
+    assert by_name[CNT]["available"] is True
+    assert CNT_PREFIXED in by_name[CNT]["tools"]  # prefixed names in all-view
+    assert by_name["leanix-mcp"]["available"] is False
+    assert "error" in by_name["leanix-mcp"]
+
+
+async def test_list_catalog_single_server_drilldown(tmp_path):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "c")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(mux, {CNT: [(CNT_TOOL, "manage containers")]})
+
+    cat = await mux.list_catalog(server=CNT)
+    assert cat["server"] == CNT
+    assert cat["available"] is True
+    tool = cat["tools"][0]
+    assert tool["prefixed_name"] == CNT_PREFIXED
+    assert tool["tool"] == CNT_TOOL
+    assert tool["description"] == "manage containers"
+
+
+async def test_list_catalog_unknown_server(tmp_path):
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "c")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(mux, {CNT: [(CNT_TOOL, "c")]})
+    cat = await mux.list_catalog(server="does-not-exist")
+    assert "error" in cat
+
+
+async def test_list_catalog_meta_tool_registered(tmp_path):
+    from fastmcp import FastMCP
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    _seed_probe(mux, {CNT: [(CNT_TOOL, "containers")]})
+
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    names = {t.name for t in await mcp.list_tools()}
+    assert "list_catalog" in names
+
+    tool = await mcp.get_tool("list_catalog")
+    result = await tool.fn()
+    assert result.structured_content["total_servers"] == 1
+
+
+# --------------------------------------------------------------------------- #
 # load/unload resolution
 # --------------------------------------------------------------------------- #
 
