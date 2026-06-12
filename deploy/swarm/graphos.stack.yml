@@ -28,7 +28,7 @@ services:
       KG_AUTH_REQUIRED: "1"
       KG_BRAIN_ENFORCE: "1"
       KG_DAEMON_ROLE: "client"          # front never owns a local engine
-      KG_DEFAULT_GRAPH: "__bus__"       # commons graph
+      KG_DEFAULT_GRAPH: "__commons__"       # commons graph
       AUTH_JWT_JWKS_URI: "https://keycloak.arpa/realms/agent-os/protocol/openid-connect/certs"
       AUTH_JWT_ISSUER: "https://keycloak.arpa/realms/agent-os"
       AUTH_JWT_AUDIENCE: "graph-os"
@@ -60,7 +60,7 @@ services:
       KG_DAEMON_ROLE: "host"            # owns the L1 compute, mirrors to L3
       EPISTEMIC_GRAPH_AUTOSTART: "1"
       GRAPH_SERVICE_TCP_ADDR: "0.0.0.0:9090"
-      KG_DEFAULT_GRAPH: "__bus__"
+      KG_DEFAULT_GRAPH: "__commons__"
       GRAPH_DB_URI: "postgresql://agent:agent@pggraph:5432/agent_kg"
     volumes:
       - engine-data:/data

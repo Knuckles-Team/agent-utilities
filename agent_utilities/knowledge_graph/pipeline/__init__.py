@@ -22,11 +22,11 @@ class IntelligencePipeline:
         self,
         config: PipelineConfig,
         backend: GraphBackend | None = None,
-        graph_name: str = "__bus__",
+        graph_name: str = "__commons__",
     ):
         self.config = config
         # An isolated tenant graph keeps a bulk-ingest subprocess's scratch
-        # symbol graph off the shared "__bus__" tenant — avoids saturating the
+        # symbol graph off the shared "__commons__" tenant — avoids saturating the
         # single daemon when many repos ingest concurrently. (CONCEPT:KG-2.7)
         self.graph = GraphComputeEngine(graph_name=graph_name)
         self.graph_name = graph_name

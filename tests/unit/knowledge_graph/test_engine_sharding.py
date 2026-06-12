@@ -51,7 +51,7 @@ class _FakeConfig:
         self.graph_service_endpoints = overrides.get("graph_service_endpoints")
         self.graph_service_tcp_addr = overrides.get("graph_service_tcp_addr")
         self.graph_service_socket = overrides.get("graph_service_socket")
-        self.kg_default_graph = overrides.get("kg_default_graph", "__bus__")
+        self.kg_default_graph = overrides.get("kg_default_graph", "__commons__")
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ def test_endpoints_env_accepts_comma_and_json(monkeypatch):
 
 def test_shard_selection_deterministic_and_order_independent():
     reordered = [THREE_SHARDS[2], THREE_SHARDS[0], THREE_SHARDS[1]]
-    for key in ("__bus__", "tenant__acme____bus__", "kg_enrich_comm", "alpha"):
+    for key in ("__commons__", "tenant__acme____commons__", "kg_enrich_comm", "alpha"):
         first = shard_endpoint_for(key, THREE_SHARDS)
         assert first in THREE_SHARDS
         assert first == shard_endpoint_for(key, THREE_SHARDS)  # stable
@@ -114,7 +114,7 @@ def test_shard_selection_matches_shard_router():
     from epistemic_graph.pool import ShardRouter
 
     router = ShardRouter(list(THREE_SHARDS))
-    for key in ("a", "b", "c", "__bus__", "tenant__t1____bus__", "graph-42"):
+    for key in ("a", "b", "c", "__commons__", "tenant__t1____commons__", "graph-42"):
         assert shard_endpoint_for(key, THREE_SHARDS) == router._get_shard_endpoint(key)
 
 
@@ -142,13 +142,13 @@ def test_shard_selection_requires_endpoints():
 
 
 def test_tenant_graph_name_single_tenant_unchanged():
-    assert tenant_graph_name(None, "__bus__") == "__bus__"
-    assert tenant_graph_name("", "__bus__") == "__bus__"
-    assert tenant_graph_name("   ", "__bus__") == "__bus__"
+    assert tenant_graph_name(None, "__commons__") == "__commons__"
+    assert tenant_graph_name("", "__commons__") == "__commons__"
+    assert tenant_graph_name("   ", "__commons__") == "__commons__"
 
 
 def test_tenant_graph_name_sanitizes_and_is_deterministic():
-    assert tenant_graph_name("acme", "__bus__") == "tenant__acme____bus__"
+    assert tenant_graph_name("acme", "__commons__") == "tenant__acme____commons__"
     assert tenant_graph_name("Acme Corp/EU", "kg") == "tenant__acme_corp_eu__kg"
     assert tenant_graph_name("acme", "kg") == tenant_graph_name("acme", "kg")
 
@@ -159,10 +159,10 @@ def test_facade_and_package_expose_tenant_naming():
 
     assert kg_pkg.tenant_graph_name("t1", "base") == "tenant__t1__base"
     facade = KnowledgeGraph.__new__(KnowledgeGraph)  # no layers needed
-    assert facade.tenant_graph(tenant="t1") == "tenant__t1____bus__"
+    assert facade.tenant_graph(tenant="t1") == "tenant__t1____commons__"
     with use_actor(ActorContext(actor_id="u", tenant_id="ambient")):
-        assert facade.tenant_graph() == "tenant__ambient____bus__"
-    assert facade.tenant_graph() == "__bus__"  # no ambient tenant
+        assert facade.tenant_graph() == "tenant__ambient____commons__"
+    assert facade.tenant_graph() == "__commons__"  # no ambient tenant
 
 
 def test_resolve_routing_graph_precedence():
@@ -171,10 +171,10 @@ def test_resolve_routing_graph_precedence():
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
         assert resolve_routing_graph("named", cfg) == "named"
         # 2. ambient tenant maps the default graph
-        assert resolve_routing_graph(None, cfg) == "tenant__acme____bus__"
-        assert resolve_routing_graph("__bus__", cfg) == "tenant__acme____bus__"
+        assert resolve_routing_graph(None, cfg) == "tenant__acme____commons__"
+        assert resolve_routing_graph("__commons__", cfg) == "tenant__acme____commons__"
     # 3. otherwise the configured default
-    assert resolve_routing_graph(None, cfg) == "__bus__"
+    assert resolve_routing_graph(None, cfg) == "__commons__"
     custom = _FakeConfig(kg_default_graph="knowledge")
     assert resolve_routing_graph(None, custom) == "knowledge"
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
@@ -236,9 +236,9 @@ def test_engine_sharded_maps_ambient_tenant_to_tenant_graph(
         staticmethod(_fake_connect_recorder(connects)),
     )
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
-        engine = _build_engine_unwrapped(graph_name="__bus__")
-    assert engine.graph_name == "tenant__acme____bus__"
-    expected = shard_endpoint_for("tenant__acme____bus__", THREE_SHARDS)
+        engine = _build_engine_unwrapped(graph_name="__commons__")
+    assert engine.graph_name == "tenant__acme____commons__"
+    expected = shard_endpoint_for("tenant__acme____commons__", THREE_SHARDS)
     assert connects[-1]["tcp_addr"] == expected.removeprefix("tcp://")
 
 
@@ -255,14 +255,14 @@ def test_engine_single_endpoint_backcompat(monkeypatch, quiet_engine_env):
         staticmethod(_fake_connect_recorder(connects)),
     )
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
-        engine = _build_engine_unwrapped(graph_name="__bus__")
+        engine = _build_engine_unwrapped(graph_name="__commons__")
     # Single-endpoint mode must NOT remap the graph for the ambient tenant.
-    assert engine.graph_name == "__bus__"
+    assert engine.graph_name == "__commons__"
     assert connects[-1]["socket_path"] == "/tmp/backcompat.sock"
 
     # And the no-argument default resolves to the configured default graph.
     engine_default = _build_engine_unwrapped()
-    assert engine_default.graph_name == "__bus__"
+    assert engine_default.graph_name == "__commons__"
 
 
 def test_unreachable_remote_shard_fails_loud_without_autostart(
@@ -318,7 +318,7 @@ def test_shard_topology_status_reports_per_shard_reachability(monkeypatch):
     )
     status = shard_topology_status(cfg)
     assert status["mode"] == "sharded"
-    assert status["default_graph"] == "__bus__"
+    assert status["default_graph"] == "__commons__"
     by_ep = {e["endpoint"]: e for e in status["endpoints"]}
     assert set(by_ep) == set(THREE_SHARDS)
     assert by_ep["tcp://shard-a:9100"]["reachable"] is True

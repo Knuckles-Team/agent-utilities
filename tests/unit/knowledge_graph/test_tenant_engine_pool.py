@@ -105,3 +105,37 @@ def test_clear_evicts_all():
     pool.clear()
     assert set(evicted) == {"g1", "g2"}
     assert pool.warm_tenants() == []
+
+
+def test_health_gate_discards_dead_warm_engine():
+    """B3: a warm engine that fails its liveness probe is discarded + rebuilt."""
+
+    class _PingEngine:
+        def __init__(self, graph_name: str):
+            self.graph_name = graph_name
+            self.alive = True
+            self.closed = False
+
+        def ping(self):
+            if not self.alive:
+                raise ConnectionError("dead socket")
+
+        def close(self):
+            self.closed = True
+
+    made: list[str] = []
+
+    def factory(graph):
+        made.append(graph)
+        return _PingEngine(graph)
+
+    pool = TenantEnginePool(capacity=4, factory=factory)
+    e1 = pool.acquire(graph_name="g")
+    assert pool.acquire(graph_name="g") is e1  # warm hit, same engine
+    assert len(made) == 1
+
+    # Kill the warm engine's socket → next acquire must rebuild, not reuse it.
+    e1.alive = False
+    e2 = pool.acquire(graph_name="g")
+    assert e2 is not e1, "dead warm engine must be discarded"
+    assert len(made) == 2
