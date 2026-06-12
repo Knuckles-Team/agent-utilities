@@ -920,6 +920,23 @@ class GraphComputeEngine:
         """Return all node IDs in the graph."""
         return self._client.nodes.ids()
 
+    def get_triples(self) -> list[list[str]]:
+        """Bulk-export the graph as ``[subject, predicate, object]`` RDF triples.
+
+        Uses the engine's native ``GetTriples`` op (one round-trip) — the fast path
+        for local SPARQL materialization. Raises if the engine/op is unavailable so
+        callers can fall back to per-node iteration.
+        """
+        import asyncio
+
+        sc = getattr(self._client, "__wrapped__", self._client)  # unwrap breaker
+        async_client = getattr(sc, "_client", None)
+        loop = getattr(sc, "_loop", None)
+        if async_client is None or loop is None:
+            raise RuntimeError("GetTriples unavailable (no sync engine client/loop)")
+        fut = asyncio.run_coroutine_threadsafe(async_client._send("GetTriples"), loop)
+        return fut.result() or []
+
     def degree_centrality_all(self) -> list[tuple[str, float]]:
         """Compute degree centrality for all nodes."""
         return self._client.analytics.degree_centrality_all()
@@ -964,7 +981,9 @@ class GraphComputeEngine:
         the engine — no tenant load, no persistence. Eliminates the bulk-load
         round-trip + comm-tenant churn of the load-then-detect pattern.
         """
-        return self._client.graph.community_detect_ephemeral(node_ids, edges, resolution)
+        return self._client.graph.community_detect_ephemeral(
+            node_ids, edges, resolution
+        )
 
     def betweenness_centrality(self) -> list[tuple[str, float]]:
         """Compute betweenness centrality via Brandes' algorithm."""

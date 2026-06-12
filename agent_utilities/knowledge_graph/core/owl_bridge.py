@@ -1064,6 +1064,38 @@ class OWLBridge:
         g.bind("rdf", rdflib.RDF)
         g.bind("rdfs", rdflib.RDFS)
 
+        # Fast path (CONCEPT:KG-2.7): bulk-export triples from the engine in ONE
+        # call (GetTriples) instead of per-node round-trips, then map to RDF. An
+        # object that is itself a known subject is an edge target (URI); otherwise
+        # a literal. Falls back to the per-node iteration below if unavailable.
+        try:
+            triples = self.graph.get_triples()
+        except Exception:
+            triples = None
+        if triples:
+            subjects = {str(t[0]) for t in triples if len(t) == 3}
+
+            def _uri(x: str) -> Any:
+                return AU[str(x).replace(" ", "_")]
+
+            for t in triples:
+                if len(t) != 3:
+                    continue
+                s, p, o = str(t[0]), str(t[1]), t[2]
+                if p == "rdf:type":
+                    g.add(
+                        (
+                            _uri(s),
+                            rdflib.RDF.type,
+                            AU[str(o).replace(" ", "_").title().replace("_", "")],
+                        )
+                    )
+                elif str(o) in subjects:
+                    g.add((_uri(s), AU[p], _uri(o)))
+                else:
+                    g.add((_uri(s), AU[p], rdflib.Literal(o)))
+            return g
+
         # Promote nodes as typed individuals
         for node_id, data in self.graph.nodes(data=True):
             node_uri = AU[str(node_id).replace(" ", "_")]
