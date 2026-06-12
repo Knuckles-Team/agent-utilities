@@ -32,10 +32,11 @@ can be routed to, not merely stored as metadata.
 """
 
 import logging
-import os
 from collections.abc import Callable
 from enum import IntEnum
 from typing import Any, TypeVar
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ def active_channel(refresh: bool = False) -> ReleaseChannel:
     if _ACTIVE is not None and not refresh:
         return _ACTIVE
 
-    raw = os.getenv(ENV_RELEASE_CHANNEL)
+    raw = setting(ENV_RELEASE_CHANNEL)
     if not raw:
         raw = _channel_from_config()
     _ACTIVE = ReleaseChannel.parse(raw, default=ReleaseChannel.STABLE)

@@ -21,9 +21,10 @@ its existing tracing block on every run when the exporter is enabled.
 """
 
 import logging
-import os
 import time
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +51,9 @@ class LangfuseExporter:
         secret_key: str | None = None,
         host: str | None = None,
     ) -> None:
-        self._public_key = public_key or os.getenv("LANGFUSE_PUBLIC_KEY", "")
-        self._secret_key = secret_key or os.getenv("LANGFUSE_SECRET_KEY", "")
-        self._host = host or os.getenv("LANGFUSE_HOST", "")
+        self._public_key = public_key or setting("LANGFUSE_PUBLIC_KEY", "")
+        self._secret_key = secret_key or setting("LANGFUSE_SECRET_KEY", "")
+        self._host = host or setting("LANGFUSE_HOST", "")
         self._client = client
         self._probed = client is not None
         # Counters expose activity for health widgets + tests.

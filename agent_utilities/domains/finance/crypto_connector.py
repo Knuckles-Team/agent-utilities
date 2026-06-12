@@ -10,12 +10,13 @@ Provides abstractions for crypto-specific market data:
 
 import json
 import logging
-import os
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 from .errors import ProviderNotConfigured, ProviderRequestError
 
@@ -73,7 +74,7 @@ class OnChainAnalytics:
         self, asset: str, _min_usd_value: float = 1_000_000
     ) -> list[WhaleAlert]:
         """Track large on-chain transfers (requires an Etherscan/Glassnode key)."""
-        if not os.environ.get("ETHERSCAN_API_KEY"):
+        if not setting("ETHERSCAN_API_KEY"):
             raise ProviderNotConfigured(
                 "Whale tracking requires ETHERSCAN_API_KEY (or a Glassnode/Dune key). "
                 "Set ETHERSCAN_API_KEY to enable on-chain transfer tracking."
@@ -118,7 +119,7 @@ class CryptoDerivatives:
 
     def get_liquidation_levels(self, symbol: str) -> dict[str, float]:
         """Estimated liquidation clusters (requires a derivatives-analytics key)."""
-        if not os.environ.get("DERIVATIVES_API_KEY"):
+        if not setting("DERIVATIVES_API_KEY"):
             raise ProviderNotConfigured(
                 "Liquidation-cluster estimation requires DERIVATIVES_API_KEY "
                 "(e.g. Coinglass/Coinalyze). Set DERIVATIVES_API_KEY to enable it."

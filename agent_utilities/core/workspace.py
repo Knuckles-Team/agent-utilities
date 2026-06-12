@@ -21,6 +21,7 @@ from importlib.resources import as_file, files
 from pathlib import Path
 
 from agent_utilities.base_utilities import load_env_vars, retrieve_package_name
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +202,7 @@ def get_agent_workspace() -> Path:
         logger.debug(f"get_agent_workspace: Tier 1 SUCCESS (Override): {p}")
         return p
 
-    env_workspace = os.getenv("WORKSPACE_PATH")
+    env_workspace = setting("WORKSPACE_PATH")
     if env_workspace:
         p = Path(env_workspace).resolve()
         logger.debug(f"get_agent_workspace: Tier 2 Checking: {p}")

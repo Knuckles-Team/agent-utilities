@@ -13,11 +13,10 @@ Requires: pip install agent-utilities[postgresql]
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import contextmanager
 from typing import Any
 
-from agent_utilities.core.config import config
+from agent_utilities.core.config import config, setting
 
 from .base import GraphBackend
 
@@ -61,7 +60,7 @@ class PostgreSQLBackend(GraphBackend):
         self._graph_name = graph_name
         self._pool_min = pool_min
         self._pool_max = pool_max
-        self._pggraph_schema = pggraph_schema or os.environ.get(
+        self._pggraph_schema = pggraph_schema or setting(
             "GRAPH_PGGRAPH_SCHEMA", "public"
         )
         self._pool: Any = None

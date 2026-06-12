@@ -11,6 +11,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_utilities.core.config import setting
 from agent_utilities.messaging.base import MessagingBackend
 from agent_utilities.messaging.capabilities import (
     CAPABILITY_MATRIX,
@@ -50,9 +51,8 @@ class SynologyChatBackend(MessagingBackend):
             raise ImportError(
                 "Install: pip install agent-utilities[messaging-synology]"
             ) from None
-        import os
 
-        webhook_url = self.config.webhook_url or os.environ.get(
+        webhook_url = self.config.webhook_url or setting(
             "SYNOLOGY_CHAT_WEBHOOK_URL", ""
         )
         if not webhook_url:
@@ -76,9 +76,7 @@ class SynologyChatBackend(MessagingBackend):
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
         try:
-            import os
-
-            webhook = self.config.webhook_url or os.environ.get(
+            webhook = self.config.webhook_url or setting(
                 "SYNOLOGY_CHAT_WEBHOOK_URL", ""
             )
             payload = f'payload={{"text": "{text}"}}'

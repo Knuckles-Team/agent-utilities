@@ -31,6 +31,8 @@ import os
 from collections.abc import Callable, Iterator
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 from ..base import (
     CheckpointedBatch,
     ConnectorCheckpoint,
@@ -69,10 +71,10 @@ def _run_async(coro: Any) -> Any:
 
 def _load_mcp_config() -> dict[str, Any]:
     """Load the workspace ``mcp_config.json`` (env override → root default)."""
-    path = os.environ.get("MCP_CONFIG_PATH") or os.environ.get("MCP_CONFIG")
+    path = setting("MCP_CONFIG_PATH") or setting("MCP_CONFIG")
     if not path:
         path = os.path.join(
-            os.environ.get("WORKSPACE_PATH", "/home/apps/workspace"), "mcp_config.json"
+            setting("WORKSPACE_PATH", "/home/apps/workspace"), "mcp_config.json"
         )
     try:
         with open(path, encoding="utf-8") as fh:

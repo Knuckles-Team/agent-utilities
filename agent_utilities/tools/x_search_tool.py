@@ -6,7 +6,6 @@ CONCEPT:OS-5.2 — Social Search Integration
 
 import json
 import logging
-import os
 import re
 from datetime import UTC, date, datetime
 from typing import Any
@@ -14,6 +13,7 @@ from typing import Any
 import httpx
 from pydantic_ai import RunContext
 
+from agent_utilities.core.config import setting
 from agent_utilities.core.http_client import create_http_client
 from agent_utilities.harness.tracing import trace
 from agent_utilities.models import AgentDeps
@@ -177,23 +177,19 @@ async def x_search(
     xai_config = config.get("xai", {}) or {}
 
     base_url = (
-        str(
-            xai_config.get("base_url")
-            or os.environ.get("XAI_BASE_URL", DEFAULT_XAI_BASE_URL)
-        )
+        str(xai_config.get("base_url") or setting("XAI_BASE_URL", DEFAULT_XAI_BASE_URL))
         .strip()
         .rstrip("/")
     )
     model = str(
-        xai_config.get("model")
-        or os.environ.get("XAI_SEARCH_MODEL", DEFAULT_X_SEARCH_MODEL)
+        xai_config.get("model") or setting("XAI_SEARCH_MODEL", DEFAULT_X_SEARCH_MODEL)
     ).strip()
-    timeout_val = xai_config.get("timeout_seconds") or os.environ.get(
+    timeout_val = xai_config.get("timeout_seconds") or setting(
         "XAI_SEARCH_TIMEOUT_SECONDS", DEFAULT_X_SEARCH_TIMEOUT_SECONDS
     )
     timeout = max(30, int(str(timeout_val)))
 
-    retries_val = xai_config.get("retries") or os.environ.get(
+    retries_val = xai_config.get("retries") or setting(
         "XAI_SEARCH_RETRIES", DEFAULT_X_SEARCH_RETRIES
     )
     max_retries = max(0, int(str(retries_val)))

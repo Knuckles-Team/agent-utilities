@@ -49,10 +49,11 @@ Environment Variables:
 """
 
 import logging
-import os
 import time
 from collections import OrderedDict
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -123,18 +124,12 @@ class WorkingSetManager:
         self._graph = graph_engine
         self._backend = persistent_backend
 
-        self._max_nodes = max_nodes or int(
-            os.environ.get("WORKING_SET_MAX_NODES", "50000")
-        )
-        self._max_edges = max_edges or int(
-            os.environ.get("WORKING_SET_MAX_EDGES", "200000")
-        )
+        self._max_nodes = max_nodes or int(setting("WORKING_SET_MAX_NODES", "50000"))
+        self._max_edges = max_edges or int(setting("WORKING_SET_MAX_EDGES", "200000"))
         self._eviction_ratio = eviction_ratio or float(
-            os.environ.get("WORKING_SET_EVICTION_RATIO", "0.25")
+            setting("WORKING_SET_EVICTION_RATIO", "0.25")
         )
-        self._ttl = ttl_seconds or int(
-            os.environ.get("WORKING_SET_TTL_SECONDS", "3600")
-        )
+        self._ttl = ttl_seconds or int(setting("WORKING_SET_TTL_SECONDS", "3600"))
 
         # LRU cache of loaded subgraphs
         self._entries: OrderedDict[str, WorkingSetEntry] = OrderedDict()

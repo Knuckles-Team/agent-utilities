@@ -51,7 +51,7 @@ def _lock_path() -> Path:
 
         base = Path(platformdirs.user_runtime_dir("agent-utilities"))
     except Exception:  # pragma: no cover - platformdirs always present in practice
-        base = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "agent-utilities"  # nosec B108 — XDG fallback, not a security-sensitive temp path
+        base = Path(setting("XDG_RUNTIME_DIR") or "/tmp") / "agent-utilities"  # nosec B108 — XDG fallback, not a security-sensitive temp path
     base.mkdir(parents=True, exist_ok=True)
     return base / "kg_daemon_host.lock"
 
@@ -122,7 +122,7 @@ def resolve_daemon_role(requested: str | None = None) -> str:
     if role not in {"host", "client", "auto"}:
         role = "auto"
 
-    if os.environ.get("AGENT_UTILITIES_TESTING"):
+    if setting("AGENT_UTILITIES_TESTING"):
         _effective_role = "client" if role == "client" else "host"
         return _effective_role
 

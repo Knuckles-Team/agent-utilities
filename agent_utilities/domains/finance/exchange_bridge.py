@@ -8,6 +8,8 @@ import logging
 from abc import abstractmethod
 from dataclasses import dataclass
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,12 +87,8 @@ class BinanceExchange(ExchangeBackend):
     ) -> ExecutionResult:
         logger.info(f"[BINANCE] Submitting {side} order for {qty} {symbol}")
 
-        import os
-
-        api_key = os.environ.get("BINANCE_API_KEY")
-        secret_key = os.environ.get("BINANCE_SECRET") or os.environ.get(
-            "BINANCE_SECRET_KEY"
-        )
+        api_key = setting("BINANCE_API_KEY")
+        secret_key = setting("BINANCE_SECRET") or setting("BINANCE_SECRET_KEY")
 
         # 1. Try to use CCXT live integration if credentials are present
         if api_key and secret_key:

@@ -24,10 +24,12 @@ import logging
 import os
 import uuid
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
-_AGENT_ID = os.environ.get("AGENT_ID", f"harness-{uuid.uuid4().hex[:8]}")
-_SESSION_ID = os.environ.get("SESSION_ID", uuid.uuid4().hex)
+_AGENT_ID = setting("AGENT_ID", f"harness-{uuid.uuid4().hex[:8]}")
+_SESSION_ID = setting("SESSION_ID", uuid.uuid4().hex)
 
 
 def _build_server():
@@ -81,7 +83,7 @@ def _build_server():
             )
             from agent_utilities.sdd import SDDManager
 
-            workspace = os.environ.get("WORKSPACE_PATH", os.getcwd())
+            workspace = setting("WORKSPACE_PATH", os.getcwd())
             mgr = SDDManager(workspace)
 
             # Parse nearest concepts
@@ -134,7 +136,7 @@ def _build_server():
         try:
             from agent_utilities.sdd import SDDManager
 
-            workspace = os.environ.get("WORKSPACE_PATH", os.getcwd())
+            workspace = setting("WORKSPACE_PATH", os.getcwd())
             mgr = SDDManager(workspace)
             violations = mgr.validate_design(feature_id)
             return json.dumps(
@@ -164,7 +166,7 @@ def _build_server():
         try:
             from agent_utilities.sdd import SDDManager
 
-            workspace = os.environ.get("WORKSPACE_PATH", os.getcwd())
+            workspace = setting("WORKSPACE_PATH", os.getcwd())
             mgr = SDDManager(workspace)
             spec = mgr.design_to_spec(feature_id)
             return json.dumps(

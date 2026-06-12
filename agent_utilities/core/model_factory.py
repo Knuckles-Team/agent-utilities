@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from agent_utilities.core.config import config
+from agent_utilities.core.config import config, setting
 
 if TYPE_CHECKING:
     pass
@@ -172,7 +172,7 @@ def create_model(
         A configured pydantic_ai.models.Model instance.
 
     """
-    if os.environ.get("AGENT_UTILITIES_TESTING") == "true":
+    if setting("AGENT_UTILITIES_TESTING") == "true":
         from pydantic_ai.models.test import TestModel
 
         return TestModel()

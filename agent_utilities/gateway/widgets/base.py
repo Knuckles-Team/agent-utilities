@@ -10,9 +10,9 @@ structured WidgetData.
 from __future__ import annotations
 
 import logging
-import os
 from abc import ABC, abstractmethod
 
+from agent_utilities.core.config import setting
 from agent_utilities.gateway.models import (
     ServiceCategory,
     ServiceConfig,
@@ -86,7 +86,7 @@ class BaseWidget(ABC):
         prefix = config.env_prefix or self.env_prefix
         if prefix:
             env_key = f"{prefix}_{key.upper()}"
-            env_val = os.environ.get(env_key, "")
+            env_val = setting(env_key, "")
             if env_val:
                 return env_val
 

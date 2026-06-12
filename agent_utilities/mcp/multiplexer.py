@@ -37,6 +37,7 @@ from mcp import StdioServerParameters, stdio_client
 from mcp import types as mcp_types  # stable alias: the ``mcp`` param shadows the pkg
 from mcp.client.session import ClientSession
 
+from agent_utilities.core.config import setting
 from agent_utilities.mcp.child_resilience import (
     ChildRuntime,
     MCPChildError,
@@ -338,7 +339,7 @@ class MCPMultiplexer:
             for k, v in (cfg.get("env") or {}).items():
                 merged_env[k] = os.path.expandvars(str(v))
             if "PYTHONPATH" not in merged_env and "PYTHONPATH" in os.environ:
-                merged_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
+                merged_env["PYTHONPATH"] = setting("PYTHONPATH")
             server_params = StdioServerParameters(
                 command=command, args=cfg.get("args", []), env=merged_env
             )
@@ -1108,8 +1109,8 @@ def _resolve_config_path(explicit: str | None) -> Path:
     standard discovery candidates."""
     if explicit:
         return Path(explicit)
-    if os.environ.get("MCP_CONFIG"):
-        return Path(os.environ["MCP_CONFIG"])
+    if setting("MCP_CONFIG"):
+        return Path(setting("MCP_CONFIG"))
     candidates = [
         Path.home() / ".gemini" / "antigravity" / "mcp_config.json",
         Path.home() / ".config" / "agent-utilities" / "mcp_config.json",
@@ -1476,7 +1477,7 @@ def get_mcp_instance():
 
     # Parse --config without disturbing the factory's own argv parsing.
     cfg_parser = argparse.ArgumentParser(add_help=False)
-    cfg_parser.add_argument("--config", default=os.environ.get("MCP_CONFIG"))
+    cfg_parser.add_argument("--config", default=setting("MCP_CONFIG"))
     cfg_args, _ = cfg_parser.parse_known_args()
 
     config_path = _resolve_config_path(cfg_args.config)

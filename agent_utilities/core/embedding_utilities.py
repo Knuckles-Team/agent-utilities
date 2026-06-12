@@ -8,10 +8,11 @@ embedding models. It supports various providers including OpenAI, Ollama,
 HuggingFace, and local models, with robust environment-based configuration.
 """
 
-import os
 from typing import TYPE_CHECKING
 
 import httpx
+
+from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:
     from llama_index.core.embeddings import BaseEmbedding
@@ -35,7 +36,7 @@ def create_embedding_model(
     model: str | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
-    ssl_verify: bool = to_boolean(string=os.environ.get("SSL_VERIFY", "true")),
+    ssl_verify: bool = to_boolean(string=setting("SSL_VERIFY", "true")),
     timeout: float = 300.0,
 ) -> "BaseEmbedding":
     """Initialize an embedding model based on provider and environment.
@@ -118,7 +119,7 @@ def create_embedding_model(
     elif provider_str == "huggingface":
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-        cache_folder = os.environ.get("HF_HOME")
+        cache_folder = setting("HF_HOME")
 
         return HuggingFaceEmbedding(
             model_name=model_str,

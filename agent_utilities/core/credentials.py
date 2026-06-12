@@ -14,6 +14,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 # Canonical env var names per provider (first match wins). Mirrors agent-utilities' existing aliases.
@@ -67,7 +69,7 @@ class CredentialResolver:
 
     @staticmethod
     def _default_config_path() -> Path:
-        base = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
+        base = setting("AGENT_UTILITIES_CONFIG_DIR")
         root = Path(base) if base else Path.home() / ".config" / "agent-utilities"
         return root / "media-config.json"
 

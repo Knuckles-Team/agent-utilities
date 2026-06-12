@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 from .base import OWLBackend
 
 logger = logging.getLogger(__name__)
@@ -303,7 +305,7 @@ class Owlready2Backend(OWLBackend):
                 "Install with: pip install owlready2"
             ) from e
 
-        self._db_path = db_path or os.environ.get("OWL_DB_PATH")
+        self._db_path = db_path or setting("OWL_DB_PATH")
         self._onto: Any = None
         self._world: Any = None
         self._pre_reason_facts: set[tuple[str, str, str]] = set()
@@ -396,9 +398,7 @@ class Owlready2Backend(OWLBackend):
         if not path.exists():
             raise FileNotFoundError(f"Ontology file not found: {ontology_path}")
 
-        allow_remote = (
-            os.environ.get("OWL_ALLOW_REMOTE_IMPORTS", "false").lower() == "true"
-        )
+        allow_remote = setting("OWL_ALLOW_REMOTE_IMPORTS", "false").lower() == "true"
 
         try:
             # Pre-load sibling ontologies so owl:imports resolve locally

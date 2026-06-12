@@ -17,6 +17,8 @@ import logging
 import os
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════════════
@@ -113,148 +115,131 @@ class HydrationManager:
         status = {
             "gitlab": {
                 "configured": bool(
-                    os.environ.get("GITLAB_TOKEN") or os.environ.get("GITLAB_API_TOKEN")
+                    setting("GITLAB_TOKEN") or setting("GITLAB_API_TOKEN")
                 ),
-                "url": os.environ.get("GITLAB_URL", "https://gitlab.com"),
+                "url": setting("GITLAB_URL", "https://gitlab.com"),
             },
             "leanix": {
-                "configured": bool(os.environ.get("LEANIX_TOKEN")),
-                "url": os.environ.get("LEANIX_URL", ""),
+                "configured": bool(setting("LEANIX_TOKEN")),
+                "url": setting("LEANIX_URL", ""),
             },
             "essential_ea": {
-                "configured": bool(os.environ.get("ESSENTIAL_EA_TOKEN")),
-                "url": os.environ.get("ESSENTIAL_EA_URL", ""),
+                "configured": bool(setting("ESSENTIAL_EA_TOKEN")),
+                "url": setting("ESSENTIAL_EA_URL", ""),
             },
             "aris": {
-                "configured": bool(os.environ.get("BPM_TOKEN")),
-                "url": os.environ.get("BPM_URL", ""),
+                "configured": bool(setting("BPM_TOKEN")),
+                "url": setting("BPM_URL", ""),
             },
             "twenty": {
                 "configured": bool(
-                    os.environ.get("TWENTY_TOKEN") or os.environ.get("TWENTY_API_TOKEN")
+                    setting("TWENTY_TOKEN") or setting("TWENTY_API_TOKEN")
                 ),
-                "url": os.environ.get("TWENTY_URL", ""),
+                "url": setting("TWENTY_URL", ""),
             },
             "servicenow": {
                 "configured": bool(
-                    os.environ.get("SERVICENOW_USER")
-                    and os.environ.get("SERVICENOW_PASSWORD")
+                    setting("SERVICENOW_USER") and setting("SERVICENOW_PASSWORD")
                 ),
-                "url": os.environ.get("SERVICENOW_URL", ""),
+                "url": setting("SERVICENOW_URL", ""),
             },
             "glpi": {
-                "configured": bool(os.environ.get("GLPI_TOKEN")),
-                "url": os.environ.get("GLPI_URL", ""),
+                "configured": bool(setting("GLPI_TOKEN")),
+                "url": setting("GLPI_URL", ""),
             },
             "openmaint": {
-                "configured": bool(os.environ.get("OPENMAINT_TOKEN")),
-                "url": os.environ.get("OPENMAINT_URL", ""),
+                "configured": bool(setting("OPENMAINT_TOKEN")),
+                "url": setting("OPENMAINT_URL", ""),
             },
             "jira": {
-                "configured": bool(
-                    os.environ.get("JIRA_TOKEN") or os.environ.get("JIRA_API_TOKEN")
-                ),
-                "url": os.environ.get("JIRA_URL", ""),
+                "configured": bool(setting("JIRA_TOKEN") or setting("JIRA_API_TOKEN")),
+                "url": setting("JIRA_URL", ""),
             },
             "plane": {
                 "configured": bool(
-                    os.environ.get("PLANE_TOKEN") or os.environ.get("PLANE_API_TOKEN")
+                    setting("PLANE_TOKEN") or setting("PLANE_API_TOKEN")
                 ),
-                "url": os.environ.get("PLANE_URL", ""),
+                "url": setting("PLANE_URL", ""),
             },
             "portainer": {
                 "configured": bool(
-                    os.environ.get("PORTAINER_TOKEN")
-                    or os.environ.get("PORTAINER_PASSWORD")
+                    setting("PORTAINER_TOKEN") or setting("PORTAINER_PASSWORD")
                 ),
-                "url": os.environ.get("PORTAINER_URL", ""),
+                "url": setting("PORTAINER_URL", ""),
             },
             "uptime_kuma": {
-                "configured": bool(os.environ.get("UPTIME_KUMA_URL")),
-                "url": os.environ.get("UPTIME_KUMA_URL", ""),
+                "configured": bool(setting("UPTIME_KUMA_URL")),
+                "url": setting("UPTIME_KUMA_URL", ""),
             },
             "lgtm": {
-                "configured": bool(
-                    os.environ.get("LGTM_URL") or os.environ.get("GRAFANA_URL")
-                ),
-                "url": os.environ.get("LGTM_URL", ""),
+                "configured": bool(setting("LGTM_URL") or setting("GRAFANA_URL")),
+                "url": setting("LGTM_URL", ""),
             },
             "langfuse": {
                 "configured": bool(
-                    os.environ.get("LANGFUSE_PUBLIC_KEY")
-                    and os.environ.get("LANGFUSE_SECRET_KEY")
+                    setting("LANGFUSE_PUBLIC_KEY") and setting("LANGFUSE_SECRET_KEY")
                 ),
-                "url": os.environ.get("LANGFUSE_URL", "https://cloud.langfuse.com"),
+                "url": setting("LANGFUSE_URL", "https://cloud.langfuse.com"),
             },
             "keycloak": {
                 "configured": bool(
-                    os.environ.get("KEYCLOAK_URL")
-                    and os.environ.get("KEYCLOAK_ADMIN_PASSWORD")
+                    setting("KEYCLOAK_URL") and setting("KEYCLOAK_ADMIN_PASSWORD")
                 ),
-                "url": os.environ.get("KEYCLOAK_URL", ""),
+                "url": setting("KEYCLOAK_URL", ""),
             },
             "openbao": {
-                "configured": bool(
-                    os.environ.get("BAO_URL") or os.environ.get("VAULT_URL")
-                ),
-                "url": os.environ.get("BAO_URL", ""),
+                "configured": bool(setting("BAO_URL") or setting("VAULT_URL")),
+                "url": setting("BAO_URL", ""),
             },
             "nextcloud": {
                 "configured": bool(
-                    os.environ.get("NEXTCLOUD_URL")
-                    and os.environ.get("NEXTCLOUD_PASSWORD")
+                    setting("NEXTCLOUD_URL") and setting("NEXTCLOUD_PASSWORD")
                 ),
-                "url": os.environ.get("NEXTCLOUD_URL", ""),
+                "url": setting("NEXTCLOUD_URL", ""),
             },
             "listmonk": {
                 "configured": bool(
-                    os.environ.get("LISTMONK_URL") and os.environ.get("LISTMONK_TOKEN")
+                    setting("LISTMONK_URL") and setting("LISTMONK_TOKEN")
                 ),
-                "url": os.environ.get("LISTMONK_URL", ""),
+                "url": setting("LISTMONK_URL", ""),
             },
             "mattermost": {
                 "configured": bool(
-                    os.environ.get("MATTERMOST_URL")
-                    and os.environ.get("MATTERMOST_TOKEN")
+                    setting("MATTERMOST_URL") and setting("MATTERMOST_TOKEN")
                 ),
-                "url": os.environ.get("MATTERMOST_URL", ""),
+                "url": setting("MATTERMOST_URL", ""),
             },
             "technitium_dns": {
                 "configured": bool(
-                    os.environ.get("TECHNITIUM_URL")
-                    and os.environ.get("TECHNITIUM_TOKEN")
+                    setting("TECHNITIUM_URL") and setting("TECHNITIUM_TOKEN")
                 ),
-                "url": os.environ.get("TECHNITIUM_URL", ""),
+                "url": setting("TECHNITIUM_URL", ""),
             },
             "caddy": {
-                "configured": bool(
-                    os.environ.get("CADDY_URL") or os.environ.get("CADDY_API_URL")
-                ),
-                "url": os.environ.get("CADDY_URL", ""),
+                "configured": bool(setting("CADDY_URL") or setting("CADDY_API_URL")),
+                "url": setting("CADDY_URL", ""),
             },
             "tunnel_manager": {
                 "configured": bool(
-                    os.environ.get("TUNNEL_MANAGER_URL") or os.environ.get("TUNNEL_URL")
+                    setting("TUNNEL_MANAGER_URL") or setting("TUNNEL_URL")
                 ),
-                "url": os.environ.get("TUNNEL_MANAGER_URL", ""),
+                "url": setting("TUNNEL_MANAGER_URL", ""),
             },
             "scholarx": {
                 "configured": bool(
-                    os.environ.get("SCHOLARX_URL") or os.environ.get("SCHOLARX_API_KEY")
+                    setting("SCHOLARX_URL") or setting("SCHOLARX_API_KEY")
                 ),
-                "url": os.environ.get("SCHOLARX_URL", ""),
+                "url": setting("SCHOLARX_URL", ""),
             },
             "emerald_exchange": {
                 "configured": bool(
-                    os.environ.get("EMERALD_URL") or os.environ.get("EMERALD_API_KEY")
+                    setting("EMERALD_URL") or setting("EMERALD_API_KEY")
                 ),
-                "url": os.environ.get("EMERALD_URL", ""),
+                "url": setting("EMERALD_URL", ""),
             },
             "postiz": {
-                "configured": bool(
-                    os.environ.get("POSTIZ_URL") and os.environ.get("POSTIZ_TOKEN")
-                ),
-                "url": os.environ.get("POSTIZ_URL", ""),
+                "configured": bool(setting("POSTIZ_URL") and setting("POSTIZ_TOKEN")),
+                "url": setting("POSTIZ_URL", ""),
             },
         }
         return status
@@ -303,11 +288,11 @@ class HydrationManager:
     def _hydrate_source_control(self, engine: Any) -> dict[str, Any]:
         """Hydrate source control metadata. Supports Git, GitLab, and GitHub."""
         # Pluggable GitLab
-        if os.environ.get("GITLAB_TOKEN") or os.environ.get("GITLAB_API_TOKEN"):
+        if setting("GITLAB_TOKEN") or setting("GITLAB_API_TOKEN"):
             return self._hydrate_gitlab(engine)
 
         # Pluggable GitHub
-        if os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_API_KEY"):
+        if setting("GITHUB_TOKEN") or setting("GITHUB_API_KEY"):
             entities = [
                 {
                     "id": "github:repo:101",
@@ -419,13 +404,13 @@ class HydrationManager:
 
     def _hydrate_enterprise_architecture(self, engine: Any) -> dict[str, Any]:
         """Hydrate Enterprise Architecture facts. Supports Backstage catalog-info.yaml, ArchiMate XML, and EARs (e.g., Essential Project)."""
-        if os.environ.get("EAR_TOKEN"):
+        if setting("EAR_TOKEN"):
             return self._hydrate_ear(engine)
 
         entities = []
         relationships = []
 
-        catalog_path = os.environ.get("BACKSTAGE_FILE", "catalog-info.yaml")
+        catalog_path = setting("BACKSTAGE_FILE", "catalog-info.yaml")
         yaml_content = None
         if os.path.exists(catalog_path):
             try:
@@ -519,9 +504,9 @@ class HydrationManager:
         entities: list[dict[str, Any]] = []
         relationships: list[dict[str, Any]] = []
 
-        bpm_url = os.environ.get("BPM_URL")
-        bpm_token = os.environ.get("BPM_TOKEN")
-        bpm_provider = os.environ.get("BPM_PROVIDER", "opensource")
+        bpm_url = setting("BPM_URL")
+        bpm_token = setting("BPM_TOKEN")
+        bpm_provider = setting("BPM_PROVIDER", "opensource")
 
         if bpm_url and bpm_token:
             from abc import ABC, abstractmethod
@@ -596,7 +581,7 @@ class HydrationManager:
                 "relations_hydrated": len(relationships),
             }
 
-        bpmn_path = os.environ.get("BPMN_FILE", "process.bpmn")
+        bpmn_path = setting("BPMN_FILE", "process.bpmn")
         xml_content = None
         if os.path.exists(bpmn_path):
             try:
@@ -698,16 +683,16 @@ class HydrationManager:
 
     def _hydrate_issue_tracking(self, engine: Any) -> dict[str, Any]:
         """Hydrate issue tracking workspace states. Supports Plane, Local Markdown checklists, and Jira."""
-        if os.environ.get("JIRA_TOKEN") or os.environ.get("JIRA_API_TOKEN"):
+        if setting("JIRA_TOKEN") or setting("JIRA_API_TOKEN"):
             return self._hydrate_jira(engine)
 
-        if os.environ.get("PLANE_TOKEN") or os.environ.get("PLANE_API_TOKEN"):
+        if setting("PLANE_TOKEN") or setting("PLANE_API_TOKEN"):
             return self._hydrate_plane(engine)
 
         entities = []
         relationships = []
 
-        checklist_path = os.environ.get("CHECKLIST_FILE", "task.md")
+        checklist_path = setting("CHECKLIST_FILE", "task.md")
         content = None
         if os.path.exists(checklist_path):
             try:
@@ -775,7 +760,7 @@ class HydrationManager:
         entities = []
         relationships = []
 
-        db_path = os.environ.get("DATABASE_PATH", ":memory:")
+        db_path = setting("DATABASE_PATH", ":memory:")
         try:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
@@ -897,7 +882,7 @@ class HydrationManager:
 
     def _hydrate_message_protocol(self, engine: Any) -> dict[str, Any]:
         """Hydrate message protocols. Supports Kafka streams and Mattermost channels."""
-        if os.environ.get("MATTERMOST_TOKEN") and os.environ.get("MATTERMOST_URL"):
+        if setting("MATTERMOST_TOKEN") and setting("MATTERMOST_URL"):
             return self._hydrate_mattermost(engine)
 
         entities = []
@@ -948,8 +933,8 @@ class HydrationManager:
         except ImportError:
             return {"status": "skipped", "reason": "gitlab-api package not installed"}
 
-        url = os.environ.get("GITLAB_URL", "https://gitlab.com")
-        token = os.environ.get("GITLAB_TOKEN") or os.environ.get("GITLAB_API_TOKEN")
+        url = setting("GITLAB_URL", "https://gitlab.com")
+        token = setting("GITLAB_TOKEN") or setting("GITLAB_API_TOKEN")
         if not token:
             return {
                 "status": "skipped",
@@ -1046,13 +1031,13 @@ class HydrationManager:
                 "reason": "atlassian-agent package not installed",
             }
 
-        url = os.environ.get("JIRA_URL")
-        token = os.environ.get("JIRA_TOKEN") or os.environ.get("JIRA_API_TOKEN")
+        url = setting("JIRA_URL")
+        token = setting("JIRA_TOKEN") or setting("JIRA_API_TOKEN")
         if not url or not token:
             return {"status": "skipped", "reason": "Missing JIRA_URL or JIRA_TOKEN"}
 
         # Specific projects filter
-        project_keys_str = os.environ.get("JIRA_PROJECT_KEYS", "")
+        project_keys_str = setting("JIRA_PROJECT_KEYS", "")
         project_keys = [k.strip() for k in project_keys_str.split(",") if k.strip()]
 
         client = JiraApi(base_url=url, token=token)
@@ -1154,15 +1139,13 @@ class HydrationManager:
         except ImportError:
             return {"status": "skipped", "reason": "plane-agent package not installed"}
 
-        url = os.environ.get("PLANE_URL")
-        token = os.environ.get("PLANE_TOKEN") or os.environ.get("PLANE_API_TOKEN")
+        url = setting("PLANE_URL")
+        token = setting("PLANE_TOKEN") or setting("PLANE_API_TOKEN")
         if not url or not token:
             return {"status": "skipped", "reason": "Missing PLANE_URL or PLANE_TOKEN"}
 
         target_project_ids = [
-            p.strip()
-            for p in os.environ.get("PLANE_PROJECT_IDS", "").split(",")
-            if p.strip()
+            p.strip() for p in setting("PLANE_PROJECT_IDS", "").split(",") if p.strip()
         ]
 
         client = PlaneApi(base_url=url, token=token)
@@ -1256,10 +1239,8 @@ class HydrationManager:
                 "reason": "portainer-agent package not installed",
             }
 
-        url = os.environ.get("PORTAINER_URL")
-        token = os.environ.get("PORTAINER_TOKEN") or os.environ.get(
-            "PORTAINER_PASSWORD"
-        )
+        url = setting("PORTAINER_URL")
+        token = setting("PORTAINER_TOKEN") or setting("PORTAINER_PASSWORD")
         if not url or not token:
             return {
                 "status": "skipped",
@@ -1364,7 +1345,7 @@ class HydrationManager:
                 "reason": "uptime-kuma-agent package not installed",
             }
 
-        url = os.environ.get("UPTIME_KUMA_URL")
+        url = setting("UPTIME_KUMA_URL")
         if not url:
             return {"status": "skipped", "reason": "Missing UPTIME_KUMA_URL"}
 
@@ -1409,8 +1390,8 @@ class HydrationManager:
         except ImportError:
             return {"status": "skipped", "reason": "ear-agent package not installed"}
 
-        url = os.environ.get("EAR_URL")
-        token = os.environ.get("EAR_TOKEN")
+        url = setting("EAR_URL")
+        token = setting("EAR_TOKEN")
         if not url or not token:
             return {
                 "status": "skipped",
@@ -1490,8 +1471,8 @@ class HydrationManager:
         except ImportError:
             return {"status": "skipped", "reason": "twenty-mcp package not installed"}
 
-        url = os.environ.get("TWENTY_URL")
-        token = os.environ.get("TWENTY_TOKEN") or os.environ.get("TWENTY_API_TOKEN")
+        url = setting("TWENTY_URL")
+        token = setting("TWENTY_TOKEN") or setting("TWENTY_API_TOKEN")
         if not url or not token:
             return {
                 "status": "skipped",
@@ -1639,9 +1620,9 @@ class HydrationManager:
                 "reason": "servicenow-api package not installed",
             }
 
-        url = os.environ.get("SERVICENOW_URL")
-        username = os.environ.get("SERVICENOW_USER")
-        password = os.environ.get("SERVICENOW_PASSWORD")
+        url = setting("SERVICENOW_URL")
+        username = setting("SERVICENOW_USER")
+        password = setting("SERVICENOW_PASSWORD")
         if not url or not username or not password:
             return {
                 "status": "skipped",
@@ -1715,7 +1696,7 @@ class HydrationManager:
         """Hydrate alerts, metric systems, and health states from LGTM/Grafana (Tier 4)."""
         try:
             # LGTM doesn't have a rigid Python client package, so we mock / fetch gracefully
-            lgtm_url = os.environ.get("LGTM_URL") or os.environ.get("GRAFANA_URL")
+            lgtm_url = setting("LGTM_URL") or setting("GRAFANA_URL")
             if not lgtm_url:
                 return {
                     "status": "skipped",
@@ -1771,9 +1752,9 @@ class HydrationManager:
                 "reason": "langfuse-agent package not installed",
             }
 
-        os.environ.get("LANGFUSE_URL", "https://cloud.langfuse.com")
-        pub_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
-        sec_key = os.environ.get("LANGFUSE_SECRET_KEY")
+        setting("LANGFUSE_URL", "https://cloud.langfuse.com")
+        pub_key = setting("LANGFUSE_PUBLIC_KEY")
+        sec_key = setting("LANGFUSE_SECRET_KEY")
         if not pub_key or not sec_key:
             return {
                 "status": "skipped",
@@ -1841,7 +1822,7 @@ class HydrationManager:
                 "reason": "keycloak-agent package not installed",
             }
 
-        url = os.environ.get("KEYCLOAK_URL")
+        url = setting("KEYCLOAK_URL")
         if not url:
             return {"status": "skipped", "reason": "Missing KEYCLOAK_URL"}
 
@@ -1935,7 +1916,7 @@ class HydrationManager:
                 "reason": "nextcloud-agent package not installed",
             }
 
-        url = os.environ.get("NEXTCLOUD_URL")
+        url = setting("NEXTCLOUD_URL")
         if not url:
             return {"status": "skipped", "reason": "Missing NEXTCLOUD_URL"}
 
@@ -2015,7 +1996,7 @@ class HydrationManager:
                 "reason": "mattermost-mcp package not installed",
             }
 
-        url = os.environ.get("MATTERMOST_URL")
+        url = setting("MATTERMOST_URL")
         if not url:
             return {"status": "skipped", "reason": "Missing MATTERMOST_URL"}
 
@@ -2054,8 +2035,8 @@ class HydrationManager:
                 "reason": "technitium-dns-mcp package not installed",
             }
 
-        url = os.environ.get("TECHNITIUM_URL")
-        token = os.environ.get("TECHNITIUM_TOKEN")
+        url = setting("TECHNITIUM_URL")
+        token = setting("TECHNITIUM_TOKEN")
         if not url or not token:
             return {
                 "status": "skipped",

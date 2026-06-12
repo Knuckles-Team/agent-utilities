@@ -9,6 +9,8 @@ MCP servers, A2A agent cards, and agent skills into the KG.
 
 import typing
 
+from agent_utilities.core.config import setting
+
 if typing.TYPE_CHECKING:
     from .._engine_protocol import _EngineProtocol
 
@@ -1041,12 +1043,11 @@ class IngestionMixin(_Base):
             Parsed JSON dict, or None if the fetch fails.
 
         """
-        import os
 
         from agent_utilities.core.http_client import create_async_http_client
 
         url = base_url.rstrip("/") + path
-        verify_ssl = os.environ.get("AGENTS_INSECURE_SSL", "0") != "1"
+        verify_ssl = setting("AGENTS_INSECURE_SSL", "0") != "1"
         try:
             async with create_async_http_client(
                 timeout=15.0, verify=verify_ssl
@@ -1069,11 +1070,10 @@ class IngestionMixin(_Base):
         summary: dict[str, Any],
     ) -> None:
         """Fetch a remote JSON file and determine if it's an MCP config or A2A card."""
-        import os
 
         from agent_utilities.core.http_client import create_async_http_client
 
-        verify_ssl = os.environ.get("AGENTS_INSECURE_SSL", "0") != "1"
+        verify_ssl = setting("AGENTS_INSECURE_SSL", "0") != "1"
         try:
             async with create_async_http_client(
                 timeout=15.0, verify=verify_ssl

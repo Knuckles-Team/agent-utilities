@@ -8,11 +8,11 @@ the aggregation of various domain-specific toolsets (workspace, memory, git, etc
 and applies environment-based gating to control which tools are exposed to the agent.
 """
 
-import os
 from typing import Any
 
 from pydantic_ai import Agent, RunContext
 
+from agent_utilities.core.config import setting
 from agent_utilities.models import AgentDeps
 
 __version__ = "0.2.40"
@@ -59,27 +59,21 @@ def register_agent_tools(
     )
     from .workspace_tools import workspace_tools
 
-    DEFAULT_WORKSPACE_TOOLS = to_boolean(
-        string=os.environ.get("WORKSPACE_TOOLS", "True")
-    )
-    DEFAULT_A2A_TOOLS = to_boolean(string=os.environ.get("A2A_TOOLS", "True"))
-    DEFAULT_SCHEDULER_TOOLS = to_boolean(
-        string=os.environ.get("SCHEDULER_TOOLS", "True")
-    )
-    DEFAULT_GIT_TOOLS = to_boolean(string=os.environ.get("GIT_TOOLS", "True"))
-    DEFAULT_BROWSER_TOOLS = to_boolean(string=os.environ.get("BROWSER_TOOLS", "True"))
-    DEFAULT_DEVELOPER_TOOLS = to_boolean(
-        string=os.environ.get("DEVELOPER_TOOLS", "True")
-    )
+    DEFAULT_WORKSPACE_TOOLS = to_boolean(string=setting("WORKSPACE_TOOLS", "True"))
+    DEFAULT_A2A_TOOLS = to_boolean(string=setting("A2A_TOOLS", "True"))
+    DEFAULT_SCHEDULER_TOOLS = to_boolean(string=setting("SCHEDULER_TOOLS", "True"))
+    DEFAULT_GIT_TOOLS = to_boolean(string=setting("GIT_TOOLS", "True"))
+    DEFAULT_BROWSER_TOOLS = to_boolean(string=setting("BROWSER_TOOLS", "True"))
+    DEFAULT_DEVELOPER_TOOLS = to_boolean(string=setting("DEVELOPER_TOOLS", "True"))
     # CONCEPT:OS-5.2 — X/Grok social search needs xAI credentials (optional
     # infra, like MEDIA_TOOLS/DB_TOOLS). Default OFF; enable with X_TOOLS=1.
-    DEFAULT_X_TOOLS = to_boolean(string=os.environ.get("X_TOOLS", "False"))
+    DEFAULT_X_TOOLS = to_boolean(string=setting("X_TOOLS", "False"))
     # CONCEPT:ECO-4.30/4.31 — media generation + transcription tools. Default OFF
     # (the services are optional infra); enable with MEDIA_TOOLS=1.
-    DEFAULT_MEDIA_TOOLS = to_boolean(string=os.environ.get("MEDIA_TOOLS", "False"))
+    DEFAULT_MEDIA_TOOLS = to_boolean(string=setting("MEDIA_TOOLS", "False"))
     # CONCEPT:ECO-4.33 — native database traversal tools (live query/introspect over
     # postgres/mysql-mariadb/mssql/oracle/sqlite/mongo). Default OFF; enable DB_TOOLS=1.
-    DEFAULT_DB_TOOLS = to_boolean(string=os.environ.get("DB_TOOLS", "False"))
+    DEFAULT_DB_TOOLS = to_boolean(string=setting("DB_TOOLS", "False"))
 
     def _is_tool_registered(name: str) -> bool:
         """Check if a tool with the given name is already registered on the agent."""

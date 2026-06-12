@@ -9,10 +9,9 @@ is validated by Pydantic before entering the knowledge graph.
 """
 
 import logging
-import os
 from typing import Any
 
-from agent_utilities.core.config import config
+from agent_utilities.core.config import config, setting
 
 from ...models.knowledge_base import (
     DocumentChunk,
@@ -73,8 +72,8 @@ class KBExtractor:
         api_key: str | None = None,
     ):
         _default_chat = config.default_chat_model
-        self._model_str = model or os.environ.get("MODEL_ID", "gpt-4o-mini")
-        self._provider = provider or os.environ.get("PROVIDER", "openai")
+        self._model_str = model or setting("MODEL_ID", "gpt-4o-mini")
+        self._provider = provider or setting("PROVIDER", "openai")
         self._base_url = base_url or (_default_chat.base_url if _default_chat else None)
         self._api_key = (
             api_key or (_default_chat.api_key if _default_chat else "") or ""

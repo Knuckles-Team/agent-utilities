@@ -28,6 +28,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
 
@@ -127,7 +129,6 @@ class OntologyPublisher:
         Returns:
             Dict with push status and metadata.
         """
-        import os
 
         try:
             import stardog
@@ -137,12 +138,10 @@ class OntologyPublisher:
                 "error": "pystardog not installed. Install with: pip install pystardog",
             }
 
-        endpoint = endpoint or os.environ.get(
-            "STARDOG_ENDPOINT", "http://localhost:5820"
-        )
-        database = database or os.environ.get("STARDOG_DATABASE", "agent_kg")
-        username = username or os.environ.get("STARDOG_USER", "admin")
-        password = password or os.environ.get("STARDOG_PASSWORD", "admin")
+        endpoint = endpoint or setting("STARDOG_ENDPOINT", "http://localhost:5820")
+        database = database or setting("STARDOG_DATABASE", "agent_kg")
+        username = username or setting("STARDOG_USER", "admin")
+        password = password or setting("STARDOG_PASSWORD", "admin")
 
         conn_details = {
             "endpoint": endpoint,
@@ -210,7 +209,6 @@ class OntologyPublisher:
         Returns:
             Dict with push status and metadata.
         """
-        import os
 
         try:
             import requests
@@ -220,9 +218,7 @@ class OntologyPublisher:
                 "error": "requests not installed.",
             }
 
-        endpoint = endpoint or os.environ.get(
-            "FUSEKI_ENDPOINT", "http://localhost:3030"
-        )
+        endpoint = endpoint or setting("FUSEKI_ENDPOINT", "http://localhost:3030")
 
         # Fuseki Graph Store Protocol endpoint
         url = f"{endpoint}/{dataset}/data"

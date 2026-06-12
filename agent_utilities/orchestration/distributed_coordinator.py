@@ -10,9 +10,10 @@ routing requests to specialist workers depending on dynamic role mappings.
 import asyncio
 import json
 import logging
-import os
 from collections.abc import Callable
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class DistributedCoordinator:
     """
 
     def __init__(self, nats_url: str | None = None) -> None:
-        self.nats_url = nats_url or os.environ.get("NATS_URL", "nats://localhost:4222")
+        self.nats_url = nats_url or setting("NATS_URL", "nats://localhost:4222")
         self._nc: Any = None
         self._js: Any = None
         self._local_queues: dict[str, asyncio.Queue] = {}

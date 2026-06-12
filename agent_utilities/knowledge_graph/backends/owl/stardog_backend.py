@@ -12,9 +12,10 @@ automatically apply the ontology's inference rules.
 
 
 import logging
-import os
 from pathlib import Path
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 from .base import OWLBackend
 
@@ -53,12 +54,12 @@ class StardogBackend(OWLBackend):
                 "Install with: pip install pystardog"
             ) from e
 
-        self._endpoint = endpoint or os.environ.get(
+        self._endpoint = endpoint or setting(
             "STARDOG_ENDPOINT", "http://localhost:5820"
         )
-        self._database = database or os.environ.get("STARDOG_DATABASE", "agent_kg")
-        self._username = username or os.environ.get("STARDOG_USER", "admin")
-        self._password = password or os.environ.get("STARDOG_PASSWORD", "admin")
+        self._database = database or setting("STARDOG_DATABASE", "agent_kg")
+        self._username = username or setting("STARDOG_USER", "admin")
+        self._password = password or setting("STARDOG_PASSWORD", "admin")
 
         self._conn_details = {
             "endpoint": self._endpoint,

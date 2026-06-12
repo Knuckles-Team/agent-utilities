@@ -48,11 +48,12 @@ import collections
 import inspect
 import json
 import logging
-import os
 import re
 import time
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
+
+from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
@@ -136,9 +137,9 @@ class MemoryEventBackend:
     """
 
     def __init__(self, max_queue_size: int = 10_000) -> None:
-        self._subscriptions: dict[
-            str, list[tuple[str, EventHandler]]
-        ] = collections.defaultdict(list)
+        self._subscriptions: dict[str, list[tuple[str, EventHandler]]] = (
+            collections.defaultdict(list)
+        )
         self._max_queue_size = max_queue_size
         self._running = False
         self._published = 0
@@ -273,24 +274,20 @@ class RedpandaEventBackend:
         security_protocol: str | None = None,
     ) -> None:
         self._bootstrap_servers = (
-            bootstrap_servers or os.environ.get("REDPANDA_BROKERS") or "localhost:9092"
+            bootstrap_servers or setting("REDPANDA_BROKERS") or "localhost:9092"
         )
         self._consumer_group = (
-            consumer_group
-            or os.environ.get("REDPANDA_CONSUMER_GROUP")
-            or "agent-utilities"
+            consumer_group or setting("REDPANDA_CONSUMER_GROUP") or "agent-utilities"
         )
         self._security_protocol = (
-            security_protocol
-            or os.environ.get("REDPANDA_SECURITY_PROTOCOL")
-            or "PLAINTEXT"
+            security_protocol or setting("REDPANDA_SECURITY_PROTOCOL") or "PLAINTEXT"
         )
 
         self._producer: Any = None
         self._consumers: dict[str, Any] = {}
-        self._handlers: dict[
-            str, list[tuple[str, EventHandler]]
-        ] = collections.defaultdict(list)
+        self._handlers: dict[str, list[tuple[str, EventHandler]]] = (
+            collections.defaultdict(list)
+        )
         self._running = False
         self._consumer_task: asyncio.Task | None = None
         self._published = 0
@@ -552,14 +549,14 @@ def create_event_backend(
     Returns:
         A configured EventBackend instance.
     """
-    kafka_enabled = os.environ.get("KAFKA_ENABLED", "false").lower() in (
+    kafka_enabled = setting("KAFKA_ENABLED", "false").lower() in (
         "true",
         "1",
         "yes",
     )
 
     backend_type = (
-        (backend_type or os.environ.get("EVENT_BACKEND") or "redpanda").lower().strip()
+        (backend_type or setting("EVENT_BACKEND") or "redpanda").lower().strip()
     )
 
     if backend_type == "memory" or not kafka_enabled:

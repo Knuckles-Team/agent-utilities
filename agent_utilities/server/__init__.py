@@ -44,6 +44,7 @@ from agent_utilities.core.config import (
     DEFAULT_PORT,
     DEFAULT_ROUTER_MODEL,
     DEFAULT_SSL_VERIFY,
+    setting,
 )
 from agent_utilities.core.config import (
     DEFAULT_A2A_REFRESH_INTERVAL as DEFAULT_A2A_REFRESH_INTERVAL,
@@ -207,7 +208,7 @@ def _run_agent_server(
     is_pytest = (
         "pytest" in sys.modules
         or "py.test" in sys.modules
-        or os.getenv("PYTEST_CURRENT_TEST") is not None
+        or setting("PYTEST_CURRENT_TEST") is not None
     )
     is_non_interactive = not sys.stdin or not sys.stdin.isatty()
     if is_pytest or is_non_interactive:
@@ -472,7 +473,7 @@ def create_agent_server(
     is_pytest = (
         "pytest" in sys.modules
         or "py.test" in sys.modules
-        or os.getenv("PYTEST_CURRENT_TEST") is not None
+        or setting("PYTEST_CURRENT_TEST") is not None
     )
     is_non_interactive = not sys.stdin or not sys.stdin.isatty()
     if is_pytest or is_non_interactive:
@@ -558,7 +559,7 @@ def create_agent_server(
             except OSError:
                 pass
 
-    _mcp_url = mcp_url or os.getenv("MCP_URL")
+    _mcp_url = mcp_url or setting("MCP_URL")
     if _mcp_url:
         logger.info(f"Graph Agent: Using external MCP server at {_mcp_url}")
     else:

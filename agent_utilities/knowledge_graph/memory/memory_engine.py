@@ -42,6 +42,8 @@ Usage::
 import logging
 from typing import TYPE_CHECKING, Any
 
+from agent_utilities.core.config import setting
+
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -410,9 +412,8 @@ CURSOR_FILE = ".memory_cursor.json"
 
 def memory_dir() -> Path:
     """Return the XDG memory directory for materialized views."""
-    import os
 
-    override = os.environ.get("AGENT_UTILITIES_MEMORY_DIR")
+    override = setting("AGENT_UTILITIES_MEMORY_DIR")
     if override:
         return Path(override).expanduser()
     return data_dir() / "memory"
