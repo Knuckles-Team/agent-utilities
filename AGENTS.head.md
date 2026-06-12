@@ -20,7 +20,7 @@ Edit THIS file for any narrative / conventions changes, then run:
 ## Working Discipline — think, simplify, stay surgical, verify (READ FIRST)
 
 These four habits cut the most common LLM coding mistakes. The deeper, domain-specific
-sections below (*Configuration discipline*, *Wire-First*, *Naming*, *Quality Bar*) are
+sections below (*Configuration discipline*, *Wire-First*, *No Legacy*, *Naming*, *Quality Bar*) are
 **applications** of them — read those as the concrete enforcement of these defaults.
 For trivial tasks, use judgment; the bias here is correctness over speed.
 
@@ -215,6 +215,38 @@ When implementing any non-trivial feature you MUST verify and test the *invocati
    discovery, don't delete the module.
 5. **No silent storage.** A value set in `__init__`/a setter but read nowhere is a bug. Either wire it
    into the behavior or don't add it.
+
+## No Legacy — no back-compat, update every consumer, delete the old path (READ BEFORE adding a shim)
+
+**We own every consumer.** The whole world that calls our code lives under
+`agent-packages/*` — there is no external caller pinned to an old version to
+protect. So we **do not carry backward compatibility**: no deprecated aliases, no
+compat shims, no `try_new_then_fall_back_to_old`, no "v2 beside v1", no
+`*_legacy`/`*_deprecated`/`*_compat` symbols, no "kept for existing deployments"
+branches, no parameter that exists only to reproduce the prior behavior.
+
+When you change a shared contract — an engine wire method, the `epistemic_graph`
+client API, a config key/env name, an MCP tool name, a function signature, a
+return shape — the change is **atomic across the whole ecosystem**:
+
+1. **Grep every consumer across `agent-packages/`** (engine, agent-utilities,
+   data-science-mcp, the `agents/*` connectors, geniusbot, webui, terminal-ui,
+   skills) and update them all in the *same* change.
+2. **Delete the old path entirely** — the old method/alias/flag/branch is removed,
+   not deprecated. A left-behind legacy reference is a **bug**, not compatibility.
+3. **No deprecation window.** This is the aggressive form of *strangler-then-delete*
+   (see *Stay surgical*): because no external consumer exists, you skip the
+   strangle and go straight to migrate-and-delete in one commit.
+4. **When you touch legacy, remove it.** If a change lands next to a dead
+   back-compat path, delete that path as part of the work — legacy is explicitly
+   *in scope* for deletion (it is not the "unrelated dead code" the surgical rule
+   says to leave; that exception does not cover back-compat we've decided to drop).
+
+**The one exception is on-disk / persisted state**, not code: a snapshot, WAL,
+DB schema, or serialized format that survives a restart may need a **one-time data
+migration** (read-old → write-new). That is data migration, not API back-compat —
+do the migration, then remove the old-format reader once converted. Don't keep a
+permanent dual-format reader "just in case."
 
 ## Branching & isolation — DEFAULT WORKFLOW (never edit `main`'s working tree directly)
 

@@ -118,9 +118,9 @@ def isolate_graph_compute_engine(monkeypatch):
 
     def _isolated_init(self, graph_name: str | None = None, **kwargs):
         # Use the fixture's unique name when the caller targets the default
-        # graph (None, or the legacy explicit "__bus__").
+        # commons graph (None, or the explicit "__commons__").
         effective_name = (
-            _test_graph_name if graph_name in (None, "__bus__") else graph_name
+            _test_graph_name if graph_name in (None, "__commons__") else graph_name
         )
         _created_graph_names.add(effective_name)
         _original_init(self, graph_name=effective_name, **kwargs)

@@ -503,7 +503,7 @@ class IngestionEngine:
 
         self.manifest = DeltaManifest(backend=self.backend)
         gc = getattr(kg_engine, "graph_compute", None)
-        self.graph_name = getattr(gc, "graph_name", "__bus__")
+        self.graph_name = getattr(gc, "graph_name", "__commons__")
 
     @property
     def history(self) -> list[IngestionResult]:

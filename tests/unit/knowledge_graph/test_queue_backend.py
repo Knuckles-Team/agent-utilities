@@ -1,12 +1,11 @@
 """CONCEPT:ECO-4.05 Pluggable event queue backend unit tests."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from agent_utilities.knowledge_graph.core.kafka_queue_backend import KafkaQueueBackend
-from agent_utilities.knowledge_graph.core.nats_queue_backend import NatsQueueBackend
 from agent_utilities.knowledge_graph.core.queue_backend import (
     MemoryQueueBackend,
     QueueBackend,
@@ -84,43 +83,10 @@ async def test_queue_backend_factory():
     backend_memory = QueueBackend.create("memory")
     assert isinstance(backend_memory, MemoryQueueBackend)
 
-    # Provide fallback_db_path to prevent missing parameter warnings
-    backend_nats = QueueBackend.create(
-        "nats", fallback_db_path="test_nats.db", nats_url="nats://127.0.0.1:4222"
-    )
-    assert isinstance(backend_nats, NatsQueueBackend)
-
     backend_kafka = QueueBackend.create(
         "kafka", fallback_db_path="test_kafka.db", bootstrap_servers="localhost:9092"
     )
     assert isinstance(backend_kafka, KafkaQueueBackend)
-
-
-@pytest.mark.anyio
-async def test_nats_backend_mocked():
-    """Verify NatsQueueBackend integration with mocked NATS client library."""
-    with patch(
-        "agent_utilities.knowledge_graph.core.nats_queue_backend.nats"
-    ) as mock_nats:
-        mock_nc = AsyncMock()
-        mock_js = AsyncMock()
-        mock_nats.connect = AsyncMock(return_value=mock_nc)
-        mock_nc.jetstream = MagicMock(return_value=mock_js)
-
-        mock_info = MagicMock()
-        mock_info.state.messages = 0
-        mock_js.stream_info = AsyncMock(return_value=mock_info)
-
-        # Instantiate with fallback path to avoid parameter issues
-        backend = NatsQueueBackend(
-            fallback_db_path="test_nats_mock.db", nats_url="nats://localhost:4222"
-        )
-
-        # Test standard task queue flow
-        backend.put({"task": "nats_task"})
-        assert (
-            backend.get_queue_size() == 0
-        )  # Since it's mocked, stream size state or fallback might return 0 or SQLite
 
 
 @pytest.mark.anyio

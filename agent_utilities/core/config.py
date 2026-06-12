@@ -246,7 +246,11 @@ class AgentConfig(BaseSettings):
     deepseek_base_url: str | None = Field(default=None, alias="DEEPSEEK_BASE_URL")
 
     # --- Graph / KG tuning knobs ---
-    graph_timeout: str | None = Field(default="1200000", alias="GRAPH_TIMEOUT")
+    # Whole-workflow orchestration budget (ms). Lowered 20min→10min: engine RPC
+    # hangs are now caught in seconds by the client's per-RPC timeout, so this is a
+    # backstop for a wedged multi-agent run, not the primary hang detector. Kept
+    # generous enough for long legitimate multi-step workflows; override per deploy.
+    graph_timeout: str | None = Field(default="600000", alias="GRAPH_TIMEOUT")
     max_recursion_depth: str | None = Field(default="2", alias="MAX_RECURSION_DEPTH")
     routing_percentile: str | None = Field(default="50.0", alias="ROUTING_PERCENTILE")
     # Must match the embedding model's output dimension (768). The schema vector
@@ -579,9 +583,6 @@ class AgentConfig(BaseSettings):
     graph_backend_l1: str = Field(default="epistemic_graph", alias="GRAPH_BACKEND_L1")
     graph_backend_l2: str | None = Field(default=None, alias="GRAPH_BACKEND_L2")
     graph_db_uri: str | None = Field(default=None, alias="GRAPH_DB_URI")
-    queue_backend: str = Field(default="sqlite", alias="QUEUE_BACKEND")
-    """DEPRECATED alias for :attr:`task_queue_backend` — honored only when the
-    new flag is unset, with a deprecation warning. Will be removed."""
     # Ingest task-queue selection (CONCEPT:KG-2.55): which durable queue carries
     # KG ingest tasks. Unset (default) = auto: ``postgres`` when ``state_db_uri``
     # is set, else the zero-infra per-host ``sqlite`` file — mirroring the
@@ -664,13 +665,19 @@ class AgentConfig(BaseSettings):
     # Interval (s) for the leaked-community-tenant GC tick (Phase A2).
     kg_tenant_gc_interval: float = Field(default=300.0, alias="KG_TENANT_GC_INTERVAL")
 
-    kg_engine_pool_size: int = Field(default=0, alias="KG_ENGINE_POOL_SIZE")
+    kg_engine_pool_size: int = Field(default=8, alias="KG_ENGINE_POOL_SIZE")
     """Max warm per-tenant engine clients kept resident in one process
     (CONCEPT:KG-2.62). The elastic layer over KG-2.58 shard routing: only the N
     most-recently-used tenant graphs stay warm; cold ones are evicted (the
-    durable L3 mirror keeps them) and re-hydrated on the next access. ``0``
-    (default) disables pooling — engines are constructed per use exactly as
-    today, so single-tenant/local deployments are unaffected."""
+    durable L3 mirror keeps them) and re-hydrated on the next access.
+
+    Default 8 (was 0): per-use construction built a fresh background thread +
+    event loop + socket + ``tenants.create`` round-trip on EVERY engine access — a
+    connection-setup storm under load. A small warm set amortizes that; a
+    single-tenant deployment simply keeps its one graph warm. Eviction is LRU and
+    bounded; set ``KG_ENGINE_POOL_DROP_ON_EVICT=1`` to also unload the evicted
+    tenant's graph from the engine to reclaim L1 memory. ``0`` restores the old
+    per-use behavior."""
 
     kg_engine_pool_drop_on_evict: bool = Field(
         default=False, alias="KG_ENGINE_POOL_DROP_ON_EVICT"
@@ -873,7 +880,7 @@ class AgentConfig(BaseSettings):
             self.kg_fuseki_publish = True
         return self
 
-    kg_default_graph: str = Field(default="__bus__", alias="KG_DEFAULT_GRAPH")
+    kg_default_graph: str = Field(default="__commons__", alias="KG_DEFAULT_GRAPH")
     """Default named graph for engine clients that don't target an explicit
     graph. In sharded mode (2+ GRAPH_SERVICE_ENDPOINTS) an ambient
     ActorContext tenant maps this default onto its per-tenant graph
@@ -1907,7 +1914,11 @@ logger = logging.getLogger(__name__)
 
 import os
 
-DEFAULT_GRAPH_TIMEOUT = to_integer(os.environ.get("GRAPH_TIMEOUT", "1200000"))
+# Whole-workflow orchestration execution budget (ms). 10min default (was 20min):
+# the client's per-RPC timeout now catches engine hangs in seconds, so this only
+# bounds a wedged multi-agent run. Override via GRAPH_TIMEOUT for unusually long
+# workflows.
+DEFAULT_GRAPH_TIMEOUT = to_integer(os.environ.get("GRAPH_TIMEOUT", "600000"))
 
 
 # ---------------------------------------------------------------------------

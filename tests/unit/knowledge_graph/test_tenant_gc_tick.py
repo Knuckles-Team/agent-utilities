@@ -38,7 +38,7 @@ def test_gc_drops_only_comm_tenants_when_idle():
     get_throttle().set_bulk_ingest(False)
     stub, tenants = _stub(
         [
-            "__bus__",
+            "__commons__",
             "agent:0",
             "x__enrich_comm_ab12",
             "y__enrich_comm_cd34",
@@ -48,14 +48,14 @@ def test_gc_drops_only_comm_tenants_when_idle():
     TaskManagerMixin._tick_tenant_gc(stub)
     assert sorted(tenants.deleted) == ["x__enrich_comm_ab12", "y__enrich_comm_cd34"]
     # real graphs untouched
-    assert "__bus__" in tenants._names and "agent:0" in tenants._names
+    assert "__commons__" in tenants._names and "agent:0" in tenants._names
     assert "test_deadbeef" in tenants._names
 
 
 def test_gc_skips_while_bulk_ingest_active():
     get_throttle().set_bulk_ingest(True)
     try:
-        stub, tenants = _stub(["__bus__", "z__enrich_comm_ff00"])
+        stub, tenants = _stub(["__commons__", "z__enrich_comm_ff00"])
         TaskManagerMixin._tick_tenant_gc(stub)
         assert tenants.deleted == []  # an active ingest may own its comm tenant
     finally:
