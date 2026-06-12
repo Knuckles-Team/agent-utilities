@@ -64,6 +64,11 @@ from typing import Any
 
 import anyio
 
+try:  # MCP protocol error (e.g. a terminated streamable-http session)
+    from mcp.shared.exceptions import McpError
+except ImportError:  # pragma: no cover - mcp always present for the multiplexer
+    McpError = ()  # type: ignore[assignment,misc]
+
 from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
 from agent_utilities.observability.gateway_metrics import (
     MCP_CHILD_BREAKER_STATE,
@@ -83,6 +88,27 @@ TRANSPORT_EXCEPTIONS: tuple[type[BaseException], ...] = (
     anyio.BrokenResourceError,
     anyio.ClosedResourceError,
 )
+
+
+def is_session_dead(exc: BaseException) -> bool:
+    """Whether ``exc`` means the child's streamable-http session is gone — e.g.
+    the backend redeployed and no longer recognizes the session id.
+
+    The MCP client raises ``McpError(code=32600, "Session terminated")`` for a
+    server-terminated session; we also match session-not-found wording. Such an
+    error is a *transport* failure (the connection must be rebuilt), not an
+    application error — unlike a tool that simply answered with an error."""
+    if not McpError or not isinstance(exc, McpError):
+        return False
+    err = getattr(exc, "error", None)
+    code = getattr(err, "code", None)
+    message = str(getattr(err, "message", "") or exc).lower()
+    return (
+        code == 32600
+        or "session terminated" in message
+        or ("session" in message and "not found" in message)
+    )
+
 
 # Reconnect backoff defaults (overridable per-runtime for tests): exponential
 # growth from BASE up to CAP, multiplied by uniform jitter so a fleet of
@@ -536,12 +562,17 @@ class ChildRuntime:
             if not abandoned:  # abandoned calls were already counted (timeout)
                 self._record("ok")
             return
-        if isinstance(exc, TRANSPORT_EXCEPTIONS):
-            # Dead pipe / closed stream: the child is gone, not erroring.
+        if isinstance(exc, TRANSPORT_EXCEPTIONS) or is_session_dead(exc):
+            # Dead pipe / closed stream / terminated session: the child is gone,
+            # not erroring. Rebuild the connection (a redeployed backend drops
+            # the session, which would otherwise wedge every later call).
             self.breaker.record_failure()
             if not abandoned:
                 self._record("transport_error")
-            self.request_restart(reason=type(exc).__name__)
+            reason = (
+                "session_terminated" if is_session_dead(exc) else type(exc).__name__
+            )
+            self.request_restart(reason=reason)
         else:
             # Application-level tool error: the child answered, so the
             # breaker stays closed (mirrors the OS-5.23 engine guard).
@@ -559,7 +590,27 @@ class ChildRuntime:
         Cancellation-safe: the child-side call runs in its own task and is
         shielded from the caller. A caller timeout/cancel detaches cleanly —
         the shared session keeps its request/response bookkeeping intact and
-        the concurrency slot is released only when the child finishes."""
+        the concurrency slot is released only when the child finishes.
+
+        Self-healing: if the child's session was terminated (e.g. the backend
+        redeployed), the failed attempt triggers a reconnect and the call is
+        retried ONCE on the fresh generation — so a redeploy is invisible to
+        the caller instead of stranding it on "Session terminated"."""
+        for attempt in range(2):
+            try:
+                return await self._call_once(original_name, arguments)
+            except BaseException as exc:
+                if attempt == 0 and is_session_dead(exc):
+                    # _finish_call already asked the supervisor to reconnect;
+                    # make it deterministic, then the retry's _await_ready waits
+                    # for the fresh session before re-issuing the call.
+                    self.request_restart(reason="session_terminated")
+                    continue
+                raise
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    async def _call_once(self, original_name: str, arguments: dict[str, Any]) -> Any:
+        """One forwarding attempt (the body the retry loop wraps)."""
         try:
             self.breaker.before_call()
         except _BreakerOpenSignal as signal:
@@ -634,4 +685,5 @@ __all__ = [
     "MCPChildError",
     "MCPChildUnavailableError",
     "TRANSPORT_EXCEPTIONS",
+    "is_session_dead",
 ]
