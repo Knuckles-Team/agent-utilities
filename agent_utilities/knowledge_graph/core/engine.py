@@ -319,6 +319,23 @@ class IntelligenceGraphEngine(
     # (epistemic_graph/neo4j/falkordb) accept arbitrary properties as-is.
     _SCHEMA_BACKED = {"LadybugBackend", "PostgreSQLBackend", "TieredGraphBackend"}
 
+    # Drivers that reject map/list-of-map property values (openCypher property
+    # values must be primitives or arrays of primitives). Nested dict/list props
+    # are JSON-encoded for these so a write never throws (CONCEPT:KG-2.7 parity).
+    _NESTED_UNSAFE = {"Neo4jBackend", "FalkorDBBackend"}
+
+    # Fields stored as native arrays (not JSON-encoded) across backends.
+    _ARRAY_FIELDS = frozenset(
+        {
+            "capabilities",
+            "tags",
+            "tool_ids",
+            "success_criteria_met",
+            "embedding",
+            "issues",
+        }
+    )
+
     def _schema_valid_keys(self, label: str | None) -> set[str] | None:
         """Declared columns for ``label`` on a schema-backed backend, else None."""
         if (
@@ -363,51 +380,88 @@ class IntelligenceGraphEngine(
             sets.append(f"{alias}.`{k}` = ${k}")
         return " SET " + ", ".join(sets) if sets else ""
 
+    def _prepare_node_props(
+        self, label: str | None, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Backend-aware serialization of node props for ``backend.execute``.
+
+        Guarantees no property is silently dropped on the durable tier and that no
+        write throws on a map-rejecting driver:
+
+        * schema-backed (Ladybug/PostgreSQL/Tiered): keep declared columns and fold
+          any ad-hoc keys into the ``metadata`` JSON column; JSON-encode nested
+          declared values. Applied on BOTH update and create (previously only on
+          create — re-writes silently dropped extras).
+        * schemaless map-rejecting drivers (Neo4j/FalkorDB): JSON-encode nested
+          dict/list props so the openCypher write never throws.
+        * schemaless map-safe (epistemic_graph): pass through (native dicts ok).
+
+        The full native property set still reaches ``graph_compute`` separately, so
+        the compute layer is unaffected.
+        """
+        import json
+
+        valid_keys = self._schema_valid_keys(label)
+        backend_name = self.backend.__class__.__name__ if self.backend else ""
+        nested_unsafe = backend_name in self._NESTED_UNSAFE
+
+        def _enc(key: str, value: Any) -> Any:
+            if isinstance(value, dict | list) and key not in self._ARRAY_FIELDS:
+                return json.dumps(value, default=str)
+            return value
+
+        if valid_keys is None:
+            # Schemaless backend: keep every property. Encode nested values only
+            # for drivers that reject map properties.
+            if not nested_unsafe:
+                return dict(data)
+            return {k: _enc(k, v) for k, v in data.items()}
+
+        # Schema-backed: declared columns pass through (nested ones JSON-encoded);
+        # everything else folds into the ``metadata`` catch-all column.
+        prepared: dict[str, Any] = {}
+        extras: dict[str, Any] = {}
+        for k, v in data.items():
+            if k == "id" or k in valid_keys:
+                prepared[k] = _enc(k, v)
+            elif k != "metadata":
+                extras[k] = v
+
+        if extras and "metadata" in valid_keys:
+            meta: dict[str, Any] = {}
+            existing = prepared.get("metadata")
+            if isinstance(existing, str) and existing:
+                try:
+                    meta = json.loads(existing)
+                except Exception:
+                    meta = {"_": existing}
+            meta.update(extras)
+            prepared["metadata"] = json.dumps(meta, default=str)
+        return prepared
+
     def _upsert_node(self, label: str, node_id: str, data: dict[str, Any]):
-        """Perform an idempotent upsert of a node using MATCH/SET then CREATE."""
+        """Perform an idempotent upsert of a node using MATCH/SET then CREATE.
+
+        Properties are folded/serialized ONCE (``_prepare_node_props``) and used for
+        both the update and create paths, so ad-hoc and nested props survive a
+        re-write on every backend (no data loss on the durable tier).
+        """
         if not self.backend:
             return
 
         label = self._normalize_label(label)
+        prepared = self._prepare_node_props(label, data)
 
-        # 1. Try to update existing
-        set_clause = self._get_set_clause(data, label=label)
+        # 1. Try to update existing (extras already folded into metadata).
+        set_clause = self._get_set_clause(prepared, label=label)
         update_query = f"MATCH (n:{label}) WHERE n.id = $id {set_clause} RETURN n.id"
-        res = self.backend.execute(update_query, data)
+        res = self.backend.execute(update_query, prepared)
 
+        # 2. If not found, create from the same prepared property set.
         if not res:
-            # 2. If not found, create. On schema-backed backends, filter props to
-            # declared columns and fold any extras into the ``metadata`` column so
-            # no data is lost on the durable tier (the L1 compute graph still gets
-            # the full property set via ``graph_compute.add_node``).
-            valid_keys = self._schema_valid_keys(label)
-
-            create_data: dict[str, Any] = {}
-            extras: dict[str, Any] = {}
-            for k, v in data.items():
-                if k == "id" or valid_keys is None or k in valid_keys:
-                    create_data[k] = v
-                elif k != "metadata":
-                    extras[k] = v
-
-            if extras and valid_keys is not None and "metadata" in valid_keys:
-                import json
-
-                meta: dict[str, Any] = {}
-                existing = create_data.get("metadata")
-                if isinstance(existing, str) and existing:
-                    try:
-                        meta = json.loads(existing)
-                    except Exception:
-                        meta = {"_": existing}
-                elif isinstance(existing, dict):
-                    meta = dict(existing)
-                meta.update(extras)
-                create_data["metadata"] = json.dumps(meta, default=str)
-
-            cols = ", ".join([f"`{k}`: ${k}" for k in create_data.keys()])
+            cols = ", ".join([f"`{k}`: ${k}" for k in prepared.keys()])
             create_query = f"CREATE (n:{label} {{{cols}}})"
-            self.backend.execute(create_query, create_data)
+            self.backend.execute(create_query, prepared)
 
     def link_nodes(
         self,
@@ -447,8 +501,16 @@ class IntelligenceGraphEngine(
             # Tier 1: Backend is source of truth — write here FIRST
             set_clause = self._get_set_clause(props, alias="r")
 
-            s_query = "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl"
-            t_query = "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl"
+            # Portable label lookup: Neo4j/FalkorDB expose ``labels(n)`` (a list);
+            # Kuzu/epistemic-graph/pggraph-transpiler use the singular ``label(n)``.
+            # The previous unconditional ``label(n)`` crashed Neo4j/FalkorDB
+            # ("Unknown function 'label'") on the standard link path.
+            _backend_name = self.backend.__class__.__name__
+            _lbl_expr = (
+                "labels(n)[0]" if _backend_name in self._NESTED_UNSAFE else "label(n)"
+            )
+            s_query = f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl"
+            t_query = f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl"
 
             s_label_res = self.backend.execute(s_query, {"id": source_id})
             t_label_res = self.backend.execute(t_query, {"id": target_id})

@@ -2320,6 +2320,7 @@ SCHEMA = GraphSchemaDefinition(
                 "plan_metadata_json": "STRING",
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
+                "metadata": "STRING",
                 "is_permanent": "BOOLEAN",
             },
         ),
@@ -2339,6 +2340,7 @@ SCHEMA = GraphSchemaDefinition(
                 "access_list_json": "STRING",
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
+                "metadata": "STRING",
                 "is_permanent": "BOOLEAN",
             },
         ),
@@ -2371,6 +2373,7 @@ SCHEMA = GraphSchemaDefinition(
                 "raw_content": "STRING",
                 "timestamp": "STRING",
                 "last_updated": "INT64",
+                "metadata": "STRING",
             },
         ),
         TableDefinition(
@@ -2385,6 +2388,7 @@ SCHEMA = GraphSchemaDefinition(
                 "raw_content": "STRING",
                 "timestamp": "STRING",
                 "last_updated": "INT64",
+                "metadata": "STRING",
             },
         ),
         TableDefinition(
