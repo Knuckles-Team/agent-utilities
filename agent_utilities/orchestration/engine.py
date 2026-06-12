@@ -619,6 +619,33 @@ class AgentOrchestrationEngine:
             except Exception as _lf_exc:  # noqa: BLE001 — export must never crash a run
                 logger.debug("run_graph: Langfuse export skipped: %s", _lf_exc)
 
+            # CONCEPT:OS-5.31 — persist this graph run as a runtime usage row so
+            # token counts/cost feed the same /api/observability surface the
+            # ingested agent logs do. Best-effort; never affects the run.
+            try:
+                from agent_utilities.usage.recorder import get_usage_recorder
+
+                _rt_usage: dict[str, int] = {}
+                _rt_model = ""
+                if isinstance(result, GraphResponse):
+                    _rt_usage = result.metadata.get("token_usage", {}) or {}
+                    _rt_model = str(result.metadata.get("model", "") or "")
+                elif isinstance(result, dict):
+                    _md = result.get("metadata", {}) or {}
+                    _rt_usage = _md.get("token_usage", {}) or {}
+                    _rt_model = str(_md.get("model", "") or "")
+                get_usage_recorder().record_run(
+                    run_id=run_id,
+                    query=query,
+                    status="success" if result else "timeout",
+                    duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
+                    token_usage=_rt_usage,
+                    model=_rt_model,
+                    project=str(state.routed_domain or ""),
+                )
+            except Exception as _ur_exc:  # noqa: BLE001 — recorder must never crash a run
+                logger.debug("run_graph: usage record skipped: %s", _ur_exc)
+
         if isinstance(result, GraphResponse):
             result.mermaid = mermaid_prefix if mermaid_prefix else None
             result.metadata.update({"run_id": run_id, "domain": state.routed_domain})
