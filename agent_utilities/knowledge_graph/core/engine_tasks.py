@@ -782,6 +782,26 @@ class TaskManagerMixin(GraphEngineProtocol):
                 self._tick_enrichment,
             )
         )
+        # Usage/cost observability (CONCEPT:ECO-4.41 / ECO-4.42): auto-detect and
+        # sync local agent logs into the usage store, and refresh the LiteLLM
+        # pricing catalog. Default-on (USAGE_TRACKING_ENABLED=1); both ticks are
+        # best-effort and never block the scheduler. Sync auto-skips when the
+        # engine is a remote client (collector pushes from the client instead).
+        if getattr(_cfg, "usage_tracking_enabled", True):
+            jobs.append(
+                (
+                    "usage_log_sync",
+                    float(os.getenv("USAGE_SYNC_INTERVAL", "900")),
+                    self._tick_usage_log_sync,
+                )
+            )
+            jobs.append(
+                (
+                    "usage_pricing_refresh",
+                    float(os.getenv("USAGE_PRICING_REFRESH_INTERVAL", "86400")),
+                    self._tick_usage_pricing_refresh,
+                )
+            )
         # SDD/skills/scholarx/config file-watch as a periodic scan job — folded
         # in here instead of its own KGPlanWatcherThread + watchdog. Gated by
         # ``config.enable_sdd_watcher``. (CONCEPT:KG-2.6 / OS-5.0)
@@ -831,6 +851,37 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
         )
         return jobs
+
+    def _tick_usage_log_sync(self) -> None:
+        """Auto-detect + sync local agent logs into the usage store (ECO-4.42).
+
+        Best-effort and bounded; skips silently when the collector is
+        unavailable. The collector itself no-ops on a remote-client engine
+        (the client pushes instead), so this only does work on the log host.
+        """
+        try:
+            from agent_utilities.ingestion.collector import collect_local_sessions
+
+            result = collect_local_sessions()
+            if result.get("ingested"):
+                logger.info("usage_log_sync: %s", result)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("usage_log_sync skipped: %s", e)
+
+    def _tick_usage_pricing_refresh(self) -> None:
+        """Refresh the LiteLLM pricing catalog into the usage store (ECO-4.40)."""
+        try:
+            from agent_utilities.pricing import refresh_catalog
+            from agent_utilities.usage import get_usage_backend
+
+            try:
+                backend = get_usage_backend()
+            except Exception:  # noqa: BLE001
+                backend = None
+            n = refresh_catalog(backend=backend)
+            logger.debug("usage_pricing_refresh: merged %d models", n)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("usage_pricing_refresh skipped: %s", e)
 
     def _tick_hygiene(self) -> None:
         """One memory-hygiene pass (CONCEPT:KG-2.17).

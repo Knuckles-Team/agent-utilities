@@ -2999,6 +2999,150 @@ def _build_server(bootstrap: bool = True):
     REGISTERED_TOOLS["graph_ingest"] = graph_ingest
 
     @mcp.tool(
+        name="usage_query",
+        description=(
+            "Query usage/cost/observability analytics (CONCEPT:ECO-4.41): token "
+            "counts, cost, model/tool/skill/db-call usage, session browser, "
+            "activity heatmap, full-text search, and Langfuse trace links. One "
+            "store covers both ingested agent logs and our own runtime telemetry."
+        ),
+        tags=["graph-os", "observability", "usage"],
+    )
+    async def usage_query(
+        action: str = Field(
+            default="summary",
+            description=(
+                "summary | by_model | by_project | by_agent | tools | activity | "
+                "sessions | session_detail | top_sessions | search | traces"
+            ),
+        ),
+        from_date: str = Field(default="", description="ISO start (started_at >=)."),
+        to_date: str = Field(default="", description="ISO end (started_at <=)."),
+        project: str = Field(default="", description="Filter by project."),
+        agent: str = Field(default="", description="Filter by agent type."),
+        model: str = Field(default="", description="Filter by model."),
+        origin: str = Field(
+            default="", description="ingested | runtime (omit for both)."
+        ),
+        tenant_id: str = Field(default="", description="Tenant scope."),
+        session_id: str = Field(default="", description="For action=session_detail."),
+        query: str = Field(default="", description="For action=search (FTS)."),
+        limit: int = Field(default=50, description="Row cap for list actions."),
+    ) -> str:
+        """Read-side analytics over the usage store. Returns JSON."""
+        import json as _json
+
+        from agent_utilities.usage.service import get_usage_service
+
+        svc = get_usage_service()
+        f = {
+            k: v
+            for k, v in {
+                "from_date": from_date, "to_date": to_date, "project": project,
+                "agent": agent, "model": model, "origin": origin,
+                "tenant_id": tenant_id,
+            }.items()
+            if v
+        }
+        try:
+            if action == "summary":
+                out: Any = svc.summary(**f).model_dump()
+            elif action == "by_model":
+                out = [e.model_dump() for e in svc.by_model(**f)]
+            elif action == "by_project":
+                out = [e.model_dump() for e in svc.by_project(**f)]
+            elif action == "by_agent":
+                out = [e.model_dump() for e in svc.by_agent(**f)]
+            elif action == "tools":
+                out = [e.model_dump() for e in svc.tools(**f)]
+            elif action == "activity":
+                out = [e.model_dump() for e in svc.activity(**f)]
+            elif action == "sessions":
+                out = [e.model_dump() for e in svc.sessions(limit=limit, **f)]
+            elif action == "top_sessions":
+                out = [e.model_dump() for e in svc.top_sessions(limit=limit, **f)]
+            elif action == "session_detail":
+                if not session_id:
+                    return "Error: session_id required for session_detail"
+                detail = svc.session_detail(session_id)
+                out = detail.model_dump() if detail else None
+            elif action == "search":
+                if not query:
+                    return "Error: query required for search"
+                out = [e.model_dump() for e in svc.search(query, limit=limit)]
+            else:
+                return f"Error: unknown usage_query action '{action}'"
+            return _json.dumps(out, default=str)
+        except Exception as e:  # noqa: BLE001
+            return f"usage_query error: {e}"
+
+    REGISTERED_TOOLS["usage_query"] = usage_query
+
+    @mcp.tool(
+        name="ingest_sessions",
+        description=(
+            "Ingest AI agent chat/session history into the usage store + KG "
+            "(CONCEPT:ECO-4.42). 'collect' auto-detects installed agents on THIS "
+            "host and parses their local logs (use when the engine is local). "
+            "'upload' accepts pre-parsed session bundles as JSON so a CLIENT can "
+            "parse its own logs and push them to a REMOTE/central engine that has "
+            "no filesystem access to the client — closing the remote-ingest gap. "
+            "'paths' ingests explicit files/dirs."
+        ),
+        tags=["graph-os", "ingest", "observability"],
+    )
+    async def ingest_sessions(
+        action: str = Field(
+            default="collect", description="collect | upload | paths"
+        ),
+        bundles_json: str = Field(
+            default="",
+            description="For action=upload: JSON array of ParsedSessionBundle objects.",
+        ),
+        target_path: str = Field(
+            default="", description="For action=paths: JSON list or comma paths."
+        ),
+        tenant_id: str = Field(default="", description="Tenant scope for the rows."),
+    ) -> str:
+        """Client-parses, server-sinks ingestion of agent session logs."""
+        import json as _json
+
+        try:
+            if action == "collect":
+                from agent_utilities.ingestion.collector import collect_local_sessions
+
+                return _json.dumps(collect_local_sessions(), default=str)
+            if action == "upload":
+                from agent_utilities.usage.models import ParsedSessionBundle
+                from agent_utilities.usage.recorder import get_usage_recorder
+
+                raw = _json.loads(bundles_json) if bundles_json else []
+                recorder = get_usage_recorder()
+                ok = 0
+                for item in raw:
+                    bundle = ParsedSessionBundle.model_validate(item)
+                    if tenant_id:
+                        bundle.session.tenant_id = tenant_id
+                    if recorder.record_bundle(bundle):
+                        ok += 1
+                return _json.dumps({"received": len(raw), "ingested": ok})
+            if action == "paths":
+                from agent_utilities.ingestion.collector import collect_paths
+
+                raw = target_path.strip()
+                paths = (
+                    _json.loads(raw)
+                    if raw.startswith("[")
+                    else [p.strip() for p in raw.split(",") if p.strip()]
+                )
+                return _json.dumps(collect_paths(paths), default=str)
+            return f"Error: unknown ingest_sessions action '{action}'"
+        except Exception as e:  # noqa: BLE001
+            return f"ingest_sessions error: {e}"
+
+    REGISTERED_TOOLS["ingest_sessions"] = ingest_sessions
+
+    @mcp.tool(
         name="graph_analyze",
         description="Execute complex analysis across the Knowledge Graph (synthesize, deep_extract, evaluate, security_scan, etc).",
         tags=["graph-os", "analyze"],
