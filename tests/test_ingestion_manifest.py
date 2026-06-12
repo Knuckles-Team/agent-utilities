@@ -25,7 +25,7 @@ class TestDeltaManifest:
 
     def test_record_seen_get_roundtrip(self, tmp_path):
         m = self._mk(tmp_path)
-        g, c, s = "__bus__", "codebase", "/x/y.py"
+        g, c, s = "__commons__", "codebase", "/x/y.py"
         assert m.mode == "sqlite"
         assert m.get(g, c, s) is None
         m.record(g, c, s, "h1")
@@ -35,7 +35,7 @@ class TestDeltaManifest:
 
     def test_upsert_no_duplicate(self, tmp_path):
         m = self._mk(tmp_path)
-        g, c, s = "__bus__", "codebase", "/x/y.py"
+        g, c, s = "__commons__", "codebase", "/x/y.py"
         m.record(g, c, s, "h1")
         m.record(g, c, s, "h2")  # upsert, not a second row
         assert m.get(g, c, s) == "h2"
@@ -44,26 +44,26 @@ class TestDeltaManifest:
     def test_durable_across_restart(self, tmp_path):
         db = str(tmp_path / "m.db")
         DeltaManifest(backend=None, db_path=db).record(
-            "__bus__", "codebase", "/a.py", "h9"
+            "__commons__", "codebase", "/a.py", "h9"
         )
         # Fresh instance over the same store (simulates a process restart).
         m2 = DeltaManifest(backend=None, db_path=db)
-        assert m2.seen("__bus__", "codebase", "/a.py", "h9") is True
+        assert m2.seen("__commons__", "codebase", "/a.py", "h9") is True
 
     def test_clear_scoped(self, tmp_path):
         m = self._mk(tmp_path)
-        m.record("__bus__", "codebase", "/a.py", "h1")
-        m.record("__bus__", "document", "/b.md", "h2")
-        m.clear("__bus__", "codebase")
-        assert m.get("__bus__", "codebase", "/a.py") is None
-        assert m.get("__bus__", "document", "/b.md") == "h2"
+        m.record("__commons__", "codebase", "/a.py", "h1")
+        m.record("__commons__", "document", "/b.md", "h2")
+        m.clear("__commons__", "codebase")
+        assert m.get("__commons__", "codebase", "/a.py") is None
+        assert m.get("__commons__", "document", "/b.md") == "h2"
 
     def test_load_for_graph_is_scoped(self, tmp_path):
         m = self._mk(tmp_path)
-        m.record("__bus__", "codebase_file", "/a.py", "h1")
-        m.record("__bus__", "codebase_file", "/b.py", "h2")
+        m.record("__commons__", "codebase_file", "/a.py", "h1")
+        m.record("__commons__", "codebase_file", "/b.py", "h2")
         m.record("other", "codebase_file", "/c.py", "h3")
-        assert m.load_for_graph("__bus__", "codebase_file") == {
+        assert m.load_for_graph("__commons__", "codebase_file") == {
             "/a.py": "h1",
             "/b.py": "h2",
         }

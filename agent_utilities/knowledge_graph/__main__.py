@@ -71,9 +71,9 @@ async def main():
     if args.stage_to_queue:
         config.persist_to_ladybug = False
         # Isolate this bulk-ingest subprocess's scratch symbol graph in its own
-        # tenant so concurrent repo ingests don't saturate the shared "__bus__"
+        # tenant so concurrent repo ingests don't saturate the shared "__commons__"
         # tenant (which the main process uses for the task queue + graph-writer).
-        # Only the final staged payload is merged into "__bus__" downstream.
+        # Only the final staged payload is merged into "__commons__" downstream.
         pipeline = IntelligencePipeline(
             config, graph_name=f"stage_{args.stage_to_queue}"
         )
@@ -157,11 +157,11 @@ async def main():
             print(f"Graph staged to queue for job {args.stage_to_queue}")
 
             # Drop the ephemeral scratch tenant — its payload now lives in the
-            # staging queue and will be merged into "__bus__" by the graph-writer.
+            # staging queue and will be merged into "__commons__" by the graph-writer.
             try:
                 graph_name = getattr(pipeline, "graph_name", None)
                 client = getattr(pipeline.graph, "_client", None)
-                if graph_name and graph_name != "__bus__" and client is not None:
+                if graph_name and graph_name != "__commons__" and client is not None:
                     client.tenants.delete(graph_name)
             except Exception as e:
                 logging.getLogger(__name__).debug(

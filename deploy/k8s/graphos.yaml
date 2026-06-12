@@ -33,7 +33,7 @@ data:
   AUTH_JWT_ISSUER: "https://keycloak.example.com/realms/agent-os"
   AUTH_JWT_AUDIENCE: "graph-os"
   # Commons (shared, cross-org) graph name — tenants route to tenant__<slug>__<this>.
-  KG_DEFAULT_GRAPH: "__bus__"
+  KG_DEFAULT_GRAPH: "__commons__"
   # KG-2.58 engine shards (headless StatefulSet DNS). HRW routes each tenant graph
   # to exactly one shard; add/remove endpoints to scale the engine tier.
   GRAPH_SERVICE_ENDPOINTS: "tcp://graphos-engine-0.graphos-engine:9090,tcp://graphos-engine-1.graphos-engine:9090,tcp://graphos-engine-2.graphos-engine:9090"

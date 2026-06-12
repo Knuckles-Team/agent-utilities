@@ -874,7 +874,7 @@ class AgentConfig(BaseSettings):
             self.kg_fuseki_publish = True
         return self
 
-    kg_default_graph: str = Field(default="__bus__", alias="KG_DEFAULT_GRAPH")
+    kg_default_graph: str = Field(default="__commons__", alias="KG_DEFAULT_GRAPH")
     """Default named graph for engine clients that don't target an explicit
     graph. In sharded mode (2+ GRAPH_SERVICE_ENDPOINTS) an ambient
     ActorContext tenant maps this default onto its per-tenant graph
