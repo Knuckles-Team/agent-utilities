@@ -381,13 +381,24 @@ def _sdd_tasks_markdown(title: str, proposal_id: str) -> str:
 # ── the synthesis entry point ────────────────────────────────────────
 
 
-def synthesize_change_set(proposal: Any, *, validate: bool = True) -> ChangeSet:
+def synthesize_change_set(
+    proposal: Any,
+    *,
+    validate: bool = True,
+    extra_files: list[FileChange] | None = None,
+) -> ChangeSet:
     """Materialize a promoted proposal into a concrete :class:`ChangeSet`.
 
     Code-bearing proposals (embedded ``files``) become ``kind="code"`` change
     sets, sandbox-validated when ``validate`` (the default). Prose proposals
     become a ``kind="sdd_plan"`` SDD skeleton under ``.specify/specs/<topic>/``
     — that skeleton IS the reviewable artifact for a prose proposal.
+
+    ``extra_files`` are file artifacts produced *upstream* by the autonomous
+    code-synthesis stage (CONCEPT:AHE-3.22, ``code_synthesis.py``) for a proposal
+    that carries no embedded ``files`` of its own. They are treated exactly like
+    embedded files — same ``kind="code"`` branch, same sandbox validation — so
+    this module itself stays LLM-free; generation happens before we are called.
     """
     from ..enrichment.extractors.document import slug
 
@@ -399,6 +410,8 @@ def synthesize_change_set(proposal: Any, *, validate: bool = True) -> ChangeSet:
     concept_ids = _concept_ids(proposal)
 
     files = extract_embedded_files(proposal)
+    if not files and extra_files:
+        files = [f for f in extra_files if isinstance(f, FileChange)]
     if files:
         change = ChangeSet(
             proposal_id=proposal_id,
