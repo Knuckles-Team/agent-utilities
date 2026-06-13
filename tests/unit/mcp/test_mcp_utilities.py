@@ -43,6 +43,21 @@ def test_create_mcp_server_basic(mock_fastmcp):
         assert len(middlewares) >= 2  # Default middlewares
 
 
+def test_create_mcp_server_exposes_metrics_health_and_tool_middleware(monkeypatch):
+    """A factory-built server mounts unauthenticated /metrics + /health routes
+    and the per-tool metrics middleware (CONCEPT:OS-5.23). Uses the real FastMCP
+    (no mock) so the registered HTTP routes can be inspected."""
+    monkeypatch.setattr("sys.argv", ["test-mcp"])  # defaults: auth none, eunomia none
+    args, mcp, middlewares = mcp_utilities.create_mcp_server(
+        name="metrics-test", version="0.0.0", instructions="t"
+    )
+    mw_names = {type(m).__name__ for m in middlewares}
+    assert "ToolMetricsMiddleware" in mw_names
+    paths = {getattr(r, "path", None) for r in mcp.http_app().routes}
+    assert "/metrics" in paths
+    assert "/health" in paths
+
+
 def test_load_mcp_servers_from_config_missing():
     servers = mcp_utilities.load_mcp_servers_from_config("non_existent.json")
     assert servers == []
