@@ -23,10 +23,13 @@ are exposed by the `graph-os` MCP server and mirrored 1:1 by the REST gateway
 
 The REST gateway mounts the same surface under `/api`: the 25 action-routed
 twins plus granular sub-routes (`/api/graph/write/node`, `/api/graph/ingest/jobs`,
-`/api/sessions`, `/api/goals`, …) — 104 KG routes in total — alongside the
-fleet supervisory plane (`/api/fleet/*`, 7 routes), the service dashboard
-(`/api/dashboard/*`, including daemon status/shards), and Prometheus
-`GET /metrics`.
+`/api/sessions`, `/api/goals`, …), alongside the fleet supervisory plane
+(`/api/fleet/*` — health/topology/pause/kill/approvals plus the correlation
+queries `/api/fleet/trace` and `/api/fleet/touched`), a granular **typed**
+OpenAPI surface for the ontology/object layer (`/api/ontology/value-types/{name}`,
+`/api/ontology/interfaces/{name}`, `/api/objects/{id}`, `/api/objects/{id}/history`,
+… — see `gateway/ontology_api.py`), the service dashboard (`/api/dashboard/*`,
+including daemon status/shards), and Prometheus `GET /metrics`.
 
 ## Knowledge graph: store & recall
 

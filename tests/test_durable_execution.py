@@ -93,3 +93,37 @@ def test_idempotency_survives_restart(db):
     )
     assert ran_again["n"] == 0
     assert out == "done"
+
+
+async def test_arun_durable_action_exactly_once(db):
+    # Async twin used by the live goal loop / dispatch worker: a redelivery with
+    # the same key must not re-run the awaitable effect.
+    manager = DurableExecutionManager("s6", db_path=db)
+    calls = {"n": 0}
+
+    async def effect():
+        calls["n"] += 1
+        return {"id": "xyz"}
+
+    first = await manager.arun_durable_action("turn", effect, idempotency_key="T-1")
+    second = await manager.arun_durable_action("turn", effect, idempotency_key="T-1")
+
+    assert calls["n"] == 1
+    assert first == {"id": "xyz"} == second
+
+
+async def test_arun_durable_action_survives_restart(db):
+    await DurableExecutionManager("s7", db_path=db).arun_durable_action(
+        "turn", lambda: "done", idempotency_key="T-2"
+    )
+    ran = {"n": 0}
+
+    async def again():
+        ran["n"] += 1
+        return "second"
+
+    out = await DurableExecutionManager("s7", db_path=db).arun_durable_action(
+        "turn", again, idempotency_key="T-2"
+    )
+    assert ran["n"] == 0
+    assert out == "done"
