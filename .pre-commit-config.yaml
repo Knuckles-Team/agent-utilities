@@ -214,3 +214,31 @@ repos:
     pass_filenames: false
     always_run: true
     verbose: true
+  # The four gates below mirror the CI "Guardrails" workflow (guardrails.yml) so
+  # a push can't fail a gate that pre-commit didn't already catch locally.
+  - id: guardrail-eval-corpus
+    name: Guardrail — eval corpus
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_eval_corpus.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-reliability-corpus
+    name: Guardrail — reliability corpus
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_reliability_corpus.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-liveness
+    name: Guardrail — liveness ratchet
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_liveness.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-gate-meta-tests
+    name: Guardrail — gate meta-tests (prove every gate can fail)
+    # Runs in the repo being committed (pre-commit cwd = repo root) so worktrees
+    # are gated on their OWN gate tests, matching the prod-profile guard above.
+    entry: bash -c 'python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""'
+    language: system
+    pass_filenames: false
+    always_run: true
