@@ -182,27 +182,25 @@ def test_ladybug_backend_escaped_properties(temp_db_dir):
     # Reserved keyword 'order'
     engine.add_node("node1", "MemoryNode", {"order": 5, "name": "Test Node"})
 
-    # Check what query was executed
-    # It should have called mock_backend.execute twice: once for MATCH/SET (update) and once for CREATE (insert) if MATCH returned empty
+    # Check what query was executed. The upsert is a single idempotent
+    # MERGE-on-id + SET (the prior MATCH/SET-then-CREATE form silently dropped
+    # nodes on the epistemic_graph backend), so reserved-keyword properties are
+    # escaped in the SET clause.
     assert mock_backend.execute.call_count >= 1
 
-    # Let's inspect the arguments passed to mock_backend.execute
-    # First call: Match query
-    # MATCH (n:MemoryNode) WHERE n.id = $id SET n.`order` = $order, n.`name` = $name RETURN n.id
+    # MERGE (n:MemoryNode {id: $id}) SET n.`order` = $order, n.`name` = $name
     calls = mock_backend.execute.call_args_list
-    match_query = calls[0][0][0]
-    assert "n.`order` = $order" in match_query
-    assert "n.`name` = $name" in match_query
+    merge_query = calls[0][0][0]
+    assert "MERGE (n:MemoryNode {id: $id})" in merge_query
+    assert "n.`order` = $order" in merge_query
+    assert "n.`name` = $name" in merge_query
 
-    # 2. Test create query formatting when not found
-    mock_backend.execute.return_value = []  # MATCH returns empty, triggering CREATE
+    # 2. A node with only a reserved-keyword property still escapes it in SET.
+    mock_backend.reset_mock()
     engine.add_node("node2", "MemoryNode", {"order": 10})
-
-    # The last execute call should be the CREATE query:
-    # CREATE (n:MemoryNode {id: $id, `order`: $order})
-    create_query = mock_backend.execute.call_args_list[-1][0][0]
-    assert "CREATE (n:MemoryNode" in create_query
-    assert "`order`: $order" in create_query
+    upsert_query = mock_backend.execute.call_args_list[-1][0][0]
+    assert "MERGE (n:MemoryNode {id: $id})" in upsert_query
+    assert "n.`order` = $order" in upsert_query
 
 
 def test_relative_db_path_resolves_under_data_dir_not_cwd():
