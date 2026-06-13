@@ -215,23 +215,48 @@ def _get_engine() -> Any:
     return _kg_engine()
 
 
+def _correlation_stamp() -> dict[str, str]:
+    """Correlation + identity to stamp on persisted effect nodes (CONCEPT:OS-5.11).
+
+    Stamping the originating ``correlation_id`` (+ actor/tenant) onto the durable
+    node is what makes the swarm-wide ``/api/fleet/trace`` and ``/api/fleet/touched``
+    queries answerable from the graph rather than only from external traces.
+    """
+    stamp: dict[str, str] = {}
+    try:
+        from agent_utilities.observability import correlation
+
+        stamp["correlation_id"] = correlation.ensure_correlation_id()
+        try:
+            from agent_utilities.security.brain_context import current_actor
+
+            actor = current_actor()
+            if actor.actor_id and actor.actor_id != "system":
+                stamp["actor_id"] = actor.actor_id
+            if actor.tenant_id:
+                stamp["tenant_id"] = actor.tenant_id
+        except Exception:  # noqa: BLE001 — identity is best-effort context
+            pass
+    except Exception:  # noqa: BLE001 — correlation is best-effort context
+        pass
+    return stamp
+
+
 def persist_event(engine: Any, event: FleetEvent) -> str:
     """Write the event as a ``FleetEvent`` KG node; returns the node id."""
     event_id = f"fleet_event:{uuid.uuid4().hex[:12]}"
-    engine.add_node(
-        event_id,
-        "FleetEvent",
-        properties={
-            "source": event.source,
-            "severity": event.severity,
-            "subject": event.subject,
-            "status": event.status,
-            "summary": event.summary[:500],
-            "raw": json.dumps(event.raw, default=str)[:4000],
-            "received_at": event.received_at,
-            "triage_status": "pending",
-        },
-    )
+    properties = {
+        "source": event.source,
+        "severity": event.severity,
+        "subject": event.subject,
+        "status": event.status,
+        "summary": event.summary[:500],
+        "raw": json.dumps(event.raw, default=str)[:4000],
+        "received_at": event.received_at,
+        "triage_status": "pending",
+    }
+    properties.update(_correlation_stamp())
+    engine.add_node(event_id, "FleetEvent", properties=properties)
     return event_id
 
 

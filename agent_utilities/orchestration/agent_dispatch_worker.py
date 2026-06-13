@@ -71,6 +71,19 @@ def worker_token() -> str:
     return f"{socket.gethostname()}:{os.getpid()}:agent-dispatch"
 
 
+def _turn_correlation_id() -> str:
+    """Correlation id stamped on the executed Task node (CONCEPT:OS-5.11).
+
+    Makes ``/api/fleet/touched`` able to resolve which agent turn touched a task.
+    """
+    try:
+        from agent_utilities.observability import correlation
+
+        return correlation.ensure_correlation_id()
+    except Exception:  # noqa: BLE001 — best-effort context
+        return ""
+
+
 # ── claims (idempotent, stale-claim aware) ─────────────────────────────────
 
 
@@ -236,31 +249,57 @@ def _execute_goal_turn(spec: dict[str, Any]) -> str:
 def _execute_orchestrator_turn(
     engine: Any, envelope: AgentTurnEnvelope, claim: dict[str, Any]
 ) -> str:
-    """Run the claimed orchestrator job via the existing agent execution path."""
+    """Run the claimed orchestrator job via the existing agent execution path.
+
+    The agent invocation is wrapped in a durable action keyed by ``job_id``
+    (CONCEPT:OS-5.16): the queue gives at-least-once delivery, so a redelivery
+    of the same turn returns the recorded result instead of re-running the
+    agent (exactly-once effect), complementing the stale-claim guard above.
+    """
     import asyncio
 
+    from agent_utilities.orchestration.durable_execution import (
+        DurableExecutionManager,
+    )
     from agent_utilities.orchestration.manager import Orchestrator
 
     orch = Orchestrator(engine)
+    durable = DurableExecutionManager(session_id=envelope.session_id)
+
+    async def _invoke() -> Any:
+        return await orch.execute_agent(
+            agent_name=envelope.agent_name,
+            task=claim["description"],
+            session_id=envelope.session_id,
+        )
+
     try:
         output = asyncio.run(
-            orch.execute_agent(
-                agent_name=envelope.agent_name,
-                task=claim["description"],
-                session_id=envelope.session_id,
+            durable.arun_durable_action(
+                node_id=f"orchestrator_task:{envelope.job_id}",
+                action=_invoke,
+                idempotency_key=envelope.job_id,
             )
         )
     except Exception as e:  # noqa: BLE001 — durably mark failed, then ack
         engine._update_task_status(
             envelope.payload_ref,
             "failed",
-            {"error": str(e), "executed_by": worker_token()},
+            {
+                "error": str(e),
+                "executed_by": worker_token(),
+                "correlation_id": _turn_correlation_id(),
+            },
         )
         return "failed"
     engine._update_task_status(
         envelope.payload_ref,
         "completed",
-        {"result": str(output)[:4000], "executed_by": worker_token()},
+        {
+            "result": str(output)[:4000],
+            "executed_by": worker_token(),
+            "correlation_id": _turn_correlation_id(),
+        },
     )
     return "completed"
 

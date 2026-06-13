@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Durable execution wired into the live path (CONCEPT:OS-5.16).** The
+  `DurableExecutionManager` was built but uninvoked; it now runs on the real async
+  paths via the new `arun_durable_action`. `run_goal_loop` resumes from the last
+  in-flight checkpoint on restart and wraps each iteration's validation under an
+  idempotency key `{goal_id}:{iteration}`; the dispatch worker wraps the agent
+  invocation under the turn `job_id` — a crash-resume or at-least-once redelivery
+  never re-applies an effect that already ran.
+- **Queryable cross-agent correlation / blast-radius (CONCEPT:OS-5.11).**
+  `persist_event` stamps `correlation_id` (+ actor/tenant) onto `FleetEvent`
+  nodes, and the dispatch worker stamps it onto executed `Task` nodes. New
+  supervisory reads: `GET /api/fleet/trace?correlation_id=…` (full run trace) and
+  `GET /api/fleet/touched?resource=…` (who touched X).
+- **Granular typed OpenAPI surface for the ontology/object layer**
+  (`gateway/ontology_api.py`): resource-style GET routes
+  (`/api/ontology/value-types/{name}`, `/ontology/interfaces/{name}`,
+  `/ontology/functions/{name}`, `/objects/{id}`, `/objects/{id}/history`,
+  `/objects/{id}/as-of`) that appear in `/openapi.json` and dispatch through the
+  same `_execute_tool` single source of truth as the collapsed routes/MCP tools.
+- **Fleet chaos coverage** (`tests/integration/test_fleet_chaos.py`): whole-domain
+  pause containment + concurrent goal loops honoring pause with zero side effects.
+
 ### Changed
 - **Configuration discipline — the env-read fold is COMPLETE: zero bare
   `os.environ`/`os.getenv` reads remain anywhere in `agent_utilities/`** (every
