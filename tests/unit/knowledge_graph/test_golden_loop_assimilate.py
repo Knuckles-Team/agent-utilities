@@ -127,9 +127,10 @@ def test_cycle_metrics_and_evolution_node_persisted():
     m = report["metrics"]
     assert "duration_ms" in m and m["error_count"] == 0
     assert "assimilate" in m["stage_ms"] and "intake" in m["stage_ms"]
-    # a queryable EvolutionCycle node was persisted
+    # a queryable EvolutionCycle node was persisted under the shared id/type
+    # convention used by the daemon tick (engine_tasks._tick_evolution)
     cycles = [
-        nid for nid in engine.graph.nodes() if str(nid).startswith("evolution_cycle:")
+        nid for nid in engine.graph.nodes() if str(nid).startswith("evo_cycle_")
     ]
     assert len(cycles) == 1
 

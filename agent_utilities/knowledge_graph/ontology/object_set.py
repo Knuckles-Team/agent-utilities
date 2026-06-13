@@ -164,10 +164,18 @@ def _prop(props: Mapping[str, Any], field: str) -> Any:
     """Read a logical field from an object's property mapping.
 
     The ``"type"`` field is resolved across the common object-type aliases the
-    graph layers use (``type`` / ``_type`` / ``label``).
+    graph layers use (``type`` / ``_type`` / ``node_type`` / ``label``). The
+    ingestion path (``engine_ingestion``) writes the canonical label under
+    ``node_type`` (matching ``add_node(node_type=...)``), so it must be in the
+    chain or type-filtered object sets miss every ingested node.
     """
     if field == "type":
-        return props.get("type") or props.get("_type") or props.get("label")
+        return (
+            props.get("type")
+            or props.get("_type")
+            or props.get("node_type")
+            or props.get("label")
+        )
     return props.get(field)
 
 

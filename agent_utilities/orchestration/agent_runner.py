@@ -36,6 +36,42 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _flatten_exception_group(exc: BaseException) -> str:
+    """Flatten a (possibly nested) ExceptionGroup into an actionable message.
+
+    CONCEPT:ORCH-1.21 — when a remote MCP child fails, anyio wraps the real cause
+    in a ``BaseExceptionGroup`` whose ``str()`` is the opaque "unhandled errors in
+    a TaskGroup (N sub-exceptions)". This recursively collects the LEAF exceptions
+    so the caller sees the actual error message(s) (and, where the leaf carries it,
+    which child server/URL failed) instead of a sub-exception count.
+
+    Returns a single ``"; "``-joined string of de-duplicated leaf messages. For a
+    non-group exception it returns ``str(exc)`` unchanged.
+    """
+    leaves: list[str] = []
+    seen: set[str] = set()
+
+    def _walk(e: BaseException) -> None:
+        if isinstance(e, BaseExceptionGroup):
+            for sub in e.exceptions:
+                _walk(sub)
+            return
+        # Prefer "<ExcType>: <msg>" so the failure kind is visible even when the
+        # message is empty (e.g. a bare ConnectError).
+        msg = str(e).strip()
+        label = type(e).__name__
+        rendered = f"{label}: {msg}" if msg else label
+        if rendered not in seen:
+            seen.add(rendered)
+            leaves.append(rendered)
+
+    _walk(exc)
+    if not leaves:
+        # No leaf errors (e.g. an empty group) — fall back to the group's own repr.
+        return str(exc).strip() or type(exc).__name__
+    return "; ".join(leaves)
+
+
 async def run_agent(
     agent_name: str,
     task: str,
@@ -259,20 +295,32 @@ async def run_agent(
                 max_steps=max_steps,
                 agent_meta=agent_meta,
             )
-    except Exception as e:
+    except BaseException as e:  # noqa: BLE001 — see _flatten_exception_group
+        # A remote MCP child (streamable-http/sse) that fails to connect or errors
+        # mid-call surfaces through anyio as a BaseExceptionGroup ("unhandled errors
+        # in a TaskGroup (1 sub-exception)") — an opaque message that hides WHICH
+        # child failed and WHY. BaseExceptionGroup is a BaseException (not always an
+        # Exception), so we catch BaseException and flatten the group to surface the
+        # real underlying error(s); a bare KeyboardInterrupt/SystemExit (no leaf
+        # errors) is re-raised untouched.
+        if isinstance(e, KeyboardInterrupt | SystemExit) and not isinstance(
+            e, BaseExceptionGroup
+        ):
+            raise
+        err_msg = _flatten_exception_group(e)
         logger.error(
             "[ORCH-1.21] Agent execution failed: agent=%s, error=%s",
             agent_name,
-            e,
+            err_msg,
         )
         # Record failure provenance
         _record_execution_trace(
-            engine, run_id, agent_name, task, status="failed", error=str(e)
+            engine, run_id, agent_name, task, status="failed", error=err_msg
         )
         # ARPO read-back (CONCEPT:AHE-3.15): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
         _write_step_credit(engine, run_id, agent_name, None, success=False)
-        return f"Agent execution failed: {e}"
+        return f"Agent execution failed: {err_msg}"
 
     # Step 5: Record success provenance
     duration_ms = (time.monotonic() - start_time) * 1000
@@ -510,9 +558,9 @@ def _build_execution_config(
         recent_mementos = get_recent_mementos(engine, source=agent_name, limit=3)
         if recent_mementos:
             memento_text = "\n\n---\n\n".join(recent_mementos)
-            tag_prompts["mementos"] = (
-                f"Past Context Mementos (Compressed State):\n{memento_text}"
-            )
+            tag_prompts[
+                "mementos"
+            ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
     except Exception as e:
         logger.debug("Failed to fetch Mementos for context: %s", e)
 
@@ -656,17 +704,13 @@ def _build_execution_config(
 # ---------------------------------------------------------------------------
 
 
-def _is_single_server_agent(
-    agent_meta: dict[str, Any], config: dict[str, Any]
-) -> bool:
+def _is_single_server_agent(agent_meta: dict[str, Any], config: dict[str, Any]) -> bool:
     """True when the resolved agent is exactly one MCP server with a bound toolset.
 
     Such an agent is eligible for the deterministic direct-execution path: it has a
     concrete toolset to call, so there is nothing for the multi-agent router to plan.
     """
-    return bool(
-        agent_meta.get("type") == "server" and config.get("mcp_toolsets")
-    )
+    return bool(agent_meta.get("type") == "server" and config.get("mcp_toolsets"))
 
 
 async def _execute_single_server(
@@ -692,12 +736,39 @@ async def _execute_single_server(
     toolsets = list(config.get("mcp_toolsets") or [])
 
     # ORCH-1.39 least-privilege: restrict to the invoker's tool allow-list.
+    # The filtered toolset MUST reach the agent as a real callable toolset (it is
+    # passed through to ``create_agent(mcp_toolsets=...)`` → ``Agent(toolsets=...)``,
+    # not merely described in the prompt). A ``.filtered()`` failure must NOT be
+    # swallowed into an agent with zero bound tools that then hallucinates a tool
+    # call — fail loudly instead (CONCEPT:ORCH-1.39).
     allowed = config.get("invoker_allowed_tools")
     if allowed:
         allow_set = {str(t).strip() for t in allowed if str(t).strip()}
-        toolsets = [
-            ts.filtered(lambda _ctx, td, _a=allow_set: td.name in _a) for ts in toolsets
-        ]
+        filtered: list[Any] = []
+        for ts in toolsets:
+            _filter = getattr(ts, "filtered", None)
+            if not callable(_filter):
+                raise RuntimeError(
+                    f"toolset {type(ts).__name__!r} does not support tool filtering; "
+                    f"cannot enforce allowed_tools={sorted(allow_set)} for agent "
+                    f"'{agent_name}'"
+                )
+            filtered.append(_filter(lambda _ctx, td, _a=allow_set: td.name in _a))
+        toolsets = filtered
+
+    # An agent resolved as a single MCP server but left with no toolset would have
+    # nothing to call and would fabricate tool calls. Surface that clearly rather
+    # than producing a zero-tool agent (CONCEPT:ORCH-1.21).
+    if not toolsets:
+        raise RuntimeError(
+            f"agent '{agent_name}' resolved to a single MCP server but has no bound "
+            f"toolset to invoke"
+            + (
+                f" (allowed_tools={sorted({str(t).strip() for t in allowed if str(t).strip()})})"
+                if allowed
+                else ""
+            )
+        )
 
     system_prompt = agent_meta.get("system_prompt") or (
         f"You are the '{agent_name}' agent with direct access to its MCP server "
