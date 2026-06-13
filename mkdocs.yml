@@ -59,6 +59,7 @@ nav:
       - Deploying agent-utilities: guides/deployment.md
       - Configuration: guides/configuration.md
       - Configuration Reference & Flag Audit: architecture/configuration.md
+      - MCP Fleet Auth & Monitoring Runbook: guides/mcp-fleet-auth-and-monitoring-runbook.md
       - Enabling Autonomous Evolution: guides/autonomous-evolution.md
       - Tiered Graph Engine: guides/tiered_graph_engine.md
   - Worked Examples:
@@ -103,6 +104,8 @@ nav:
       - Ontology System: architecture/ontology_system.md
       - Graph Backend Architecture: architecture/graph_backends_architecture.md
       - OWL/RDF Layer (local, always-on): architecture/owl_rdf_layer.md
+      - MCP Fleet Authentication (JWT + Eunomia): architecture/mcp_auth.md
+      - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
       - Capacity Model: scaling/capacity_model.md
   - Reference:
       - Metrics Reference: reference/metrics.md
