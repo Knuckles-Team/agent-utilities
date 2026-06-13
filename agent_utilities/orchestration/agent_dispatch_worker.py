@@ -71,6 +71,19 @@ def worker_token() -> str:
     return f"{socket.gethostname()}:{os.getpid()}:agent-dispatch"
 
 
+def _turn_correlation_id() -> str:
+    """Correlation id stamped on the executed Task node (CONCEPT:OS-5.11).
+
+    Makes ``/api/fleet/touched`` able to resolve which agent turn touched a task.
+    """
+    try:
+        from agent_utilities.observability import correlation
+
+        return correlation.ensure_correlation_id()
+    except Exception:  # noqa: BLE001 — best-effort context
+        return ""
+
+
 # ── claims (idempotent, stale-claim aware) ─────────────────────────────────
 
 
@@ -272,13 +285,21 @@ def _execute_orchestrator_turn(
         engine._update_task_status(
             envelope.payload_ref,
             "failed",
-            {"error": str(e), "executed_by": worker_token()},
+            {
+                "error": str(e),
+                "executed_by": worker_token(),
+                "correlation_id": _turn_correlation_id(),
+            },
         )
         return "failed"
     engine._update_task_status(
         envelope.payload_ref,
         "completed",
-        {"result": str(output)[:4000], "executed_by": worker_token()},
+        {
+            "result": str(output)[:4000],
+            "executed_by": worker_token(),
+            "correlation_id": _turn_correlation_id(),
+        },
     )
     return "completed"
 
