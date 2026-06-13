@@ -35,6 +35,36 @@ except ImportError:  # pragma: no cover - exercised only without the extra
 logger = logging.getLogger(__name__)
 
 
+def apply_fastmcp_enabled_compat() -> None:
+    """Give fastmcp 3.x components the ``enabled`` attribute eunomia-mcp expects.
+
+    ``eunomia_mcp`` (0.3.x) gates every authorized call on ``component.enabled``
+    (``EunomiaMcpMiddleware._authorize_execution``), an attribute that existed on
+    fastmcp **2.x** tool/resource/prompt components. fastmcp **3.x** removed it —
+    in 3.x there is no per-component disable flag, every *registered* component is
+    live — so the access raises ``'FunctionTool' object has no attribute 'enabled'``
+    and turns every tool call on a eunomia-enforced server into an internal error.
+
+    Until eunomia-mcp targets fastmcp 3.x, expose the attribute it reads on the
+    shared component base with the value 3.x semantics already guarantee (always
+    enabled). Idempotent; a no-op on fastmcp 2.x (where the field exists) or when
+    fastmcp is absent.
+    """
+    try:
+        from fastmcp.utilities.components import FastMCPComponent
+    except ImportError:  # pragma: no cover - fastmcp not installed
+        return
+    if "enabled" in getattr(FastMCPComponent, "model_fields", {}):
+        return  # fastmcp 2.x already provides it as a real field
+    if not hasattr(FastMCPComponent, "enabled"):
+        FastMCPComponent.enabled = True  # type: ignore[attr-defined]
+
+
+# Applied on import so the embedded (JWT) path below is covered; the remote path
+# calls it explicitly from the server factory.
+apply_fastmcp_enabled_compat()
+
+
 class JwtPrincipalEunomiaMiddleware(EunomiaMcpMiddleware):  # type: ignore[valid-type,misc]
     """Eunomia middleware whose principal is the verified JWT, not a header."""
 

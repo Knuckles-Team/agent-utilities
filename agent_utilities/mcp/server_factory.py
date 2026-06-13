@@ -560,6 +560,15 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
         try:
             from eunomia_mcp import create_eunomia_middleware
 
+            # eunomia-mcp gates on the fastmcp-2.x-only ``component.enabled``;
+            # restore it for fastmcp 3.x before any middleware runs (covers the
+            # remote path, which does not import eunomia_principal).
+            from agent_utilities.mcp.eunomia_principal import (
+                apply_fastmcp_enabled_compat,
+            )
+
+            apply_fastmcp_enabled_compat()
+
             if args.eunomia_type == "remote":
                 eunomia_mw = create_eunomia_middleware(
                     policy_file=None,
