@@ -506,9 +506,7 @@ async def fleet_trace(request: Request) -> JSONResponse:
             "MATCH (n) WHERE n.correlation_id = $cid RETURN n LIMIT $limit",
             {"cid": cid, "limit": limit},
         )
-        nodes = [
-            row.get("n") if isinstance(row, dict) else row for row in (rows or [])
-        ]
+        nodes = [row.get("n") if isinstance(row, dict) else row for row in (rows or [])]
         return JSONResponse(
             {"status": "success", "correlation_id": cid, "nodes": nodes}
         )
@@ -544,11 +542,7 @@ async def fleet_touched(request: Request) -> JSONResponse:
             row.get("e") if isinstance(row, dict) else row for row in (rows or [])
         ]
         actors = sorted(
-            {
-                e["actor_id"]
-                for e in events
-                if isinstance(e, dict) and e.get("actor_id")
-            }
+            {e["actor_id"] for e in events if isinstance(e, dict) and e.get("actor_id")}
         )
         return JSONResponse(
             {
