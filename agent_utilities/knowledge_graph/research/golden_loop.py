@@ -421,21 +421,39 @@ class GoldenLoopController:
         if report["errors"]:
             logger.warning("golden-loop cycle errors: %s", report["errors"])
         # Monitoring: persist a queryable EvolutionCycle node (best-effort).
-        # ``errors``/``stage_ms`` are JSON-encoded: the durable (Postgres) backend
-        # cannot adapt a raw dict/list into a column value.
+        # One node type (``EvolutionCycle``) and id convention (``evo_cycle_<ts>``)
+        # shared with the daemon tick (``engine_tasks._tick_evolution``) so a
+        # ``MATCH (e:EvolutionCycle)`` sees both on-demand and scheduled cycles;
+        # ``triggered_by`` discriminates the source. ``errors``/``stage_ms`` are
+        # JSON-encoded: the durable (Postgres) backend cannot adapt a raw
+        # dict/list into a column value.
         import json
+        import time as _time
 
+        now_iso = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+        cycle_id = f"evo_cycle_{_time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        # Conform to the EvolutionCycle table schema (schema_definition.py): only
+        # known columns are first-class; cycle-specific metrics go in ``metadata``
+        # (a JSON STRING column) so the durable (Postgres) backend accepts them.
         try:
             self.engine.add_node(
-                f"evolution_cycle:{uuid.uuid4().hex[:10]}",
-                "orchestration_cycle",
+                cycle_id,
+                "EvolutionCycle",
                 properties={
-                    "duration_ms": m["duration_ms"],
-                    "error_count": m["error_count"],
-                    "errors": json.dumps(report["errors"][:10]),
-                    "topics_intake": report["topics_intake"],
-                    "open_gaps": m["open_gaps"],
-                    "stage_ms": json.dumps(m["stage_ms"]),
+                    "triggered_by": "golden_loop",
+                    "topics_scanned": report["topics_intake"],
+                    "created_at": now_iso,
+                    "timestamp": now_iso,
+                    "metadata": json.dumps(
+                        {
+                            "duration_ms": m["duration_ms"],
+                            "error_count": m["error_count"],
+                            "errors": report["errors"][:10],
+                            "topics_intake": report["topics_intake"],
+                            "open_gaps": m["open_gaps"],
+                            "stage_ms": m["stage_ms"],
+                        }
+                    ),
                 },
             )
         except Exception as e:  # noqa: BLE001 - monitoring persist is best-effort

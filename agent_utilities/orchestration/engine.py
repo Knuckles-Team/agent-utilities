@@ -39,6 +39,14 @@ DEFAULT_GRAPH_VERIFIER_TIMEOUT = 120000
 DEFAULT_PROVIDER = DEFAULT_LLM_PROVIDER
 DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
 
+# Wall-clock budget (seconds) for a single spawned agent in a workflow fan-out.
+# CONCEPT:ORCH-1.24 — ``max_steps`` bounds interaction ROUNDS, not time: a spawned
+# agent that awaits an unresponsive MCP tool never advances a step, so the fan-out
+# ``asyncio.gather`` would hang to the caller's 300s timeout. We bound each spawned
+# ``run_agent`` by wall-clock so a stuck child resolves to a structured timeout error
+# (Configuration-discipline: a module constant, not an env flag).
+AGENT_WALLCLOCK_TIMEOUT_S = 120.0
+
 from agent_utilities.core.config import (
     DEFAULT_GRAPH_TIMEOUT,
     emit_graph_event,
@@ -65,6 +73,22 @@ from agent_utilities.models.execution_manifest import (
     ExecutionManifest,
     ExecutionResult,
 )
+
+
+def _is_agent_error(output: str) -> bool:
+    """True when a spawned-agent output string is a structured error envelope.
+
+    ``_run_agent_bounded`` encodes a timeout/failure as a JSON ``{"error", "agent"}``
+    string. Such a value is a ``str`` and truthy, so the fan-out's
+    ``isinstance(r, str) and r`` filter would otherwise mistake it for real output.
+    """
+    s = output.strip()
+    if not (s.startswith("{") and '"error"' in s):
+        return False
+    try:
+        return isinstance(json.loads(s), dict) and "error" in json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        return False
 
 
 # implements core.execution.ExecutionEngine
@@ -1307,6 +1331,53 @@ class AgentOrchestrationEngine:
         )
         return {"status": "success", "results": results}
 
+    async def _run_agent_bounded(
+        self,
+        agent_name: str,
+        task: str,
+        timeout_s: float,
+        max_steps: int = 30,
+    ) -> str:
+        """Run a spawned agent under a wall-clock budget, never raising.
+
+        CONCEPT:ORCH-1.24 — ``run_agent``'s ``max_steps`` bounds interaction rounds,
+        not time. A spawned agent awaiting an unresponsive MCP tool advances zero
+        steps yet blocks forever, so a bare ``asyncio.gather`` over the fan-out hangs
+        to the caller's outer timeout. Bounding each spawn by ``asyncio.wait_for``
+        converts a stuck child into a clear, JSON-serialisable error so the gather
+        always settles with a usable value.
+
+        Returns the agent's output string, or a structured error string (a JSON
+        ``{"error", "agent"}``) on timeout / failure.
+        """
+        from agent_utilities.orchestration.agent_runner import run_agent
+
+        try:
+            return await asyncio.wait_for(
+                run_agent(
+                    agent_name=agent_name,
+                    task=task,
+                    max_steps=max_steps,
+                    engine=self.engine,
+                ),
+                timeout=timeout_s,
+            )
+        except TimeoutError:
+            logger.error(
+                "Spawned agent '%s' timed out after %.0fs (wall-clock budget)",
+                agent_name,
+                timeout_s,
+            )
+            return json.dumps(
+                {
+                    "error": f"agent execution timed out after {timeout_s:.0f}s",
+                    "agent": agent_name,
+                }
+            )
+        except Exception as e:  # noqa: BLE001 — a spawn failure must not wedge the fan-out
+            logger.error("Spawned agent '%s' failed: %s", agent_name, e)
+            return json.dumps({"error": str(e), "agent": agent_name})
+
     # --- Workflow Execution ---
     async def execute_workflow(self, workflow_id: str, **kwargs: Any) -> dict[str, Any]:
         """Execute a dynamic workflow by ID. Replaces WorkflowRunner.
@@ -1326,14 +1397,22 @@ class AgentOrchestrationEngine:
 
         # 1. Base task setup
         # If there is no explicit completion state, we do standard linear execution (fallback)
+        # Per-spawned-agent wall-clock budget. Honour a caller-supplied override
+        # (kwargs / a threaded ``budget_tokens``-style timeout) before falling back
+        # to the module default (CONCEPT:ORCH-1.24).
+        agent_timeout = float(
+            kwargs.get("agent_timeout_s") or AGENT_WALLCLOCK_TIMEOUT_S
+        )
+
         if not completion_state:
             logger.info(
                 "No completion_state provided. Falling back to standard execution."
             )
-            from agent_utilities.orchestration.agent_runner import run_agent
 
-            result = await run_agent(
-                agent_name="dynamic_worker", task=task, max_steps=30, engine=self.engine
+            result = await self._run_agent_bounded(
+                agent_name="dynamic_worker",
+                task=task,
+                timeout_s=agent_timeout,
             )
             return {"workflow_id": workflow_id, "status": "executed", "output": result}
 
@@ -1371,28 +1450,33 @@ class AgentOrchestrationEngine:
             iteration += 1
             logger.info(f"Dynamic Workflow iteration {iteration}/{max_iterations}")
 
-            # Create an agent to execute the task
-            from agent_utilities.orchestration.agent_runner import run_agent
-
-            # Use max_fan_out to control parallel subagents
+            # Use max_fan_out to control parallel subagents. Each spawned agent is
+            # bounded by wall-clock (not just max_steps) so an unresponsive MCP tool
+            # cannot wedge the gather (CONCEPT:ORCH-1.24).
             tasks = []
             for i in range(min(max_fan_out, 3)):
                 # Add variation to prompt
                 sub_task = f"{current_context}\n\nAttempt {i + 1}. Ensure you work towards: {completion_state}"
                 tasks.append(
-                    run_agent(
+                    self._run_agent_bounded(
                         agent_name=f"dynamic_worker_{i}",
                         task=sub_task,
-                        max_steps=30,
-                        engine=self.engine,
+                        timeout_s=agent_timeout,
                     )
                 )
 
-            # Run parallel fan-out
+            # Run parallel fan-out. _run_agent_bounded never raises (it converts a
+            # timeout/error into a structured error string), so gather always settles.
             fan_out_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Filter successful runs
-            valid_outputs = [r for r in fan_out_results if isinstance(r, str) and r]
+            # Filter successful runs. _run_agent_bounded encodes a timeout/failure as
+            # a JSON ``{"error", "agent"}`` string; those are NOT valid outputs, so
+            # drop them before adversarial review (CONCEPT:ORCH-1.24).
+            valid_outputs = [
+                r
+                for r in fan_out_results
+                if isinstance(r, str) and r and not _is_agent_error(r)
+            ]
             if not valid_outputs:
                 logger.warning("All parallel subagents failed in this iteration.")
                 current_context = f"{current_context}\n\nPrevious attempt failed. Please correct and try again."
