@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 193
+total_concepts: 197
 total_pillars: 19
 pillars:
 - AHE-3
@@ -673,6 +673,13 @@ concepts:
   - agent_utilities/gateway/usage_api.py
   - agent_utilities/mcp/kg_server.py
   doc: clients parse local logs and POST normalized
+- id: ECO-4.43
+  name: ECO-4.43
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/server/routers/enhanced.py
+  doc: ECO-4.43
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -1709,6 +1716,31 @@ concepts:
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
   doc: Multi-Connection Graph Registry. The engine has always been
+- id: KG-2.64
+  name: document → atomic-triple fact extraction
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/extraction/__init__.py
+  - agent_utilities/knowledge_graph/extraction/fact_extractor.py
+  - agent_utilities/mcp/kg_server.py
+  doc: document → atomic-triple fact extraction
+- id: KG-2.65
+  name: GPU-slot-scheduled fact extraction. Unlike the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/gpu_slot_scheduler.py
+  - agent_utilities/mcp/kg_server.py
+  doc: GPU-slot-scheduled fact extraction. Unlike the
+- id: KG-2.66
+  name: KG-2.66
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/protocols/source_connectors/connectors/__init__.py
+  - agent_utilities/protocols/source_connectors/connectors/reader.py
+  doc: KG-2.66
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
