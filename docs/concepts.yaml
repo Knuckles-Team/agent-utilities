@@ -1977,12 +1977,12 @@ concepts:
   - agent_utilities/orchestration/engine.py
   doc: Service Registry Initialization
 - id: ORCH-1.21
-  name: a named MCP-server agent must actually USE that server
+  name: when a remote MCP child fails, anyio wraps the real cause
   pillar: ORCH-1
   status: live
   code_paths:
   - agent_utilities/orchestration/agent_runner.py
-  doc: a named MCP-server agent must actually USE that server
+  doc: when a remote MCP child fails, anyio wraps the real cause
 - id: ORCH-1.22
   name: Workflow Persistence & Replay Relationships
   pillar: ORCH-1
