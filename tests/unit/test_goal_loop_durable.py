@@ -35,6 +35,14 @@ def loop_env(tmp_path, monkeypatch):
     monkeypatch.setattr(_sessions, "_rehydrated", False)
     monkeypatch.setattr(_sessions, "active_goals", {})
     monkeypatch.setattr(_sessions, "background_goal_runs", {})
+    # Pin sqlite state regardless of an ambient STATE_DB_URI (a dev checkout's
+    # .env may externalize state to Postgres, which would bypass the sqlite
+    # monkeypatching above). Both sessions._connect_db and durable _select_store
+    # gate on postgres_state_enabled().
+    monkeypatch.delenv("STATE_DB_URI", raising=False)
+    monkeypatch.setattr(
+        "agent_utilities.core.state_store.postgres_state_enabled", lambda: False
+    )
     # Isolate the durable-execution store to this test's tmp dir.
     durable_db = tmp_path / "durable.db"
     monkeypatch.setenv("DURABLE_EXECUTION_DB", str(durable_db))
