@@ -527,17 +527,24 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
         from agent_utilities.mcp.middlewares import (
             EntityLinkingMiddleware,
             JWTClaimsLoggingMiddleware,
+            ToolMetricsMiddleware,
             UserTokenMiddleware,
         )
     except ImportError:
         UserTokenMiddleware = None  # type: ignore
         JWTClaimsLoggingMiddleware = None  # type: ignore
         EntityLinkingMiddleware = None  # type: ignore
+        ToolMetricsMiddleware = None  # type: ignore
 
     middlewares: list[Any] = [
         ErrorHandlingMiddleware(include_traceback=True, transform_errors=True),
         RateLimitingMiddleware(max_requests_per_second=10.0, burst_capacity=20),
     ]
+
+    # Per-tool Prometheus metrics (count/latency/error) for this server, scraped
+    # from its own /metrics route (CONCEPT:OS-5.23). No-op without the metrics extra.
+    if ToolMetricsMiddleware is not None:
+        middlewares.append(ToolMetricsMiddleware())
 
     if JWTClaimsLoggingMiddleware is not None:
         pass  # Also do not add this as it logs to stdout
@@ -689,6 +696,33 @@ def create_mcp_server(
 
     os.environ["FASTMCP_LOG_LEVEL"] = "CRITICAL"
     mcp = FastMCP(name, auth=auth, instructions=instructions)
+
+    # Unauthenticated operational routes (CONCEPT:OS-5.23). custom_route is
+    # registered on the HTTP app OUTSIDE the MCP auth/eunomia path (same pattern
+    # as graph-os /health), so Prometheus can scrape /metrics and swarm/blackbox
+    # can probe /health without a token. /metrics is overlay-network-scoped (no
+    # Caddy route). Wrapped defensively so older FastMCP builds without
+    # custom_route still produce a working server.
+    try:
+        from starlette.requests import Request as _Request
+        from starlette.responses import JSONResponse as _JSONResponse
+        from starlette.responses import Response as _Response
+
+        from agent_utilities.observability.gateway_metrics import (
+            render_metrics as _render_metrics,
+        )
+
+        @mcp.custom_route("/metrics", methods=["GET"])
+        async def _metrics_route(request: _Request) -> _Response:  # noqa: ARG001
+            body, content_type = _render_metrics()
+            return _Response(content=body, media_type=content_type)
+
+        @mcp.custom_route("/health", methods=["GET"])
+        async def _health_route(request: _Request) -> _JSONResponse:  # noqa: ARG001
+            return _JSONResponse({"status": "ok", "server": name})
+
+    except Exception as _route_exc:  # pragma: no cover - defensive
+        logger.warning(f"Could not register /metrics + /health routes: {_route_exc}")
 
     # Inject dynamic visibility transform for dynamic tag/tool filtering
     try:
