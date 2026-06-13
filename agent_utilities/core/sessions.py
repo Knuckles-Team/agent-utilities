@@ -648,6 +648,40 @@ async def run_goal_loop(
     iterations_run = 0
     success = False
 
+    # Durable execution (CONCEPT:OS-5.16): each iteration's side effect is
+    # checkpointed under an idempotency key so a crash-and-resume — or a
+    # queue-driven redelivery — never re-runs a validation that already ran.
+    # On restart we resume near the last in-flight checkpoint instead of
+    # replaying every completed iteration's effect from zero.
+    from agent_utilities.orchestration.durable_execution import (
+        DurableExecutionManager,
+    )
+
+    durable = DurableExecutionManager(session_id=session_id)
+    try:
+        pending = durable.resume_session()
+    except Exception as e:  # noqa: BLE001 — recovery is best-effort
+        logger.error(f"Durable resume failed for goal {goal_id}: {e}")
+        pending = None
+    if pending:
+        import json as _json
+
+        try:
+            _pstate = pending.get("state")
+            _pstate = _json.loads(_pstate) if isinstance(_pstate, str) else (_pstate or {})
+        except (TypeError, ValueError):
+            _pstate = {}
+        prior_iter = _pstate.get("iteration")
+        if isinstance(prior_iter, int) and prior_iter > 0:
+            # The pending iteration was in flight when we died; re-run it (it
+            # never completed) and skip the ones before it (already applied).
+            iterations_run = prior_iter - 1
+            logger.info(
+                "Goal %s resuming from durable checkpoint at iteration %d",
+                goal_id,
+                prior_iter,
+            )
+
     try:
         conn = _connect_db()
         cursor = conn.cursor()
@@ -701,38 +735,54 @@ async def run_goal_loop(
 
         tool_calls_count = 2 if validation_cmd else 1
 
-        # Execute validation command in workspace directory
-        validation_output = ""
-        cmd_success = False
-        if validation_cmd:
-            try:
-                proc = await asyncio.create_subprocess_shell(
-                    validation_cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(DEFAULT_AGENT_DIR.resolve()),
-                )
-                stdout, stderr = await proc.communicate()
-                exit_code = proc.returncode
+        # Execute validation command in workspace directory. The whole
+        # "did this iteration succeed" decision is wrapped in a durable action
+        # keyed by iteration so a redelivery/resume returns the recorded result
+        # rather than re-running the (potentially mutating) validation command.
+        async def _run_validation() -> dict[str, Any]:
+            out = ""
+            ok = False
+            if validation_cmd:
+                try:
+                    proc = await asyncio.create_subprocess_shell(
+                        validation_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=str(DEFAULT_AGENT_DIR.resolve()),
+                    )
+                    stdout, stderr = await proc.communicate()
+                    exit_code = proc.returncode
 
-                output_str = stdout.decode().strip()
-                err_str = stderr.decode().strip()
+                    output_str = stdout.decode().strip()
+                    err_str = stderr.decode().strip()
 
-                validation_output = (
-                    f"Command: `{validation_cmd}`\nExit Code: {exit_code}\n"
-                )
-                if output_str:
-                    validation_output += f"Stdout:\n{output_str}\n"
-                if err_str:
-                    validation_output += f"Stderr:\n{err_str}\n"
+                    out = f"Command: `{validation_cmd}`\nExit Code: {exit_code}\n"
+                    if output_str:
+                        out += f"Stdout:\n{output_str}\n"
+                    if err_str:
+                        out += f"Stderr:\n{err_str}\n"
 
-                if exit_code == 0:
-                    cmd_success = True
-            except Exception as e:
-                validation_output = f"Failed to execute command: {e}"
-        else:
-            if iterations_run >= 3:
-                cmd_success = True
+                    if exit_code == 0:
+                        ok = True
+                except Exception as e:
+                    out = f"Failed to execute command: {e}"
+            else:
+                if iterations_run >= 3:
+                    ok = True
+            return {"validation_output": out, "cmd_success": ok}
+
+        try:
+            outcome = await durable.arun_durable_action(
+                node_id=f"{goal_id}:iter:{iterations_run}",
+                action=_run_validation,
+                idempotency_key=f"{goal_id}:{iterations_run}",
+                state={"iteration": iterations_run},
+            )
+        except Exception as e:  # noqa: BLE001 — durable action is best-effort
+            logger.error(f"Durable iteration {iterations_run} failed: {e}")
+            outcome = {"validation_output": f"Durable action error: {e}", "cmd_success": False}
+        validation_output = outcome.get("validation_output", "")
+        cmd_success = bool(outcome.get("cmd_success"))
 
         iter_duration = int((time.time() - iter_start) * 1000)
 
