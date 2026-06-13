@@ -1,7 +1,9 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Autonomous code-synthesis stage for promoted proposals (CONCEPT:AHE-3.22).
+"""Autonomous code-synthesis stage for promoted proposals.
+
+CONCEPT:AHE-3.22 — autonomous single-file code-synthesis stage that generates a real diff for an attributed promoted proposal so the deployed evolution loop emits code instead of only a prose plan
 
 The genotypic-RSI *generator*: the deployed self-evolution loop can already
 promote, govern, sandbox-validate and branch a ``kind="code"`` change — but
@@ -48,7 +50,9 @@ _FENCE = re.compile(r"^\s*```[a-zA-Z0-9_+-]*\s*\n(.*?)\n```\s*$", re.DOTALL)
 class CodeSynthesizer(Protocol):
     """Produce the full revised content of a single target file, or ``None``."""
 
-    def generate(self, *, goal: str, target_path: str, current_source: str) -> str | None:
+    def generate(
+        self, *, goal: str, target_path: str, current_source: str
+    ) -> str | None:
         ...
 
 
@@ -107,7 +111,9 @@ class LLMCodeSynthesizer:
             self._llm_fn = make_lite_llm_fn()
         return self._llm_fn
 
-    def generate(self, *, goal: str, target_path: str, current_source: str) -> str | None:
+    def generate(
+        self, *, goal: str, target_path: str, current_source: str
+    ) -> str | None:
         prompt = (
             "You are improving a single Python file in the agent-utilities codebase to "
             "address the goal below. Return ONLY the complete, revised contents of the "
@@ -121,7 +127,9 @@ class LLMCodeSynthesizer:
         try:
             out = self._fn()(prompt)
         except Exception as exc:  # noqa: BLE001 — a generator failure ⇒ prose fallback
-            logger.warning("[AHE-3.22] code synthesis LLM failed for %s: %s", target_path, exc)
+            logger.warning(
+                "[AHE-3.22] code synthesis LLM failed for %s: %s", target_path, exc
+            )
             return None
         revised = _strip_code_fence(str(out or ""))
         if not revised or revised == current_source.strip("\n"):

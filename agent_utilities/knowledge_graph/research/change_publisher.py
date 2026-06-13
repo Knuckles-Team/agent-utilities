@@ -491,7 +491,11 @@ def _abandon_branch(repo_path: str, worktree_path: str, branch: str) -> None:
     def _run(*args: str) -> None:
         try:
             subprocess.run(  # nosec B603 — fixed git args, no shell
-                ["git", *args], cwd=repo_path, capture_output=True, text=True, timeout=60
+                ["git", *args],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
         except Exception as exc:  # noqa: BLE001 — best-effort cleanup
             logger.debug("change_publisher: abandon-branch step failed: %s", exc)
