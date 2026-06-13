@@ -9,6 +9,8 @@ keeps connector heavy-deps lazy.
 
 Reference connectors:
   * :mod:`web` — recursive same-domain crawler (``web``).
+  * :mod:`reader` — single-URL readability reader → clean markdown (``reader``,
+    CONCEPT:KG-2.66).
   * :mod:`filesystem` — directory walk (``filesystem``).
   * :mod:`rest` — paginated JSON endpoint (``rest``).
   * :mod:`mcp_package` — adapter over the agent-package fleet (``mcp:<pkg>``).
