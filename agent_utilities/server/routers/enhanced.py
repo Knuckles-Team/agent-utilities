@@ -261,3 +261,140 @@ async def list_skills(request: Request):
         for s in agent_instance.skills:
             skills.append({"id": s.id, "name": s.name, "description": s.description})
     return {"status": "ok", "skills": skills}
+
+
+# --------------------------------------------------------------------------- #
+# Document → knowledge-graph fact extraction (CONCEPT:ECO-4.43)
+#
+# The shared SSE/jobs/JSONL contract every frontend (agent-webui, agent-terminal-ui,
+# geniusbot) consumes for the interactive extraction experience: submit a document
+# (text/URL/file), stream facts as they generate, manage the GPU-slot job queue,
+# and export JSONL. Backed by KG-2.64 (fact extractor) + KG-2.65 (slot scheduler).
+# --------------------------------------------------------------------------- #
+
+_EXTRACTION_MANAGER = None
+
+
+def _extraction_manager():
+    """The process-wide extraction job manager, or ``None`` if the engine is cold."""
+    global _EXTRACTION_MANAGER
+    engine = _active_engine()
+    if engine is None:
+        return None
+    if _EXTRACTION_MANAGER is None:
+        from ...knowledge_graph.extraction.job_manager import ExtractionJobManager
+
+        _EXTRACTION_MANAGER = ExtractionJobManager(engine)
+    return _EXTRACTION_MANAGER
+
+
+@router.post("/extract/submit")
+async def extract_submit(request: Request):
+    """Submit a fact-extraction job. Body: ``{text|url, rounds?, dedup?,
+    dedup_field?, dedup_threshold?}``. Returns ``{job_id}``."""
+    mgr = _extraction_manager()
+    if mgr is None:
+        return {"status": "unavailable", "message": "Knowledge Graph engine is cold."}
+    body = await request.json()
+    text = body.get("text", "")
+    url = body.get("url", "")
+    if url and not text:
+        text = _read_url(url)
+    if not text.strip():
+        return {"status": "error", "message": "provide non-empty 'text' or a 'url'"}
+    job_id = await mgr.submit(
+        text=text,
+        rounds=max(1, min(10, int(body.get("rounds", 1)))),
+        dedup=bool(body.get("dedup", True)),
+        dedup_field=body.get("dedup_field", "triple"),
+        dedup_threshold=float(body.get("dedup_threshold", 0.90)),
+    )
+    return {"status": "submitted", "job_id": job_id}
+
+
+@router.get("/extract/stream/{job_id}")
+async def extract_stream(job_id: str):
+    """Server-Sent-Events stream of a job's extraction events (live + replay).
+
+    Emits ``round_start | fact | metrics | round_end | file_start | file_end |
+    done | job_done`` — the taxonomy all three frontends render."""
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    mgr = _extraction_manager()
+    if mgr is None:
+        return {"status": "unavailable", "message": "Knowledge Graph engine is cold."}
+
+    async def _gen():
+        async for event in mgr.stream(job_id):
+            yield f"data: {_json.dumps(event)}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+@router.get("/extract/jobs")
+async def extract_jobs():
+    """List all extraction jobs (queued/running/paused/held/done) for the queue panel."""
+    mgr = _extraction_manager()
+    if mgr is None:
+        return {"status": "unavailable", "jobs": []}
+    return {"status": "ok", "jobs": mgr.jobs()}
+
+
+@router.get("/extract/status/{job_id}")
+async def extract_status(job_id: str):
+    mgr = _extraction_manager()
+    if mgr is None:
+        return {"status": "unavailable"}
+    return mgr.status(job_id) or {"status": "not_found"}
+
+
+@router.get("/extract/jsonl/{job_id}")
+async def extract_jsonl(job_id: str):
+    """Download a job's facts as newline-delimited JSON (upstream parity)."""
+    from fastapi.responses import PlainTextResponse
+
+    mgr = _extraction_manager()
+    if mgr is None:
+        return PlainTextResponse("", media_type="application/x-ndjson")
+    return PlainTextResponse(
+        mgr.jsonl(job_id) + "\n", media_type="application/x-ndjson"
+    )
+
+
+@router.post("/extract/pause/{job_id}")
+async def extract_pause(job_id: str):
+    mgr = _extraction_manager()
+    if mgr is None:
+        return {"status": "unavailable"}
+    await mgr.pause(job_id)
+    return {"status": "paused", "job_id": job_id}
+
+
+@router.post("/extract/resume/{job_id}")
+async def extract_resume(job_id: str):
+    mgr = _extraction_manager()
+    if mgr is None:
+        return {"status": "unavailable"}
+    await mgr.resume(job_id)
+    return {"status": "resumed", "job_id": job_id}
+
+
+def _read_url(url: str) -> str:
+    """Read a URL to clean text via the readability ReaderConnector (KG-2.66)."""
+    try:
+        from ...protocols.source_connectors.registry import (
+            discover,
+            get_connector_class,
+        )
+
+        discover()
+        cls = get_connector_class("reader")
+        if cls is None:
+            return ""
+        docs = list(cls(url=url).load())
+        return docs[0].text if docs else ""
+    except Exception as e:  # noqa: BLE001 — a bad URL becomes an empty doc, not a 500
+        logger.warning("reader fetch failed for %s: %s", url, e)
+        return ""
