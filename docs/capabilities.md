@@ -67,6 +67,16 @@ await kg_server._execute_tool("graph_ingest", action="ingest",
 `agent_toolkit`, `ingest_knowledge_pack`. Documents become first-class
 `Document`+`Chunk` ontology objects with OWL semantics.
 
+**Document → atomic-triple extraction (KG-2.64/2.65/2.66).** Turn a document,
+URL, or pasted text into `(subject) -[predicate]-> (object)` fact edges carrying
+evidence span, confidence, and tags — streamed live and deduped semantically.
+Use `graph_ingest action=fact_extract` (inline) or the GPU-slot-scheduled job
+actions `extract_submit` / `extract_jobs` / `extract_status` / `extract_pause` /
+`extract_resume` / `extract_jsonl`. The same surface is exposed at
+`/api/enhanced/extract/*` (SSE stream + JSONL) and rendered interactively in all
+three frontends. See
+[Document → KG Fact Extraction](architecture/document_fact_extraction.md).
+
 Ingestion scales horizontally: the durable task queue is selectable via
 `TASK_QUEUE_BACKEND` (`sqlite` | `postgres` | `kafka`, fail-loud when an
 explicit backend is unreachable), Kafka `kg_tasks` messages are keyed for

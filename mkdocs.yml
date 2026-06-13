@@ -92,6 +92,7 @@ nav:
       - Global Workspace Attention: architecture/global_workspace_attention.md
       - Multi-Agent Social System: architecture/multi_agent_social_system.md
       - In-House Training Substrate: architecture/in_house_training_substrate.md
+      - Document → KG Fact Extraction: architecture/document_fact_extraction.md
       - Graph-Native Assimilation Engine: architecture/assimilation_engine.md
       - Knowledge Distillation → Skill-Graphs: architecture/knowledge_distillation_skill_graphs.md
       - Failure-Driven Evolution: architecture/failure_driven_evolution.md
