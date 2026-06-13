@@ -1683,6 +1683,23 @@ _WORKSPACE_PATH = setting("WORKSPACE_PATH", os.getcwd())
 _ENGINE_LOCK = threading.Lock()
 
 
+class _FactWriteAdapter:
+    """Adapt ``IntelligenceGraphEngine`` to the ``add_node(label=)/add_edge``
+    store protocol that ``extraction.persist_facts`` writes against (KG-2.64),
+    so fact persistence reuses the tested merge logic on the live engine."""
+
+    def __init__(self, engine: Any) -> None:
+        self._engine = engine
+
+    def add_node(self, node_id: str, label: str = "", **props: Any) -> None:
+        self._engine.add_node(node_id, "entity", {"label": label, **props})
+
+    def add_edge(
+        self, source: str, target: str, rel_type: str = "", **props: Any
+    ) -> None:
+        self._engine.add_edge(source, target, rel_type, **props)
+
+
 def _get_engine():
     """Lazily initialize and return the IntelligenceGraphEngine singleton.
 
@@ -2688,7 +2705,7 @@ def _build_server(bootstrap: bool = True):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, sync, reflect). 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
+            description="Action to perform (ingest, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, sync, reflect). 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -3151,6 +3168,66 @@ def _build_server(bootstrap: bool = True):
                     )
                 except Exception as e:  # noqa: BLE001
                     return f"Import error: {e}"
+
+            elif action == "fact_extract":
+                # CONCEPT:KG-2.64 — document → atomic-triple fact extraction.
+                # Streams (subject)-[predicate]->(object) edges carrying
+                # confidence/evidence_span/tags, dedups them semantically with
+                # our own embedder, persists them as graph edges (variant node
+                # names merged), and returns the facts + JSONL (upstream parity).
+                # Text source: ``description`` (raw text) or ``target_path``
+                # (local file, else treated as raw text). Single round + dedup
+                # (multi-round recall is opt-in over the REST surface).
+                import json
+                from pathlib import Path
+
+                from ..knowledge_graph.extraction import (
+                    ExtractedFact,
+                    extract_facts,
+                    facts_to_jsonl,
+                    persist_facts,
+                )
+
+                text = description or ""
+                source_file = ""
+                if not text and target_path:
+                    p = Path(target_path)
+                    if p.exists() and p.is_file():
+                        text = p.read_text(encoding="utf-8", errors="ignore")
+                        source_file = target_path
+                    else:
+                        text = target_path
+                if not text.strip():
+                    return json.dumps(
+                        {
+                            "error": "fact_extract requires text (description=) "
+                            "or a readable file (target_path=)"
+                        }
+                    )
+
+                facts: list[ExtractedFact] = []
+                async for ev in extract_facts(
+                    text, rounds=1, source_file=source_file
+                ):
+                    if ev["type"] == "fact":
+                        facts.append(ExtractedFact(**ev["fact"]))
+
+                stats = persist_facts(_FactWriteAdapter(engine), facts)
+                unique = sum(1 for f in facts if not f.is_duplicate)
+                return json.dumps(
+                    {
+                        "status": "extracted",
+                        "facts": [f.model_dump() for f in facts],
+                        "jsonl": facts_to_jsonl(facts),
+                        "stats": {
+                            **stats,
+                            "total_facts": len(facts),
+                            "unique_facts": unique,
+                            "duplicate_facts": len(facts) - unique,
+                        },
+                    },
+                    default=str,
+                )
 
             else:
                 return f"Error: Unknown ingest action '{action}'"
