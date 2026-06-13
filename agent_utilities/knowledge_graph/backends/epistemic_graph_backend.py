@@ -264,8 +264,8 @@ class EpistemicGraphBackend(GraphBackend):
         — present in the compute graph but not returned by ``backend.execute``).
         """
         pat = re.search(
-            r"\(\s*(\w+)[^)]*\)\s*-\s*\[\s*(\w*)\s*:?\s*(\w+)?[^\]]*\]\s*->\s*"
-            r"\(\s*(\w+)[^)]*\)",
+            r"\(\s*(\w*)[^)]*\)\s*-\s*\[\s*(\w*)\s*:?\s*(\w+)?[^\]]*\]\s*->\s*"
+            r"\(\s*(\w*)[^)]*\)",
             q,
             re.I,
         )
@@ -316,7 +316,37 @@ class EpistemicGraphBackend(GraphBackend):
                 if ep is not None:
                     matches.append(ep)
         else:
-            return False, []  # no resolvable anchor → defer
+            # No id anchor → global edge read. Only *edge-centric* projections are
+            # served here (``count(r)`` or the edges/edge-props themselves): a bare
+            # ``count(r)`` is answered in O(1) via the engine's edge count; a
+            # rel-type-filtered count or an ``r``/``r.prop`` projection enumerates
+            # the engine's native triple export. An unanchored *node* projection
+            # (e.g. ``RETURN b``) still defers (``return False``) rather than
+            # scanning every node — the deliberate L1 guard. This is what makes
+            # ``MATCH ()-[r]->() RETURN count(r)`` readable from the L1 backend.
+            # (CONCEPT:KG-2.7 P1 — L1 native traversal.)
+            wants_count = re.search(r"RETURN\s+count\s*\(", q, re.I) is not None
+            wants_edge = bool(r_var) and re.search(rf"RETURN\s+{r_var}(\b|\.)", q, re.I)
+            if not (wants_count or wants_edge):
+                return False, []
+            edge_count = getattr(self._graph, "edge_count", None)
+            get_triples = getattr(self._graph, "get_triples", None)
+            if wants_count and not rel_upper and callable(edge_count):
+                alias_m = re.search(r"count\s*\(\s*\w*\s*\)\s*(?:AS\s+(\w+))?", q, re.I)
+                alias = (alias_m.group(1) if alias_m else None) or "count"
+                return True, [{alias: edge_count()}]
+            if not callable(get_triples):
+                return False, []
+            for triple in get_triples():
+                if len(triple) != 3:
+                    continue
+                src, rel_t, tgt = triple
+                if rel_upper and str(rel_t).upper() != rel_upper:
+                    continue
+                ep = self._graph._get_edge_properties(src, tgt) or {}
+                if rel_upper and not (ep.get("rel_type") or ep.get("type")):
+                    ep = {**ep, "rel_type": rel_t}
+                matches.append(ep)
 
         cnt = re.search(r"RETURN\s+count\s*\(\s*\w+\s*\)\s*(?:AS\s+(\w+))?", q, re.I)
         if cnt:
@@ -923,44 +953,121 @@ class EpistemicGraphBackend(GraphBackend):
             ret = ret[: m_lim.start()]
         ret = re.sub(r"\bORDER\s+BY\b.*$", "", ret, flags=re.I | re.S)
 
+        # ``RETURN DISTINCT ...`` — dedupe the projected rows (KG-2.63).
+        distinct = False
+        m_dist = re.match(r"\s*DISTINCT\b", ret, re.I)
+        if m_dist:
+            distinct = True
+            ret = ret[m_dist.end() :]
+
         items = self._split_top_level(ret)
 
-        # Aggregate: count(var)
-        for it in items:
-            mc = re.match(r"\s*count\(\s*\*?\s*\w*\s*\)\s*(?:as\s+(\w+))?", it, re.I)
-            if mc:
-                alias = mc.group(1) or "count"
-                return [{alias: len(matched)}]
+        def _project_item(it: str, nid: str, data: dict[str, Any]) -> dict[str, Any]:
+            """Project a single non-aggregate RETURN item to its column(s)."""
+            it = it.strip()
+            cols: dict[str, Any] = {}
+            m_alias = re.match(rf"{var}\.(\w+)\s+as\s+(\w+)", it, re.I) or re.match(
+                rf"{var}\.(\w+)", it, re.I
+            )
+            if m_alias and "." in it:
+                prop = m_alias.group(1)
+                value = self._node_value(nid, data, prop)
+                if m_alias.lastindex and m_alias.lastindex >= 2:
+                    cols[m_alias.group(2)] = value
+                else:
+                    # No explicit ``AS`` alias: expose both the standard Cypher
+                    # column name (``var.prop``) and the bare prop name so callers
+                    # using either convention resolve it.
+                    cols[f"{var}.{prop}"] = value
+                    cols.setdefault(prop, value)
+            elif it == var or re.match(rf"{var}\s+as\s+\w+", it, re.I):
+                # Bare ``RETURN v`` → a single column named ``v`` holding the full
+                # node dict (Cypher semantics; callers read ``res["v"]``).
+                full = dict(data)
+                full["id"] = nid
+                alias_m = re.match(rf"{var}\s+as\s+(\w+)", it, re.I)
+                cols[alias_m.group(1) if alias_m else var] = full
+            else:
+                cols[it] = None
+            return cols
+
+        # Cypher has no explicit GROUP BY: aggregates (count/sum/avg/min/max)
+        # collapse over the grouping keys, which are exactly the *non-aggregate*
+        # return items. Partition the items so ``RETURN n.kind, count(*)`` groups
+        # by ``n.kind`` instead of collapsing to one total. (KG-2.63)
+        _agg_re = re.compile(
+            r"\s*(count|sum|avg|min|max)\s*\(\s*(\*|[\w.]*)\s*\)\s*(?:as\s+(\w+))?",
+            re.I,
+        )
+        aggregates = [(it, _agg_re.match(it.strip())) for it in items]
+        agg_specs = [m for _it, m in aggregates if m]
+        group_items = [it for it, m in aggregates if not m]
+
+        if agg_specs:
+
+            def _agg_value(
+                spec: re.Match[str], bucket: list[tuple[str, dict[str, Any]]]
+            ) -> tuple[str, Any]:
+                fn = spec.group(1).lower()
+                arg = spec.group(2)
+                alias = spec.group(3) or (fn if arg in ("", "*") else f"{fn}({arg})")
+                if fn == "count":
+                    return alias, len(bucket)
+                prop = arg.split(".", 1)[1] if "." in arg else arg
+                vals = [
+                    v
+                    for nid2, data2 in bucket
+                    if isinstance(
+                        (v := self._node_value(nid2, data2, prop)), int | float
+                    )
+                ]
+                if not vals:
+                    return alias, None
+                agg = {
+                    "sum": sum(vals),
+                    "avg": sum(vals) / len(vals),
+                    "min": min(vals),
+                    "max": max(vals),
+                }
+                return alias, agg[fn]
+
+            def _agg_row(
+                gcols: dict[str, Any], bucket: list[tuple[str, dict[str, Any]]]
+            ) -> dict[str, Any]:
+                row = dict(gcols)
+                for spec in agg_specs:
+                    alias, val = _agg_value(spec, bucket)
+                    row[alias] = val
+                return row
+
+            if not group_items:
+                return [_agg_row({}, matched)]
+
+            buckets: dict[str, tuple[dict[str, Any], list]] = {}
+            order: list[str] = []
+            for nid, data in matched:
+                gcols: dict[str, Any] = {}
+                for it in group_items:
+                    gcols.update(_project_item(it, nid, data))
+                key = json.dumps(gcols, sort_keys=True, default=str)
+                if key not in buckets:
+                    buckets[key] = (gcols, [])
+                    order.append(key)
+                buckets[key][1].append((nid, data))
+            grouped = [_agg_row(*buckets[k]) for k in order]
+            return grouped[:limit] if limit is not None else grouped
 
         rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
         for nid, data in matched:
             row: dict[str, Any] = {}
             for it in items:
-                it = it.strip()
-                m_alias = re.match(rf"{var}\.(\w+)\s+as\s+(\w+)", it, re.I) or re.match(
-                    rf"{var}\.(\w+)", it, re.I
-                )
-                if m_alias and "." in it:
-                    prop = m_alias.group(1)
-                    value = self._node_value(nid, data, prop)
-                    has_explicit_alias = m_alias.lastindex and m_alias.lastindex >= 2
-                    if has_explicit_alias:
-                        row[m_alias.group(2)] = value
-                    else:
-                        # No explicit ``AS`` alias: expose both the standard
-                        # Cypher column name (``var.prop``) and the bare prop
-                        # name so callers using either convention resolve it.
-                        row[f"{var}.{prop}"] = value
-                        row.setdefault(prop, value)
-                elif it == var or re.match(rf"{var}\s+as\s+\w+", it, re.I):
-                    # Bare ``RETURN v`` → a single column named ``v`` holding the
-                    # full node dict (Cypher semantics; callers read ``res["v"]``).
-                    full = dict(data)
-                    full["id"] = nid
-                    alias_m = re.match(rf"{var}\s+as\s+(\w+)", it, re.I)
-                    row[alias_m.group(1) if alias_m else var] = full
-                else:
-                    row[it] = None
+                row.update(_project_item(it, nid, data))
+            if distinct:
+                key = json.dumps(row, sort_keys=True, default=str)
+                if key in seen:
+                    continue
+                seen.add(key)
             rows.append(row)
 
         if limit is not None:
