@@ -105,9 +105,6 @@ class InMemoryCheckpointStore:
     def load_all(self) -> list[Job]:
         return [Job(**{**j.__dict__}) for j in self._jobs.values()]
 
-    def delete(self, job_id: str) -> None:
-        self._jobs.pop(job_id, None)
-
 
 class GpuSlotScheduler:
     """Runs at most one job at a time, with preemption + auto-backfill.
