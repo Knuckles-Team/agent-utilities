@@ -3,7 +3,6 @@
 import json
 
 import pytest
-
 from eunomia_core import schemas
 
 
@@ -50,9 +49,7 @@ def test_jwt_principal_overrides_spoofed_header(tmp_path, monkeypatch):
     class _Tok:
         client_id = "claude-code"
 
-    monkeypatch.setattr(
-        "fastmcp.server.dependencies.get_access_token", lambda: _Tok()
-    )
+    monkeypatch.setattr("fastmcp.server.dependencies.get_access_token", lambda: _Tok())
 
     principal = mw._extract_principal()
     assert principal.uri == "agent:claude-code"  # JWT wins, not "evil-spoof"
@@ -103,3 +100,30 @@ async def test_zero_trust_default_deny(tmp_path):
     assert await allowed("agent:claude-code", "execute") is True
     assert await allowed("agent:unknown", "list") is False
     assert await allowed("agent:unknown", "execute") is False
+
+
+def test_fastmcp3_component_exposes_enabled():
+    """A fastmcp 3.x tool component reads ``.enabled`` (eunomia 2.x gate).
+
+    Reproduces the live failure: eunomia-mcp's ``_authorize_execution`` does
+    ``if not component.enabled`` on every call; fastmcp 3.x components dropped that
+    attribute, so the access raised ``'FunctionTool' object has no attribute
+    'enabled'`` and every tool call on a eunomia-enforced server became an internal
+    error. After the compat the component reports enabled (3.x semantics).
+    """
+    pytest.importorskip("fastmcp")
+    from fastmcp.tools.function_tool import FunctionTool
+
+    from agent_utilities.mcp.eunomia_principal import apply_fastmcp_enabled_compat
+
+    def sample(x: int) -> int:
+        """doc"""
+        return x
+
+    apply_fastmcp_enabled_compat()  # idempotent; also runs at import
+    tool = FunctionTool.from_function(sample)
+    # the exact access eunomia-mcp's _authorize_execution performs (``if not
+    # component.enabled``) must resolve without raising and report enabled.
+    assert tool.enabled is True
+    disabled = not tool.enabled
+    assert disabled is False

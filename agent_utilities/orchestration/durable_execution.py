@@ -27,7 +27,7 @@ import logging
 import os
 import sqlite3
 import threading
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -36,6 +36,7 @@ from agent_utilities.core.config import setting
 from agent_utilities.orchestration.resilience import (
     DEFAULT_POLICY,
     ResiliencePolicy,
+    run_with_resilience,
     run_with_resilience_sync,
 )
 
@@ -87,17 +88,19 @@ class CheckpointStore(Protocol):
         state_json: str,
         status: str,
         idempotency_key: str,
-    ) -> None: ...
+    ) -> None:
+        ...
 
-    def resume_session(self, session_id: str) -> dict[str, Any] | None: ...
+    def resume_session(self, session_id: str) -> dict[str, Any] | None:
+        ...
 
-    def mark_completed(
-        self, session_id: str, node_id: str, result_json: str
-    ) -> None: ...
+    def mark_completed(self, session_id: str, node_id: str, result_json: str) -> None:
+        ...
 
     def completed_result_raw(
         self, session_id: str, idempotency_key: str
-    ) -> tuple[bool, Any]: ...
+    ) -> tuple[bool, Any]:
+        ...
 
 
 class SQLiteCheckpointStore:
@@ -371,5 +374,38 @@ class DurableExecutionManager:
             node_id, state or {}, status="PENDING", idempotency_key=key
         )
         result = run_with_resilience_sync(action, policy or DEFAULT_POLICY)
+        self.mark_completed(node_id, result=result)
+        return result
+
+    async def arun_durable_action(
+        self,
+        node_id: str,
+        action: Callable[[], Awaitable[Any] | Any],
+        *,
+        idempotency_key: str | None = None,
+        policy: ResiliencePolicy | None = None,
+        state: dict[str, Any] | None = None,
+    ) -> Any:
+        """Async twin of :meth:`run_durable_action` for coroutine actions.
+
+        Same exactly-once-effect / at-least-once contract, but ``action`` may be
+        a coroutine function (awaited under the async resilience runner). Used by
+        live async paths — the ORCH-5.0 goal loop and the queue dispatch worker —
+        whose side effects are awaitables and must not be re-applied on a
+        crash-and-resume or an at-least-once redelivery.
+        """
+        key = idempotency_key or node_id
+        applied, prior = self._completed_result_for(key)
+        if applied:
+            logger.info(
+                "[durable] idempotency_key=%r already completed; skipping re-exec.",
+                key,
+            )
+            return prior
+
+        self.save_checkpoint(
+            node_id, state or {}, status="PENDING", idempotency_key=key
+        )
+        result = await run_with_resilience(action, policy or DEFAULT_POLICY)
         self.mark_completed(node_id, result=result)
         return result

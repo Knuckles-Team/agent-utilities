@@ -80,6 +80,50 @@ tokens.
 - MCP `/metrics` returns data only once the service runs an agent-utilities build
   carrying the `/metrics` route (image rebuild or editable source mount).
 
+## Multiplexer outbound auth (A0) — make jwt children reachable
+
+A jwt-enforcing child rejects calls without a bearer token. Give the multiplexer one
+service identity so it mints + attaches a Keycloak token to every remote child
+(CONCEPT:OS-5.32). One-time setup (use your realm/host, not the placeholders):
+
+1. **Keycloak confidential client** (`keycloak-client-onboarder`, or admin API): create
+   client `mcp-multiplexer` with **Service Accounts enabled** + an **audience mapper**
+   adding `aud=<MCP_AUDIENCE>` (the audience the children verify). Grab its secret.
+2. **Verify the token** mints with the right claims:
+   ```bash
+   curl -s -X POST "<KEYCLOAK>/realms/<REALM>/protocol/openid-connect/token" \
+     -d grant_type=client_credentials -d client_id=mcp-multiplexer \
+     -d client_secret=<SECRET>   # decode: iss=<KEYCLOAK>/realms/<REALM>, aud includes <MCP_AUDIENCE>
+   ```
+3. **Store the secret in OpenBao**: `bao kv put <kv-mount>/mcp-multiplexer/oidc \
+   OIDC_CLIENT_SECRET=<SECRET> OIDC_CLIENT_ID=mcp-multiplexer OIDC_AUDIENCE=<MCP_AUDIENCE> \
+   OIDC_TOKEN_URL=<KEYCLOAK>/realms/<REALM>/protocol/openid-connect/token`.
+4. **Wire the env into BOTH multiplexers** (opt-in; inert if unset):
+   ```
+   MCP_CLIENT_AUTH=oidc-client-credentials
+   OIDC_CLIENT_ID=mcp-multiplexer
+   OIDC_CLIENT_SECRET=<SECRET>          # from OpenBao
+   OIDC_AUDIENCE=<MCP_AUDIENCE>
+   OIDC_TOKEN_URL=<KEYCLOAK>/realms/<REALM>/protocol/openid-connect/token
+   ```
+   - **Swarm/deployed multiplexer**: add to its Portainer stack Env *and* make the compose
+     pass each (`- VAR=${VAR}`), then redeploy.
+   - **Local (Claude Code) multiplexer**: add the same keys under
+     `mcpServers.mcp-multiplexer.env` in `~/.claude.json`, then restart Claude Code.
+5. Verify: a tool call on a jwt child through the multiplexer succeeds; child logs show 200.
+
+## Sync a connector's runtime env from its `.env`
+
+Deployed `-mcp` containers only get env the **compose passes**. To inject a connector's
+`agents/<name>/.env` (tokens, URLs, tool toggles) into the running container:
+- Put each var in the **Portainer stack Env** *and* add `- VAR=${VAR}` to the compose
+  `environment` so it's passed. Keep `HOST`/`PORT`/`TRANSPORT` as the deployment sets them
+  (don't let dev `.env` values override). Secrets live in the stack Env, not the file. Redeploy.
+- Fleet sweep: per stack, map it to `agents/<image-basename>/.env`, overlay those vars into
+  the stack Env, rewrite the compose to pass them, update the stack.
+- **Order matters with auth:** passing a stale `AUTH_TYPE=jwt` *activates* jwt — only do that
+  **after** A0 (above) + the eunomia policy are in place, or the child becomes unreachable.
+
 ## Triage common alerts
 
 | Alert | First checks |
