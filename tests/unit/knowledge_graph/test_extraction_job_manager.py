@@ -102,6 +102,20 @@ async def test_corpus_checkpoints_per_file(_canned_facts) -> None:
     await mgr._scheduler.stop()
 
 
+@pytest.mark.asyncio
+async def test_stream_yields_facts_then_job_done(_canned_facts) -> None:
+    engine = _FakeEngine()
+    mgr = ExtractionJobManager(engine)
+    jid = await mgr.submit(text="doc", dedup=False)
+    # consume the live SSE stream to completion
+    seen = [ev async for ev in mgr.stream(jid)]
+    types = [e["type"] for e in seen]
+    assert types[-1] == "job_done"
+    assert types.count("fact") == 2
+    assert "round_start" in types
+    await mgr._scheduler.stop()
+
+
 def test_graph_checkpoint_store_roundtrip() -> None:
     engine = _FakeEngine()
     store = GraphCheckpointStore(engine)

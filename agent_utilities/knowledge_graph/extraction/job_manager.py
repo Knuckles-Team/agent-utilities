@@ -11,6 +11,8 @@ doesn't lose the queue — dogfooding the GraphBackend rather than loose files.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 from typing import Any
@@ -114,7 +116,46 @@ class ExtractionJobManager:
         )
         # in-process results (facts) keyed by job_id; facts also persist as edges
         self._results: dict[str, list[ExtractedFact]] = {}
+        # per-job event history (for SSE replay) + live subscribers
+        self._events: dict[str, list[dict[str, Any]]] = {}
+        self._subscribers: dict[str, list[asyncio.Queue]] = {}
         self._started = False
+
+    _EVENT_BUFFER_CAP = 5000
+
+    def _publish(self, job_id: str, event: dict[str, Any]) -> None:
+        """Buffer an event (bounded) and fan it out to live SSE subscribers."""
+        buf = self._events.setdefault(job_id, [])
+        buf.append(event)
+        if len(buf) > self._EVENT_BUFFER_CAP:
+            del buf[: len(buf) - self._EVENT_BUFFER_CAP]
+        for q in self._subscribers.get(job_id, []):
+            with contextlib.suppress(Exception):
+                q.put_nowait(event)
+
+    async def stream(self, job_id: str):
+        """Yield this job's events (buffered history then live) until it ends.
+
+        Mirrors the upstream SSE taxonomy so any frontend renders identically;
+        terminates on the synthetic ``job_done`` event the runner emits.
+        """
+        q: asyncio.Queue = asyncio.Queue()
+        # replay buffered history first so a late subscriber misses nothing
+        for ev in list(self._events.get(job_id, [])):
+            yield ev
+            if ev.get("type") == "job_done":
+                return
+        self._subscribers.setdefault(job_id, []).append(q)
+        try:
+            while True:
+                ev = await q.get()
+                yield ev
+                if ev.get("type") == "job_done":
+                    return
+        finally:
+            subs = self._subscribers.get(job_id, [])
+            if q in subs:
+                subs.remove(q)
 
     async def ensure_started(self) -> None:
         if not self._started:
@@ -183,6 +224,14 @@ class ExtractionJobManager:
     # ------------------------------------------------------------------ #
 
     async def _run_job(self, job: Job, sched: GpuSlotScheduler) -> None:
+        try:
+            await self._run_job_inner(job, sched)
+        except Exception:
+            # ensure any SSE subscriber sees a terminal event on failure
+            self._publish(job.job_id, {"type": "job_done", "state": "failed"})
+            raise
+
+    async def _run_job_inner(self, job: Job, sched: GpuSlotScheduler) -> None:
         p = job.params
         rounds = int(p.get("rounds", 1))
         deduper = (
@@ -209,22 +258,28 @@ class ExtractionJobManager:
                         job.job_id, {"done_files": sorted(done_files)}
                     )
                     return
+                self._publish(
+                    job.job_id, {"type": "file_start", "file": name, "file_index": idx}
+                )
                 await self._extract_into(
-                    f.get("text", ""), name, rounds, deduper, results
+                    job.job_id, f.get("text", ""), name, rounds, deduper, results
                 )
                 done_files.add(name)
+                self._publish(job.job_id, {"type": "file_end", "file": name})
                 await sched.checkpoint(job.job_id, {"done_files": sorted(done_files)})
         else:
             if not job.checkpoint.get("done"):
                 await self._extract_into(
-                    p.get("text", ""), "", rounds, deduper, results
+                    job.job_id, p.get("text", ""), "", rounds, deduper, results
                 )
                 await sched.checkpoint(job.job_id, {"done": True})
 
         job.state = JobState.DONE
+        self._publish(job.job_id, {"type": "job_done", "state": str(JobState.DONE)})
 
     async def _extract_into(
         self,
+        job_id: str,
         text: str,
         source_file: str,
         rounds: int,
@@ -239,6 +294,7 @@ class ExtractionJobManager:
             deduper=deduper,
             source_file=source_file,
         ):
+            self._publish(job_id, ev)  # round_start / fact / metrics / round_end / done
             if ev["type"] == "fact":
                 fact = ExtractedFact(**ev["fact"])
                 results.append(fact)
