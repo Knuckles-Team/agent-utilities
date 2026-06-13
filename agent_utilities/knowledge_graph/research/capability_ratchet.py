@@ -1,7 +1,10 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Capability ratchet + verified apply→verify→rollback (CONCEPT:AHE-3.24, AHE-3.23).
+"""Capability-benchmark regression ratchet and verified apply-verify-rollback.
+
+CONCEPT:AHE-3.24 — capability-benchmark regression ratchet re-measuring a published worktree against a persisted baseline and abandoning the branch on any tracked-capability regression
+CONCEPT:AHE-3.23 — verified apply-verify-rollback from the ManifestVerifier confirm-or-revert recommendation over measured before-and-after capability scores
 
 Before this, the deployed evolution loop's only regression gate was an occurrence-
 count *spike* monitor over Langfuse (``failure_analyzer.make_regression_check``) —
@@ -32,8 +35,10 @@ import os
 import re
 import subprocess  # nosec B404 — fixed interpreter, repo-relative targets
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from datetime import UTC
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -125,15 +130,27 @@ class CapabilityRatchet:
 
     def _score_target(self, worktree_path: str, target: str) -> float | None:
         argv = [
-            sys.executable, "-m", "pytest", "-q", "--no-header",
-            "-p", "no:cacheprovider", target,
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "--no-header",
+            "-p",
+            "no:cacheprovider",
+            target,
         ]
         try:
             proc = subprocess.run(  # nosec B603 — fixed interpreter, repo-relative target
-                argv, cwd=worktree_path, capture_output=True, text=True, timeout=self.timeout
+                argv,
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
             )
         except Exception as exc:  # noqa: BLE001 — an unrunnable probe is not measured
-            logger.warning("[AHE-3.24] capability probe %s did not run: %s", target, exc)
+            logger.warning(
+                "[AHE-3.24] capability probe %s did not run: %s", target, exc
+            )
             return None
         text = (proc.stdout or "") + (proc.stderr or "")
         passed = int(m.group(1)) if (m := _PASS_RE.search(text)) else 0
@@ -197,7 +214,9 @@ class CapabilityRatchet:
                 },
             )
         except Exception as exc:  # noqa: BLE001 — audit is best-effort
-            logger.debug("[AHE-3.24] could not record capability ratchet result: %s", exc)
+            logger.debug(
+                "[AHE-3.24] could not record capability ratchet result: %s", exc
+            )
 
     # ── verified verdict (AHE-3.23) ──────────────────────────────────
     def _recommendation(
@@ -273,7 +292,10 @@ class CapabilityRatchet:
         recommendation = self._recommendation(
             worktree_path, change_set, baseline, scores
         )
-        passed = not regressions and recommendation not in {"full_revert", "partial_revert"}
+        passed = not regressions and recommendation not in {
+            "full_revert",
+            "partial_revert",
+        }
 
         if passed:
             merged = {
@@ -300,9 +322,9 @@ class CapabilityRatchet:
 
 
 def _now_iso() -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def latest_ratchet_result(engine: Any, proposal_id: str) -> str | None:

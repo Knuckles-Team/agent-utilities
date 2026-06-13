@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 193
+total_concepts: 196
 total_pillars: 19
 pillars:
 - AHE-3
@@ -274,6 +274,36 @@ concepts:
   - agent_utilities/orchestration/fleet_reconciler.py
   doc: Evolution-to-branch bridge publishing promoted proposals as regression-gated reviewable local git
     branches via change synthesis, RLM-sandbox validation and a governed ChangePublisher seam
+- id: AHE-3.22
+  name: autonomous single-file code-synthesis stage that generates a real diff for an attributed promoted
+    proposal so the deployed evolution loop emits code instead of only a prose plan
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/change_publisher.py
+  - agent_utilities/knowledge_graph/research/change_synthesis.py
+  - agent_utilities/knowledge_graph/research/code_synthesis.py
+  doc: autonomous single-file code-synthesis stage that generates a real diff for an attributed promoted
+    proposal so the deployed evolution loop emits code instead of only a prose plan
+- id: AHE-3.23
+  name: verified apply-verify-rollback from the ManifestVerifier confirm-or-revert recommendation over
+    measured before-and-after capability scores
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/capability_ratchet.py
+  - agent_utilities/knowledge_graph/research/change_publisher.py
+  doc: verified apply-verify-rollback from the ManifestVerifier confirm-or-revert recommendation over
+    measured before-and-after capability scores
+- id: AHE-3.24
+  name: capability-benchmark regression ratchet re-measuring a published worktree against a persisted
+    baseline and abandoning the branch on any tracked-capability regression
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/capability_ratchet.py
+  doc: capability-benchmark regression ratchet re-measuring a published worktree against a persisted baseline
+    and abandoning the branch on any tracked-capability regression
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1116,6 +1146,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/manifest.py
   - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py
+  - agent_utilities/knowledge_graph/research/code_synthesis.py
   - agent_utilities/knowledge_graph/retrieval/governance_rules.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/knowledge_graph.py

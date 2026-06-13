@@ -173,3 +173,41 @@ commented blocks in `.env.example` and `docker/mcp.compose.yml`).
    `merge_promotion` approval (`AHE-3.21`). Work the approve → publish →
    merge loop above; only relax the tier to `auto` once you trust the
    published branches — even then nothing is pushed without a human.
+
+## Closing the loop: generate, verify, ratchet (AHE-3.22 / AHE-3.23 / AHE-3.24)
+
+Through `AHE-3.21` the loop could *branch* a code change, but nothing on the live
+path ever **generated** the diff — every real proposal fell back to the prose SDD
+skeleton and a human wrote the code. These three concepts close that gap; together
+they turn "branch a change" into "branch a **verified, capability-ratcheted**
+change". All three sit inside the existing `governed_publish` flow, so the OS-5.24
+`merge_promotion` ActionPolicy gate (default: human approval queue) still fronts
+everything — nothing here can auto-merge or push.
+
+- **AHE-3.22 — autonomous code-synthesis** (`research/code_synthesis.py`). Before
+  synthesis, for a proposal that names a resolvable, existing, repo-relative `.py`
+  target and carries no embedded files, a single-file generator reads that file and
+  emits a `{path, content}` edit, fed into the **unchanged**
+  `synthesize_change_set → validate_in_sandbox → publisher` pipeline via the new
+  `extra_files` seam. Safety envelope: single attributed `.py` file only;
+  un-attributed proposals fall through to the prose skeleton exactly as before; the
+  generated file is sandbox-validated (a broken diff is never branched); the default
+  generator self-degrades to "no edit" when no model is reachable. The LLM call lives
+  in `code_synthesis.py` — `change_synthesis.py` stays generation-free.
+
+- **AHE-3.24 — capability ratchet** (`research/capability_ratchet.py`). After a
+  branch is published, a standing capability suite is run **in that worktree**,
+  producing a per-capability score vector compared against a persisted
+  `CapabilityScoreVector` baseline node. Every tracked capability must stay
+  at-or-above baseline (monotone ratchet); a passing run advances the baseline, the
+  first run bootstraps it. A worktree with no probes present is *not measured* and
+  never blocks. The recorded `CapabilityRatchetResult` is consulted by the `AHE-3.20`
+  promotion-governance gate as an additional predicate.
+
+- **AHE-3.23 — verified apply→verify→rollback**. The keep/abandon decision is the
+  authoritative recommendation from the existing `ManifestVerifier`
+  (`confirm` / `partial_revert` / `full_revert`, derived from the measured benchmark
+  delta), fed the ratchet's before/after scores. On a `*_revert` recommendation — or
+  any per-capability regression — `governed_publish` **abandons the branch**
+  (`git worktree remove` + `branch -D`); since the branch was never pushed, the
+  publication is fully undone. The probe set (`DEFAULT_CAPABILITY_TARGETS`) is tunable.
