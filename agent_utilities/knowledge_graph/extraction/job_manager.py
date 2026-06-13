@@ -87,11 +87,6 @@ class GraphCheckpointStore:
                 continue
         return jobs
 
-    def delete(self, job_id: str) -> None:
-        # The engine has no hard-delete on this path; leave a tombstone state.
-        # (A terminal job's node is harmless; the scheduler ignores DONE/FAILED.)
-        return
-
     def _query_job_nodes(self) -> list[dict[str, Any]]:
         try:
             rows = self._engine.query(f"MATCH (n:{_JOB_NODE_TYPE}) RETURN n", None)

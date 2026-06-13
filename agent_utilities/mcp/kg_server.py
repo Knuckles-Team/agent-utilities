@@ -3214,9 +3214,7 @@ def _build_server(bootstrap: bool = True):
                     )
 
                 facts: list[ExtractedFact] = []
-                async for ev in extract_facts(
-                    text, rounds=1, source_file=source_file
-                ):
+                async for ev in extract_facts(text, rounds=1, source_file=source_file):
                     if ev["type"] == "fact":
                         facts.append(ExtractedFact(**ev["fact"]))
 
@@ -3266,7 +3264,9 @@ def _build_server(bootstrap: bool = True):
                         )
                     if not text.strip():
                         return json.dumps(
-                            {"error": "extract_submit requires description= or target_path="}
+                            {
+                                "error": "extract_submit requires description= or target_path="
+                            }
                         )
                     jid = await mgr.submit(
                         text=text, rounds=max(1, min(10, max_depth or 1))
@@ -3280,7 +3280,9 @@ def _build_server(bootstrap: bool = True):
                     return json.dumps({"error": f"{action} requires job_id"})
 
                 if action == "extract_status":
-                    return json.dumps(mgr.status(job_id) or {"error": "no such job"}, default=str)
+                    return json.dumps(
+                        mgr.status(job_id) or {"error": "no such job"}, default=str
+                    )
                 if action == "extract_jsonl":
                     return mgr.jsonl(job_id)
                 if action == "extract_pause":
