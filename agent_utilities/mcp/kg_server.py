@@ -2103,15 +2103,24 @@ def _build_server(bootstrap: bool = True):
             except Exception as e:
                 return json.dumps({"error": str(e)})
 
-        # Local query — block writes
-        cypher_upper = cypher.upper().strip()
-        for kw in ["CREATE", "MERGE", "DELETE", "SET ", "REMOVE", "DROP"]:
-            if kw in cypher_upper:
-                return json.dumps(
-                    {
-                        "error": f"Write operation '{kw}' not allowed. Use kg_write for mutations."
-                    }
-                )
+        # Local query — block writes. Match write keywords only as whole Cypher
+        # clause keywords (word boundaries) and ignore quoted string literals, so
+        # identifiers like ``created_at``/``offset`` or a literal ``'CREATE …'`` are
+        # not misread as a mutation. (CONCEPT:KG-2.63)
+        import re
+
+        _cypher_no_literals = re.sub(r"'[^']*'|\"[^\"]*\"", "", cypher)
+        _write_kw = re.search(
+            r"\b(CREATE|MERGE|DELETE|REMOVE|DROP|SET)\b",
+            _cypher_no_literals,
+            re.IGNORECASE,
+        )
+        if _write_kw:
+            return json.dumps(
+                {
+                    "error": f"Write operation '{_write_kw.group(1).upper()}' not allowed. Use kg_write for mutations."
+                }
+            )
 
         # CONCEPT:KG-2.63 — resolve the target connection(s).
         try:
