@@ -49,7 +49,7 @@ class SqlUsageBackend(UsageBackend):
 
     # ── hooks subclasses must provide ───────────────────────────────────
     def _connect(self):  # returns a DB-API-ish connection (context manager)
-        raise NotImplementedError
+        raise NotImplementedError  # ABSTRACT-OK
 
     def _ensure_search(self, conn) -> None:
         """Create the search structure (FTS5 table / tsvector index)."""
@@ -61,7 +61,7 @@ class SqlUsageBackend(UsageBackend):
         """Remove a session's search rows before re-indexing."""
 
     def search(self, query, *, limit=50, **filters):  # pragma: no cover - override
-        raise NotImplementedError
+        raise NotImplementedError  # ABSTRACT-OK
 
     # ── helpers ─────────────────────────────────────────────────────────
     def _ph(self) -> str:
@@ -112,13 +112,31 @@ class SqlUsageBackend(UsageBackend):
                    file_inode, created_at)
                   VALUES ({", ".join([ph] * 25)})""",
                 (
-                    s.id, s.project, s.machine, s.agent, s.first_message,
-                    s.started_at, s.ended_at, s.message_count, s.user_message_count,
-                    s.total_output_tokens, s.peak_context_tokens,
-                    1 if s.is_automated else 0, s.outcome, s.health_grade,
-                    s.termination_status, s.parent_session_id, s.relationship_type,
-                    s.origin, s.tenant_id, s.correlation_id, s.file_path,
-                    s.file_hash, s.file_mtime, s.file_inode, _now(),
+                    s.id,
+                    s.project,
+                    s.machine,
+                    s.agent,
+                    s.first_message,
+                    s.started_at,
+                    s.ended_at,
+                    s.message_count,
+                    s.user_message_count,
+                    s.total_output_tokens,
+                    s.peak_context_tokens,
+                    1 if s.is_automated else 0,
+                    s.outcome,
+                    s.health_grade,
+                    s.termination_status,
+                    s.parent_session_id,
+                    s.relationship_type,
+                    s.origin,
+                    s.tenant_id,
+                    s.correlation_id,
+                    s.file_path,
+                    s.file_hash,
+                    s.file_mtime,
+                    s.file_inode,
+                    _now(),
                 ),
             )
             for m in bundle.messages:
@@ -129,8 +147,15 @@ class SqlUsageBackend(UsageBackend):
                        content_length)
                       VALUES ({", ".join([ph] * 11)})""",
                     (
-                        m.session_id, m.ordinal, m.role, m.content, m.thinking_text,
-                        m.timestamp, m.model, m.context_tokens, m.output_tokens,
+                        m.session_id,
+                        m.ordinal,
+                        m.role,
+                        m.content,
+                        m.thinking_text,
+                        m.timestamp,
+                        m.model,
+                        m.context_tokens,
+                        m.output_tokens,
                         1 if m.has_tool_use else 0,
                         m.content_length or len(m.content),
                     ),
@@ -150,10 +175,20 @@ class SqlUsageBackend(UsageBackend):
                status, occurred_at, origin, tenant_id, correlation_id)
               VALUES ({", ".join([ph] * 14)})""",
             (
-                t.session_id, t.message_ordinal, t.tool_name, t.category,
-                t.tool_use_id, t.input_json, t.skill_name, t.result_content_length,
-                t.subagent_session_id, t.status, t.occurred_at or _now(),
-                t.origin, t.tenant_id, t.correlation_id,
+                t.session_id,
+                t.message_ordinal,
+                t.tool_name,
+                t.category,
+                t.tool_use_id,
+                t.input_json,
+                t.skill_name,
+                t.result_content_length,
+                t.subagent_session_id,
+                t.status,
+                t.occurred_at or _now(),
+                t.origin,
+                t.tenant_id,
+                t.correlation_id,
             ),
         )
 
@@ -176,11 +211,23 @@ class SqlUsageBackend(UsageBackend):
                dedup_key, origin, tenant_id, correlation_id)
               VALUES ({", ".join([ph] * 17)})""",
             (
-                e.session_id, e.message_ordinal, e.source, e.model, e.input_tokens,
-                e.output_tokens, e.cache_creation_input_tokens,
-                e.cache_read_input_tokens, e.reasoning_tokens, e.cost_usd,
-                e.cost_status, e.cost_source, e.occurred_at or _now(), e.dedup_key,
-                e.origin, e.tenant_id, e.correlation_id,
+                e.session_id,
+                e.message_ordinal,
+                e.source,
+                e.model,
+                e.input_tokens,
+                e.output_tokens,
+                e.cache_creation_input_tokens,
+                e.cache_read_input_tokens,
+                e.reasoning_tokens,
+                e.cost_usd,
+                e.cost_status,
+                e.cost_source,
+                e.occurred_at or _now(),
+                e.dedup_key,
+                e.origin,
+                e.tenant_id,
+                e.correlation_id,
             ),
         )
 
@@ -206,8 +253,12 @@ class SqlUsageBackend(UsageBackend):
                        cache_creation_per_mtok, cache_read_per_mtok, updated_at)
                       VALUES ({", ".join([ph] * 6)})""",
                     (
-                        p.model_pattern, p.input_per_mtok, p.output_per_mtok,
-                        p.cache_creation_per_mtok, p.cache_read_per_mtok, _now(),
+                        p.model_pattern,
+                        p.input_per_mtok,
+                        p.output_per_mtok,
+                        p.cache_creation_per_mtok,
+                        p.cache_read_per_mtok,
+                        _now(),
                     ),
                 )
 
@@ -226,9 +277,7 @@ class SqlUsageBackend(UsageBackend):
     def mark_synced(self, path: str, mtime: int, size: int) -> None:
         ph = self._ph()
         with self._connect() as conn:
-            conn.execute(
-                f"DELETE FROM skipped_files WHERE path = {ph}", (path,)
-            )
+            conn.execute(f"DELETE FROM skipped_files WHERE path = {ph}", (path,))
             conn.execute(
                 f"INSERT INTO skipped_files (path, mtime, size) "
                 f"VALUES ({ph}, {ph}, {ph})",
@@ -254,8 +303,13 @@ class SqlUsageBackend(UsageBackend):
             )
             r = cur.fetchone()
         inp, out, cc, cr, reason, cost, sessions = (
-            int(r[0]), int(r[1]), int(r[2]), int(r[3]), int(r[4]),
-            float(r[5]), int(r[6]),
+            int(r[0]),
+            int(r[1]),
+            int(r[2]),
+            int(r[3]),
+            int(r[4]),
+            float(r[5]),
+            int(r[6]),
         )
         cache_total = cc + cr
         hit = (cr / cache_total) if cache_total else 0.0
@@ -264,8 +318,12 @@ class SqlUsageBackend(UsageBackend):
             to_date=filters.get("to_date"),
             session_count=sessions,
             totals=TokenTotals(
-                input_tokens=inp, output_tokens=out, cache_creation_tokens=cc,
-                cache_read_tokens=cr, reasoning_tokens=reason, cost_usd=cost,
+                input_tokens=inp,
+                output_tokens=out,
+                cache_creation_tokens=cc,
+                cache_read_tokens=cr,
+                reasoning_tokens=reason,
+                cost_usd=cost,
             ),
             cache_hit_rate=round(hit, 4),
         )
@@ -293,8 +351,10 @@ class SqlUsageBackend(UsageBackend):
             rows = cur.fetchall()
         return [
             BreakdownEntry(
-                key=(row[0] or "(unknown)"), session_count=int(row[1]),
-                input_tokens=int(row[2]), output_tokens=int(row[3]),
+                key=(row[0] or "(unknown)"),
+                session_count=int(row[1]),
+                input_tokens=int(row[2]),
+                output_tokens=int(row[3]),
                 cost_usd=float(row[4]),
             )
             for row in rows
@@ -319,8 +379,10 @@ class SqlUsageBackend(UsageBackend):
             calls, success = int(row[2]), int(row[3])
             out.append(
                 ToolStat(
-                    name=row[0] or "(tool)", category=row[1] or "other",
-                    calls=calls, success=success,
+                    name=row[0] or "(tool)",
+                    category=row[1] or "other",
+                    calls=calls,
+                    success=success,
                     success_rate=round(success / calls, 4) if calls else 0.0,
                 )
             )
@@ -372,10 +434,16 @@ class SqlUsageBackend(UsageBackend):
             rows = cur.fetchall()
         return [
             SessionRow(
-                id=row[0], project=row[1] or "", agent=row[2] or "claude",
-                started_at=row[3], ended_at=row[4], message_count=int(row[5] or 0),
-                total_output_tokens=int(row[6] or 0), cost_usd=float(row[7] or 0.0),
-                health_grade=row[8], outcome=row[9] or "unknown",
+                id=row[0],
+                project=row[1] or "",
+                agent=row[2] or "claude",
+                started_at=row[3],
+                ended_at=row[4],
+                message_count=int(row[5] or 0),
+                total_output_tokens=int(row[6] or 0),
+                cost_usd=float(row[7] or 0.0),
+                health_grade=row[8],
+                outcome=row[9] or "unknown",
                 origin=row[10] or "ingested",
             )
             for row in rows
@@ -408,10 +476,17 @@ class SqlUsageBackend(UsageBackend):
             )
             messages = [
                 UsageMessage(
-                    session_id=m[0], ordinal=m[1], role=m[2], content=m[3],
-                    thinking_text=m[4], timestamp=m[5], model=m[6],
-                    context_tokens=int(m[7] or 0), output_tokens=int(m[8] or 0),
-                    has_tool_use=bool(m[9]), content_length=int(m[10] or 0),
+                    session_id=m[0],
+                    ordinal=m[1],
+                    role=m[2],
+                    content=m[3],
+                    thinking_text=m[4],
+                    timestamp=m[5],
+                    model=m[6],
+                    context_tokens=int(m[7] or 0),
+                    output_tokens=int(m[8] or 0),
+                    has_tool_use=bool(m[9]),
+                    content_length=int(m[10] or 0),
                 )
                 for m in mcur.fetchall()
             ]
@@ -426,11 +501,20 @@ class SqlUsageBackend(UsageBackend):
             )
             tool_calls = [
                 UsageToolCall(
-                    session_id=t[0], message_ordinal=t[1], tool_name=t[2],
-                    category=t[3], tool_use_id=t[4], input_json=t[5], skill_name=t[6],
-                    result_content_length=t[7], subagent_session_id=t[8],
-                    status=t[9] or "", occurred_at=t[10], origin=t[11] or "ingested",
-                    tenant_id=t[12] or "", correlation_id=t[13] or "",
+                    session_id=t[0],
+                    message_ordinal=t[1],
+                    tool_name=t[2],
+                    category=t[3],
+                    tool_use_id=t[4],
+                    input_json=t[5],
+                    skill_name=t[6],
+                    result_content_length=t[7],
+                    subagent_session_id=t[8],
+                    status=t[9] or "",
+                    occurred_at=t[10],
+                    origin=t[11] or "ingested",
+                    tenant_id=t[12] or "",
+                    correlation_id=t[13] or "",
                 )
                 for t in tcur.fetchall()
             ]
@@ -445,20 +529,29 @@ class SqlUsageBackend(UsageBackend):
             )
             usage_events = [
                 UsageEvent(
-                    session_id=e[0], message_ordinal=e[1], source=e[2], model=e[3],
-                    input_tokens=int(e[4] or 0), output_tokens=int(e[5] or 0),
+                    session_id=e[0],
+                    message_ordinal=e[1],
+                    source=e[2],
+                    model=e[3],
+                    input_tokens=int(e[4] or 0),
+                    output_tokens=int(e[5] or 0),
                     cache_creation_input_tokens=int(e[6] or 0),
                     cache_read_input_tokens=int(e[7] or 0),
                     reasoning_tokens=int(e[8] or 0),
                     cost_usd=(float(e[9]) if e[9] is not None else None),
-                    cost_status=e[10] or "", cost_source=e[11] or "",
-                    occurred_at=e[12], dedup_key=e[13] or "",
-                    origin=e[14] or "ingested", tenant_id=e[15] or "",
+                    cost_status=e[10] or "",
+                    cost_source=e[11] or "",
+                    occurred_at=e[12],
+                    dedup_key=e[13] or "",
+                    origin=e[14] or "ingested",
+                    tenant_id=e[15] or "",
                     correlation_id=e[16] or "",
                 )
                 for e in ecur.fetchall()
             ]
         return SessionDetail(
-            session=rows[0], messages=messages, tool_calls=tool_calls,
+            session=rows[0],
+            messages=messages,
+            tool_calls=tool_calls,
             usage_events=usage_events,
         )

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 192
+total_concepts: 193
 total_pillars: 19
 pillars:
 - AHE-3
@@ -407,7 +407,6 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/event_backend.py
   - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
-  - agent_utilities/knowledge_graph/core/nats_queue_backend.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
   doc: Pluggable Event Queue Backend
 - id: ECO-4.10
@@ -574,6 +573,7 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/graph/parallel_engine.py
   - agent_utilities/knowledge_graph/core/engine_breaker.py
+  - agent_utilities/knowledge_graph/core/engine_mcp_discovery.py
   - agent_utilities/mcp/child_resilience.py
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/observability/gateway_metrics.py
@@ -596,6 +596,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/mcp/eunomia_principal.py
   - agent_utilities/mcp/multiplexer.py
   doc: catalog-aware, collision-free prefix assignment
 - id: ECO-4.37
@@ -1073,6 +1074,7 @@ concepts:
   - agent_utilities/knowledge_graph/research/search.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/server/app.py
   doc: the durable PostgreSQL graph tier executed via a bounded regex
 - id: KG-2.8
   name: / OS-5.9 — the KG runs exactly ONE consolidated background daemon
@@ -1440,6 +1442,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/shacl_validator.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/value_types.py
+  - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py
   - agent_utilities/mcp/kg_server.py
   doc: the live consumer hook. Writes the combined SHACL document
 - id: KG-2.40
@@ -1896,7 +1899,6 @@ concepts:
   - agent_utilities/graph/reactive/ledger.py
   - agent_utilities/knowledge_graph/core/event_backend.py
   - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
-  - agent_utilities/knowledge_graph/core/nats_queue_backend.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
   doc: Graph-Native Reactive Event Sourcing and OS Guardrails
 - id: ORCH-1.11
@@ -2475,7 +2477,7 @@ concepts:
   doc: Fleet supervisory plane at scale — SQL aggregation, paginated and filtered session queries, and
     desired-state pause and kill reconciliation across hosts
 - id: OS-5.23
-  name: Gateway Middle-Tier Hardening
+  name: No-op without the metrics extra
   pillar: OS-5
   status: live
   code_paths:
@@ -2486,11 +2488,13 @@ concepts:
   - agent_utilities/gateway/rate_limit.py
   - agent_utilities/knowledge_graph/core/engine_breaker.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/mcp/middlewares.py
+  - agent_utilities/mcp/server_factory.py
   - agent_utilities/observability/gateway_metrics.py
   - agent_utilities/orchestration/scaling_signals.py
   - agent_utilities/security/request_identity.py
   - agent_utilities/server/__init__.py
-  doc: Gateway Middle-Tier Hardening
+  doc: No-op without the metrics extra
 - id: OS-5.24
   name: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
     windows, and blast-radius caps consulted before any autonomous mutating fleet action
@@ -2586,6 +2590,15 @@ concepts:
   - agent_utilities/orchestration/engine.py
   - agent_utilities/usage/recorder.py
   doc: persist this graph run as a runtime usage row so
+- id: OS-5.32
+  name: so jwt-protected children are reachable, then
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_mcp_discovery.py
+  - agent_utilities/mcp/client_credentials.py
+  - agent_utilities/mcp/multiplexer.py
+  doc: so jwt-protected children are reachable, then
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

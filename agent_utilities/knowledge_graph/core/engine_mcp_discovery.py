@@ -67,6 +67,12 @@ class MCPDiscoveryMixin(_Base):
             command = entry.get("command", "")
             args = entry.get("args", [])
             env = entry.get("env", {})
+            # Remote (streamable-http / sse) children declare a url + transport
+            # instead of a command — capture them so HTTP servers are discoverable
+            # rather than mis-treated as empty stdio entries.
+            url = entry.get("url", "")
+            transport = entry.get("transport", "")
+            headers = entry.get("headers", {})
             disabled = entry.get("disabled", False)
 
             if disabled:
@@ -77,7 +83,9 @@ class MCPDiscoveryMixin(_Base):
             tool_flags = self._parse_tool_flags(env)
 
             # Build a deterministic hash of the config for freshness checks
-            config_hash = self._compute_config_hash(name, command, args, env)
+            config_hash = self._compute_config_hash(
+                name, command, args, env, url=url, transport=transport
+            )
 
             servers.append(
                 {
@@ -85,6 +93,9 @@ class MCPDiscoveryMixin(_Base):
                     "command": command,
                     "args": args,
                     "env": env,
+                    "url": url,
+                    "transport": transport,
+                    "headers": headers,
                     "tool_flags": tool_flags,
                     "config_hash": config_hash,
                     "disabled_tools": entry.get("disabledTools", []),
@@ -116,6 +127,16 @@ class MCPDiscoveryMixin(_Base):
         name = server_config.get("name", "unknown")
         command = server_config.get("command", "")
         args = server_config.get("args", [])
+        url = server_config.get("url", "")
+        transport = str(server_config.get("transport", "")).lower()
+
+        # Remote children (streamable-http / sse) connect over the network instead
+        # of spawning a subprocess. Most of the fleet is served this way behind the
+        # multiplexer, so without this branch their tools are never discovered.
+        if url or transport in ("streamable-http", "streamable_http", "http", "sse"):
+            return await self._discover_remote_tools(
+                name, url, transport, server_config.get("headers"), timeout
+            )
 
         if not command:
             logger.warning(
@@ -175,26 +196,7 @@ class MCPDiscoveryMixin(_Base):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         result = await session.list_tools()
-
-                        for tool in result.tools:
-                            tool_dict: dict[str, Any] = {
-                                "name": tool.name,
-                                "description": getattr(tool, "description", "") or "",
-                                "input_schema": {},
-                            }
-                            if hasattr(tool, "inputSchema") and tool.inputSchema:
-                                tool_dict["input_schema"] = (
-                                    tool.inputSchema
-                                    if isinstance(tool.inputSchema, dict)
-                                    else {}
-                                )
-                            if hasattr(tool, "annotations") and tool.annotations:
-                                tool_dict["annotations"] = (
-                                    tool.annotations
-                                    if isinstance(tool.annotations, dict)
-                                    else str(tool.annotations)
-                                )
-                            tools.append(tool_dict)
+                        tools = self._extract_tools(result.tools)
 
             logger.info(
                 "[ECO-4.11] Live discovery for '%s': found %d tools",
@@ -214,6 +216,120 @@ class MCPDiscoveryMixin(_Base):
                 e,
             )
 
+        return tools
+
+    async def _discover_remote_tools(
+        self,
+        name: str,
+        url: str,
+        transport: str,
+        headers: dict[str, str] | None,
+        timeout: float,
+    ) -> list[dict[str, Any]]:
+        """Discover tools from a remote (streamable-http / sse) MCP server.
+
+        Mirrors the multiplexer's transport handling (CONCEPT:ECO-4.34): pick sse
+        vs streamable-http, attach the optional service-account bearer
+        (CONCEPT:OS-5.32) so jwt-protected children are reachable, then
+        ``list_tools()``. A connection/auth failure returns an empty list (logged),
+        so an unreachable or 401 server degrades to a tool-less Server node rather
+        than aborting the whole toolkit ingest.
+        """
+        import asyncio
+        import os
+
+        try:
+            from mcp import ClientSession
+        except ImportError:
+            logger.debug(
+                "mcp package not installed — skipping live discovery for '%s'", name
+            )
+            return []
+
+        url = os.path.expandvars(url or "")
+        if not url:
+            logger.warning(
+                "Remote MCP server '%s' has no url — skipping live discovery", name
+            )
+            return []
+
+        hdrs = (
+            {k: os.path.expandvars(str(v)) for k, v in headers.items()}
+            if headers
+            else {}
+        )
+        # Attach the multiplexer's service-account bearer when configured
+        # (opt-in MCP_CLIENT_AUTH=oidc-client-credentials); never overrides a
+        # child's own Authorization header; a mint failure degrades to no header.
+        try:
+            from agent_utilities.mcp.client_credentials import bearer_header
+
+            _svc = bearer_header(hdrs)
+            if _svc:
+                hdrs = {**hdrs, **_svc}
+        except Exception:  # noqa: BLE001 - auth is best-effort
+            pass
+
+        use_sse = transport == "sse" or url.rstrip("/").endswith("/sse")
+        tools: list[dict[str, Any]] = []
+        try:
+            if use_sse:
+                from mcp.client.sse import sse_client
+
+                transport_cm = sse_client(url, headers=hdrs)
+            else:
+                from mcp.client.streamable_http import streamablehttp_client
+
+                transport_cm = streamablehttp_client(url, headers=hdrs)
+
+            async with asyncio.timeout(timeout):
+                async with transport_cm as streams:
+                    read_stream, write_stream = streams[0], streams[1]
+                    async with ClientSession(read_stream, write_stream) as session:
+                        await session.initialize()
+                        result = await session.list_tools()
+                        tools = self._extract_tools(result.tools)
+
+            logger.info(
+                "[ECO-4.11] Remote discovery for '%s': found %d tools", name, len(tools)
+            )
+        except TimeoutError:
+            logger.warning(
+                "[ECO-4.11] Remote discovery for '%s' timed out after %.0fs",
+                name,
+                timeout,
+            )
+        except Exception as e:  # noqa: BLE001 - unreachable/401 → tool-less node
+            logger.warning("[ECO-4.11] Remote discovery for '%s' failed: %s", name, e)
+
+        return tools
+
+    @staticmethod
+    def _extract_tools(raw_tools: Any) -> list[dict[str, Any]]:
+        """Normalize MCP ``list_tools()`` results into tool-metadata dicts.
+
+        Shared by stdio and remote discovery so both transports yield the same
+        shape (``name``, ``description``, ``input_schema``, optional
+        ``annotations``).
+        """
+        tools: list[dict[str, Any]] = []
+        for tool in raw_tools or []:
+            tool_dict: dict[str, Any] = {
+                "name": tool.name,
+                "description": getattr(tool, "description", "") or "",
+                "input_schema": {},
+            }
+            if getattr(tool, "inputSchema", None):
+                tool_dict["input_schema"] = (
+                    tool.inputSchema if isinstance(tool.inputSchema, dict) else {}
+                )
+            if getattr(tool, "annotations", None):
+                tool_dict["annotations"] = (
+                    tool.annotations
+                    if isinstance(tool.annotations, dict)
+                    else str(tool.annotations)
+                )
+            tools.append(tool_dict)
         return tools
 
     def check_server_freshness(
@@ -363,12 +479,18 @@ class MCPDiscoveryMixin(_Base):
 
     @staticmethod
     def _compute_config_hash(
-        name: str, command: str, args: list[str], env: dict[str, str]
+        name: str,
+        command: str,
+        args: list[str],
+        env: dict[str, str],
+        url: str = "",
+        transport: str = "",
     ) -> str:
         """Compute a deterministic hash of a server's configuration.
 
         Used for freshness checks — if the hash changes, the KG cache
-        is invalidated and the server is re-ingested.
+        is invalidated and the server is re-ingested. Includes the remote
+        ``url``/``transport`` so an endpoint change re-triggers discovery.
 
         """
         payload = json.dumps(
@@ -377,6 +499,8 @@ class MCPDiscoveryMixin(_Base):
                 "command": command,
                 "args": args,
                 "env": sorted(env.items()),
+                "url": url,
+                "transport": transport,
             },
             sort_keys=True,
         )

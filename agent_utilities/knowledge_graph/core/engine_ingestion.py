@@ -151,14 +151,21 @@ class IngestionMixin(_Base):
                 else:
                     self.graph.add_node(resource.id, **resource.model_dump())
 
-                # Linkage
+                # Linkage. Use inline-map MATCH (one pattern per bound node) rather
+                # than a comma-separated cross-product with a WHERE filter: the
+                # epistemic_graph backend defers the multi-pattern WHERE shape to a
+                # legacy path that silently creates no edge at fleet scale (53×534),
+                # so PROVIDES/HAS_METADATA never materialized. The inline-map form
+                # binds each endpoint by id directly and persists reliably.
                 if self.backend:
                     self.backend.execute(
-                        "MATCH (s:Server), (r:CallableResource) WHERE s.id = $sid AND r.id = $rid MERGE (s)-[:PROVIDES]->(r)",
+                        "MATCH (s:Server {id: $sid}) MATCH (r:CallableResource {id: $rid}) "
+                        "MERGE (s)-[:PROVIDES]->(r)",
                         {"sid": server_id, "rid": res_id},
                     )
                     self.backend.execute(
-                        "MATCH (r:CallableResource), (m:ToolMetadata) WHERE r.id = $rid AND m.id = $mid MERGE (r)-[:HAS_METADATA]->(m)",
+                        "MATCH (r:CallableResource {id: $rid}) MATCH (m:ToolMetadata {id: $mid}) "
+                        "MERGE (r)-[:HAS_METADATA]->(m)",
                         {"rid": res_id, "mid": meta_id},
                     )
 
@@ -866,6 +873,12 @@ class IngestionMixin(_Base):
 
         for entry in server_entries:
             server_name = entry["name"]
+            # Record the real endpoint: remote children carry a url; only stdio
+            # children get the synthesized stdio:// form (the old code applied
+            # stdio:// to every server, leaving HTTP servers with broken endpoints).
+            srv_url = entry.get("url") or (
+                f"stdio://{entry['command']} {' '.join(entry['args'])}"
+            )
 
             # Freshness check — skip if KG cache is current
             if engine_self.check_server_freshness(server_name, entry["config_hash"]):
@@ -883,7 +896,7 @@ class IngestionMixin(_Base):
                 # Live discovery succeeded — ingest real tools
                 self.ingest_mcp_server(
                     name=server_name,
-                    url=f"stdio://{entry['command']} {' '.join(entry['args'])}",
+                    url=srv_url,
                     tools=live_tools,
                     resources={"source_config": source_path, "env": entry["env"]},
                 )
@@ -902,7 +915,7 @@ class IngestionMixin(_Base):
                 if flag_tools:
                     self.ingest_mcp_server(
                         name=server_name,
-                        url=f"stdio://{entry['command']} {' '.join(entry['args'])}",
+                        url=srv_url,
                         tools=flag_tools,
                         resources={"source_config": source_path, "env": entry["env"]},
                     )
@@ -911,7 +924,7 @@ class IngestionMixin(_Base):
                     # No tools at all — still register the server node
                     self.ingest_mcp_server(
                         name=server_name,
-                        url=f"stdio://{entry['command']} {' '.join(entry['args'])}",
+                        url=srv_url,
                         tools=[],
                         resources={"source_config": source_path, "env": entry["env"]},
                     )

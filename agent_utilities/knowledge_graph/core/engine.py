@@ -441,11 +441,19 @@ class IntelligenceGraphEngine(
         return prepared
 
     def _upsert_node(self, label: str, node_id: str, data: dict[str, Any]):
-        """Perform an idempotent upsert of a node using MATCH/SET then CREATE.
+        """Perform an idempotent upsert of a node via MERGE on the inline id map.
 
-        Properties are folded/serialized ONCE (``_prepare_node_props``) and used for
-        both the update and create paths, so ad-hoc and nested props survive a
-        re-write on every backend (no data loss on the durable tier).
+        Properties are folded/serialized ONCE (``_prepare_node_props``) and applied
+        with a single MERGE + SET, so ad-hoc and nested props survive a re-write on
+        every backend (no data loss on the durable tier).
+
+        The MERGE-on-``{id: $id}`` form is required for correctness: the previous
+        MATCH/WHERE-then-``CREATE (n:Label {..map..})`` fallback silently no-op'd on
+        the epistemic_graph backend (a bare CREATE with a property map does not
+        persist there and raises no error), which dropped every node written through
+        this helper — CallableResource, ToolMetadata, Episode, and the rest. MERGE on
+        the inline-map id is the proven-persistent write (identical to how Server
+        nodes are written) and stays idempotent — update-or-create in one statement.
         """
         if not self.backend:
             return
@@ -453,16 +461,9 @@ class IntelligenceGraphEngine(
         label = self._normalize_label(label)
         prepared = self._prepare_node_props(label, data)
 
-        # 1. Try to update existing (extras already folded into metadata).
         set_clause = self._get_set_clause(prepared, label=label)
-        update_query = f"MATCH (n:{label}) WHERE n.id = $id {set_clause} RETURN n.id"
-        res = self.backend.execute(update_query, prepared)
-
-        # 2. If not found, create from the same prepared property set.
-        if not res:
-            cols = ", ".join([f"`{k}`: ${k}" for k in prepared.keys()])
-            create_query = f"CREATE (n:{label} {{{cols}}})"
-            self.backend.execute(create_query, prepared)
+        merge_query = f"MERGE (n:{label} {{id: $id}}) {set_clause}".rstrip()
+        self.backend.execute(merge_query, prepared)
 
     def link_nodes(
         self,
