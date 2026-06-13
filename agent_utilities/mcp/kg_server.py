@@ -1683,21 +1683,17 @@ _WORKSPACE_PATH = setting("WORKSPACE_PATH", os.getcwd())
 _ENGINE_LOCK = threading.Lock()
 
 
-class _FactWriteAdapter:
-    """Adapt ``IntelligenceGraphEngine`` to the ``add_node(label=)/add_edge``
-    store protocol that ``extraction.persist_facts`` writes against (KG-2.64),
-    so fact persistence reuses the tested merge logic on the live engine."""
+_EXTRACTION_MANAGER: Any = None
 
-    def __init__(self, engine: Any) -> None:
-        self._engine = engine
 
-    def add_node(self, node_id: str, label: str = "", **props: Any) -> None:
-        self._engine.add_node(node_id, "entity", {"label": label, **props})
+def _get_extraction_manager(engine: Any) -> Any:
+    """Lazily build the single GPU-slot extraction job manager (KG-2.65)."""
+    global _EXTRACTION_MANAGER
+    if _EXTRACTION_MANAGER is None:
+        from ..knowledge_graph.extraction.job_manager import ExtractionJobManager
 
-    def add_edge(
-        self, source: str, target: str, rel_type: str = "", **props: Any
-    ) -> None:
-        self._engine.add_edge(source, target, rel_type, **props)
+        _EXTRACTION_MANAGER = ExtractionJobManager(engine)
+    return _EXTRACTION_MANAGER
 
 
 def _get_engine():
@@ -2705,7 +2701,7 @@ def _build_server(bootstrap: bool = True):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, sync, reflect). 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
+            description="Action to perform (ingest, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, sync, reflect). 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -3187,6 +3183,9 @@ def _build_server(bootstrap: bool = True):
                     facts_to_jsonl,
                     persist_facts,
                 )
+                from ..knowledge_graph.extraction.job_manager import (
+                    EngineStoreAdapter,
+                )
 
                 text = description or ""
                 source_file = ""
@@ -3212,7 +3211,7 @@ def _build_server(bootstrap: bool = True):
                     if ev["type"] == "fact":
                         facts.append(ExtractedFact(**ev["fact"]))
 
-                stats = persist_facts(_FactWriteAdapter(engine), facts)
+                stats = persist_facts(EngineStoreAdapter(engine), facts)
                 unique = sum(1 for f in facts if not f.is_duplicate)
                 return json.dumps(
                     {
@@ -3228,6 +3227,59 @@ def _build_server(bootstrap: bool = True):
                     },
                     default=str,
                 )
+
+            elif action in (
+                "extract_submit",
+                "extract_jobs",
+                "extract_status",
+                "extract_pause",
+                "extract_resume",
+                "extract_jsonl",
+            ):
+                # CONCEPT:KG-2.65 — GPU-slot-scheduled fact extraction. Unlike the
+                # inline 'fact_extract', these submit a job that runs on the single
+                # GPU inference slot with preempt/backfill/resume, so concurrent
+                # submissions don't oversubscribe the GPU. job_id addresses a job.
+                import json
+
+                mgr = _get_extraction_manager(engine)
+
+                if action == "extract_submit":
+                    text = description or ""
+                    if not text and target_path:
+                        from pathlib import Path
+
+                        p = Path(target_path)
+                        text = (
+                            p.read_text(encoding="utf-8", errors="ignore")
+                            if p.exists() and p.is_file()
+                            else target_path
+                        )
+                    if not text.strip():
+                        return json.dumps(
+                            {"error": "extract_submit requires description= or target_path="}
+                        )
+                    jid = await mgr.submit(
+                        text=text, rounds=max(1, min(10, max_depth or 1))
+                    )
+                    return json.dumps({"status": "submitted", "job_id": jid})
+
+                if action == "extract_jobs":
+                    return json.dumps({"jobs": mgr.jobs()}, default=str)
+
+                if not job_id:
+                    return json.dumps({"error": f"{action} requires job_id"})
+
+                if action == "extract_status":
+                    return json.dumps(mgr.status(job_id) or {"error": "no such job"}, default=str)
+                if action == "extract_jsonl":
+                    return mgr.jsonl(job_id)
+                if action == "extract_pause":
+                    await mgr.pause(job_id)
+                    return json.dumps({"status": "paused", "job_id": job_id})
+                # extract_resume
+                await mgr.resume(job_id)
+                return json.dumps({"status": "resumed", "job_id": job_id})
 
             else:
                 return f"Error: Unknown ingest action '{action}'"

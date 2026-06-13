@@ -23,12 +23,20 @@ from .fact_extractor import (
     parse_facts_incremental,
     persist_facts,
 )
+from .job_manager import (
+    EngineStoreAdapter,
+    ExtractionJobManager,
+    GraphCheckpointStore,
+)
 
 __all__ = [
     "FACT_EXTRACTION_PROMPT",
     "FACT_JSON_SCHEMA",
+    "EngineStoreAdapter",
     "ExtractedFact",
+    "ExtractionJobManager",
     "FactDeduper",
+    "GraphCheckpointStore",
     "extract_facts",
     "facts_to_jsonl",
     "parse_facts_incremental",
