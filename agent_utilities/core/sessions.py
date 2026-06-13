@@ -668,7 +668,9 @@ async def run_goal_loop(
 
         try:
             _pstate = pending.get("state")
-            _pstate = _json.loads(_pstate) if isinstance(_pstate, str) else (_pstate or {})
+            _pstate = (
+                _json.loads(_pstate) if isinstance(_pstate, str) else (_pstate or {})
+            )
         except (TypeError, ValueError):
             _pstate = {}
         prior_iter = _pstate.get("iteration")
@@ -705,9 +707,9 @@ async def run_goal_loop(
         if desired:
             final = GoalStatus.PAUSED if desired == "pause" else GoalStatus.CANCELLED
             active_goals[goal_id]["status"] = final
-            active_goals[goal_id]["summary"] = (
-                f"Goal {final.value} by fleet supervisor request."
-            )
+            active_goals[goal_id][
+                "summary"
+            ] = f"Goal {final.value} by fleet supervisor request."
             _persist_goal(goal_id)
             try:
                 conn = _connect_db()
@@ -780,7 +782,10 @@ async def run_goal_loop(
             )
         except Exception as e:  # noqa: BLE001 — durable action is best-effort
             logger.error(f"Durable iteration {iterations_run} failed: {e}")
-            outcome = {"validation_output": f"Durable action error: {e}", "cmd_success": False}
+            outcome = {
+                "validation_output": f"Durable action error: {e}",
+                "cmd_success": False,
+            }
         validation_output = outcome.get("validation_output", "")
         cmd_success = bool(outcome.get("cmd_success"))
 
@@ -853,9 +858,9 @@ async def run_goal_loop(
 
     final_status = GoalStatus.COMPLETED if success else GoalStatus.FAILED
     active_goals[goal_id]["status"] = final_status
-    active_goals[goal_id]["summary"] = (
-        f"Goal finished with status: {final_status.value}. Iterations run: {iterations_run}."
-    )
+    active_goals[goal_id][
+        "summary"
+    ] = f"Goal finished with status: {final_status.value}. Iterations run: {iterations_run}."
     _persist_goal(goal_id)
 
     try:

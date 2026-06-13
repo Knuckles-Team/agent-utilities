@@ -58,9 +58,7 @@ async def list_value_types() -> OntologyEnvelope:
     return OntologyEnvelope(result=await _call("ontology_value_types", action="list"))
 
 
-@ontology_router.get(
-    "/ontology/value-types/{name}", response_model=OntologyEnvelope
-)
+@ontology_router.get("/ontology/value-types/{name}", response_model=OntologyEnvelope)
 async def get_value_type(name: str) -> OntologyEnvelope:
     """Describe one value type (404 if unknown)."""
     res = await _call("ontology_value_types", action="describe", name=name)
@@ -83,9 +81,7 @@ async def list_property_types() -> OntologyEnvelope:
 )
 async def describe_property_type(type_ref: str) -> OntologyEnvelope:
     """Describe a property type ref, e.g. ``array<string>`` (404 if unknown)."""
-    res = await _call(
-        "ontology_property_types", action="describe", type_ref=type_ref
-    )
+    res = await _call("ontology_property_types", action="describe", type_ref=type_ref)
     return OntologyEnvelope(result=_not_found_if_error(res, f"type {type_ref!r}"))
 
 
@@ -102,9 +98,7 @@ async def list_interfaces(
     )
 
 
-@ontology_router.get(
-    "/ontology/interfaces/{name}", response_model=OntologyEnvelope
-)
+@ontology_router.get("/ontology/interfaces/{name}", response_model=OntologyEnvelope)
 async def get_interface_implementers(
     name: str,
     registry: str = Query("structural", description="'structural' or 'enterprise'."),
@@ -129,9 +123,7 @@ async def list_functions() -> OntologyEnvelope:
     return OntologyEnvelope(result=await _call("ontology_function", action="list"))
 
 
-@ontology_router.get(
-    "/ontology/functions/{name}", response_model=OntologyEnvelope
-)
+@ontology_router.get("/ontology/functions/{name}", response_model=OntologyEnvelope)
 async def get_function(name: str) -> OntologyEnvelope:
     """Get one function's signature by name (404 if unknown)."""
     listing = await _call("ontology_function", action="list")
@@ -156,9 +148,7 @@ async def get_object(object_id: str) -> OntologyEnvelope:
     )
 
 
-@ontology_router.get(
-    "/objects/{object_id}/history", response_model=OntologyEnvelope
-)
+@ontology_router.get("/objects/{object_id}/history", response_model=OntologyEnvelope)
 async def get_object_history(object_id: str) -> OntologyEnvelope:
     """Per-object edit history / changelog (CONCEPT:KG-2.43)."""
     return OntologyEnvelope(
@@ -166,18 +156,14 @@ async def get_object_history(object_id: str) -> OntologyEnvelope:
     )
 
 
-@ontology_router.get(
-    "/objects/{object_id}/as-of", response_model=OntologyEnvelope
-)
+@ontology_router.get("/objects/{object_id}/as-of", response_model=OntologyEnvelope)
 async def get_object_as_of(
     object_id: str,
     ts: float = Query(..., description="Unix timestamp for the point-in-time view."),
 ) -> OntologyEnvelope:
     """Bitemporal as-of snapshot of an object (CONCEPT:KG-2.43)."""
     return OntologyEnvelope(
-        result=await _call(
-            "object_edits", action="as_of", object_id=object_id, ts=ts
-        )
+        result=await _call("object_edits", action="as_of", object_id=object_id, ts=ts)
     )
 
 
