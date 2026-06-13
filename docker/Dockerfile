@@ -9,6 +9,12 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_SYSTEM_PYTHON=1 \
     UV_HTTP_TIMEOUT=3600
+# hnswlib (HNSW vector index, an [all] dependency) ships no manylinux wheel and
+# builds from sdist, which needs a C++11 toolchain. Install it in the builder
+# only — the final stage copies just /usr/local, so the compiler never ships.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --upgrade --break-system-packages --prerelease=allow "agent-utilities[all]>=0.47.1"
 
