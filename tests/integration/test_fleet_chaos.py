@@ -52,6 +52,12 @@ def fleet_env(tmp_path, monkeypatch):
     monkeypatch.setattr(_sessions, "_rehydrated", True)
     monkeypatch.setattr(_sessions, "active_goals", {})
     monkeypatch.setattr(_sessions, "background_goal_runs", {})
+    # Pin sqlite state even if the dev checkout's .env externalizes to Postgres
+    # (STATE_DB_URI) — otherwise _connect_db/_select_store bypass the tmp sqlite.
+    monkeypatch.delenv("STATE_DB_URI", raising=False)
+    monkeypatch.setattr(
+        "agent_utilities.core.state_store.postgres_state_enabled", lambda: False
+    )
     monkeypatch.setenv("DURABLE_EXECUTION_DB", str(tmp_path / "durable.db"))
 
     async def _fast_sleep(_delay):
