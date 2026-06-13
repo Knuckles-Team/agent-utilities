@@ -7,12 +7,46 @@ enhanced observability and authorization context during tool execution.
 """
 
 import threading
+import time
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.utilities.logging import get_logger
 
 local = threading.local()
 logger = get_logger(name="TokenMiddleware")
+
+
+class ToolMetricsMiddleware(Middleware):
+    """Record per-tool call count, latency and error outcome as Prometheus
+    metrics for a standalone MCP server (CONCEPT:OS-5.23).
+
+    Mounted by ``create_mcp_server`` on every server the factory builds, so the
+    server's own ``GET /metrics`` route exposes per-tool request rate, p95
+    latency and error rate — the server-side complement to the multiplexer's
+    ``MCP_CHILD_*`` view. Degrades to a no-op when the optional ``metrics``
+    extra (``prometheus_client``) is absent.
+    """
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        from agent_utilities.observability.gateway_metrics import (
+            MCP_TOOL_CALLS,
+            MCP_TOOL_DURATION,
+            MCP_TOOL_IN_FLIGHT,
+        )
+
+        tool = getattr(context.message, "name", None) or "unknown"
+        MCP_TOOL_IN_FLIGHT.inc()
+        start = time.perf_counter()
+        outcome = "ok"
+        try:
+            return await call_next(context)
+        except Exception:
+            outcome = "error"
+            raise
+        finally:
+            MCP_TOOL_DURATION.labels(tool).observe(time.perf_counter() - start)
+            MCP_TOOL_CALLS.labels(tool, outcome).inc()
+            MCP_TOOL_IN_FLIGHT.dec()
 
 
 class UserTokenMiddleware(Middleware):
