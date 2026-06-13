@@ -1,0 +1,27 @@
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+WARNING: Cache entry deserialization failed, entry ignored
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+agent-utilities 0.47.1 requires confluent-kafka>=2.14.0, which is not installed.
+agent-utilities 0.47.1 requires defusedxml>=0.7.1, which is not installed.
+agent-utilities 0.47.1 requires dspy-ai>=2.5.0, which is not installed.
+agent-utilities 0.47.1 requires epistemic-graph>=0.27.0, which is not installed.
+agent-utilities 0.47.1 requires filelock>=3.0.0, which is not installed.
+agent-utilities 0.47.1 requires ladybug>=0.16.0, which is not installed.
+agent-utilities 0.47.1 requires llama-index-core>=0.14.21, which is not installed.
+agent-utilities 0.47.1 requires llama-index-embeddings-openai>=0.6.0, which is not installed.
+agent-utilities 0.47.1 requires llama-index-llms-openai>=0.7.9, which is not installed.
+agent-utilities 0.47.1 requires pathspec, which is not installed.
+agent-utilities 0.47.1 requires psutil>=7.2.0, which is not installed.
+agent-utilities 0.47.1 requires pydantic-acp>=0.1.0, which is not installed.
+agent-utilities 0.47.1 requires pydantic-ai-slim[a2a,ag-ui,cli,fastmcp,openai,web]<2.0.0,>=1.90.0, which is not installed.
+agent-utilities 0.47.1 requires pydantic-monty<0.1.0,>=0.0.18, which is not installed.
+agent-utilities 0.47.1 requires tree-sitter>=0.23.0, which is not installed.
+agent-utilities 0.47.1 requires tree-sitter-javascript>=0.23.0, which is not installed.
+agent-utilities 0.47.1 requires tree-sitter-python>=0.23.0, which is not installed.
+agent-utilities 0.47.1 requires tree-sitter-typescript>=0.23.0, which is not installed.
+
+[notice] A new release of pip is available: 24.0 -> 26.1.2
+[notice] To update, run: /tmp/muxmin/bin/python3.11 -m pip install --upgrade pip
