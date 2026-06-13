@@ -487,6 +487,7 @@ def governed_publish(
     regression_check: Any = None,
     source: str = "golden_loop",
     action_policy: Any = None,
+    code_synthesizer: Any = None,
 ) -> dict[str, Any]:
     """Publish a promoted proposal through the ActionPolicy gate (CONCEPT:AHE-3.21).
 
@@ -540,8 +541,23 @@ def governed_publish(
         report["decision"] = "approved"
         report["approval_id"] = granted_id
 
+    # CONCEPT:AHE-3.22 — autonomous code-synthesis stage. For an attributed
+    # proposal that carries no embedded files, generate a single-file edit so the
+    # promotion emits real code; an un-attributed proposal yields None and falls
+    # through to the prose SDD skeleton exactly as before. Generation failure is
+    # never fatal — the prose path still runs.
+    extra_files = None
     try:
-        change_set = synthesize_change_set(proposal)
+        from .code_synthesis import synthesize_code
+
+        extra_files = synthesize_code(proposal, synthesizer=code_synthesizer)
+        if extra_files:
+            report["code_synthesis"] = {"files": [f.path for f in extra_files]}
+    except Exception as exc:  # noqa: BLE001 — generation failure ⇒ prose fallback
+        logger.debug("[AHE-3.22] code synthesis skipped: %s", exc)
+
+    try:
+        change_set = synthesize_change_set(proposal, extra_files=extra_files)
     except Exception as exc:  # noqa: BLE001
         report["status"] = "synthesis_failed"
         report["detail"] = str(exc)
