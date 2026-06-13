@@ -56,6 +56,9 @@ __all__ = [
     "MCP_CHILD_CALLS",
     "MCP_CHILD_QUEUE_DEPTH",
     "MCP_CHILD_RESTARTS",
+    "MCP_TOOL_CALLS",
+    "MCP_TOOL_DURATION",
+    "MCP_TOOL_IN_FLIGHT",
     "PROMETHEUS_AVAILABLE",
     "SKILL_CALLS",
     "TOOL_CALLS",
@@ -244,6 +247,28 @@ DB_CALLS = _counter(
     "agent_utilities_db_calls_total",
     "Database/graph-engine calls by store (usage|kg|state).",
     ("store",),
+)
+
+# Per-tool instrumentation for STANDALONE MCP servers built by
+# ``create_mcp_server`` (CONCEPT:OS-5.23). One series per tool this server
+# process exposes (bounded by the server's own tool set); Prometheus adds the
+# job/instance labels so the same tool name on different servers stays distinct.
+# These are the server-side siblings of MCP_CHILD_* (the multiplexer's view).
+# Recorded by ``ToolMetricsMiddleware`` and scraped from the server's own
+# ``GET /metrics`` route; no-ops when the optional ``metrics`` extra is absent.
+MCP_TOOL_CALLS = _counter(
+    "agent_utilities_mcp_tool_calls_total",
+    "MCP tool invocations on this server by tool name and outcome (ok|error).",
+    ("tool", "outcome"),
+)
+MCP_TOOL_DURATION = _histogram(
+    "agent_utilities_mcp_tool_duration_seconds",
+    "MCP tool execution duration on this server by tool name.",
+    ("tool",),
+)
+MCP_TOOL_IN_FLIGHT = _gauge(
+    "agent_utilities_mcp_tool_in_flight",
+    "MCP tool calls currently executing on this server.",
 )
 
 # Queue-driven agent dispatch visibility (CONCEPT:ORCH-1.45): sampled by the
