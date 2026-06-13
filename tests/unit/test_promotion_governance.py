@@ -203,6 +203,7 @@ class TestVerdictAndMergerIntegration:
             "merge_policy",
             "shacl",
             "regression_gate",
+            "capability_ratchet",
             "constitution",
         }
 

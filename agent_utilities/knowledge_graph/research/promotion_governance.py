@@ -171,6 +171,7 @@ class PromotionGovernanceValidator:
         verdict.checks.append(self._check_merge_policy(spec))
         verdict.checks.append(self._check_shacl(spec))
         verdict.checks.append(self._check_regression_gate(spec, verdict.proposal_id))
+        verdict.checks.append(self._check_capability_ratchet(spec, verdict.proposal_id))
         verdict.checks.append(self._check_constitution(spec))
         return verdict
 
@@ -267,6 +268,34 @@ class PromotionGovernanceValidator:
             return GovernanceCheck("regression_gate", True, "recorded pass")
         return GovernanceCheck(
             "regression_gate", False, f"recorded {latest['result']} verdict"
+        )
+
+    def _check_capability_ratchet(self, spec: Any, proposal_id: str) -> GovernanceCheck:
+        """(e) the latest *recorded* capability-ratchet verdict must not be a hold.
+
+        The capability ratchet (``capability_ratchet.py``, AHE-3.24) records a
+        ``CapabilityRatchetResult`` whenever it measures a published worktree. A
+        recorded ``hold`` (a measured capability regression / ManifestVerifier
+        revert, AHE-3.23) blocks re-promotion; no record defers to the live
+        post-publish ratchet, which abandons the branch on regression anyway.
+        """
+        from .capability_ratchet import latest_ratchet_result
+
+        if self.engine is None:
+            return GovernanceCheck(
+                "capability_ratchet", True, "no engine — no recorded verdict to consult"
+            )
+        result = latest_ratchet_result(self.engine, proposal_id)
+        if result is None:
+            return GovernanceCheck(
+                "capability_ratchet",
+                True,
+                "no recorded verdict (live post-publish ratchet still gates the merge)",
+            )
+        if result == "pass":
+            return GovernanceCheck("capability_ratchet", True, "recorded pass")
+        return GovernanceCheck(
+            "capability_ratchet", False, f"recorded {result} verdict"
         )
 
     def _check_constitution(self, spec: Any) -> GovernanceCheck:

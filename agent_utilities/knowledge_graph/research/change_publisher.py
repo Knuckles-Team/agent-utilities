@@ -479,6 +479,29 @@ def _record_execution(
     return execution_id
 
 
+def _abandon_branch(repo_path: str, worktree_path: str, branch: str) -> None:
+    """Remove a published worktree and delete its local branch (AHE-3.23 rollback).
+
+    Used when the capability ratchet rejects a just-published change: the local
+    branch was never pushed, so a clean removal fully undoes the publication.
+    """
+    if not repo_path:
+        return
+
+    def _run(*args: str) -> None:
+        try:
+            subprocess.run(  # nosec B603 — fixed git args, no shell
+                ["git", *args], cwd=repo_path, capture_output=True, text=True, timeout=60
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+            logger.debug("change_publisher: abandon-branch step failed: %s", exc)
+
+    if worktree_path:
+        _run("worktree", "remove", "--force", worktree_path)
+    if branch:
+        _run("branch", "-D", branch)
+
+
 def governed_publish(
     engine: Any,
     proposal: Any,
@@ -488,6 +511,7 @@ def governed_publish(
     source: str = "golden_loop",
     action_policy: Any = None,
     code_synthesizer: Any = None,
+    capability_ratchet: Any = None,
 ) -> dict[str, Any]:
     """Publish a promoted proposal through the ActionPolicy gate (CONCEPT:AHE-3.21).
 
@@ -576,6 +600,30 @@ def governed_publish(
     result = pub.publish(change_set, {"proposal": proposal})
     report["publish"] = result.to_dict()
     report["status"] = "published" if result.ok else "publish_failed"
+
+    # CONCEPT:AHE-3.23 / AHE-3.24 — verified apply→verify→rollback + capability
+    # ratchet. Re-measure the published worktree against the persisted baseline; a
+    # measured regression (ManifestVerifier *_revert recommendation, or any tracked
+    # capability dropping below baseline) abandons the branch rather than leaving it
+    # for review. A worktree with no capability probes is "not measured" → no block.
+    if result.ok and result.worktree_path:
+        try:
+            from .capability_ratchet import CapabilityRatchet
+
+            ratchet = capability_ratchet or CapabilityRatchet(engine)
+            verdict = ratchet.evaluate(
+                result.worktree_path, change_set=change_set, proposal_id=proposal_id
+            )
+            report["capability_ratchet"] = verdict.to_dict()
+            if not verdict.passed:
+                _abandon_branch(result.repo_path, result.worktree_path, result.branch)
+                result.ok = False
+                report["publish"] = result.to_dict()
+                report["status"] = "reverted"
+                report["detail"] = verdict.reason
+        except Exception as exc:  # noqa: BLE001 — ratchet failure must not wedge publish
+            logger.debug("[AHE-3.23] capability ratchet skipped: %s", exc)
+
     report["execution_id"] = _record_execution(
         engine, proposal_id, getattr(pub, "name", "?"), result, source
     )
