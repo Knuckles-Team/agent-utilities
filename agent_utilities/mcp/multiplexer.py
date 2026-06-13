@@ -318,6 +318,15 @@ class MCPMultiplexer:
             headers = cfg.get("headers")
             if headers:
                 headers = {k: os.path.expandvars(str(v)) for k, v in headers.items()}
+            # A0 (CONCEPT:OS-5.32): attach the multiplexer's service-account bearer
+            # so jwt-protected children are reachable. Opt-in via
+            # MCP_CLIENT_AUTH=oidc-client-credentials; never overrides a child's
+            # own Authorization header; a mint failure degrades to no header.
+            from agent_utilities.mcp.client_credentials import bearer_header
+
+            _svc_auth = bearer_header(headers)
+            if _svc_auth:
+                headers = {**(headers or {}), **_svc_auth}
             use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
             if use_sse:
                 if sse_client is None:
