@@ -224,3 +224,75 @@ def test_rel_match_accepts_inline_literal_anchor_id(backend):
         "MATCH (a:Account {id:'src-1'})-[:OWNS]->(b:Plan) RETURN b.id as id, b.title as title"
     )
     assert rows == [{"id": "tgt-1", "title": "P-1"}]
+
+
+# --- Unanchored relationship reads (CONCEPT:KG-2.7 P1) -------------------------
+
+
+@pytest.fixture()
+def edged() -> EpistemicGraphBackend:
+    """A small graph with three typed edges for global edge-read tests."""
+    b = EpistemicGraphBackend()
+    for n in ("a", "b", "c"):
+        b.add_node(n, node_type="Node")
+    b.add_edge("a", "b", rel_type="KNOWS")
+    b.add_edge("b", "c", rel_type="KNOWS")
+    b.add_edge("a", "c", rel_type="OWNS")
+    return b
+
+
+def test_unanchored_edge_count_returns_total(edged):
+    # ``MATCH ()-[r]->() RETURN count(r)`` previously returned [] (no id anchor →
+    # the no-fallback footgun). It now reports the true global edge count.
+    rows = edged.execute("MATCH ()-[r]->() RETURN count(r) AS cnt")
+    assert rows == [{"cnt": 3}]
+
+
+def test_unanchored_edge_count_named_endpoints(edged):
+    rows = edged.execute("MATCH (a)-[r]->(b) RETURN count(r)")
+    assert rows == [{"count": 3}]
+
+
+def test_unanchored_edge_count_filtered_by_rel_type(edged):
+    rows = edged.execute("MATCH ()-[r:KNOWS]->() RETURN count(r) AS c")
+    assert rows == [{"c": 2}]
+
+
+# --- DISTINCT + implicit GROUP BY projection (CONCEPT:KG-2.63) -----------------
+
+
+@pytest.fixture()
+def kinds() -> EpistemicGraphBackend:
+    b = EpistemicGraphBackend()
+    b.add_node("t1", node_type="Tool", server="egeria", weight=2)
+    b.add_node("t2", node_type="Tool", server="egeria", weight=4)
+    b.add_node("t3", node_type="Tool", server="gitlab", weight=10)
+    return b
+
+
+def test_distinct_dedupes_rows(kinds):
+    rows = kinds.execute("MATCH (n:Tool) RETURN DISTINCT n.server AS server")
+    servers = sorted(r["server"] for r in rows)
+    assert servers == ["egeria", "gitlab"]
+
+
+def test_group_by_counts_per_key_not_one_total(kinds):
+    # The implicit-GROUP-BY bug collapsed ``n.server, count(*)`` to a single total.
+    rows = kinds.execute(
+        "MATCH (n:Tool) RETURN n.server AS server, count(*) AS cnt"
+    )
+    by_server = {r["server"]: r["cnt"] for r in rows}
+    assert by_server == {"egeria": 2, "gitlab": 1}
+
+
+def test_group_by_numeric_aggregate(kinds):
+    rows = kinds.execute(
+        "MATCH (n:Tool) RETURN n.server AS server, sum(n.weight) AS total"
+    )
+    by_server = {r["server"]: r["total"] for r in rows}
+    assert by_server == {"egeria": 6, "gitlab": 10}
+
+
+def test_bare_count_still_collapses_to_total(kinds):
+    rows = kinds.execute("MATCH (n:Tool) RETURN count(*) AS c")
+    assert rows == [{"c": 3}]
