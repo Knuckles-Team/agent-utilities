@@ -478,6 +478,51 @@ class PostgreSQLBackend(GraphBackend):
 
     # ── Cypher Execution (Transpiled to SQL) ─────────────────────────
 
+    def _try_global_edge_count(
+        self, query: str
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        """Serve a *fully unanchored* edge count from ``kg_edges``.
+
+        Handles ``MATCH ()-[r]->() RETURN count(r)`` and its named-but-label-free
+        form ``MATCH (a)-[r]->(b) RETURN count(r)``, with an optional rel-type
+        filter ``-[r:TYPE]->``. Returns ``(False, [])`` (defer to the transpiler)
+        the moment the pattern carries a node label, an ``{id:...}`` anchor, or a
+        ``WHERE`` clause — a global count would be wrong for those.
+        """
+        import re as _re
+
+        q = query or ""
+        if not _re.search(r"-\s*\[[^\]]*\]\s*->", q):
+            return False, []
+        m = _re.search(r"RETURN\s+count\s*\(\s*\w*\s*\)\s*(?:AS\s+(\w+))?", q, _re.I)
+        if not m:
+            return False, []
+        # Defer anything that constrains the endpoints: an {id:...} anchor, a
+        # node :Label, or a WHERE filter.
+        if _re.search(r"\{\s*id\s*:", q, _re.I):
+            return False, []
+        if _re.search(r"\(\s*\w*\s*:", q):
+            return False, []
+        if _re.search(r"\bWHERE\b", q, _re.I):
+            return False, []
+        alias = m.group(1) or "count"
+        rel_type = _re.search(r"-\s*\[\s*\w*\s*:\s*(\w+)", q)
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    if rel_type:
+                        cur.execute(
+                            "SELECT count(*) FROM kg_edges WHERE rel_type = %s",
+                            (rel_type.group(1),),
+                        )
+                    else:
+                        cur.execute("SELECT count(*) FROM kg_edges")
+                    row = cur.fetchone()
+                    return True, [{alias: int(row[0]) if row else 0}]
+        except Exception as e:  # noqa: BLE001 — degrade to the transpiler path
+            logger.debug("global edge count failed, deferring: %s", e)
+            return False, []
+
     def execute(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
@@ -491,6 +536,16 @@ class PostgreSQLBackend(GraphBackend):
         from .cypher_transpiler import QueryType, transpile
 
         params = params or {}
+
+        # Unanchored relationship count (``MATCH ()-[r]->() RETURN count(r)``) has
+        # no node anchor for the transpiler to plan from → it returns UNKNOWN/[].
+        # This is the global edge metric the tiered backend routes here, so answer
+        # it directly from ``kg_edges`` (the durable source of truth for edges).
+        # (CONCEPT:KG-2.7 P1 — durable edge reads.)
+        handled, rows = self._try_global_edge_count(query)
+        if handled:
+            return rows
+
         tq = transpile(query, params, self._known_tables)
 
         if tq.query_type == QueryType.UNKNOWN:
