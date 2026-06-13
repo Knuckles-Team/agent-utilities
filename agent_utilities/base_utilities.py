@@ -47,7 +47,7 @@ P = ParamSpec("P")
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-__version__ = "0.47.1"
+__version__ = "0.48.0"
 
 
 def to_float(string=None) -> float:
