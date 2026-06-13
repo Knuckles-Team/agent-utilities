@@ -123,6 +123,12 @@ purpose, never the vendor.
   vocabulary that drives node-table column DDL and write-path coercion (`column_type_for`).
 - **Document processing (CONCEPT:KG-2.48)** — extract → chunk → embed → link
   (`DocumentProcessor`, `process_document`).
+- **Document → atomic-triple fact extraction (CONCEPT:KG-2.64/2.65/2.66)** — a document,
+  URL, or pasted text becomes canonical `(subject) -[predicate]-> (object)` fact edges with
+  evidence span, confidence, and tags; facts stream live, dedup semantically against our own
+  embedder, and persist as engine edges (variant node names merged). Runs on a single-GPU-slot
+  scheduler (preempt/backfill/resume) and is rendered interactively in all three frontends. See
+  [Document → KG Fact Extraction](../architecture/document_fact_extraction.md).
 - **First-class / reified links (CONCEPT:KG-2.26)** — named directed link types plus
   many-to-many junction reification onto the existing graph-write path, with reverse traversal.
 
