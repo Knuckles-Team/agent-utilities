@@ -46,6 +46,16 @@ services:
     - HOST=0.0.0.0
     - PORT=8000
     - TRANSPORT=streamable-http
+    # Fleet-standard auth ON by default: the shared agent_utilities server factory
+    # verifies Keycloak-issued JWTs (audience agent-services) + enforces eunomia
+    # policy. Non-secret internal URLs. The multiplexer presents a service token
+    # (MCP_CLIENT_AUTH=oidc-client-credentials). CONCEPT:OS-5.32.
+    - AUTH_TYPE=jwt
+    - FASTMCP_SERVER_AUTH_JWT_AUDIENCE=agent-services
+    - FASTMCP_SERVER_AUTH_JWT_ISSUER=http://keycloak.arpa/realms/master
+    - FASTMCP_SERVER_AUTH_JWT_JWKS_URI=http://keycloak.arpa/realms/master/protocol/openid-connect/certs
+    - EUNOMIA_TYPE=remote
+    - EUNOMIA_REMOTE_URL=http://eunomia.arpa
     command:
     - {name}
     healthcheck:
