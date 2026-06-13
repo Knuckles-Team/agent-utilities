@@ -39,10 +39,12 @@ def build_targets(registry: dict) -> list[dict]:
         port = svc.get("container_port", default_port)
         # Swarm overlay DNS for a single-service stack: <stack>_<service>.
         target = f"{name}_{name}:{port}"
+        # No "job" label here: the scrape job (mcp-fleet) and the blackbox probe
+        # job (blackbox-mcp) reuse this same file-SD and each sets its own job.
         entries.append(
             {
                 "targets": [target],
-                "labels": {"job": "mcp-fleet", "stack": name, "service": name},
+                "labels": {"stack": name, "service": name},
             }
         )
     return entries
