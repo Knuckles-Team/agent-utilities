@@ -296,3 +296,23 @@ def test_group_by_numeric_aggregate(kinds):
 def test_bare_count_still_collapses_to_total(kinds):
     rows = kinds.execute("MATCH (n:Tool) RETURN count(*) AS c")
     assert rows == [{"c": 3}]
+
+
+# --- Read queries whose alias/property contains a write keyword (KG-2.63) ------
+
+
+def test_read_alias_containing_create_substring_not_misrouted():
+    # ``created`` ⊃ CREATE: a read aliasing to ``created`` must execute, not be
+    # routed to the legacy reader (which returned []) by a naive substring guard.
+    b = EpistemicGraphBackend()
+    b.add_node("n1", node_type="Doc")
+    rows = b.execute("MATCH (n:Doc) RETURN n.id AS created LIMIT 1")
+    assert rows == [{"created": "n1"}]
+
+
+def test_read_property_containing_merge_substring_not_misrouted():
+    # ``merge_status`` ⊃ MERGE: must not be mistaken for a MERGE write.
+    b = EpistemicGraphBackend()
+    b.add_node("n1", node_type="Doc", merge_status="ok")
+    rows = b.execute("MATCH (n:Doc) RETURN n.merge_status AS merge_status")
+    assert rows == [{"merge_status": "ok"}]

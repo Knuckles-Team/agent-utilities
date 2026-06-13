@@ -25,6 +25,20 @@ logger = logging.getLogger(__name__)
 # native neighbour ops. (CONCEPT:KG-2.7 P1 — L1 native traversal.)
 _VAR_LEN_RE = re.compile(r"\[\s*[A-Za-z_]*\s*:?\s*\w*\s*\*")
 
+# Write-DDL keyword detection as *whole words*. A substring scan misroutes a READ
+# whose alias/property merely contains the letters — ``RETURN n.x AS created`` is
+# not a CREATE, ``n.merge_status`` is not a MERGE — sending it to the legacy
+# reader and silently returning []. Match on word boundaries instead. (KG-2.63)
+_WRITE_KW_RE = {
+    kw: re.compile(rf"\b{kw}\b")
+    for kw in ("CREATE", "MERGE", "DELETE", "SET", "REMOVE")
+}
+
+
+def _has_kw(qu: str, kw: str) -> bool:
+    """True if ``kw`` appears as a whole Cypher clause keyword in ``qu`` (upper)."""
+    return bool(_WRITE_KW_RE[kw].search(qu))
+
 
 class EpistemicGraphBackend(GraphBackend):
     """Pure in-memory graph backend using GraphComputeEngine (Rust-native).
@@ -103,7 +117,7 @@ class EpistemicGraphBackend(GraphBackend):
         # MERGE (a)-[:REL]->(b)``. Resolve both endpoints by id (O(1)) and add
         # the edge directly — otherwise this falls to the full-scan legacy reader
         # AND never creates the L1 edge. (CONCEPT:KG-2.8 ingestion throughput)
-        if "->" in q and "MERGE" in qu and qu.startswith("MATCH"):
+        if "->" in q and _has_kw(qu, "MERGE") and qu.startswith("MATCH"):
             handled, result = self._exec_rel_merge(q, params)
             if handled:
                 return result
@@ -118,9 +132,9 @@ class EpistemicGraphBackend(GraphBackend):
         if (
             qu.startswith("MATCH")
             and ("->" in q or "<-" in q or _VAR_LEN_RE.search(q))
-            and "MERGE" not in qu
-            and "CREATE" not in qu
-            and "DELETE" not in qu
+            and not _has_kw(qu, "MERGE")
+            and not _has_kw(qu, "CREATE")
+            and not _has_kw(qu, "DELETE")
         ):
             if _VAR_LEN_RE.search(q):
                 handled, result = self._exec_var_length_match(q, params)
@@ -147,8 +161,8 @@ class EpistemicGraphBackend(GraphBackend):
             qu.startswith("MATCH")
             and "->" not in q
             and "<-" not in q
-            and "MERGE" not in qu
-            and "CREATE" not in qu
+            and not _has_kw(qu, "MERGE")
+            and not _has_kw(qu, "CREATE")
         ):
             handled, result = self._exec_node_match(q, params)
             if handled:
@@ -720,8 +734,8 @@ class EpistemicGraphBackend(GraphBackend):
             and not any(where_groups)
             and not label
             and cnt_m
-            and "SET" not in qu
-            and "DELETE" not in qu
+            and not _has_kw(qu, "SET")
+            and not _has_kw(qu, "DELETE")
         ):
             cnt = len(self._graph._get_all_nodes())
             alias_m = re.search(r"count\s*\([^)]*\)\s+as\s+(\w+)", q, re.I)
