@@ -237,15 +237,28 @@ async def run_agent(
         if channel_id:
             config["message_channel_id"] = channel_id
 
-    # Step 4: Materialize and run the graph
+    # Step 4: Execute. A resolved single MCP-server agent runs a DETERMINISTIC
+    # direct tool loop (bind only that server's toolset, no router); anything else
+    # goes through the full multi-agent orchestration graph. Routing a one-server
+    # task through the graph let the LLM router/dispatcher mis-route it (e.g. to a
+    # verifier that ran on empty results), so the server's tools were never called.
     try:
-        result = await _execute_graph(
-            config=config,
-            query=task,
-            run_id=run_id,
-            max_steps=max_steps,
-            agent_meta=agent_meta,
-        )
+        if _is_single_server_agent(agent_meta, config):
+            result = await _execute_single_server(
+                config=config,
+                task=task,
+                max_steps=max_steps,
+                agent_meta=agent_meta,
+                agent_name=agent_name,
+            )
+        else:
+            result = await _execute_graph(
+                config=config,
+                query=task,
+                run_id=run_id,
+                max_steps=max_steps,
+                agent_meta=agent_meta,
+            )
     except Exception as e:
         logger.error(
             "[ORCH-1.21] Agent execution failed: agent=%s, error=%s",
@@ -641,6 +654,94 @@ def _build_execution_config(
 # ---------------------------------------------------------------------------
 # Internal: Graph Execution
 # ---------------------------------------------------------------------------
+
+
+def _is_single_server_agent(
+    agent_meta: dict[str, Any], config: dict[str, Any]
+) -> bool:
+    """True when the resolved agent is exactly one MCP server with a bound toolset.
+
+    Such an agent is eligible for the deterministic direct-execution path: it has a
+    concrete toolset to call, so there is nothing for the multi-agent router to plan.
+    """
+    return bool(
+        agent_meta.get("type") == "server" and config.get("mcp_toolsets")
+    )
+
+
+async def _execute_single_server(
+    config: dict[str, Any],
+    task: str,
+    max_steps: int,
+    agent_meta: dict[str, Any],
+    agent_name: str,
+) -> dict[str, Any]:
+    """Run a single-MCP-server agent directly against its bound toolset.
+
+    CONCEPT:ORCH-1.21 — a named MCP-server agent must actually USE that server's
+    tools. Sending a one-server task through the full orchestration graph let the
+    LLM router/dispatcher mis-route it (e.g. to a verifier that runs on empty
+    results) so the tool was never invoked. This binds ONLY the resolved server's
+    toolset (server-granular least privilege), applies the ORCH-1.39 invoker
+    controls threaded onto ``config`` (allowed_tools / budget_tokens / context),
+    and runs a direct agent loop — deterministic tool use, no LLM-router dependency.
+    Returns the GraphResponse-compatible ``{"results": {"output": ...}}`` shape.
+    """
+    from agent_utilities.agent.factory import create_agent
+
+    toolsets = list(config.get("mcp_toolsets") or [])
+
+    # ORCH-1.39 least-privilege: restrict to the invoker's tool allow-list.
+    allowed = config.get("invoker_allowed_tools")
+    if allowed:
+        allow_set = {str(t).strip() for t in allowed if str(t).strip()}
+        toolsets = [
+            ts.filtered(lambda _ctx, td, _a=allow_set: td.name in _a) for ts in toolsets
+        ]
+
+    system_prompt = agent_meta.get("system_prompt") or (
+        f"You are the '{agent_name}' agent with direct access to its MCP server "
+        "tools. Choose and call the appropriate tool(s) to fulfil the user's "
+        "request, then return a concise, direct answer grounded in the tool results."
+    )
+    agent, _initialized = create_agent(
+        provider=config.get("provider"),
+        model_id=config.get("agent_model"),
+        base_url=config.get("base_url"),
+        api_key=config.get("api_key"),
+        ssl_verify=config.get("ssl_verify", True),
+        mcp_toolsets=toolsets,
+        enable_skills=False,
+        enable_universal_tools=False,
+        name=agent_name,
+        system_prompt=system_prompt,
+    )
+
+    prompt = task
+    ctx_blob = config.get("invoker_context")
+    if ctx_blob:
+        prompt = f"Context:\n{ctx_blob}\n\nTask:\n{task}"
+
+    run_kwargs: dict[str, Any] = {"message_history": []}
+    limit_kwargs: dict[str, Any] = {}
+    budget = config.get("invoker_budget_tokens")
+    if budget:
+        limit_kwargs["total_tokens_limit"] = int(budget)
+    # max_steps bounds model round-trips; keep headroom for tool call/response turns.
+    if max_steps:
+        limit_kwargs["request_limit"] = max(int(max_steps) * 2, 10)
+    if limit_kwargs:
+        from pydantic_ai.usage import UsageLimits
+
+        run_kwargs["usage_limits"] = UsageLimits(**limit_kwargs)
+
+    result = await agent.run(prompt, **run_kwargs)
+    output = (
+        getattr(result, "output", None)
+        if getattr(result, "output", None) is not None
+        else getattr(result, "data", None) or getattr(result, "content", None) or result
+    )
+    return {"results": {"output": str(output)}}
 
 
 async def _execute_graph(
