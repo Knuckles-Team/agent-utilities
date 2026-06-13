@@ -1428,6 +1428,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/interfaces.py
   - agent_utilities/knowledge_graph/ontology/object_set.py
@@ -1439,6 +1440,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/core/shacl_validator.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/value_types.py
@@ -1459,6 +1461,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/functions/__init__.py
   - agent_utilities/knowledge_graph/ontology/functions/objects.py
@@ -1484,6 +1487,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/edits/__init__.py
@@ -1532,6 +1536,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/property_types.py
   - agent_utilities/mcp/kg_server.py
@@ -1941,12 +1946,12 @@ concepts:
   - agent_utilities/orchestration/engine.py
   doc: Service Registry Initialization
 - id: ORCH-1.21
-  name: Execution provenance tracking
+  name: a named MCP-server agent must actually USE that server
   pillar: ORCH-1
   status: live
   code_paths:
   - agent_utilities/orchestration/agent_runner.py
-  doc: Execution provenance tracking
+  doc: a named MCP-server agent must actually USE that server
 - id: ORCH-1.22
   name: Workflow Persistence & Replay Relationships
   pillar: ORCH-1
@@ -2385,8 +2390,11 @@ concepts:
   - agent_utilities/cli/__init__.py
   - agent_utilities/cli/__main__.py
   - agent_utilities/core/sessions.py
+  - agent_utilities/gateway/fleet.py
+  - agent_utilities/gateway/fleet_events.py
   - agent_utilities/observability/correlation.py
   - agent_utilities/observability/langfuse_exporter.py
+  - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
   - agent_utilities/security/run_token.py
@@ -2453,6 +2461,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
   - agent_utilities/orchestration/agent_dispatch.py
+  - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/orchestration/durable_execution.py
   doc: Unified durable-state externalization — one STATE_DB_URI flag selects a shared Postgres state store
     over the per-host SQLite default

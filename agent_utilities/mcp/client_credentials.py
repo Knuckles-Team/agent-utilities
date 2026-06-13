@@ -29,12 +29,13 @@ Configuration (env):
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 
 import requests
 from fastmcp.utilities.logging import get_logger
+
+from agent_utilities.core._env import setting
 
 logger = get_logger(name="MultiplexerClientAuth")
 
@@ -43,16 +44,16 @@ _EXPIRY_SKEW_S = 30.0
 
 
 def _enabled() -> bool:
-    return os.getenv("MCP_CLIENT_AUTH", "none").strip().lower() == (
+    return setting("MCP_CLIENT_AUTH", "none").strip().lower() == (
         "oidc-client-credentials"
     )
 
 
 def _derive_token_url() -> str | None:
-    explicit = os.getenv("OIDC_TOKEN_URL")
+    explicit = setting("OIDC_TOKEN_URL", None)
     if explicit:
         return explicit
-    issuer = os.getenv("FASTMCP_SERVER_AUTH_JWT_ISSUER")
+    issuer = setting("FASTMCP_SERVER_AUTH_JWT_ISSUER", None)
     if issuer:
         return issuer.rstrip("/") + "/protocol/openid-connect/token"
     return None
@@ -128,8 +129,8 @@ def get_provider() -> ClientCredentialsTokenProvider | None:
         if _provider is not None:
             return _provider
         token_url = _derive_token_url()
-        client_id = os.getenv("OIDC_CLIENT_ID")
-        client_secret = os.getenv("OIDC_CLIENT_SECRET")
+        client_id = setting("OIDC_CLIENT_ID", None)
+        client_secret = setting("OIDC_CLIENT_SECRET", None)
         if not (token_url and client_id and client_secret):
             logger.error(
                 "MCP_CLIENT_AUTH=oidc-client-credentials but OIDC_TOKEN_URL/"
@@ -138,7 +139,7 @@ def get_provider() -> ClientCredentialsTokenProvider | None:
             )
             _provider_failed = True
             return None
-        verify = os.getenv("OIDC_TLS_VERIFY", "true").strip().lower() not in (
+        verify = setting("OIDC_TLS_VERIFY", "true").strip().lower() not in (
             "false",
             "0",
             "no",
@@ -147,8 +148,8 @@ def get_provider() -> ClientCredentialsTokenProvider | None:
             token_url=token_url,
             client_id=client_id,
             client_secret=client_secret,
-            audience=os.getenv("OIDC_AUDIENCE", "agent-services"),
-            scope=os.getenv("OIDC_SCOPE") or None,
+            audience=setting("OIDC_AUDIENCE", "agent-services"),
+            scope=setting("OIDC_SCOPE", None) or None,
             verify=verify,
         )
         return _provider

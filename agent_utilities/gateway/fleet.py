@@ -481,6 +481,84 @@ async def fleet_grant_approval(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def fleet_trace(request: Request) -> JSONResponse:
+    """Swarm-wide cross-agent correlation query (CONCEPT:OS-5.11).
+
+    ``GET /api/fleet/trace?correlation_id=<cid>`` returns every durable node
+    stamped with that correlation id — fleet events, executed tasks, and any
+    other effect that carried the id — so "what did this agent run touch?" is
+    answerable from the graph instead of only from external traces.
+    """
+    cid = request.query_params.get("correlation_id")
+    if not cid:
+        return JSONResponse(
+            {"status": "error", "message": "correlation_id is required"},
+            status_code=400,
+        )
+    try:
+        limit = min(int(request.query_params.get("limit", 500)), _MAX_PAGE)
+    except (TypeError, ValueError):
+        limit = 500
+    try:
+        from agent_utilities.mcp.kg_server import _get_engine
+
+        rows = _get_engine().query_cypher(
+            "MATCH (n) WHERE n.correlation_id = $cid RETURN n LIMIT $limit",
+            {"cid": cid, "limit": limit},
+        )
+        nodes = [row.get("n") if isinstance(row, dict) else row for row in (rows or [])]
+        return JSONResponse(
+            {"status": "success", "correlation_id": cid, "nodes": nodes}
+        )
+    except Exception as e:  # noqa: BLE001 — degrade gracefully when engine cold
+        return JSONResponse(
+            {"status": "error", "correlation_id": cid, "message": str(e)},
+            status_code=500,
+        )
+
+
+async def fleet_touched(request: Request) -> JSONResponse:
+    """Blast-radius query: which agents/events touched a resource (CONCEPT:OS-5.11).
+
+    ``GET /api/fleet/touched?resource=<id>`` returns the fleet events whose
+    subject is that resource, with their correlation ids and originating
+    actors — the queryable "who touched X" the supervisory plane previously
+    lacked (it existed only in Langfuse traces / ad-hoc Cypher).
+    """
+    resource = request.query_params.get("resource")
+    if not resource:
+        return JSONResponse(
+            {"status": "error", "message": "resource is required"}, status_code=400
+        )
+    try:
+        from agent_utilities.mcp.kg_server import _get_engine
+
+        rows = _get_engine().query_cypher(
+            "MATCH (e:FleetEvent) WHERE e.subject = $res "
+            "RETURN e ORDER BY e.received_at DESC LIMIT $limit",
+            {"res": resource, "limit": _MAX_PAGE},
+        )
+        events = [
+            row.get("e") if isinstance(row, dict) else row for row in (rows or [])
+        ]
+        actors = sorted(
+            {e["actor_id"] for e in events if isinstance(e, dict) and e.get("actor_id")}
+        )
+        return JSONResponse(
+            {
+                "status": "success",
+                "resource": resource,
+                "events": events,
+                "actors": actors,
+            }
+        )
+    except Exception as e:  # noqa: BLE001 — degrade gracefully when engine cold
+        return JSONResponse(
+            {"status": "error", "resource": resource, "message": str(e)},
+            status_code=500,
+        )
+
+
 def mount_fleet_routes(app, prefix: str = "") -> None:
     """Mount the supervisory plane onto a Starlette/FastAPI ``app``."""
     # Webhook ingress for monitoring events (CONCEPT:OS-5.15) — sibling module
@@ -497,3 +575,5 @@ def mount_fleet_routes(app, prefix: str = "") -> None:
     route("/fleet/kill", fleet_kill, ["POST"])
     route("/fleet/approvals", fleet_approvals, ["GET"])
     route("/fleet/approvals/grant", fleet_grant_approval, ["POST"])
+    route("/fleet/trace", fleet_trace, ["GET"])
+    route("/fleet/touched", fleet_touched, ["GET"])

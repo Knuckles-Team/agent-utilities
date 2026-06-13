@@ -200,6 +200,12 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
 
     mount_fleet_routes(app, prefix=prefix)
 
+    # Granular, typed, OpenAPI-visible ontology/object reads layered on top of
+    # the collapsed action-routed twins (resource-style GET-by-id + history).
+    from agent_utilities.gateway.ontology_api import register_ontology_routes
+
+    register_ontology_routes(app, prefix=prefix)
+
     logger.info(
         "Mounted centralized Knowledge Graph REST routes + fleet supervisory "
         "plane under %r (graph-os MCP is now a thin wrapper).",
