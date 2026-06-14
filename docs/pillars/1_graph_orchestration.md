@@ -404,3 +404,41 @@ not data loss. Workers heartbeat into the `dispatch_workers` registry,
 executing worker. The `inline` default is byte-for-byte the previous behavior.
 Full design: [Queue-Driven Agent Dispatch](../architecture/agent_dispatch.md);
 walkthrough: [queue-dispatch example](../examples/queue-dispatch-walkthrough.md).
+
+### ORCH-1.50 — Task-Management Ergonomics on SDD
+
+The Spec-Driven Development pipeline (ORCH-1.6) already persists a durable,
+dependency-aware task list — `Spec` / `Task` / `Tasks` / `ImplementationPlan`
+(`models/sdd.py`) round-tripped to `.specify/` by `SDDManager` (`sdd/__init__.py`).
+ORCH-1.50 adds the *loop-driving* ergonomics on top, so a long-horizon goal can be
+decomposed, scored, and worked one actionable task at a time:
+
+- **`parse_prd(prd_text, feature_id)`** — decompose a PRD into sequential, dependency-linked
+  tasks (zero-infra structural parser by default; an LLM decomposer is injectable).
+- **`analyze_complexity(feature_id)`** — score each task 0–10 and recommend a subtask
+  count (a deployable structural heuristic by default; an LLM scorer is injectable),
+  persisting a report under `.specify/reports/`.
+- **`Tasks.next_task()`** — pick the next actionable task, preferring subtasks of an
+  in-progress parent, then top-level tasks whose dependencies are satisfied, breaking
+  ties by priority → fewer deps → id. `detect_cycles()` / `validate_dependencies()`
+  reject an unschedulable graph before work starts.
+- **`scope_task(... "up"|"down")`** — renegotiate scope, preserving done/in-progress
+  subtasks. **Tagged contexts** (via `feature_id`, with `branch_tasks` / `list_task_contexts`)
+  give parallel task streams.
+
+New fields on `Task` (`priority`, `complexity_score`, `recommended_subtasks`,
+`test_strategy`, `expansion_prompt`) round-trip through a full-fidelity `tasks.json`
+sidecar (the markdown mirror stays human-readable). Surfaced over the harness MCP
+server as `task_parse_prd`, `task_analyze_complexity`, `task_next`, `task_set_status`,
+and `task_scope` (`mcp/harness_server.py`).
+
+```mermaid
+flowchart LR
+    PRD[PRD / goal] -->|parse_prd| T[(Tasks\n.specify + tasks.json)]
+    T -->|analyze_complexity| S[scores +\nrecommended subtasks]
+    S -->|scope_task up/down| T
+    T -->|validate_dependencies| G{cycle?}
+    G -- yes --> X[reject]
+    G -- no --> N[next_task]
+    N -->|work + set_task_status| T
+```

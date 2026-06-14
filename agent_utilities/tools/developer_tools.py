@@ -155,7 +155,7 @@ async def replace_in_file(
 async def apply_edits(
     ctx: RunContext[AgentDeps], edits: str, root: str = ".", fmt: str = "auto"
 ) -> str:
-    """Apply multi-file code edits with fuzzy matching (ORCH-1.46).
+    """Apply multi-file code edits with fuzzy matching (ORCH-1.49).
 
     Unlike ``replace_in_file`` (single exact match), this parses one or more
     SEARCH/REPLACE blocks or a unified diff and applies them with a graduated

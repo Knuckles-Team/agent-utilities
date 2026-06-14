@@ -1164,9 +1164,9 @@ class TestCase(BaseModel):
     assertion: str = Field(
         default="",
         description=(
-            "CONCEPT:AHE-3.25 — optional plain-English pass/fail assertion judged by "
-            "LLM-as-judge (Opik Test Suite style). When set, it takes precedence over "
-            "expected-output scoring."
+            "CONCEPT:AHE-3.25 — Plain-English regression assertions with verified-remediation auto-lock (Opik Test Suite style). "
+            "Optional pass/fail assertion judged by LLM-as-judge; when set, it takes "
+            "precedence over expected-output scoring."
         ),
     )
 
