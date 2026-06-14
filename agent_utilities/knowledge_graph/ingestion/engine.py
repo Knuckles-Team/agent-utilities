@@ -732,6 +732,97 @@ class IngestionEngine:
                 pass
         return written
 
+    def _fact_store(self) -> Any:
+        """A ``persist_facts``-compatible store over the ingest backend.
+
+        Maps the ``add_node(key, label=)`` / ``add_edge(s, o, rel_type=, **props)``
+        protocol ``persist_facts`` writes against onto the backend's own
+        signatures, so canonical-entity facts land as ``Entity`` nodes + typed
+        edges that interlink with the Concept/Code graph (KG-2.64 + KG-2.8).
+        """
+        backend = self.backend
+
+        class _Store:
+            def add_node(self, node_id: str, label: str = "", **props: Any) -> None:
+                backend.add_node(node_id, type="Entity", name=label, **props)
+
+            def add_edge(
+                self, source: str, target: str, rel_type: str = "", **props: Any
+            ) -> None:
+                # ``tags`` is a list; flatten so every backend persists it.
+                tags = props.get("tags")
+                if isinstance(tags, list):
+                    props["tags"] = ",".join(str(t) for t in tags)
+                backend.add_edge(source, target, rel_type=rel_type, **props)
+
+        return _Store()
+
+    async def _extract_facts_into_graph(
+        self, source_id: str, text: str, source_type: str
+    ) -> int:
+        """Canonical-entity fact extraction → persisted graph edges (KG-2.64).
+
+        Single seed-stable round, dedup-on; reuses the shared extraction core +
+        embedder. Best-effort — degrades to 0 facts if the LLM/engine is down.
+        Returns the number of fact edges written.
+        """
+        if not text or not text.strip():
+            return 0
+        if not callable(getattr(self.backend, "add_edge", None)):
+            return 0
+        try:
+            from ..extraction.fact_extractor import (
+                ExtractedFact,
+                extract_facts,
+                persist_facts,
+            )
+        except Exception:  # noqa: BLE001
+            return 0
+        facts: list[Any] = []
+        try:
+            async for ev in extract_facts(
+                text, rounds=1, dedup=True, source_file=source_id
+            ):
+                if ev.get("type") == "fact" and not ev.get("is_duplicate"):
+                    facts.append(ExtractedFact(**ev["fact"]))
+        except Exception:  # noqa: BLE001 — enrichment must never break ingest
+            return 0
+        if not facts:
+            return 0
+        try:
+            return int(persist_facts(self._fact_store(), facts).get("edges", 0))
+        except Exception:  # noqa: BLE001
+            return 0
+
+    async def _enrich_text(
+        self,
+        source_id: str,
+        text: str,
+        source_type: str,
+        title: str = "",
+        *,
+        enrich_facts: bool = True,
+    ) -> dict[str, int]:
+        """Unified always-on intelligence layer for any text-bearing ingestion.
+
+        The single seam every content type funnels text through so enrichment is
+        global, not per-adaptor bespoke (*Native by default*). Runs BOTH layers:
+
+        * **Concepts** — ``Concept`` nodes + ``MENTIONS`` + concept↔code links so
+          docs/chats/prompts/skills converge on shared concepts (KG-2.8).
+        * **Facts** — canonical-entity ``subject -[predicate]-> object`` triples
+          persisted as typed edges that interlink the graph (KG-2.64).
+
+        Default-ON and woven into the flow; both layers share one lite LLM client
+        + embedder. Pure best-effort — never raises into ingestion. Returns
+        ``{'concepts': n, 'facts': m}``.
+        """
+        concepts = self._extract_and_link_concepts(source_id, text, source_type, title)
+        facts = 0
+        if enrich_facts:
+            facts = await self._extract_facts_into_graph(source_id, text, source_type)
+        return {"concepts": concepts, "facts": facts}
+
     # ── Adaptors ───────────────────────────────────────────────────────
 
     @adaptor(ContentType.CODEBASE)
@@ -1973,20 +2064,22 @@ class IngestionEngine:
                     timestamp=_now(),
                 )
 
-            # Concept extraction so prompts interweave with code/docs/chats
-            # (CONCEPT:KG-2.8). Optional + lazy LLM; pass extract_concepts=False
-            # for fast structural-only bulk runs.
-            concepts = 0
+            # Always-on unified intelligence layer (concepts + canonical facts)
+            # so prompts interweave with code/docs/chats (KG-2.8 + KG-2.64). The
+            # single ``extract_concepts=False`` opt-out skips the LLM layer for
+            # fast structural-only bulk runs.
+            enriched = {"concepts": 0, "facts": 0}
             if manifest.metadata.get("extract_concepts", True):
-                concepts = self._extract_and_link_concepts(
+                enriched = await self._enrich_text(
                     prompt_id, content, "prompt", prompt_path.stem
                 )
 
             return IngestionResult(
                 manifest=manifest,
                 status="success",
-                nodes_created=1 + concepts,
-                details={"prompt_id": prompt_id, "concepts": concepts},
+                nodes_created=1 + enriched["concepts"],
+                edges_created=enriched["facts"],
+                details={"prompt_id": prompt_id, **enriched},
             )
         except Exception as e:
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
