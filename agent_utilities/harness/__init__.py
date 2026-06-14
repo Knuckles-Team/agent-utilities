@@ -3,6 +3,7 @@
 Exposes OptimisticStateLocker, BranchMergeStateLocker, ToolContract, and ContractValidator.
 """
 
+from .adaptation_benchmark import AdaptationBenchmark, BenchmarkEntry
 from .adaptation_speed import AdaptationCurve, CurvePoint, marginal_speed_gain
 from .contract_validator import ContractValidator, ToolContract
 from .distributed_state_manager import BranchMergeStateLocker, OptimisticStateLocker
@@ -37,6 +38,8 @@ from .selection_operators import (
     rank_from_comparisons,
     select_top_k,
 )
+from .superhuman_gate import CertificationResult, SuperhumanCertifier
+from .world_model_task import WorldModelVerifier, build_world_model_task
 
 __all__ = [
     "OptimisticStateLocker",
@@ -87,4 +90,13 @@ __all__ = [
     "SpecializationTask",
     "Verifier",
     "VerifierResult",
+    # World-model SAI specialization track (CONCEPT:KG-2.73)
+    "WorldModelVerifier",
+    "build_world_model_task",
+    # Superhuman-certification gate (CONCEPT:SAFE-1.6)
+    "SuperhumanCertifier",
+    "CertificationResult",
+    # Reproducible adaptation-speed benchmark (CONCEPT:SAFE-1.7)
+    "AdaptationBenchmark",
+    "BenchmarkEntry",
 ]
