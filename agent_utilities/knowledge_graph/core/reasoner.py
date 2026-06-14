@@ -184,7 +184,7 @@ class GenerativeReasoner:
 class ReasonerRouter:
     """Route a task to a reasoning paradigm and learn from the outcome (KG-2.68)."""
 
-    def __init__(self, *, reward_weight: float = 0.3) -> None:
+    def __init__(self, *, reward_weight: float = 0.3, harvester: Any = None) -> None:
         from agent_utilities.knowledge_graph.retrieval.capability_index import (
             CapabilityIndex,
         )
@@ -192,6 +192,10 @@ class ReasonerRouter:
         self._index = CapabilityIndex(dim=_ROUTING_DIM)
         self._reasoners: dict[str, Reasoner] = {}
         self._reward_weight = float(reward_weight)
+        # CONCEPT:OS-5.36 — optional search-distillation harvester. When attached,
+        # the router's verified high-scoring results are distilled into a training
+        # corpus (test-time compute → training data); off by default.
+        self._harvester = harvester
 
     @staticmethod
     def _uniform_embedding() -> list[float]:
@@ -240,6 +244,14 @@ class ReasonerRouter:
             reasoner.name, reward=max(0.0, min(1.0, result.score))
         )
         result.trace.setdefault("routed_to", reasoner.name)
+        # CONCEPT:OS-5.36 — distil a verified win into training data (test-time
+        # compute → better data), collapse-guarded by SAFE-1.4. Best-effort.
+        if self._harvester is not None:
+            try:
+                if self._harvester.harvest_result(task, result) is not None:
+                    result.trace["distilled"] = True
+            except Exception as exc:  # noqa: BLE001 — harvesting never breaks reasoning
+                logger.debug("[OS-5.36] harvest skipped: %s", exc)
         return result
 
     def reward(self, reasoner_name: str) -> float:
