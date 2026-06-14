@@ -2475,6 +2475,105 @@ def _build_server(bootstrap: bool = True):
     REGISTERED_TOOLS["graph_search"] = graph_search
 
     @mcp.tool(
+        name="graph_search_synthesis",
+        description=(
+            "Synthesize a shortcut-resistant deep-search task from the evidence graph, "
+            "or diagnose realized search difficulty of solver trajectories "
+            "(CONCEPT:KG-2.70/2.71/2.72, AHE-3.30; distills arXiv:2606.12087)."
+        ),
+        tags=["graph-os", "search", "synthesis", "training-data"],
+    )
+    def graph_search_synthesis(
+        action: str = Field(
+            default="synthesize",
+            description=(
+                "'synthesize': build an evidence subgraph around an answer entity and "
+                "formulate + adversarially refine a question that forces multi-hop "
+                "search (no exposed constants / single-clue / co-coverage shortcuts). "
+                "'diagnose': score solver trajectories with the FORT signatures "
+                "(solving cost, answer hit time, prior-shortcut rate) + a search-heavy "
+                "verdict."
+            ),
+        ),
+        answer_id: str = Field(
+            default="",
+            description="action=synthesize — node id of the gold answer entity to build the task around.",
+        ),
+        hops: int = Field(
+            default=2, description="action=synthesize — evidence-graph BFS depth."
+        ),
+        fanout: int = Field(
+            default=8,
+            description="action=synthesize — max neighbors expanded per node.",
+        ),
+        min_trust: float = Field(
+            default=0.0,
+            description="action=synthesize — drop facts whose source_trust is below this.",
+        ),
+        max_per_source: int = Field(
+            default=1,
+            description="action=synthesize — max clues allowed to share one evidence source before co-coverage trips.",
+        ),
+        root_popularity: float = Field(
+            default=0.0,
+            description="action=synthesize — 0..1 familiarity of the answer entity (high → prior-binding risk).",
+        ),
+        trajectories: str = Field(
+            default="",
+            description='action=diagnose — JSON list of trajectories: [{"steps":[{"kind","observation","model_text"}],"answer_aliases":[...]}].',
+        ),
+    ) -> str:
+        """Shortcut-resistant search-task synthesis and realized-difficulty diagnosis."""
+        import json as _json
+
+        from agent_utilities.graph.training_signals import realized_difficulty
+
+        if action == "diagnose":
+            try:
+                trajs = _json.loads(trajectories) if trajectories else []
+            except Exception as e:  # noqa: BLE001
+                return f"Error: invalid trajectories JSON: {e}"
+            return _json.dumps(realized_difficulty(trajs))
+
+        if action != "synthesize":
+            return f"Error: unknown action '{action}' (expected 'synthesize' or 'diagnose')."
+        if not answer_id:
+            return "Error: action=synthesize requires answer_id."
+
+        from agent_utilities.knowledge_graph.search_synthesis import synthesize
+
+        class _Reader:
+            def __init__(self, eng: Any) -> None:
+                self._eng = eng
+
+            def query(self, cypher: str, params: Any = None) -> list[dict[str, Any]]:
+                backend = getattr(self._eng, "backend", None)
+                if backend is not None and hasattr(backend, "execute"):
+                    return backend.execute(cypher, params or {}) or []
+                if hasattr(self._eng, "query"):
+                    return self._eng.query(cypher, params or {}) or []
+                return []
+
+        engine = _get_engine()
+        if not engine:
+            return "Error: IntelligenceGraphEngine not active."
+        try:
+            task = synthesize(
+                _Reader(engine),
+                answer_id,
+                hops=hops,
+                fanout=fanout,
+                min_trust=min_trust,
+                root_popularity=root_popularity,
+                max_per_source=max_per_source,
+            )
+        except Exception as e:  # noqa: BLE001
+            return f"Synthesis error: {str(e)}"
+        return _json.dumps(task.to_dict())
+
+    REGISTERED_TOOLS["graph_search_synthesis"] = graph_search_synthesis
+
+    @mcp.tool(
         name="graph_write",
         description="Write nodes, relationships, or register external graphs to the Knowledge Graph.",
         tags=["graph-os", "write", "mutation"],

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 208
+total_concepts: 212
 total_pillars: 19
 pillars:
 - AHE-3
@@ -318,6 +318,14 @@ concepts:
   - agent_utilities/knowledge_graph/research/improvement_ledger.py
   doc: recursive-improvement instrumentation aggregating per-cycle proposal merge and capability-delta
     metrics so the self-evolution loop can measure its own rate and per-mechanism contribution
+- id: AHE-3.30
+  name: ──────────────────
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/graph/training_signals.py
+  - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+  doc: ──────────────────
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1807,6 +1815,33 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
   - agent_utilities/protocols/source_connectors/connectors/reader.py
   doc: KG-2.66
+- id: KG-2.70
+  name: /2.71/2.72, AHE-3.30; distills arXiv
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+  - agent_utilities/knowledge_graph/search_synthesis/evidence_subgraph.py
+  - agent_utilities/knowledge_graph/search_synthesis/models.py
+  - agent_utilities/mcp/kg_server.py
+  doc: /2.71/2.72, AHE-3.30; distills arXiv
+- id: KG-2.71
+  name: and formulate + adversarially refine a
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+  - agent_utilities/knowledge_graph/search_synthesis/shortcut_risks.py
+  doc: and formulate + adversarially refine a
+- id: KG-2.72
+  name: question formulation + adversarial refinement
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+  - agent_utilities/knowledge_graph/search_synthesis/question_formulation.py
+  doc: question formulation + adversarial refinement
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

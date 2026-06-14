@@ -109,6 +109,7 @@ class GoldenLoopController:
         force_assimilate: bool = False,
         standardize: bool | None = None,
         topics: list[dict[str, Any]] | None = None,
+        synthesize_search: bool = False,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -141,6 +142,7 @@ class GoldenLoopController:
             "standardize": None,
             "spec_drafts": [],
             "team": None,
+            "search_tasks": None,
             "errors": [],
             "metrics": {"stage_ms": {}},
         }
@@ -229,6 +231,15 @@ class GoldenLoopController:
                 report["team"] = _stage(
                     "synthesize", lambda: self._synthesize_team(topics)
                 )
+
+        # 6. SELF-PLAY SEARCH-TASK SYNTHESIS (CONCEPT:KG-2.70/2.71/2.72) — build
+        # shortcut-resistant deep-search tasks from the evidence graph and draft a
+        # training corpus (propose-only). Opt-in: it does not depend on open
+        # topics and is skipped by default to keep the zero-infra cycle cheap.
+        if synthesize_search:
+            report["search_tasks"] = _stage(
+                "synthesize_search", self._synthesize_search_tasks
+            )
 
         self._finalize_metrics(report, cycle_start)
         return report
@@ -541,6 +552,87 @@ class GoldenLoopController:
             "persisted_edges": edges,
             "auto_merge": merge,
         }
+
+    def _synthesize_search_tasks(self, limit: int = 5) -> dict[str, Any]:
+        """Build shortcut-resistant deep-search tasks from the evidence graph.
+
+        Selects candidate answer entities, runs the FORT-distilled synthesizer
+        (CONCEPT:KG-2.70/2.71/2.72), keeps only tasks whose shortcut report is
+        clear, drafts a JSONL corpus under ``.specify/specs/search-tasks/`` and
+        (propose-only) persists each as a ``SearchTask`` node. Returns a summary.
+        """
+        import json
+        from pathlib import Path
+
+        from ..search_synthesis import synthesize
+
+        reader = _EngineReader(self.engine)
+        rows = reader.query("MATCH (n) RETURN n LIMIT $k", {"k": limit * 4})
+        candidates = [
+            (r.get("n") or {}).get("id") for r in rows if (r.get("n") or {}).get("id")
+        ]
+
+        tasks: list[dict[str, Any]] = []
+        for answer_id in candidates:
+            if len(tasks) >= limit:
+                break
+            try:
+                task = synthesize(reader, answer_id, hops=2)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("search-task synthesis failed for %s: %s", answer_id, e)
+                continue
+            if task.risk_report.clear and task.difficulty >= 1:
+                tasks.append(task.to_dict())
+
+        corpus_path = ""
+        if tasks:
+            out_dir = Path(self.codebase_root) / ".specify" / "specs" / "search-tasks"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            corpus_file = out_dir / "tasks.jsonl"
+            corpus_file.write_text(
+                "\n".join(json.dumps(t) for t in tasks) + "\n", encoding="utf-8"
+            )
+            corpus_path = str(corpus_file)
+
+        persisted = 0
+        if self.propose_only:
+            for t in tasks:
+                try:
+                    self.engine.add_node(
+                        f"SearchTask:{t['answer_id']}",
+                        {
+                            "type": "SearchTask",
+                            "question": t["question"],
+                            "answer_id": t["answer_id"],
+                            "difficulty": t["difficulty"],
+                            "status": "proposal",
+                        },
+                    )
+                    persisted += 1
+                except Exception as e:  # noqa: BLE001
+                    logger.debug("SearchTask persist failed: %s", e)
+
+        return {
+            "candidates": len(candidates),
+            "tasks": len(tasks),
+            "persisted_nodes": persisted,
+            "corpus_path": corpus_path,
+        }
+
+
+class _EngineReader:
+    """Adapt an :class:`IntelligenceGraphEngine` to the search-synthesis read API."""
+
+    def __init__(self, engine: Any) -> None:
+        self._engine = engine
+
+    def query(self, cypher: str, params: Any = None) -> list[dict[str, Any]]:
+        backend = getattr(self._engine, "backend", None)
+        if backend is not None and hasattr(backend, "execute"):
+            return backend.execute(cypher, params or {}) or []
+        if hasattr(self._engine, "query"):
+            return self._engine.query(cypher, params or {}) or []
+        return []
 
 
 def run_golden_loop_cycle(engine: Any = None, **kwargs: Any) -> dict[str, Any]:
