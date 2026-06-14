@@ -625,11 +625,16 @@ class AgentConfig(BaseSettings):
     # ingest. Deployment-specific (set in ``.env``); empty ⇒ breadth is a no-op.
     kg_breadth_library_roots: str = Field(default="", alias="KG_BREADTH_LIBRARY_ROOTS")
     kg_breadth_repo_roots: str = Field(default="", alias="KG_BREADTH_REPO_ROOTS")
-    # Golden-loop (autonomous research) parameters — opt-in, all off by default.
-    # Typed config replaces the scattered bare KG_GOLDEN_* env reads (CONCEPT:KG-2.7).
+    # Golden-loop (autonomous research) parameters. Typed config replaces the
+    # scattered bare KG_GOLDEN_* env reads (CONCEPT:KG-2.7).
     kg_golden_loop: bool = Field(default=False, alias="KG_GOLDEN_LOOP")
     kg_golden_distill: bool = Field(default=False, alias="KG_GOLDEN_DISTILL")
-    kg_golden_breadth: bool = Field(default=False, alias="KG_GOLDEN_BREADTH")
+    # On by default: the breadth stage auto-ingests the ecosystem so ``assimilate``
+    # has the codebase capability map to compare research against. With no
+    # KG_BREADTH_* roots set it self-configures from the XDG workspace.yml, so the
+    # default is zero-config; content-addressed ingest makes re-runs cheap. Set
+    # KG_GOLDEN_BREADTH=0 to opt out. (CONCEPT:KG-2.7)
+    kg_golden_breadth: bool = Field(default=True, alias="KG_GOLDEN_BREADTH")
     kg_golden_standardize: bool = Field(default=False, alias="KG_GOLDEN_STANDARDIZE")
     kg_golden_auto_merge: bool = Field(default=False, alias="KG_GOLDEN_AUTO_MERGE")
     kg_golden_merge_threshold: float | None = Field(
