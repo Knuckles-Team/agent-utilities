@@ -85,6 +85,44 @@ def test_copy_graph_copies_nodes_edges_embeddings():
     assert summary["errors"] == 0
 
 
+class _CorruptKeyGraphStub:
+    """L1 node whose ``type`` lives under a BACKTICKED key (legacy corruption)."""
+
+    def _get_all_nodes(self):
+        return ["x"]
+
+    def _get_node_properties(self, nid):
+        return {
+            "id": nid,
+            "`type`": "Memory",  # real type hidden behind backticks
+            "`metadata`": {"k": "v"},
+            "node_type": "raw",
+            "embedding": [0.1],
+        }
+
+    def _get_all_edges(self):
+        return []
+
+
+class _CorruptKeySource:
+    graph = _CorruptKeyGraphStub()
+
+
+def test_copy_graph_recovers_backticked_keys_no_loss():
+    """A node with backticked property keys must NOT be lost: keys are sanitised,
+    the real label is recovered from the cleaned ``type``, and the emitted cypher
+    has no double backticks."""
+    tgt = RecBackend()
+    summary = copy_graph(_CorruptKeySource(), tgt, copy_embeddings=False)
+    assert summary["nodes"] == 1 and summary["errors"] == 0
+    node_writes = [q for q, _ in tgt.writes if q.startswith("MERGE (n:")]
+    assert node_writes, "node not written"
+    # real label recovered from the cleaned `type`, not the default "Node"
+    assert any("MERGE (n:Memory " in q for q in node_writes), node_writes
+    for q, _ in tgt.writes:
+        assert "``" not in q, f"double backtick leaked: {q}"
+
+
 def test_copy_graph_emits_clean_merge_not_double_backticks():
     """The regression: writes must be portable MERGE with single-backtick keys,
     never the double-backticked `` ``type`` `` the old reconcile produced."""
