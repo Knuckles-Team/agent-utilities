@@ -22,8 +22,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from ...models.knowledge_graph import RegistryEdgeType, RegistryNodeType
-from .dedup import _cosine, iter_all_edges
+from ...models.knowledge_graph import RegistryNodeType
+from .dedup import iter_all_edges
 
 # A concept id like KG-2.7 / AHE-3.12 / ORCH-1.3b / OS-5 / KG-2.20g.
 _CONCEPT_ID_RE = re.compile(r"\b([A-Z]{2,6}-\d+(?:\.\d+[a-z]?|-\d+)?)\b")
@@ -113,138 +113,6 @@ def _collect_rich(
         if isinstance(data, dict) and str(data.get("type", "")).lower() in wanted:
             out[nid] = data
     return out
-
-
-def auto_satisfy(
-    engine: Any,
-    *,
-    feature_types: tuple[str, ...] = _FEATURE_TYPES,
-    concept_types: tuple[str, ...] = _CONCEPT_TYPES,
-    threshold: float = 0.85,
-    restrict_to: set[str] | None = None,
-    write: bool = True,
-    reconcile: bool = True,
-) -> GapReport:
-    """Write candidate ``SATISFIED_BY`` edges for features matching built concepts.
-
-    **Hybrid match (CONCEPT:KG-2.7).** A feature is matched to a built concept by,
-    in order:
-
-    1. **explicit id reference** — the feature names a concept id (``concept_ids``
-       property or a ``CONCEPT:<ID>`` / bare-id marker in its id/title/body) that
-       exists among the concept nodes → exact, score ``1.0``;
-    2. **embedding fallback** — otherwise the best concept by cosine ≥ ``threshold``.
-
-    Pure-cosine matching was found to recognize 0/21 known-built capabilities
-    (a terse concept vs. a verbose spec sits below the embedding noise floor, and
-    the argmax concept was wrong 71% of the time), so the id signal — which the
-    specs already carry — leads, with embedding only for unreferenced features.
-
-    Args:
-        engine: knowledge engine (``graph.nodes(data=True)`` + ``link_nodes``).
-        feature_types / concept_types: node types to match between.
-        threshold: cosine ≥ this → satisfied (embedding fallback only).
-        restrict_to: only evaluate these feature ids (incremental).
-        write: persist edges (False = dry run).
-
-    Returns:
-        A :class:`GapReport` (the candidate ``(feature, concept, score)`` matches).
-    """
-    features = _collect_rich(engine, feature_types)
-    concepts = _collect_rich(engine, concept_types)
-    report = GapReport(features=len(features), concepts=len(concepts))
-    if not features or not concepts:
-        return report
-
-    # Idempotency: drop prior auto-written SATISFIED_BY edges so this pass replaces,
-    # not accumulates (a stricter re-run must be able to un-close a feature).
-    targets = set(features) if restrict_to is None else set(features) & restrict_to
-    if write and reconcile and targets:
-        _clear_auto_satisfied(engine, targets)
-
-    # Concept indices: canonical id → node id, and node id → embedding.
-    concept_by_key: dict[str, str] = {}
-    concept_vecs: list[tuple[str, list[float]]] = []
-    for cid, cdata in concepts.items():
-        key = _concept_key(cid, cdata)
-        if key and key not in concept_by_key:
-            concept_by_key[key] = cid
-        emb = cdata.get("embedding")
-        if emb:
-            concept_vecs.append((cid, list(emb)))
-
-    # Pre-normalized concept matrix for a vectorized cosine: one BLAS matvec per
-    # feature instead of an O(concepts) pure-Python ``_cosine`` loop (the embedding
-    # fallback was ~355K cosines / ~334s on the live graph). Falls back to the
-    # per-concept loop if numpy is unavailable. (CONCEPT:KG-2.7)
-    _np = None
-    _cids: list[str] = []
-    _cmat = None
-    try:
-        import numpy as _np_mod
-
-        if concept_vecs:
-            _cids = [cid for cid, _ in concept_vecs]
-            _cmat = _np_mod.asarray([v for _, v in concept_vecs], dtype=_np_mod.float32)
-            _norms = _np_mod.linalg.norm(_cmat, axis=1, keepdims=True)
-            _norms[_norms == 0] = 1.0
-            _cmat = _cmat / _norms
-            _np = _np_mod
-    except Exception:  # noqa: BLE001 — numpy optional → pure-Python fallback
-        _np = None
-
-    for fid, fdata in features.items():
-        if restrict_to and fid not in restrict_to:
-            continue
-        best_cid: str | None = None
-        best_s = 0.0
-        via = ""
-        # 1) explicit id reference (high precision)
-        hit = next(
-            (
-                concept_by_key[r]
-                for r in _feature_refs(fid, fdata)
-                if r in concept_by_key
-            ),
-            None,
-        )
-        if hit is not None:
-            best_cid, best_s, via = hit, 1.0, "id"
-        else:
-            # 2) embedding fallback
-            fvec = fdata.get("embedding")
-            if fvec:
-                if _np is not None and _cmat is not None:
-                    fv = _np.asarray(fvec, dtype=_np.float32)
-                    fnorm = float(_np.linalg.norm(fv))
-                    if fnorm:
-                        sims = _cmat @ (fv / fnorm)
-                        j = int(sims.argmax())
-                        best_cid, best_s = _cids[j], float(sims[j])
-                else:
-                    fv = list(fvec)
-                    for cid, cvec in concept_vecs:
-                        s = _cosine(fv, cvec)
-                        if s > best_s:
-                            best_cid, best_s = cid, s
-                via = "embedding"
-        if best_cid is not None and (via == "id" or best_s >= threshold):
-            report.satisfied += 1
-            report.candidates.append((fid, best_cid, round(best_s, 6)))
-            if write:
-                engine.link_nodes(
-                    fid,
-                    best_cid,
-                    RegistryEdgeType.SATISFIED_BY,
-                    properties={
-                        "_rel": "SATISFIED_BY",
-                        "score": round(best_s, 6),
-                        "auto": True,
-                        "concept": best_cid,
-                        "match": via,
-                    },
-                )
-    return report
 
 
 def _rel_of(props: Any) -> str:
@@ -344,46 +212,4 @@ def open_features(
     return [fid for fid in feats if fid not in closed]
 
 
-def _clear_auto_satisfied(engine: Any, feature_ids: set[str]) -> int:
-    """Remove prior auto-written ``SATISFIED_BY`` edges from ``feature_ids``.
-
-    Makes :func:`auto_satisfy` **idempotent** on a durable graph: a re-run (e.g.
-    with a stricter matcher) REPLACES rather than ACCUMULATES matches, so stale
-    edges from an earlier looser pass don't keep features wrongly closed. Uses the
-    bulk edge view where available; no-ops when the engine can't delete edges.
-    """
-    graph = getattr(engine, "graph", None)
-    deleter = getattr(engine, "delete_edge", None)
-    if graph is None or not callable(deleter):
-        return 0
-    pairs: list[tuple[str, str]] = []
-    edges = iter_all_edges(graph)
-    if edges is not None:
-        for src, dst, props in edges:
-            if (
-                src in feature_ids
-                and _rel_of(props) == "SATISFIED_BY"
-                and props.get("auto")
-            ):
-                pairs.append((src, dst))
-    else:
-        for fid in feature_ids:
-            try:
-                for _s, dst, props in graph.out_edges(fid, data=True):
-                    if (
-                        isinstance(props, dict)
-                        and _rel_of(props) == "SATISFIED_BY"
-                        and props.get("auto")
-                    ):
-                        pairs.append((fid, dst))
-            except (TypeError, AttributeError):  # pragma: no cover
-                continue
-    for src, dst in pairs:
-        try:
-            deleter(src, dst, "SATISFIED_BY")
-        except Exception:  # pragma: no cover - best-effort reconcile
-            pass
-    return len(pairs)
-
-
-__all__ = ["GapReport", "auto_satisfy", "open_features", "is_closed"]
+__all__ = ["GapReport", "open_features", "is_closed"]
