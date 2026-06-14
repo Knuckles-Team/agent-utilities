@@ -186,6 +186,41 @@ def test_enterprise_presets_build_with_verified_shape():
     assert (kc.id_field, kc.title_field, kc.text_field) == ("id", "username", "email")
 
 
+@pytest.mark.concept("ECO-4.46")
+def test_pulselink_presets_build_with_uniform_shape():
+    # PulseLink open-web/social sources: every source is the SAME flat field map
+    # over pulse_search/pulse_list's {documents:[...], next_cursor} envelope.
+    pl = {p for p in list_tool_presets() if p.startswith("pulselink-")}
+    assert {
+        "pulselink-x",
+        "pulselink-reddit",
+        "pulselink-youtube",
+        "pulselink-hackernews",
+        "pulselink-rss",
+    } <= pl
+
+    x = build_connector("mcp_tool", {"preset": "pulselink-x"})
+    assert x.server == "pulselink-mcp"
+    assert x.tool == "pulse_search"
+    assert x.records_path == "documents"
+    assert (x.id_field, x.title_field, x.text_field, x.updated_field) == (
+        "id",
+        "title",
+        "text",
+        "created_at",
+    )
+    assert x.cursor_path == "next_cursor"
+
+    # RSS is a list-style source over pulse_list.
+    rss = build_connector("mcp_tool", {"preset": "pulselink-rss"})
+    assert rss.tool == "pulse_list"
+
+    # YouTube carries a detail phase that fetches the transcript per video.
+    yt = MCP_TOOL_PRESETS["pulselink-youtube"]
+    assert yt["detail"]["tool"] == "pulse_fetch"
+    assert yt["detail"]["params"]["target"] == "{id}"
+
+
 # ── sql-mcp shapes ───────────────────────────────────────────────────────────
 
 
