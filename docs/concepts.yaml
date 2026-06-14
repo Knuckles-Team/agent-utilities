@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 234
+total_concepts: 237
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1917,6 +1917,15 @@ concepts:
   - agent_utilities/knowledge_graph/search_synthesis/__init__.py
   - agent_utilities/knowledge_graph/search_synthesis/question_formulation.py
   doc: question formulation + adversarial refinement
+- id: KG-2.73
+  name: KG-2.73
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/world_model_task.py
+  - agent_utilities/knowledge_graph/core/world_model.py
+  doc: KG-2.73
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -3011,6 +3020,22 @@ concepts:
   - agent_utilities/core/sessions.py
   - agent_utilities/orchestration/action_policy.py
   doc: objective-level safety primitives for rising autonomy
+- id: SAFE-1.6
+  name: SAFE-1.6
+  pillar: SAFE-1
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/superhuman_gate.py
+  doc: SAFE-1.6
+- id: SAFE-1.7
+  name: SAFE-1.7
+  pillar: SAFE-1
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/adaptation_benchmark.py
+  doc: SAFE-1.7
 - id: UTIL-1.0
   name: Data Type Conversion
   pillar: UTIL-1
