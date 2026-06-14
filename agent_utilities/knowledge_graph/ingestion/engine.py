@@ -900,9 +900,12 @@ class IngestionEngine:
                     source_id, window, source_type, title
                 )
         facts = 0
-        # Skip the costly open LLM fact pass for purely-structured content — it is
-        # records/tables, not prose to mine; concepts above still index it.
-        if enrich_facts and windows and structure != "structured":
+        # Skip the open LLM fact pass ONLY for a genuinely small structured record
+        # (a single window of CSV/form/table). Multi-window content is a real
+        # document (a book's PDF text can look tabular to the classifier) and must
+        # always be mined — never skip it, or we silently lose its facts.
+        skip_facts = structure == "structured" and len(windows) <= 1
+        if enrich_facts and windows and not skip_facts:
             # Fact extraction is the measured bottleneck (~tens of seconds/window
             # on the chat model). It is async, so fan the windows out concurrently
             # with bounded concurrency — vLLM batches requests, turning an N×
