@@ -115,8 +115,42 @@ class AgentOrchestrationEngine:
             return await self.execute_workflow(task, **kwargs)
         elif mode == "sdd":
             return await self.execute_sdd(task, **kwargs)
+        elif mode == "swe":
+            return await self.execute_swe(task, **kwargs)
         else:
             raise ValueError(f"Unknown dispatch mode: {mode}")
+
+    async def execute_swe(
+        self, task: Any, *, deps: Any = None, workspace: Any = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        """Run the KG-grounded SWE agent (CONCEPT:ORCH-1.47) on ``task``.
+
+        Drives the edit→run→test loop inside a developer workspace (OS-5.33), grounding in the
+        code ontology (KG-2.65). A ``workspace`` may be supplied (e.g. a repo already cloned by
+        the SWE-bench harness, AHE-3.22); otherwise a fresh one is created and torn down.
+        """
+        from agent_utilities.models import AgentDeps
+        from agent_utilities.runtime import create_workspace
+
+        from .swe_agent import run_swe_task
+
+        deps = deps or AgentDeps()
+        owns_ws = workspace is None
+        ws = workspace or create_workspace(actor=getattr(deps, "user_id", None))
+        if owns_ws:
+            await ws.start()
+        deps.workspace = ws
+        try:
+            result = await run_swe_task(str(task), deps, **kwargs)
+            return {
+                "mode": "swe",
+                "output": result.output,
+                "patch": result.patch,
+                "tool_calls": result.tool_calls,
+            }
+        finally:
+            if owns_ws:
+                await ws.stop()
 
     def _determine_mode(self, task: Any) -> str:
         """Heuristics to determine the best execution mode based on the task payload."""
@@ -150,9 +184,9 @@ class AgentOrchestrationEngine:
         legacy AgentOrchestrationEngine team synthesis.
         """
         logger.info(f"Synthesizing team for {domain} (complexity: {complexity})")
-        assert (
-            self.engine is not None
-        ), "IntelligenceGraphEngine is required for team synthesis"
+        assert self.engine is not None, (
+            "IntelligenceGraphEngine is required for team synthesis"
+        )
 
         import uuid
 
@@ -253,9 +287,9 @@ class AgentOrchestrationEngine:
         Replaces KGDrivenExecutionEngine routing logic.
         """
         # Call into rust to evaluate next hops based on semantic edges
-        assert (
-            self.engine is not None
-        ), "IntelligenceGraphEngine is required for node determination"
+        assert self.engine is not None, (
+            "IntelligenceGraphEngine is required for node determination"
+        )
         successors = self.engine.graph_compute.get_successors(current_node)
         return successors[0] if successors else "END"
 

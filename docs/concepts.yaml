@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 193
+total_concepts: 204
 total_pillars: 19
 pillars:
 - AHE-3
@@ -274,6 +274,22 @@ concepts:
   - agent_utilities/orchestration/fleet_reconciler.py
   doc: Evolution-to-branch bridge publishing promoted proposals as regression-gated reviewable local git
     branches via change synthesis, RLM-sandbox validation and a governed ChangePublisher seam
+- id: AHE-3.22
+  name: SWE-bench harness HTTP surface
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/swebench_corpus.py
+  - agent_utilities/harness/swebench_harness.py
+  - agent_utilities/server/routers/swebench.py
+  doc: SWE-bench harness HTTP surface
+- id: AHE-3.23
+  name: SWE-failure-driven remediation
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/swebench_remediation.py
+  doc: SWE-failure-driven remediation
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -673,6 +689,31 @@ concepts:
   - agent_utilities/gateway/usage_api.py
   - agent_utilities/mcp/kg_server.py
   doc: clients parse local logs and POST normalized
+- id: ECO-4.43
+  name: git issue/PR -> SWE task resolver + webhook ingress
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/integrations/git_resolver.py
+  - agent_utilities/server/app.py
+  - agent_utilities/server/routers/git_webhooks.py
+  doc: git issue/PR -> SWE task resolver + webhook ingress
+- id: ECO-4.44
+  name: Optional browser-agent tier for the developer-workspace runtime
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/runtime/browser_tier.py
+  - agent_utilities/runtime/events.py
+  doc: Optional browser-agent tier for the developer-workspace runtime
+- id: ECO-4.45
+  name: bind tools from declared capability intents
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/agent/capability_resolver.py
+  - agent_utilities/agent/factory.py
+  doc: bind tools from declared capability intents
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -1709,6 +1750,20 @@ concepts:
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
   doc: Multi-Connection Graph Registry. The engine has always been
+- id: KG-2.64
+  name: Workspace-Action Provenance Graph
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/runtime/provenance.py
+  doc: Workspace-Action Provenance Graph
+- id: KG-2.65
+  name: Code-Intelligence Tools
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/tools/code_intelligence_tools.py
+  doc: Code-Intelligence Tools
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -2210,6 +2265,26 @@ concepts:
   - agent_utilities/orchestration/agent_dispatch.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   doc: Queue-driven agent dispatch with session-keyed partitions
+- id: ORCH-1.46
+  name: Action/Observation event protocol for the developer-workspace runtime
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/runtime/bridge.py
+  - agent_utilities/runtime/events.py
+  doc: Action/Observation event protocol for the developer-workspace runtime
+- id: ORCH-1.47
+  name: System prompt for the KG-grounded SWE agent
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/agent/swe_prompts.py
+  - agent_utilities/models/agent.py
+  - agent_utilities/orchestration/engine.py
+  - agent_utilities/orchestration/swe_agent.py
+  - agent_utilities/tools/swe_workspace_tools.py
+  - agent_utilities/tools/tool_registry.py
+  doc: System prompt for the KG-grounded SWE agent
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
@@ -2519,6 +2594,7 @@ concepts:
   - agent_utilities/orchestration/fleet_actuation.py
   - agent_utilities/orchestration/fleet_autoscaler.py
   - agent_utilities/orchestration/fleet_reconciler.py
+  - agent_utilities/runtime/policy.py
   doc: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
     windows, and blast-radius caps consulted before any autonomous mutating fleet action
 - id: OS-5.25
@@ -2608,6 +2684,26 @@ concepts:
   - agent_utilities/mcp/client_credentials.py
   - agent_utilities/mcp/multiplexer.py
   doc: so jwt-protected children are reachable, then
+- id: OS-5.33
+  name: Bridge the developer-workspace mutating-action gate to the fleet
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/runtime/docker_workspace.py
+  - agent_utilities/runtime/local_workspace.py
+  - agent_utilities/runtime/policy.py
+  - agent_utilities/runtime/workspace.py
+  - agent_utilities/server/app.py
+  - agent_utilities/server/routers/runtime.py
+  doc: Bridge the developer-workspace mutating-action gate to the fleet
+- id: OS-5.34
+  name: the KG-provenance panel data for a run
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/server/routers/runtime.py
+  doc: the KG-provenance panel data for a run
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
