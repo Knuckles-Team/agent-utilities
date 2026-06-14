@@ -166,9 +166,12 @@ def ingest_concepts(engine: Any, concepts: list[dict[str, Any]]) -> IngestReport
         name = str(c.get("name") or c.get("doc") or cid)
         pillar = str(c.get("pillar") or "")
         status = str(c.get("status") or "live")
-        # Terse identity text (id + human name + pillar) — enough for the embedding
-        # fallback and carries the id for the high-precision explicit match.
-        body = " — ".join(p for p in (cid, name, pillar) if p)
+        # Rich, embeddable identity text (id + name + description + pillar): a terse
+        # "id — name" sits below the embedding noise floor vs verbose paper
+        # abstracts, so the description carries the semantic signal the matcher's
+        # retrieval needs; the id still drives the high-precision explicit match.
+        description = str(c.get("description") or c.get("doc") or "").strip()
+        body = " — ".join(p for p in (cid, name, description, pillar) if p)
         fp = content_fingerprint(f"{body}|{status}")
         node_id = f"concept:{cid}"
         existing = _get_node(engine, node_id)
@@ -180,6 +183,7 @@ def ingest_concepts(engine: Any, concepts: list[dict[str, Any]]) -> IngestReport
             "concept_id": cid,
             "concept_ids": [cid],
             "content": body,
+            "description": description,
             "content_hash": fp,
             "pillar": pillar,
             "status": status,
@@ -194,10 +198,66 @@ def ingest_concepts(engine: Any, concepts: list[dict[str, Any]]) -> IngestReport
     return report
 
 
+def enrich_concepts(
+    engine: Any,
+    *,
+    embed_fn: Any = None,
+    concept_types: tuple[str, ...] = (_CONCEPT,),
+    batch: int = 256,
+) -> int:
+    """Embed ``Concept`` nodes that have no vector yet, so the matcher works *now*.
+
+    The daemon's embed-backfill fills concept embeddings eventually; but a fresh
+    concept-bridge run leaves them vectorless, and the matcher's embedding-recall
+    stage is then blind until backfill catches up. This fills them on demand from
+    each concept's rich text via the shared embedder (no second model), writing
+    through ``backend.add_embedding``. Idempotent: concepts that already carry an
+    embedding are skipped. Returns the number embedded. (CONCEPT:KG-2.75)
+    """
+    graph = getattr(engine, "graph", None)
+    backend = getattr(engine, "backend", None)
+    if graph is None or backend is None or not hasattr(backend, "add_embedding"):
+        return 0
+    try:
+        node_iter = list(graph.nodes(data=True))
+    except TypeError:  # pragma: no cover
+        return 0
+    wanted = {t.lower() for t in concept_types}
+    pending: list[tuple[str, str]] = []
+    for nid, data in node_iter:
+        if not isinstance(data, dict):
+            continue
+        if str(data.get("type", "")).lower() not in wanted or data.get("embedding"):
+            continue
+        text = str(data.get("content") or data.get("name") or nid)
+        pending.append((nid, text))
+    if not pending:
+        return 0
+    if embed_fn is None:
+        from ..enrichment.semantic import make_embed_fn
+
+        embed_fn = make_embed_fn()
+    embedded = 0
+    for i in range(0, len(pending), batch):
+        chunk = pending[i : i + batch]
+        vecs = embed_fn([t for _, t in chunk])
+        for (nid, _), vec in zip(chunk, vecs, strict=False):
+            if not vec or len(vec) < 2:  # skip the degraded [[0.0]] no-embedder result
+                continue
+            try:
+                backend.add_embedding(nid, list(vec))
+                embedded += 1
+            except Exception:  # pragma: no cover - best-effort
+                pass
+    return embedded
+
+
 __all__ = [
     "IngestReport",
     "canonical_source_id",
     "content_fingerprint",
     "ingest_documents",
     "ingest_conversations",
+    "ingest_concepts",
+    "enrich_concepts",
 ]

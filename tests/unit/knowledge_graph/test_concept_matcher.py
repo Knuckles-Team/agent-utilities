@@ -124,6 +124,32 @@ def test_no_llm_falls_back_to_cosine_verdict():
     assert rep.satisfied == 1  # cosine 1.0 ≥ COVERED_COSINE → covered deterministically
 
 
+class _EmbedBackendEngine(_Engine):
+    def __init__(self, nodes):
+        super().__init__(nodes)
+        self.embedded: dict[str, list[float]] = {}
+
+        class _B:
+            def add_embedding(_self, nid, vec):
+                self.embedded[nid] = vec
+
+        self.backend = _B()
+
+
+def test_enrich_concepts_embeds_only_vectorless_nodes():
+    from agent_utilities.knowledge_graph.assimilation import enrich_concepts
+
+    nodes = {
+        "concept:KG-2.7": {"type": "concept", "name": "A", "content": "KG-2.7 — A — desc"},
+        "concept:KG-2.8": {"type": "concept", "name": "B", "content": "KG-2.8 — B", "embedding": [1.0, 0.0]},
+        "article:p": {"type": "article", "name": "paper"},  # not a concept → ignored
+    }
+    eng = _EmbedBackendEngine(nodes)
+    n = enrich_concepts(eng, embed_fn=lambda texts: [[0.1, 0.2] for _ in texts])
+    assert n == 1  # only the vectorless concept embedded
+    assert "concept:KG-2.7" in eng.embedded and "concept:KG-2.8" not in eng.embedded
+
+
 def test_idempotent_reconcile_replaces_not_accumulates():
     nodes = {
         "concept:KG-2.7": {"type": "concept", "concept_id": "KG-2.7", "name": "A", "embedding": [1.0, 0.0]},
