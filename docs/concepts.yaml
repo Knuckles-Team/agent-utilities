@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 225
+total_concepts: 227
 total_pillars: 19
 pillars:
 - AHE-3
@@ -2882,6 +2882,14 @@ concepts:
   - agent_utilities/orchestration/fleet_autoscaler.py
   doc: cost-and-throughput aware autoscaling that caps scale-up to a configured hourly budget and surfaces
     a throughput-per-dollar efficiency metric instead of reacting to a single load signal alone
+- id: OS-5.36
+  name: a search-distillation harvester that converts the reasoning router
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/harness/search_distillation.py
+  - agent_utilities/knowledge_graph/core/reasoner.py
+  doc: a search-distillation harvester that converts the reasoning router
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
@@ -2910,6 +2918,15 @@ concepts:
   - agent_utilities/knowledge_graph/research/improvement_ledger.py
   doc: recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags
     a non-positive derivative as a research-gets-harder signal
+- id: SAFE-1.4
+  name: a model-collapse guard for the self-generated training corpus that rejects near-duplicate or distributionally-narrowing
+    rows and caps the synthetic-to-human fraction so recursive distillation cannot quietly degenerate
+  pillar: SAFE-1
+  status: live
+  code_paths:
+  - agent_utilities/harness/corpus_collapse_guard.py
+  doc: a model-collapse guard for the self-generated training corpus that rejects near-duplicate or distributionally-narrowing
+    rows and caps the synthetic-to-human fraction so recursive distillation cannot quietly degenerate
 - id: SAFE-1.5
   name: objective-level safety primitives for rising autonomy
   pillar: SAFE-1
