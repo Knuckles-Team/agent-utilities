@@ -177,3 +177,71 @@ def test_copy_graph_reads_durable_cypher_source():
     summary = copy_graph(DurableSource(), tgt, copy_embeddings=False)
     assert summary["nodes"] == 1
     assert summary["edges"] == 1
+
+
+class _FalkorLike(GraphBackend):
+    """Fake whose CLASS NAME enables the id-index path; records index DDL and lets
+    the test inject a per-statement error to model FalkorDB's behaviour."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.index_ddl: list[str] = []
+
+    def execute(self, query, params=None):
+        if query.startswith("CREATE INDEX"):
+            self.index_ddl.append(query)
+            if self.error is not None:
+                raise self.error
+        return []
+
+    def execute_batch(self, query, batch):
+        return []
+
+    def create_schema(self):
+        pass
+
+    def add_embedding(self, node_id, embedding):
+        pass
+
+    def semantic_search(self, q, n_results=5):
+        return []
+
+    def prune(self, criteria):
+        pass
+
+    def close(self):
+        pass
+
+
+# FalkorDB dialect detection is by class name.
+_FalkorLike.__name__ = "FalkorDBBackend"
+
+
+def test_ensure_id_indexes_uses_bare_form_only():
+    from agent_utilities.knowledge_graph.migration import _ensure_id_indexes
+
+    be = _FalkorLike()
+    n = _ensure_id_indexes(be, {"Concept", "idea_block"})
+    assert n == 2
+    # bare form ONLY — never the IF NOT EXISTS variant that FalkorDB rejects.
+    assert be.index_ddl and all("IF NOT EXISTS" not in q for q in be.index_ddl)
+    assert all("ON (n.id)" in q for q in be.index_ddl)
+
+
+def test_ensure_id_indexes_syntax_error_not_counted_as_success():
+    from agent_utilities.knowledge_graph.migration import _ensure_id_indexes
+
+    # A syntax error containing the word "EXISTS" must NOT be read as "already there".
+    be = _FalkorLike(
+        error=Exception("server:ResponseError errors near 'EXISTS' (syntax)")
+    )
+    n = _ensure_id_indexes(be, {"Concept"})
+    assert n == 0
+
+
+def test_ensure_id_indexes_already_present_is_success():
+    from agent_utilities.knowledge_graph.migration import _ensure_id_indexes
+
+    be = _FalkorLike(error=Exception("Index already indexed for label Concept"))
+    n = _ensure_id_indexes(be, {"Concept"})
+    assert n == 1
