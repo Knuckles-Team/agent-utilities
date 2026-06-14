@@ -14,6 +14,20 @@ runs in-process and costs you nothing to turn on.** You can consume it three way
 import it as a **library**, run it as an **MCP server** (`graph-os`), or call its
 **REST gateway**.
 
+## One ontology over the whole ecosystem
+
+agent-utilities maps the **entire ecosystem — `agent-packages/agents/*` + `services/*` +
+enterprise systems + research papers — into ONE ontology-driven knowledge-graph
+orchestration system.** OWL/RDF reasoning runs over all of it to *extrapolate new
+relationships* (transitive/inverse/subclass/property-chain closures) across domains that
+were never explicitly linked — research connects to the real deployed estate, not a silo.
+Long-running objectives (**Loops** — research, develop, or skill execution) make that
+reasoning the *engine*: each cycle promotes new information, reasons over the ecosystem,
+and harvests the inferred cross-domain relationships back as the next iteration's inputs.
+Automated research produces **Agent-Native Research Artifacts (ARA)** — OWL-native,
+4-layer, ecosystem-grounded, OWL/SHACL-sealed — exposed via the `research_artifact` MCP
+tool and `POST /api/research/*`. See [OWL/RDF Layer](architecture/owl_rdf_layer.md).
+
 ## The 5 pillars (what's inside)
 
 | Pillar | What it gives you | Deep dive |

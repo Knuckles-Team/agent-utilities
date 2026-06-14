@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 246
+total_concepts: 249
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2011,6 +2011,43 @@ concepts:
   - agent_utilities/knowledge_graph/research/golden_loop.py
   - agent_utilities/knowledge_graph/research/research_intelligence_engine.py
   doc: KG-2.77
+- id: KG-2.78
+  name: KG-2.78
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/research/loops.py
+  doc: KG-2.78
+- id: KG-2.79
+  name: Best-effort + lightweight; never blocks
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/gateway/graph_api.py
+  - agent_utilities/knowledge_graph/research/ara/__init__.py
+  - agent_utilities/knowledge_graph/research/ara/reasoning_driver.py
+  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/mcp/kg_server.py
+  doc: Best-effort + lightweight; never blocks
+- id: KG-2.80
+  name: verified_by/implemented_by/contains/
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/gateway/research_api.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/ontology/interfaces.py
+  - agent_utilities/knowledge_graph/ontology/links.py
+  - agent_utilities/knowledge_graph/ontology/value_types.py
+  - agent_utilities/knowledge_graph/research/ara/artifact.py
+  - agent_utilities/knowledge_graph/research/ara/compiler.py
+  - agent_utilities/knowledge_graph/research/ara/exploration.py
+  - agent_utilities/knowledge_graph/research/ara/live_manager.py
+  - agent_utilities/knowledge_graph/research/ara/seal.py
+  - agent_utilities/knowledge_graph/research/ara/service.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: verified_by/implemented_by/contains/
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
