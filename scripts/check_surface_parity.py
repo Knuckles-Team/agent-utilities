@@ -99,11 +99,33 @@ EXCLUDE_SUFFIXES = (
     "/__init__.py",
     "/conftest.py",
     "/__main__.py",
+    "/models.py",  # pydantic data models — not an operator-invokable feature
+    "_models.py",
+    "/errors.py",  # exception types
+    "_adapter.py",  # transport adapters (kafka/nats) — infra, not a feature
 )
 EXCLUDE_SUBSTRINGS = (
     "/tests/",
     "/test_",
     "/_fixtures",
+)
+
+# Infrastructure modules that are plumbing, not operator-invokable features:
+# internal controllers, diagnostics, training/eval primitives, ontology data,
+# the durable-queue orchestrator. Excluded from the capability scan by exact path.
+INFRA_MODULES = frozenset(
+    {
+        "agent_utilities/domains/finance/quant_ontology.py",
+        "agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py",
+        "agent_utilities/knowledge_graph/orchestration/voi_budget_controller.py",
+        "agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py",
+        "agent_utilities/harness/evaluators.py",
+        "agent_utilities/harness/reasoning_effort.py",
+        "agent_utilities/harness/reliability_corpus.py",
+        "agent_utilities/harness/replay_buffer.py",
+        "agent_utilities/harness/scaling_laws.py",
+        "agent_utilities/harness/variant_pool.py",
+    }
 )
 
 # Plugin packages whose members self-register via a decorator + pkgutil/import
@@ -122,6 +144,8 @@ def _is_capability(rel: str) -> bool:
     if not rel.startswith(CAPABILITY_PREFIXES):
         return False
     if rel.startswith(PLUGIN_PACKAGES):
+        return False
+    if rel in INFRA_MODULES:
         return False
     if rel.endswith(EXCLUDE_SUFFIXES):
         return False
