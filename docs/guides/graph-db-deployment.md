@@ -4,7 +4,7 @@
 
 This guide provides a comprehensive, production-ready reference for deploying, configuring, and maintaining scale-out persistent graph backends for the `agent-utilities` Knowledge Graph engine.
 
-The **Rust-native EpistemicGraph** (`GRAPH_BACKEND=memory`/`file`) is the zero-config, zero-dependency embedded default, and **PostgreSQL + pgvector (pgGraph)** is the primary durable/production tier. The demoted **contrib** backends — **LadybugDB**, **FalkorDB**, and **Neo4j** — remain fully supported as opt-in imports (`backends/contrib/`) with Cypher CRUD, HNSW vector embeddings, and relationship indexing. Select any of them via `create_backend()` or the `GRAPH_BACKEND` environment variable.
+The **Rust-native EpistemicGraph** (`GRAPH_BACKEND=memory`/`file`) is the zero-config, zero-dependency embedded default, and **PostgreSQL + pgvector (pg-age)** is the primary durable/production tier. The demoted **contrib** backends — **LadybugDB**, **FalkorDB**, and **Neo4j** — remain fully supported as opt-in imports (`backends/contrib/`) with Cypher CRUD, HNSW vector embeddings, and relationship indexing. Select any of them via `create_backend()` or the `GRAPH_BACKEND` environment variable.
 
 ---
 
@@ -13,9 +13,9 @@ The **Rust-native EpistemicGraph** (`GRAPH_BACKEND=memory`/`file`) is the zero-c
 Select the right database backend based on your scale, infrastructure constraints, and architectural patterns:
 
 > [!NOTE]
-> The zero-config embedded default is the **Rust-native EpistemicGraph** (`GRAPH_BACKEND=memory`/`file`), not listed below. **PostgreSQL + pgGraph** is the primary durable/production tier. LadybugDB, FalkorDB, and Neo4j are demoted **contrib** backends (`backends/contrib/`) — fully supported but opt-in (require their driver packages).
+> The zero-config embedded default is the **Rust-native EpistemicGraph** (`GRAPH_BACKEND=memory`/`file`), not listed below. **PostgreSQL + pg-age** is the primary durable/production tier. LadybugDB, FalkorDB, and Neo4j are demoted **contrib** backends (`backends/contrib/`) — fully supported but opt-in (require their driver packages).
 
-| Metric / Feature | 🐞 LadybugDB (contrib) | 🦅 FalkorDB (contrib) | 🟢 Neo4j (contrib) | 🐘 PostgreSQL + pgGraph |
+| Metric / Feature | 🐞 LadybugDB (contrib) | 🦅 FalkorDB (contrib) | 🟢 Neo4j (contrib) | 🐘 PostgreSQL + pg-age |
 |---|---|---|---|---|
 | **Primary Use Case** | Embedded / Local Dev | Low Latency / High Throughput | Enterprise Property Graph | Relational + Graph Unity |
 | **ACID Compliance** | Single-writer WAL | In-Memory (Optional AOF) | Full ACID (Clustered) | Full ACID (Standard Relational) |
@@ -23,7 +23,7 @@ Select the right database backend based on your scale, infrastructure constraint
 | **Full-Text BM25 Search**| — | — | — | ✅ ParadeDB `pg_search` |
 | **Scale Limits** | Single Node / Local | Sharded Redis Cluster | Multi-region clusters | High-scale Postgres instances |
 | **Zero Configuration** | ✅ Yes | ❌ Requires Docker/Server | ❌ Requires Docker/Server | ❌ Requires Docker/Server |
-| **Traversal Engine** | Native SQLite Cypher | Redis RESP-native RESP | Native Bolt JVM | pgGraph CSR Traversal |
+| **Traversal Engine** | Native SQLite Cypher | Redis RESP-native RESP | Native Bolt JVM | pg-age CSR Traversal |
 
 ---
 
@@ -130,18 +130,18 @@ backend = create_backend(
 
 ---
 
-### 3. PostgreSQL + pgGraph (Relational & Graph Unity)
+### 3. PostgreSQL + pg-age (Relational & Graph Unity)
 
-The PostgreSQL backend leverages `pgvector` for HNSW cosine search, ParadeDB (`pg_search`) for BM25 lexical search, and the `pgGraph` extension for highly optimized CSR (Compressed Sparse Row) graph traversals. The `CypherTranspiler` translates Cypher queries directly into PostgreSQL SQL parameters.
+The PostgreSQL backend leverages `pgvector` for HNSW cosine search, ParadeDB (`pg_search`) for BM25 lexical search, and the `pg-age` extension for highly optimized CSR (Compressed Sparse Row) graph traversals. The `CypherTranspiler` translates Cypher queries directly into PostgreSQL SQL parameters.
 
-#### 🐳 Docker Compose (`docker/pggraph.compose.yml`)
+#### 🐳 Docker Compose (`docker/pg-age.compose.yml`)
 ```yaml
 version: "3.8"
 
 services:
-  pggraph-db:
+  pg-age-db:
     image: paradedb/paradedb:latest
-    container_name: agent-pggraph
+    container_name: agent-pg-age
     environment:
       POSTGRES_USER: agent
       POSTGRES_PASSWORD: agent
@@ -149,26 +149,26 @@ services:
     ports:
       - "5433:5432"   # Mapped to 5433 to avoid host conflicts
     volumes:
-      - pggraph-data:/var/lib/postgresql
-      - ./pggraph-init:/docker-entrypoint-initdb.d
+      - pg-age-data:/var/lib/postgresql
+      - ./pg-age-init:/docker-entrypoint-initdb.d
     restart: unless-stopped
 
 volumes:
-  pggraph-data:
+  pg-age-data:
 ```
 
-#### 📜 Initialization Script (`docker/pggraph-init/01-extensions.sql`)
+#### 📜 Initialization Script (`docker/pg-age-init/01-extensions.sql`)
 Place the following inside the initialization directory to enable the required extensions automatically on container boot:
 ```sql
--- pgGraph + pgvector initialization script
+-- pg-age + pgvector initialization script
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ParadeDB extensions (included in paradedb image)
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
--- pgGraph extension (optional, uncomment if installed)
--- CREATE EXTENSION IF NOT EXISTS pggraph;
+-- pg-age extension (optional, uncomment if installed)
+-- CREATE EXTENSION IF NOT EXISTS pg-age;
 ```
 
 #### ⚙️ Configuration Setup
@@ -217,7 +217,7 @@ def wait_for_db(host: str, port: int, timeout: int = 30):
             print(f"Waiting for database at {host}:{port}...")
             time.sleep(1)
 
-# Example: Check pgGraph port
+# Example: Check pg-age port
 wait_for_db("localhost", 5433)
 ```
 

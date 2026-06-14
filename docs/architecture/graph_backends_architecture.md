@@ -23,7 +23,7 @@ and FalkorDB are first-class backends whose drivers install as optional extras
 > executes **real openCypher** via AGE's `cypher()` function — `count(r)`,
 > `RETURN … AS alias`, multi-hop and variable-length traversal all work natively —
 > retiring the bounded regex Cypher→SQL transpiler (still the default when AGE is
-> off). pgvector continues to back embeddings. Image: `docker/pggraph-age.compose.yml`.
+> off). pgvector continues to back embeddings. Image: `docker/pg-age.compose.yml`.
 
 ## Architecture Overview
 
@@ -66,7 +66,7 @@ graph TB
         I -->|postgresql| M["KG-2.0: Cypher → SQL\nTranspiler (default)"]
         I -->|age / GRAPH_PG_AGE=1| AGE["KG-2.7: Apache AGE\ncypher() — real openCypher"]
         M --> N["PostgreSQL Tables"]
-        M --> O["KG-2.0: pgGraph Extension\n(CSR Traversal)"]
+        M --> O["KG-2.0: AGE openCypher"]
         AGE --> AGN["AGE graph (agtype)\n+ kg_embeddings (pgvector)"]
         F --> P["KG-2.3: pgvector\n(Cosine Search)"]
         F --> Q["KG-2.3: ParadeDB BM25\n(Lexical Search)"]
@@ -117,7 +117,7 @@ graph LR
     end
 
     subgraph "Layer 2: Graph Index"
-        C["KG-2.0: pgGraph CSR\n(graph.traverse)\n(graph.shortest_path)\n(graph.search)"]
+        C["KG-2.0: AGE traversal\n(graph.traverse)\n(graph.shortest_path)\n(graph.search)"]
     end
 
     subgraph "Layer 3: Search"
@@ -157,7 +157,7 @@ installed — and, for AGE and pg_search, preloaded:
 | **pgvector** (`vector`) | **Yes** | no | Embedding storage + HNSW cosine `semantic_search` |
 | **ParadeDB** (`pg_search`) | **Yes** | yes | BM25 full-text scoring |
 | pg_trgm | Optional | no | Trigram fuzzy text matching |
-| pgGraph | Optional (legacy) | no | CSR traversal for the regex-transpiler `backend: "postgresql"` path |
+| pg-age | Optional (legacy) | no | CSR traversal for the regex-transpiler `backend: "postgresql"` path |
 
 > **Why AGE, not just the transpiler.** Without AGE, a Postgres connection falls
 > back to the bounded regex transpiler (`backend: "postgresql"`, `cypher_support
@@ -165,8 +165,8 @@ installed — and, for AGE and pg_search, preloaded:
 > surface a fan-out mirror set shares (CONCEPT:KG-2.74). With AGE, Postgres is a
 > peer of Neo4j/FalkorDB and the **preferred authority**.
 
-**The curated image bundles all three.** `services/pggraph/` builds
-`registry.arpa/pggraph` **FROM `paradedb/paradedb:latest` (PostgreSQL 18)** — which
+**The curated image bundles all three.** `services/pg-age/` builds
+`registry.arpa/pg-age` **FROM `paradedb/paradedb:latest` (PostgreSQL 18)** — which
 already ships `vector` + `pg_search` — and adds **Apache AGE 1.7.0** (the release
 that introduced PG18 support). The stack `command` sets
 `shared_preload_libraries=pg_search,pg_cron,pg_stat_statements,age` and
@@ -195,7 +195,7 @@ requires pgvector; BM25 requires pg_search.
 | `GRAPH_DB_NAME` | `agent_graph` | Database/graph name |
 | `GRAPH_POOL_MIN` | `2` | PostgreSQL pool minimum connections |
 | `GRAPH_POOL_MAX` | `10` | PostgreSQL pool maximum connections |
-| `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pgGraph table registration |
+| `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pg-age table registration |
 | `GRAPH_FUSEKI_URL` | `http://localhost:3030` | Jena/Apache Fuseki server URL |
 | `GRAPH_FUSEKI_DATASET` | `agent_kg` | Fuseki dataset name |
 | `GRAPH_FUSEKI_USER` / `GRAPH_FUSEKI_PASSWORD` | — | Optional Fuseki credentials |
@@ -326,7 +326,7 @@ above.
 
 ```bash
 # 1. Start the database
-docker compose -f docker/pggraph.compose.yml up -d
+docker compose -f docker/pg-age.compose.yml up -d
 
 # 2. Configure the backend
 export GRAPH_BACKEND=postgresql

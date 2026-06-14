@@ -13,7 +13,7 @@ pre-commit install
 ```
 
 The default knowledge-graph backend is zero-infra (in-process), so most work needs
-no external services. For the durable tier set `GRAPH_DB_URI` (Postgres/pggraph).
+no external services. For the durable tier set `GRAPH_DB_URI` (Postgres/pg-age).
 
 ## Branch / worktree workflow
 

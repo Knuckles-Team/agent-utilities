@@ -78,7 +78,7 @@ the Rust `epistemic_graph` working store (L1) in front of an embedded LadybugDB
 export GRAPH_BACKEND=tiered     # this is already the default
 ```
 
-When you outgrow it, point `GRAPH_DB_URI` at Postgres/pggraph and the durable
+When you outgrow it, point `GRAPH_DB_URI` at Postgres/pg-age and the durable
 tier switches automatically — nothing else changes. See
 [Deployment Recipes](recipes/tiny.md) for tiny → single-node → enterprise.
 

@@ -17,7 +17,7 @@ connector fleet. This is the "run the enterprise" tier. It is driven by the
 |---|---|
 | Edge | Caddy (HTTPS ingress) · Technitium DNS (authoritative `.arpa`) |
 | Core | Keycloak (SSO) · OpenBao (secrets) · Portainer (stack GitOps) · LGTM (Prometheus/Loki/Grafana/Tempo) |
-| Data | Postgres/pggraph (durable KG L2) · Kafka (event backbone) |
+| Data | Postgres/pg-age (durable KG L2) · Kafka (event backbone) |
 | agent-utilities | REST gateway + KG host daemon, replicated; graph-os over streamable-http |
 | Connectors | the **entire** `*-mcp` fleet (`enterprise` profile) via Portainer GitOps |
 | UIs | agent-webui (Fleet Supervisor), agent-terminal-ui, geniusbot |
@@ -34,7 +34,7 @@ The `day0_bootstrap_orchestrator` workflow runs the ordered bootstrap:
 6. `secret-vault-manager` → OpenBao + Keycloak.
 7. `gitlab-repository-seeder` + `portainer-gitops-bind` → stacks bound to Git.
 8. **agent-utilities** → install deps, start graph-os + multiplexer, deploy the
-   `*-mcp` fleet from `deploy/mcp-fleet.registry.yml`, wire pggraph + Kafka +
+   `*-mcp` fleet from `deploy/mcp-fleet.registry.yml`, wire pg-age + Kafka +
    OpenBao + Langfuse + Keycloak.
 9. `graph-os` → materialize the full topology in the KG.
 
@@ -46,12 +46,12 @@ and toggle the integrations you want.
 ```jsonc
 {
   "graph_backend": "tiered",
-  "graph_db_uri": "postgresql://agent:REDACTED@pggraph.example.arpa:5432/agent_kg",
+  "graph_db_uri": "postgresql://agent:REDACTED@pg-age.example.arpa:5432/agent_kg",
   "kg_daemon_role": "host",
 
   // Durable platform state (sessions/goals/checkpoints/queues) on shared
   // Postgres — enables fleet-wide leader election for daemon ticks
-  "state_db_uri": "postgresql://agent:REDACTED@pggraph.example.arpa:5432/agent_state",
+  "state_db_uri": "postgresql://agent:REDACTED@pg-age.example.arpa:5432/agent_state",
 
   "task_queue_backend": "kafka",
   "kafka_bootstrap_servers": "kafka.example.arpa:9092",
@@ -82,7 +82,7 @@ The connector fleet is stateless and scales horizontally on the swarm. The KG
 host daemon is a singleton per host per the `KG_DAEMON_ROLE=host` flock; running
 the agent swarm at very large scale (the 100k+ target) additionally needs
 multiple gateway workers (`GATEWAY_WORKERS`) + a durable queue (Kafka, above) +
-shared pggraph/state-store Postgres — see the
+shared pg-age/state-store Postgres — see the
 [capacity model](../scaling/capacity_model.md). Durable execution (idempotency
 + at-least-once) is already in place to make that safe. The work itself scales
 through the two consumer fleets — `kg-ingest-worker` (ingest, `kg_tasks`

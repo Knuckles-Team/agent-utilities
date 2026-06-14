@@ -31,12 +31,12 @@ pytestmark = [pytest.mark.integration, pytest.mark.live]
 @pytest.fixture()
 def enterprise_env(
     monkeypatch,
-    ephemeral_pggraph: dict[str, Any],
+    ephemeral_pg_age: dict[str, Any],
     ephemeral_kafka: dict[str, Any],
     ephemeral_fuseki: dict[str, Any],
 ) -> dict[str, Any]:
     """Pin the process to the full enterprise profile against the live containers."""
-    pg_uri = ephemeral_pggraph["uri"]
+    pg_uri = ephemeral_pg_age["uri"]
     monkeypatch.setenv("GRAPH_BACKEND", "postgresql")
     monkeypatch.setenv("GRAPH_DB_URI", pg_uri)
     monkeypatch.setenv("STATE_DB_URI", pg_uri)

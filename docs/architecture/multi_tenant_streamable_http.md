@@ -24,18 +24,18 @@ see [`deploy/`](../../deploy/README.md).
 flowchart TD
     KC[Keycloak / OIDC] -.->|JWT: org_id→tenant_id, sub→actor_id| C[clients]
     C -->|Bearer JWT| LB[Load Balancer / Ingress]
-    LB --> F[FRONT TIER<br/>stateless streamable-HTTP + gateway<br/>KG_DAEMON_ROLE=client]
-    F -->|ActorContext tenant_id, actor_id, roles| R[Tenant Router<br/>KG-2.58 HRW + KG-2.62 warm pool]
-    R --> E1[ENGINE shard 1<br/>tenant graphs · role=host]
+    LB --> F["FRONT TIER<br/>stateless streamable-HTTP + gateway<br/>KG_DAEMON_ROLE=client"]
+    F -->|ActorContext tenant_id, actor_id, roles| R["Tenant Router<br/>KG-2.58 HRW + KG-2.62 warm pool"]
+    R --> E1["ENGINE shard 1<br/>tenant graphs · role=host"]
     R --> E2[ENGINE shard N]
-    R --> CM[COMMONS engine<br/>shared default graph · read-mostly]
+    R --> CM["COMMONS engine<br/>shared default graph · read-mostly"]
     E1 -->|write-through| L3
     E2 --> L3
     CM --> L3
     F --> ST
     subgraph DURABLE [Central durable state]
-      L3[(Postgres / pggraph L3<br/>RLS by tenant_id)]
-      ST[(STATE_DB_URI<br/>sessions · goals · durable_checkpoints)]
+      L3[("Postgres / pg-age L3<br/>RLS by tenant_id")]
+      ST[("STATE_DB_URI<br/>sessions · goals · durable_checkpoints")]
     end
 ```
 
@@ -43,10 +43,10 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A[1 · Identity<br/>OS-5.14 served JWT] --> B[2 · Physical<br/>KG-2.58 named graph per org]
-    B --> C[3 · Logical<br/>KG-2.6 tenant scope + KG-2.60 owner/scope]
-    C --> D[4 · Database<br/>KG-2.61 Postgres RLS app.tenant_id]
-    D --> E[5 · Audit<br/>OS-5.11 tenant+actor stamped]
+    A["1 · Identity<br/>OS-5.14 served JWT"] --> B["2 · Physical<br/>KG-2.58 named graph per org"]
+    B --> C["3 · Logical<br/>KG-2.6 tenant scope + KG-2.60 owner/scope"]
+    C --> D["4 · Database<br/>KG-2.61 Postgres RLS app.tenant_id"]
+    D --> E["5 · Audit<br/>OS-5.11 tenant+actor stamped"]
 ```
 
 1. **Identity (OS-5.14).** `ActorIdentityMiddleware` mints `ActorContext{tenant_id,
@@ -78,9 +78,9 @@ by **how** it is placed (a mandatory marking).
 ```mermaid
 flowchart TD
     W[guarded write] -->|stamp tenant_id, _owner_id, _shared_scope=private| P[private to owner]
-    P -->|graph_share action=org| O[org-shared<br/>visible to the org]
-    P -->|graph_share action=commons| K[commons graph<br/>cross-org readable]
-    P -->|graph_share action=mark| M[marking<br/>role-gated, cross-org]
+    P -->|graph_share action=org| O["org-shared<br/>visible to the org"]
+    P -->|graph_share action=commons| K["commons graph<br/>cross-org readable"]
+    P -->|graph_share action=mark| M["marking<br/>role-gated, cross-org"]
     O -->|graph_share action=private| P
 ```
 
@@ -116,7 +116,7 @@ engine-side **per-graph unload** to reclaim memory on eviction. Disabled by defa
 | `KG_ACL_DEFAULT_ALLOW` | off | deny-on-missing-ACL when enforcing (fail-closed) |
 | `KG_DEFAULT_GRAPH` | `__bus__` | the commons graph; tenants route to `tenant__<slug>__<this>` |
 | `GRAPH_SERVICE_ENDPOINTS` | one socket | engine shard set (HRW routing) |
-| `GRAPH_DB_URI` / `STATE_DB_URI` | — | L3 pggraph (apply RLS) / central session+checkpoint store |
+| `GRAPH_DB_URI` / `STATE_DB_URI` | — | L3 pg-age (apply RLS) / central session+checkpoint store |
 | `KG_ENGINE_POOL_SIZE` | `0` | warm per-tenant engines (elastic pool); `0` = per-use |
 | `KG_ENGINE_POOL_DROP_ON_EVICT` | off | unload the tenant graph from the engine on eviction (needs L3) |
 

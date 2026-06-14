@@ -65,7 +65,7 @@ graph TD
 
     subgraph "Epistemic Storage Tiers (GraphBackend)"
         Epistemic["epistemic-graph L1 (Rust, MessagePack/UDS client)"]
-        Postgres["pggraph / PostgreSQL durable tier (Production)"]
+        Postgres["pg-age / PostgreSQL durable tier (Production)"]
         Contrib["contrib backends (Ladybug/Kùzu, Neo4j, FalkorDB)"]
     end
 

@@ -23,7 +23,7 @@ KG (GraphBackend + OWL) ──materialize()──> observations.md, reflections.
 profile.md / active.md ──file-watch──> KG (upsert edits)
 ```
 
-> The KG store is the layered `GraphBackend` tier (epistemic-graph L1 + Postgres/pggraph
+> The KG store is the layered `GraphBackend` tier (epistemic-graph L1 + Postgres/pg-age
 > durable primary; LadybugDB/Neo4j/FalkorDB are opt-in `backends/contrib/`). The local
 > SQLite-style `knowledge_graph.db` file is the default opt-in LadybugDB backend.
 
