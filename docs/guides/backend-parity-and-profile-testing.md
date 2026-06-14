@@ -28,7 +28,7 @@ Requires a reachable Docker daemon for the live matrix. The two zero-infra cases
 | Selection | What runs | Needs Docker? |
 |---|---|---|
 | `pytest` (default, `-m "not live"`) | tiny-profile zero-dep e2e; conformance for `epistemic_graph` + `ladybug` | no |
-| `pytest -m live` | full backend matrix (pggraph/Neo4j/FalkorDB) + Fuseki SPARQL + enterprise-profile e2e | yes |
+| `pytest -m live` | full backend matrix (pg-age/Neo4j/FalkorDB) + Fuseki SPARQL + enterprise-profile e2e | yes |
 
 The default PR suite therefore continuously enforces the **Pi-3 zero-dependency
 contract** (including a cold-import footprint guard) without requiring Docker, and
@@ -61,8 +61,8 @@ in-process and asserts write→query works and the local OWL reasoner runs — w
 driver (`aiokafka`/`psycopg`/`neo4j`/`falkordb`/`pystardog`/`confluent_kafka`)
 leaked into the footprint.
 
-**Enterprise.** Throwaway pggraph + Kafka + Fuseki. Asserts the three integration
-seams: durable graph writes persist in pggraph across a reconnect; the task queue
+**Enterprise.** Throwaway pg-age + Kafka + Fuseki. Asserts the three integration
+seams: durable graph writes persist in pg-age across a reconnect; the task queue
 resolves to Kafka and a put→consume→ack round-trips; the ontology publishes to
 Fuseki and is queryable over SPARQL.
 
@@ -72,7 +72,7 @@ A live full-matrix probe (write via the engine, read via `backend.execute`, all
 five backends running) drove a phased program that closed the gaps. **Verified
 current state:**
 
-| Capability | epistemic_graph | ladybug | pggraph (AGE) | neo4j | falkordb |
+| Capability | epistemic_graph | ladybug | pg-age (AGE) | neo4j | falkordb |
 |---|---|---|---|---|---|
 | node props (declared/ad-hoc/nested) | ✅ | ✅ (ad-hoc in `metadata`) | ✅ | ✅ | ✅ |
 | edge existence | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -93,8 +93,8 @@ What changed:
 - **Neo4j/FalkorDB are first-class** — they crashed on the standard write path
   (`label()`), threw on nested props, and mis-targeted the vector index; all fixed.
   They run in the `-m live` conformance matrix and pass the contract.
-- **pggraph runs Apache AGE** (`GRAPH_PG_AGE=1` / `backend_type=age`,
-  `docker/pggraph-age.compose.yml`) — real openCypher incl. `count(r)`, multi-hop,
+- **pg-age runs Apache AGE** (`GRAPH_PG_AGE=1` / `backend_type=age`,
+  `docker/pg-age-age.compose.yml`) — real openCypher incl. `count(r)`, multi-hop,
   variable-length, edge props, plus pgvector embeddings.
 - **Edge properties** persist on every backend (Ladybug via a JSON `r.properties`
   column on REL tables).

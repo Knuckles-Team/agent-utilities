@@ -8,7 +8,7 @@
 > docker-compose walkthrough.
 
 One host, durable, no swarm. Good for a small team or a staging box: a durable
-Postgres/pggraph KG, the REST gateway, a core slice of the `*-mcp` fleet, and
+Postgres/pg-age KG, the REST gateway, a core slice of the `*-mcp` fleet, and
 optional Langfuse/OpenBao — all via `docker compose` on a single machine.
 
 ## What runs
@@ -28,8 +28,8 @@ optional Langfuse/OpenBao — all via `docker compose` on a single machine.
 > **Postgres extension requirement.** The durable tier must be a Postgres that
 > carries **Apache AGE** (`age`, native openCypher — the `backend: "age"` path),
 > **pgvector** (`vector`), and **ParadeDB** (`pg_search`), with `age` and
-> `pg_search` in `shared_preload_libraries`. The curated `registry.arpa/pggraph`
-> image (`services/pggraph/`, built `FROM paradedb/paradedb` PG18 + AGE 1.7.0)
+> `pg_search` in `shared_preload_libraries`. The curated `registry.arpa/pg-age`
+> image (`services/pg-age/`, built `FROM paradedb/paradedb` PG18 + AGE 1.7.0)
 > bundles all three. The **stock `paradedb/paradedb` image has pgvector +
 > pg_search but NOT AGE** — using it leaves Postgres on the bounded regex
 > transpiler (`cypher_support="subset"`). See
@@ -38,10 +38,10 @@ optional Langfuse/OpenBao — all via `docker compose` on a single machine.
 ## Steps
 
 ```bash
-# 1. Bring up Postgres/pggraph (publishes host port 5433, db agent_kg,
+# 1. Bring up Postgres/pg-age (publishes host port 5433, db agent_kg,
 #    user/password agent/agent)
-docker compose -f docker/pggraph.compose.yml up -d
-docker exec agent-pggraph psql -U agent -d agent_kg -c 'CREATE DATABASE agent_state'
+docker compose -f docker/pg-age.compose.yml up -d
+docker exec agent-pg-age psql -U agent -d agent_kg -c 'CREATE DATABASE agent_state'
 
 # 2. Start the REST gateway pointed at it (also hosts the KG daemon)
 export GRAPH_BACKEND=tiered

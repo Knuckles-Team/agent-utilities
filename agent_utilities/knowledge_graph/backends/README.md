@@ -23,11 +23,11 @@ All backends implement the `GraphBackend` abstract base class defined in `base.p
 - **Status**: Stub / Experimental.
 - **Use Case**: High-throughput graph workloads requiring Redis speeds.
 
-### 4. PostgreSQL + pgGraph (`postgresql_backend.py`)
-- **Type**: Enterprise PostgreSQL with pgGraph graph extension + pgvector + ParadeDB.
+### 4. PostgreSQL + pg-age (`postgresql_backend.py`)
+- **Type**: Enterprise PostgreSQL with pg-age graph extension + pgvector + ParadeDB.
 - **Status**: Production.
 - **Use Case**: Teams with existing PostgreSQL infrastructure wanting graph, vector, and BM25 capabilities without a separate graph database.
-- **Extensions**: pgGraph (CSR graph traversal), pgvector (HNSW embedding search), ParadeDB (BM25 lexical search).
+- **Extensions**: pg-age (CSR graph traversal), pgvector (HNSW embedding search), ParadeDB (BM25 lexical search).
 - **Features**: Connection pooling (psycopg_pool), Cypher-to-SQL transpilation, graceful degradation when extensions are absent.
 
 ### 5. Memory (`memory_backend.py`)
@@ -49,7 +49,7 @@ Backends are selected via environment variables:
 - `GRAPH_DB_URI`: Connection URI for Neo4j or PostgreSQL.
 - `GRAPH_DB_HOST`: Host for FalkorDB.
 - `GRAPH_POOL_MIN` / `GRAPH_POOL_MAX`: PostgreSQL connection pool sizing.
-- `GRAPH_PGGRAPH_SCHEMA`: Schema for pgGraph table registration (default: `public`).
+- `GRAPH_PGGRAPH_SCHEMA`: Schema for pg-age table registration (default: `public`).
 
 ## Implementing a New Backend
 

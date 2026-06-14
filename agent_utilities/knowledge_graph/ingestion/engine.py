@@ -823,9 +823,32 @@ class IngestionEngine:
         if not facts:
             return 0
         try:
-            return int(persist_facts(self._fact_store(), facts).get("edges", 0))
+            written = int(persist_facts(self._fact_store(), facts).get("edges", 0))
         except Exception:  # noqa: BLE001
             return 0
+        # Ontology grounding (KG-2.66): annotate the canonical Entity nodes with
+        # the OWL class they map onto (vendor/supplier/company → organization, …)
+        # so cross-modal entities converge on a shared type. Best-effort.
+        try:
+            from ..extraction.fact_extractor import ExtractedFact as _EF
+            from ..extraction.ontology_grounding import ground_facts
+
+            add_node = self.backend.add_node
+            for fact, grounding in ground_facts(facts):
+                for surface, type_key in (
+                    (fact.subject, "subject_type"),
+                    (fact.object, "object_type"),
+                ):
+                    otype = grounding.get(type_key)
+                    if otype:
+                        add_node(
+                            _EF.normalize_key(surface),
+                            type="Entity",
+                            ontology_type=otype,
+                        )
+        except Exception:  # noqa: BLE001 — grounding never breaks ingest
+            pass
+        return written
 
     async def _enrich_text(
         self,
@@ -856,18 +879,53 @@ class IngestionEngine:
         enriched windows is capped (``KG_ENRICH_MAX_CHUNKS``, default 64) so cost
         stays controlled for big documents — raise it to enrich more deeply.
         """
+        # Structure routing (KG-2.66): classify prose vs structured records so the
+        # open LLM extraction below is reserved for prose/mixed; purely-structured
+        # text (tables/forms/records) is cheap and deterministic to map and need
+        # not pay for an LLM fact pass on every window.
+        structure = "prose"
+        try:
+            from ..extraction.structure_router import classify_text
+
+            structure = classify_text(text, doc_type=source_type)
+        except Exception:  # noqa: BLE001 — routing never breaks ingest
+            structure = "prose"
+
+        windows = self._enrichment_windows(text)
         concepts = 0
-        facts = 0
-        for window in self._enrichment_windows(text):
-            if enrich_concepts:
+        if enrich_concepts:
+            # Concept extraction uses the sync lite-LLM client; run per window.
+            for window in windows:
                 concepts += self._extract_and_link_concepts(
                     source_id, window, source_type, title
                 )
-            if enrich_facts:
-                facts += await self._extract_facts_into_graph(
-                    source_id, window, source_type
-                )
-        return {"concepts": concepts, "facts": facts}
+        facts = 0
+        # Skip the open LLM fact pass ONLY for a genuinely small structured record
+        # (a single window of CSV/form/table). Multi-window content is a real
+        # document (a book's PDF text can look tabular to the classifier) and must
+        # always be mined — never skip it, or we silently lose its facts.
+        skip_facts = structure == "structured" and len(windows) <= 1
+        if enrich_facts and windows and not skip_facts:
+            # Fact extraction is the measured bottleneck (~tens of seconds/window
+            # on the chat model). It is async, so fan the windows out concurrently
+            # with bounded concurrency — vLLM batches requests, turning an N×
+            # sequential cost into ~N/KG_ENRICH_CONCURRENCY. Writes happen in sync
+            # sections of each coroutine, so there is no backend write race.
+            import asyncio
+
+            sem = asyncio.Semaphore(int(setting("KG_ENRICH_CONCURRENCY", "8")))
+
+            async def _facts_for(window: str) -> int:
+                async with sem:
+                    return await self._extract_facts_into_graph(
+                        source_id, window, source_type
+                    )
+
+            results = await asyncio.gather(
+                *(_facts_for(w) for w in windows), return_exceptions=True
+            )
+            facts = sum(r for r in results if isinstance(r, int))
+        return {"concepts": concepts, "facts": facts, "structure": structure}
 
     def _enrichment_windows(self, text: str) -> list[str]:
         """Bounded LLM windows over ``text``.
@@ -1209,7 +1267,9 @@ class IngestionEngine:
 
         return result
 
-    # Document file extensions the standardized unit can read verbatim.
+    # Document file extensions the standardized unit can read verbatim. Covers the
+    # text/doc family plus every modality the reader registry handles (KG-2.66), so
+    # a directory ingest picks up slides/sheets/email/audio/scanned images too.
     _DOC_EXTENSIONS = {
         ".md",
         ".markdown",
@@ -1221,6 +1281,22 @@ class IngestionEngine:
         ".htm",
         ".org",
         ".adoc",
+        # reader-registry modalities (CONCEPT:KG-2.66)
+        ".eml",
+        ".msg",
+        ".pptx",
+        ".xlsx",
+        ".csv",
+        ".tsv",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tiff",
+        ".tif",
+        ".wav",
+        ".mp3",
+        ".m4a",
+        ".flac",
     }
 
     def _ingest_document_dir(
@@ -1354,12 +1430,13 @@ class IngestionEngine:
         """
         import json as _json
 
-        from ..enrichment.extractors.document import (
-            extract_document,
-            read_document_text,
-        )
+        from ..enrichment.extractors.document import extract_document
+        from ..extraction.readers import read_any
 
-        text = read_document_text(str(path_obj))
+        # read_any routes the document family to the PyMuPDF-fast read_document_text
+        # and every other modality (email/pptx/xlsx/audio/OCR/...) to its registered
+        # reader — one universal front door (CONCEPT:KG-2.66).
+        text = read_any(str(path_obj))
         if not text.strip():
             return IngestionResult(
                 manifest=manifest,

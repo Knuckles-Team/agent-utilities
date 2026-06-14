@@ -145,7 +145,7 @@ touched a resource (blast-radius). Covered by `tests/unit/test_fleet_correlation
 
 These decisions make the control surface complete and correct, but extreme scale
 needs a **distributed execution substrate**: multiple gateway workers, a durable
-queue (Kafka is deployed), shared durable graph state (pggraph), and
+queue (Kafka is deployed), shared durable graph state (pg-age), and
 lease/heartbeat work distribution. Durable execution (§3) is now wired into the
 live goal-loop and dispatch paths and, with `state_db_uri`, shares Postgres
 checkpoints across hosts — the concrete first step; broader horizontal scale-out

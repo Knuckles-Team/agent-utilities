@@ -1,17 +1,17 @@
-# pgGraph + pgvector PostgreSQL Stack
+# ParadeDB (pgvector + pg_search) PostgreSQL Stack
 # Provides a graph-enabled PostgreSQL instance for the agent-utilities KG backend.
 #
 # Usage:
-#   docker compose -f docker/pggraph.compose.yml up -d
+#   docker compose -f docker/paradedb.compose.yml up -d
 #
 # Environment:
 #   GRAPH_BACKEND=postgresql
 #   GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
 
 services:
-  pggraph-db:
+  paradedb-db:
     image: paradedb/paradedb:latest
-    container_name: agent-pggraph
+    container_name: agent-paradedb
     environment:
       POSTGRES_USER: agent
       POSTGRES_PASSWORD: agent
@@ -19,9 +19,9 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - pggraph-data:/var/lib/postgresql
-      - ./pggraph-init:/docker-entrypoint-initdb.d
+      - paradedb-data:/var/lib/postgresql
+      - ./paradedb-init:/docker-entrypoint-initdb.d
     restart: unless-stopped
 
 volumes:
-  pggraph-data:
+  paradedb-data:

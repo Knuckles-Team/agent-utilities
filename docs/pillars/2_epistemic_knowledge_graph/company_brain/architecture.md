@@ -65,7 +65,7 @@ The `GraphBackend` abstraction supports multiple storage backends:
 | Backend | Use Case | ACID | Vector Search | Scale |
 |:--------|:---------|:-----|:--------------|:------|
 | **epistemic-graph** | Primary L1 store (Rust, out-of-process UDS client) | Partial | Via embeddings | Single-node |
-| **PostgreSQL (pggraph)** | Durable tier (system of record) | Full | pgvector | Cluster |
+| **PostgreSQL (pg-age)** | Durable tier (system of record) | Full | pgvector | Cluster |
 | **OWL/RDFLib** | Reasoning-only | N/A | N/A | In-memory |
 | **contrib** (Neo4j, FalkorDB, LadybugDB) | Optional/demoted backends under `backends/contrib/` | Varies | Varies | Varies |
 

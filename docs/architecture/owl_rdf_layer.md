@@ -2,7 +2,7 @@
 
 OWL/RDF is a **core, always-on** layer, not an enterprise add-on. It works
 identically over *any* configured LPG storage backend (epistemic-graph, LadybugDB,
-pggraph/AGE, Neo4j, FalkorDB): it consumes the bundled ontologies, **infers new
+pg-age/AGE, Neo4j, FalkorDB): it consumes the bundled ontologies, **infers new
 relationships**, **back-feeds them durably into the LPG store**, validates writes
 with SHACL, and answers **SPARQL from a local endpoint with zero external
 dependencies**. Apache Jena Fuseki / Stardog are an *optional* enterprise
@@ -23,7 +23,7 @@ no triplestore deployment, no network hop.
 ```mermaid
 graph TB
     ING["Ingest / write path"] --> SH["SHACL gate\n(governance + value-type shapes)\nCONCEPT:KG-2.39"]
-    SH --> LPG["LPG store\n(epistemic_graph | ladybug | pggraph/AGE | neo4j | falkordb)"]
+    SH --> LPG["LPG store\n(epistemic_graph | ladybug | pg-age/AGE | neo4j | falkordb)"]
 
     subgraph "OWL/RDF layer — always-on, local"
         TBOX["Bundled ontologies (TBox)\n30× ontology*.ttl\nloaded at startup"]

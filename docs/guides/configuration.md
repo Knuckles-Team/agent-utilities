@@ -24,7 +24,7 @@ Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated
 | `GRAPH_DB_NAME` | `agent_graph` | Database/graph name for FalkorDB/PostgreSQL |
 | `GRAPH_POOL_MIN` | `2` | Minimum PostgreSQL connection pool size |
 | `GRAPH_POOL_MAX` | `10` | Maximum PostgreSQL connection pool size |
-| `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pgGraph table registration |
+| `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pg-age table registration |
 
 ### OWL Reasoning
 | Variable | Default | Description |

@@ -49,7 +49,7 @@ def backend_under_test(request: pytest.FixtureRequest) -> Iterator[Any]:
     elif backend_type == "ladybug":
         kwargs = {"db_path": request.getfixturevalue("ephemeral_ladybug")["db_path"]}
     elif backend_type == "postgresql":
-        info = request.getfixturevalue("ephemeral_pggraph")
+        info = request.getfixturevalue("ephemeral_pg_age")
         kwargs = {"uri": info["uri"], "db_name": info["db_name"]}
     elif backend_type == "neo4j":
         info = request.getfixturevalue("ephemeral_neo4j")

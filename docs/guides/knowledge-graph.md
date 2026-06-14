@@ -77,7 +77,7 @@ graph TD
         direction TB
         BackendNode("KG-2.0: GraphBackend Abstraction")
         EG[("KG-2.0: epistemic_graph (default)")]
-        PG[("KG-2.0: PostgreSQL / pgGraph (durable)")]
+        PG[("KG-2.0: PostgreSQL / pg-age (durable)")]
         LDB[("contrib: LadybugDB")]
         FDB[("contrib: FalkorDB")]
         N4J[("contrib: Neo4j")]
@@ -126,7 +126,7 @@ graph TB
         A[ORCH-1.0: IntelligenceGraphEngine] --> B[NetworkX MultiDiGraph]
         A --> C[KG-2.0: GraphBackend ABC]
         C --> D[KG-2.0: epistemic_graph default]
-        C --> P[KG-2.0: PostgreSQL / pgGraph durable]
+        C --> P[KG-2.0: PostgreSQL / pg-age durable]
         C -.->|opt-in contrib| E[Neo4j]
         C -.->|opt-in contrib| F[FalkorDB]
         C -.->|opt-in contrib| L[LadybugDB]
@@ -224,7 +224,7 @@ All graph storage is routed through the `GraphBackend` ABC (`backends/base.py`),
 | Backend | Status | Connection | Use Case |
 |---|---|---|---|
 | **epistemic_graph** (`memory`/`file`) | Full (default) | In-process Rust client / `.json` snapshot | Zero-dependency working store (L1); bare default is `memory` |
-| **PostgreSQL / pgGraph** | Full (durable tier) | `postgresql://host:port` | Relational + graph unified storage via pgvector & transpiler; production durable backend |
+| **PostgreSQL / pg-age** | Full (durable tier) | `postgresql://host:port` | Relational + graph unified storage via pgvector & transpiler; production durable backend |
 | **tiered** | Full | L1 epistemic_graph + L2 PostgreSQL | Write-through two-tier (working store in front of durable store) |
 | **LadybugDB** | Opt-in contrib | File path (`knowledge_graph.db`) | Embedded, zero-config, schema-enforced Cypher (`backends/contrib/`) |
 | **FalkorDB** | Opt-in contrib | `host:port` (Redis protocol) | High-performance, distributed graph workloads (`backends/contrib/`) |
@@ -270,7 +270,7 @@ backend = create_backend(backend_type="ladybug", db_path="/data/agent.db")
 | `GRAPH_DB_NAME` | Database/graph name for FalkorDB/PostgreSQL | `agent_graph` |
 | `GRAPH_POOL_MIN` | Minimum PostgreSQL connection pool size | `2` |
 | `GRAPH_POOL_MAX` | Maximum PostgreSQL connection pool size | `10` |
-| `GRAPH_PGGRAPH_SCHEMA` | Schema for pgGraph table registration | `public` |
+| `GRAPH_PGGRAPH_SCHEMA` | Schema for pg-age table registration | `public` |
 | `OWL_BACKEND` | OWL backend type: `owlready2`, `stardog` | `owlready2` |
 | `OWL_DB_PATH` | SQLite quadstore path for Owlready2 | `owl_store.db` |
 | `STARDOG_ENDPOINT` | Stardog server URL | `http://localhost:5820` |
