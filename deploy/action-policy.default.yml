@@ -30,6 +30,14 @@ rules:
   - {kind: observe, target: "*", tier: auto}
   - {kind: notify, target: "*", tier: auto}
   - {kind: record_dry_run, target: "*", tier: auto}
+  # Sandboxed developer-workspace actions (CONCEPT:OS-5.33) default to auto:
+  # the workspace container/process IS the containment boundary. Override any
+  # of these to approval_required to require human sign-off on in-sandbox
+  # shell/file mutations.
+  - {kind: workspace.cmd, target: "*", tier: auto}
+  - {kind: workspace.write, target: "*", tier: auto}
+  - {kind: workspace.edit, target: "*", tier: auto}
+  - {kind: workspace.browse, target: "*", tier: auto}
   # Playbook dispatch is auto+notify: a playbook's mutating steps re-enter
   # the gate individually with their concrete kinds.
   - {kind: run_playbook, target: "*", tier: auto_notify}

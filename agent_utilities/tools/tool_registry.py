@@ -74,6 +74,9 @@ def register_agent_tools(
     # CONCEPT:ECO-4.33 — native database traversal tools (live query/introspect over
     # postgres/mysql-mariadb/mssql/oracle/sqlite/mongo). Default OFF; enable DB_TOOLS=1.
     DEFAULT_DB_TOOLS = to_boolean(string=setting("DB_TOOLS", "False"))
+    # CONCEPT:ORCH-1.47 / KG-2.65 — knowledge-grounded SWE tools (code-intelligence
+    # + dev-workspace actions). Default OFF; the swe_engineer agent enables it.
+    DEFAULT_SWE_TOOLS = to_boolean(string=setting("SWE_TOOLS", "False"))
 
     def _is_tool_registered(name: str) -> bool:
         """Check if a tool with the given name is already registered on the agent."""
@@ -207,6 +210,15 @@ def register_agent_tools(
         for tool in db_tools:
             _safe_tool(tool)
 
+    # 11b. SWE Tools (CONCEPT:ORCH-1.47 / KG-2.65) — the knowledge-grounded
+    # software-engineering surface: code-intelligence graph queries
+    # (find_definition/who_calls/impacted_tests/...) + developer-workspace
+    # actions (run_command/edit_file/run_tests) that execute in deps.workspace
+    # (OS-5.33). Default OFF (opt-in like DB/MEDIA tools); the swe_engineer agent
+    # enables it. The workspace tools no-op safely when no workspace is attached.
+    if DEFAULT_SWE_TOOLS:
+        register_swe_tools(agent, _safe_tool=_safe_tool)
+
     # 12. MCP Management Tools
     _safe_tool(trigger_mcp_sync)
 
@@ -262,3 +274,23 @@ def register_agent_tools(
 
     # 16. Apply Security Guards
     apply_tool_guard_approvals(agent)
+
+
+def register_swe_tools(agent: Agent[Any, Any], _safe_tool: Any = None) -> None:
+    """Register the knowledge-grounded SWE tool group on ``agent`` (CONCEPT:ORCH-1.47 / KG-2.65).
+
+    Shared by :func:`register_agent_tools` (the ``SWE_TOOLS`` gate) and the lean
+    ``orchestration.swe_agent.build_swe_agent`` path, so the SWE surface is defined once. The
+    group is the code-intelligence graph queries plus the developer-workspace action tools; the
+    action tools no-op safely when ``deps.workspace`` is absent.
+    """
+    from .code_intelligence_tools import CODE_INTELLIGENCE_TOOLS
+    from .swe_workspace_tools import SWE_WORKSPACE_TOOLS
+
+    if _safe_tool is None:
+
+        def _safe_tool(func: Any) -> None:
+            agent.tool(func)
+
+    for tool in (*CODE_INTELLIGENCE_TOOLS, *SWE_WORKSPACE_TOOLS):
+        _safe_tool(tool)

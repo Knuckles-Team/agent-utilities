@@ -262,6 +262,7 @@ def create_agent(
     debug: bool | None = False,
     skill_types: list[str] | None = None,
     tool_tags: list[str] | None = None,
+    capabilities: list[str] | None = None,
     graph_bundle: tuple[Any, ...] | None = None,
     output_type: Any | None = None,
     current_host: str | None = None,
@@ -645,6 +646,17 @@ def create_agent(
         from agent_utilities.tools.tool_registry import register_agent_tools
 
         register_agent_tools(agent, graph_bundle=graph_bundle)
+
+    # CONCEPT:ECO-4.45 — bind tools from declared capability intents (rename/prefix-proof),
+    # never from hard-coded names. Blueprints/callers pass `capabilities`; the KG resolves the
+    # long tail when an engine is available.
+    if capabilities:
+        from agent_utilities.agent.capability_resolver import register_capability_tools
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+        register_capability_tools(
+            agent, list(capabilities), kg=IntelligenceGraphEngine.get_active()
+        )
 
     if tool_guard_mode != "off":
         apply_tool_guard_approvals(agent)

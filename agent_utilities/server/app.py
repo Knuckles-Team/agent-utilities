@@ -524,6 +524,22 @@ def build_agent_app(
 
         app.include_router(benchmark.router)
 
+        # CONCEPT:OS-5.33 / ORCH-1.46 — developer-workspace runtime HTTP surface
+        # (/api/runtime/* — create session, post typed actions, SSE the event log).
+        from .routers import runtime as runtime_router
+
+        app.include_router(runtime_router.router)
+
+        # SWE-bench harness + failure-driven remediation (AHE-3.22 / AHE-3.23).
+        from .routers import swebench as swebench_router
+
+        app.include_router(swebench_router.router)
+
+        # CONCEPT:ECO-4.43 — git issue/PR -> SWE task resolver + webhook ingress.
+        from .routers import git_webhooks as git_router
+
+        app.include_router(git_router.router)
+
         try:
             from agent_utilities.gateway.api import dashboard_router
             from agent_utilities.gateway.graph_api import register_graph_routes
