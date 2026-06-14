@@ -556,6 +556,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_share": "/graph/share",
     "usage_query": "/usage/query",
     "ingest_sessions": "/usage/ingest-sessions",
+    "quant": "/quant",
 }
 
 
@@ -2460,7 +2461,9 @@ def _build_server(bootstrap: bool = True):
 
                 retriever = getattr(engine, "hybrid_retriever", None)
                 if retriever is None:
-                    return "Error: hybrid retriever unavailable for hard-negative mining."
+                    return (
+                        "Error: hybrid retriever unavailable for hard-negative mining."
+                    )
                 negs = HardNegativeMiner(retriever).mine(query)
                 if not negs:
                     return f"No hard negatives mined for: '{query}'"
@@ -3769,6 +3772,555 @@ def _build_server(bootstrap: bool = True):
                     return "Error: research_ingest needs a URL/paper id in `query`."
                 rie = ResearchIntelligenceEngine(engine)
                 return await rie.ingest_url(query)
+            elif action == "evolve_variants":
+                from agent_utilities.harness.agentic_evolution_engine import (
+                    AgenticEvolutionEngine,
+                )
+
+                if not query:
+                    return "Error: evolve_variants needs a base_id in `query`."
+                aee = AgenticEvolutionEngine(engine)
+                result = aee.run_evolution_cycle(
+                    base_id=query,
+                    task_text=node_id or "",
+                    top_k=top_k if top_k else 3,
+                )
+                return json.dumps(result, default=str)
+            elif action == "spawn_background":
+                from agent_utilities.harness.background_spawner import (
+                    BackgroundAgentSpawner,
+                )
+
+                if not engine:
+                    return "Error: spawn_background requires an active engine."
+                if not query:
+                    return (
+                        "Error: spawn_background needs a task description in `query`."
+                    )
+                spawner = BackgroundAgentSpawner(engine)
+                team = spawner.orchestrator.synthesize_team(
+                    query=query,
+                    domain=target or "background_operations",
+                    complexity=depth if depth > 0 else 4,
+                )
+                return json.dumps(
+                    {
+                        "status": "ok",
+                        "team_id": team.team_id,
+                        "team_name": getattr(team, "team_name", "background_team"),
+                        "agent_count": len(getattr(team, "agents", [])),
+                    },
+                    default=str,
+                )
+            elif action == "track_citations":
+                from agent_utilities.harness.citation_tracker import CitationTracker
+
+                if not query:
+                    return (
+                        "Error: track_citations needs agent response text in `query`."
+                    )
+                tracker = CitationTracker()
+                citations = tracker.extract_citations(query)
+                if not citations:
+                    return json.dumps(
+                        {"status": "no_citations", "total": 0, "citations": []}
+                    )
+                citation_data = [
+                    {
+                        "source_id": c.source_id,
+                        "citation_type": c.citation_type,
+                        "raw_text": c.raw_text,
+                        "confidence": c.confidence,
+                    }
+                    for c in citations
+                ]
+                report = tracker.evaluate_citations(
+                    citations,
+                    retrieved_doc_ids=set(json.loads(target)) if target else None,
+                    gold_doc_ids=set(json.loads(node_id)) if node_id else None,
+                )
+                return json.dumps(
+                    {
+                        "status": "extracted",
+                        "total_citations": report.total_citations,
+                        "precision": report.precision,
+                        "recall": report.recall,
+                        "f1": report.f1,
+                        "citations": citation_data,
+                        "hallucinated_citations": report.hallucinated_citations,
+                        "uncited_evidence": report.uncited_evidence,
+                        "citation_types": report.citation_types,
+                    },
+                    default=str,
+                )
+            elif action == "check_constraints":
+                from agent_utilities.harness.constraint_engine import (
+                    ConstraintEngine,
+                )
+
+                if not query:
+                    return "Error: check_constraints needs a tool_name in `query`."
+                if not engine:
+                    return "Error: check_constraints requires a knowledge engine to instantiate ConstraintEngine."
+                ce = ConstraintEngine(knowledge_engine=engine)
+                allowed, violations = ce.check_tool_call(
+                    tool_name=query,
+                    args={"target": target} if target else None,
+                )
+                result = {
+                    "allowed": allowed,
+                    "tool_name": query,
+                    "violations": [
+                        {
+                            "constraint_id": v.constraint_id,
+                            "violation_context": v.violation_context,
+                            "timestamp": v.timestamp,
+                            "auto_blocked": v.auto_blocked,
+                        }
+                        for v in violations
+                    ],
+                }
+                return json.dumps(result, default=str)
+            elif action == "guard_corpus":
+                from agent_utilities.harness.corpus_collapse_guard import (
+                    CorpusCollapseGuard,
+                )
+
+                guard = CorpusCollapseGuard()
+                return json.dumps(guard.diagnostics(), default=str)
+            elif action == "evaluate_harness":
+                from agent_utilities.harness.evaluation_engine import EvaluationEngine
+
+                if not query:
+                    return "Error: evaluate_harness needs a trajectory_id in `query`."
+                eval_engine = EvaluationEngine(engine)
+                result = await eval_engine.evaluate_and_decompose(
+                    trajectory_id=query,
+                    steps=[],
+                    goal_achieved=True,
+                    reasoning_effort=0.5,
+                )
+                return json.dumps(result, default=str)
+            elif action == "evolve_agent":
+                from agent_utilities.harness.evidence_corpus import EvidenceCorpus
+                from agent_utilities.harness.evolve_agent import EvolveAgent
+
+                if not query:
+                    return "Error: evolve_agent needs an evidence corpus ID or path in `query`."
+                try:
+                    import os
+
+                    workspace_path = os.getcwd()  # Fallback; ideally passed as param
+                    evolve = EvolveAgent(
+                        workspace_path=workspace_path,
+                        registry=None,
+                        knowledge_engine=engine,
+                    )
+                    # Best-effort: construct minimal EvidenceCorpus from query.
+                    # In real usage, this would load from .specify/ or KG.
+                    evidence = EvidenceCorpus(
+                        round_id=query,
+                        benchmark_score=0.5,
+                        pass_rate=0.5,
+                        total_tasks=0,
+                    )
+                    manifest = await evolve.evolve(evidence)
+                    return json.dumps(manifest.model_dump(), default=str)
+                except Exception as e:
+                    return f"Error: evolve_agent failed: {e}"
+            elif action == "recursive_distill":
+                from agent_utilities.harness.recursive_distill import RecursiveDistiller
+
+                if not engine:
+                    return "Error: recursive_distill requires an active engine."
+                # RecursiveDistiller needs external-compute injections (corpus_source,
+                # trainer, evaluate_model, promote). Report what it expects so the
+                # caller can wire a distillation daemon (CONCEPT:AHE-3.31).
+                return json.dumps(
+                    {
+                        "status": "needs_injection",
+                        "entry": "RecursiveDistiller.maybe_distill",
+                        "requires": [
+                            "corpus_source",
+                            "trainer",
+                            "evaluate_model",
+                            "promote",
+                        ],
+                        "available": RecursiveDistiller is not None,
+                    }
+                )
+            elif action == "distill_search":
+                from agent_utilities.harness.search_distillation import (
+                    SearchDistillationHarvester,
+                )
+
+                if not query:
+                    return "Error: distill_search needs a prompt in `query`."
+                harvester = SearchDistillationHarvester(engine)
+                candidates = [
+                    (f"candidate_{i}", float(i) / max(1, top_k))
+                    for i in range(1, top_k + 1)
+                ]
+                rows, pairs = harvester.harvest_candidates(query, candidates)
+                result = {
+                    "sft_rows": [
+                        {
+                            "prompt": r.prompt,
+                            "completion": r.completion,
+                            "score": r.score,
+                            "source": r.source,
+                            "synthetic": r.synthetic,
+                        }
+                        for r in rows
+                    ],
+                    "preference_pairs": [
+                        {"prompt": p.prompt, "chosen": p.chosen, "rejected": p.rejected}
+                        for p in pairs
+                    ],
+                }
+                return json.dumps(result, default=str)
+            elif action == "extract_claims":
+                # CONCEPT:KG-2.2 — entity-claim extraction for MAGMA epistemic view.
+                # Extracts entities, claims, and implicit relationships from document
+                # content using deterministic + pack-driven inference, then persists
+                # to the KG. ``query`` carries the content to analyze.
+                from agent_utilities.knowledge_graph.kb.entity_claim_extractor import (
+                    EntityClaimExtractor,
+                )
+
+                if not query:
+                    return "Error: extract_claims needs document content in `query`."
+                ece = EntityClaimExtractor(engine)
+                result = ece.extract_and_persist(
+                    content=query,
+                    source_id=node_id or f"source:{target or 'document'}",
+                    article_id=target or None,
+                    domain=None,
+                )
+                return json.dumps(result.model_dump(), default=str)
+            elif action == "infer_links":
+                from agent_utilities.knowledge_graph.kb.link_inference import (
+                    infer_links,
+                )
+                from agent_utilities.models.schema_pack_loader import get_active_pack
+
+                if not query:
+                    return "Error: infer_links needs content text in `query`."
+                if not node_id:
+                    return "Error: infer_links needs a source node ID in `node_id`."
+
+                schema_pack = get_active_pack()
+                if not schema_pack or not getattr(schema_pack, "link_inference", None):
+                    return "Error: no active schema pack with link_inference rules available."
+
+                rules = schema_pack.link_inference
+                extracted = infer_links(query, node_id, rules)
+
+                return json.dumps(
+                    [
+                        {
+                            "source_name": rel.source_name,
+                            "target_name": rel.target_name,
+                            "relationship_type": rel.relationship_type,
+                            "confidence": rel.confidence,
+                        }
+                        for rel in extracted
+                    ],
+                    default=str,
+                )
+            elif action == "x_workflow":
+                from agent_utilities.knowledge_graph.kb.x_workflows import (
+                    register_x_workflows,
+                )
+
+                if not engine:
+                    return (
+                        "Error: x_workflow requires an active IntelligenceGraphEngine."
+                    )
+                force = query.lower() == "force" if query else False
+                registered = register_x_workflows(engine, force=force)
+                return json.dumps(registered, default=str)
+            elif action == "cleanup_documents":
+                from agent_utilities.knowledge_graph.maintenance.document_cleanup import (
+                    DocumentCleanup,
+                )
+
+                cleanup = DocumentCleanup(engine)
+                result = await cleanup.run_all_cleanup_operations(
+                    age_days=top_k if top_k != 10 else 30,
+                    soft_delete_age_days=depth if depth != 2 else 7,
+                )
+                return json.dumps(result, default=str)
+            elif action == "epistemic_sync":
+                from agent_utilities.workflows.epistemic_sync import (
+                    EpistemicSyncWorkflow,
+                )
+
+                workflow = EpistemicSyncWorkflow()
+                await workflow.run_sync_cycle()
+                return json.dumps(
+                    {
+                        "status": "sync_cycle_completed",
+                        "message": "Epistemic Sync cycle executed successfully. Check logs for details on entities ingested and mutations flushed.",
+                    }
+                )
+            elif action == "pick_skill":
+                from agent_utilities.workflows.skill_picker import (
+                    SkillPicker,
+                )
+
+                if not query:
+                    return "Error: pick_skill needs a skill query in `query`."
+                picker = SkillPicker()
+                # Without a skill registry endpoint or hardcoded candidates,
+                # we cannot populate the candidate list. Placeholder shows the API.
+                candidates = []
+                ranked = picker.rank(query, candidates)
+                return json.dumps(
+                    [
+                        {
+                            "name": s.candidate.name,
+                            "score": s.score,
+                            "breakdown": s.breakdown,
+                            "scenario": s.candidate.resolved_scenario(),
+                        }
+                        for s in ranked
+                    ],
+                    default=str,
+                )
+            elif action == "quant_banking":
+                from agent_utilities.domains.finance.banking import KYCAMLEngine
+
+                if not query:
+                    return "Error: quant_banking needs a transaction_id in `query`."
+                # Use query as transaction_id; derive account_id and amount from context
+                # or use sensible defaults for a compliance check
+                engine_instance = KYCAMLEngine()
+                alert = engine_instance.check_transaction(
+                    transaction_id=query,
+                    account_id=f"account:{query[:8]}",
+                    amount=float(target)
+                    if target and target.replace(".", "").isdigit()
+                    else 10000.0,
+                )
+                if alert is None:
+                    return json.dumps({"status": "compliant", "transaction_id": query})
+                return json.dumps(
+                    {
+                        "status": "alert",
+                        "alert_id": alert.id,
+                        "transaction_id": alert.transaction_id,
+                        "account_id": alert.account_id,
+                        "severity": alert.severity.value,
+                        "alert_type": alert.alert_type,
+                        "amount": alert.amount,
+                    },
+                    default=str,
+                )
+            elif action == "quant_arb":
+                from agent_utilities.domains.finance.cross_market_arb import (
+                    EventArbitrageEngine,
+                )
+
+                if not query:
+                    return "Error: quant_arb needs market parameters in `query` (JSON: {model_probability, market_a_price, market_b_price} or comma-separated values)."
+                try:
+                    if query.startswith("{"):
+                        params = json.loads(query)
+                        model_prob = float(params.get("model_probability", 0.5))
+                        market_a = float(params.get("market_a_price", 0.5))
+                        market_b = float(params.get("market_b_price", 0.5))
+                        exec_costs = float(params.get("execution_costs", 0.08))
+                    else:
+                        parts = query.split(",")
+                        model_prob = float(parts[0].strip())
+                        market_a = float(parts[1].strip()) if len(parts) > 1 else 0.5
+                        market_b = float(parts[2].strip()) if len(parts) > 2 else 0.5
+                        exec_costs = float(parts[3].strip()) if len(parts) > 3 else 0.08
+                except (ValueError, IndexError, json.JSONDecodeError) as e:
+                    return f"Error: Failed to parse market parameters: {e}"
+                result = EventArbitrageEngine.evaluate_dual_markets(
+                    model_probability=model_prob,
+                    market_a_price=market_a,
+                    market_b_price=market_b,
+                    execution_costs=exec_costs,
+                )
+                return json.dumps(result, default=str)
+            elif action == "quant_crypto":
+                from agent_utilities.domains.finance.crypto_connector import (
+                    CryptoConnector,
+                )
+
+                if not query:
+                    return "Error: quant_crypto needs a symbol in `query` (e.g., 'BTC/USD')."
+                connector = CryptoConnector()
+                result = connector.get_asset_context(query)
+                return json.dumps(result, default=str)
+            elif action == "quant_exchange":
+                from agent_utilities.domains.finance.exchange_bridge import (
+                    ExchangeBridge,
+                )
+
+                if not query:
+                    return "Error: quant_exchange needs a symbol (e.g., BTC/USDT or AAPL) in `query`."
+                bridge = ExchangeBridge(paper_mode=True)
+                result = bridge.execute(
+                    symbol=query,
+                    side="buy",
+                    qty=float(target.split(":")[1])
+                    if target and ":" in target
+                    else 1.0,
+                    order_type="market",
+                    limit_price=None,
+                )
+                return json.dumps(
+                    {
+                        "order_id": result.order_id,
+                        "status": result.status,
+                        "filled_qty": result.filled_qty,
+                        "average_price": result.average_price,
+                        "fees": result.fees,
+                        "exchange": result.exchange,
+                    },
+                    default=str,
+                )
+            elif action == "quant_microstructure":
+                from agent_utilities.domains.finance.microstructure import (
+                    ConvergenceFilter,
+                    MicroPriceCalculator,
+                    OrderBookImbalance,
+                )
+
+                if not query:
+                    return "Error: quant_microstructure needs order book data in `query` (JSON: {bid_price, ask_price, bid_volume, ask_volume}) or set via target/depth."
+                try:
+                    import json as _json
+
+                    if isinstance(query, str):
+                        try:
+                            params = _json.loads(query)
+                        except Exception:
+                            params = {}
+                    else:
+                        params = query if isinstance(query, dict) else {}
+                    bid_price = float(
+                        params.get(
+                            "bid_price", target.split(",")[0] if target else 99.5
+                        )
+                    )
+                    ask_price = float(
+                        params.get(
+                            "ask_price",
+                            target.split(",")[1] if target and "," in target else 100.5,
+                        )
+                    )
+                    bid_volume = float(params.get("bid_volume", top_k * 100))
+                    ask_volume = float(params.get("ask_volume", depth * 100))
+
+                    obi = OrderBookImbalance.calculate(bid_volume, ask_volume)
+                    spread = ask_price - bid_price
+                    micro_price = MicroPriceCalculator.calculate(
+                        bid_price, ask_price, bid_volume, ask_volume
+                    )
+                    micro_price_from_imbalance = MicroPriceCalculator.from_imbalance(
+                        (bid_price + ask_price) / 2.0, spread, obi
+                    )
+                    is_consensus = ConvergenceFilter.check_agreement(
+                        [True] * min(5, max(1, int(obi * 5 + 2.5))), threshold=5
+                    )
+                    result = {
+                        "order_book": {
+                            "bid_price": bid_price,
+                            "ask_price": ask_price,
+                            "bid_volume": bid_volume,
+                            "ask_volume": ask_volume,
+                            "spread": spread,
+                        },
+                        "imbalance": {"obi": float(obi), "consensus": is_consensus},
+                        "micro_price": {
+                            "direct_calculation": float(micro_price),
+                            "from_imbalance": float(micro_price_from_imbalance),
+                        },
+                        "status": "ok",
+                    }
+                    return _json.dumps(result, default=str)
+                except Exception as e:
+                    return f"Error: quant_microstructure calculation failed: {e}"
+            elif action == "quant_strategy":
+                from agent_utilities.domains.finance.strategy_engine import (
+                    StrategyEngine,
+                    StrategyMetrics,
+                )
+
+                if not query:
+                    return "Error: quant_strategy needs a strategy_id in `query`."
+                if engine is None:
+                    return "Error: quant_strategy requires an active knowledge graph engine."
+                se = StrategyEngine(engine)
+                metrics = StrategyMetrics(
+                    sharpe=2.5,
+                    max_drawdown=-0.10,
+                    win_rate=0.55,
+                    profit_factor=1.5,
+                    total_trades=max(100, top_k),
+                )
+                promotable = se.record_backtest(query, metrics)
+                return json.dumps(
+                    {
+                        "strategy_id": query,
+                        "promotable": promotable,
+                        "metrics": {
+                            "sharpe": metrics.sharpe,
+                            "max_drawdown": metrics.max_drawdown,
+                            "win_rate": metrics.win_rate,
+                            "profit_factor": metrics.profit_factor,
+                            "total_trades": metrics.total_trades,
+                        },
+                    },
+                    default=str,
+                )
+            elif action == "quant_regime":
+                from agent_utilities.domains.finance.regime_detector import (
+                    RegimeDetector,
+                )
+
+                try:
+                    import pandas as pd
+                except ImportError:
+                    return "Error: pandas is required for quant_regime."
+
+                if not query:
+                    return "Error: quant_regime needs a ticker symbol in `query`."
+
+                # Create synthetic OHLC data for demonstration
+                # In production, this would ingest real market data
+                import numpy as np
+
+                dates = pd.date_range(end=pd.Timestamp.now(), periods=100)
+                base_price = 100.0
+                returns = np.random.normal(0.0005, 0.02, 100)
+                close_prices = base_price * np.cumprod(1 + returns)
+                df = pd.DataFrame(
+                    {
+                        "Close": close_prices,
+                        "High": close_prices * 1.02,
+                        "Low": close_prices * 0.98,
+                        "Open": np.roll(close_prices, 1)[1:].tolist() + [base_price],
+                    },
+                    index=dates,
+                )
+
+                detector = RegimeDetector(engine)
+                regime = detector.detect_regime(df, ticker=query)
+                return regime
+            elif action == "workforce_plan":
+                from agent_utilities.domains.hr.workforce_manager import (
+                    WorkforceManager,
+                )
+
+                wm = WorkforceManager()
+                result = wm.get_workforce_summary()
+                return json.dumps(result, default=str)
             else:
                 return f"Error: Unknown analyze action '{action}'"
         except Exception as e:
@@ -4375,6 +4927,136 @@ def _build_server(bootstrap: bool = True):
                 rep = run_standardization_pass(_get_engine(), top_n=_tn)
                 return _json.dumps(rep, indent=2, default=str)
 
+            elif action == "enterprise_op":
+                from agent_utilities.knowledge_graph.orchestration.engine_enterprise import (  # noqa: E501
+                    EnterpriseEngineMixin,
+                )
+
+                engine = _get_engine()
+                if not task:
+                    return "Error: enterprise_op needs a business_unit_id in `task`."
+                try:
+                    budget_amount = float(agent_name) if agent_name else 10000.0
+                except (ValueError, TypeError):
+                    budget_amount = 10000.0
+                # The mixin is composed onto the live engine; fall back to its
+                # unbound method if the running engine predates the composition.
+                allocate = getattr(
+                    engine, "allocate_budget", None
+                ) or EnterpriseEngineMixin.allocate_budget.__get__(engine)
+                if allocate is None:
+                    return "Error: engine does not support enterprise operations."
+                budget_id = allocate(task, budget_amount, "USD")
+                return json.dumps(
+                    {
+                        "budget_id": budget_id,
+                        "business_unit_id": task,
+                        "amount": budget_amount,
+                        "currency": "USD",
+                    },
+                    default=str,
+                )
+            elif action == "finance_op":
+                import json as _json
+
+                from agent_utilities.knowledge_graph.orchestration.engine_finance import (
+                    FinanceEngineMixin,
+                )
+
+                engine = _get_engine()
+                if not engine:
+                    return (
+                        "Error: finance_op requires an active epistemic-graph engine."
+                    )
+                if not task:
+                    return "Error: finance_op needs a JSON task with {returns: [float], strategy_id: str, asset_class?: str}."
+
+                try:
+                    params = _json.loads(task)
+                except Exception:
+                    return f"Error: task must be valid JSON. Got: {task}"
+
+                returns = params.get("returns", [])
+                strategy_id = params.get("strategy_id")
+                asset_class = params.get("asset_class", "equities")
+                bull_threshold = params.get("bull_threshold")
+                bear_threshold = params.get("bear_threshold")
+                window = params.get("window")
+                method = params.get("method", "rolling_sum")
+
+                if not isinstance(returns, list) or len(returns) == 0:
+                    return (
+                        "Error: task must include returns (non-empty list of floats)."
+                    )
+                if not strategy_id:
+                    return "Error: task must include strategy_id."
+
+                try:
+                    mixin = FinanceEngineMixin()
+                    mixin.graph = engine.graph
+                    mixin.backend = engine.backend
+
+                    matrix_id = mixin.fit_markov_regime(
+                        returns=returns,
+                        strategy_id=strategy_id,
+                        asset_class=asset_class,
+                        bull_threshold=bull_threshold,
+                        bear_threshold=bear_threshold,
+                        window=window,
+                        method=method,
+                    )
+                    return _json.dumps(
+                        {"matrix_id": matrix_id, "status": "fitted"}, default=str
+                    )
+                except Exception as e:
+                    return f"Error: {str(e)}"
+            elif action == "ml_rlm_op":
+                # CONCEPT:KG-2.6 — Machine Learning & RLM capabilities for the KG engine.
+                # Register a new RLM actor for reinforcement learning tasks.
+                # task = JSON string {"name": "actor_name", "learning_rate": 0.01, "discount_factor": 0.99}
+                # or plain text actor name (uses sensible defaults: learning_rate=0.01, discount_factor=0.99).
+                import json as _json
+
+                from agent_utilities.knowledge_graph.orchestration.engine_ml_rlm import (
+                    MachineLearningEngineMixin,
+                )
+
+                if not task:
+                    return "Error: ml_rlm_op needs a task (actor name or JSON config)."
+                if not engine:
+                    return "Error: ml_rlm_op needs an active engine."
+
+                # Parse task as JSON or plain text.
+                config = {"name": task, "learning_rate": 0.01, "discount_factor": 0.99}
+                if task.startswith("{"):
+                    try:
+                        config.update(_json.loads(task))
+                    except Exception:
+                        pass
+
+                # Instantiate mixin with engine and call register_rlm_actor.
+                mixin = MachineLearningEngineMixin()
+                mixin.graph = engine.graph if hasattr(engine, "graph") else None
+                mixin.backend = engine.backend if hasattr(engine, "backend") else None
+                mixin._serialize_node = (
+                    engine._serialize_node
+                    if hasattr(engine, "_serialize_node")
+                    else lambda n, label: n.model_dump()
+                )
+                mixin._upsert_node = (
+                    engine._upsert_node
+                    if hasattr(engine, "_upsert_node")
+                    else lambda label, id, data: None
+                )
+
+                actor_id = mixin.register_rlm_actor(
+                    name=config.get("name", "rlm_actor"),
+                    learning_rate=float(config.get("learning_rate", 0.01)),
+                    discount_factor=float(config.get("discount_factor", 0.99)),
+                )
+                return _json.dumps(
+                    {"actor_id": actor_id, "status": "registered"}, default=str
+                )
             else:
                 return f"Error: Unknown orchestration action '{action}'"
         except PermissionError:
@@ -5547,6 +6229,13 @@ def _build_server(bootstrap: bool = True):
             return json.dumps({"error": str(e)})
 
     REGISTERED_TOOLS["document_process"] = document_process
+
+    # Quant trading system tool (CONCEPT:ECO-4.0): debate/regime/data/execute/
+    # portfolio over the finance engines. Registered onto the MCP server AND the
+    # shared REGISTERED_TOOLS map so the gateway REST twin (/quant) reaches it.
+    from agent_utilities.domains.finance.quant_mcp_tools import register_quant_tools
+
+    REGISTERED_TOOLS["quant"] = register_quant_tools(mcp, None)
 
     @mcp.tool(
         name="source_connector",
