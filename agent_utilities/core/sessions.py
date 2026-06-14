@@ -705,11 +705,14 @@ async def run_goal_loop(
         # store; this owning loop reconciles it here.
         desired = _desired_session_action(session_id)
         if desired:
-            final = GoalStatus.PAUSED if desired == "pause" else GoalStatus.CANCELLED
+            # CONCEPT:SAFE-1.5 — corrigible interruption: checkpoint and yield to the
+            # supervisor signal without resisting (the primitive centralizes the
+            # PAUSED/CANCELLED mapping + the no-resistance contract).
+            from agent_utilities.core.corrigibility import corrigibility_decision
+
+            final, summary = corrigibility_decision(desired)
             active_goals[goal_id]["status"] = final
-            active_goals[goal_id][
-                "summary"
-            ] = f"Goal {final.value} by fleet supervisor request."
+            active_goals[goal_id]["summary"] = summary
             _persist_goal(goal_id)
             try:
                 conn = _connect_db()
