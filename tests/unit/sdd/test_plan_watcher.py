@@ -3,6 +3,7 @@
 CONCEPT:KG-2.6 — Implementation Plan & Tasks versioning and KG lineage.
 """
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -15,9 +16,9 @@ from agent_utilities.sdd.watcher import (
     ingest_tasks_version,
     process_kg_ingest_location,
     process_plan_file,
-    process_scholarx_file,
     process_skill_file,
     process_tasks_file,
+    process_watched_file,
     run_watcher_scan,
 )
 
@@ -225,15 +226,15 @@ def test_process_skill_file(tmp_path):
     assert history_files[0].read_text() == skill_content
 
 
-def test_process_scholarx_file(tmp_path):
+def test_process_watched_file(tmp_path):
     mock_engine = MagicMock()
     mock_engine.submit_task = MagicMock()
 
     pdf_file = tmp_path / "paper.pdf"
     pdf_file.write_text("dummy pdf content")
 
-    process_scholarx_file(mock_engine, pdf_file)
-
+    # Default source (ScholarX) — unchanged behaviour.
+    process_watched_file(mock_engine, pdf_file)
     assert mock_engine.submit_task.call_count == 1
     mock_engine.submit_task.assert_called_with(
         target_path=str(pdf_file.resolve()),
@@ -241,6 +242,38 @@ def test_process_scholarx_file(tmp_path):
         task_type="document",
         provenance={"source": "watcher_scholarx"},
     )
+
+    # Operator-document source — same path, different provenance.
+    doc = tmp_path / "notes.md"
+    doc.write_text("# notes")
+    process_watched_file(mock_engine, doc, source="watcher_documents")
+    mock_engine.submit_task.assert_called_with(
+        target_path=str(doc.resolve()),
+        is_codebase=False,
+        task_type="document",
+        provenance={"source": "watcher_documents"},
+    )
+
+
+def test_get_watched_directories_includes_user_dir(tmp_path, monkeypatch):
+    """KG_WATCH_DIRS adds operator dirs (recursive) alongside ScholarX dirs."""
+    from agent_utilities.sdd import watcher as w
+
+    docs = tmp_path / "Documents"
+    (docs / "sub").mkdir(parents=True)
+    monkeypatch.setattr(w, "get_scholarx_directories", lambda: [])
+    monkeypatch.setattr(
+        w, "setting", lambda k, *a: str(docs) if k == "KG_WATCH_DIRS" else None
+    )
+
+    watched = w.get_watched_directories()
+    assert (docs.resolve(), True, "watcher_documents") in watched
+
+    # Parser handles JSON arrays and pathsep/comma lists.
+    assert w._parse_dir_list('["~/a", "~/b"]') == ["~/a", "~/b"]
+    assert w._parse_dir_list("/a,/b") == ["/a", "/b"]
+    assert w._parse_dir_list(f"/a{os.pathsep}/b") == ["/a", "/b"]
+    assert w._parse_dir_list("") == []
 
 
 def test_process_kg_ingest_location(tmp_path):
