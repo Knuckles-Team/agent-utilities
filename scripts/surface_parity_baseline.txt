@@ -1,0 +1,67 @@
+# Surface-parity baseline — capability modules not yet reachable from the
+# gateway/MCP operator surface (AGENTS.md "Two surfaces by default"). The gate
+# (scripts/check_surface_parity.py) fails only on *new* entries; this list is a
+# ratchet to drive to empty. Grouped by disposition to make burndown actionable.
+# Section/`#` comments are ignored by the loader — only bare paths are baselined.
+
+# ── Genuine surface gaps: wire a thin MCP action + REST twin into _execute_tool ──
+# Finance/quant capabilities (trading + market intelligence) with no operator surface:
+agent_utilities/domains/finance/banking.py
+agent_utilities/domains/finance/cross_market_arb.py
+agent_utilities/domains/finance/crypto_connector.py
+agent_utilities/domains/finance/exchange_bridge.py
+agent_utilities/domains/finance/microstructure.py
+agent_utilities/domains/finance/quant_mcp_tools.py
+agent_utilities/domains/finance/regime_detector.py
+agent_utilities/domains/finance/strategy_engine.py
+agent_utilities/domains/hr/workforce_manager.py
+# Harness self-evolution engines (daemon-driven today; should also be surface-runnable):
+agent_utilities/harness/agentic_evolution_engine.py
+agent_utilities/harness/background_spawner.py
+agent_utilities/harness/citation_tracker.py
+agent_utilities/harness/constraint_engine.py
+agent_utilities/harness/corpus_collapse_guard.py
+agent_utilities/harness/evaluation_engine.py
+agent_utilities/harness/evolve_agent.py
+agent_utilities/harness/recursive_distill.py
+agent_utilities/harness/search_distillation.py
+# Specialized orchestration engines + research pipeline:
+agent_utilities/knowledge_graph/orchestration/engine_enterprise.py
+agent_utilities/knowledge_graph/orchestration/engine_finance.py
+agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py
+agent_utilities/knowledge_graph/orchestration/research_orchestrator.py
+agent_utilities/knowledge_graph/orchestration/research_subagent.py
+agent_utilities/knowledge_graph/research/research_intelligence_engine.py
+# Retrieval / RAG engines (each a distinct retrieval strategy worth surfacing):
+agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py
+agent_utilities/knowledge_graph/retrieval/latent_topology_rag.py
+agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py
+agent_utilities/knowledge_graph/retrieval/single_shot_sira.py
+# KB extraction / linking + maintenance + workflow capabilities:
+agent_utilities/knowledge_graph/kb/entity_claim_extractor.py
+agent_utilities/knowledge_graph/kb/link_inference.py
+agent_utilities/knowledge_graph/kb/x_workflows.py
+agent_utilities/knowledge_graph/maintenance/document_cleanup.py
+agent_utilities/workflows/epistemic_sync.py
+agent_utilities/workflows/skill_picker.py
+
+# ── Internal plumbing: not operator "features" — candidates to move OUT of the ──
+# ── capability scan (data models, transport adapters, controllers, sub-helpers) ──
+agent_utilities/domains/finance/banking_models.py
+agent_utilities/domains/finance/errors.py
+agent_utilities/domains/finance/quant_ontology.py
+agent_utilities/domains/government/models.py
+agent_utilities/domains/hr/models.py
+agent_utilities/domains/law/models.py
+agent_utilities/domains/medical/models.py
+agent_utilities/harness/evaluators.py
+agent_utilities/harness/reasoning_effort.py
+agent_utilities/harness/reliability_corpus.py
+agent_utilities/harness/replay_buffer.py
+agent_utilities/harness/scaling_laws.py
+agent_utilities/harness/variant_pool.py
+agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py
+agent_utilities/knowledge_graph/orchestration/voi_budget_controller.py
+agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py
+agent_utilities/knowledge_graph/streams/kafka_adapter.py
+agent_utilities/knowledge_graph/streams/nats_adapter.py

@@ -168,6 +168,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: guardrail-surface-parity
+    name: Guardrail — every feature reachable via gateway + MCP
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_surface_parity.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: guardrail-no-pyo3
     name: Guardrail — PyO3 fully excised
     entry: bash /home/apps/workspace/agent-packages/epistemic-graph/scripts/check_no_pyo3.sh

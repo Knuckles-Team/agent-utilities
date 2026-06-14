@@ -529,6 +529,7 @@ async def toggle_tool_endpoint(request: Request) -> JSONResponse:
 ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_query": "/graph/query",
     "graph_search": "/graph/search",
+    "graph_search_synthesis": "/graph/search-synthesis",
     "graph_write": "/graph/write",
     "graph_ingest": "/graph/ingest",
     "graph_analyze": "/graph/analyze",
