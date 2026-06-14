@@ -113,6 +113,13 @@ class GpuSlotScheduler:
     it with ``await scheduler.start(runner)``; submit jobs with ``submit``.
     """
 
+    #: Kinds that run in the preemptible **background tier** — they always yield the
+    #: slot to a fresh foreground submission and auto-backfill when it frees.
+    #: Training jobs (CONCEPT:ML-011) join inference ``"auto"`` here, so an
+    #: interactive request preempts a long training run, which checkpoints and
+    #: resumes from where it left off.
+    BACKGROUND_KINDS: tuple[str, ...] = ("auto", "training")
+
     def __init__(
         self,
         store: CheckpointStore | None = None,
@@ -262,12 +269,12 @@ class GpuSlotScheduler:
         cur = self._jobs.get(jid)
         if not cur or cur.state != JobState.RUNNING:
             return
-        is_auto = cur.kind == "auto"
-        if not is_auto and not self._preempt_foreground:
+        is_background = cur.kind in self.BACKGROUND_KINDS
+        if not is_background and not self._preempt_foreground:
             return  # foreground job runs to its next yield point uninterrupted
         self._pause_flags.add(jid)
         cur.state = JobState.PAUSING
-        if not is_auto:
+        if not is_background:
             cur.preempted = True
         self._store.save(cur)
 
