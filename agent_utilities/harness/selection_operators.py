@@ -154,7 +154,9 @@ def select_top_k(
     method: str = "score",
     score_key: str = "fitness",
     std_key: str = "fitness_std",
+    length_key: str = "description_length",
     kappa: float = 1.0,
+    mdl_weight: float = 0.0,
 ) -> list[dict[str, Any]]:
     """Rank scalar candidate dicts and return the top ``k``.
 
@@ -162,6 +164,11 @@ def select_top_k(
         * ``score`` — descending by ``score_key`` (plain mean-reward).
         * ``lcb`` — descending by ``score_key − κ·std_key`` (conservative; a
           candidate with no recorded variance degrades gracefully to ``score``).
+        * ``mdl`` — descending by ``score_key − mdl_weight·norm_length``: a
+          minimum-description-length (Occam / Solomonoff-flavoured) prior that, among
+          candidates of comparable score, prefers the *shorter* one (CONCEPT:KG-2.69).
+          ``norm_length`` is each candidate's ``length_key`` divided by the max length
+          in the set, so the penalty is scale-free; a missing length ⇒ no penalty.
     """
     if method == "score":
         ranked = sorted(
@@ -176,6 +183,18 @@ def select_top_k(
             ),
             reverse=True,
         )
+    elif method == "mdl":
+        max_len = max(
+            (float(c.get(length_key, 0.0) or 0.0) for c in candidates), default=0.0
+        )
+
+        def _mdl_key(c: dict[str, Any]) -> float:
+            norm_len = (
+                float(c.get(length_key, 0.0) or 0.0) / max_len if max_len > 0 else 0.0
+            )
+            return float(c.get(score_key, 0.0) or 0.0) - mdl_weight * norm_len
+
+        ranked = sorted(candidates, key=_mdl_key, reverse=True)
     else:
         raise ValueError(f"unknown scalar selection method: {method!r}")
     return ranked[:k]
