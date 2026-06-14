@@ -133,6 +133,7 @@ class GoldenLoopController:
         synthesize_search: bool = False,
         discover: bool | None = None,
         papers: list[dict[str, Any]] | None = None,
+        reason: bool = True,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -165,6 +166,7 @@ class GoldenLoopController:
             "intake_papers": None,
             "breadth": None,
             "assimilate": None,
+            "reason": None,
             "standardize": None,
             "spec_drafts": [],
             "team": None,
@@ -207,6 +209,12 @@ class GoldenLoopController:
             report["assimilate"] = _stage(
                 "assimilate", lambda: self._run_assimilate(force=force_assimilate)
             )
+
+        # 0a. REASON — OWL/RDF reasoning over the ONE ecosystem ontology; harvest the
+        # extrapolated relationships and surface cross-domain inferences as fresh
+        # research Loops (CONCEPT:KG-2.79). Best-effort + lightweight; never blocks.
+        if reason:
+            report["reason"] = _stage("reason", self._run_reason)
 
         # 0b. STANDARDIZE — enterprise standardization + consolidation (CONCEPT:KG-2.49),
         # propose-only. Gated (KG_GOLDEN_STANDARDIZE) since it requires a harvested
@@ -442,6 +450,24 @@ class GoldenLoopController:
             "papers_already_known": rep.papers_already_known,
             "owl_inferences": rep.owl_inferences,
             "errors": rep.errors[:5],
+        }
+
+    def _run_reason(self) -> dict[str, Any]:
+        """Run OWL/RDF reasoning over the ecosystem; harvest the extrapolation.
+
+        The ontology-driven research engine (CONCEPT:KG-2.79): reason over the one
+        ecosystem knowledge-graph and turn the newly-inferred cross-domain
+        relationships into fresh research Loops for subsequent cycles — so research
+        compounds on what reasoning discovers, not just what was ingested.
+        """
+        from .ara.reasoning_driver import OntologyReasoningDriver
+
+        harvest = OntologyReasoningDriver(self.engine).extrapolate()
+        return {
+            "inferred": len(harvest.inferred_edges),
+            "new_topics": len(harvest.new_topics),
+            "stats": harvest.stats,
+            "error": harvest.error,
         }
 
     def _run_standardize(self) -> dict[str, Any]:
