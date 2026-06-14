@@ -45,12 +45,21 @@ class TestCorrigibility:
 
 class TestIrreversibility:
     @pytest.mark.parametrize(
-        "kind", ["delete_service", "destroy_volume", "merge_promotion", "deploy_stack", "rotate_creds"]
+        "kind",
+        [
+            "delete_service",
+            "destroy_volume",
+            "merge_promotion",
+            "deploy_stack",
+            "rotate_creds",
+        ],
     )
     def test_irreversible_kinds(self, kind):
         assert is_irreversible(kind) is True
 
-    @pytest.mark.parametrize("kind", ["restart_service", "scale_service", "read_status", "notify"])
+    @pytest.mark.parametrize(
+        "kind", ["restart_service", "scale_service", "read_status", "notify"]
+    )
     def test_reversible_kinds(self, kind):
         assert is_irreversible(kind) is False
 
