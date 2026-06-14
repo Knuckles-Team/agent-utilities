@@ -375,7 +375,7 @@ def make_streaming_extract_fn(
         try:
             from openai import AsyncOpenAI
 
-            from agent_utilities.core.config import config
+            from agent_utilities.core.config import config, setting
 
             cfg = config.default_chat_model
             client = AsyncOpenAI(
@@ -384,7 +384,10 @@ def make_streaming_extract_fn(
                 or "http://vllm.arpa/v1",
                 api_key=(cfg.api_key if cfg else None) or "not-needed",
                 timeout=_EXTRACT_READ_TIMEOUT_S,
-                max_retries=0,
+                # Retry transient backend errors (502/503/429/timeout) with the
+                # SDK's exponential backoff — a momentarily overloaded vLLM must
+                # not silently zero out a chunk's facts. Tunable via env.
+                max_retries=int(setting("KG_EXTRACT_MAX_RETRIES", "4")),
             )
             model_id = model or (cfg.id if cfg else None) or "default"
             stream = await client.chat.completions.create(
