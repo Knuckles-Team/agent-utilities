@@ -37,12 +37,15 @@ class EvalCorpus:
         tags: list[str] | None = None,
         reason: str = "",
         metadata: dict[str, Any] | None = None,
+        assertion: str = "",
     ) -> str:
         """Add a regression case; returns its id. Persists to the graph if able.
 
         ``metadata`` carries arbitrary per-case context (e.g. the evidence,
         gold topics, or retrieved ids a context-aware scorer needs); it is
-        surfaced on the loaded :class:`TestCase.metadata`.
+        surfaced on the loaded :class:`TestCase.metadata`. ``assertion`` is an
+        optional plain-English pass/fail check (CONCEPT:AHE-3.25, Opik Test Suite
+        style) judged by LLM-as-judge in lieu of expected-output scoring.
         """
         case_id = f"eval_case:{uuid.uuid4().hex[:12]}"
         rec = {
@@ -52,6 +55,7 @@ class EvalCorpus:
             "tags": list(tags or []),
             "reason": reason,
             "metadata": dict(metadata or {}),
+            "assertion": assertion,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         self._mem.append(rec)
@@ -65,6 +69,7 @@ class EvalCorpus:
                     tags=",".join(rec["tags"]),
                     reason=reason,
                     metadata=json.dumps(rec["metadata"]) if rec["metadata"] else "",
+                    assertion=assertion,
                     timestamp=rec["timestamp"],
                 )
             except Exception as exc:  # pragma: no cover - persistence best-effort
@@ -82,7 +87,8 @@ class EvalCorpus:
                     self.backend.execute(
                         "MATCH (c) WHERE c.type = 'eval_case' "
                         "RETURN c.id AS id, c.query AS query, "
-                        "c.expected_output AS expected_output, c.tags AS tags"
+                        "c.expected_output AS expected_output, c.tags AS tags, "
+                        "c.assertion AS assertion"
                     )
                     or []
                 )
@@ -110,6 +116,7 @@ class EvalCorpus:
                     expected_output=r.get("expected_output", ""),
                     tags=tags or [],
                     metadata=metadata or {},
+                    assertion=r.get("assertion", "") or "",
                 )
             )
         return cases
