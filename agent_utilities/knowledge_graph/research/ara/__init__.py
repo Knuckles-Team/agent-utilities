@@ -15,15 +15,28 @@ from .artifact import (
     ExplorationNode,
     ResearchArtifact,
 )
+from .compiler import ARACompiler, CompileReport
+from .exploration import ExplorationGraphBuilder, ResearchTrajectory
+from .live_manager import LiveResearchManager, ResearchEvent
 from .reasoning_driver import InferenceHarvest, OntologyReasoningDriver
+from .seal import ARASeal, SealReport, SealViolation
 
 __all__ = [
+    "ARACompiler",
+    "ARASeal",
     "Claim",
     "CodeSpec",
+    "CompileReport",
     "Evidence",
+    "ExplorationGraphBuilder",
     "ExplorationKind",
     "ExplorationNode",
     "InferenceHarvest",
+    "LiveResearchManager",
     "OntologyReasoningDriver",
     "ResearchArtifact",
+    "ResearchEvent",
+    "ResearchTrajectory",
+    "SealReport",
+    "SealViolation",
 ]

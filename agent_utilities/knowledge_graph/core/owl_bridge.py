@@ -91,6 +91,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "claim",
     "code_spec",
     "exploration_node",
+    "seal_certificate",
     "trajectory",
     "deliberation",
     "reflection",
@@ -505,6 +506,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "has_evidence",
     "pivoted_from",
     "reached_dead_end",
+    "certifies",
 }
 
 # ARA forensic-edge OWL object-property characteristics, always on (CONCEPT:KG-2.80).
