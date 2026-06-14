@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Shortcut-resistant search-task synthesis (CONCEPT:KG-2.70/2.71/2.72, AHE-3.30).**
+  Distills FORT-Searcher (arXiv:2606.12087) onto the epistemic graph. New
+  `knowledge_graph/search_synthesis/` package: `evidence_subgraph.py` builds a
+  bounded evidence-graph workspace around an answer entity (KG-2.70);
+  `shortcut_risks.py` runs the four shortcut detectors — single-clue selectivity,
+  evidence co-coverage, exposed constants, prior-knowledge binding — as queries over
+  that workspace (KG-2.71); `question_formulation.py` formulates a verifiable
+  question (intermediate-name withholding) and adversarially refines it until no
+  shortcut trips (KG-2.72). The reward spine `graph/training_signals.py` gains the
+  realized-difficulty trajectory signatures `solving_cost` / `answer_hit_time` /
+  `prior_shortcut_rate` + a `search_heavy` gate (AHE-3.30). Wired live as the
+  `graph_search_synthesis` MCP tool (synthesize/diagnose) and an opt-in
+  `GoldenLoopController.run_one_cycle(synthesize_search=True)` self-play stage that
+  persists `SearchTask` proposal nodes + a propose-only corpus draft. Docs:
+  `docs/architecture/shortcut_resistant_search_synthesis.md`.
 - **Git issue/PR → SWE task resolver (CONCEPT:ECO-4.43).** `integrations/git_resolver.py`
   parses GitHub/GitLab issue+PR webhooks, classifies a suggested-task taxonomy
   (open-issue / open-PR / failing-checks / merge-conflicts / unresolved-comments),

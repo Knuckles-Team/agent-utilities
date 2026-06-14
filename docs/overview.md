@@ -218,6 +218,9 @@ graph TD
 | KG-2.56 | Keyed Ingest Partitions | `kg_tasks` partition keys (tenant → repo/corpus → task type) for per-tenant/per-repo ordering |
 | KG-2.57 | Decoupled kg-ingest Consumer Group | `kg-ingest-worker` runs ingest as engine clients on any host; at-least-once, idempotent claims, lag metrics |
 | KG-2.58 | Tenant-Partitioned Engine Sharding | HRW graph→shard routing over `GRAPH_SERVICE_ENDPOINTS` with tenant→named-graph placement |
+| KG-2.70 | Evidence-Subgraph Task Synthesis | Build a bounded evidence-graph workspace around an answer entity for shortcut-resistant deep-search task synthesis (`knowledge_graph/search_synthesis/evidence_subgraph.py`; distills FORT-Searcher arXiv:2606.12087) |
+| KG-2.71 | Shortcut-Risk Detectors | Four graph-query detectors — single-clue selectivity, evidence co-coverage, exposed constants, prior-knowledge binding — over the evidence graph (`knowledge_graph/search_synthesis/shortcut_risks.py`) |
+| KG-2.72 | Question Formulation & Adversarial Refinement | Render a clue subgraph as a verifiable question (name withholding) and adversarially refine until no shortcut trips (`knowledge_graph/search_synthesis/question_formulation.py`) |
 
 ### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.21)
 
@@ -239,6 +242,7 @@ graph TD
 | AHE-3.27 | Adaptation-Speed Metric | SAI primary measure — per-task time-to-target + sample-complexity + learning-AUC over a verified-reward curve (`harness/adaptation_speed.py`) |
 | AHE-3.28 | Specialization Task + Verifier Contract | The `(task, verifier, target, human-baseline)` contract + machine-verifiable `Verifier` protocol every specialization track shares (`harness/sai_task.py`) |
 | AHE-3.29 | SAI Factory Controller | Closed scaffolding+weights specialization loop steered by adaptation speed, ratchet-gated promotion (`research/sai_factory.py`) |
+| AHE-3.30 | Realized Search-Difficulty Signatures | Trajectory signatures — solving cost, answer hit time, prior-shortcut rate — that diagnose whether a deep-search task forced real search and gate task acceptance (`graph/training_signals.py`; distills FORT-Searcher arXiv:2606.12087) |
 
 ### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.34)
 
