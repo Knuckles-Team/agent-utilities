@@ -148,7 +148,19 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
 
     targets = setting("GRAPH_MIRROR_TARGETS") or _cfg.graph_mirror_targets or []
     if isinstance(targets, str):
-        targets = [t.strip() for t in targets.split(",") if t.strip()]
+        # config.json injects list values into the env as a JSON string; also
+        # accept a plain comma list. (A naive comma-split would mangle the JSON.)
+        s = targets.strip()
+        if s.startswith("["):
+            import json as _json
+
+            try:
+                parsed = _json.loads(s)
+                targets = parsed if isinstance(parsed, list) else []
+            except Exception:
+                targets = []
+        else:
+            targets = [t.strip() for t in s.split(",") if t.strip()]
     if not targets:
         return {}
     conn_specs: dict[str, dict[str, Any]] = {}
