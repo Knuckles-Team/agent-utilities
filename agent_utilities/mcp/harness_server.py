@@ -181,7 +181,7 @@ def _build_server():
         except Exception as e:
             return json.dumps({"error": str(e)})
 
-    # --- Task-management ergonomics (CONCEPT:ORCH-1.47) ---
+    # --- Task-management ergonomics (CONCEPT:ORCH-1.50) ---
 
     @mcp.tool()
     def task_parse_prd(prd_text: str, feature_id: str) -> str:

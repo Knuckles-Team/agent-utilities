@@ -209,6 +209,28 @@ itself is an ActionPolicy-gated action (`publish_proposal` on
 which under the shipped default policy requires human approval (OS-5.24).
 Walkthrough: [evolution publication example](../examples/evolution-publication.md).
 
+### ORCH-1.49 — Robust Edit-Application Engine
+The harness layer that turns a model's proposed change into a file actually edited.
+`harness/edit_engine.py` parses SEARCH/REPLACE blocks or unified diffs and applies them
+with a graduated fuzzy-match ladder (exact → leading-whitespace-flexible → drop-blank →
+`SequenceMatcher` closest-window), so edits land even when whitespace drifts; failures
+return did-you-mean hints, and `apply_with_reflection` re-prompts the model on
+malformed/failed edits (with an optional lint/test verify gate as the checker half).
+Surfaced as the `apply_edits` tool (`tools/developer_tools.py`); `replace_in_file` is
+kept for the trivial exact path. Full design:
+[Edit-Application Engine](../architecture/edit_application_engine.md).
+
+### AHE-3.25 — Plain-English Regression Assertions
+Closes the "lock-as-regression-test" seam of the self-repair loop. `TestCase.assertion`
++ `EvalStrategy.ASSERTION` let a regression case be a human-readable pass/fail check
+judged by LLM-as-judge (with an offline lexical fallback), taking precedence over
+expected-output scoring (the Opik Test Suite pattern). When a failure remediation is
+*verified* — the AHE-3.18 regression gate confirms no spike against the original failing
+input — `failure_analyzer._lock_regression_cases` promotes one plain-English assertion
+case per failure signature into the durable `EvalCorpus` (idempotent), so the same
+failure cannot silently recur. See
+[Failure-Driven Evolution](../architecture/failure_driven_evolution.md).
+
 ## Key Concepts Leveraged (2026 additions)
 - **AHE-3.15**: Agent-Step Policy Optimization (ARPO)
 - **AHE-3.16**: Test-Time Diversity (VPO)
@@ -217,3 +239,5 @@ Walkthrough: [evolution publication example](../examples/evolution-publication.m
 - **AHE-3.19**: Performance Anomaly Consumer (durable anomalies → evolution topics)
 - **AHE-3.20**: Promotion Governance Validator (governed gate on every promotion)
 - **AHE-3.21**: Evolution-to-Branch Bridge (change synthesis + RLM-sandbox validation + ActionPolicy-gated local-branch publication)
+- **AHE-3.25**: Plain-English regression assertions (LLM-judge `TestCase.assertion`; verified remediations auto-lock a regression case)
+- **ORCH-1.49**: Robust edit-application engine (multi-format fuzzy edits + reflection loop)
