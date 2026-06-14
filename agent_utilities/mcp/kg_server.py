@@ -4348,7 +4348,7 @@ def _build_server(bootstrap: bool = True):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize, failure_ingest, publish_proposal). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize, failure_ingest, publish_proposal). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -4479,6 +4479,43 @@ def _build_server(bootstrap: bool = True):
                 dataset = rows if isinstance(rows, list) else []
                 result = await optimize_rlm_skill(task, dataset)
                 return json.dumps(result, default=str)
+            elif action == "rlm_benchmark":
+                # CONCEPT:AHE-3.32 — run the long-context RLM benchmark (RLM vs vanilla vs
+                # compaction) over a task and return the paper-comparison scoreboard. `task` is the
+                # benchmark name (s_niah, oolong, oolong_pairs, browsecomp_plus, longbench_codeqa);
+                # `dependencies` is optional JSON {"scales": [int], "cases_per_scale": int}.
+                from agent_utilities.rlm.benchmarks import (
+                    list_tasks,
+                    render_scoreboard,
+                    run_benchmark,
+                )
+
+                opts = json.loads(dependencies) if dependencies else {}
+                if not isinstance(opts, dict):
+                    opts = {}
+                bench = task or "s_niah"
+                if bench not in list_tasks():
+                    return json.dumps(
+                        {
+                            "ok": False,
+                            "error": f"unknown task {bench!r}",
+                            "tasks": list_tasks(),
+                        }
+                    )
+                scales = opts.get("scales") or [50_000]
+                results = await run_benchmark(
+                    bench,
+                    scales=[int(s) for s in scales],
+                    cases_per_scale=int(opts.get("cases_per_scale", 3)),
+                )
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "results": [r.model_dump() for r in results],
+                        "scoreboard": render_scoreboard(results),
+                    },
+                    default=str,
+                )
             elif action == "swarm":
                 # CONCEPT:ORCH-1.32 — KG-Governed Agent Swarm
                 # One-shot swarm action: a one-line goal is

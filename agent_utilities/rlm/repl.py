@@ -10,6 +10,7 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 from ..graph.client import get_graph_client
 from ..graph.state import GraphDeps
 from .config import RLMConfig
+from .prompts import build_system_prompt  # CONCEPT:ORCH-1.54
 from .sandboxes import (  # CONCEPT:ORCH-1.38
     HELPER_NAMES,
     LocalSandbox,
@@ -26,6 +27,38 @@ from .telemetry import (  # CONCEPT:ORCH-1.29
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _accumulate_root_usage(usage: Any, res: Any) -> None:
+    """Fold one pydantic-ai run's token usage into the RunTrace ``usage`` (CONCEPT:AHE-3.32).
+
+    Best-effort and version-tolerant: maps request/input tokens → ``prompt_tokens`` and
+    response/output tokens → ``completion_tokens``. A missing usage object is a no-op.
+    """
+    try:
+        u = res.usage() if callable(getattr(res, "usage", None)) else None
+    except Exception:  # noqa: BLE001 — usage is telemetry, never fatal
+        u = None
+    if u is None:
+        return
+    prompt = next(
+        (
+            getattr(u, a)
+            for a in ("request_tokens", "input_tokens")
+            if isinstance(getattr(u, a, None), int)
+        ),
+        0,
+    )
+    completion = next(
+        (
+            getattr(u, a)
+            for a in ("response_tokens", "output_tokens")
+            if isinstance(getattr(u, a, None), int)
+        ),
+        0,
+    )
+    usage.prompt_tokens += prompt
+    usage.completion_tokens += completion
 
 
 class RecursionLimitError(Exception):
@@ -86,6 +119,9 @@ class RLMEnvironment:
         # against it and the JSON schema is shown to the model at REPL startup.
         self.output_contract = output_contract
         self._stdout_counter = 0
+        # CONCEPT:ORCH-1.29 — the most recent RunTrace (set when run_full_rlm runs). Holds token
+        # usage (root + folded-in sub-call usage) so callers can surface cost (CONCEPT:AHE-3.32).
+        self.last_run_trace: Any = None
 
         self.vars: dict[str, Any] = {"context": context, "depth": depth}
 
@@ -116,6 +152,17 @@ class RLMEnvironment:
         """Helper for the LLM to output its final result explicitly."""
         self.vars[name] = value
         self.vars["__FINAL__"] = name
+
+    def _absorb_sub_usage(self, sub_env: "RLMEnvironment") -> None:
+        """Fold a recursive sub-call's total token usage into this run's ``sub_lm_tokens``.
+
+        CONCEPT:AHE-3.32 — lets the root surface a complete cost figure (root + recursion) so the
+        benchmark can compare against the paper's per-query cost. No-op if either trace is absent.
+        """
+        parent = self.last_run_trace
+        child = getattr(sub_env, "last_run_trace", None)
+        if parent is not None and child is not None:
+            parent.usage.sub_lm_tokens += child.usage.total
 
     async def magma_view(
         self, query: str, views: list[str] | None = None
@@ -285,7 +332,11 @@ class RLMEnvironment:
             if schema is not None
             else None,
         )
-        return await sub_env.run_full_rlm(prompt)
+        result = await sub_env.run_full_rlm(prompt)
+        self._absorb_sub_usage(
+            sub_env
+        )  # CONCEPT:AHE-3.32 — fold sub-call tokens into our trace
+        return result
 
     async def run_parallel_sub_calls(self, calls: list[dict[str, Any]]) -> list[Any]:
         """
@@ -318,7 +369,11 @@ class RLMEnvironment:
                 graph_deps=self.graph_deps,
                 output_contract=contract,
             )
-            return await sub_env.run_full_rlm(item["prompt"])
+            result = await sub_env.run_full_rlm(item["prompt"])
+            self._absorb_sub_usage(
+                sub_env
+            )  # CONCEPT:AHE-3.32 — fold sub-call tokens in
+            return result
         else:
             # Fallback to normal specialist at the recursion floor. The contract
             # still holds — pydantic_ai enforces it via ``output_type``.
@@ -568,35 +623,11 @@ class RLMEnvironment:
             else self.config.sub_llm_model_small
         )
 
+        # CONCEPT:ORCH-1.54 — family-aware system prompt (the paper's "one prompt fails across
+        # model families" failure mode); 'auto' infers the family from the root model id.
         agent = Agent(
             model=model_id,
-            system_prompt=(
-                "You are a Recursive Language Model (RLM).\n"
-                "You have access to a persistent Python REPL.\n"
-                "Your objective is to write python code to analyze the `context` variable, "
-                "which contains massive amounts of data.\n\n"
-                "AVAILABLE HELPERS:\n"
-                "- `await rlm_query(prompt, context, schema=None)`: Spawn a full recursive RLM at the "
-                "next depth. Pass `schema=` (a type like `bool`/`int`, a Pydantic model, or a raw "
-                "JSON Schema dict e.g. `{'type': 'boolean'}`) to FORCE the sub-agent to return a "
-                "validated, typed value instead of free-form prose — route on that value directly.\n"
-                "- `await run_parallel_sub_calls(calls)`: Run multiple sub-calls in parallel. "
-                "`calls` is a list of `{'prompt': '...', 'context': ..., 'schema': <optional>}`. "
-                "Prefer a structured `schema` (e.g. a boolean relevance flag per chunk) so you can "
-                "filter on typed results rather than re-reading many text answers.\n"
-                "- `await magma_view(query, views=None)`: Retrieve MAGMA orthogonal context "
-                "(semantic, temporal, causal, entity).\n"
-                "- `await graph_query(cypher, params=None)`: Run a Cypher query against the knowledge graph.\n"
-                "- `await ephemeral_graph_query(cypher, namespace, params=None)`: Run a Cypher query against a specific ephemeral memory namespace.\n"
-                "- `await owl_query(sparql)`: Run a SPARQL query against the OWL reasoner "
-                "for transitive reasoning (wasDerivedFrom chains, SKOS hierarchies, escalation paths).\n"
-                "- `await kg_bulk_export(node_type, limit=500)`: Export KG nodes as JSON for bulk analysis.\n"
-                "- `await sub_agent_call(prompt, agent_id, input_data)`: Dispatch a task to another specialist.\n"
-                "- `FINAL_VAR('result_name', value)`: Explicitly output the final result.\n\n"
-                "IMPORTANT: You do NOT have the full context in your window. "
-                "Access it programmatically via the `context` variable. "
-                "Write Python code inside ```python blocks."
-            ),
+            system_prompt=build_system_prompt(self.config.prompt_family, model_id),
         )
 
         history: list[Any] = []
@@ -633,6 +664,9 @@ class RLMEnvironment:
                 # Subsequent turns use the history with stdout metadata appended
                 res = await agent.run("Continue.", message_history=history)
             history = res.all_messages()
+            _accumulate_root_usage(
+                run_trace.usage, res
+            )  # CONCEPT:AHE-3.32 cost capture
 
             output_text = res.output
 
