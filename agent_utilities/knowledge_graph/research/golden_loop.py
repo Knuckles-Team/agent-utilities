@@ -24,7 +24,8 @@ from typing import Any
 
 from agent_utilities.core.config import setting
 
-from ..adaptation.topic_resolver import mark_addressed, unresolved_topics
+from ..adaptation.topic_resolver import mark_addressed
+from .loops import active_loops
 from .search import acquire_for_topic
 
 logger = logging.getLogger(__name__)
@@ -213,18 +214,18 @@ class GoldenLoopController:
         if standardize:
             report["standardize"] = _stage("standardize", self._run_standardize)
 
-        # 1. INTAKE — open topics the loop should address. Caller-supplied topics
-        # (e.g. the failure-ingest tick's just-materialized failure_gap concepts)
-        # bypass the generic unresolved_topics scan so a brand-new gap is addressed
-        # deterministically instead of competing for a slot in an arbitrarily-
-        # ordered, limited scan over hundreds of existing concepts. (CONCEPT:AHE-3.18)
+        # 1. INTAKE — every active Loop the engine should advance (CONCEPT:KG-2.78):
+        # research/develop/skill objectives + autonomous gaps, each carrying its
+        # ``kind`` so later stages dispatch correctly. Caller-supplied ``topics``
+        # (e.g. the failure-ingest tick's just-materialized failure_gap loops)
+        # bypass the generic ``active_loops`` scan so a brand-new gap is addressed
+        # deterministically instead of competing for a slot. (CONCEPT:AHE-3.18)
         if topics is not None:
             topics = topics[:max_topics] if max_topics else list(topics)
             report["metrics"]["stage_ms"]["intake"] = 0.0
         else:
             topics = (
-                _stage("intake", lambda: unresolved_topics(self.engine, max_topics))
-                or []
+                _stage("intake", lambda: active_loops(self.engine, max_topics)) or []
             )
         report["topics_intake"] = len(topics)
 
@@ -244,6 +245,11 @@ class GoldenLoopController:
                     )
                     return
                 for t in topics:
+                    # Only RESEARCH loops are resolved by acquiring sources; develop/
+                    # skill loops are advanced by their own stages (CONCEPT:KG-2.78,
+                    # L3) and must NOT be marked addressed by semantic sources here.
+                    if t.get("kind", "research") != "research":
+                        continue
                     srcs = acquire_for_topic(self.engine, t, embed_fn=embed_fn)
                     if srcs:
                         n = mark_addressed(
