@@ -188,6 +188,73 @@ def test_reconcile_repairs_each_mirror(tmp_path):
         fan.close()
 
 
+class LadybugBackend(RecordingBackend):
+    """Recording fake whose CLASS NAME drives the strict-schema edge dialect."""
+
+
+class Neo4jBackend(RecordingBackend):
+    """Recording fake whose CLASS NAME drives the native-cypher edge dialect."""
+
+
+def _edge_merge_writes(mirror: RecordingBackend) -> list[str]:
+    """The MERGE edge cypher applied to a mirror (not the label lookups)."""
+    return [
+        q for op, q in mirror.writes if op == "execute" and "MERGE (s)-[r:" in q
+    ]
+
+
+def test_edge_write_replays_structurally_per_dialect(tmp_path):
+    """An edge MERGE fans out STRUCTURALLY: each mirror gets a dialect-correct
+    write. Ladybug folds props into its `properties` JSON column; native-cypher
+    mirrors keep per-prop SET. This is what lets Ladybug edges stream live rather
+    than only converge on a reconcile sweep (the raw forwarded cypher would drop
+    Ladybug edge props)."""
+    lady, neo = LadybugBackend("lady"), Neo4jBackend("neo")
+    fan = FanOutBackend(
+        RecordingBackend("authority"),
+        {"lady": lady, "neo": neo},
+        outbox_path=str(tmp_path / "ob.db"),
+    )
+    try:
+        # The engine's edge-write shape (IntelligenceGraphEngine._upsert_edge).
+        fan.execute(
+            "MATCH (s {id: $sid}), (t {id: $tid}) "
+            "MERGE (s)-[r:DEPENDS_ON]->(t) SET r.`confidence` = $confidence",
+            {"sid": "a", "tid": "b", "confidence": 0.9},
+            is_write=True,
+        )
+        assert fan.flush_mirrors(timeout=10.0)
+
+        lady_edges = _edge_merge_writes(lady)
+        neo_edges = _edge_merge_writes(neo)
+        assert len(lady_edges) == 1 and len(neo_edges) == 1
+        # Same relationship type reaches both, derived structurally from the MERGE.
+        assert "[r:DEPENDS_ON]" in lady_edges[0]
+        assert "[r:DEPENDS_ON]" in neo_edges[0]
+        # Ladybug folds the edge prop into its JSON `properties` column...
+        assert "r.`properties`" in lady_edges[0]
+        assert "r.`confidence`" not in lady_edges[0]
+        # ...while the native-cypher mirror keeps the per-prop SET.
+        assert "r.`confidence`" in neo_edges[0]
+        assert "r.`properties`" not in neo_edges[0]
+    finally:
+        fan.close()
+
+
+def test_non_edge_write_still_forwards_raw_cypher(tmp_path):
+    """Node MERGE / ad-hoc writes are NOT edge upserts — they forward verbatim
+    (portable for every backend), so the structural path is edge-only."""
+    m = RecordingBackend("m")
+    fan = _make(tmp_path, {"m": m})
+    try:
+        fan.execute("MERGE (n:Agent {id: $id})", {"id": "x"}, is_write=True)
+        assert fan.flush_mirrors(timeout=10.0)
+        forwarded = [q for op, q in m.writes if op == "execute"]
+        assert forwarded == ["MERGE (n:Agent {id: $id})"]
+    finally:
+        fan.close()
+
+
 def test_durability_stats_shape(tmp_path):
     fan = _make(tmp_path, {"a": RecordingBackend("a")})
     try:
