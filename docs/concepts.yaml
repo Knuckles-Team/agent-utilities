@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 220
+total_concepts: 224
 total_pillars: 19
 pillars:
 - AHE-3
@@ -350,6 +350,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/research/sai_factory.py
   doc: the controller that operationalizes Superhuman Adaptable
+- id: AHE-3.30
+  name: ──────────────────
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/graph/training_signals.py
+  - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+  doc: ──────────────────
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1132,6 +1140,7 @@ concepts:
   - agent_utilities/api/sparql_server.py
   - agent_utilities/core/background_throttle.py
   - agent_utilities/core/config.py
+  - agent_utilities/core/workspace_config.py
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/graph/routing/strategies/query_tier.py
   - agent_utilities/knowledge_graph/adaptation/topic_resolver.py
@@ -1858,6 +1867,33 @@ concepts:
   doc: inductive program-synthesis search over a typed primitive composition DSL biased by a minimum-description-length
     prior so among programs that fit the examples the shortest is preferred a finite stand-in for the
     Solomonoff universal prior
+- id: KG-2.70
+  name: /2.71/2.72, AHE-3.30; distills arXiv
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+  - agent_utilities/knowledge_graph/search_synthesis/evidence_subgraph.py
+  - agent_utilities/knowledge_graph/search_synthesis/models.py
+  - agent_utilities/mcp/kg_server.py
+  doc: /2.71/2.72, AHE-3.30; distills arXiv
+- id: KG-2.71
+  name: and formulate + adversarially refine a
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+  - agent_utilities/knowledge_graph/search_synthesis/shortcut_risks.py
+  doc: and formulate + adversarially refine a
+- id: KG-2.72
+  name: question formulation + adversarial refinement
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+  - agent_utilities/knowledge_graph/search_synthesis/question_formulation.py
+  doc: question formulation + adversarial refinement
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
