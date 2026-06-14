@@ -63,7 +63,8 @@ class Reasoner(Protocol):
     name: str
     capability_tags: tuple[str, ...]
 
-    def reason(self, task: ReasoningTask) -> ReasoningResult: ...
+    def reason(self, task: ReasoningTask) -> ReasoningResult:
+        ...
 
 
 # ── built-in paradigms ───────────────────────────────────────────────
@@ -73,7 +74,7 @@ class ProgramSynthesisReasoner:
     """Inductive paradigm: synthesize the shortest program fitting examples (KG-2.69)."""
 
     name = "program_synthesis"
-    capability_tags = ("induction", "examples", "symbolic")
+    capability_tags: tuple[str, ...] = ("induction", "examples", "symbolic")
 
     def reason(self, task: ReasoningTask) -> ReasoningResult:
         from agent_utilities.harness.program_synthesis import synthesize
@@ -98,7 +99,7 @@ class WorldModelReasoner:
     """Model-based paradigm: roll a policy forward over the world model (KG-2.67)."""
 
     name = "world_model"
-    capability_tags = ("planning", "dynamics")
+    capability_tags: tuple[str, ...] = ("planning", "dynamics")
 
     def reason(self, task: ReasoningTask) -> ReasoningResult:
         wm = task.payload["world_model"]
@@ -121,7 +122,7 @@ class DeductiveReasoner:
     """Symbolic paradigm: forward-chain rules to a fixpoint over a fact set."""
 
     name = "deductive"
-    capability_tags = ("symbolic", "logic", "deduction")
+    capability_tags: tuple[str, ...] = ("symbolic", "logic", "deduction")
 
     def reason(self, task: ReasoningTask) -> ReasoningResult:
         facts = set(task.payload.get("facts", ()))
@@ -151,7 +152,7 @@ class GenerativeReasoner:
     """Generative paradigm: an injected completion fn, optionally verifier-scored."""
 
     name = "generative"
-    capability_tags = ("generative", "qa", "language")
+    capability_tags: tuple[str, ...] = ("generative", "qa", "language")
 
     def __init__(
         self,

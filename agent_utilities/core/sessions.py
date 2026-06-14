@@ -714,21 +714,24 @@ async def run_goal_loop(
             active_goals[goal_id]["status"] = final
             active_goals[goal_id]["summary"] = summary
             _persist_goal(goal_id)
-            try:
-                conn = _connect_db()
-                cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
-                    (final.value, time.time(), session_id),
+            if final is not None:
+                try:
+                    conn = _connect_db()
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
+                        (final.value, time.time(), session_id),
+                    )
+                    conn.commit()
+                    conn.close()
+                except Exception as e:
+                    logger.error(f"Error applying desired state to session: {e}")
+                logger.info(
+                    "Goal %s reconciled to %s by supervisor request",
+                    goal_id,
+                    final.value,
                 )
-                conn.commit()
-                conn.close()
-            except Exception as e:
-                logger.error(f"Error applying desired state to session: {e}")
             background_goal_runs.pop(goal_id, None)
-            logger.info(
-                "Goal %s reconciled to %s by supervisor request", goal_id, final.value
-            )
             return
 
         iterations_run += 1
@@ -744,7 +747,9 @@ async def run_goal_loop(
         # "did this iteration succeed" decision is wrapped in a durable action
         # keyed by iteration so a redelivery/resume returns the recorded result
         # rather than re-running the (potentially mutating) validation command.
-        async def _run_validation() -> dict[str, Any]:
+        async def _run_validation(
+            iterations_run: int = iterations_run,
+        ) -> dict[str, Any]:
             out = ""
             ok = False
             if validation_cmd:
