@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 233
+total_concepts: 234
 total_pillars: 20
 pillars:
 - AHE-3
@@ -359,6 +359,17 @@ concepts:
   - agent_utilities/graph/training_signals.py
   - agent_utilities/knowledge_graph/search_synthesis/__init__.py
   doc: ──────────────────
+- id: AHE-3.31
+  name: a recursive-distillation loop that fine-tunes a new prior from the search-distilled corpus, gates
+    the candidate model behind a monotone capability ratchet, and promotes it only on a non-regressing
+    improvement so test-time search converts into a stronger next prior
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/recursive_distill.py
+  doc: a recursive-distillation loop that fine-tunes a new prior from the search-distilled corpus, gates
+    the candidate model behind a monotone capability ratchet, and promotes it only on a non-regressing
+    improvement so test-time search converts into a stronger next prior
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
