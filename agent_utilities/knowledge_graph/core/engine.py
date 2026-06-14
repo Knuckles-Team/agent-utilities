@@ -338,18 +338,31 @@ class IntelligenceGraphEngine(
     )
 
     def _schema_valid_keys(self, label: str | None) -> set[str] | None:
-        """Declared columns for ``label`` on a schema-backed backend, else None."""
+        """Declared columns for ``label`` on a schema-backed backend, else None.
+
+        For an UNKNOWN label on LadybugDB/Kuzu (fixed typed tables), fall back to the
+        canonical ``GENERIC_NODE_COLUMNS`` — the backend auto-creates a matching
+        generic table, so the SET clause filters to those columns and ad-hoc props
+        fold into ``metadata`` (otherwise the write references undeclared columns →
+        Binder error → the node is dropped). The Postgres transpiler creates per-label
+        tables dynamically, so it stays schemaless (None) for unknown labels.
+        """
         if (
             not self.backend
             or self.backend.__class__.__name__ not in self._SCHEMA_BACKED
             or not label
         ):
             return None
-        from agent_utilities.models.schema_definition import SCHEMA
+        from agent_utilities.models.schema_definition import (
+            GENERIC_NODE_COLUMNS,
+            SCHEMA,
+        )
 
         for node in SCHEMA.nodes:
             if node.name == label:
                 return set(node.columns.keys())
+        if self.backend.__class__.__name__ == "LadybugBackend":
+            return set(GENERIC_NODE_COLUMNS)
         return None
 
     def _get_set_clause(
