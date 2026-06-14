@@ -113,6 +113,12 @@ async def generate_codemap_endpoint(payload: CodemapRequest):
 
     generator = CodemapGenerator(kg)
     try:
+        if payload.skeleton:
+            # ORCH-1.48 — fast token-budgeted ranked-symbol skeleton (no LLM pass).
+            text = await generator.skeleton(
+                prompt=payload.prompt, max_tokens=payload.max_tokens
+            )
+            return {"status": "success", "skeleton": text}
         artifact = await generator.create(prompt=payload.prompt, mode=payload.mode)
         return {
             "status": "success",
