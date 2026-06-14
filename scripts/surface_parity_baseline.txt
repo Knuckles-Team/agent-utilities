@@ -40,12 +40,6 @@ agent_utilities/knowledge_graph/orchestration/research_orchestrator.py
 agent_utilities/knowledge_graph/orchestration/research_subagent.py
 agent_utilities/knowledge_graph/research/research_intelligence_engine.py
 
-# ── Retrieval / RAG strategies → graph_search actions (one per strategy).
-agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py
-agent_utilities/knowledge_graph/retrieval/latent_topology_rag.py
-agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py
-agent_utilities/knowledge_graph/retrieval/single_shot_sira.py
-
 # ── KB extraction/linking + maintenance + workflows → graph_ingest/graph_analyze actions.
 agent_utilities/knowledge_graph/kb/entity_claim_extractor.py
 agent_utilities/knowledge_graph/kb/link_inference.py

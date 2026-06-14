@@ -2376,7 +2376,7 @@ def _build_server(bootstrap: bool = True):
         query: str = Field(description="Natural language search query or concept ID."),
         mode: str = Field(
             default="hybrid",
-            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:KG-2.12).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.7', 'ORCH-1.0').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.",
+            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:KG-2.12).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.7', 'ORCH-1.0').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.\n- 'latent': Latent-topology hierarchical routing (CONCEPT:KG-2.3).\n- 'sira': Single-shot SIRA sparsity-aligned context.\n- 'hard_negatives': Mine hard negatives for the query (CONCEPT:KG-2.3).\n- 'rerank': Hybrid semantic+keyword re-scoring of candidates.",
         ),
         top_k: int = Field(default=10, description="Maximum results to return."),
         self_correct: bool = Field(
@@ -2437,6 +2437,61 @@ def _build_server(bootstrap: bool = True):
                     return "\n".join([f"- {r.name}: {r.description}" for r in results])
                 except ImportError:
                     return "Error: capabilities module not available"
+            elif mode == "latent":
+                # KG-2.3 — route through the latent topology hierarchy.
+                from agent_utilities.knowledge_graph.retrieval.latent_topology_rag import (  # noqa: E501
+                    LatentTopologicalRAG,
+                )
+
+                results = LatentTopologicalRAG(engine).retrieve(query, top_k=top_k)
+            elif mode == "sira":
+                # Single-shot SIRA: hybrid-retrieve, then sparsity-align the set.
+                from agent_utilities.knowledge_graph.retrieval.single_shot_sira import (
+                    SingleShotSIRA,
+                )
+
+                base = engine.search_hybrid(query=query, top_k=top_k) or []
+                results = SingleShotSIRA(engine).align_context(base)
+            elif mode == "hard_negatives":
+                # KG-2.3 — mine hard negatives via the engine's hybrid retriever.
+                from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (  # noqa: E501
+                    HardNegativeMiner,
+                )
+
+                retriever = getattr(engine, "hybrid_retriever", None)
+                if retriever is None:
+                    return "Error: hybrid retriever unavailable for hard-negative mining."
+                negs = HardNegativeMiner(retriever).mine(query)
+                if not negs:
+                    return f"No hard negatives mined for: '{query}'"
+                return "\n".join(
+                    f"- {n.doc_id}: {getattr(n, 'reason', '')}" for n in negs
+                )
+            elif mode == "rerank":
+                # Semantic-retrieval hybrid re-scoring of a candidate set.
+                from agent_utilities.knowledge_graph.retrieval.semantic_retrieval_engine import (  # noqa: E501
+                    HybridSearchScorer,
+                )
+
+                base = engine.search_hybrid(query=query, top_k=top_k) or []
+                docs = [
+                    {
+                        "id": (r.get("node", r) or {}).get("id", ""),
+                        "text": (r.get("node", r) or {}).get("description", ""),
+                        "embedding": (r.get("node", r) or {}).get("embedding"),
+                    }
+                    for r in base
+                ]
+                qemb: list[float] = []
+                embed_model = getattr(
+                    getattr(engine, "hybrid_retriever", None), "embed_model", None
+                )
+                if embed_model is not None:
+                    try:
+                        qemb = embed_model.get_text_embedding(query)
+                    except Exception:  # noqa: BLE001
+                        qemb = []
+                results = HybridSearchScorer().score_documents(query, qemb, docs)
             else:
                 return f"Error: Unknown search mode '{mode}'"
 
