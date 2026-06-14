@@ -17,13 +17,23 @@ optional Langfuse/OpenBao — all via `docker compose` on a single machine.
 |---|---|
 | REST gateway (`python -m agent_utilities`, `:9000` via `HOST`/`PORT`) | container or host process; hosts the KG daemon (flock-elected) and serves `/api/graph/*`, `/api/fleet/*`, `/metrics` |
 | KG host daemon | inside the gateway process; headless alternative: `graph-os-daemon` (no HTTP) |
-| Knowledge graph | `tiered` with a durable **Postgres/pggraph tier** (`GRAPH_DB_URI`) |
+| Knowledge graph | `tiered` (or `fanout`) with a durable **Postgres tier** (`GRAPH_DB_URI`) — the Postgres image **must** carry **Apache AGE + pgvector + ParadeDB** (see note below) |
 | Durable platform state | sessions/goals/checkpoints/task queue on the same Postgres (`STATE_DB_URI`) |
 | Core `*-mcp` connectors | the `single-node-prod` profile from `mcp-fleet.registry.yml` (openbao, technitium, container-manager, vector, caddy, …) |
 | Caddy | HTTPS reverse proxy in front of the gateway + connectors |
 | OpenBao | optional secrets store |
 | Langfuse | optional observability |
 | Kafka / Keycloak / swarm | **not** in this tier (see [Enterprise](enterprise.md)) |
+
+> **Postgres extension requirement.** The durable tier must be a Postgres that
+> carries **Apache AGE** (`age`, native openCypher — the `backend: "age"` path),
+> **pgvector** (`vector`), and **ParadeDB** (`pg_search`), with `age` and
+> `pg_search` in `shared_preload_libraries`. The curated `registry.arpa/pggraph`
+> image (`services/pggraph/`, built `FROM paradedb/paradedb` PG18 + AGE 1.7.0)
+> bundles all three. The **stock `paradedb/paradedb` image has pgvector +
+> pg_search but NOT AGE** — using it leaves Postgres on the bounded regex
+> transpiler (`cypher_support="subset"`). See
+> [Graph Backend Architecture → Extension Dependencies](../architecture/graph_backends_architecture.md#extension-dependencies).
 
 ## Steps
 

@@ -147,16 +147,36 @@ engine generates:
 
 ### Extension Dependencies
 
-| Extension | Required | Purpose |
-|---|:---:|---|
-| **pgvector** | Recommended | Embedding storage + HNSW cosine search |
-| **pgGraph** | Optional | CSR graph traversal, shortest path, component analysis |
-| **ParadeDB pg_search** | Optional | BM25 full-text scoring |
-| **pg_trgm** | Optional | Trigram similarity for fuzzy text matching |
+**Postgres is the durable graph backend of choice here** (`backend: "age"`), and
+to be a first-class graph + vector + search store it needs **three** extensions
+installed — and, for AGE and pg_search, preloaded:
+
+| Extension | Required | `shared_preload_libraries` | Purpose |
+|---|:---:|:---:|---|
+| **Apache AGE** (`age`) | **Yes** (for `backend: "age"`) | **yes** | **Native openCypher** — runs the query the engine emits unchanged, so a Postgres connection has `cypher_support = "full"` (parity with Neo4j/FalkorDB). AGE **must** be in `shared_preload_libraries` or it won't load. |
+| **pgvector** (`vector`) | **Yes** | no | Embedding storage + HNSW cosine `semantic_search` |
+| **ParadeDB** (`pg_search`) | **Yes** | yes | BM25 full-text scoring |
+| pg_trgm | Optional | no | Trigram fuzzy text matching |
+| pgGraph | Optional (legacy) | no | CSR traversal for the regex-transpiler `backend: "postgresql"` path |
+
+> **Why AGE, not just the transpiler.** Without AGE, a Postgres connection falls
+> back to the bounded regex transpiler (`backend: "postgresql"`, `cypher_support
+> = "subset"`) — fine as a single store, but it cannot serve the full query
+> surface a fan-out mirror set shares (CONCEPT:KG-2.74). With AGE, Postgres is a
+> peer of Neo4j/FalkorDB and the **preferred authority**.
+
+**The curated image bundles all three.** `services/pggraph/` builds
+`registry.arpa/pggraph` **FROM `paradedb/paradedb:latest` (PostgreSQL 18)** — which
+already ships `vector` + `pg_search` — and adds **Apache AGE 1.7.0** (the release
+that introduced PG18 support). The stack `command` sets
+`shared_preload_libraries=pg_search,pg_cron,pg_stat_statements,age` and
+`init-extensions.sql` runs `CREATE EXTENSION` for `vector`, `age`, and
+`pg_search`. The **stock `paradedb/paradedb` image does NOT include AGE** — using
+it directly leaves a Postgres connection on the `subset` transpiler path.
 
 The backend **gracefully degrades** when extensions are missing — CRUD and basic
-search work with plain PostgreSQL; graph traversal requires pgGraph; vector
-search requires pgvector.
+search work with plain PostgreSQL; native Cypher requires AGE; vector search
+requires pgvector; BM25 requires pg_search.
 
 ## Configuration
 
