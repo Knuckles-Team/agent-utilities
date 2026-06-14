@@ -87,3 +87,41 @@ def test_run_one_cycle_intake_only_propose_only():
     assert rep["topics_intake"] == 2
     assert rep["topics_resolved"] == 0
     assert rep["errors"] == []
+
+
+def test_run_one_cycle_intake_papers_runs_research_pipeline(monkeypatch):
+    """Caller-supplied papers trigger the unified intake stage (research-pipeline
+    runner) before assimilate (CONCEPT:KG-2.77)."""
+    from types import SimpleNamespace
+
+    import agent_utilities.automation.research_pipeline as rp
+
+    seen: dict = {}
+
+    class _FakeRunner:
+        def __init__(self, engine=None, **kw):
+            seen["engine"] = engine
+
+        async def run_daily_pipeline(self, papers=None):
+            seen["papers"] = papers
+            return SimpleNamespace(
+                papers_discovered=len(papers or []),
+                papers_relevant=1,
+                papers_marginal=0,
+                papers_already_known=0,
+                owl_inferences=0,
+                errors=[],
+            )
+
+    monkeypatch.setattr(rp, "ResearchPipelineRunner", _FakeRunner)
+
+    eng = _StubEngine([], [])
+    rep = GoldenLoopController(eng).run_one_cycle(
+        papers=[{"id": "2606.09498", "title": "Self-Harness"}],
+        assimilate=False,
+        synthesize=False,
+        breadth=False,
+    )
+    assert rep["intake_papers"]["papers_discovered"] == 1
+    assert seen["papers"][0]["id"] == "2606.09498"
+    assert rep["errors"] == []

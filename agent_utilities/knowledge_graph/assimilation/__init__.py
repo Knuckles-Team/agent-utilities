@@ -19,12 +19,14 @@ from .breadth_ingest import (
     organize_libraries,
     run_breadth_ingest,
 )
+from .concept_matcher import ConceptMatcher, FeatureMatch, Match, MatchReport
 from .dedup import DedupReport, dedup_features
-from .gap_analysis import GapReport, auto_satisfy, is_closed, open_features
+from .gap_analysis import GapReport, is_closed, open_features
 from .ingest import (
     IngestReport,
     canonical_source_id,
     content_fingerprint,
+    enrich_concepts,
     ingest_concepts,
     ingest_conversations,
     ingest_documents,
@@ -56,7 +58,6 @@ __all__ = [
     "DedupReport",
     "dedup_features",
     "GapReport",
-    "auto_satisfy",
     "open_features",
     "is_closed",
     "SynergyBundle",
@@ -76,6 +77,11 @@ __all__ = [
     "ingest_documents",
     "ingest_conversations",
     "ingest_concepts",
+    "enrich_concepts",
+    "ConceptMatcher",
+    "Match",
+    "FeatureMatch",
+    "MatchReport",
     "PlanProposal",
     "hydrate_feature",
     "synthesize_plan_for_feature",
