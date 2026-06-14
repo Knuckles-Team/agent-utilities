@@ -150,6 +150,39 @@ def _iter_source_embeddings(source: Any) -> Iterator[tuple[str, list[float]]]:
             yield str(nid), emb
 
 
+def _ensure_id_indexes(backend: GraphBackend, labels: set[str]) -> int:
+    """Create an ``:Label(id)`` lookup index per label on the target, so the bulk
+    MERGE-on-``{id}`` writes (nodes) and labelled MATCH-on-``{id}`` (edges) are
+    index-served instead of full-scanning. Only Neo4j/FalkorDB need + support this
+    DDL; Kuzu/Ladybug already PK their id column, Postgres/AGE index their own
+    tables. Best-effort and idempotent — an unsupported or already-present index is
+    swallowed. Returns the number of indexes created/confirmed.
+    """
+    if backend.__class__.__name__ not in ("Neo4jBackend", "FalkorDBBackend"):
+        return 0
+    made = 0
+    for label in labels:
+        # Neo4j 5 takes ``IF NOT EXISTS``; FalkorDB does not, so fall back to the
+        # bare form and treat an "already indexed" error as success.
+        for stmt in (
+            f"CREATE INDEX IF NOT EXISTS FOR (n:`{label}`) ON (n.id)",
+            f"CREATE INDEX FOR (n:`{label}`) ON (n.id)",
+        ):
+            try:
+                backend.execute(stmt)
+                made += 1
+                break
+            except Exception as exc:  # noqa: BLE001
+                if any(w in str(exc).lower() for w in ("already", "equiv", "exist")):
+                    made += 1
+                    break
+                continue
+    logger.info(
+        "copy_graph: ensured %d id index(es) on %s", made, type(backend).__name__
+    )
+    return made
+
+
 def _portable_writer(backend: GraphBackend) -> Any:
     """A minimal IntelligenceGraphEngine subclass exposing only the portable
     backend-only upserts (``_upsert_node`` / ``_upsert_edge``) — constructed without
@@ -194,11 +227,25 @@ def copy_graph(
         "errors": 0,
         "nodes_missing": 0,
         "edges_missing": 0,
+        "indexes": 0,
     }
 
     # --- nodes first (edges MATCH on existing nodes) ---
+    # Stream the nodes (no upfront materialisation stall) while building the
+    # node_id→label map — edges then write with a labelled, index-served MATCH and
+    # skip 2 lookup round-trips each. Create each label's id index the first time we
+    # see it, BEFORE its nodes are written, so the MERGE-on-id is index-served too.
+    # Without an id index every MERGE/MATCH-on-id full-scans the target: O(n) per
+    # node and per edge, i.e. O(n²) overall — fatal at 10^5-edge scale (≈17× slower
+    # per edge measured against Neo4j at 80k nodes).
+    node_labels: dict[str, str] = {}
+    indexed_labels: set[str] = set()
     labels_seen: dict[str, int] = {}
     for node_id, label, props in _iter_source_nodes(source):
+        node_labels[node_id] = label
+        if label not in indexed_labels:
+            summary["indexes"] += _ensure_id_indexes(target_backend, {label})
+            indexed_labels.add(label)
         try:
             writer._upsert_node(label, node_id, {"id": node_id, **props})
             summary["nodes"] += 1
@@ -207,12 +254,19 @@ def copy_graph(
             summary["errors"] += 1
             logger.debug("copy_graph: node %s (%s) failed: %s", node_id, label, exc)
 
-    # --- edges ---
+    # --- edges (label hints → indexed MATCH, no per-edge label lookup) ---
     n_src_edges = 0
     for src, dst, rel, props in _iter_source_edges(source):
         n_src_edges += 1
         try:
-            writer._upsert_edge(src, dst, (rel or "RELATED_TO").upper(), props)
+            writer._upsert_edge(
+                src,
+                dst,
+                (rel or "RELATED_TO").upper(),
+                props,
+                source_label=node_labels.get(src),
+                target_label=node_labels.get(dst),
+            )
             summary["edges"] += 1
         except Exception as exc:  # noqa: BLE001
             summary["errors"] += 1
