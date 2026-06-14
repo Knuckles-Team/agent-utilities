@@ -68,7 +68,9 @@ class SearchDistillationHarvester:
 
     def __post_init__(self) -> None:
         if self.guard is None:
-            from agent_utilities.harness.corpus_collapse_guard import CorpusCollapseGuard
+            from agent_utilities.harness.corpus_collapse_guard import (
+                CorpusCollapseGuard,
+            )
 
             self.guard = CorpusCollapseGuard()
 
@@ -90,7 +92,12 @@ class SearchDistillationHarvester:
         if not ok:
             logger.debug("[OS-5.36] collapse guard rejected row: %s", reason)
             return None
-        row = SFTRow(prompt, completion, float(result.score), str(getattr(result, "reasoner", "")))
+        row = SFTRow(
+            prompt,
+            completion,
+            float(result.score),
+            str(getattr(result, "reasoner", "")),
+        )
         self._corpus.append(row)
         self._persist(row)
         return row

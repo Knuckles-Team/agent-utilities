@@ -19,8 +19,9 @@ ParallelEngine over a fixed suite while tests use a synthetic collective.
 
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +69,15 @@ def fit_scaling_law(points: list[tuple[int, float]]) -> ScalingLaw | None:
     n = len(xs)
     mx, my = sum(xs) / n, sum(ys) / n
     sxx = sum((x - mx) ** 2 for x in xs)
-    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=False))
     if sxx == 0:
         return None
     alpha = sxy / sxx
     intercept = my - alpha * mx
     ss_tot = sum((y - my) ** 2 for y in ys)
-    ss_res = sum((y - (alpha * x + intercept)) ** 2 for x, y in zip(xs, ys))
+    ss_res = sum(
+        (y - (alpha * x + intercept)) ** 2 for x, y in zip(xs, ys, strict=False)
+    )
     r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
     return ScalingLaw(alpha, intercept, r2, _regime(alpha), pts)
 

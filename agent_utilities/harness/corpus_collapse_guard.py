@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 def _cosine(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
     return dot / (na * nb) if na and nb else 0.0
@@ -83,7 +83,10 @@ class CorpusCollapseGuard:
             frac = (self._synthetic + 1) / (self._total + 1)
             if frac > self.synthetic_cap:
                 self.rejected += 1
-                return False, f"synthetic fraction {frac:.2f} > cap {self.synthetic_cap:.2f}"
+                return (
+                    False,
+                    f"synthetic fraction {frac:.2f} > cap {self.synthetic_cap:.2f}",
+                )
         # 3. embedding novelty — too close to an existing row narrows the distribution.
         if embedding is not None and self._embeddings:
             novelty = 1.0 - max(_cosine(embedding, e) for e in self._embeddings)
@@ -113,7 +116,10 @@ class CorpusCollapseGuard:
 
     def is_collapsing(self) -> bool:
         """True once the corpus has narrowed: score spread vanished or synthetic-saturated."""
-        if len(self._scores) >= self.min_samples and self.diversity() < self.spread_floor:
+        if (
+            len(self._scores) >= self.min_samples
+            and self.diversity() < self.spread_floor
+        ):
             return True
         return self._total > 0 and self.synthetic_fraction >= self.synthetic_cap
 
