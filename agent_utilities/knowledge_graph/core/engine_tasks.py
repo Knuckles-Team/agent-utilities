@@ -708,9 +708,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_golden_loop,
                 )
             )
-        # SAI factory self-specialization (CONCEPT:AHE-3.29) — opt-in, OPT-IN
-        # (autonomous compute). Grounds a learned world model in persisted
-        # transition history and specializes it. Enable with KG_SAI_FACTORY=1.
+        # SAI factory self-specialization (CONCEPT:AHE-3.29) — native, ON by default
+        # (LLM-free, bounded, propose-only, no-op when idle). Grounds a learned world
+        # model in persisted transition history and specializes it. KG_SAI_FACTORY=0 disables.
         if _cfg.kg_sai_factory:
             jobs.append(
                 (

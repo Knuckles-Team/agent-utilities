@@ -111,3 +111,65 @@ async def test_enrich_text_never_raises_on_extractor_failure(monkeypatch):
     # Best-effort contract: enrichment degrades to zero, ingestion is unharmed.
     out = await eng._enrich_text("d", "text", "document")
     assert out["facts"] == 0
+
+
+@pytest.mark.asyncio
+async def test_ingest_drains_enrichable_payloads_centrally(tmp_path, monkeypatch):
+    """The central seam in ``ingest()`` enriches every adaptor's text payload —
+    proving enrichment is global (a prompt now enriches without the prompt
+    adaptor calling ``_enrich_text`` itself)."""
+    from agent_utilities.knowledge_graph.ingestion.engine import (
+        ContentType,
+        IngestionManifest,
+    )
+
+    eng, _backend = _engine()
+    calls: list[tuple[str, str]] = []
+
+    async def _recorder(source_id, text, source_type, title="", **_kw):  # noqa: ANN001
+        calls.append((source_id, source_type))
+        return {"concepts": 2, "facts": 3}
+
+    monkeypatch.setattr(eng, "_enrich_text", _recorder)
+    # Avoid the durable delta-skip / hashing machinery in this unit test.
+    monkeypatch.setattr(eng, "_content_identity", lambda _m: None)
+
+    prompt = tmp_path / "p.md"
+    prompt.write_text("You are a helpful assistant for ACME Corp.", encoding="utf-8")
+    manifest = IngestionManifest(
+        content_type=ContentType.PROMPT, source_uri=str(prompt)
+    )
+
+    result = await eng.ingest(manifest)
+
+    assert result.status == "success"
+    assert calls and calls[0][1] == "prompt"  # the prompt payload was enriched
+    assert result.details["enrichment"] == {"concepts": 2, "facts": 3}
+
+
+@pytest.mark.asyncio
+async def test_ingest_enrich_opt_out(tmp_path, monkeypatch):
+    from agent_utilities.knowledge_graph.ingestion.engine import (
+        ContentType,
+        IngestionManifest,
+    )
+
+    eng, _backend = _engine()
+
+    async def _boom(*_a, **_kw):  # noqa: ANN002, ANN003
+        raise AssertionError("enrich must not run when enrich=False")
+
+    monkeypatch.setattr(eng, "_enrich_text", _boom)
+    monkeypatch.setattr(eng, "_content_identity", lambda _m: None)
+
+    prompt = tmp_path / "p.md"
+    prompt.write_text("hello", encoding="utf-8")
+    manifest = IngestionManifest(
+        content_type=ContentType.PROMPT,
+        source_uri=str(prompt),
+        metadata={"enrich": False},
+    )
+
+    result = await eng.ingest(manifest)
+    assert result.status == "success"
+    assert "enrichment" not in result.details
