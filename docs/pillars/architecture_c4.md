@@ -189,6 +189,9 @@ C4Component
         Component(budget, "Retrieval Budget", "Python", "KG-2.1: token-budgeted, task-scoped retrieval (no context bloat)")
         Component(streams, "Stream Adapters", "Python", "KG-2.6: real Kafka/NATS ingestion (optional deps)")
         Component(intel, "Intelligence Extractors", "Python", "KG-2.8: distil calls/docs → Insight/Fact/Framework/Playbook")
+        Component(reasoner_router, "🔬 Reasoner Router", "Python", "KG-2.68: outcome-learning paradigm router — selects a reasoning paradigm via CapabilityIndex reward-EMA and feeds the scored result back. Entry: KnowledgeGraph.reason()")
+        Component(world_model, "🔬 World Model", "Python", "KG-2.67: action-conditioned state×action→next_state+reward over the Markov kernel; rollout + graph-native trajectory persistence")
+        Component(prog_synth, "🔬 Program Synthesis", "Python", "KG-2.69: inductive DSL search with an MDL/Occam (Solomonoff) selection prior")
     }
 
     Rel(engine, backend, "Tier 1: Cypher persistence")
@@ -226,6 +229,31 @@ C4Component
     Rel(budget, retrieval, "Caps retrieved context to a token budget")
     Rel(streams, pipeline, "Feeds live events into ingestion")
     Rel(intel, pipeline, "Distils documents/calls into operating-intelligence nodes")
+    Rel(reasoner_router, retrieval, "KG-2.68: routes paradigms via CapabilityIndex designate/record_outcome (reward-EMA)")
+    Rel(reasoner_router, world_model, "Model-based planning paradigm")
+    Rel(reasoner_router, prog_synth, "Inductive synthesis paradigm")
+```
+
+### Self-Improving Reasoning Substrate (cross-pillar)
+
+The reasoning router (KG-2.68), world model (KG-2.67) and program synthesizer (KG-2.69)
+above are the REASON stage of a single closed loop that spans KG-2, AHE-3, SAFE-1 and OS-5:
+**route → reason → measure → learn**, cost-bounded and corrigible, with winning traces
+distilled back into training data at scale. The router *learns which paradigm works for
+which task class* by reusing the reward-aware `CapabilityIndex` — paradigm selection
+self-improves. See **[Self-Improving Reasoning Substrate](../architecture/self_improving_reasoning_substrate.md)**
+for the full component + dynamic diagrams and the concept→role map.
+
+```mermaid
+flowchart LR
+    task([Task]) --> ROUTE["ROUTE · KG-2.68 router"]
+    ROUTE --> REASON["REASON · KG-2.69 / KG-2.67 / deductive / generative"]
+    REASON --> MEASURE["MEASURE · SAFE-1.1 + AHE-3.24"]
+    MEASURE --> LEARN["LEARN · record_outcome → reward EMA"]
+    LEARN -- routing reward --> ROUTE
+    LEARN --> LEDGER["AHE-3.26 / SAFE-1.3 RSI ledger"]
+    MEASURE -. winning traces .-> DISTIL["OS-5.34 distil → SAFE-1.4 guard"]
+    REASON -. at scale .-> MARKET["ORCH-1.46/47/48 collective"]
 ```
 
 ### Pillar 3: Agentic Harness (AHE)
