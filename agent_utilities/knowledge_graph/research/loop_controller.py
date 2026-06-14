@@ -1,19 +1,25 @@
-"""The self-evolution "golden loop" controller (propose-only v1).
+"""The Loop engine controller — one hot path for every long-running objective.
 
-CONCEPT:KG-2.7 / KG-2.10 — research assimilation + orchestration synthesis.
+CONCEPT:KG-2.7 / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis,
+generalized to advance **any** active :class:`~..research.loops.Loop` (research /
+develop / skill) through ONE cycle. Formerly the "golden loop"; renamed because goals,
+research topics, failure gaps and skill executions all collapse into the single Loop
+unit the controller advances — there is no separate goal-runner or research-runner.
 
-Composes existing primitives into one cycle that makes the KG self-improving
-WITHOUT auto-merging anything (propose-only):
+The research path composes existing primitives into one propose-only cycle that makes
+the KG self-improving WITHOUT auto-merging anything:
 
-    intake  → unresolved ``Concept`` topics (no ``ADDRESSED_BY``)
+    intake  → active Loops (research topics with no ``ADDRESSED_BY``; KG-2.78)
     acquire → semantically related sources for each topic (research/search)
     resolve → ``ADDRESSES`` edges source→topic so the loop converges
+    reason  → OWL/RDF reasoning over the ecosystem, harvest extrapolations (KG-2.79)
     distill → ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/`` (gated)
     synth   → a ``TeamSpec``/``AgentSpec`` proposal persisted to the KG
 
-Every artifact is a DRAFT/proposal: spec markdown under ``.specify/`` and KG
+Every research artifact is a DRAFT/proposal: spec markdown under ``.specify/`` and KG
 proposal nodes. No code execution, no PR merge, no edits outside ``.specify``.
-Exposed on-demand (skill-workflow / MCP) and via a throttled daemon tick.
+Exposed on-demand (the ``graph_loops`` / ``graph_orchestrate`` MCP tools and the REST
+twin) and via a throttled daemon tick.
 """
 
 from __future__ import annotations
@@ -68,8 +74,8 @@ def _run_coro(coro: Any) -> Any:
         return ex.submit(lambda: asyncio.run(coro)).result()
 
 
-class GoldenLoopController:
-    """Run one propose-only self-evolution cycle over the KG."""
+class LoopController:
+    """Advance the active Loops one propose-only cycle over the KG (CONCEPT:KG-2.78)."""
 
     def __init__(
         self,
@@ -261,7 +267,7 @@ class GoldenLoopController:
                     srcs = acquire_for_topic(self.engine, t, embed_fn=embed_fn)
                     if srcs:
                         n = mark_addressed(
-                            self.engine, t["id"], srcs, source="golden_loop"
+                            self.engine, t["id"], srcs, source="loop_engine"
                         )
                         if n:
                             report["topics_resolved"] += 1
@@ -559,7 +565,7 @@ class GoldenLoopController:
                 cycle_id,
                 "EvolutionCycle",
                 properties={
-                    "triggered_by": "golden_loop",
+                    "triggered_by": "loop_engine",
                     "topics_scanned": report["topics_intake"],
                     "created_at": now_iso,
                     "timestamp": now_iso,
@@ -745,15 +751,6 @@ class _EngineReader:
         return []
 
 
-def run_golden_loop_cycle(engine: Any = None, **kwargs: Any) -> dict[str, Any]:
-    """Convenience entry: run one cycle against the active (or given) engine."""
-    if engine is None:
-        from ..core.engine import IntelligenceGraphEngine
-
-        engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
-    return GoldenLoopController(engine).run_one_cycle(**kwargs)
-
-
 def run_assimilation_pass(
     engine: Any = None,
     *,
@@ -778,7 +775,7 @@ def run_assimilation_pass(
         from ..core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
-    rep = GoldenLoopController(engine)._run_assimilate(force=force)
+    rep = LoopController(engine)._run_assimilate(force=force)
     # Synthesis is idempotent — plans upsert by ``plan_id`` — so run it whenever a
     # caller asks for it, even if the rank pass was skipped as "unchanged".
     # Previously synthesis was gated behind the rank watermark, so a prior bare

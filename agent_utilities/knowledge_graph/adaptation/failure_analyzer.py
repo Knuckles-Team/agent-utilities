@@ -629,11 +629,11 @@ def run_failure_ingest(engine: Any) -> dict[str, Any]:
     report = analyzer.run_once()
     gaps = report.get("gap_concepts", [])
     if gaps:
-        from ..research.golden_loop import GoldenLoopController
+        from ..research.loop_controller import LoopController
 
         check = analyzer.make_regression_check(gaps)
         gap_topics = [{"id": g["id"], "name": g["name"]} for g in gaps]
-        report["remediation"] = GoldenLoopController(
+        report["remediation"] = LoopController(
             engine, regression_check=check
         ).run_one_cycle(
             max_topics=min(len(gaps), 5),

@@ -136,7 +136,7 @@ class TestGovernedMerge:
             promoter=lambda spec: True,
         )
         merger.consider(_strong_team())
-        records = merger.audit.query(action="golden_loop.auto_merge")
+        records = merger.audit.query(action="loop_engine.auto_merge")
         assert records and records[0].details["merged"] is True
 
 
@@ -155,15 +155,15 @@ class _FakeEngine:
         self.backend = _FakeBackend()
 
 
-class TestGoldenLoopAutoMergeLivePath:
-    """Wire-first: GoldenLoopController._synthesize_team consults the merger."""
+class TestLoopAutoMergeLivePath:
+    """Wire-first: LoopController._synthesize_team consults the merger."""
 
     def _controller(self, monkeypatch, *, auto_merge, team):
-        from agent_utilities.knowledge_graph.research.golden_loop import (
-            GoldenLoopController,
+        from agent_utilities.knowledge_graph.research.loop_controller import (
+            LoopController,
         )
 
-        ctrl = GoldenLoopController(_FakeEngine(), auto_merge=auto_merge)
+        ctrl = LoopController(_FakeEngine(), auto_merge=auto_merge)
 
         # Replace the synthesis primitives at their SOURCE modules (the controller
         # re-imports them at call time) so the cycle yields our team proposal

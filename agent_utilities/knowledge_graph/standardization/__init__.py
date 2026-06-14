@@ -20,7 +20,7 @@ The decision brain that turns a fully-harvested enterprise knowledge graph into
 Reached from the execution plane through ``kg.ontology`` (the OntologySystem binds
 :data:`ENTERPRISE_STANDARD_REGISTRY` as ``ontology.standards``) and exposed over
 the ``graph_orchestrate(action="standardize")`` MCP action. Mirrors
-``research/golden_loop.run_assimilation_pass`` — a single propose-only pass the
+``research/loop_controller.run_assimilation_pass`` — a single propose-only pass the
 daemon can schedule.
 """
 

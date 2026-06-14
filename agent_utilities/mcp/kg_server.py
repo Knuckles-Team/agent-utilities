@@ -4349,7 +4349,7 @@ def _build_server(bootstrap: bool = True):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize, failure_ingest, publish_proposal). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, standardize, failure_ingest, publish_proposal). 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -4843,19 +4843,19 @@ def _build_server(bootstrap: bool = True):
                 except Exception as exc:
                     return f"Error exporting workflow: {exc}"
 
-            elif action == "golden_loop":
-                # Propose-only self-evolution cycle (CONCEPT:KG-2.7): intake
-                # unresolved topics → acquire → ADDRESSES-resolve → optional
+            elif action == "loop_cycle":
+                # Advance the Loop engine one cycle (CONCEPT:KG-2.7/2.78): intake
+                # active Loops → acquire → ADDRESSES-resolve → optional
                 # distil/synthesize as DRAFTS/proposals. Never auto-merges.
                 import json as _json
 
-                from agent_utilities.knowledge_graph.research.golden_loop import (
-                    GoldenLoopController,
+                from agent_utilities.knowledge_graph.research.loop_controller import (
+                    LoopController,
                 )
 
                 engine = _get_engine()
                 _mt = max_fan_out if isinstance(max_fan_out, int) else 5
-                rep = GoldenLoopController(engine).run_one_cycle(
+                rep = LoopController(engine).run_one_cycle(
                     max_topics=_mt if _mt > 0 else 5,
                 )
                 return _json.dumps(rep, indent=2, default=str)
@@ -4904,7 +4904,7 @@ def _build_server(bootstrap: bool = True):
                 # task, also propose grounded SDD plans for the top open gaps.
                 import json as _json
 
-                from agent_utilities.knowledge_graph.research.golden_loop import (
+                from agent_utilities.knowledge_graph.research.loop_controller import (
                     run_assimilation_pass,
                 )
 

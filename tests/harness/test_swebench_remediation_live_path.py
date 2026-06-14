@@ -63,7 +63,7 @@ def test_remediate_runs_golden_cycle_with_gap_topics():
             captured["topics"] = topics
             return {"ok": True, "topics_seen": len(topics or [])}
 
-    summary = remediate(_results(), engine, golden_loop=_Loop(), run_cycle=True)
+    summary = remediate(_results(), engine, loop_controller=_Loop(), run_cycle=True)
     assert summary["cycle"]["ok"] is True
     assert captured["topics"] == summary["gaps"]  # the filed gaps drive the cycle
 
