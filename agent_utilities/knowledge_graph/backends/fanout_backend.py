@@ -42,6 +42,7 @@ built when an operator configures a mirror set.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -51,6 +52,35 @@ from .outbox import GraphOutbox, OutboxEntry
 from .tiered_backend import _is_write
 
 logger = logging.getLogger(__name__)
+
+# The engine's edge-write shape (IntelligenceGraphEngine._upsert_edge):
+# ``MATCH (s.. {id: $sid}), (t.. {id: $tid}) MERGE (s)-[r:REL]->(t) [SET ...]``.
+# Matching it lets the fan-out replay edges STRUCTURALLY (src/dst/rel/props) so
+# each mirror gets a dialect-correct write — e.g. LadybugDB's strict REL schema
+# needs the props folded into its ``properties`` JSON column, which the raw
+# per-prop ``SET r.`k` = $k`` cypher (correct for Neo4j/FalkorDB/AGE) cannot do.
+_EDGE_MERGE_RE = re.compile(r"MERGE\s*\(s\)-\[r:(\w+)\]->\(t\)")
+
+
+def _edge_upsert_payload(
+    query: str, params: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """If ``query`` is the engine's edge MERGE, return a structured upsert payload
+    (``source_id`` / ``target_id`` / ``rel_type`` / ``props``); else ``None``."""
+    params = params or {}
+    if "sid" not in params or "tid" not in params:
+        return None
+    m = _EDGE_MERGE_RE.search(query or "")
+    if not m:
+        return None
+    props = {k: v for k, v in params.items() if k not in ("sid", "tid")}
+    return {
+        "source_id": params["sid"],
+        "target_id": params["tid"],
+        "rel_type": m.group(1),
+        "props": props,
+    }
+
 
 # Drainer cadence (config discipline: bounded constants, not per-deploy knobs).
 _BATCH = 256  # entries applied per drain pass
@@ -85,6 +115,8 @@ class FanOutBackend(GraphBackend):
     ) -> None:
         self._authority = authority
         self._mirrors: dict[str, GraphBackend] = dict(mirrors)
+        # Cached per-mirror portable writers (lazy) for structural edge replay.
+        self._writers: dict[int, Any] = {}
         self._state: dict[str, _MirrorState] = {
             name: _MirrorState() for name in self._mirrors
         }
@@ -132,7 +164,14 @@ class FanOutBackend(GraphBackend):
             return self._authority.execute(query, params)
         result = self._authority.execute(query, params)
         self._authority_writes += 1
-        self._enqueue("execute", {"query": query, "params": params})
+        # Edge writes mirror STRUCTURALLY so each backend gets a dialect-correct
+        # write (Ladybug folds props into its `properties` JSON column); everything
+        # else forwards the raw cypher (portable for node MERGE + ad-hoc writes).
+        edge = _edge_upsert_payload(query, params)
+        if edge is not None:
+            self._enqueue("upsert_edge", edge)
+        else:
+            self._enqueue("execute", {"query": query, "params": params})
         return result
 
     def execute_batch(
@@ -173,6 +212,13 @@ class FanOutBackend(GraphBackend):
         op = entry.op
         if op == "execute":
             backend.execute(p["query"], p.get("params"))
+        elif op == "upsert_edge":
+            # Dialect-correct edge write per backend (reuses the engine's
+            # backend-aware _upsert_edge: native props for Neo4j/FalkorDB/AGE,
+            # `properties` JSON column for strict-schema LadybugDB).
+            self._edge_writer(backend)._upsert_edge(
+                p["source_id"], p["target_id"], p["rel_type"], p.get("props") or {}
+            )
         elif op == "execute_batch":
             backend.execute_batch(p["query"], p.get("batch") or [])
         elif op == "add_embedding":
@@ -183,6 +229,18 @@ class FanOutBackend(GraphBackend):
             backend.prune(p.get("criteria") or {})
         else:  # pragma: no cover — forward-compat guard
             logger.warning("FanOutBackend: unknown outbox op %r; skipping", op)
+
+    def _edge_writer(self, backend: GraphBackend) -> Any:
+        """A cached portable writer for ``backend`` (reuses the engine's
+        dialect-aware ``_upsert_edge`` without the engine's heavy machinery)."""
+        key = id(backend)
+        w = self._writers.get(key)
+        if w is None:
+            from ..migration import _portable_writer
+
+            w = _portable_writer(backend)
+            self._writers[key] = w
+        return w
 
     def _drain(self, mirror: str) -> None:
         """Background loop: apply this mirror's outbox tail, in order, with
