@@ -50,7 +50,7 @@ __all__ = [
     # Provenance-completeness critic gate (CONCEPT:AHE-3.13)
     "ProvenanceCriticGate",
     "ProvenanceVerdict",
-    # Robust multi-format edit-application engine (CONCEPT:ORCH-1.46)
+    # Robust multi-format edit-application engine (CONCEPT:ORCH-1.49)
     "Edit",
     "EditOutcome",
     "EditResult",
