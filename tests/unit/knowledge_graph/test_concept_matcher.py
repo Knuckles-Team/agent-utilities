@@ -251,9 +251,10 @@ def test_explicit_id_beats_embedding_nearest():
     }
     eng = _Engine(nodes)
     m = ConceptMatcher(embed_fn=_emb, use_llm=False)
-    rep = m.satisfy(eng, feature_types=("capability",), concept_types=("concept",))
+    m.satisfy(eng, feature_types=("capability",), concept_types=("concept",))
     e = [p for *_, p in eng.graph._edges if p["_rel"] == "SATISFIED_BY"][0]
-    assert e["concept"] == "KG-2.7" and e["match"] == "id"  # id signal, not embedding
+    # id signal wins → matched the referenced concept node, not the embedding-nearest
+    assert e["concept"] == "concept:KG-2.7" and e["match"] == "id"
 
 
 def test_body_citation_does_not_count_as_declared_identity():
