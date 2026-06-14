@@ -221,6 +221,7 @@ graph TD
 | KG-2.70 | Evidence-Subgraph Task Synthesis | Build a bounded evidence-graph workspace around an answer entity for shortcut-resistant deep-search task synthesis (`knowledge_graph/search_synthesis/evidence_subgraph.py`; distills FORT-Searcher arXiv:2606.12087) |
 | KG-2.71 | Shortcut-Risk Detectors | Four graph-query detectors — single-clue selectivity, evidence co-coverage, exposed constants, prior-knowledge binding — over the evidence graph (`knowledge_graph/search_synthesis/shortcut_risks.py`) |
 | KG-2.72 | Question Formulation & Adversarial Refinement | Render a clue subgraph as a verifiable question (name withholding) and adversarially refine until no shortcut trips (`knowledge_graph/search_synthesis/question_formulation.py`) |
+| KG-2.73 | Learned World-Model Backend + SAI Track | Parametric latent-dynamics backend for the world model that generalizes to unseen `(state, action)` (ridge map over embeddings), plus a `WorldModelVerifier` making prediction accuracy a SAI specialization domain (`knowledge_graph/core/world_model.py`, `harness/world_model_task.py`) |
 
 ### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.21)
 
