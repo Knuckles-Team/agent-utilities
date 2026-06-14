@@ -38,8 +38,13 @@ def test_agent_config_overrides():
 
 
 @pytest.mark.concept("CONCEPT:OS-5.0")
-def test_get_env_file_default():
-    # When not in a specific package, it returns .env (absolute path)
+def test_get_env_file_default(monkeypatch):
+    # Under the test harness, get_env_file returns None so unit tests never
+    # inherit a deployment .env (kept hermetic / CI-equivalent).
+    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
+    assert get_env_file() is None
+    # In production (not testing), it resolves to a .env path.
+    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
     assert str(get_env_file()).endswith(".env")
 
 

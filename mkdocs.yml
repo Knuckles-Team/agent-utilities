@@ -98,6 +98,7 @@ nav:
       - Graph-Native Assimilation Engine: architecture/assimilation_engine.md
       - Knowledge Distillation → Skill-Graphs: architecture/knowledge_distillation_skill_graphs.md
       - Failure-Driven Evolution: architecture/failure_driven_evolution.md
+      - Edit-Application Engine: architecture/edit_application_engine.md
       - Durable-State Externalization: architecture/state_externalization.md
       - Scaling the Gateway: architecture/gateway_scaling.md
       - Tenant-Partitioned Engine Sharding: architecture/engine_sharding.md

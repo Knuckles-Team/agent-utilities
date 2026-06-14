@@ -209,3 +209,23 @@ def clone_missing_projects(yml_path: str | None = None) -> list[Path]:
             logger.debug(f"Project already exists: {target_path}")
 
     return project_paths
+
+
+def workspace_project_roots(yml_path: str | None = None) -> list[str]:
+    """Local paths of the workspace.yml-defined projects that exist on disk.
+
+    Read-only sibling of :func:`clone_missing_projects` — it never clones; it
+    resolves the same repository paths and keeps only those present locally.
+    This is what lets the golden loop's breadth stage self-configure from the
+    XDG ``workspace.yml`` (ALL ecosystem projects) instead of requiring
+    ``KG_BREADTH_REPO_ROOTS`` to be set by hand (CONCEPT:KG-2.7).
+    """
+    data = load_workspace_yml(yml_path)
+    if not data:
+        return []
+    base_path = Path(data.get("path", os.getcwd()))
+    roots: list[str] = []
+    for target_path, _url in _extract_repositories(data, base_path):
+        if target_path.is_dir():
+            roots.append(str(target_path))
+    return roots

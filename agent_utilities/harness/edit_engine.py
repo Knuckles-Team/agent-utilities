@@ -1,8 +1,10 @@
 #!/usr/bin/python
 """Robust multi-format code-edit application engine.
 
-CONCEPT:ORCH-1.46 — apply LLM-proposed code edits to files with graduated fuzzy
-matching, malformed-edit reflection, and an optional post-edit verification gate.
+CONCEPT:ORCH-1.49 — Robust multi-format edit-application engine with graduated fuzzy matching and a reflection loop.
+
+Applies LLM-proposed code edits to files with malformed-edit reflection and an
+optional post-edit verification gate.
 
 Motivation
 ----------
@@ -310,8 +312,8 @@ def _replace_flexible_ws(
     leading = [len(p) - len(p.lstrip()) for p in part if p.strip()] + [
         len(p) - len(p.lstrip()) for p in rep if p.strip()
     ]
-    if leading and min(leading):
-        cut = min(leading)
+    cut = min(leading, default=0)
+    if cut:
         part = [p[cut:] if p.strip() else p for p in part]
         rep = [p[cut:] if p.strip() else p for p in rep]
     plen = len(part)
