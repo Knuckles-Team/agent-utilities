@@ -125,3 +125,93 @@ def build_world_model_task(
         human_baseline=human_baseline,
         metadata={"domain": "world-model", "backend": "latent"},
     )
+
+
+def transitions_from_engine(engine: Any, *, limit: int = 2000) -> list[Transition]:
+    """Read persisted ``WorldModelTransition`` rows from the engine as tuples.
+
+    Mirrors :meth:`WorldModel.from_engine`'s query; best-effort (empty on no
+    engine/query support). These are the observations the daemon tick specializes
+    a learned dynamics model against.
+    """
+    try:
+        rows = engine.query_cypher(
+            "MATCH (t:WorldModelTransition) "
+            "RETURN t.state AS state, t.action AS action, t.next_state AS next_state "
+            f"LIMIT {int(limit)}"
+        )
+    except Exception:  # noqa: BLE001 — no engine/query support ⇒ no transitions
+        return []
+    out: list[Transition] = []
+    for r in rows or []:
+        if isinstance(r, dict) and r.get("state"):
+            out.append(
+                (
+                    str(r["state"]),
+                    str(r.get("action") or ""),
+                    str(r.get("next_state") or ""),
+                )
+            )
+    return out
+
+
+def specialize_world_model_from_engine(
+    engine: Any,
+    *,
+    min_transitions: int = 20,
+    holdout_frac: float = 0.2,
+    rounds: int = 1,
+    certifier: Any = None,
+) -> dict[str, Any] | None:
+    """Run one world-model specialization cycle grounded in the engine's history.
+
+    The AU-native live path the SAI-factory daemon tick (AHE-3.29) drives: ground a
+    learned dynamics model in persisted ``WorldModelTransition`` history, specialize
+    its config via :class:`SaiFactoryController`, optionally certify it, and persist
+    a queryable ``SaiFactoryCycle`` node. Returns the cycle summary, or ``None`` when
+    there is too little history to split train/holdout.
+    """
+    from agent_utilities.knowledge_graph.research.sai_factory import (
+        SaiFactoryController,
+    )
+
+    transitions = transitions_from_engine(engine)
+    if len(transitions) < min_transitions:
+        return None
+    cut = max(1, int(len(transitions) * (1.0 - holdout_frac)))
+    train, holdout = transitions[:cut], transitions[cut:]
+    if not holdout:
+        return None
+
+    task = build_world_model_task(train, holdout)
+    # The candidate IS the config scaffold for this non-LLM track (no generator LLM).
+    result = SaiFactoryController(task, generate_fn=lambda scaffold: scaffold).run(
+        rounds=rounds
+    )
+    summary: dict[str, Any] = result.metrics()
+    summary["transitions"] = len(transitions)
+
+    if certifier is not None and task.human_baseline is not None:
+        samples = [task.score(result.specialist.generate()).reward for _ in range(3)]
+        summary["certification"] = certifier.certify(
+            samples, task.human_baseline
+        ).to_dict()
+
+    if engine is not None:
+        import json
+        import time
+        import uuid
+
+        try:
+            engine.add_node(
+                f"sai_factory_cycle:{uuid.uuid4().hex[:12]}",
+                "SaiFactoryCycle",
+                properties={
+                    "task_id": task.task_id,
+                    "metrics_json": json.dumps(summary),
+                    "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                },
+            )
+        except Exception:  # noqa: BLE001 — persistence is best-effort
+            pass
+    return summary

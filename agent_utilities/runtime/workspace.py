@@ -20,9 +20,12 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from .bridge import ActionDispatcher, WorkspaceState
+
+if TYPE_CHECKING:
+    from .browser_tier import BrowserDriver
 from .events import (  # noqa: F401  (re-exported for callers)
     Action,
     ErrorObservation,
@@ -49,17 +52,22 @@ class WorkspaceBackend(Protocol):
     workdir: str
     root: Path
 
-    def is_available(self) -> bool: ...
+    def is_available(self) -> bool:
+        ...
 
-    async def start(self) -> None: ...
+    async def start(self) -> None:
+        ...
 
     async def exec_shell(
         self, script: str, env: dict[str, str], timeout: float
-    ) -> tuple[int, str, str]: ...
+    ) -> tuple[int, str, str]:
+        ...
 
-    async def stop(self) -> None: ...
+    async def stop(self) -> None:
+        ...
 
-    def exposed_url(self, port: int) -> str: ...
+    def exposed_url(self, port: int) -> str:
+        ...
 
 
 class DevWorkspace:
@@ -73,7 +81,7 @@ class DevWorkspace:
         actor: str | None = None,
         policy_gate: PolicyGate | None = None,
         mirror: ProvenanceMirror | None = None,
-        browser: object | None = None,
+        browser: BrowserDriver | None = None,
     ) -> None:
         self.backend = backend
         self.run_id = run_id

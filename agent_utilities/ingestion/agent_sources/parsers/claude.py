@@ -64,7 +64,8 @@ def parse(path: Path, source) -> Iterator[ParsedSessionBundle]:
         if role == "user" and not first_message and text:
             first_message = text[:200]
         model = msg.get("model") or ""
-        usage = msg.get("usage") if isinstance(msg.get("usage"), dict) else {}
+        _usage = msg.get("usage")
+        usage = _usage if isinstance(_usage, dict) else {}
         out_tokens = int(usage.get("output_tokens", 0) or 0)
         in_tokens = int(usage.get("input_tokens", 0) or 0)
         cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
@@ -75,18 +76,28 @@ def parse(path: Path, source) -> Iterator[ParsedSessionBundle]:
 
         messages.append(
             UsageMessage(
-                session_id=session_id, ordinal=ordinal, role=role, content=text,
-                thinking_text=thinking, timestamp=ts, model=model,
-                context_tokens=context, output_tokens=out_tokens,
-                has_tool_use=has_tool, content_length=len(text),
+                session_id=session_id,
+                ordinal=ordinal,
+                role=role,
+                content=text,
+                thinking_text=thinking,
+                timestamp=ts,
+                model=model,
+                context_tokens=context,
+                output_tokens=out_tokens,
+                has_tool_use=has_tool,
+                content_length=len(text),
             )
         )
         for tu in tool_uses_from_content(content):
             name = tu["name"]
             tool_calls.append(
                 UsageToolCall(
-                    session_id=session_id, message_ordinal=ordinal, tool_name=name,
-                    category=categorize_tool(name), tool_use_id=tu.get("id"),
+                    session_id=session_id,
+                    message_ordinal=ordinal,
+                    tool_name=name,
+                    category=categorize_tool(name),
+                    tool_use_id=tu.get("id"),
                     skill_name=(name if categorize_tool(name) == "skill" else None),
                     occurred_at=ts,
                 )
@@ -94,10 +105,15 @@ def parse(path: Path, source) -> Iterator[ParsedSessionBundle]:
         if role == "assistant" and usage:
             usage_events.append(
                 UsageEvent(
-                    session_id=session_id, message_ordinal=ordinal, source="agent",
-                    model=model, input_tokens=in_tokens, output_tokens=out_tokens,
+                    session_id=session_id,
+                    message_ordinal=ordinal,
+                    source="agent",
+                    model=model,
+                    input_tokens=in_tokens,
+                    output_tokens=out_tokens,
                     cache_creation_input_tokens=cache_creation,
-                    cache_read_input_tokens=cache_read, occurred_at=ts,
+                    cache_read_input_tokens=cache_read,
+                    occurred_at=ts,
                     dedup_key=f"{ordinal}:{msg.get('id', '')}",
                 )
             )
@@ -108,13 +124,21 @@ def parse(path: Path, source) -> Iterator[ParsedSessionBundle]:
 
     user_count = sum(1 for m in messages if m.role == "user")
     session = UsageSession(
-        id=session_id, project=project, agent=source.agent_type,
-        first_message=first_message, started_at=started_at, ended_at=ended_at,
-        message_count=len(messages), user_message_count=user_count,
-        total_output_tokens=agent_total_out, peak_context_tokens=peak_context,
+        id=session_id,
+        project=project,
+        agent=source.agent_type,
+        first_message=first_message,
+        started_at=started_at,
+        ended_at=ended_at,
+        message_count=len(messages),
+        user_message_count=user_count,
+        total_output_tokens=agent_total_out,
+        peak_context_tokens=peak_context,
         file_path=str(path),
     )
     yield ParsedSessionBundle(
-        session=session, messages=messages, tool_calls=tool_calls,
+        session=session,
+        messages=messages,
+        tool_calls=tool_calls,
         usage_events=usage_events,
     )
