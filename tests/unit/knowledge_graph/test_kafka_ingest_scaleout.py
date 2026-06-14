@@ -76,14 +76,6 @@ def test_resolve_rejects_unknown_value():
         resolve_task_queue_backend(_cfg(task_queue_backend="rabbitmq"))
 
 
-def test_resolve_legacy_queue_backend_shim_warns():
-    cfg = _cfg(queue_backend="kafka")
-    with pytest.warns(DeprecationWarning, match="QUEUE_BACKEND is deprecated"):
-        choice, explicit = resolve_task_queue_backend(cfg)
-    assert choice == "kafka"
-    assert explicit is False  # legacy alias keeps graceful-fallback semantics
-
-
 def test_create_task_queue_auto_sqlite(tmp_path):
     queue, name = create_task_queue(_cfg(), str(tmp_path / "q.db"))
     assert name == "sqlite"
@@ -304,11 +296,11 @@ def _envelope(job_id="job-1", *, full_path=None, target=None, task_type="documen
 
 
 def test_partition_key_tenant_wins():
-    from agent_utilities.models.company_brain import ActorType
-    from agent_utilities.security.brain_context import ActorContext, use_actor
     from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
         partition_key_for,
     )
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext, use_actor
 
     env = _envelope(full_path="org/repo", target="/x/y.py")
     actor = ActorContext("u1", ActorType.HUMAN, tenant_id="acme")

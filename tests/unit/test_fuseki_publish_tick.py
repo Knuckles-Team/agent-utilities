@@ -39,9 +39,14 @@ class TestDaemonRegistration:
     def test_flag_off_unregisters_tick(self, monkeypatch):
         assert "fuseki_publish" not in self._jobs(monkeypatch, False)
 
-    def test_default_flag_is_off(self):
+    def test_default_flag_is_off(self, monkeypatch):
         from agent_utilities.core.config import AgentConfig
 
+        # Isolate from the deployment's semantic-plane wiring: a configured
+        # Fuseki/Jena endpoint auto-enables publish (KG-2.52), so clear both
+        # to assert the genuine field default with no endpoint present.
+        monkeypatch.delenv("KG_FUSEKI_ENDPOINT", raising=False)
+        monkeypatch.delenv("JENA_FUSEKI_URL", raising=False)
         assert AgentConfig().kg_fuseki_publish is False
 
     def test_tick_interval_comes_from_config(self, monkeypatch):
