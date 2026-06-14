@@ -48,8 +48,8 @@ class Task(BaseModel):
     """CONCEPT:ORCH-1.1 — HTN subtasks allowing recursive goal decomposition."""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    # CONCEPT:ORCH-1.47 — task-management ergonomics (complexity-aware expansion,
-    # dependency-aware scheduling, and test-strategy tracking).
+    # CONCEPT:ORCH-1.50 — Task-management ergonomics on SDD with complexity scoring, dependency-aware next-task, scope and tags
+    # (complexity-aware expansion, dependency-aware scheduling, and test-strategy tracking)
     priority: str = Field(
         default="medium",
         description="Scheduling priority: one of low | medium | high | critical.",
@@ -126,7 +126,7 @@ class Task(BaseModel):
         self.parallel = val
 
 
-# CONCEPT:ORCH-1.47 — ordering used by Tasks.next_task; higher wins.
+# CONCEPT:ORCH-1.50 — ordering used by Tasks.next_task; higher wins.
 _PRIORITY_RANK = {"critical": 3, "high": 2, "medium": 1, "low": 0}
 _DONE_STATUSES = {"completed", "done", "cancelled", "deferred"}
 
@@ -138,7 +138,7 @@ class Tasks(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def detect_cycles(self) -> list[list[str]]:
-        """Return dependency cycles among ``depends_on`` edges (CONCEPT:ORCH-1.47).
+        """Return dependency cycles among ``depends_on`` edges (CONCEPT:ORCH-1.50).
 
         Each cycle is a list of task ids in traversal order. An empty list means
         the dependency graph is a DAG.
@@ -173,7 +173,7 @@ class Tasks(BaseModel):
         return cycles
 
     def validate_dependencies(self) -> list[str]:
-        """Return human-readable dependency problems (CONCEPT:ORCH-1.47).
+        """Return human-readable dependency problems (CONCEPT:ORCH-1.50).
 
         Flags dangling dependencies (pointing at unknown ids), self-dependencies,
         and cycles. An empty list means the graph is schedulable.
@@ -193,7 +193,7 @@ class Tasks(BaseModel):
     def next_task(self) -> Task | None:
         """Pick the next actionable task respecting deps, status, and priority.
 
-        CONCEPT:ORCH-1.47 — mirrors task-master's selection: subtasks of an
+        CONCEPT:ORCH-1.50 — mirrors task-master's selection: subtasks of an
         in-progress parent are preferred, then top-level tasks whose dependencies
         are all satisfied. Ties break by priority (critical→low), then fewer
         dependencies, then id. Returns None when nothing is actionable.

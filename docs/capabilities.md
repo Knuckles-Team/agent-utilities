@@ -146,6 +146,24 @@ Tools: `ontology_interface`, `ontology_value_types`, `ontology_property_types`,
 forward-chaining reasoning in the Rust engine (`reason()` over the
 `epistemic-graph` client).
 
+## Coding & task management (harness)
+
+Beyond the graph-os surface, the agent harness gives coding agents the machinery to
+edit code reliably and drive long-horizon work:
+
+- **Apply code edits** — `apply_edits(edits, root, fmt)` (`tools/developer_tools.py`)
+  parses SEARCH/REPLACE blocks or unified diffs and applies them with fuzzy matching
+  (so edits land despite whitespace drift) plus a reflection loop on failure. See
+  [Edit-Application Engine](architecture/edit_application_engine.md) (CONCEPT:ORCH-1.49).
+- **PRD → task list** — the harness MCP server (`mcp/harness_server.py`) exposes
+  `task_parse_prd`, `task_analyze_complexity`, `task_next`, `task_set_status`, and
+  `task_scope`: decompose a PRD into a durable, dependency-aware task list, score
+  complexity, and pull the next actionable task (cycle-validated). Backed by
+  `SDDManager` (CONCEPT:ORCH-1.50).
+- **Repo-map skeleton** — `POST /api/codemap` with `{"skeleton": true, "max_tokens": N}`
+  returns a token-budgeted, importance-ranked code skeleton for context injection
+  (CONCEPT:ORCH-1.48).
+
 ## Identity & multi-tenancy
 
 Every gateway request passes through server-minted identity (OS-5.14): JWT

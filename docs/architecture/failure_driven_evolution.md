@@ -19,10 +19,10 @@ closes that loop.
 ## The loop
 
 ```
-Langfuse  ── pull ──▶  cluster ──▶  materialize ──▶  intake ──▶  remediate ──▶  regression-gated merge
-(errors,              (recurring     (KG nodes +       (golden     (TeamSpec/      (auto-merge only when
- low scores,           failure        failure_gap       loop)       AgentSpec        the failure is not
- cost/latency)         signatures)    Concept topics)               proposal)        spiking; else hold)
+Langfuse  ── pull ──▶  cluster ──▶  materialize ──▶  intake ──▶  remediate ──▶  regression-gated merge ──▶  lock regression
+(errors,              (recurring     (KG nodes +       (golden     (TeamSpec/      (auto-merge only when      (AHE-3.25: on a
+ low scores,           failure        failure_gap       loop)       AgentSpec        the failure is not         verified fix, lock a
+ cost/latency)         signatures)    Concept topics)               proposal)        spiking; else hold)        plain-English assertion)
 ```
 
 1. **Pull** — error observations, low-score traces, and cost/latency anomalies are
@@ -49,6 +49,14 @@ Langfuse  ── pull ──▶  cluster ──▶  materialize ──▶  intak
    holds the proposal if any signature is actively spiking (current > baseline).
    Each gap is also appended to the durable eval corpus and the failing
    capability's reward is nudged down (`FeedbackService`).
+6. **Lock regression (CONCEPT:AHE-3.25)** — when the gate *passes* (the fix holds
+   against the originally-observed failures), `_lock_regression_cases` promotes one
+   **plain-English assertion** case per signature into the durable `EvalCorpus`
+   (idempotent) — e.g. *"The response does not reproduce the failure 'X' in workflow
+   'Y'."* Thereafter the case is judged by LLM-as-judge (`EvalStrategy.ASSERTION`,
+   with an offline lexical fallback) rather than by brittle expected-output matching,
+   so the same failure cannot silently recur. This is the "lock-as-regression-test"
+   close of the loop (the Opik Test Suite pattern).
 
 ## Langfuse integration
 
@@ -106,7 +114,12 @@ Both share one implementation: `failure_analyzer.run_failure_ingest(engine)`.
 ## Code paths
 
 - `agent_utilities/knowledge_graph/adaptation/failure_analyzer.py` — `FailureAnalyzer`,
-  `cluster_failures`, `make_regression_check`, `run_failure_ingest`.
+  `cluster_failures`, `make_regression_check`, `_lock_regression_cases` (AHE-3.25),
+  `run_failure_ingest`.
+- `agent_utilities/harness/eval_corpus.py` — `EvalCorpus.add_case(..., assertion=…)`,
+  the durable regression-case store the verified fixes lock into.
+- `agent_utilities/harness/continuous_evaluation_engine.py` — `TestCase.assertion`,
+  `EvalStrategy.ASSERTION`, `EvalRunner._assertion_judge` (AHE-3.25).
 - `agent_utilities/harness/trace_backend.py` — the Langfuse failure-read surface.
 - `agent_utilities/knowledge_graph/core/engine_tasks.py` — the `_tick_failure_ingest`
   daemon job.
@@ -125,3 +138,6 @@ Both share one implementation: `failure_analyzer.run_failure_ingest(engine)`.
   `regression_check`).
 - The remediation proposals are the same `TeamSpec`/`AgentSpec` artifacts the
   research-driven synthesis (**KG-2.10**) produces.
+- **AHE-3.25** (plain-English regression assertions) closes the loop's final step:
+  a *verified* remediation locks a human-readable regression case into the eval
+  corpus, the "lock-as-regression-test" guarantee.
