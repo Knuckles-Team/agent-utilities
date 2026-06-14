@@ -1,0 +1,36 @@
+# pg-age-full — local/dev build of the combined durable graph tier:
+# Apache AGE + pgvector + pg_search (ParadeDB BM25) in ONE Postgres.
+#
+# Mirrors the image contract of the production services/pg-age/compose.yml
+# (same shared_preload_libraries) so dev and prod run the identical extension
+# set. For AGE/pgvector only (no full-text), use docker/pg-age.compose.yml.
+#
+#   docker compose -f docker/pg-age-full.compose.yml up -d --build
+#   GRAPH_DB_URI=postgresql://agent:agent@localhost:5432/agent_kg \
+#     setup-databases --verify
+services:
+  pg-age-full:
+    build:
+      context: ./pg-age-full
+    image: agent-utilities/pg-age-full:latest
+    # AGE + pg_search must be preloaded; pgvector does not need preloading.
+    command:
+      ["postgres", "-c", "shared_preload_libraries=pg_search,pg_cron,pg_stat_statements,age"]
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent
+      POSTGRES_DB: agent_kg
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-age-full-data:/var/lib/postgresql/data
+      - ./pg-age-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_kg"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pg-age-full-data:
+    name: pg-age-full-data
