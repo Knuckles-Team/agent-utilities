@@ -206,8 +206,10 @@ class Tasks(BaseModel):
                     done.add(st.id)
 
         def deps_met(task: Task) -> bool:
-            return all(d in done or d not in {x.id for x in self.tasks}
-                       for d in task.depends_on)
+            return all(
+                d in done or d not in {x.id for x in self.tasks}
+                for d in task.depends_on
+            )
 
         def sort_key(task: Task) -> tuple[int, int, str]:
             return (

@@ -1550,9 +1550,7 @@ class EvalRunner:
     )
 
     @staticmethod
-    def _assertion_judge(
-        assertion: str, query: str, actual: str
-    ) -> tuple[float, str]:
+    def _assertion_judge(assertion: str, query: str, actual: str) -> tuple[float, str]:
         """Judge a plain-English assertion, returning (1.0|0.0, reasoning).
 
         CONCEPT:AHE-3.25 — the Opik "Test Suite" check: a human-readable assertion

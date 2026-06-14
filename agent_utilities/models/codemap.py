@@ -130,9 +130,7 @@ class CodemapArtifact(BaseModel):
             A text skeleton no larger than the budget (best-effort), plus a trailing
             note when symbols were omitted.
         """
-        ranked = sorted(
-            self.nodes, key=lambda n: (n.importance, n.id), reverse=True
-        )
+        ranked = sorted(self.nodes, key=lambda n: (n.importance, n.id), reverse=True)
         if not ranked:
             return ""
 
@@ -145,9 +143,7 @@ class CodemapArtifact(BaseModel):
             out: list[str] = []
             for path in sorted(by_file):
                 out.append(path)
-                for node in sorted(
-                    by_file[path], key=lambda n: (n.line or 0, n.label)
-                ):
+                for node in sorted(by_file[path], key=lambda n: (n.line or 0, n.label)):
                     loc = f" [L{node.line}]" if node.line else ""
                     out.append(f"  {node.label} ({node.type}){loc}")
             text = "\n".join(out)
