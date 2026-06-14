@@ -20,9 +20,12 @@ from .exploration import ExplorationGraphBuilder, ResearchTrajectory
 from .live_manager import LiveResearchManager, ResearchEvent
 from .reasoning_driver import InferenceHarvest, OntologyReasoningDriver
 from .seal import ARASeal, SealReport, SealViolation
+from .service import ACTIONS, ARAService
 
 __all__ = [
+    "ACTIONS",
     "ARACompiler",
+    "ARAService",
     "ARASeal",
     "Claim",
     "CodeSpec",

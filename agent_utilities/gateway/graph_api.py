@@ -206,6 +206,12 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
 
     register_ontology_routes(app, prefix=prefix)
 
+    # Granular, typed research surface (ARA over the one ontology-driven KG,
+    # CONCEPT:KG-2.79/2.80) — dispatches through the same research_artifact MCP tool.
+    from agent_utilities.gateway.research_api import register_research_routes
+
+    register_research_routes(app, prefix=prefix)
+
     logger.info(
         "Mounted centralized Knowledge Graph REST routes + fleet supervisory "
         "plane under %r (graph-os MCP is now a thin wrapper).",

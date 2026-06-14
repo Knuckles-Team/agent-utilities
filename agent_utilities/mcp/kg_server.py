@@ -557,6 +557,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "usage_query": "/usage/query",
     "ingest_sessions": "/usage/ingest-sessions",
     "quant": "/quant",
+    "research_artifact": "/research/artifact",
 }
 
 
@@ -5478,6 +5479,67 @@ def _build_server(bootstrap: bool = True):
             return json.dumps({"error": str(e)})
 
     REGISTERED_TOOLS["graph_goals"] = graph_goals
+
+    @mcp.tool(
+        name="research_artifact",
+        description=(
+            "Agent-Native Research Artifacts over the one ontology-driven KG "
+            "(CONCEPT:KG-2.79/2.80). action in 'reason' (run OWL/RDF reasoning over "
+            "the whole ecosystem and harvest extrapolated cross-domain relationships "
+            "as research topics), 'compile' (paper -> ecosystem-grounded OWL-native "
+            "4-layer ARA), 'review'/'seal' (L1/L2/L3 OWL/SHACL-grounded review + "
+            "certificate), 'capture' (live research event w/ provenance), 'get', 'list'."
+        ),
+        tags=["graph-os", "research", "ontology"],
+    )
+    async def research_artifact(
+        action: str = Field(
+            default="reason",
+            description="reason|compile|review|seal|capture|get|list",
+        ),
+        article_id: str = Field(
+            default="", description="Paper/article id (compile/review/get)."
+        ),
+        query: str = Field(
+            default="", description="Topic for 'reason' (reasoning is ecosystem-wide)."
+        ),
+        level: str = Field(default="L1", description="Seal level: L1|L2|L3 (review)."),
+        text: str = Field(default="", description="Event text (capture)."),
+        provenance: str = Field(
+            default="ai_executed",
+            description="capture provenance: user|ai_suggested|ai_executed|user_revised.",
+        ),
+        actor: str = Field(default="", description="Originating actor id (capture)."),
+        event_type: str = Field(default="", description="Force event type (capture)."),
+        target_codebase: str = Field(
+            default="", description="Codebase to ground claims against (compile)."
+        ),
+        limit: int = Field(default=50, description="Max rows (list)."),
+    ) -> str:
+        """Run an ARA action over the one ontology-driven KG (single SoT)."""
+        import json
+
+        from agent_utilities.knowledge_graph.research.ara.service import ARAService
+
+        try:
+            service = ARAService(_get_engine())
+            result = service.run(
+                action,
+                article_id=article_id,
+                query=query,
+                level=level,
+                text=text,
+                provenance=provenance,
+                actor=actor,
+                event_type=event_type,
+                target_codebase=target_codebase or None,
+                limit=limit,
+            )
+            return json.dumps(result, default=str)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["research_artifact"] = research_artifact
 
     @mcp.tool(
         name="graph_hydrate",
