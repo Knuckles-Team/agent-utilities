@@ -318,3 +318,44 @@ class TestWatchlists:
         watchlists = runner._load_watchlists_from_kg()
         assert len(watchlists) == 1
         assert "alignment" in watchlists[0]["keywords"]
+
+
+class TestMatcherDrivenTiering:
+    """Tier driven by ConceptMatcher novelty (CONCEPT:KG-2.75)."""
+
+    def _runner_with_concept(self):
+        class _G:
+            def nodes(self, data=False):
+                return [
+                    (
+                        "concept:KG-2.7",
+                        {
+                            "type": "concept",
+                            "concept_id": "KG-2.7",
+                            "name": "Assimilation",
+                            "embedding": [1.0, 0.0],
+                        },
+                    )
+                ]
+
+        class _E:
+            graph = _G()
+            backend = None
+
+        runner = ResearchPipelineRunner(engine=_E())
+        runner._novelty_embed_fn = lambda texts: [[1.0, 0.0]]  # identical to concept
+        return runner
+
+    def test_covered_paper_has_low_novelty(self):
+        runner = self._runner_with_concept()
+        nov = runner._paper_novelty("Assimilation", "we already built assimilation")
+        assert nov is not None and nov < 0.25  # already-covered → low novelty
+
+    def test_novel_paper_has_high_novelty(self):
+        runner = self._runner_with_concept()
+        runner._novelty_embed_fn = lambda texts: [[0.0, 1.0]]  # orthogonal → novel
+        nov = runner._paper_novelty("Totally new", "unrelated method")
+        assert nov is not None and nov > 0.5
+
+    def test_no_engine_returns_none(self):
+        assert ResearchPipelineRunner()._paper_novelty("x", "y") is None
