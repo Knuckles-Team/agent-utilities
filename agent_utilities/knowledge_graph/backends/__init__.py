@@ -63,6 +63,11 @@ _PG_POOL_MAX = 10
 
 _ACTIVE_BACKEND: Any = None
 
+# Sentinel parked in ``_ACTIVE_BACKEND`` while a composite backend (fanout) builds
+# its members, so a recursively-built member never claims the global active slot —
+# the composite itself claims it once, at the end of the outer call.
+_BUILDING: Any = object()
+
 __all__ = [
     "GraphBackend",
     "EpistemicGraphBackend",
@@ -110,6 +115,25 @@ def __getattr__(name: str):
 
         return JenaFusekiBackend
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _build_member(spec: dict[str, Any]):
+    """Build a composite member backend WITHOUT claiming the active slot.
+
+    Used by the ``fanout`` composite (CONCEPT:KG-2.74): a member is a full
+    ``create_backend`` call (so it gets schema init + driver resolution), but it
+    must not register itself as ``_ACTIVE_BACKEND`` — only the composite does, at
+    the end of the outer call. We park the ``_BUILDING`` sentinel in the slot so
+    the inner call's ``is None`` claim check is a no-op, then restore.
+    """
+    global _ACTIVE_BACKEND
+    saved = _ACTIVE_BACKEND
+    if _ACTIVE_BACKEND is None:
+        _ACTIVE_BACKEND = _BUILDING
+    try:
+        return create_backend(**spec)
+    finally:
+        _ACTIVE_BACKEND = saved
 
 
 def get_active_backend():
@@ -300,6 +324,76 @@ def create_backend(
             password=resolved_jena_fuseki_password,
         )
 
+    elif backend_type == "fanout":
+        # Concurrent N-way mirroring (CONCEPT:KG-2.74): ONE authority store serves
+        # reads + acks writes; every mutation is mirrored, losslessly, to the named
+        # mirror connections via a durable outbox. Authority + mirrors are resolved
+        # against kg_connections (CONCEPT:KG-2.63) so DSN/creds live in one place.
+        from agent_utilities.core.config import config as _cfg
+
+        from .fanout_backend import FanOutBackend
+
+        conn_specs: dict[str, dict[str, Any]] = {}
+        for spec in _cfg.kg_connections or []:
+            d = dict(spec)
+            nm = str(d.pop("name", "")).strip()
+            # kg_connections (CONCEPT:KG-2.63) uses "backend"; create_backend's
+            # parameter is "backend_type" — normalize so it isn't dropped into
+            # **kwargs (which would silently recurse into the default backend).
+            if "backend" in d and "backend_type" not in d:
+                d["backend_type"] = d.pop("backend")
+            if nm:
+                conn_specs[nm] = d
+
+        def _spec_for(name: str) -> dict[str, Any]:
+            # A kg_connections name resolves to its spec; otherwise treat the value
+            # as a bare backend type (e.g. "epistemic_graph", "age").
+            return dict(conn_specs.get(name) or {"backend_type": name})
+
+        authority_name = (
+            setting("GRAPH_AUTHORITY") or _cfg.graph_authority or "epistemic_graph"
+        )
+        authority = _build_member(_spec_for(authority_name))
+        if authority is None:
+            logger.error(
+                "fanout: authority connection '%s' could not be built; "
+                "cannot serve graph.",
+                authority_name,
+            )
+            return None
+
+        target_names = (
+            setting("GRAPH_MIRROR_TARGETS") or _cfg.graph_mirror_targets or []
+        )
+        if isinstance(target_names, str):
+            target_names = [t.strip() for t in target_names.split(",") if t.strip()]
+        mirrors: dict[str, GraphBackend] = {}
+        for name in target_names:
+            if name == authority_name:
+                continue  # never mirror the authority onto itself
+            member = _build_member(_spec_for(name))
+            if member is None:
+                logger.warning(
+                    "fanout: mirror '%s' unavailable (missing driver / "
+                    "unreachable); skipping.",
+                    name,
+                )
+                continue
+            mirrors[name] = member
+
+        if not mirrors:
+            logger.warning(
+                "fanout: no mirrors configured/available; serving authority "
+                "'%s' alone (set GRAPH_MIRROR_TARGETS to enable mirroring).",
+                authority_name,
+            )
+            backend = authority
+        else:
+            from agent_utilities.core.paths import kg_db_path
+
+            outbox_path = str(kg_db_path().parent / "graph_mirror_outbox.db")
+            backend = FanOutBackend(authority, mirrors, outbox_path=outbox_path)
+
     elif backend_type == "tiered":
         # Two-tier write-through: L1 working store (epistemic-graph) in front of
         # an L2 durable tier. Sub-backends are built directly (not via recursive
@@ -415,7 +509,7 @@ def create_backend(
         logger.error(
             f"Unknown graph backend type: '{backend_type}'. "
             f"Supported: memory, file, epistemic_graph, postgresql, tiered, "
-            f"ladybug, falkordb, neo4j, jena_fuseki"
+            f"fanout, ladybug, falkordb, neo4j, jena_fuseki"
         )
         return None
 

@@ -599,6 +599,18 @@ class AgentConfig(BaseSettings):
     graph_backend_l1: str = Field(default="epistemic_graph", alias="GRAPH_BACKEND_L1")
     graph_backend_l2: str | None = Field(default=None, alias="GRAPH_BACKEND_L2")
     graph_db_uri: str | None = Field(default=None, alias="GRAPH_DB_URI")
+    # Concurrent N-way mirroring (CONCEPT:KG-2.74). When GRAPH_BACKEND=fanout, the
+    # graph is served from ONE authority store and every write is mirrored,
+    # losslessly, to the named mirror connections. ``graph_authority`` names the
+    # source-of-truth connection (a ``kg_connections`` name, or a bare backend
+    # type like ``epistemic_graph``/``age``); ``graph_mirror_targets`` is the JSON
+    # list of mirror connection names. Both resolve against ``kg_connections``
+    # (CONCEPT:KG-2.63), so the DSN/host/creds live in one place. Zero-infra
+    # default is unchanged: only built when a mirror set is configured.
+    graph_authority: str = Field(default="epistemic_graph", alias="GRAPH_AUTHORITY")
+    graph_mirror_targets: list[str] | None = Field(
+        default=None, alias="GRAPH_MIRROR_TARGETS"
+    )
     # Ingest task-queue selection (CONCEPT:KG-2.55): which durable queue carries
     # KG ingest tasks. Unset (default) = auto: ``postgres`` when ``state_db_uri``
     # is set, else the zero-infra per-host ``sqlite`` file — mirroring the
@@ -861,6 +873,28 @@ class AgentConfig(BaseSettings):
     zero-infra default is fully preserved: unset → only the ambient ``default``
     connection exists. For Postgres, use ``"backend": "age"`` for native
     openCypher portability."""
+
+    @field_validator("graph_mirror_targets", mode="before")
+    @classmethod
+    def _coerce_graph_mirror_targets(cls, v: Any) -> Any:
+        """Accept a JSON list, a comma-separated string, or a parsed list for
+        GRAPH_MIRROR_TARGETS (CONCEPT:KG-2.74)."""
+        if v is None or isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return None
+            if s.startswith("["):
+                import json
+
+                try:
+                    parsed = json.loads(s)
+                except Exception:
+                    return None
+                return parsed if isinstance(parsed, list) else None
+            return [x.strip() for x in s.split(",") if x.strip()]
+        return v
 
     @field_validator("kg_connections", mode="before")
     @classmethod
