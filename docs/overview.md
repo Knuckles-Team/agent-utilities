@@ -256,6 +256,13 @@ graph TD
 | ECO-4.14 | Infrastructure Blueprint Library | Library of modular, declarative system infrastructure configurations |
 | ECO-4.34 | Fleet-Scale MCP Multiplexer Hardening | Per-child concurrency limits, session pools, restart-on-crash, circuit breakers, `multiplexer_status` tool (`mcp/child_resilience.py`) |
 | ECO-4.36 | Dynamic MCP Tool Gateway | Boots with meta-tools (`find_tools`/`load_tools`/`unload_tools`), KG-discovers and lazily mounts child tools at runtime via FastMCP `tools/list_changed` with catalog-aware, collision-free prefix assignment — solves whole-fleet tool overload (`mcp/multiplexer.py`) |
+| ECO-4.37 | Surface Gateway Client SDK | The single shared gateway client every frontend (webui, terminal-ui, geniusbot) uses, so transport/auth/retry live in one place (`gateway_client/`) |
+| ECO-4.38 | Usage Session Ingestion | Auto-detecting parser registry that turns agent session logs into normalized usage records (agentsview assimilation) |
+| ECO-4.39 | Usage Analytics Store | Backend-abstracted pydantic usage/cost models — the single source of token cost for the whole stack |
+| ECO-4.40 | LiteLLM Pricing Source | Per-model token pricing feeding cost across the stack |
+| ECO-4.41 | Cross-UI Usage & Cost Surface | The usage/cost/observability surface (`/api/observability`, `usage_query`) rendered in all three frontends |
+| ECO-4.42 | Remote Usage Ingest | Clients parse local logs and POST normalized usage to the server sink |
+| ECO-4.43 | Document → KG Fact Extraction UI | Interactive document/URL → atomic-triple extraction with live force-graph, edge-fact cards, and JSONL across all three frontends over `/api/enhanced/extract/*` |
 
 ### Pillar 5: Agent OS Infrastructure (OS-5.0 – 5.29)
 
