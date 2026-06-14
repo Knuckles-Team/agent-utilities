@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_ROOT = Path("/home/apps/workspace/agent-packages")
 _PER_REPO_TIMEOUT_S = 180
+# Per-repo baseline snapshots so each sweep can report *new vs. resolved* dead
+# pathways instead of a bare score — a regression is what matters, not legacy debt.
+_BASELINE_DIR = Path.home() / ".cache" / "agent_utilities" / "code_health_baselines"
 
 
 def _find_analyzer() -> Path | None:
@@ -34,6 +37,48 @@ def _find_analyzer() -> Path | None:
         if cand.exists():
             return cand
     return None
+
+
+def _load_baseline_module(analyzer: Path) -> Any | None:
+    """Import the code-enhancer ``analyze_baseline`` module that ships next to the
+    liveness analyzer (CE-039). Returns None if unavailable so deltas degrade gracefully."""
+    mod_path = analyzer.parent / "analyze_baseline.py"
+    if not mod_path.exists():
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("ce_analyze_baseline", mod_path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _baseline_delta(
+    baseline_mod: Any, repo: str, report: dict[str, Any]
+) -> dict[str, Any]:
+    """Diff this run's findings against the cached per-repo baseline, then refresh
+    the cache. Returns ``{new, fixed, new_debt_score}`` (empty dict if unavailable)."""
+    if baseline_mod is None:
+        return {}
+    _BASELINE_DIR.mkdir(parents=True, exist_ok=True)
+    cache = _BASELINE_DIR / f"{repo}.json"
+    delta: dict[str, Any] = {}
+    try:
+        if cache.exists():
+            prior = json.loads(cache.read_text())
+            d = baseline_mod.diff(report, prior)
+            delta = {
+                "new": d["counts"]["new"],
+                "fixed": d["counts"]["fixed"],
+                "new_debt_score": d["new_debt_score"],
+            }
+        cache.write_text(json.dumps(baseline_mod.snapshot(report), indent=2))
+    except Exception as e:  # noqa: BLE001
+        logger.debug("code_health: baseline delta failed for %s: %s", repo, e)
+    return delta
 
 
 def run_code_health_sweep(
@@ -52,6 +97,7 @@ def run_code_health_sweep(
         )
         return {"status": "skipped", "reason": "analyzer_unavailable"}
 
+    baseline_mod = _load_baseline_module(analyzer)
     root = repos_root or _DEFAULT_ROOT
     if not root.is_dir():
         return {"status": "skipped", "reason": "repos_root_missing"}
@@ -62,6 +108,7 @@ def run_code_health_sweep(
         repos = repos[:limit]
 
     swept: list[tuple[str, int]] = []
+    regressions: list[tuple[str, int]] = []
     for repo in repos:
         if not next(repo.rglob("__init__.py"), None):  # python repos only
             continue
@@ -83,6 +130,9 @@ def run_code_health_sweep(
             continue
 
         counts = report.get("counts", {})
+        delta = _baseline_delta(baseline_mod, repo.name, report)
+        if delta.get("new"):
+            regressions.append((repo.name, delta["new"]))
         try:
             engine.add_node(  # type: ignore[attr-defined]
                 f"code_health:{repo.name}",
@@ -91,6 +141,9 @@ def run_code_health_sweep(
                 score=report.get("score"),
                 grade=report.get("grade"),
                 counts=json.dumps(counts),
+                new_findings=delta.get("new"),
+                fixed_findings=delta.get("fixed"),
+                new_debt_score=delta.get("new_debt_score"),
                 ts=time.time(),
             )
         except Exception:  # noqa: BLE001
@@ -98,5 +151,16 @@ def run_code_health_sweep(
         swept.append((repo.name, int(report.get("score", 0))))
 
     swept.sort(key=lambda x: x[1])
-    logger.info("code_health sweep: %d repo(s); lowest=%s", len(swept), swept[:3])
-    return {"status": "ok", "swept": len(swept), "lowest": swept[:5]}
+    regressions.sort(key=lambda x: x[1], reverse=True)
+    logger.info(
+        "code_health sweep: %d repo(s); lowest=%s; regressions=%s",
+        len(swept),
+        swept[:3],
+        regressions[:3],
+    )
+    return {
+        "status": "ok",
+        "swept": len(swept),
+        "lowest": swept[:5],
+        "regressions": regressions[:5],
+    }
