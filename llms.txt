@@ -24,6 +24,7 @@
 - [Recipe: Tiny (all-local, zero-infra)](docs/recipes/tiny.md)
 - [Recipe: Single-node prod](docs/recipes/single-node-prod.md)
 - [Recipe: Enterprise (swarm)](docs/recipes/enterprise.md)
+- [Recipe: Stardog + pg-age databases](docs/recipes/databases.md): push the ontology to Stardog (or local /api/sparql), backfill relationships into Apache AGE, from .env/OpenBao.
 - [Installation](docs/guides/installation.md) · [Configuration](docs/guides/configuration.md)
 
 ## Scale-out & autonomy (architecture deep dives)
