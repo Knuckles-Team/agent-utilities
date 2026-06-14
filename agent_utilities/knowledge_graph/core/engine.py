@@ -512,6 +512,9 @@ class IntelligenceGraphEngine(
         target_id: str,
         rel_type: str,
         props: dict[str, Any],
+        *,
+        source_label: str | None = None,
+        target_label: str | None = None,
     ) -> None:
         """Idempotent edge upsert via MERGE — writes ONLY to ``self.backend`` (no
         graph_compute), the portable counterpart to :meth:`_upsert_node`. Reused by
@@ -521,6 +524,13 @@ class IntelligenceGraphEngine(
         Kuzu/Ladybug REL tables carry a single JSON ``properties`` column (other
         backends store edge props as native columns/JSONB), so fold all edge props
         into it there — otherwise Kuzu drops them.
+
+        ``source_label`` / ``target_label``: when the caller already knows the
+        endpoint labels (the bulk migration does — it just wrote the nodes), pass
+        them to skip the two ``MATCH (n) WHERE n.id=$id`` label-lookup round-trips
+        AND to emit a *labelled* ``MATCH`` an ``:Label(id)`` index can serve. Without
+        them the unlabelled match full-scans — O(n) per edge, fatal at scale. Omitted
+        on the live single-write path, which still looks the labels up.
         """
         if not self.backend:
             return
@@ -534,25 +544,34 @@ class IntelligenceGraphEngine(
 
         # Portable label lookup: Neo4j/FalkorDB expose ``labels(n)`` (a list);
         # Kuzu/epistemic-graph/pggraph-transpiler use the singular ``label(n)``.
-        _lbl_expr = (
-            "labels(n)[0]" if _backend_name in self._NESTED_UNSAFE else "label(n)"
-        )
-        s_label_res = self.backend.execute(
-            f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl", {"id": source_id}
-        )
-        t_label_res = self.backend.execute(
-            f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl", {"id": target_id}
-        )
-        s_label = (
-            f":{s_label_res[0]['lbl']}"
-            if s_label_res and s_label_res[0].get("lbl")
-            else ""
-        )
-        t_label = (
-            f":{t_label_res[0]['lbl']}"
-            if t_label_res and t_label_res[0].get("lbl")
-            else ""
-        )
+        # Skipped entirely when the caller supplies the labels (bulk migration) — the
+        # labels are normalised the same way the nodes were written so the indexed
+        # ``MATCH (s:Label {id})`` resolves.
+        if source_label is not None and target_label is not None:
+            s_label = f":{self._normalize_label(source_label)}"
+            t_label = f":{self._normalize_label(target_label)}"
+        else:
+            _lbl_expr = (
+                "labels(n)[0]" if _backend_name in self._NESTED_UNSAFE else "label(n)"
+            )
+            s_label_res = self.backend.execute(
+                f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl",
+                {"id": source_id},
+            )
+            t_label_res = self.backend.execute(
+                f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl",
+                {"id": target_id},
+            )
+            s_label = (
+                f":{s_label_res[0]['lbl']}"
+                if s_label_res and s_label_res[0].get("lbl")
+                else ""
+            )
+            t_label = (
+                f":{t_label_res[0]['lbl']}"
+                if t_label_res and t_label_res[0].get("lbl")
+                else ""
+            )
         query = (
             f"MATCH (s{s_label} {{id: $sid}}), (t{t_label} {{id: $tid}}) "
             f"MERGE (s)-[r:{rel_type}]->(t){set_clause}"
