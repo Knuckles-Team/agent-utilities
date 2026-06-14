@@ -245,6 +245,14 @@ class ActionPolicy:
             str(policy_path) if policy_path else None
         )
         self._file_cache: tuple[float, dict[str, Any]] | None = None
+        # CONCEPT:SAFE-1.5 — irreversibility aversion (opt-in; default off so the
+        # shipped behavior is unchanged). When on, an irreversible action that the
+        # tier would auto-execute is downgraded to a human approval.
+        from agent_utilities.core.config import setting
+
+        self._irreversibility_aversion = bool(
+            setting("ACTION_IRREVERSIBILITY_AVERSION", False, cast=bool)
+        )
 
     # ── policy loading ──────────────────────────────────────────────
 
@@ -459,6 +467,18 @@ class ActionPolicy:
             )
             base.approval_id = self.queue_approval(request, reason=base.reason)
             return base
+
+        # CONCEPT:SAFE-1.5 — irreversibility aversion (opt-in). An irreversible
+        # action that would otherwise auto-execute is routed to a human, since
+        # policy-gating alone is brittle as autonomy rises.
+        if self._irreversibility_aversion:
+            from agent_utilities.core.corrigibility import is_irreversible
+
+            if is_irreversible(request.kind):
+                base.decision = DECISION_QUEUE
+                base.reason = "irreversible action — queued for approval (SAFE-1.5)"
+                base.approval_id = self.queue_approval(request, reason=base.reason)
+                return base
 
         if not in_maintenance_window(rule.maintenance_window):
             base.decision = DECISION_QUEUE
