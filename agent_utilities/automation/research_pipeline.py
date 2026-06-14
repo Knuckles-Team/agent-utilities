@@ -230,6 +230,7 @@ class IngestedPaperRecord(BaseModel):
     paper_id: str
     title: str
     relevance_score: float = 0.0
+    novelty: float | None = None  # matcher novelty (1.0 = novel); None if unknown
     tier: str = "skipped"
     article_id: str = ""
     status: str = "pending"
@@ -380,6 +381,60 @@ class ResearchPipelineRunner:
                     total_score += 0.5
 
         return total_score, matched_domains
+
+    def _paper_novelty(self, title: str, abstract: str) -> float | None:
+        """Matcher-driven novelty in [0,1] (1.0 = fully novel); ``None`` if unknown.
+
+        A cheap (no-LLM) ConceptMatcher cosine probe of the paper against the
+        ecosystem ``Concept`` registry. Drives tiering: a paper we ALREADY have
+        (low novelty / already-covered) is demoted to memory-only ingestion so we
+        don't spend a full PDF ingest re-acquiring a built capability. Best-effort:
+        returns ``None`` (no demotion) when no engine / no concepts / embedder is
+        unavailable, so discovery never blocks on it. The authoritative
+        covered/related verdict is still written later by the assimilate matcher.
+        (CONCEPT:KG-2.75)
+        """
+        try:
+            from agent_utilities.knowledge_graph.assimilation.concept_matcher import (
+                ConceptMatcher,
+                _build_concept_index,
+            )
+            from agent_utilities.knowledge_graph.assimilation.gap_analysis import (
+                _CONCEPT_TYPES,
+                _collect_rich,
+            )
+
+            if self.engine is None:
+                return None
+            idx = getattr(self, "_novelty_index", None)
+            if idx is None:
+                concepts = _collect_rich(self.engine, _CONCEPT_TYPES)
+                idx = _build_concept_index(concepts) if concepts else ()
+                self._novelty_index = idx  # cache for the run
+            if not idx or not idx[1]:  # no concept vectors
+                return None
+            concept_by_key, concept_vecs, concept_text = idx
+            embed_fn = getattr(self, "_novelty_embed_fn", None)
+            if embed_fn is None:
+                from agent_utilities.knowledge_graph.enrichment.semantic import (
+                    make_embed_fn,
+                )
+
+                embed_fn = make_embed_fn()
+            vec = embed_fn([f"{title} — {abstract}"])[0]
+            if not vec or len(vec) < 2:
+                return None
+            fm = ConceptMatcher(use_llm=False).match_feature(
+                "paper:probe",
+                {"name": title, "summary": abstract, "embedding": vec},
+                concept_by_key=concept_by_key,
+                concept_vecs=concept_vecs,
+                concept_text=concept_text,
+                feature_vec=vec,
+            )
+            return fm.novelty_score
+        except Exception:  # noqa: BLE001 — best-effort; never block discovery
+            return None
 
     def _is_paper_known(self, paper_id: str) -> bool:
         """Check if a paper is already in the KG by its external ID."""
@@ -740,10 +795,17 @@ class ResearchPipelineRunner:
                 report.records.append(record)
                 continue
 
-            # Score relevance
+            # Score relevance (cheap keyword prefilter) then let the ConceptMatcher
+            # drive the tier by NOVELTY: a paper we already have (low novelty) is
+            # demoted from a full PDF ingest to memory-only. (CONCEPT:KG-2.75)
             score, domains = self.score_paper(title, abstract, extra_keywords)
+            novelty = self._paper_novelty(title, abstract)
             record.relevance_score = score
             record.domains_matched = domains
+            if novelty is not None:
+                record.novelty = novelty
+                if novelty < 0.25 and score >= self.config.relevant_threshold:
+                    score = self.config.marginal_threshold  # already-built → memory
 
             try:
                 if score >= self.config.relevant_threshold:
