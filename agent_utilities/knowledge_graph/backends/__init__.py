@@ -61,6 +61,13 @@ logger = logging.getLogger(__name__)
 _PG_POOL_MIN = 2
 _PG_POOL_MAX = 10
 
+# Single-writer, file-locked backends (Kuzu/LadybugDB hold an exclusive OS lock on
+# their DB file). They can be a fan-out MIRROR, but only ONE process may own the
+# file — so they are built only by the host write daemon (role="host"), never by
+# the many client MCP processes that share the same config.json. Without this, every
+# graph-os MCP child would try to open the same mirror file and contend on the lock.
+_SINGLE_WRITER_BACKENDS = frozenset({"ladybug", "kuzu"})
+
 _ACTIVE_BACKEND: Any = None
 
 # Sentinel parked in ``_ACTIVE_BACKEND`` while a composite backend (fanout) builds
@@ -172,10 +179,30 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
         if nm:
             conn_specs[nm] = d
     mirrors: dict[str, Any] = {}
+    _role: str | None = None
     for name in targets:
         if name in skip_names:
             continue
-        member = _build_member(dict(conn_specs.get(name) or {"backend_type": name}))
+        spec = dict(conn_specs.get(name) or {"backend_type": name})
+        backend_type = str(spec.get("backend_type") or name).strip().lower()
+        # A single-writer file mirror is owned by exactly one process: the host
+        # write daemon. Client processes (MCP children) skip it so they don't
+        # contend on its exclusive file lock.
+        if backend_type in _SINGLE_WRITER_BACKENDS:
+            if _role is None:
+                from ..core.host_lock import effective_daemon_role
+
+                _role = effective_daemon_role()
+            if _role != "host":
+                logger.info(
+                    "mirror '%s' (%s) is single-writer (file-locked); only the host "
+                    "daemon owns it — skipping in role=%s.",
+                    name,
+                    backend_type,
+                    _role,
+                )
+                continue
+        member = _build_member(spec)
         if member is not None:
             mirrors[name] = member
         else:
