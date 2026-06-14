@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 230
+total_concepts: 233
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2461,6 +2461,39 @@ concepts:
   - agent_utilities/sdd/__init__.py
   doc: Task-management ergonomics on SDD with complexity scoring, dependency-aware next-task, scope and
     tags
+- id: ORCH-1.51
+  name: a virtual-agent-economy task allocator that runs a capability-gated second-price auction so a
+    collective self-organizes who does what via price signals instead of static role routing, surfacing
+    scarcity and value
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_market.py
+  doc: a virtual-agent-economy task allocator that runs a capability-gated second-price auction so a collective
+    self-organizes who does what via price signals instead of static role routing, surfacing scarcity
+    and value
+- id: ORCH-1.52
+  name: an emergent-specialization discovery pass that clusters the failing or expensive task stream and
+    proposes a new specialist archetype for any niche no existing archetype covers, so the collective
+    autonomously increases its division of labour
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/specialization_discovery.py
+  doc: an emergent-specialization discovery pass that clusters the failing or expensive task stream and
+    proposes a new specialist archetype for any niche no existing archetype covers, so the collective
+    autonomously increases its division of labour
+- id: ORCH-1.53
+  name: a hierarchical federated coordination protocol that runs consensus within agent neighborhoods
+    and rolls up only cluster representatives, bounding interaction density so a collective coordinates
+    at thousands of agents instead of O
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/hierarchical_coordination.py
+  doc: a hierarchical federated coordination protocol that runs consensus within agent neighborhoods and
+    rolls up only cluster representatives, bounding interaction density so a collective coordinates at
+    thousands of agents instead of O
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
