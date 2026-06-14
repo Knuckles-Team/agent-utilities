@@ -121,9 +121,12 @@ class OntologyReasoningDriver:
 
     def _inferred_edges(self, graph: Any) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
+        edges_fn = getattr(graph, "edges", None)
+        if not callable(edges_fn):
+            return out
         try:
-            it = graph.edges(data=True)
-        except TypeError:  # pragma: no cover
+            it = edges_fn(data=True)
+        except (TypeError, AttributeError):  # pragma: no cover - non-standard graph
             return out
         for edge in it:
             if not (isinstance(edge, tuple | list) and len(edge) >= 3):
