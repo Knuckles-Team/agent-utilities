@@ -10,11 +10,18 @@ supporting strict schema-bound Cypher queries.
 import atexit
 import logging
 import os
+import re
 import sys
 import time as _time
 import typing
 import weakref
 from typing import Any
+
+# Parse the engine's node/edge MERGE shapes so an unknown label/rel auto-creates
+# its Kuzu table. Node refs carry an inline ``{id...}`` map: ``(n:Label {``,
+# ``(s:Src {``; the rel type is in ``-[r:REL]->``.
+_NODE_LABEL_RE = re.compile(r"\(\s*\w+\s*:\s*`?(\w+)`?\s*\{")
+_REL_TYPE_RE = re.compile(r"-\s*\[\s*\w*\s*:\s*`?(\w+)`?\s*\]\s*->")
 
 import httpx
 
@@ -224,6 +231,12 @@ class LadybugBackend(GraphBackend):
         self.db: typing.Any = None
         self.conn = None
         self._schema_created = False
+        # Auto-schema caches (CONCEPT:KG-2.74): tables/rel-pairs known to exist, so
+        # an arbitrary KG label/rel only triggers DDL on first sight. Seeded from
+        # the declared SCHEMA on first write.
+        self._known_node_tables: set[str] = set()
+        self._known_rel_pairs: set[tuple[str, str, str]] = set()
+        self._schema_cache_seeded = False
         abs_db_path = (
             os.path.abspath(self.db_path) if self.db_path != ":memory:" else ":memory:"
         )
@@ -651,6 +664,8 @@ class LadybugBackend(GraphBackend):
                             "LadybugBackend.execute: connection could not be opened."
                         )
                         return []
+                    # Auto-create tables for arbitrary labels/rels before writing.
+                    self._ensure_schema_for_query(query)
                     res = self.conn.execute(query, params or {})
                     if isinstance(res, list):
                         if not res:
@@ -841,6 +856,81 @@ class LadybugBackend(GraphBackend):
                     pass
             logger.debug(f"WAL checkpoint not supported or failed: {e}")
             return False
+
+    def _seed_schema_cache(self) -> None:
+        """Populate the known-tables caches from the declared SCHEMA so already-
+        created tables/pairs never re-run DDL."""
+        from agent_utilities.models.schema_definition import SCHEMA
+
+        for node in SCHEMA.nodes:
+            self._known_node_tables.add(node.name)
+        for rel in SCHEMA.edges:
+            for c in rel.connections:
+                self._known_rel_pairs.add((rel.type, c["from"], c["to"]))
+        self._schema_cache_seeded = True
+
+    def _ensure_node_table_unlocked(self, label: str) -> None:
+        """Create a generic node table for an unknown label (CONCEPT:KG-2.74).
+
+        Kuzu has fixed typed tables, so an undeclared label has no table and its
+        MERGE fails. Create one with the canonical ``GENERIC_NODE_COLUMNS`` (the
+        engine folds ad-hoc props into ``metadata`` for unknown labels, so these
+        columns suffice). Must hold the connection lock; conn must be open."""
+        if label in self._known_node_tables or self.conn is None:
+            return
+        from agent_utilities.models.schema_definition import GENERIC_NODE_COLUMNS
+
+        cols = ", ".join(f"`{n}` {t}" for n, t in GENERIC_NODE_COLUMNS.items())
+        try:
+            self.conn.execute(f"CREATE NODE TABLE IF NOT EXISTS {label} ({cols});")
+        except Exception as e:  # noqa: BLE001
+            if "exist" not in str(e).lower():
+                logger.warning("auto-create node table %s failed: %s", label, e)
+        self._known_node_tables.add(label)
+
+    def _ensure_rel_pair_unlocked(self, rel: str, src: str, dst: str) -> None:
+        """Ensure REL table ``rel`` carries the ``(src)->(dst)`` pair. Kuzu REL
+        tables are typed by their FROM/TO node pairs, so an arbitrary edge needs the
+        pair added (``ALTER TABLE .. ADD FROM .. TO ..``) or the table created. Try
+        ALTER first; create the table if it does not exist yet."""
+        key = (rel, src, dst)
+        if key in self._known_rel_pairs or self.conn is None:
+            return
+        try:
+            self.conn.execute(f"ALTER TABLE {rel} ADD FROM {src} TO {dst};")
+        except Exception as e:  # noqa: BLE001
+            msg = str(e).lower()
+            if "does not exist" in msg or "not found" in msg:
+                try:
+                    self.conn.execute(
+                        f"CREATE REL TABLE IF NOT EXISTS {rel} "
+                        f"(FROM {src} TO {dst}, properties STRING);"
+                    )
+                except Exception as e2:  # noqa: BLE001
+                    if "exist" not in str(e2).lower():
+                        logger.warning("auto-create rel %s failed: %s", rel, e2)
+            elif not any(w in msg for w in ("already", "exist", "duplicate")):
+                logger.warning("alter rel %s (%s->%s) failed: %s", rel, src, dst, e)
+        self._known_rel_pairs.add(key)
+
+    def _ensure_schema_for_query(self, query: str) -> None:
+        """Before a MERGE/CREATE write, auto-create any node table / rel pair the
+        query references that does not exist yet — so an arbitrary KG (labels/rels
+        beyond the declared SCHEMA) mirrors into Kuzu losslessly."""
+        up = query.upper()
+        if "MERGE" not in up and "CREATE" not in up:
+            return
+        node_labels = _NODE_LABEL_RE.findall(query)
+        if not node_labels:
+            return
+        if not self._schema_cache_seeded:
+            self._seed_schema_cache()
+        for lbl in node_labels:
+            self._ensure_node_table_unlocked(lbl)
+        m = _REL_TYPE_RE.search(query)
+        if m and len(node_labels) >= 2:
+            # The edge query lists (s:Src {..}), (t:Dst {..}) in order.
+            self._ensure_rel_pair_unlocked(m.group(1), node_labels[0], node_labels[1])
 
     def _create_schema_unlocked(self) -> None:
         """Internal method to synchronize schema without acquiring the connection lock."""
