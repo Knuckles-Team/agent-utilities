@@ -62,6 +62,12 @@ def get_env_file() -> str | None:
         The path to the found .env file as a string, or '.env' as a default fallback.
 
     """
+    # Hermetic tests never read a deployment ``.env`` (gitignored, absent in CI)
+    # — pydantic-settings' ``env_file`` would otherwise pull host-specific values
+    # (state-store DSN, auth) into unit tests that assert genuine defaults.
+    if to_boolean(os.environ.get("AGENT_UTILITIES_TESTING", "false")):
+        return None
+
     from pathlib import Path
 
     from agent_utilities.base_utilities import retrieve_package_name
@@ -87,6 +93,16 @@ def _ensure_env_loaded():
     if _env_loaded:
         return
     _env_loaded = True
+
+    # Hermetic tests: never inherit a deployment ``.env`` or a host's
+    # ``config.json``. Those are operational artifacts (the ``.env`` is
+    # gitignored; ``config.json`` is host-specific) and are both absent in CI —
+    # loading them locally makes unit tests that assert genuine defaults
+    # (state-store DSN, auth, fuseki) fail only on a configured host. Skipping
+    # them under the test harness makes the local run match CI exactly. Tests
+    # set whatever env they need explicitly via the conftest / monkeypatch.
+    if to_boolean(os.environ.get("AGENT_UTILITIES_TESTING", "false")):
+        return
 
     try:
         from dotenv import load_dotenv
