@@ -558,6 +558,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "ingest_sessions": "/usage/ingest-sessions",
     "quant": "/quant",
     "research_artifact": "/research/artifact",
+    "graph_loops": "/graph/loops",
 }
 
 
@@ -5479,6 +5480,84 @@ def _build_server(bootstrap: bool = True):
             return json.dumps({"error": str(e)})
 
     REGISTERED_TOOLS["graph_goals"] = graph_goals
+
+    @mcp.tool(
+        name="graph_loops",
+        description=(
+            "The single entrypoint for long-running objectives (CONCEPT:KG-2.78). A "
+            "Loop is one objective of kind research|develop|skill; the LoopController "
+            "advances every active Loop through ONE hot path. action in 'submit' "
+            "(create a Loop: objective + kind [+ validation_cmd/end_state for develop, "
+            "skill_ref for skill]), 'list' (active Loops), 'run' (advance all active "
+            "Loops one cycle — research acquires/reasons, develop validates, skill "
+            "executes), 'cancel' (terminate a Loop by id)."
+        ),
+        tags=["graph-os", "loops"],
+    )
+    async def graph_loops(
+        action: str = Field(
+            default="list", description="submit|list|run|cancel"
+        ),
+        objective: str = Field(default="", description="Objective text (submit)."),
+        kind: str = Field(
+            default="research", description="research|develop|skill (submit)."
+        ),
+        loop_id: str = Field(default="", description="Loop id (submit/cancel)."),
+        validation_cmd: str = Field(
+            default="", description="Shell command whose exit-0 completes a develop Loop."
+        ),
+        end_state: str = Field(default="", description="Human end-state (develop)."),
+        skill_ref: str = Field(
+            default="", description="Skill / skill-workflow name or id (skill Loop)."
+        ),
+        max_topics: int = Field(default=5, description="Loops to advance per run."),
+        limit: int = Field(default=10, description="Max rows (list)."),
+    ) -> str:
+        """Submit / list / run / cancel Loops — the one Loop-engine entrypoint."""
+        import json as _json
+
+        from agent_utilities.knowledge_graph.research.loop_controller import (
+            LoopController,
+        )
+        from agent_utilities.knowledge_graph.research.loops import (
+            active_loops,
+            mark_loop_status,
+            submit_loop,
+        )
+
+        try:
+            engine = _get_engine()
+            if action == "submit":
+                if not objective and not skill_ref:
+                    return _json.dumps({"error": "submit needs objective or skill_ref"})
+                loop = submit_loop(
+                    engine,
+                    objective,
+                    kind=kind,  # type: ignore[arg-type]
+                    validation_cmd=validation_cmd,
+                    end_state=end_state,
+                    skill_ref=skill_ref,
+                    loop_id=loop_id,
+                )
+                return _json.dumps({"action": "submit", "loop": loop}, default=str)
+            if action == "list":
+                return _json.dumps(
+                    {"action": "list", "loops": active_loops(engine, limit)},
+                    default=str,
+                )
+            if action == "run":
+                rep = LoopController(engine).run_one_cycle(max_topics=max_topics)
+                return _json.dumps(rep, indent=2, default=str)
+            if action == "cancel":
+                if not loop_id:
+                    return _json.dumps({"error": "cancel needs a loop_id"})
+                ok = mark_loop_status(engine, loop_id, "cancelled", source="user")
+                return _json.dumps({"action": "cancel", "id": loop_id, "ok": ok})
+            return _json.dumps({"error": f"unknown action {action!r}"})
+        except Exception as e:
+            return _json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["graph_loops"] = graph_loops
 
     @mcp.tool(
         name="research_artifact",
