@@ -174,6 +174,41 @@ already sets the matching sampling profile (temp 0.7, top_p 0.8, top_k 20,
 presence_penalty 1.5, `enable_thinking=False`) and a strict JSON-schema response
 format.
 
+## Watched directories — auto-ingest a document corpus (KG-2.8)
+
+The file-watcher (`sdd/watcher.py`, a leader-only maintenance tick every 5s)
+auto-ingests documents that land in a set of **watched directories**, so a
+corpus stays mirrored into the KG with **no manual ingest call**:
+
+- **Built-in:** the ScholarX / research download dirs
+  (`~/.local/share/scholarx/papers`, `~/.local/share/agent-utilities/research`,
+  plus `SCHOLARX_PAPERS_DIR` / `AGENT_RESEARCH_DIR`) — scanned top-level,
+  provenance `watcher_scholarx`.
+- **Operator-configured:** any directories in **`KG_WATCH_DIRS`** — scanned
+  **recursively** (noise dirs like `.git`/`node_modules` skipped), provenance
+  `watcher_documents`. Point it at e.g. `~/Documents`.
+
+Both flow through the **same** unified resolver
+`get_watched_directories() -> [(path, recursive, source)]` and the same
+per-file submit (`process_watched_file` → `engine.submit_task(task_type=
+"document")`), then the standard document adaptor + this fact/concept extraction.
+
+**New / modified / unchanged** are handled by the content-hash `DeltaManifest`
+(`knowledge_graph/ingestion/manifest.py`): a **new** file is ingested, a
+**modified** file (new hash) is re-ingested, and an **unchanged** file is
+delta-skipped — validated at ~0.15s/file for a 150 MB PDF. So you can drop or
+edit files in the directory and the KG converges on the next tick.
+
+**Configure it** (deployment) via `config.json`:
+
+```json
+{ "kg_watch_dirs": "/home/genius/Documents" }
+```
+
+or env `KG_WATCH_DIRS=~/Documents` (JSON array or `os.pathsep`/comma list for
+multiple). Supported file types: `.pdf .docx .doc .txt .md` — PDFs read via the
+PyMuPDF fast path. See `docs/architecture/configuration.md` (`KG_WATCH_DIRS`).
+
 ## Entry points
 
 - **MCP:** `graph_ingest action=fact_extract` (inline) or
