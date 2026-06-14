@@ -823,9 +823,32 @@ class IngestionEngine:
         if not facts:
             return 0
         try:
-            return int(persist_facts(self._fact_store(), facts).get("edges", 0))
+            written = int(persist_facts(self._fact_store(), facts).get("edges", 0))
         except Exception:  # noqa: BLE001
             return 0
+        # Ontology grounding (KG-2.66): annotate the canonical Entity nodes with
+        # the OWL class they map onto (vendor/supplier/company → organization, …)
+        # so cross-modal entities converge on a shared type. Best-effort.
+        try:
+            from ..extraction.fact_extractor import ExtractedFact as _EF
+            from ..extraction.ontology_grounding import ground_facts
+
+            add_node = self.backend.add_node
+            for fact, grounding in ground_facts(facts):
+                for surface, type_key in (
+                    (fact.subject, "subject_type"),
+                    (fact.object, "object_type"),
+                ):
+                    otype = grounding.get(type_key)
+                    if otype:
+                        add_node(
+                            _EF.normalize_key(surface),
+                            type="Entity",
+                            ontology_type=otype,
+                        )
+        except Exception:  # noqa: BLE001 — grounding never breaks ingest
+            pass
+        return written
 
     async def _enrich_text(
         self,
@@ -856,6 +879,18 @@ class IngestionEngine:
         enriched windows is capped (``KG_ENRICH_MAX_CHUNKS``, default 64) so cost
         stays controlled for big documents — raise it to enrich more deeply.
         """
+        # Structure routing (KG-2.66): classify prose vs structured records so the
+        # open LLM extraction below is reserved for prose/mixed; purely-structured
+        # text (tables/forms/records) is cheap and deterministic to map and need
+        # not pay for an LLM fact pass on every window.
+        structure = "prose"
+        try:
+            from ..extraction.structure_router import classify_text
+
+            structure = classify_text(text, doc_type=source_type)
+        except Exception:  # noqa: BLE001 — routing never breaks ingest
+            structure = "prose"
+
         windows = self._enrichment_windows(text)
         concepts = 0
         if enrich_concepts:
@@ -865,7 +900,9 @@ class IngestionEngine:
                     source_id, window, source_type, title
                 )
         facts = 0
-        if enrich_facts and windows:
+        # Skip the costly open LLM fact pass for purely-structured content — it is
+        # records/tables, not prose to mine; concepts above still index it.
+        if enrich_facts and windows and structure != "structured":
             # Fact extraction is the measured bottleneck (~tens of seconds/window
             # on the chat model). It is async, so fan the windows out concurrently
             # with bounded concurrency — vLLM batches requests, turning an N×
@@ -885,7 +922,7 @@ class IngestionEngine:
                 *(_facts_for(w) for w in windows), return_exceptions=True
             )
             facts = sum(r for r in results if isinstance(r, int))
-        return {"concepts": concepts, "facts": facts}
+        return {"concepts": concepts, "facts": facts, "structure": structure}
 
     def _enrichment_windows(self, text: str) -> list[str]:
         """Bounded LLM windows over ``text``.
