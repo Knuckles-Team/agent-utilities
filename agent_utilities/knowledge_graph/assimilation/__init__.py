@@ -21,7 +21,7 @@ from .breadth_ingest import (
 )
 from .concept_matcher import ConceptMatcher, FeatureMatch, Match, MatchReport
 from .dedup import DedupReport, dedup_features
-from .gap_analysis import GapReport, auto_satisfy, is_closed, open_features
+from .gap_analysis import GapReport, is_closed, open_features
 from .ingest import (
     IngestReport,
     canonical_source_id,
@@ -58,7 +58,6 @@ __all__ = [
     "DedupReport",
     "dedup_features",
     "GapReport",
-    "auto_satisfy",
     "open_features",
     "is_closed",
     "SynergyBundle",

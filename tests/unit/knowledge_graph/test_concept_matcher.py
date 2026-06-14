@@ -227,3 +227,50 @@ def test_idempotent_reconcile_replaces_not_accumulates():
     m.satisfy(eng, feature_types=("article",), concept_types=("concept",))
     sat = [p for *_, p in eng.graph._edges if p.get("_rel") == "SATISFIED_BY"]
     assert len(sat) == 1  # re-run replaced, did not duplicate
+
+
+# --- precision (preserved from the old auto_satisfy suite) ------------------ #
+def test_explicit_id_beats_embedding_nearest():
+    """A declared concept-id wins over the embedding-closest (wrong) concept."""
+    nodes = {
+        "spec:foo": {
+            "type": "capability",
+            "embedding": [0.0, 1.0, 0.0],
+            "concept_ids": ["KG-2.7"],
+        },
+        "concept:KG-2.7": {
+            "type": "concept",
+            "concept_id": "KG-2.7",
+            "embedding": [1.0, 0.0, 0.0],
+        },
+        "concept:KG-9.9": {
+            "type": "concept",
+            "concept_id": "KG-9.9",
+            "embedding": [0.0, 1.0, 0.0],
+        },
+    }
+    eng = _Engine(nodes)
+    m = ConceptMatcher(embed_fn=_emb, use_llm=False)
+    rep = m.satisfy(eng, feature_types=("capability",), concept_types=("concept",))
+    e = [p for *_, p in eng.graph._edges if p["_rel"] == "SATISFIED_BY"][0]
+    assert e["concept"] == "KG-2.7" and e["match"] == "id"  # id signal, not embedding
+
+
+def test_body_citation_does_not_count_as_declared_identity():
+    """A concept cited only in body prose is NOT treated as already-built."""
+    nodes = {
+        "new-paper": {
+            "type": "capability",
+            "embedding": [0.0, 1.0, 0.0],  # orthogonal to the concept
+            "content": "We build on CONCEPT:AHE-3.1 as related work.",
+        },
+        "concept:AHE-3.1": {
+            "type": "concept",
+            "concept_id": "AHE-3.1",
+            "embedding": [1.0, 0.0, 0.0],
+        },
+    }
+    eng = _Engine(nodes)
+    m = ConceptMatcher(embed_fn=_emb, use_llm=False)
+    rep = m.satisfy(eng, feature_types=("capability",), concept_types=("concept",))
+    assert rep.satisfied == 0  # body citation only → still a gap, not covered
