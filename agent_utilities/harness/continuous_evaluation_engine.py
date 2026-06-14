@@ -1141,6 +1141,8 @@ class EvalStrategy(StrEnum):
     SEMANTIC_SIMILARITY = "semantic_similarity"
     LLM_JUDGE = "llm_judge"
     COMPOSITE = "composite"
+    #: CONCEPT:AHE-3.25 — judge a plain-English assertion (Opik "Test Suite" style).
+    ASSERTION = "assertion"
 
 
 class TestCase(BaseModel):
@@ -1159,6 +1161,14 @@ class TestCase(BaseModel):
     strategy: EvalStrategy = EvalStrategy.COMPOSITE
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    assertion: str = Field(
+        default="",
+        description=(
+            "CONCEPT:AHE-3.25 — optional plain-English pass/fail assertion judged by "
+            "LLM-as-judge (Opik Test Suite style). When set, it takes precedence over "
+            "expected-output scoring."
+        ),
+    )
 
 
 class EvalResult(BaseModel):
@@ -1289,6 +1299,23 @@ class EvalRunner:
             actual_output=actual_output,
             strategy=effective_strategy,
         )
+
+        # A plain-English assertion is the test (Opik Test Suite semantics):
+        # it takes precedence over expected-output scoring. CONCEPT:AHE-3.25.
+        if test_case.assertion or effective_strategy == EvalStrategy.ASSERTION:
+            score, reasoning = self._assertion_judge(
+                test_case.assertion or test_case.expected_output,
+                test_case.query,
+                actual_output,
+            )
+            result.llm_judge_score = score
+            result.llm_judge_reasoning = reasoning
+            result.final_score = score
+            result.passed = result.final_score >= self._pass_threshold
+            result.duration_ms = (time.time() - start) * 1000
+            result.timestamp = time.time()
+            self._results.append(result)
+            return result
 
         # Always compute exact match (it's free)
         result.exact_match_score = self._exact_match_eval(
@@ -1510,6 +1537,55 @@ class EvalRunner:
             return (
                 fallback_score,
                 f"LLM judge unavailable, using semantic fallback: {exc}",
+            )
+
+    ASSERTION_JUDGE_PROMPT = (
+        "You are an expert evaluator. Decide whether the actual output satisfies "
+        "the plain-English assertion for the given query.\n\n"
+        "Query: {query}\n"
+        "Assertion: {assertion}\n"
+        "Actual Output: {actual}\n\n"
+        'Respond with ONLY a single JSON line: {{"pass": <true|false>, '
+        '"reasoning": "<brief explanation>"}}'
+    )
+
+    @staticmethod
+    def _assertion_judge(
+        assertion: str, query: str, actual: str
+    ) -> tuple[float, str]:
+        """Judge a plain-English assertion, returning (1.0|0.0, reasoning).
+
+        CONCEPT:AHE-3.25 — the Opik "Test Suite" check: a human-readable assertion
+        is converted to an LLM-as-judge pass/fail. Falls back to a substring check
+        when no model is available, so the seam works offline.
+        """
+        try:
+            import json as _json
+
+            from agent_utilities.core.model_factory import create_model
+
+            model = create_model()
+            prompt = EvalRunner.ASSERTION_JUDGE_PROMPT.format(
+                query=query, assertion=assertion, actual=actual
+            )
+            result = model.run_sync(prompt)
+            response_text = result.output if hasattr(result, "output") else str(result)
+            clean = response_text.strip()
+            if clean.startswith("```"):
+                clean = clean.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            parsed = _json.loads(clean)
+            passed = bool(parsed.get("pass", False))
+            reasoning = str(parsed.get("reasoning", ""))
+            return (1.0 if passed else 0.0, reasoning)
+        except Exception as exc:
+            logger.debug("assertion judge fallback (no model available): %s", exc)
+            # Offline heuristic: pass if the assertion's salient words appear.
+            words = [w for w in assertion.lower().split() if len(w) > 3]
+            hit = sum(1 for w in words if w in actual.lower())
+            ratio = hit / len(words) if words else 0.0
+            return (
+                1.0 if ratio >= 0.6 else 0.0,
+                f"assertion judge unavailable, lexical fallback ratio={ratio:.2f}",
             )
 
 
