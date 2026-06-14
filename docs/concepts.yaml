@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 200
+total_concepts: 204
 total_pillars: 19
 pillars:
 - AHE-3
@@ -304,6 +304,15 @@ concepts:
   - agent_utilities/knowledge_graph/research/capability_ratchet.py
   doc: capability-benchmark regression ratchet re-measuring a published worktree against a persisted baseline
     and abandoning the branch on any tracked-capability regression
+- id: AHE-3.25
+  name: optional plain-English pass/fail assertion judged by
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/continuous_evaluation_engine.py
+  - agent_utilities/harness/eval_corpus.py
+  - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+  doc: optional plain-English pass/fail assertion judged by
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -2273,6 +2282,31 @@ concepts:
   - agent_utilities/orchestration/agent_dispatch.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   doc: Queue-driven agent dispatch with session-keyed partitions
+- id: ORCH-1.46
+  name: apply LLM-proposed code edits to files with graduated fuzzy
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/edit_engine.py
+  doc: apply LLM-proposed code edits to files with graduated fuzzy
+- id: ORCH-1.47
+  name: ordering used by Tasks.next_task; higher wins
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/mcp/harness_server.py
+  - agent_utilities/models/sdd.py
+  - agent_utilities/sdd/__init__.py
+  doc: ordering used by Tasks.next_task; higher wins
+- id: ORCH-1.48
+  name: a compact, context-injection view of the codemap. Nodes
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/models/codemap.py
+  - agent_utilities/server/models.py
+  doc: a compact, context-injection view of the codemap. Nodes
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
