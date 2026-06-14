@@ -623,13 +623,26 @@ def apply_tool_scope(
     scoped_toolsets = []
     for ts in toolsets:
         flt = getattr(ts, "filtered", None)
-        if callable(flt):
-            try:
-                scoped_toolsets.append(flt(lambda ctx, td: td.name in allowed_set))
-                continue
-            except Exception:  # noqa: BLE001 — fall back to passing the toolset through
-                pass
-        scoped_toolsets.append(ts)
+        # A toolset that can't be filtered must NOT pass through unrestricted — that
+        # silently violates the invoker's least-privilege allow-list. Mirror the
+        # single-server path (agent_runner) and fail loudly.
+        if not callable(flt):
+            raise RuntimeError(
+                f"toolset {type(ts).__name__!r} does not support tool filtering; "
+                f"cannot enforce allowed_tools={sorted(allowed_set)[:8]}"
+            )
+        scoped_toolsets.append(flt(lambda ctx, td: td.name in allowed_set))
+    # If the allow-list eliminated every function tool AND left no toolset to invoke,
+    # the spawned agent would have nothing to call and would fabricate a tool call —
+    # surface that clearly instead of producing a tool-less hallucinator. (A toolset
+    # that is present but whose tools don't intersect the allow-list — e.g. a tool
+    # name passed with the wrong server prefix — can only be detected once its tools
+    # are enumerated at run time, not here.)
+    if not scoped_tools and not scoped_toolsets:
+        raise RuntimeError(
+            f"allowed_tools={sorted(allowed_set)[:8]} eliminated every bound tool; "
+            "the scoped agent would have nothing to invoke"
+        )
     logger.info(
         "[ORCH-1.39] Tool scope enforced: %d→%d function tools; allow-list=%s",
         len(tools),
