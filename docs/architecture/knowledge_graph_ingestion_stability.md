@@ -7,7 +7,7 @@ This document details the robust locking and process lifecycle architecture impl
 > (`backends/contrib/ladybug_backend.py`, selected via `GRAPH_BACKEND=ladybug`).
 > The default working store is the Rust-native EpistemicGraph
 > (`GRAPH_BACKEND=memory`/`file`) and the production durable tier is
-> PostgreSQL + pgGraph — neither of which uses the SQLite file-lock mechanics
+> PostgreSQL + pg-age — neither of which uses the SQLite file-lock mechanics
 > described here. This document therefore applies only when LadybugDB is
 > explicitly enabled.
 

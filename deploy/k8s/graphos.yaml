@@ -4,7 +4,7 @@
 # in replica counts and placement:
 #   * front  — stateless streamable-HTTP MCP surface (autoscaled, KG_DAEMON_ROLE=client)
 #   * engine — per-tenant L1 shards (StatefulSet; KG-2.58 HRW routes tenant→shard)
-#   * state  — central Postgres (pggraph L3 + STATE_DB_URI) is referenced, not created here
+#   * state  — central Postgres (pg-age L3 + STATE_DB_URI) is referenced, not created here
 #
 # The front tier's served-security profile (request_identity.apply_served_security_profile)
 # refuses to start without AUTH_JWT_JWKS_URI and turns on auth + enforcement, so
@@ -46,7 +46,7 @@ metadata:
 type: Opaque
 stringData:
   # Central durable state (sessions/goals/durable_checkpoints — OS-5.16) and the
-  # L3 pggraph store. Point both at the managed/HA Postgres.
+  # L3 pg-age store. Point both at the managed/HA Postgres.
   STATE_DB_URI: "postgresql://agent:CHANGE_ME@postgres.graphos.svc:5432/agent_state"
   GRAPH_DB_URI: "postgresql://agent:CHANGE_ME@postgres.graphos.svc:5432/agent_kg"
 ---

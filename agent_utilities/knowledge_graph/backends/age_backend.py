@@ -13,7 +13,7 @@ Storage split:
   * embeddings → a ``kg_embeddings`` side table (pgvector), keyed by node id.
 
 Selected via ``GRAPH_PG_AGE=1`` (or ``backend_type="age"``) — see ``create_backend``.
-Requires the AGE + pgvector image (``docker/pggraph-age.compose.yml``).
+Requires the AGE + pgvector image (``docker/pg-age.compose.yml``).
 """
 
 from __future__ import annotations

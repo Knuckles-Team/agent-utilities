@@ -13,7 +13,7 @@ on. This page maps the pieces and how a request flows through them.
 | Project | Role |
 |---|---|
 | **agent-utilities** | The foundational library: Pydantic-AI harness, graph orchestration, KG facades, ontology, config, MCP server infra (`graph-os`, `mcp-multiplexer`, REST gateway). |
-| **epistemic-graph** | The Rust-native graph compute engine (L1 working store + OWL/Datalog reasoning), reached out-of-process over MessagePack/UDS — **no PyO3**. Durable tiers: Postgres/pggraph, with LadybugDB/Neo4j/FalkorDB available. |
+| **epistemic-graph** | The Rust-native graph compute engine (L1 working store + OWL/Datalog reasoning), reached out-of-process over MessagePack/UDS — **no PyO3**. Durable tiers: Postgres/pg-age, with LadybugDB/Neo4j/FalkorDB available. |
 
 ### Frontends (all consume the agent-utilities REST gateway / MCP)
 | Project | Role |
@@ -38,7 +38,7 @@ on. This page maps the pieces and how a request flows through them.
 | **Caddy** | HTTPS ingress / reverse proxy | single-node prod + enterprise |
 | **Langfuse** | LLM observability / tracing | any (optional) |
 | **LGTM** | Prometheus/Loki/Grafana/Tempo observability | enterprise |
-| **Postgres/pggraph** | Durable KG L2 tier; also the shared fleet state store (`STATE_DB_URI`) | single-node prod + enterprise |
+| **Postgres/pg-age** | Durable KG L2 tier; also the shared fleet state store (`STATE_DB_URI`) | single-node prod + enterprise |
 | **Kafka** | Event backbone + `kg_tasks`/`agent_turns` work queues for ingest and dispatch workers | enterprise (optional) |
 
 ### Scale-out workers (optional, any host)

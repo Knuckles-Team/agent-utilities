@@ -2,7 +2,7 @@
 #
 # The SAME `graph-os` image and env contract as deploy/k8s/graphos.yaml, downscaled
 # to a single Swarm: front service (streamable-HTTP, replicated) + one engine host
-# + an external/managed Postgres (kg-backbone_pggraph). Differs from the cloud
+# + an external/managed Postgres (kg-backbone_pg-age). Differs from the cloud
 # profile ONLY in replica counts and placement — the code path is identical.
 #
 #   docker stack deploy -c deploy/swarm/graphos.stack.yml graphos
@@ -35,8 +35,8 @@ services:
       # Single-shard homelab: point at the one engine host below. Add more
       # endpoints (and engine replicas) to shard tenants across hosts.
       GRAPH_SERVICE_ENDPOINTS: "tcp://engine:9090"
-      STATE_DB_URI: "postgresql://agent:agent@pggraph:5432/agent_state"
-      GRAPH_DB_URI: "postgresql://agent:agent@pggraph:5432/agent_kg"
+      STATE_DB_URI: "postgresql://agent:agent@pg-age:5432/agent_state"
+      GRAPH_DB_URI: "postgresql://agent:agent@pg-age:5432/agent_kg"
     ports:
       - target: 8000
         published: 8080
@@ -61,7 +61,7 @@ services:
       EPISTEMIC_GRAPH_AUTOSTART: "1"
       GRAPH_SERVICE_TCP_ADDR: "0.0.0.0:9090"
       KG_DEFAULT_GRAPH: "__commons__"
-      GRAPH_DB_URI: "postgresql://agent:agent@pggraph:5432/agent_kg"
+      GRAPH_DB_URI: "postgresql://agent:agent@pg-age:5432/agent_kg"
     volumes:
       - engine-data:/data
     deploy:

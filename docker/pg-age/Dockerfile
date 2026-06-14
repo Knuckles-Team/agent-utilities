@@ -1,4 +1,4 @@
-# pggraph (Apache AGE + pgvector) — real openCypher-on-Postgres for agent-utilities.
+# pg-age (Apache AGE + pgvector) — real openCypher-on-Postgres for agent-utilities.
 #
 # CONCEPT:KG-2.7 — the PostgreSQL graph tier runs Apache AGE (Cypher executed
 # natively via the `cypher()` function, retiring the bounded regex transpiler) and

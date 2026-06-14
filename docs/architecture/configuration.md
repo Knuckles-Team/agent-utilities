@@ -49,7 +49,7 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 
 | Flag | Default | What it sets |
 |---|---|---|
-| `GRAPH_DB_URI` / `PGGRAPH_DSN` | none | Durable L3 Postgres/pggraph DSN |
+| `GRAPH_DB_URI` / `PGGRAPH_DSN` | none | Durable L3 Postgres/pg-age DSN |
 | `GRAPH_BACKEND` / `GRAPH_BACKEND_L1` | `tiered` / `epistemic_graph` | Backend selection |
 | `EPISTEMIC_GRAPH_SOCKET` | `/tmp/epistemic-graph.sock` | Rust engine UDS |
 | `GRAPH_PERSISTENCE_PATH`, `GRAPH_SERVICE_PERSIST_DIR` | data dir | L1 snapshot dir |

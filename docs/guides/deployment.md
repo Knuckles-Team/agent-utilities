@@ -254,7 +254,7 @@ Compose files live under `docker/`:
 | File | Purpose |
 |------|---------|
 | `docker/mcp.compose.yml` | `graph-os` MCP server (streamable-http) |
-| `docker/pggraph.compose.yml` | PostgreSQL + pgvector + pgGraph (durable L2) |
+| `docker/pg-age.compose.yml` | PostgreSQL + pgvector + pg-age (durable L2) |
 | `docker/neo4j.compose.yml`, `docker/falkordb.compose.yml` | Opt-in contrib backends |
 | `docker/kafka-kraft.compose.yml` | Redpanda/Kafka reactive event ledger |
 
@@ -263,7 +263,7 @@ Compose files live under `docker/`:
 docker compose -f docker/mcp.compose.yml up -d
 
 # Add a durable PostgreSQL L2:
-docker compose -f docker/pggraph.compose.yml up -d
+docker compose -f docker/pg-age.compose.yml up -d
 # then set GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
 ```
 
@@ -283,7 +283,7 @@ in-memory defaults** and requires durable, shardable backends:
 ```bash
 export APP_PROFILE=production
 export GRAPH_BACKEND=tiered
-export GRAPH_DB_URI=postgresql://agent:agent@pggraph.internal:5432/agent_kg
+export GRAPH_DB_URI=postgresql://agent:agent@pg-age.internal:5432/agent_kg
 export KAFKA_BOOTSTRAP_SERVERS=redpanda-0:9092,redpanda-1:9092
 ```
 

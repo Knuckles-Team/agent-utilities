@@ -8,7 +8,7 @@ deployment-profile e2e (``profiles/``) can run against real instances. They live
 here (one level above both packages) so both subtrees can request them.
 
 Why testcontainers (not raw ``docker compose`` on fixed ports): the homelab runs
-long-lived Neo4j/pggraph/Kafka on the canonical ports (7687/5433/9092). A suite
+long-lived Neo4j/pg-age/Kafka on the canonical ports (7687/5433/9092). A suite
 that bound those would collide with — or mutate — live services. testcontainers
 allocates a **random free host port** per container and tears it down
 deterministically, so a run is hermetic and intentionally disposable.
@@ -29,7 +29,7 @@ import pytest
 
 # Repo root: tests/integration/conftest.py -> parents[2].
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_PGGRAPH_INIT_DIR = _REPO_ROOT / "docker" / "pggraph-init"
+_PARADEDB_INIT_DIR = _REPO_ROOT / "docker" / "paradedb-init"
 
 
 def _skip_without_docker() -> None:
@@ -58,7 +58,7 @@ def _skip_without_docker() -> None:
 
 
 @pytest.fixture(scope="session")
-def ephemeral_pggraph() -> Iterator[dict[str, Any]]:
+def ephemeral_pg_age() -> Iterator[dict[str, Any]]:
     """A throwaway ParadeDB (Postgres + pgvector + pg_search) on a random port."""
     _skip_without_docker()
     from testcontainers.postgres import PostgresContainer
@@ -69,10 +69,10 @@ def ephemeral_pggraph() -> Iterator[dict[str, Any]]:
         password="agent",  # noqa: S106 — ephemeral throwaway container
         dbname="agent_kg",
     )
-    # Mirror docker/pggraph.compose.yml: run the extension bootstrap on first init.
-    if _PGGRAPH_INIT_DIR.is_dir():
+    # Mirror docker/paradedb.compose.yml: run the extension bootstrap on first init.
+    if _PARADEDB_INIT_DIR.is_dir():
         container.with_volume_mapping(
-            str(_PGGRAPH_INIT_DIR), "/docker-entrypoint-initdb.d", mode="ro"
+            str(_PARADEDB_INIT_DIR), "/docker-entrypoint-initdb.d", mode="ro"
         )
     container.start()
     try:

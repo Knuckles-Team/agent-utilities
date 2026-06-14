@@ -80,7 +80,7 @@ impact = nx.ancestors(subgraph, target_id)
 | Environment | Backend | NetworkX Role | Use Case |
 |-------------|---------|---------------|----------|
 | **Out-of-box default** | `tiered` (epistemic_graph L1 + **LadybugDB** L2) | Compute scratchpad only | Single self-contained binary, **no external system dependencies** |
-| **Production (durable)** | `tiered` with `GRAPH_DB_URI` set → PostgreSQL L2 (pgvector + pgGraph) | Compute scratchpad only | Enterprise, high-concurrency multi-agent swarms |
+| **Production (durable)** | `tiered` with `GRAPH_DB_URI` set → PostgreSQL L2 (pgvector + pg-age) | Compute scratchpad only | Enterprise, high-concurrency multi-agent swarms |
 | **Development** | `tiered`+ladybug (default), or `memory` / `file` | Compute scratchpad | Local dev |
 | **Testing/CI** | MemoryBackend (`GRAPH_BACKEND=memory`) | Both storage & compute | Unit tests, small graphs |
 | **Edge/Embedded** | `tiered`+ladybug or `file` (JSON persistence) | Both + persistence | IoT, offline agents |
@@ -105,7 +105,7 @@ export GRAPH_BACKEND=tiered            # implicit default
 export GRAPH_BACKEND_L1=epistemic_graph
 export GRAPH_BACKEND_L2=ladybug        # embedded, no external server
 
-# 2. Production durable — tiered with a PostgreSQL L2 (pgvector + pgGraph).
+# 2. Production durable — tiered with a PostgreSQL L2 (pgvector + pg-age).
 #    Setting a DSN auto-switches L2 to postgres; no other change needed.
 export GRAPH_BACKEND=tiered
 export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg

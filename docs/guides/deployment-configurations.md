@@ -264,7 +264,7 @@ process — and the schema/locking groundwork for multi-host. One flag,
 checkpoints, sessions/turns/goals, the KG task + staging queue) onto one
 shared Postgres through a single connection pool (CONCEPT:OS-5.16–5.18,
 [state externalization](../architecture/state_externalization.md)). A second
-DSN, `GRAPH_DB_URI`, gives the tiered KG a durable Postgres/pggraph tier.
+DSN, `GRAPH_DB_URI`, gives the tiered KG a durable Postgres/pg-age tier.
 **What you don't get:** horizontal scale-out of ingest or agent execution
 (still one host doing the work), autonomy.
 
@@ -286,14 +286,14 @@ What turns on, with no further flags:
 
 ### Compose
 
-`docker/pggraph.compose.yml` provisions a graph-enabled Postgres (ParadeDB)
+`docker/pg-age.compose.yml` provisions a graph-enabled Postgres (ParadeDB)
 on host port **5433**, database `agent_kg`, user/password `agent`/`agent`,
-with init scripts from `docker/pggraph-init/`:
+with init scripts from `docker/pg-age-init/`:
 
 ```bash
-docker compose -f docker/pggraph.compose.yml up -d
+docker compose -f docker/pg-age.compose.yml up -d
 # A separate logical DB for platform state keeps it apart from the graph tier:
-docker exec agent-pggraph psql -U agent -d agent_kg -c 'CREATE DATABASE agent_state'
+docker exec agent-pg-age psql -U agent -d agent_kg -c 'CREATE DATABASE agent_state'
 ```
 
 Any Postgres you already run works the same way; the compose file is the
@@ -318,7 +318,7 @@ KG_BRAIN_ENFORCE=1
 STATE_DB_URI=postgresql://agent:agent@localhost:5433/agent_state
 #STATE_DB_POOL_SIZE=8              # default: max connections in the ONE shared pool
 
-# Durable Postgres/pggraph tier for the tiered KG backend
+# Durable Postgres/pg-age tier for the tiered KG backend
 GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
 
 # Task queue: leave unset — auto resolves to postgres because STATE_DB_URI is
