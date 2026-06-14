@@ -3757,6 +3757,18 @@ def _build_server(bootstrap: bool = True):
                         }
                     )
                 return _json.dumps({"status": "ok", **summary}, default=str)
+            elif action == "research_ingest":
+                # KG-2.33 — deep-research ingestion: fetch a paper/URL, run the
+                # research pipeline (orchestrator + citation subagents), and persist
+                # it into the KG. ``query`` carries the URL or paper id.
+                from agent_utilities.knowledge_graph.research.research_intelligence_engine import (  # noqa: E501
+                    ResearchIntelligenceEngine,
+                )
+
+                if not query:
+                    return "Error: research_ingest needs a URL/paper id in `query`."
+                rie = ResearchIntelligenceEngine(engine)
+                return await rie.ingest_url(query)
             else:
                 return f"Error: Unknown analyze action '{action}'"
         except Exception as e:
