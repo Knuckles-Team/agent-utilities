@@ -216,6 +216,73 @@ When implementing any non-trivial feature you MUST verify and test the *invocati
 5. **No silent storage.** A value set in `__init__`/a setter but read nowhere is a bug. Either wire it
    into the behavior or don't add it.
 
+## Native by default — every enhancement is always-on and woven into the flow (READ BEFORE gating a feature)
+
+We are greenfield and we own every consumer, so a new capability is not a thing
+users *opt into* — it is **the new default behavior of the existing flow**. When
+you add an enhancement, the bar is: **does it just happen, natively, on the next
+run, for everyone, with no one asking for it?** If not, you have not finished
+wiring it (see *Wire-First*). A capability that exists but must be invoked through
+a separate command/action/flag is a **niche implementation** — the opposite of
+what we want.
+
+The flag decision, in strict order of preference:
+
+1. **No flag — default ON, wired into the flow (the default choice).** Make the
+   enhancement part of the path it improves so it runs every time. A new
+   extraction layer runs as part of *ingestion*, not as a `do_extra_extraction`
+   action; a new routing improvement runs inside the router, not behind
+   `USE_BETTER_ROUTING=1`. Optimize it into the existing flow (share the LLM
+   client, the embedder, the batch write, the delta-skip) so "on" is also "fast".
+2. **Opt-OUT flag — only if a real run legitimately needs it off.** Default stays
+   ON; the flag exists for a concrete disable case (e.g. a fast structural-only
+   bulk backfill skips LLM enrichment). Reuse the *one* enrichment toggle that
+   already gates that case — do not add a second.
+3. **Opt-IN flag — ONLY when always-on would genuinely harm a normal run** because
+   the behavior is *expensive or high-overhead*: heavy GPU/LLM cost on every item,
+   a slow external call, a large memory footprint, or a dependency that may be
+   absent. Even then, prefer **auto-detection / auto-sizing** (run it when the
+   resource is present, scale it to load) over a manual knob — a knob is the last
+   resort, governed by *Configuration discipline*.
+
+So: **enhance the flow, don't bolt on a feature.** Default-on, native, optimized
+together with everything around it. Reserve opt-out for a real disable case and
+opt-in for genuinely expensive behavior — everything else just becomes how the
+system works. This applies to *every* change, not just big ones.
+
+## Two surfaces by default — every feature reachable via the gateway AND MCP (READ BEFORE shipping a capability)
+
+**Every feature we build must be usable and configurable from two places: the
+API gateway (REST) and the MCP server.** A capability that only a Python import
+can reach is half-shipped. There is no third option and no "internal-only"
+exemption — if it is a feature, both surfaces expose it.
+
+The MCP server is a **thin wrapper**, never a second implementation. Both surfaces
+dispatch into the **same single source of truth** — the existing
+`_execute_tool()` action core that `agent_utilities/mcp/kg_server.py` (MCP) and
+`agent_utilities/gateway/*_api.py` (REST) both call. So wiring a new feature to
+both surfaces is *one* new action on that core plus a one-line registration on
+each side, not two parallel handlers that can drift.
+
+When you add a capability:
+
+1. **Add the behavior once** to the action core / service layer (not inside a
+   route handler or an MCP tool body).
+2. **Register the MCP action** — a new `action=`/`mode=` value on the relevant
+   `graph_*`/`ontology_*`/`object_*` tool (or a new thin tool), dispatching into
+   the core. The tool function carries only argument-marshalling, never logic.
+3. **Register the REST twin** — the matching `/api/...` route (action-routed POST
+   on `graph_api.py`, or a granular typed route where the surface is typed, e.g.
+   `/api/ontology/*`, `/api/objects/*`), dispatching into the *same* core.
+4. **Keep them in lockstep.** The parity is enforced by a drift-guard gate (see
+   *Surface-parity scanning* in the regression-gates list); a feature present on
+   one surface and missing on the other is a **build break**, not a follow-up.
+
+This is the surface contract for *Native by default*: "always-on in the flow"
+governs internal behavior; "reachable from gateway + MCP" governs the operator
+surface. A feature satisfies neither by existing — it satisfies both by being
+wired, defaulted on, and exposed on both surfaces in the same change.
+
 ## No Legacy — no back-compat, update every consumer, delete the old path (READ BEFORE adding a shim)
 
 **We own every consumer.** The whole world that calls our code lives under
