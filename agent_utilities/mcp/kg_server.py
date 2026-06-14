@@ -5202,18 +5202,26 @@ def _build_server(bootstrap: bool = True):
                 )
 
                 backend = get_active_backend()
-                # Unwrap a BrainGuarded proxy if present (its inner backend is
-                # exposed via the ``inner`` property; a bare FanOutBackend has no
-                # such attribute, so the default keeps it as-is).
-                inner = getattr(backend, "inner", backend)
-                if not isinstance(inner, FanOutBackend):
+                # Locate the FanOutBackend. It is either the active backend
+                # (GRAPH_BACKEND=fanout) or — the common case — the durable L3 of a
+                # tiered backend (GRAPH_BACKEND=tiered + GRAPH_MIRROR_TARGETS), which
+                # tees pg-age writes to the mirrors. Also unwrap a BrainGuarded proxy
+                # (its inner backend is the ``inner`` property).
+                cand = getattr(backend, "inner", backend)
+                fan = None
+                if isinstance(cand, FanOutBackend):
+                    fan = cand
+                elif isinstance(getattr(cand, "l3", None), FanOutBackend):
+                    fan = cand.l3
+                if fan is None:
                     return json.dumps(
                         {
-                            "error": "Active backend is not a fanout mirror "
-                            "(set GRAPH_BACKEND=fanout with GRAPH_MIRROR_TARGETS).",
+                            "error": "No fanout mirror active (set GRAPH_MIRROR_TARGETS "
+                            "with GRAPH_BACKEND=tiered or fanout).",
                             "backend": type(backend).__name__,
                         }
                     )
+                inner = fan
                 if action == "mirror_status":
                     return json.dumps(inner.durability_stats(), default=str)
                 # reconcile — full authority→mirror drift repair (config_key =
