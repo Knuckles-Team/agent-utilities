@@ -148,6 +148,17 @@ class RLMConfig(BaseModel):
         description="Enable parallel asynchronous sub-calls in RLM.",
     )
 
+    prompt_family: Literal["auto", "openai", "anthropic", "qwen"] = Field(
+        default="auto",
+        description=(
+            "CONCEPT:ORCH-1.54 — model family the RLM REPL system prompt is tuned for. The RLM "
+            "paper flags that one fixed system prompt fails across model families; 'auto' infers "
+            "the family from the root model id and applies a family-specific addendum (terser for "
+            "qwen which can exhaust output tokens; code-first for anthropic which tends to narrate). "
+            "Pin a value to override the inference."
+        ),
+    )
+
     max_turns: int = Field(
         default=5,
         ge=1,

@@ -61,6 +61,9 @@ class PredictRLM:
         self.config = config or RLMConfig()
         self.graph_deps = graph_deps
         self.skills: dict[str, Any] = {}
+        self.last_run_trace: Any = (
+            None  # CONCEPT:AHE-3.32 — set after run() for cost capture
+        )
 
         # Inspect the signature to identify input and output fields
         self.inputs: list[str] = []
@@ -177,6 +180,8 @@ class PredictRLM:
 
         prompt = self._generate_instruction_prompt(inputs)
         await env.run_full_rlm(prompt)
+        # CONCEPT:AHE-3.32 — expose the run's token usage to callers (benchmark cost capture).
+        self.last_run_trace = env.last_run_trace
 
         # Gather final variables and validate with Pydantic
         output_data = {}
