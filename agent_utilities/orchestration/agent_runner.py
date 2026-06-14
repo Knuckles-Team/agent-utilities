@@ -22,6 +22,7 @@ This module provides deep KG integration rather than a simple passthrough:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import time
@@ -303,6 +304,13 @@ async def run_agent(
         # Exception), so we catch BaseException and flatten the group to surface the
         # real underlying error(s); a bare KeyboardInterrupt/SystemExit (no leaf
         # errors) is re-raised untouched.
+        # A cooperative cancellation — e.g. an outer ``asyncio.wait_for`` wall-clock
+        # timeout in ``_run_agent_bounded`` — MUST propagate so the timeout surfaces
+        # as a clean "timed out" result, not be flattened into "Agent execution
+        # failed: CancelledError". CancelledError is a bare BaseException here (not a
+        # group), so re-raise it before the flatten path.
+        if isinstance(e, asyncio.CancelledError):
+            raise
         if isinstance(e, KeyboardInterrupt | SystemExit) and not isinstance(
             e, BaseExceptionGroup
         ):
