@@ -29,8 +29,9 @@ completion fn. New paradigms register without touching any caller.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,10 @@ class ProgramSynthesisReasoner:
         if prog is None:
             return ReasoningResult(None, self.name, 0.0, {"fit": "none"})
         return ReasoningResult(
-            answer=prog, reasoner=self.name, score=prog.score, trace={"ops": list(prog.ops)}
+            answer=prog,
+            reasoner=self.name,
+            score=prog.score,
+            trace={"ops": list(prog.ops)},
         )
 
 
@@ -99,11 +103,11 @@ class WorldModelReasoner:
     def reason(self, task: ReasoningTask) -> ReasoningResult:
         wm = task.payload["world_model"]
         policy = task.payload["policy"]
-        traj = wm.rollout(
-            task.payload["start"], policy, task.payload.get("horizon", 5)
-        )
+        traj = wm.rollout(task.payload["start"], policy, task.payload.get("horizon", 5))
         goal_state = task.payload.get("goal_state")
-        reached = goal_state is not None and any(t.next_state == goal_state for t in traj)
+        reached = goal_state is not None and any(
+            t.next_state == goal_state for t in traj
+        )
         if goal_state is not None:
             score = 1.0 if reached else 0.0
         else:
@@ -136,7 +140,10 @@ class DeductiveReasoner:
         else:
             score = 1.0 if len(derived) > len(facts) else 0.0
         return ReasoningResult(
-            answer=derived, reasoner=self.name, score=score, trace={"derived": len(derived)}
+            answer=derived,
+            reasoner=self.name,
+            score=score,
+            trace={"derived": len(derived)},
         )
 
 
@@ -157,7 +164,9 @@ class GenerativeReasoner:
     def reason(self, task: ReasoningTask) -> ReasoningResult:
         fn = self._llm_fn or task.payload.get("llm_fn")
         if fn is None:
-            from agent_utilities.knowledge_graph.enrichment.cards import make_lite_llm_fn
+            from agent_utilities.knowledge_graph.enrichment.cards import (
+                make_lite_llm_fn,
+            )
 
             fn = make_lite_llm_fn()
         prompt = task.payload.get("prompt", task.goal)

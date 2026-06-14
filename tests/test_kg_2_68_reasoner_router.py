@@ -11,12 +11,10 @@ from __future__ import annotations
 import pytest
 
 from agent_utilities.knowledge_graph.core.reasoner import (
-    DeductiveReasoner,
     GenerativeReasoner,
     ReasonerRouter,
     ReasoningResult,
     ReasoningTask,
-    WorldModelReasoner,
     get_reasoner_router,
     reason,
 )
