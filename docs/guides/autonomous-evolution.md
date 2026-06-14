@@ -12,17 +12,18 @@ exactly which flags do what.
 
 ## The safety chain
 
-Every autonomous change passes four independent stages, each of which can stop
-it:
+Every autonomous change passes a chain of independent stages, each of which
+can stop it:
 
 ```mermaid
 flowchart LR
     A["Propose-only loops<br/>(golden loop, failure ingest,<br/>anomaly consumer, fleet events)"] --> B["Governed validation<br/>PromotionGovernanceValidator<br/>(AHE-3.20)"]
     B --> C["Regression gate<br/>recorded RegressionGateResult<br/>(AHE-3.18)"]
     C --> D["Merge<br/>human by default;<br/>auto only with KG_GOLDEN_AUTO_MERGE"]
-    D --> E["Publication<br/>ActionPolicy merge_promotion<br/>(OS-5.24, approval by default)"]
-    E --> F["Reviewable branch<br/>change synthesis + RLM sandbox<br/>(AHE-3.21) — never pushed"]
-    F --> G["Human merges<br/>normal release flow"]
+    D --> E["Promotion policy gate<br/>ActionPolicy merge_promotion<br/>(OS-5.24) — deny blocks the flip"]
+    E --> F["Publication<br/>same merge_promotion approval<br/>(AHE-3.21, approval by default)"]
+    F --> G["Reviewable branch<br/>change synthesis + RLM sandbox<br/>(AHE-3.21) — never pushed"]
+    G --> H["Human merges<br/>normal release flow"]
 ```
 
 1. **Propose-only loops.** The golden loop, the failure-evolution sweep, the
@@ -45,7 +46,18 @@ flowchart LR
    act. Flipping it on delegates only the *final* step — to the governed,
    audited path above, with every decision logged through the
    `golden_loop.auto_merge` audit trail.
-5. **Publication as a reviewable branch (`AHE-3.21`).** Promotion used to end
+5. **Operational promotion gate (`OS-5.24` adoption).** Even with auto-merge
+   on, the merger's own promotion decision consults the operational
+   `ActionPolicy` under the reserved `merge_promotion` kind *before* the
+   lifecycle flip (`research/auto_merge.py`). A `deny` — a `forbidden` tier,
+   a rate-limit breach, or a policy-engine failure (the gate fails closed) —
+   blocks the promotion and is recorded on the evaluation and the audit
+   trail. The shipped `approval_required` tier queues the **same**
+   `ActionApproval` the publication step consumes (deduped per kind+target),
+   so the KG-internal lifecycle flip proceeds while the real-world change
+   stays human-gated; `auto`/`auto_notify` tiers proceed (with the policy's
+   own notification).
+6. **Publication as a reviewable branch (`AHE-3.21`).** Promotion used to end
    at a KG lifecycle flip. The evolution→branch bridge closes that gap: a
    *merged* proposal is materialized into a concrete change set and published
    as a **local git branch** — gated by the operational `ActionPolicy`'s
@@ -87,8 +99,9 @@ Two modules under `knowledge_graph/research/` implement the bridge:
 ### The human workflow (approve → publish → merge)
 
 1. A proposal merges through the governed chain (or you decide to publish a
-   promoted one). The bridge consults the ActionPolicy; with the shipped
-   policy the `merge_promotion` action **queues an approval** — visible in
+   promoted one). With the shipped policy the merger's own promotion consult
+   has already **queued the `merge_promotion` approval**; the bridge consults
+   the ActionPolicy again and dedups to that same approval — visible in
    `GET /api/fleet/approvals`.
 2. A human grants it: `POST /api/fleet/approvals/grant` with the approval's
    `job_id`. (Granted `merge_promotion` approvals are deliberately *not*
