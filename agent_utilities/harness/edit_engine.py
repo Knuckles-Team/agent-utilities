@@ -283,9 +283,7 @@ def _prep(content: str) -> tuple[str, list[str]]:
     return content, content.splitlines(keepends=True)
 
 
-def _perfect_replace(
-    whole: list[str], part: list[str], rep: list[str]
-) -> str | None:
+def _perfect_replace(whole: list[str], part: list[str], rep: list[str]) -> str | None:
     plen = len(part)
     ptup = tuple(part)
     for i in range(len(whole) - plen + 1):
@@ -299,9 +297,7 @@ def _match_but_for_leading_ws(whole: list[str], part: list[str]) -> str | None:
     if not all(whole[i].lstrip() == part[i].lstrip() for i in range(num)):
         return None
     add = {
-        whole[i][: len(whole[i]) - len(part[i])]
-        for i in range(num)
-        if whole[i].strip()
+        whole[i][: len(whole[i]) - len(part[i])] for i in range(num) if whole[i].strip()
     }
     if len(add) != 1:
         return None

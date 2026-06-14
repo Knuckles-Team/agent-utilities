@@ -526,13 +526,18 @@ class SDDManager:
         if target is None:
             raise ValueError(f"task {task_id} not found in feature {feature_id}")
 
-        preserved = {"in_progress", "completed", "done", "review", "cancelled",
-                     "deferred", "blocked"}
+        preserved = {
+            "in_progress",
+            "completed",
+            "done",
+            "review",
+            "cancelled",
+            "deferred",
+            "blocked",
+        }
         step = {"light": 1, "regular": 2, "heavy": 4}.get(strength, 2)
         if direction == "down":
-            target.subtasks = [
-                s for s in target.subtasks if str(s.status) in preserved
-            ]
+            target.subtasks = [s for s in target.subtasks if str(s.status) in preserved]
             target.recommended_subtasks = max(0, target.recommended_subtasks - step)
             target.complexity_score = max(0.0, target.complexity_score - step)
         else:
@@ -541,8 +546,9 @@ class SDDManager:
         if transformer is not None:
             replacement = transformer(target, direction, strength)
             if replacement is not None:
-                tasks.tasks = [replacement if t.id == task_id else t
-                               for t in tasks.tasks]
+                tasks.tasks = [
+                    replacement if t.id == task_id else t for t in tasks.tasks
+                ]
                 target = replacement
         self.save(tasks, feature_id)
         return target
