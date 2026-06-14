@@ -61,6 +61,7 @@ nav:
       - Configuration Reference & Flag Audit: architecture/configuration.md
       - MCP Fleet Auth & Monitoring Runbook: guides/mcp-fleet-auth-and-monitoring-runbook.md
       - Enabling Autonomous Evolution: guides/autonomous-evolution.md
+      - AGI→ASI Implementation Guide: guides/agi-to-asi-implementation.md
       - Tiered Graph Engine: guides/tiered_graph_engine.md
   - Worked Examples:
       - Ontology → Workflow End-to-End: examples/ontology-to-workflow.md
@@ -87,6 +88,7 @@ nav:
       - GeniusBot Cockpit: pillars/6_geniusbot_cockpit.md
   - Architecture:
       - C4 Architecture: pillars/architecture_c4.md
+      - Self-Improving Reasoning Substrate: architecture/self_improving_reasoning_substrate.md
       - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
       - Company Brain Runtime: architecture/company_brain_runtime.md
       - Global Workspace Attention: architecture/global_workspace_attention.md
