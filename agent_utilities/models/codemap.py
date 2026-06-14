@@ -113,6 +113,66 @@ class CodemapArtifact(BaseModel):
 
         return builder.render()
 
+    def to_skeleton(self, max_tokens: int = 1024) -> str:
+        """Render an importance-ranked code skeleton that fits a token budget.
+
+        CONCEPT:ORCH-1.48 — a compact, context-injection view of the codemap. Nodes
+        are sorted by ``importance`` (the PageRank/centrality score) and the largest
+        prefix that fits ``max_tokens`` is rendered, grouped by file as
+        ``path`` → ``  symbol (type) [L<line>]`` lines. The cut-off is found by
+        binary search over the ranked node list (mirroring aider's repo-map fitting),
+        so the highest-signal symbols always survive truncation.
+
+        Args:
+            max_tokens: Approximate token budget for the rendered skeleton.
+
+        Returns:
+            A text skeleton no larger than the budget (best-effort), plus a trailing
+            note when symbols were omitted.
+        """
+        ranked = sorted(self.nodes, key=lambda n: (n.importance, n.id), reverse=True)
+        if not ranked:
+            return ""
+
+        total = len(ranked)
+
+        def render(count: int) -> str:
+            by_file: dict[str, list[CodemapNode]] = {}
+            for node in ranked[:count]:
+                by_file.setdefault(node.file or "(unknown)", []).append(node)
+            out: list[str] = []
+            for path in sorted(by_file):
+                out.append(path)
+                for node in sorted(by_file[path], key=lambda n: (n.line or 0, n.label)):
+                    loc = f" [L{node.line}]" if node.line else ""
+                    out.append(f"  {node.label} ({node.type}){loc}")
+            text = "\n".join(out)
+            # Account for the omission note in the budget so the final string
+            # (note included) never exceeds max_tokens.
+            if count < total:
+                text += f"\n… {total - count} lower-ranked symbol(s) omitted"
+            return text
+
+        # Binary-search the largest node count whose rendering fits the budget.
+        if _estimate_tokens(render(total)) <= max_tokens:
+            best = total
+        else:
+            lo, hi, best = 1, total, 1
+            while lo <= hi:
+                mid = (lo + hi) // 2
+                if _estimate_tokens(render(mid)) <= max_tokens:
+                    best, lo = mid, mid + 1
+                else:
+                    hi = mid - 1
+        return render(best)
+
     @classmethod
     def from_json(cls, data: str) -> CodemapArtifact:
         return cls.model_validate_json(data)
+
+
+def _estimate_tokens(text: str) -> int:
+    """Approximate token count (≈1.33 tokens/word), matching the KG memory layer."""
+    if not text:
+        return 0
+    return int(len(text.split()) * 1.33) + text.count("\n")

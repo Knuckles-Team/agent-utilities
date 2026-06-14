@@ -150,6 +150,57 @@ async def replace_in_file(
         return f"Error updating file: {e}"
 
 
+@trace(name="apply_edits", trace_type="TOOL")
+@tool_version("1.0.0")
+async def apply_edits(
+    ctx: RunContext[AgentDeps], edits: str, root: str = ".", fmt: str = "auto"
+) -> str:
+    """Apply multi-file code edits with fuzzy matching (ORCH-1.46).
+
+    Unlike ``replace_in_file`` (single exact match), this parses one or more
+    SEARCH/REPLACE blocks or a unified diff and applies them with a graduated
+    matching ladder (exact → leading-whitespace-flexible → closest-window), so
+    edits still land when whitespace drifts. Failures come back with did-you-mean
+    hints rather than silently doing nothing.
+
+    Args:
+        ctx: The agent run context.
+        edits: Model output containing SEARCH/REPLACE blocks or a unified diff.
+        root: Base directory edit paths resolve against (default current dir).
+        fmt: ``"auto"`` (detect), ``"search-replace"``, or ``"unified-diff"``.
+
+    Returns:
+        A status report listing applied edits (with diffs) and any failures
+        (with the nearest matching lines as a hint).
+
+    """
+    from agent_utilities.harness.edit_engine import apply_edits as _apply
+    from agent_utilities.harness.edit_engine import parse_edits
+
+    try:
+        parsed = parse_edits(edits, fmt=fmt)
+    except ValueError as exc:
+        return f"Malformed edit block: {exc}"
+    if not parsed:
+        return "No edit blocks found in the supplied text."
+
+    result = _apply(parsed, root=root)
+    lines: list[str] = []
+    for outcome in result.outcomes:
+        if outcome.applied:
+            lines.append(
+                f"✓ {outcome.path} (matched via {outcome.strategy})\n{outcome.diff}"
+            )
+        else:
+            hint = f"\n  hint: {outcome.hint}" if outcome.hint else ""
+            lines.append(f"✗ {outcome.path}: {outcome.reason}{hint}")
+    header = (
+        f"Applied {len(result.files_changed)} file(s); "
+        f"{len(result.failures)} edit(s) failed."
+    )
+    return header + "\n\n" + "\n\n".join(lines)
+
+
 @trace(name="run_shell_with_diagnostics", trace_type="TOOL")
 @tool_version("1.0.0")
 async def run_shell_with_diagnostics(
@@ -260,6 +311,7 @@ async def delete_file(ctx: RunContext[AgentDeps], path: str) -> str:
 developer_tools = [
     project_search,
     replace_in_file,
+    apply_edits,
     run_shell_with_diagnostics,
     create_file,
     delete_file,
