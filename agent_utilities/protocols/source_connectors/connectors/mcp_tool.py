@@ -614,8 +614,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             from fastmcp import Client
         except ImportError as exc:  # pragma: no cover - env without fastmcp
             raise McpToolSourceError(
-                "McpToolSourceConnector needs 'fastmcp' "
-                "(install agent-utilities[mcp])."
+                "McpToolSourceConnector needs 'fastmcp' (install agent-utilities[mcp])."
             ) from exc
         return Client(self._client_target(), timeout=self.timeout)
 
@@ -897,9 +896,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         closed before returning (CONCEPT:KG-2.59 session lifecycle).
         """
 
-        async def run() -> (
-            tuple[list[SourceDocument], dict[str, Any], bool, str | None]
-        ):
+        async def run() -> tuple[
+            list[SourceDocument], dict[str, Any], bool, str | None
+        ]:
             docs: list[SourceDocument] = []
             new_state = dict(state)
             exhausted = False
