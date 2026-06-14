@@ -92,12 +92,19 @@ before reasoning* — transitive/symmetric/inverse/domain-range/property-chain c
 subClassOf/equivalentClass — **across the whole ecosystem at once**, so a research concept
 can be inferred to relate to a deployed service or an agent capability, not siloed.
 
-Every long-running objective (a **Loop**, KG-2.78 — research / develop / skill) runs the
-**`OntologyReasoningDriver`** (KG-2.79) each cycle: it promotes the loop's working set +
-the surrounding ecosystem subgraph, runs `OWLBridge.run_cycle` (promote → reason →
-downfeed), and **harvests the newly-inferred cross-domain relationships back as fresh
-research topics** — a closed extrapolation loop. This replaced the old one-shot enrichment
-that ran reasoning and never consumed the inferences.
+Every long-running objective is a **Loop** (KG-2.78) — kind `research`, `develop`, or
+`skill` — and the **one** `LoopController` (formerly the "golden loop") advances every
+active Loop through a single hot path: research loops acquire sources + reason, `develop`
+loops run act→validate (their `validation_cmd`), `skill` loops execute their skill /
+skill-workflow. There is no separate goal-runner or research-runner. The single entrypoint
+is the **`graph_loops`** MCP tool (`submit` / `list` / `run` / `cancel`); `submit_loop` is
+the shared creation path for goals, research topics, failure gaps and skill executions.
+
+The research path runs the **`OntologyReasoningDriver`** (KG-2.79) each cycle: it promotes
+the loop's working set + the surrounding ecosystem subgraph, runs `OWLBridge.run_cycle`
+(promote → reason → downfeed), and **harvests the newly-inferred cross-domain relationships
+back as fresh research topics** — a closed extrapolation loop. This replaced the old
+one-shot enrichment that ran reasoning and never consumed the inferences.
 
 **Agent-Native Research Artifacts (ARA, KG-2.80)** are the OWL-native output: a 4-layer
 artifact (`/logic` claims, `/src` code specs, `/trace` exploration DAG with dead-ends and
@@ -118,8 +125,12 @@ emits a signed `seal_certificate`. Both surfaces are exposed identically — the
   ARA forensic-edge characteristics (transitive `grounded_in`, `grounded_in`↔`supports`).
 - `knowledge_graph/research/ara/` — `reasoning_driver` (reasoning-as-engine, KG-2.79),
   `artifact`/`compiler`/`seal`/`exploration`/`live_manager`/`service` (ARA, KG-2.80).
-- `knowledge_graph/research/loops.py` — the `Loop` long-running-objective unit (KG-2.78).
-- `gateway/research_api.py` — granular `{prefix}/research/*` typed routes (single SoT).
+- `knowledge_graph/research/loops.py` — the `Loop` long-running-objective unit +
+  `submit_loop`/`active_loops`/`mark_loop_status` (KG-2.78).
+- `knowledge_graph/research/loop_controller.py` — the one `LoopController` advancing all
+  Loop kinds (research stages + develop act→validate + skill execution).
+- `gateway/research_api.py` — granular `{prefix}/research/*` typed routes (single SoT);
+  `graph_loops` MCP tool — the single entrypoint for long-running objectives.
 - `knowledge_graph/backends/owl/` — local `owlready2` backend + Stardog.
 - `knowledge_graph/backends/sparql/jena_fuseki_backend.py` — optional Fuseki tier.
 - `gateway/graph_api.py` — `{prefix}/sparql` route + cached bridge.

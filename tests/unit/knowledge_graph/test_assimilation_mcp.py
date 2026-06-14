@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_utilities.knowledge_graph.research.golden_loop import run_assimilation_pass
+from agent_utilities.knowledge_graph.research.loop_controller import run_assimilation_pass
 
 pytestmark = pytest.mark.concept("KG-2.7")
 

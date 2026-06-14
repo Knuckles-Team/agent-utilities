@@ -8,7 +8,7 @@ from agent_utilities.knowledge_graph.adaptation.topic_resolver import (
     mark_addressed,
     unresolved_topics,
 )
-from agent_utilities.knowledge_graph.research.golden_loop import GoldenLoopController
+from agent_utilities.knowledge_graph.research.loop_controller import LoopController
 
 
 class _StubEngine:
@@ -73,7 +73,7 @@ def test_run_breadth_self_configures_from_workspace_yml(monkeypatch):
 
     monkeypatch.setattr(assim, "run_breadth_ingest", fake_run)
 
-    rep = GoldenLoopController(_StubEngine([], []))._run_breadth()
+    rep = LoopController(_StubEngine([], []))._run_breadth()
     assert captured["repos"] == ["/eco/repo-a", "/eco/repo-b"]
     assert not rep.get("skipped")
 
@@ -82,7 +82,7 @@ def test_run_one_cycle_intake_only_propose_only():
     eng = _StubEngine(concepts=[("c:1", "A"), ("c:2", "B")], addressed=[])
     # acquire returns [] (no semantic_search) → resolve does nothing, but the
     # cycle must complete cleanly and stay propose-only.
-    rep = GoldenLoopController(eng).run_one_cycle(synthesize=False, distill=False)
+    rep = LoopController(eng).run_one_cycle(synthesize=False, distill=False)
     assert rep["propose_only"] is True
     assert rep["topics_intake"] == 2
     assert rep["topics_resolved"] == 0
@@ -116,7 +116,7 @@ def test_run_one_cycle_intake_papers_runs_research_pipeline(monkeypatch):
     monkeypatch.setattr(rp, "ResearchPipelineRunner", _FakeRunner)
 
     eng = _StubEngine([], [])
-    rep = GoldenLoopController(eng).run_one_cycle(
+    rep = LoopController(eng).run_one_cycle(
         papers=[{"id": "2606.09498", "title": "Self-Harness"}],
         assimilate=False,
         synthesize=False,

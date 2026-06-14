@@ -1,19 +1,25 @@
-"""The self-evolution "golden loop" controller (propose-only v1).
+"""The Loop engine controller — one hot path for every long-running objective.
 
-CONCEPT:KG-2.7 / KG-2.10 — research assimilation + orchestration synthesis.
+CONCEPT:KG-2.7 / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis,
+generalized to advance **any** active :class:`~..research.loops.Loop` (research /
+develop / skill) through ONE cycle. Formerly the "golden loop"; renamed because goals,
+research topics, failure gaps and skill executions all collapse into the single Loop
+unit the controller advances — there is no separate goal-runner or research-runner.
 
-Composes existing primitives into one cycle that makes the KG self-improving
-WITHOUT auto-merging anything (propose-only):
+The research path composes existing primitives into one propose-only cycle that makes
+the KG self-improving WITHOUT auto-merging anything:
 
-    intake  → unresolved ``Concept`` topics (no ``ADDRESSED_BY``)
+    intake  → active Loops (research topics with no ``ADDRESSED_BY``; KG-2.78)
     acquire → semantically related sources for each topic (research/search)
     resolve → ``ADDRESSES`` edges source→topic so the loop converges
+    reason  → OWL/RDF reasoning over the ecosystem, harvest extrapolations (KG-2.79)
     distill → ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/`` (gated)
     synth   → a ``TeamSpec``/``AgentSpec`` proposal persisted to the KG
 
-Every artifact is a DRAFT/proposal: spec markdown under ``.specify/`` and KG
+Every research artifact is a DRAFT/proposal: spec markdown under ``.specify/`` and KG
 proposal nodes. No code execution, no PR merge, no edits outside ``.specify``.
-Exposed on-demand (skill-workflow / MCP) and via a throttled daemon tick.
+Exposed on-demand (the ``graph_loops`` / ``graph_orchestrate`` MCP tools and the REST
+twin) and via a throttled daemon tick.
 """
 
 from __future__ import annotations
@@ -68,8 +74,8 @@ def _run_coro(coro: Any) -> Any:
         return ex.submit(lambda: asyncio.run(coro)).result()
 
 
-class GoldenLoopController:
-    """Run one propose-only self-evolution cycle over the KG."""
+class LoopController:
+    """Advance the active Loops one propose-only cycle over the KG (CONCEPT:KG-2.78)."""
 
     def __init__(
         self,
@@ -79,9 +85,16 @@ class GoldenLoopController:
         propose_only: bool = True,
         auto_merge: bool | None = None,
         regression_check: Any = None,
+        develop_runner: Any = None,
+        skill_runner: Any = None,
     ) -> None:
         self.engine = engine
         self.codebase_root = codebase_root or setting("WORKSPACE_PATH") or "."
+        # Execution backends for the non-research Loop kinds (CONCEPT:KG-2.78 L3),
+        # injectable so the develop/skill stages are unit-testable without a real
+        # subprocess / workflow engine. Defaults are wired lazily on first use.
+        self._develop_runner = develop_runner
+        self._skill_runner = skill_runner
         # propose_only is always True in v1 — kept explicit so a future
         # human-approved apply path is a deliberate flip, never accidental.
         self.propose_only = propose_only
@@ -168,6 +181,7 @@ class GoldenLoopController:
             "assimilate": None,
             "reason": None,
             "standardize": None,
+            "executed": None,
             "spec_drafts": [],
             "team": None,
             "search_tasks": None,
@@ -237,6 +251,15 @@ class GoldenLoopController:
             )
         report["topics_intake"] = len(topics)
 
+        # 1b. EXECUTE — advance develop/skill Loops one step through the SAME hot
+        # path (CONCEPT:KG-2.78 L3): develop runs act→validate, skill runs its
+        # skill/skill-workflow. Research loops fall through to acquire_resolve below.
+        exec_loops = [t for t in topics if t.get("kind", "research") != "research"]
+        if exec_loops:
+            report["executed"] = _stage(
+                "execute", lambda: self._run_execute_loops(exec_loops)
+            )
+
         if topics:
             # 2–3. ACQUIRE related sources + RESOLVE (ADDRESSES) so the loop converges.
             def _acquire_resolve():
@@ -261,7 +284,7 @@ class GoldenLoopController:
                     srcs = acquire_for_topic(self.engine, t, embed_fn=embed_fn)
                     if srcs:
                         n = mark_addressed(
-                            self.engine, t["id"], srcs, source="golden_loop"
+                            self.engine, t["id"], srcs, source="loop_engine"
                         )
                         if n:
                             report["topics_resolved"] += 1
@@ -470,6 +493,61 @@ class GoldenLoopController:
             "error": harvest.error,
         }
 
+    # -- develop / skill Loop execution (CONCEPT:KG-2.78 L3) ---------------- #
+    def _run_execute_loops(self, loops: list[dict[str, Any]]) -> dict[str, Any]:
+        """Advance every non-research Loop one step through the same hot path.
+
+        A ``develop`` Loop runs its ``validation_cmd`` once (act→validate); a
+        ``skill`` Loop runs its ``skill_ref`` skill/skill-workflow. Each transitions
+        the Loop's lifecycle (``completed`` on success / terminal, else it stays
+        active for the next cycle). Best-effort: a failing Loop is recorded, never
+        aborts the cycle. This is what makes goals + skill runs first-class Loops
+        advanced by the one controller, not separate engines.
+        """
+        from .loops import mark_loop_status
+
+        out: dict[str, Any] = {"develop": 0, "skill": 0, "completed": 0, "results": []}
+        for loop in loops:
+            kind = loop.get("kind", "research")
+            if kind == "develop":
+                res = self._advance_develop(loop)
+                out["develop"] += 1
+            elif kind == "skill":
+                res = self._advance_skill(loop)
+                out["skill"] += 1
+            else:
+                continue
+            status = res.get("status", "pending")
+            mark_loop_status(
+                self.engine,
+                loop["id"],
+                status,
+                output=str(res.get("output", ""))[:2000],
+            )
+            if status == "completed":
+                out["completed"] += 1
+            out["results"].append({"id": loop["id"], "kind": kind, "status": status})
+        return out
+
+    def _advance_develop(self, loop: dict[str, Any]) -> dict[str, Any]:
+        """Run one develop iteration: execute ``validation_cmd``; done on exit 0."""
+        cmd = (loop.get("validation_cmd") or "").strip()
+        runner = self._develop_runner or _default_develop_runner
+        if not cmd:
+            # no command to validate → nothing to advance; leave it active
+            return {"status": loop.get("status", "pending"), "output": ""}
+        ok, output = runner(cmd, self.codebase_root)
+        return {"status": "completed" if ok else "pending", "output": output}
+
+    def _advance_skill(self, loop: dict[str, Any]) -> dict[str, Any]:
+        """Run a skill / skill-workflow Loop to its completion state."""
+        ref = (loop.get("skill_ref") or "").strip()
+        runner = self._skill_runner or _default_skill_runner
+        if not ref:
+            return {"status": "failed", "output": "skill Loop has no skill_ref"}
+        ok, output = runner(ref, loop.get("objective", ""))
+        return {"status": "completed" if ok else "failed", "output": output}
+
     def _run_standardize(self) -> dict[str, Any]:
         """Run the enterprise standardization + consolidation pass (CONCEPT:KG-2.49).
 
@@ -559,7 +637,7 @@ class GoldenLoopController:
                 cycle_id,
                 "EvolutionCycle",
                 properties={
-                    "triggered_by": "golden_loop",
+                    "triggered_by": "loop_engine",
                     "topics_scanned": report["topics_intake"],
                     "created_at": now_iso,
                     "timestamp": now_iso,
@@ -730,6 +808,50 @@ class GoldenLoopController:
         }
 
 
+def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
+    """Run a develop Loop's validation command once; success = exit code 0.
+
+    Synchronous (the controller advances one iteration per cycle), timeout-bounded,
+    best-effort — mirrors the durable goal loop's validation step (``sessions``) but
+    as a single step in the unified hot path. (CONCEPT:KG-2.78)
+    """
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except Exception as e:  # noqa: BLE001 — never abort the cycle
+        return False, f"validation command failed to run: {e}"
+    out = f"exit={proc.returncode}\n{proc.stdout[-1500:]}\n{proc.stderr[-500:]}"
+    return proc.returncode == 0, out
+
+
+def _default_skill_runner(skill_ref: str, objective: str) -> tuple[bool, str]:
+    """Execute a skill / skill-workflow Loop via the orchestration engine.
+
+    Compiles (if needed) and runs the workflow named/identified by ``skill_ref``;
+    best-effort so a missing orchestrator degrades to a failed step, never a crash.
+    (CONCEPT:KG-2.78)
+    """
+    try:
+        from ...orchestration.manager import AgentManager
+
+        mgr = AgentManager()
+        wid = skill_ref
+        if not skill_ref.startswith("workflow:"):
+            wid = _run_coro(mgr.compile_workflow(skill_ref, objective or skill_ref))
+        result = _run_coro(mgr.execute_workflow(wid, task=objective))
+        return True, str(result)[:2000]
+    except Exception as e:  # noqa: BLE001
+        return False, f"skill execution failed: {e}"
+
+
 class _EngineReader:
     """Adapt an :class:`IntelligenceGraphEngine` to the search-synthesis read API."""
 
@@ -743,15 +865,6 @@ class _EngineReader:
         if hasattr(self._engine, "query"):
             return self._engine.query(cypher, params or {}) or []
         return []
-
-
-def run_golden_loop_cycle(engine: Any = None, **kwargs: Any) -> dict[str, Any]:
-    """Convenience entry: run one cycle against the active (or given) engine."""
-    if engine is None:
-        from ..core.engine import IntelligenceGraphEngine
-
-        engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
-    return GoldenLoopController(engine).run_one_cycle(**kwargs)
 
 
 def run_assimilation_pass(
@@ -778,7 +891,7 @@ def run_assimilation_pass(
         from ..core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
-    rep = GoldenLoopController(engine)._run_assimilate(force=force)
+    rep = LoopController(engine)._run_assimilate(force=force)
     # Synthesis is idempotent — plans upsert by ``plan_id`` — so run it whenever a
     # caller asks for it, even if the rank pass was skipped as "unchanged".
     # Previously synthesis was gated behind the rank watermark, so a prior bare

@@ -152,7 +152,7 @@ class TestConsumeAnomalies:
         report = consume_anomalies(engine, limit=2)
         assert report["scanned"] == 2
 
-    def test_gap_topic_reaches_golden_loop_intake(self):
+    def test_gap_topic_reaches_loop_intake(self):
         from agent_utilities.knowledge_graph.adaptation.topic_resolver import (
             unresolved_topics,
         )

@@ -648,14 +648,14 @@ class AgentConfig(BaseSettings):
     # Max connections in the shared state-store pool (min is always 1).
     state_db_pool_size: int = Field(default=8, alias="STATE_DB_POOL_SIZE")
     # Golden-loop breadth ingest roots (CONCEPT:KG-2.7): comma-separated paths the
-    # one-shot ``golden_loop`` cycle (and the 60-min daemon) auto-ingests — OSS
+    # one-shot ``loop`` cycle (and the 60-min daemon) auto-ingests — OSS
     # libraries and code repos — so evolution runs end-to-end with no manual
     # ingest. Deployment-specific (set in ``.env``); empty ⇒ breadth is a no-op.
     kg_breadth_library_roots: str = Field(default="", alias="KG_BREADTH_LIBRARY_ROOTS")
     kg_breadth_repo_roots: str = Field(default="", alias="KG_BREADTH_REPO_ROOTS")
     # Golden-loop (autonomous research) parameters. Typed config replaces the
     # scattered bare KG_GOLDEN_* env reads (CONCEPT:KG-2.7).
-    kg_golden_loop: bool = Field(default=False, alias="KG_GOLDEN_LOOP")
+    kg_loop: bool = Field(default=False, alias="KG_LOOP")
     kg_golden_distill: bool = Field(default=False, alias="KG_GOLDEN_DISTILL")
     # Opt-in (external scholarx calls cost): the intake stage discovers + ingests
     # research papers (LLM concept/fact extraction) at the front of the unified
@@ -680,10 +680,10 @@ class AgentConfig(BaseSettings):
     # to ``data_dir()/evolution_worktrees`` — NEVER the canonical checkout's
     # working tree.
     evolution_worktree_root: str = Field(default="", alias="EVOLUTION_WORKTREE_ROOT")
-    kg_golden_loop_interval: float = Field(
-        default=3600.0, alias="KG_GOLDEN_LOOP_INTERVAL"
+    kg_loop_interval: float = Field(
+        default=3600.0, alias="KG_LOOP_INTERVAL"
     )
-    kg_golden_loop_topics: int = Field(default=5, alias="KG_GOLDEN_LOOP_TOPICS")
+    kg_loop_topics: int = Field(default=5, alias="KG_LOOP_TOPICS")
     # SAI factory self-specialization (CONCEPT:AHE-3.29). LLM-free, bounded, and
     # propose-only (it only persists a SaiFactoryCycle metrics node — nothing is
     # merged or deployed), and a *no-op when there is too little transition history*,
