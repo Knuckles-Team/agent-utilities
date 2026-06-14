@@ -5125,7 +5125,7 @@ def _build_server(bootstrap: bool = True):
     def graph_configure(
         action: str = Field(
             default="register_mcp",
-            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health; 'set_default_connection' (config_key=name) repoints the default target. CONCEPT:KG-2.74 — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass.",
+            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health; 'set_default_connection' (config_key=name) repoints the default target. CONCEPT:KG-2.74 — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass. 'setup_databases' provisions the Stardog + pg-age environment end-to-end (config_key=profile 'dev'|'prod', config_value=JSON options e.g. {\"postgres_mode\":\"managed_image\",\"dsn\":\"postgresql://...\",\"sparql_target\":\"builtin\"}); 'verify_databases' probes a Postgres for the age/vector/pg_search extensions (config_key or config_value.dsn = DSN).",
         ),
         config_key: str = Field(
             default="",
@@ -5264,6 +5264,39 @@ def _build_server(bootstrap: bool = True):
                 # reconcile — full authority→mirror drift repair (config_key =
                 # optional single mirror name; empty = all mirrors).
                 return json.dumps(inner.reconcile(config_key or None), default=str)
+            # ── Database environment provisioning (Stardog + pg-age) ──
+            if action in ("setup_databases", "verify_databases"):
+                from agent_utilities.knowledge_graph.setup import (
+                    setup_environment,
+                    verify_postgres,
+                )
+
+                try:
+                    opts = json.loads(config_value) if config_value else {}
+                except Exception as e:
+                    return json.dumps({"error": f"Invalid config_value JSON: {e}"})
+                if not isinstance(opts, dict):
+                    return json.dumps(
+                        {"error": "config_value must be a JSON object of options"}
+                    )
+                if action == "verify_databases":
+                    return json.dumps(
+                        verify_postgres(opts.get("dsn") or config_key or None),
+                        default=str,
+                    )
+                # setup_databases — config_key is a profile shortcut ('dev'/'prod').
+                profile = opts.get("profile") or config_key or "dev"
+                return json.dumps(
+                    setup_environment(
+                        profile=profile,
+                        postgres_mode=opts.get("postgres_mode", "managed_image"),
+                        dsn=opts.get("dsn"),
+                        sparql_target=opts.get("sparql_target"),
+                        mirror_targets=opts.get("mirror_targets"),
+                        do_backfill=opts.get("do_backfill", True),
+                    ),
+                    default=str,
+                )
             # ── KG-2.7 / ECO-4.6: Memory Hook Management ──
             if action == "install_hooks":
                 try:

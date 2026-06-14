@@ -10,6 +10,7 @@ narrative guides in [`docs/recipes/`](../../docs/recipes/) for `.env`/`config.js
 | **Single-node prod** | Durable KG + gateway + core connectors on one host | `pg-age.compose.yml` + the MCP gateway (`mcp.compose.yml`) + the `single-node-prod` services from the registry |
 | **Enterprise** | Full swarm + integrations + entire fleet | `pg-age.compose.yml` + `kafka-kraft.compose.yml` + `mcp.compose.yml` + the `enterprise` services from the registry, deployed via Portainer GitOps (`portainer-sync-agent`) |
 | **Engine shards (Stage 2)** | N tenant-partitioned epistemic-graph engine shards behind client-side HRW routing | `engine-shards.compose.yml` (worked 3-shard example) + `GRAPH_SERVICE_ENDPOINTS` on every client — see [docs/architecture/engine_sharding.md](../../docs/architecture/engine_sharding.md) |
+| **Combined pg-age (graph + vector + BM25)** | One Postgres with Apache AGE + pgvector + ParadeDB `pg_search` | `pg-age-full.compose.yml` (builds `pg-age-full/Dockerfile`) — the image `services/pg-age/compose.yml` expects; see [docs/recipes/databases.md](../../docs/recipes/databases.md) |
 
 ## Single-node prod (one-host quickstart)
 

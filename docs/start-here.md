@@ -80,7 +80,10 @@ export GRAPH_BACKEND=tiered     # this is already the default
 
 When you outgrow it, point `GRAPH_DB_URI` at Postgres/pg-age and the durable
 tier switches automatically — nothing else changes. See
-[Deployment Recipes](recipes/tiny.md) for tiny → single-node → enterprise.
+[Deployment Recipes](recipes/tiny.md) for tiny → single-node → enterprise, and
+[Stardog + pg-age databases](recipes/databases.md) to push your ontology to
+Stardog (or a local SPARQL endpoint) and backfill relationships into Apache AGE
+from `.env`/OpenBao in one command.
 
 ## When one host is not enough
 
