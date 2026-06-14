@@ -116,8 +116,8 @@ class CodemapArtifact(BaseModel):
     def to_skeleton(self, max_tokens: int = 1024) -> str:
         """Render an importance-ranked code skeleton that fits a token budget.
 
-        CONCEPT:ORCH-1.48 — a compact, context-injection view of the codemap. Nodes
-        are sorted by ``importance`` (the PageRank/centrality score) and the largest
+        CONCEPT:ORCH-1.48 — Token-budgeted, importance-ranked repo-map skeleton for compact context injection.
+        Nodes are sorted by ``importance`` (the PageRank/centrality score) and the largest
         prefix that fits ``max_tokens`` is rendered, grouped by file as
         ``path`` → ``  symbol (type) [L<line>]`` lines. The cut-off is found by
         binary search over the ranked node list (mirroring aider's repo-map fitting),

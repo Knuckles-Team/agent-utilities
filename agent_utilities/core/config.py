@@ -62,6 +62,12 @@ def get_env_file() -> str | None:
         The path to the found .env file as a string, or '.env' as a default fallback.
 
     """
+    # Hermetic tests never read a deployment ``.env`` (gitignored, absent in CI)
+    # — pydantic-settings' ``env_file`` would otherwise pull host-specific values
+    # (state-store DSN, auth) into unit tests that assert genuine defaults.
+    if to_boolean(os.environ.get("AGENT_UTILITIES_TESTING", "false")):
+        return None
+
     from pathlib import Path
 
     from agent_utilities.base_utilities import retrieve_package_name
@@ -87,6 +93,16 @@ def _ensure_env_loaded():
     if _env_loaded:
         return
     _env_loaded = True
+
+    # Hermetic tests: never inherit a deployment ``.env`` or a host's
+    # ``config.json``. Those are operational artifacts (the ``.env`` is
+    # gitignored; ``config.json`` is host-specific) and are both absent in CI —
+    # loading them locally makes unit tests that assert genuine defaults
+    # (state-store DSN, auth, fuseki) fail only on a configured host. Skipping
+    # them under the test harness makes the local run match CI exactly. Tests
+    # set whatever env they need explicitly via the conftest / monkeypatch.
+    if to_boolean(os.environ.get("AGENT_UTILITIES_TESTING", "false")):
+        return
 
     try:
         from dotenv import load_dotenv
@@ -625,11 +641,16 @@ class AgentConfig(BaseSettings):
     # ingest. Deployment-specific (set in ``.env``); empty ⇒ breadth is a no-op.
     kg_breadth_library_roots: str = Field(default="", alias="KG_BREADTH_LIBRARY_ROOTS")
     kg_breadth_repo_roots: str = Field(default="", alias="KG_BREADTH_REPO_ROOTS")
-    # Golden-loop (autonomous research) parameters — opt-in, all off by default.
-    # Typed config replaces the scattered bare KG_GOLDEN_* env reads (CONCEPT:KG-2.7).
+    # Golden-loop (autonomous research) parameters. Typed config replaces the
+    # scattered bare KG_GOLDEN_* env reads (CONCEPT:KG-2.7).
     kg_golden_loop: bool = Field(default=False, alias="KG_GOLDEN_LOOP")
     kg_golden_distill: bool = Field(default=False, alias="KG_GOLDEN_DISTILL")
-    kg_golden_breadth: bool = Field(default=False, alias="KG_GOLDEN_BREADTH")
+    # On by default: the breadth stage auto-ingests the ecosystem so ``assimilate``
+    # has the codebase capability map to compare research against. With no
+    # KG_BREADTH_* roots set it self-configures from the XDG workspace.yml, so the
+    # default is zero-config; content-addressed ingest makes re-runs cheap. Set
+    # KG_GOLDEN_BREADTH=0 to opt out. (CONCEPT:KG-2.7)
+    kg_golden_breadth: bool = Field(default=True, alias="KG_GOLDEN_BREADTH")
     kg_golden_standardize: bool = Field(default=False, alias="KG_GOLDEN_STANDARDIZE")
     kg_golden_auto_merge: bool = Field(default=False, alias="KG_GOLDEN_AUTO_MERGE")
     kg_golden_merge_threshold: float | None = Field(

@@ -3,6 +3,7 @@
 Exposes OptimisticStateLocker, BranchMergeStateLocker, ToolContract, and ContractValidator.
 """
 
+from .adaptation_speed import AdaptationCurve, CurvePoint, marginal_speed_gain
 from .contract_validator import ContractValidator, ToolContract
 from .distributed_state_manager import BranchMergeStateLocker, OptimisticStateLocker
 from .edit_engine import (
@@ -28,6 +29,7 @@ from .reliability_scorers import (
     TrapInjectionScorer,
     build_reliability_suite,
 )
+from .sai_task import SpecializationTask, Verifier, VerifierResult
 from .selection_operators import (
     bradley_terry_scores,
     conservative_rating,
@@ -48,7 +50,7 @@ __all__ = [
     # Provenance-completeness critic gate (CONCEPT:AHE-3.13)
     "ProvenanceCriticGate",
     "ProvenanceVerdict",
-    # Robust multi-format edit-application engine (CONCEPT:ORCH-1.46)
+    # Robust multi-format edit-application engine (CONCEPT:ORCH-1.49)
     "Edit",
     "EditOutcome",
     "EditResult",
@@ -77,4 +79,12 @@ __all__ = [
     "BrierSkillScorer",
     "RetrievalRecallScorer",
     "TrapInjectionScorer",
+    # Adaptation-speed metric — SAI primary measure (CONCEPT:AHE-3.27)
+    "AdaptationCurve",
+    "CurvePoint",
+    "marginal_speed_gain",
+    # Specialization task + machine-verifiable Verifier contract (CONCEPT:AHE-3.28)
+    "SpecializationTask",
+    "Verifier",
+    "VerifierResult",
 ]

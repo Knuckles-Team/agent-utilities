@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 216
+total_concepts: 221
 total_pillars: 19
 pillars:
 - AHE-3
@@ -309,14 +309,14 @@ concepts:
   doc: capability-benchmark regression ratchet re-measuring a published worktree against a persisted baseline
     and abandoning the branch on any tracked-capability regression
 - id: AHE-3.25
-  name: optional plain-English pass/fail assertion judged by
+  name: Plain-English regression assertions with verified-remediation auto-lock
   pillar: AHE-3
   status: live
   code_paths:
   - agent_utilities/harness/continuous_evaluation_engine.py
   - agent_utilities/harness/eval_corpus.py
   - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
-  doc: optional plain-English pass/fail assertion judged by
+  doc: Plain-English regression assertions with verified-remediation auto-lock
 - id: AHE-3.26
   name: recursive-improvement instrumentation aggregating per-cycle proposal merge and capability-delta
     metrics so the self-evolution loop can measure its own rate and per-mechanism contribution
@@ -327,6 +327,29 @@ concepts:
   - agent_utilities/knowledge_graph/research/improvement_ledger.py
   doc: recursive-improvement instrumentation aggregating per-cycle proposal merge and capability-delta
     metrics so the self-evolution loop can measure its own rate and per-mechanism contribution
+- id: AHE-3.27
+  name: per-task adaptation-speed instrumentation
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/adaptation_speed.py
+  doc: per-task adaptation-speed instrumentation
+- id: AHE-3.28
+  name: the
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/sai_task.py
+  doc: the
+- id: AHE-3.29
+  name: the controller that operationalizes Superhuman Adaptable
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/sai_factory.py
+  doc: the controller that operationalizes Superhuman Adaptable
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1109,6 +1132,7 @@ concepts:
   - agent_utilities/api/sparql_server.py
   - agent_utilities/core/background_throttle.py
   - agent_utilities/core/config.py
+  - agent_utilities/core/workspace_config.py
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/graph/routing/strategies/query_tier.py
   - agent_utilities/knowledge_graph/adaptation/topic_resolver.py
@@ -2352,34 +2376,48 @@ concepts:
   pillar: ORCH-1
   status: live
   code_paths:
-  - agent_utilities/harness/__init__.py
-  - agent_utilities/harness/edit_engine.py
   - agent_utilities/runtime/bridge.py
   - agent_utilities/runtime/events.py
   doc: Action/Observation event protocol for the developer-workspace runtime
 - id: ORCH-1.47
-  name: ordering used by Tasks.next_task; higher wins
+  name: System prompt for the KG-grounded SWE agent
   pillar: ORCH-1
   status: live
   code_paths:
   - agent_utilities/agent/swe_prompts.py
-  - agent_utilities/mcp/harness_server.py
   - agent_utilities/models/agent.py
-  - agent_utilities/models/sdd.py
   - agent_utilities/orchestration/engine.py
   - agent_utilities/orchestration/swe_agent.py
-  - agent_utilities/sdd/__init__.py
   - agent_utilities/tools/swe_workspace_tools.py
   - agent_utilities/tools/tool_registry.py
-  doc: ordering used by Tasks.next_task; higher wins
+  doc: System prompt for the KG-grounded SWE agent
 - id: ORCH-1.48
-  name: a compact, context-injection view of the codemap. Nodes
+  name: Token-budgeted, importance-ranked repo-map skeleton for compact context injection
   pillar: ORCH-1
   status: live
   code_paths:
   - agent_utilities/models/codemap.py
   - agent_utilities/server/models.py
-  doc: a compact, context-injection view of the codemap. Nodes
+  doc: Token-budgeted, importance-ranked repo-map skeleton for compact context injection
+- id: ORCH-1.49
+  name: Robust multi-format edit-application engine with graduated fuzzy matching and a reflection loop
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/edit_engine.py
+  doc: Robust multi-format edit-application engine with graduated fuzzy matching and a reflection loop
+- id: ORCH-1.50
+  name: Task-management ergonomics on SDD with complexity scoring, dependency-aware next-task, scope and
+    tags
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/mcp/harness_server.py
+  - agent_utilities/models/sdd.py
+  - agent_utilities/sdd/__init__.py
+  doc: Task-management ergonomics on SDD with complexity scoring, dependency-aware next-task, scope and
+    tags
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

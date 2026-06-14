@@ -50,6 +50,34 @@ def test_mark_addressed_writes_both_directions():
     assert ("c:1", "src:a", "ADDRESSED_BY") in rels
 
 
+def test_run_breadth_self_configures_from_workspace_yml(monkeypatch):
+    """Live path: with no KG_BREADTH_* roots, breadth auto-discovers the ecosystem
+    from the XDG workspace.yml — so assimilate always has a codebase to compare
+    research against, zero-config (CONCEPT:KG-2.7)."""
+    import agent_utilities.core.workspace_config as wc
+    import agent_utilities.knowledge_graph.assimilation as assim
+    from agent_utilities.knowledge_graph.assimilation.breadth_ingest import (
+        BreadthReport,
+    )
+
+    monkeypatch.delenv("KG_BREADTH_LIBRARY_ROOTS", raising=False)
+    monkeypatch.delenv("KG_BREADTH_REPO_ROOTS", raising=False)
+    monkeypatch.setattr(
+        wc, "workspace_project_roots", lambda *a, **k: ["/eco/repo-a", "/eco/repo-b"]
+    )
+    captured: dict = {}
+
+    def fake_run(engine, *, library_roots=None, repo_roots=None, **kw):
+        captured["repos"] = repo_roots
+        return BreadthReport()
+
+    monkeypatch.setattr(assim, "run_breadth_ingest", fake_run)
+
+    rep = GoldenLoopController(_StubEngine([], []))._run_breadth()
+    assert captured["repos"] == ["/eco/repo-a", "/eco/repo-b"]
+    assert not rep.get("skipped")
+
+
 def test_run_one_cycle_intake_only_propose_only():
     eng = _StubEngine(concepts=[("c:1", "A"), ("c:2", "B")], addressed=[])
     # acquire returns [] (no semantic_search) → resolve does nothing, but the

@@ -35,7 +35,7 @@ T = TypeVar("T", ProjectConstitution, Spec, ImplementationPlan, Tasks, DesignDoc
 
 
 def _heuristic_complexity(task: Task) -> dict[str, Any]:
-    """Zero-infra structural complexity estimate (CONCEPT:ORCH-1.47).
+    """Zero-infra structural complexity estimate (CONCEPT:ORCH-1.50).
 
     Proxies complexity from description length, dependency fan-in, touched files,
     and existing subtask count — a deployable default when no LLM scorer is
@@ -63,7 +63,7 @@ def _heuristic_complexity(task: Task) -> dict[str, Any]:
 
 
 def _structural_prd_to_tasks(prd_text: str, feature_id: str) -> Tasks:
-    """Heuristic PRD → sequential Tasks (CONCEPT:ORCH-1.47).
+    """Heuristic PRD → sequential Tasks (CONCEPT:ORCH-1.50).
 
     Splits on markdown headings, numbered items, and bullets. Each becomes a task
     that depends on the prior one (a safe linear default; refine with branch/scope).
@@ -164,7 +164,7 @@ class SDDManager:
         elif isinstance(model, Tasks):
             content = self._render_tasks_md(model)
             # Full-fidelity JSON sidecar (markdown is lossy for fields like
-            # priority/complexity_score/subtasks). CONCEPT:ORCH-1.47.
+            # priority/complexity_score/subtasks). CONCEPT:ORCH-1.50.
             import json
 
             (path.parent / "tasks.json").write_text(
@@ -397,7 +397,7 @@ class SDDManager:
         return groups
 
     # ------------------------------------------------------------------ #
-    # Task-management ergonomics (CONCEPT:ORCH-1.47)
+    # Task-management ergonomics (CONCEPT:ORCH-1.50)
     # ------------------------------------------------------------------ #
     def parse_prd(
         self,
@@ -407,7 +407,7 @@ class SDDManager:
     ) -> Tasks:
         """Decompose a PRD into a persisted, dependency-aware task list.
 
-        CONCEPT:ORCH-1.47. ``generator(prd_text, feature_id) -> Tasks`` is an
+        CONCEPT:ORCH-1.50. ``generator(prd_text, feature_id) -> Tasks`` is an
         optional LLM-backed decomposer; when omitted, a zero-infra structural
         parser turns headings / numbered items / bullet lines into sequential
         tasks (each depending on the previous), so PRD intake works with nothing
@@ -437,7 +437,7 @@ class SDDManager:
     def set_task_status(
         self, feature_id: str, task_id: str, status: str
     ) -> Tasks | None:
-        """Update a task or subtask status and persist (CONCEPT:ORCH-1.47)."""
+        """Update a task or subtask status and persist (CONCEPT:ORCH-1.50)."""
         tasks = self.get_tasks(feature_id)
         if tasks is None:
             return None
@@ -465,7 +465,7 @@ class SDDManager:
     ) -> dict[str, Any]:
         """Score each task's complexity and recommend subtask counts.
 
-        CONCEPT:ORCH-1.47. ``scorer`` is an optional callable ``(Task) -> dict``
+        CONCEPT:ORCH-1.50. ``scorer`` is an optional callable ``(Task) -> dict``
         returning ``{complexity_score, recommended_subtasks, expansion_prompt}``
         (e.g. LLM-backed). When omitted a zero-infra structural heuristic is used,
         so this works with nothing deployed. Persists a report under
@@ -510,7 +510,7 @@ class SDDManager:
         strength: str = "regular",
         transformer: Any = None,
     ) -> Task | None:
-        """Adjust a task's scope up or down (CONCEPT:ORCH-1.47).
+        """Adjust a task's scope up or down (CONCEPT:ORCH-1.50).
 
         Structural by default: ``scope_down`` collapses pending subtasks and lowers
         the recommended count; ``scope_up`` raises it. Done/in-progress subtasks are
@@ -554,7 +554,7 @@ class SDDManager:
         return target
 
     def list_task_contexts(self) -> list[str]:
-        """List feature ids that have a task list (CONCEPT:ORCH-1.47 tagged contexts).
+        """List feature ids that have a task list (CONCEPT:ORCH-1.50 tagged contexts).
 
         feature_id is the context key: each is an independent, parallel task
         stream (the equivalent of task-master's tags).
@@ -562,7 +562,7 @@ class SDDManager:
         return [t.feature_id for t in self.get_all_tasks()]
 
     def branch_tasks(self, source_feature_id: str, new_feature_id: str) -> Tasks | None:
-        """Fork a task context into a new feature id (CONCEPT:ORCH-1.47).
+        """Fork a task context into a new feature id (CONCEPT:ORCH-1.50).
 
         Copies the source task list under a new context so experiments / feature
         branches can diverge without touching the original.

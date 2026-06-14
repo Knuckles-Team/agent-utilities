@@ -668,3 +668,23 @@ worked 3-shard recipe ships in `docker/engine-shards.compose.yml`.
 Single-endpoint deployments are byte-for-byte unchanged. Full design:
 [Engine Sharding](../architecture/engine_sharding.md); walkthrough:
 [sharding example](../examples/sharding-walkthrough.md).
+
+### ORCH-1.48 — Token-Budgeted Repo-Map Skeleton
+
+The codemap (`models/codemap.py`, built by `knowledge_graph/core/codemaps.py`)
+already ranks code symbols by PageRank-style `importance` (graph centrality). ORCH-1.48
+adds a compact, context-injection view: **`CodemapArtifact.to_skeleton(max_tokens)`**
+sorts nodes by importance and **binary-searches** the largest prefix that fits a token
+budget, rendering a per-file `path → symbol (type) [Ln]` skeleton — so the
+highest-signal symbols always survive truncation (the aider repo-map pattern over our
+graph). `CodemapGenerator.skeleton()` produces it from a focused subgraph **without the
+expensive LLM hierarchy pass**, cheap enough to inject every turn, and the live
+`POST /api/codemap` endpoint returns it via the `skeleton` / `max_tokens` request flags.
+
+```mermaid
+flowchart LR
+    Q[prompt] --> SG[extract_focused_subgraph]
+    SG --> R[rank nodes by importance]
+    R --> BS{binary-search\nprefix that fits\nmax_tokens}
+    BS --> SK[per-file symbol skeleton\n+ omitted-count note]
+```
