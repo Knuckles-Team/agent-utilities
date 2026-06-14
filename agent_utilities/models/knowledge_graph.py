@@ -413,6 +413,16 @@ class RegistryNodeType(StrEnum):
     CONSOLIDATION_RECOMMENDATION = "consolidation_recommendation"
     DRIFT_ROLLUP = "drift_rollup"
 
+    # Agent-Native Research Artifact — OWL-native 4-layer artifact (CONCEPT:KG-2.80)
+    # CLAIM / EVIDENCE / TRAJECTORY / DELIBERATION already exist and are reused as
+    # the /logic and /trace layers; these add the artifact envelope + /src spec +
+    # the materialized exploration-DAG node so the reasoner extrapolates over them.
+    RESEARCH_ARTIFACT = "research_artifact"
+    CODE_SPEC = "code_spec"
+    EXPLORATION_NODE = "exploration_node"
+    # ARA Seal certificate — the signed review verdict over an artifact (KG-2.80)
+    SEAL_CERTIFICATE = "seal_certificate"
+
 
 class RegistryEdgeType(StrEnum):
     """Enumeration of relationship types in the registry graph."""
@@ -840,6 +850,16 @@ class RegistryEdgeType(StrEnum):
     MANUFACTURES = "manufactures"
     TREATS_DISEASE = "treats_disease"
     PRESCRIBES_DRUG = "prescribes_drug"
+
+    # ARA forensic bindings (CONCEPT:KG-2.80). CONTAINS/VERIFIED_BY/GROUNDED_IN/
+    # HAS_EVIDENCE/WAS_DERIVED_FROM already exist and are reused; IMPLEMENTED_BY is
+    # the claim→code-spec binding (transitive with GROUNDED_IN so reasoning can
+    # chain claim → code → evidence). PIVOTED_FROM/REACHED_DEAD_END wire the
+    # exploration DAG (A2 producer) so pivot/dead-end patterns are reasoned over.
+    IMPLEMENTED_BY = "implemented_by"
+    PIVOTED_FROM = "pivoted_from"
+    REACHED_DEAD_END = "reached_dead_end"
+    CERTIFIES = "certifies"  # seal_certificate --certifies--> research_artifact
 
 
 class RegistryNode(BaseModel):

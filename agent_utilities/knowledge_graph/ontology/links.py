@@ -487,6 +487,42 @@ def register_builtin_links(registry: LinkTypeRegistry) -> None:
             ),
         )
     )
+    # ── Agent-Native Research Artifact forensic bindings (CONCEPT:KG-2.80) ──
+    # The ARA 4-layer artifact as first-class typed links so the reasoner traverses
+    # /logic↔/evidence↔/src. ``grounds`` carries the grounded_in↔supports inverse
+    # (and grounded_in is transitive in owl_bridge), so reasoning chains a claim to
+    # the ecosystem code/services that substantiate it.
+    registry.register(
+        LinkType(
+            name="artifact_contains_claim",
+            source_type=RegistryNodeType.RESEARCH_ARTIFACT,
+            target_type=RegistryNodeType.CLAIM,
+            edge_type=RegistryEdgeType.CONTAINS,
+            cardinality=LinkCardinality.ONE_TO_MANY,
+            description="A research artifact contains its /logic-layer claims.",
+        )
+    )
+    registry.register(
+        LinkType(
+            name="grounds",
+            source_type=RegistryNodeType.CLAIM,
+            target_type=RegistryNodeType.EVIDENCE,
+            edge_type=RegistryEdgeType.GROUNDED_IN,
+            cardinality=LinkCardinality.ONE_TO_MANY,
+            inverse_edge_type=RegistryEdgeType.SUPPORTS,
+            description="A claim is grounded in evidence (inverse: evidence supports).",
+        )
+    )
+    registry.register(
+        LinkType(
+            name="implements_claim",
+            source_type=RegistryNodeType.CLAIM,
+            target_type=RegistryNodeType.CODE_SPEC,
+            edge_type=RegistryEdgeType.IMPLEMENTED_BY,
+            cardinality=LinkCardinality.ONE_TO_MANY,
+            description="A claim's /src layer: the code spec that implements it.",
+        )
+    )
 
 
 # CONCEPT:KG-2.26 — populated at import with real built-ins, never empty.

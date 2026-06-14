@@ -20,6 +20,15 @@ SELECT ?e WHERE { ?e a :ApplicationEvent }
 # → ServiceNow incidents + ERPNext issues + Camunda process incidents, unified.
 ```
 
+The same canonical ontology spans **further than the enterprise**: `agent-packages/agents/*`,
+`services/*`, and **research papers** all map into this one graph. That is what lets OWL/RDF
+reasoning extrapolate *across domains* — a research claim can be inferred (transitive /
+inverse / subclass / property-chain) to relate to a deployed **service** or an **agent
+capability**. Automated research exploits this directly: a **Loop** promotes information,
+reasons over the whole ecosystem, and harvests the inferred relationships, and an
+**Agent-Native Research Artifact** grounds each of its claims to the ecosystem nodes it
+touches (see [OWL/RDF Layer](owl_rdf_layer.md)). One ontology, one reasoner, every domain.
+
 Swapping ServiceNow for ERPNext means changing an *adapter*, not the reasoning
 layer. The ontology is the single source of truth; the tools are pluggable.
 

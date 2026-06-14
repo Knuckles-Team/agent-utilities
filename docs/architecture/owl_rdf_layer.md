@@ -81,9 +81,45 @@ Violating nodes are quarantined, not silently dropped.
 | single-node prod | ✅ local | ✅ local | optional |
 | enterprise | ✅ local | ✅ local | + Jena Fuseki / Stardog (federation), `KG_FUSEKI_PUBLISH=1` |
 
+## Reasoning *as* the research engine — one ontology over the whole ecosystem
+
+agent-utilities maps the **entire ecosystem — `agent-packages/agents/*` + `services/*` +
+enterprise systems + research papers — into ONE ontology-driven knowledge graph**
+(the canonical ArchiMate upper ontology, KG-2.9; `ecosystem_topology`; Egeria SoR).
+OWL/RDF reasoning is not a post-processing add-on here: it is the **engine** of research
+and workflow execution. Its value is *extrapolating relationships that did not exist
+before reasoning* — transitive/symmetric/inverse/domain-range/property-chain closures and
+subClassOf/equivalentClass — **across the whole ecosystem at once**, so a research concept
+can be inferred to relate to a deployed service or an agent capability, not siloed.
+
+Every long-running objective (a **Loop**, KG-2.78 — research / develop / skill) runs the
+**`OntologyReasoningDriver`** (KG-2.79) each cycle: it promotes the loop's working set +
+the surrounding ecosystem subgraph, runs `OWLBridge.run_cycle` (promote → reason →
+downfeed), and **harvests the newly-inferred cross-domain relationships back as fresh
+research topics** — a closed extrapolation loop. This replaced the old one-shot enrichment
+that ran reasoning and never consumed the inferences.
+
+**Agent-Native Research Artifacts (ARA, KG-2.80)** are the OWL-native output: a 4-layer
+artifact (`/logic` claims, `/src` code specs, `/trace` exploration DAG with dead-ends and
+pivots, `/evidence` raw outputs) whose layers are **first-class ontology classes + typed
+object-properties** (`research_artifact`/`claim`/`code_spec`/`evidence`/`exploration_node`;
+`contains`/`grounded_in`/`implemented_by`). `grounded_in` is transitive with a `supports`
+inverse, so reasoning chains a claim → evidence → ecosystem code/service automatically —
+which is why we extrapolate cross-domain links from the *first* compiled artifact rather
+than only "at critical mass". The ARA Compiler grounds each claim to the ecosystem it
+touches; the ARA Seal verifies it (L1 = SHACL + interface conformance + OWL consistency,
+L2 = rigor, L3 = exec-reproducibility with `/evidence` withheld via markings, KG-2.46) and
+emits a signed `seal_certificate`. Both surfaces are exposed identically — the
+`research_artifact` MCP tool and `POST {prefix}/research/*` REST — over one shared service.
+
 ## Key modules
 
-- `knowledge_graph/core/owl_bridge.py` — promote/reason/downfeed + `query_sparql`.
+- `knowledge_graph/core/owl_bridge.py` — promote/reason/downfeed + `query_sparql`;
+  ARA forensic-edge characteristics (transitive `grounded_in`, `grounded_in`↔`supports`).
+- `knowledge_graph/research/ara/` — `reasoning_driver` (reasoning-as-engine, KG-2.79),
+  `artifact`/`compiler`/`seal`/`exploration`/`live_manager`/`service` (ARA, KG-2.80).
+- `knowledge_graph/research/loops.py` — the `Loop` long-running-objective unit (KG-2.78).
+- `gateway/research_api.py` — granular `{prefix}/research/*` typed routes (single SoT).
 - `knowledge_graph/backends/owl/` — local `owlready2` backend + Stardog.
 - `knowledge_graph/backends/sparql/jena_fuseki_backend.py` — optional Fuseki tier.
 - `gateway/graph_api.py` — `{prefix}/sparql` route + cached bridge.

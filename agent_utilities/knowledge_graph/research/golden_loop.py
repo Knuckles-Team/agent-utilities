@@ -24,7 +24,8 @@ from typing import Any
 
 from agent_utilities.core.config import setting
 
-from ..adaptation.topic_resolver import mark_addressed, unresolved_topics
+from ..adaptation.topic_resolver import mark_addressed
+from .loops import active_loops
 from .search import acquire_for_topic
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,7 @@ class GoldenLoopController:
         synthesize_search: bool = False,
         discover: bool | None = None,
         papers: list[dict[str, Any]] | None = None,
+        reason: bool = True,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -164,6 +166,7 @@ class GoldenLoopController:
             "intake_papers": None,
             "breadth": None,
             "assimilate": None,
+            "reason": None,
             "standardize": None,
             "spec_drafts": [],
             "team": None,
@@ -207,24 +210,30 @@ class GoldenLoopController:
                 "assimilate", lambda: self._run_assimilate(force=force_assimilate)
             )
 
+        # 0a. REASON — OWL/RDF reasoning over the ONE ecosystem ontology; harvest the
+        # extrapolated relationships and surface cross-domain inferences as fresh
+        # research Loops (CONCEPT:KG-2.79). Best-effort + lightweight; never blocks.
+        if reason:
+            report["reason"] = _stage("reason", self._run_reason)
+
         # 0b. STANDARDIZE — enterprise standardization + consolidation (CONCEPT:KG-2.49),
         # propose-only. Gated (KG_GOLDEN_STANDARDIZE) since it requires a harvested
         # enterprise estate; idempotent (CONFORMS_TO/ABSORBED_INTO cleared on re-write).
         if standardize:
             report["standardize"] = _stage("standardize", self._run_standardize)
 
-        # 1. INTAKE — open topics the loop should address. Caller-supplied topics
-        # (e.g. the failure-ingest tick's just-materialized failure_gap concepts)
-        # bypass the generic unresolved_topics scan so a brand-new gap is addressed
-        # deterministically instead of competing for a slot in an arbitrarily-
-        # ordered, limited scan over hundreds of existing concepts. (CONCEPT:AHE-3.18)
+        # 1. INTAKE — every active Loop the engine should advance (CONCEPT:KG-2.78):
+        # research/develop/skill objectives + autonomous gaps, each carrying its
+        # ``kind`` so later stages dispatch correctly. Caller-supplied ``topics``
+        # (e.g. the failure-ingest tick's just-materialized failure_gap loops)
+        # bypass the generic ``active_loops`` scan so a brand-new gap is addressed
+        # deterministically instead of competing for a slot. (CONCEPT:AHE-3.18)
         if topics is not None:
             topics = topics[:max_topics] if max_topics else list(topics)
             report["metrics"]["stage_ms"]["intake"] = 0.0
         else:
             topics = (
-                _stage("intake", lambda: unresolved_topics(self.engine, max_topics))
-                or []
+                _stage("intake", lambda: active_loops(self.engine, max_topics)) or []
             )
         report["topics_intake"] = len(topics)
 
@@ -244,6 +253,11 @@ class GoldenLoopController:
                     )
                     return
                 for t in topics:
+                    # Only RESEARCH loops are resolved by acquiring sources; develop/
+                    # skill loops are advanced by their own stages (CONCEPT:KG-2.78,
+                    # L3) and must NOT be marked addressed by semantic sources here.
+                    if t.get("kind", "research") != "research":
+                        continue
                     srcs = acquire_for_topic(self.engine, t, embed_fn=embed_fn)
                     if srcs:
                         n = mark_addressed(
@@ -436,6 +450,24 @@ class GoldenLoopController:
             "papers_already_known": rep.papers_already_known,
             "owl_inferences": rep.owl_inferences,
             "errors": rep.errors[:5],
+        }
+
+    def _run_reason(self) -> dict[str, Any]:
+        """Run OWL/RDF reasoning over the ecosystem; harvest the extrapolation.
+
+        The ontology-driven research engine (CONCEPT:KG-2.79): reason over the one
+        ecosystem knowledge-graph and turn the newly-inferred cross-domain
+        relationships into fresh research Loops for subsequent cycles — so research
+        compounds on what reasoning discovers, not just what was ingested.
+        """
+        from .ara.reasoning_driver import OntologyReasoningDriver
+
+        harvest = OntologyReasoningDriver(self.engine).extrapolate()
+        return {
+            "inferred": len(harvest.inferred_edges),
+            "new_topics": len(harvest.new_topics),
+            "stats": harvest.stats,
+            "error": harvest.error,
         }
 
     def _run_standardize(self) -> dict[str, Any]:
