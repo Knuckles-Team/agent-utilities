@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 228
+total_concepts: 229
 total_pillars: 19
 pillars:
 - AHE-3
@@ -2890,6 +2890,18 @@ concepts:
   - agent_utilities/harness/search_distillation.py
   - agent_utilities/knowledge_graph/core/reasoner.py
   doc: a search-distillation harvester that converts the reasoning router
+- id: OS-5.37
+  name: a value-aware test-time-compute governor that decides whether spending more reasoning compute
+    is worth it by stopping once a result satisfices or the marginal expected quality gain per extra attempt
+    falls below a threshold
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/harness/compute_governor.py
+  - agent_utilities/knowledge_graph/core/reasoner.py
+  doc: a value-aware test-time-compute governor that decides whether spending more reasoning compute is
+    worth it by stopping once a result satisfices or the marginal expected quality gain per extra attempt
+    falls below a threshold
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
