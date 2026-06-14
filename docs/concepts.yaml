@@ -1126,6 +1126,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/sparql_http.py
   - agent_utilities/knowledge_graph/kb/knowledge_classifier.py
   - agent_utilities/knowledge_graph/kb/x_workflows.py
+  - agent_utilities/knowledge_graph/maintenance/owl_closure.py
   - agent_utilities/knowledge_graph/memory/optimization_engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_enterprise.py
   - agent_utilities/knowledge_graph/orchestration/engine_finance.py
@@ -1867,13 +1868,16 @@ concepts:
   - agent_utilities/tools/code_intelligence_tools.py
   doc: GPU-slot-scheduled fact extraction. Unlike the
 - id: KG-2.66
-  name: KG-2.66
+  name: Keys are normalised lowercase; an extension is stored with a
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/extraction/readers.py
+  - agent_utilities/knowledge_graph/extraction/readers_office.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
   - agent_utilities/protocols/source_connectors/connectors/reader.py
-  doc: KG-2.66
+  doc: Keys are normalised lowercase; an extension is stored with a
 - id: KG-2.67
   name: a first-class action-conditioned world model wrapping the graph
   pillar: KG-2
@@ -1949,6 +1953,9 @@ concepts:
   - agent_utilities/knowledge_graph/backends/__init__.py
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/outbox.py
+  - agent_utilities/knowledge_graph/extraction/ontology_grounding.py
+  - agent_utilities/knowledge_graph/extraction/readers_media.py
+  - agent_utilities/knowledge_graph/extraction/structure_router.py
   - agent_utilities/mcp/kg_server.py
   doc: Concurrent N-way mirroring health/repair ──
 - id: LGC-1.0
