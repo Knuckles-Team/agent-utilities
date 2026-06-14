@@ -398,6 +398,17 @@ class PolicyIngestor:
             stats["policies_ingested"],
             stats["edges_created"],
         )
+        # Surface the full constitution text (attached to the project anchor) so
+        # the ingestion seam mines concepts + canonical facts from it — one
+        # bounded payload per constitution, not per policy statement.
+        stats["enrichable"] = [
+            {
+                "source_id": project_node_id,
+                "text": content,
+                "source_type": "policy",
+                "title": project_name,
+            }
+        ]
         return stats
 
     def ingest_prompt_rules(
@@ -569,6 +580,13 @@ class PolicyIngestor:
         )
         combined["total_policies"] = total_policies
         combined["total_engineering_rules"] = total_rules
+        # Propagate enrichable payloads from sub-ingests so the seam enriches the
+        # combined run too.
+        combined["enrichable"] = [
+            *const_stats.get("enrichable", []),
+            *prompt_stats.get("enrichable", []),
+            *combined.get("engineering_rules", {}).get("enrichable", []),
+        ]
 
         return combined
 
