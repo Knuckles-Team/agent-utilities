@@ -57,6 +57,26 @@ def _compute_graph(source: Any) -> Any | None:
     return None
 
 
+def _clean_props(props: dict[str, Any]) -> dict[str, Any]:
+    """Drop ``embedding`` / null values and SANITISE PROPERTY KEYS.
+
+    Some legacy L1 nodes carry property keys that literally contain backticks
+    (e.g. ``"`type`"``, ``"`metadata`"``) — corruption from an old write path that
+    reconstructed ``\\`{k}\\`: $k`` cypher. Re-emitting such a key as
+    ``SET n.\\`\\`type\\`\\``` is a cypher syntax error, so the node is silently lost
+    in migration. Strip backticks (and surrounding whitespace) from every key so the
+    node — and its data — survives; on collision the last value wins.
+    """
+    clean: dict[str, Any] = {}
+    for k, v in props.items():
+        if k == "embedding" or v is None:
+            continue
+        ck = str(k).replace("`", "").strip()
+        if ck:
+            clean[ck] = v
+    return clean
+
+
 def _iter_source_nodes(source: Any) -> Iterator[tuple[str, str, dict[str, Any]]]:
     """Yield ``(node_id, label, props)`` from the source (L1 compute or cypher)."""
     graph = _compute_graph(source)
@@ -66,10 +86,10 @@ def _iter_source_nodes(source: Any) -> Iterator[tuple[str, str, dict[str, Any]]]
                 props = dict(graph._get_node_properties(nid) or {})
             except Exception:  # noqa: BLE001
                 props = {}
-            label = _sanitize_label(props.get("type") or props.get("label") or "Node")
-            clean = {
-                k: v for k, v in props.items() if k != "embedding" and v is not None
-            }
+            clean = _clean_props(props)
+            # Derive the label from the CLEANED props so a node whose only ``type``
+            # lived under a backticked key still gets its real label.
+            label = _sanitize_label(clean.get("type") or clean.get("label") or "Node")
             clean.setdefault("type", label)
             yield str(nid), label, clean
         return
@@ -83,11 +103,10 @@ def _iter_source_nodes(source: Any) -> Iterator[tuple[str, str, dict[str, Any]]]
         if nid is None:
             continue
         node = r.get("node")
-        props = dict(node) if isinstance(node, dict) else {}
-        props.pop("embedding", None)
-        label = _sanitize_label(r.get("label") or props.get("type") or "Node")
-        props.setdefault("type", label)
-        yield str(nid), label, props
+        clean = _clean_props(dict(node) if isinstance(node, dict) else {})
+        label = _sanitize_label(r.get("label") or clean.get("type") or "Node")
+        clean.setdefault("type", label)
+        yield str(nid), label, clean
 
 
 def _iter_source_edges(source: Any) -> Iterator[tuple[str, str, str, dict[str, Any]]]:
