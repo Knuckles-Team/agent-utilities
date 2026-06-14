@@ -500,53 +500,66 @@ class IntelligenceGraphEngine(
         stamp_bitemporal(props, event_time=props.get("event_time"))
 
         if self.backend and not ephemeral:
-            # Tier 1: Backend is source of truth — write here FIRST.
-            # Kuzu/Ladybug REL tables carry a single JSON ``properties`` column
-            # (other backends store edge props as native columns/JSONB), so fold
-            # all edge props into it there — otherwise Kuzu drops them.
-            _backend_name = self.backend.__class__.__name__
-            if _backend_name == "LadybugBackend":
-                set_clause = " SET r.`properties` = $properties"
-                edge_params: dict[str, Any] = {
-                    "properties": json.dumps(props, default=str)
-                }
-            else:
-                set_clause = self._get_set_clause(props, alias="r")
-                edge_params = dict(props)
-
-            # Portable label lookup: Neo4j/FalkorDB expose ``labels(n)`` (a list);
-            # Kuzu/epistemic-graph/pggraph-transpiler use the singular ``label(n)``.
-            # The previous unconditional ``label(n)`` crashed Neo4j/FalkorDB
-            # ("Unknown function 'label'") on the standard link path.
-            _lbl_expr = (
-                "labels(n)[0]" if _backend_name in self._NESTED_UNSAFE else "label(n)"
-            )
-            s_query = f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl"
-            t_query = f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl"
-
-            s_label_res = self.backend.execute(s_query, {"id": source_id})
-            t_label_res = self.backend.execute(t_query, {"id": target_id})
-            s_label = (
-                f":{s_label_res[0]['lbl']}"
-                if s_label_res and s_label_res[0].get("lbl")
-                else ""
-            )
-            t_label = (
-                f":{t_label_res[0]['lbl']}"
-                if t_label_res and t_label_res[0].get("lbl")
-                else ""
-            )
-
-            query = (
-                f"MATCH (s{s_label} {{id: $sid}}), (t{t_label} {{id: $tid}}) "
-                f"MERGE (s)-[r:{rel_type}]->(t){set_clause}"
-            )
-            params = {"sid": source_id, "tid": target_id}
-            params.update(edge_params)
-            self.backend.execute(query, params)
+            # Tier 1: Backend is source of truth — write here FIRST (backend-only).
+            self._upsert_edge(source_id, target_id, rel_type, props)
 
         # Tier 2: Update graph_compute cache after backend succeeds
         self.graph_compute.add_edge(source_id, target_id, {"type": rel_type, **props})
+
+    def _upsert_edge(
+        self,
+        source_id: str,
+        target_id: str,
+        rel_type: str,
+        props: dict[str, Any],
+    ) -> None:
+        """Idempotent edge upsert via MERGE — writes ONLY to ``self.backend`` (no
+        graph_compute), the portable counterpart to :meth:`_upsert_node`. Reused by
+        the cross-backend migration so every durable backend gets a dialect-correct
+        edge write. The caller normalises ``rel_type`` (upper) and stamps ``props``.
+
+        Kuzu/Ladybug REL tables carry a single JSON ``properties`` column (other
+        backends store edge props as native columns/JSONB), so fold all edge props
+        into it there — otherwise Kuzu drops them.
+        """
+        if not self.backend:
+            return
+        _backend_name = self.backend.__class__.__name__
+        if _backend_name == "LadybugBackend":
+            set_clause = " SET r.`properties` = $properties"
+            edge_params: dict[str, Any] = {"properties": json.dumps(props, default=str)}
+        else:
+            set_clause = self._get_set_clause(props, alias="r")
+            edge_params = dict(props)
+
+        # Portable label lookup: Neo4j/FalkorDB expose ``labels(n)`` (a list);
+        # Kuzu/epistemic-graph/pggraph-transpiler use the singular ``label(n)``.
+        _lbl_expr = (
+            "labels(n)[0]" if _backend_name in self._NESTED_UNSAFE else "label(n)"
+        )
+        s_label_res = self.backend.execute(
+            f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl", {"id": source_id}
+        )
+        t_label_res = self.backend.execute(
+            f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl", {"id": target_id}
+        )
+        s_label = (
+            f":{s_label_res[0]['lbl']}"
+            if s_label_res and s_label_res[0].get("lbl")
+            else ""
+        )
+        t_label = (
+            f":{t_label_res[0]['lbl']}"
+            if t_label_res and t_label_res[0].get("lbl")
+            else ""
+        )
+        query = (
+            f"MATCH (s{s_label} {{id: $sid}}), (t{t_label} {{id: $tid}}) "
+            f"MERGE (s)-[r:{rel_type}]->(t){set_clause}"
+        )
+        params = {"sid": source_id, "tid": target_id}
+        params.update(edge_params)
+        self.backend.execute(query, params)
 
     def resolve_and_link(
         self,

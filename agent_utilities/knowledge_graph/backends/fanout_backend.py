@@ -262,12 +262,13 @@ class FanOutBackend(GraphBackend):
     def reconcile(self, mirror: str | None = None) -> dict[str, Any]:
         """Full re-sync of the authority graph into one (or every) mirror.
 
-        Reuses :meth:`TieredGraphBackend.reconcile_to_durable` — the proven
-        node/edge enumeration + exact drift counting — by composing the authority
-        as L1 and the chosen mirror as L3. The backstop for the crash-gap window
-        and for a mirror whose outbox tail was lost.
+        Uses the native cross-backend migration (:func:`copy_graph`), which writes
+        through the engine's dialect-aware MERGE upserts — so each mirror gets a
+        correct native write (not one backend's raw cypher forwarded to all). The
+        backstop for the crash-gap window and for a mirror whose outbox tail was
+        lost; also the path that backfills a freshly-added mirror.
         """
-        from .tiered_backend import TieredGraphBackend
+        from ..migration import copy_graph
 
         targets = [mirror] if mirror else list(self._mirrors)
         out: dict[str, Any] = {}
@@ -276,9 +277,8 @@ class FanOutBackend(GraphBackend):
             if backend is None:
                 out[name] = {"error": "unknown mirror"}
                 continue
-            t = TieredGraphBackend(l1=self._authority, l3=backend, write_behind=False)
             try:
-                out[name] = t.reconcile_to_durable()
+                out[name] = copy_graph(self._authority, backend)
             except Exception as exc:  # noqa: BLE001
                 out[name] = {"error": str(exc)}
         return out
