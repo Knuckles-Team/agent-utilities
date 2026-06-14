@@ -19,12 +19,21 @@ Concept: breadth-ingest
 """
 
 import json
+import os
+import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .ingest import ingest_documents
+from .ingest import ingest_concepts, ingest_documents
+
+# ``CONCEPT:<ID>`` markers declared in source/docs (KG-2.7) — the fallback concept
+# source for repos that ship no ``docs/concepts.yaml`` registry.
+_CONCEPT_MARKER = re.compile(r"CONCEPT:([A-Z]{2,6}-\d+(?:\.\d+[a-z]?|-\d+)?)")
+_CONCEPT_SCAN_EXT = (
+    ".py", ".rs", ".md", ".js", ".ts", ".tsx", ".go", ".java", ".txt", ".yaml", ".yml",
+)
 
 # build-file → language
 _LANG_MARKERS: dict[str, str] = {
@@ -148,6 +157,63 @@ def organize_libraries(
     return manifests
 
 
+def _scan_concept_markers(root: Path, *, max_files: int = 4000) -> set[str]:
+    """Collect ``CONCEPT:<ID>`` ids declared in a repo's source/docs (bounded walk)."""
+    ids: set[str] = set()
+    seen = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP]
+        for fn in filenames:
+            if not fn.endswith(_CONCEPT_SCAN_EXT):
+                continue
+            seen += 1
+            if seen > max_files:
+                return ids
+            try:
+                txt = (Path(dirpath) / fn).read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for m in _CONCEPT_MARKER.findall(txt):
+                ids.add(m.strip().upper())
+    return ids
+
+
+def discover_concepts(roots: list[str], *, max_depth: int = 3) -> list[dict[str, Any]]:
+    """Collect ecosystem capability concepts under ``roots`` for :func:`ingest_concepts`.
+
+    Authoritative source is each repo's ``docs/concepts.yaml`` registry (id + name +
+    pillar + status); repos that ship none fall back to a bounded ``CONCEPT:<ID>``
+    marker scan (id only). Registry entries win on id collisions. (CONCEPT:KG-2.7)
+    """
+    import yaml
+
+    found: dict[str, dict[str, Any]] = {}
+    for root in roots:
+        rp = Path(root)
+        if not rp.is_dir():
+            continue
+        registry = rp / "docs" / "concepts.yaml"
+        had_registry = False
+        if registry.is_file():
+            try:
+                data = yaml.safe_load(registry.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                data = {}
+            entries = data.get("concepts") if isinstance(data, dict) else data
+            if isinstance(entries, list):
+                for e in entries:
+                    if isinstance(e, dict) and e.get("id"):
+                        cid = str(e["id"]).strip().upper()
+                        item = dict(e)
+                        item["source"] = str(registry)
+                        found[cid] = item  # registry is authoritative
+                        had_registry = True
+        if not had_registry:
+            for cid in _scan_concept_markers(rp):
+                found.setdefault(cid, {"id": cid, "name": cid, "source": f"{rp}:marker"})
+    return list(found.values())
+
+
 @dataclass
 class BreadthReport:
     projects: int = 0
@@ -155,6 +221,8 @@ class BreadthReport:
     codebases_ingested: int = 0
     docs_ingested: int = 0
     skipped: int = 0
+    concepts: int = 0
+    concepts_ingested: int = 0
     manifests: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -166,19 +234,24 @@ def run_breadth_ingest(
     docs: list[dict[str, Any]] | None = None,
     codebase_ingest: Callable[[Any, ProjectManifest], bool] | None = None,
     doc_ingest: Callable[[Any, list[dict[str, Any]]], int] | None = None,
+    concept_ingest: Callable[[Any, list[dict[str, Any]]], int] | None = None,
 ) -> BreadthReport:
-    """Ingest libraries + repos (codebases) + docs into the assimilation graph.
+    """Ingest libraries + repos (codebases) + concepts + docs into the assimilation graph.
 
     ``codebase_ingest(engine, manifest) -> bool`` (ingested vs skipped) defaults to
-    the real ``IngestionEngine`` codebase path; ``doc_ingest`` defaults to
-    :func:`assimilation.ingest.ingest_documents`. Both injectable for testing.
+    the real ``IngestionEngine`` codebase path; ``doc_ingest`` /  ``concept_ingest``
+    default to :func:`assimilation.ingest.ingest_documents` / ``ingest_concepts``.
+    All injectable for testing. The concept pass is what gives the golden-loop gap
+    matcher its "already-built" comparison surface (CONCEPT:KG-2.7).
     """
     cb = codebase_ingest or _default_codebase_ingest
     di = doc_ingest or _default_doc_ingest
+    ci = concept_ingest or _default_concept_ingest
 
     report = BreadthReport()
+    roots_all = (library_roots or []) + (repo_roots or [])
     projects: list[ProjectManifest] = []
-    for r in (library_roots or []) + (repo_roots or []):
+    for r in roots_all:
         projects.extend(discover_projects(r))
     report.projects = len(projects)
     report.manifests = [asdict(m) for m in projects]
@@ -190,6 +263,17 @@ def run_breadth_ingest(
                 report.skipped += 1
         except Exception:  # pragma: no cover - per-project best-effort
             report.skipped += 1
+
+    # Ecosystem capability registry → built Concept nodes (the gap-matcher's
+    # "already-built" side). Without this, assimilate has nothing to compare
+    # research against and every paper is an open gap.
+    concepts = discover_concepts(roots_all)
+    report.concepts = len(concepts)
+    if concepts:
+        try:
+            report.concepts_ingested = int(ci(engine, concepts))
+        except Exception:  # pragma: no cover - best-effort
+            pass
 
     if docs:
         report.docs = len(docs)
@@ -203,6 +287,12 @@ def run_breadth_ingest(
 def _default_doc_ingest(engine: Any, docs: list[dict[str, Any]]) -> int:
     """Ingest docs as Requirement nodes; returns newly-ingested + updated count."""
     r = ingest_documents(engine, docs)
+    return r.ingested + r.updated
+
+
+def _default_concept_ingest(engine: Any, concepts: list[dict[str, Any]]) -> int:
+    """Ingest ecosystem concepts as Concept nodes; returns new + updated count."""
+    r = ingest_concepts(engine, concepts)
     return r.ingested + r.updated
 
 

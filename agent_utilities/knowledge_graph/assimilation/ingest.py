@@ -29,6 +29,9 @@ from ...models.knowledge_graph import RegistryNodeType
 
 _REQUIREMENT = RegistryNodeType.REQUIREMENT.value
 _DECISION = RegistryNodeType.DECISION.value
+_CONCEPT = RegistryNodeType.CONCEPT.value
+# Gate matching gap_analysis._concept_key — a real concept id is letters-then-digit.
+_CONCEPT_ID_GATE = re.compile(r"^[A-Z]{2,6}-\d")
 
 _ARXIV = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d+\.\d+)(?:v\d+)?", re.IGNORECASE)
 _DOI = re.compile(r"(?:doi\.org/|doi:)\s*(10\.\S+)", re.IGNORECASE)
@@ -136,6 +139,59 @@ def ingest_documents(engine: Any, docs: list[dict[str, Any]]) -> IngestReport:
 def ingest_conversations(engine: Any, convos: list[dict[str, Any]]) -> IngestReport:
     """Ingest chat / SDD transcripts as `Decision` nodes (idempotent)."""
     return _ingest_items(engine, convos, node_type=_DECISION, id_prefix="conv")
+
+
+def ingest_concepts(engine: Any, concepts: list[dict[str, Any]]) -> IngestReport:
+    """Ingest the ecosystem capability registry as *built* ``Concept`` nodes.
+
+    These are the "already-built" side the golden-loop gap matcher compares
+    research against: :func:`gap_analysis.auto_satisfy` matches each research
+    ``Article`` / ``sdd_feature`` against ``Concept`` nodes, so **without** them
+    every paper looks like an open gap. Source = ``docs/concepts.yaml`` registries
+    + ``CONCEPT:<ID>`` code markers, keyed by canonical concept id (``KG-2.7``).
+    Idempotent via ``content_hash``; embeddings are filled by the daemon's
+    embed-backfill (so the embedding-fallback match works once backfilled, while
+    the explicit-id match works immediately). (CONCEPT:KG-2.7)
+
+    Each item: ``{"id": "KG-2.7", "name": "...", "pillar": "KG-2", "status": "live",
+    "source": "..."}`` (only ``id`` is required).
+    """
+    report = IngestReport()
+    seen: set[str] = set()
+    for c in concepts:
+        cid = str(c.get("id") or "").strip().upper()
+        if not _CONCEPT_ID_GATE.match(cid) or cid in seen:
+            continue
+        seen.add(cid)
+        name = str(c.get("name") or c.get("doc") or cid)
+        pillar = str(c.get("pillar") or "")
+        status = str(c.get("status") or "live")
+        # Terse identity text (id + human name + pillar) — enough for the embedding
+        # fallback and carries the id for the high-precision explicit match.
+        body = " — ".join(p for p in (cid, name, pillar) if p)
+        fp = content_fingerprint(f"{body}|{status}")
+        node_id = f"concept:{cid}"
+        existing = _get_node(engine, node_id)
+        if existing is not None and existing.get("content_hash") == fp:
+            report.skipped += 1
+            continue
+        props = {
+            "name": name,
+            "concept_id": cid,
+            "concept_ids": [cid],
+            "content": body,
+            "content_hash": fp,
+            "pillar": pillar,
+            "status": status,
+            "source": str(c.get("source") or "ecosystem-registry"),
+        }
+        engine.add_node(node_id, _CONCEPT, properties=props)
+        report.node_ids.append(node_id)
+        if existing is not None:
+            report.updated += 1
+        else:
+            report.ingested += 1
+    return report
 
 
 __all__ = [
