@@ -236,7 +236,7 @@ def test_trap_injection_hidden_instruction_detected():
 
 def test_build_reliability_suite_registers_all_scorers():
     suite = build_reliability_suite()
-    assert len(suite.scorers) == 9
+    assert len(suite.scorers) == 10
     names = {s.name for s in suite.scorers}
     assert "faithfulness" in names and "trap_injection" in names
 
@@ -260,7 +260,7 @@ def test_suite_evaluate_aggregates():
         },
     )
     assert isinstance(result, AggregatedEvalResult)
-    assert len(result.results) == 9
+    assert len(result.results) == 10
     assert all(isinstance(r, EvalResult) for r in result.results)
     assert 0.0 <= result.overall_score <= 1.0
     # The clean, grounded, well-cited answer should pass the whole suite.
@@ -272,4 +272,4 @@ def test_suite_evaluate_isolates_scorer_errors():
     suite = build_reliability_suite()
     result = suite.evaluate("q", "some answer text", {})
     assert isinstance(result, AggregatedEvalResult)
-    assert len(result.results) == 9  # every scorer returns a result, none crash
+    assert len(result.results) == 10  # every scorer returns a result, none crash
