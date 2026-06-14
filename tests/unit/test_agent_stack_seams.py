@@ -272,3 +272,115 @@ async def test_allowed_tools_bound_empty_toolset_surfaces_clear_error():
             agent_meta={},
             agent_name="empty-agent",
         )
+
+
+# --------------------------------------------------------------------------- #
+# Residual (a) — a wall-clock cancellation yields a clean "timed out", not
+# "Agent execution failed: CancelledError"
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_run_agent_reraises_cancellation_not_flattened():
+    """run_agent must re-raise CancelledError so an outer wait_for can time out
+    cleanly — never flatten it into an 'Agent execution failed' string."""
+    import asyncio as _asyncio
+
+    from agent_utilities.orchestration import agent_runner
+
+    fake_engine = AsyncMock()
+    fake_engine.backend = None
+    with (
+        patch.object(agent_runner, "_get_or_create_engine", return_value=fake_engine),
+        patch.object(
+            agent_runner, "_resolve_agent_from_kg", return_value={"type": "unknown"}
+        ),
+        patch.object(
+            agent_runner, "_build_execution_config", return_value={"mcp_toolsets": []}
+        ),
+        patch.object(
+            agent_runner,
+            "_execute_graph",
+            new=AsyncMock(side_effect=_asyncio.CancelledError()),
+        ),
+        patch.object(agent_runner, "_record_execution_trace"),
+        patch.object(agent_runner, "_write_step_credit"),
+    ):
+        with pytest.raises(_asyncio.CancelledError):
+            await agent_runner.run_agent(agent_name="some-agent", task="t")
+
+
+@pytest.mark.asyncio
+async def test_run_agent_bounded_timeout_message_is_clean():
+    """End-to-end: a run_agent that swallows nothing → _run_agent_bounded returns the
+    clean 'timed out' JSON (not a CancelledError string)."""
+    import asyncio as _asyncio
+    import json as _json
+
+    from agent_utilities.orchestration.engine import AgentOrchestrationEngine
+
+    async def _hang(*_a, **_k):
+        await _asyncio.sleep(10)
+
+    engine = AgentOrchestrationEngine.__new__(AgentOrchestrationEngine)
+    engine.engine = None
+    with patch(
+        "agent_utilities.orchestration.agent_runner.run_agent", new=_hang
+    ):
+        out = await engine._run_agent_bounded("a", "t", timeout_s=0.05)
+    payload = _json.loads(out)
+    assert "timed out" in payload["error"] and "CancelledError" not in out
+
+
+# --------------------------------------------------------------------------- #
+# Residual (b) — graph-path tool scoping fails loud instead of silently
+# passing a toolset through unfiltered / leaving a tool-less agent
+# --------------------------------------------------------------------------- #
+
+
+def test_apply_tool_scope_filters_real_toolset():
+    from types import SimpleNamespace
+
+    from agent_utilities.graph.executor import apply_tool_scope
+
+    ts = _FakeToolset("portainer")
+    state = SimpleNamespace(invoker_allowed_tools=["list_stacks"])
+    _tools, toolsets = apply_tool_scope(state, [], [ts])
+    assert len(toolsets) == 1 and toolsets[0].applied_filter is not None
+
+
+def test_apply_tool_scope_no_allowlist_is_passthrough():
+    from types import SimpleNamespace
+
+    from agent_utilities.graph.executor import apply_tool_scope
+
+    ts = _FakeToolset("x")
+    state = SimpleNamespace(invoker_allowed_tools=None)
+    tools, toolsets = apply_tool_scope(state, ["t"], [ts])
+    assert tools == ["t"] and toolsets == [ts]
+
+
+def test_apply_tool_scope_unfilterable_toolset_is_loud():
+    from types import SimpleNamespace
+
+    from agent_utilities.graph.executor import apply_tool_scope
+
+    class _NoFilter:
+        name = "broken"
+
+    state = SimpleNamespace(invoker_allowed_tools=["x"])
+    with pytest.raises(RuntimeError, match="does not support tool filtering"):
+        apply_tool_scope(state, [], [_NoFilter()])
+
+
+def test_apply_tool_scope_empty_result_is_loud():
+    from types import SimpleNamespace
+
+    from agent_utilities.graph.executor import apply_tool_scope
+
+    def some_tool():
+        ...
+
+    state = SimpleNamespace(invoker_allowed_tools=["nonexistent"])
+    with pytest.raises(RuntimeError, match="eliminated every bound tool"):
+        apply_tool_scope(state, [some_tool], [])
