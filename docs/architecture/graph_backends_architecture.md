@@ -245,6 +245,63 @@ query to run unchanged across neo4j + falkordb + postgres. `list_connections`
 reports each connection's `cypher_support` so fan-out callers can tell which
 backends can serve a full query.
 
+## Mirror every write to N stores at once (CONCEPT:KG-2.74)
+
+Where KG-2.63 lets you *target* several connections per call, **fan-out** makes
+mirroring the **default** for every write: one configurable **authority** store
+serves reads and acks writes, and each mutation is replicated — losslessly and
+asynchronously — to any set of durable backends. Turn it on with
+`GRAPH_BACKEND=fanout`; the zero-infra default is unchanged (it is only built
+when you configure a mirror set).
+
+```bash
+# Authority = epistemic-graph L1 (fast in-mem reads); mirror to Postgres-AGE,
+# Neo4j and FalkorDB. The mirror set names entries declared in KG_CONNECTIONS.
+export GRAPH_BACKEND=fanout
+export GRAPH_AUTHORITY=epistemic_graph
+export GRAPH_MIRROR_TARGETS='["pg-age","prod-neo4j","team-falkor"]'
+export KG_CONNECTIONS='[
+  {"name":"pg-age","backend":"age","uri":"postgresql://u:p@pg.arpa:5432/agent_kg"},
+  {"name":"prod-neo4j","backend":"neo4j","uri":"bolt://neo4j.arpa:7687","user":"neo4j","password":"…"},
+  {"name":"team-falkor","backend":"falkordb","host":"falkordb.arpa","port":6379}
+]'
+```
+
+You may also set the authority to any durable store (e.g. `GRAPH_AUTHORITY=pg-age`)
+— whichever connection you name becomes the read source-of-truth, and the rest
+are mirrors.
+
+### How it stays lossless
+
+* **Authority commits synchronously; mirrors apply async.** A write returns once
+  the authority commits **and** the mutation is durably appended to each mirror's
+  outbox. Reads (served from the authority) are always consistent; mirrors are
+  eventually-consistent (seconds of lag).
+* **Durable per-mirror outbox.** `backends/outbox.py` is a sqlite/WAL append log
+  (zero external infra). A per-mirror drainer thread applies entries in order and
+  advances a persisted cursor, so a mirror that is **offline or slow keeps its
+  unapplied tail and replays from its cursor on reconnect / restart** — a
+  transient outage never drops a write. (Contrast the tiered write-behind queue,
+  which is in-memory and lost on crash.)
+* **One drainer per mirror = natural single-writer.** A file-locked store
+  (LadybugDB/Kuzu) is serialised for free — it is simply the slowest mirror.
+* **Reconcile backstop.** `graph_configure(action="reconcile")` runs a full
+  authority→mirror re-sync and reports exact remaining drift — the repair for the
+  only un-mirrorable window (a crash between the authority commit and the outbox
+  append) and for a mirror whose outbox tail was lost.
+
+### Operate it
+
+| Surface | Call | What it does |
+|---|---|---|
+| MCP | `graph_configure(action="mirror_status")` | Per-mirror replication health: `lag`, `writes`, `failures`, `stalled`, `last_error`, plus `outbox_depth`. Alarm on `lag`/`stalled`. |
+| MCP | `graph_configure(action="reconcile", config_key="<mirror>")` | Full drift-repair for one mirror (empty `config_key` = all). |
+| REST | `POST /graph/configure {"action":"mirror_status"}` | Same core, REST twin. |
+
+**Portability:** use full-openCypher mirrors (Postgres-AGE / Neo4j / FalkorDB) so
+the same mutation runs unchanged on every store — see the `cypher_support` table
+above.
+
 ### Quick Start: PostgreSQL
 
 ```bash

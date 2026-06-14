@@ -4303,7 +4303,7 @@ def _build_server(bootstrap: bool = True):
     def graph_configure(
         action: str = Field(
             default="register_mcp",
-            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health; 'set_default_connection' (config_key=name) repoints the default target.",
+            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health; 'set_default_connection' (config_key=name) repoints the default target. CONCEPT:KG-2.74 — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass.",
         ),
         config_key: str = Field(
             default="",
@@ -4407,6 +4407,33 @@ def _build_server(bootstrap: bool = True):
                 return json.dumps(
                     {"status": "success", "action": action, "default_target": name}
                 )
+            # ── CONCEPT:KG-2.74: Concurrent N-way mirroring health/repair ──
+            if action in ("mirror_status", "reconcile"):
+                from agent_utilities.knowledge_graph.backends import (
+                    get_active_backend,
+                )
+                from agent_utilities.knowledge_graph.backends.fanout_backend import (
+                    FanOutBackend,
+                )
+
+                backend = get_active_backend()
+                # Unwrap a BrainGuarded proxy if present (its inner backend is
+                # exposed via the ``inner`` property; a bare FanOutBackend has no
+                # such attribute, so the default keeps it as-is).
+                inner = getattr(backend, "inner", backend)
+                if not isinstance(inner, FanOutBackend):
+                    return json.dumps(
+                        {
+                            "error": "Active backend is not a fanout mirror "
+                            "(set GRAPH_BACKEND=fanout with GRAPH_MIRROR_TARGETS).",
+                            "backend": type(backend).__name__,
+                        }
+                    )
+                if action == "mirror_status":
+                    return json.dumps(inner.durability_stats(), default=str)
+                # reconcile — full authority→mirror drift repair (config_key =
+                # optional single mirror name; empty = all mirrors).
+                return json.dumps(inner.reconcile(config_key or None), default=str)
             # ── KG-2.7 / ECO-4.6: Memory Hook Management ──
             if action == "install_hooks":
                 try:

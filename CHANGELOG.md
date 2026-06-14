@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Concurrent N-way mirrored writes (CONCEPT:KG-2.74).** `GRAPH_BACKEND=fanout`
+  turns mirroring into the default for every write: one configurable **authority**
+  store (`GRAPH_AUTHORITY`) serves reads and acks writes, and each mutation is
+  replicated — losslessly and asynchronously — to any set of durable mirrors
+  (`GRAPH_MIRROR_TARGETS`, named against `KG_CONNECTIONS`). New
+  `knowledge_graph/backends/fanout_backend.py` (`FanOutBackend`) generalizes the
+  two-tier `TieredGraphBackend` into one-authority-N-mirror; new
+  `backends/outbox.py` (`GraphOutbox`) is a durable sqlite/WAL per-mirror append
+  log, so a mirror that is offline or slow **keeps its unapplied tail and replays
+  from a persisted cursor on reconnect / restart — no write is lost**. One drainer
+  thread per mirror serialises a single-writer store (LadybugDB) for free.
+  `reconcile()` (reusing `TieredGraphBackend.reconcile_to_durable`) is the
+  drift-repair backstop. Operated on both surfaces:
+  `graph_configure(action="mirror_status"|"reconcile")` (MCP) and the
+  `/graph/configure` REST twin. Default-on once configured; the zero-infra default
+  is unchanged. Deploy stacks: `services/{neo4j,falkordb}` (R710). Docs:
+  `docs/architecture/graph_backends_architecture.md` (“Mirror every write to N
+  stores at once”).
 - **Shortcut-resistant search-task synthesis (CONCEPT:KG-2.70/2.71/2.72, AHE-3.30).**
   Distills FORT-Searcher (arXiv:2606.12087) onto the epistemic graph. New
   `knowledge_graph/search_synthesis/` package: `evidence_subgraph.py` builds a

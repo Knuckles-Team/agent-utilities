@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 237
+total_concepts: 238
 total_pillars: 20
 pillars:
 - AHE-3
@@ -349,6 +349,8 @@ concepts:
   pillar: AHE-3
   status: live
   code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/sai_factory.py
   doc: the controller that operationalizes Superhuman Adaptable
 - id: AHE-3.30
@@ -1826,9 +1828,11 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/backends/__init__.py
   - agent_utilities/knowledge_graph/backends/age_backend.py
   - agent_utilities/knowledge_graph/backends/base.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
@@ -1926,6 +1930,17 @@ concepts:
   - agent_utilities/harness/world_model_task.py
   - agent_utilities/knowledge_graph/core/world_model.py
   doc: KG-2.73
+- id: KG-2.74
+  name: Concurrent N-way mirroring health/repair ──
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/backends/__init__.py
+  - agent_utilities/knowledge_graph/backends/fanout_backend.py
+  - agent_utilities/knowledge_graph/backends/outbox.py
+  - agent_utilities/mcp/kg_server.py
+  doc: Concurrent N-way mirroring health/repair ──
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
