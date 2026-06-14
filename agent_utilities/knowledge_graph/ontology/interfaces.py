@@ -812,6 +812,59 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
+    # Agent-Native Research Artifact shapes (CONCEPT:KG-2.80). An ARA is a 4-layer
+    # artifact whose /logic claims are verifiable and grounded; making these
+    # ontology interfaces (owl:Class + SHACL NodeShape) lets the reasoner
+    # extrapolate over claim↔evidence↔code↔ecosystem rather than treat the artifact
+    # as opaque text. VerifiableClaim mirrors the ARA Seal's "every claim is
+    # backed" invariant as a shape contract.
+    registry.register(
+        Interface(
+            name="VerifiableClaim",
+            description=(
+                "A research claim (ARA /logic layer) that must be backed: grounded "
+                "in evidence and, where executable, implemented by a code spec. "
+                "Reasoning chains grounded_in/implemented_by to relate claims to the "
+                "ecosystem code/services that substantiate them."
+            ),
+            properties=[
+                InterfaceProperty(
+                    name="statement",
+                    type_ref="string",
+                    description="The asserted claim text.",
+                ),
+            ],
+            link_constraints=[
+                InterfaceLinkConstraint(
+                    name="grounding",
+                    edge_type=RegistryEdgeType.GROUNDED_IN,
+                    min_count=0,
+                    description="Must declare a grounded_in link to its evidence.",
+                ),
+            ],
+        )
+    )
+    registry.register(
+        Interface(
+            name="ResearchArtifactShape",
+            description=(
+                "An OWL-native Agent-Native Research Artifact: a provenance-bearing "
+                "envelope that contains its /logic claims. Extends HasProvenance so "
+                "every artifact records when and from what it was derived."
+            ),
+            extends=["HasProvenance"],
+            link_constraints=[
+                InterfaceLinkConstraint(
+                    name="claims",
+                    edge_type=RegistryEdgeType.CONTAINS,
+                    target_type=RegistryNodeType.CLAIM,
+                    min_count=0,
+                    description="Contains the claims that make up its /logic layer.",
+                ),
+            ],
+        )
+    )
+
     # Declare built-in type shapes and record the implements-by relations so the
     # registry ships with live implementers (programmatic targeting works out of
     # the box, not just after a caller wires it).
@@ -826,6 +879,18 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         properties={"lat": "double", "lon": "double"},
     )
     registry.implement(RegistryNodeType.PLACE, "Locatable")
+    registry.declare_type_shape(
+        RegistryNodeType.CLAIM,
+        properties={"statement": "string"},
+        link_types=[RegistryEdgeType.GROUNDED_IN],
+    )
+    registry.implement(RegistryNodeType.CLAIM, "VerifiableClaim")
+    registry.declare_type_shape(
+        RegistryNodeType.RESEARCH_ARTIFACT,
+        properties={"timestamp": "timestamp"},
+        link_types=[RegistryEdgeType.WAS_DERIVED_FROM, RegistryEdgeType.CONTAINS],
+    )
+    registry.implement(RegistryNodeType.RESEARCH_ARTIFACT, "ResearchArtifactShape")
 
 
 # CONCEPT:KG-2.38 — populated at import with real built-ins, never empty.

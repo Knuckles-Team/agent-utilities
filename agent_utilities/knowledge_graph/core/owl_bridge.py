@@ -86,6 +86,13 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "fact",
     "principle",
     "evidence",
+    # ARA — OWL-native 4-layer research artifact (CONCEPT:KG-2.80)
+    "research_artifact",
+    "claim",
+    "code_spec",
+    "exploration_node",
+    "trajectory",
+    "deliberation",
     "reflection",
     "organization",
     "role",
@@ -492,7 +499,21 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "classified_as",
     # Alignment
     "aligned_with",
+    # ARA forensic bindings (CONCEPT:KG-2.80) — verified_by/implemented_by/contains/
+    # was_derived_from already promotable above; add the remaining /logic + /trace edges
+    "grounded_in",
+    "has_evidence",
+    "pivoted_from",
+    "reached_dead_end",
 }
+
+# ARA forensic-edge OWL object-property characteristics, always on (CONCEPT:KG-2.80).
+# Independent of any schema pack so every reasoning cycle chains a claim's grounding
+# (claim -grounded_in-> evidence -grounded_in-> source ⟹ claim -grounded_in-> source)
+# and materialises the evidence→claim ``supports`` inverse — letting reasoning relate
+# a /logic claim to the ecosystem code/services that substantiate it.
+ARA_TRANSITIVE_EDGES: frozenset[str] = frozenset({"grounded_in"})
+ARA_INVERSE_EDGES: dict[str, str] = {"grounded_in": "supports"}
 
 
 class OWLBridge:
@@ -545,18 +566,21 @@ class OWLBridge:
         # below so the existing promote→reason→downfeed cycle materialises multi-hop
         # and inverse edges for free — e.g. a research pack's supports_belief
         # transitive chains and cites_source/cited_by inverses (CONCEPT:KG-2.36).
+        # Start from ARA's always-on forensic-edge characteristics (CONCEPT:KG-2.80)
+        # so claim-grounding chains/inverses materialise even without a schema pack,
+        # then union any pack-declared object-properties on top.
+        self._pack_transitive = set(ARA_TRANSITIVE_EDGES)
+        self._pack_symmetric = set()
+        self._pack_inverse = dict(ARA_INVERSE_EDGES)
         if schema_pack is not None and getattr(
             schema_pack, "owl_object_properties", None
         ):
-            (
-                self._pack_transitive,
-                self._pack_symmetric,
-                self._pack_inverse,
-            ) = schema_pack.get_owl_closure_sets()
-        else:
-            self._pack_transitive = set()
-            self._pack_symmetric = set()
-            self._pack_inverse = {}
+            pack_transitive, pack_symmetric, pack_inverse = (
+                schema_pack.get_owl_closure_sets()
+            )
+            self._pack_transitive |= pack_transitive
+            self._pack_symmetric |= pack_symmetric
+            self._pack_inverse.update(pack_inverse)
 
         # Ephemeral Namespaced In-Memory and Shared Cache registries
         self._namespaces: dict[str, dict[str, Any]] = {}
