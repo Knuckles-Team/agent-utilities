@@ -78,6 +78,24 @@ def test_run_breadth_ingest_with_fakes(tmp_path):
     assert report.docs_ingested == 1
 
 
+def test_workspace_project_roots_returns_existing_local_paths(tmp_path):
+    """workspace.yml-defined repos that exist on disk are returned; missing skipped."""
+    from agent_utilities.core.workspace_config import workspace_project_roots
+
+    (tmp_path / "agent-utilities").mkdir()  # present
+    yml = tmp_path / "workspace.yml"
+    yml.write_text(
+        f"path: {tmp_path}\n"
+        "repositories:\n"
+        "  - url: https://x/agent-utilities.git\n"
+        "  - url: https://x/not-cloned.git\n",
+        encoding="utf-8",
+    )
+    roots = workspace_project_roots(str(yml))
+    assert str(tmp_path / "agent-utilities") in roots
+    assert str(tmp_path / "not-cloned") not in roots  # missing dir excluded
+
+
 # --- pilot harness ----------------------------------------------------------
 class _Graph:
     def __init__(self, nodes):

@@ -370,28 +370,35 @@ class GoldenLoopController:
         return run_standardization_pass(self.engine)
 
     def _run_breadth(self) -> dict[str, Any]:
-        """Ingest the OSS/repos/docs corpus from env-configured roots (idempotent).
+        """Ingest the OSS/repos/docs corpus (idempotent).
 
-        ``KG_BREADTH_LIBRARY_ROOTS`` / ``KG_BREADTH_REPO_ROOTS`` are comma-separated
-        paths. No roots ⇒ no-op. Content-addressed ingest means re-runs are cheap.
+        Roots come, in order of precedence, from the explicit
+        ``KG_BREADTH_LIBRARY_ROOTS`` / ``KG_BREADTH_REPO_ROOTS`` (comma-separated)
+        overrides, else are auto-discovered from the XDG ``workspace.yml`` — the
+        single declaration of ALL ecosystem projects we want assimilated. So the
+        loop self-configures: ``assimilate`` always has the codebase capability
+        map to compare research against, with no env config required. Content-
+        addressed ingest makes re-runs cheap. (CONCEPT:KG-2.7)
         """
         from dataclasses import asdict
 
         from agent_utilities.core.config import AgentConfig
+        from agent_utilities.core.workspace_config import workspace_project_roots
 
         from ..assimilation import run_breadth_ingest
 
-        # Roots come from the AgentConfig fields (populated from env/.env) — so a
-        # deployment configures breadth auto-ingest once and ``golden_loop`` (one
-        # call / the daemon) ingests it. Read a fresh AgentConfig() (not the
-        # import-time singleton) so runtime root changes are honored. (CONCEPT:KG-2.7)
+        # Read a fresh AgentConfig() (not the import-time singleton) so runtime
+        # root changes are honored.
         _cfg = AgentConfig()
         libs_raw = _cfg.kg_breadth_library_roots
         repos_raw = _cfg.kg_breadth_repo_roots
         libs = [p.strip() for p in (libs_raw or "").split(",") if p.strip()]
         repos = [p.strip() for p in (repos_raw or "").split(",") if p.strip()]
+        # No explicit roots ⇒ self-configure from the workspace.yml ecosystem.
         if not libs and not repos:
-            return {"skipped": True, "reason": "no roots configured"}
+            repos = workspace_project_roots()
+        if not libs and not repos:
+            return {"skipped": True, "reason": "no roots configured or discoverable"}
         return asdict(
             run_breadth_ingest(self.engine, library_roots=libs, repo_roots=repos)
         )
