@@ -254,6 +254,59 @@ class ReasonerRouter:
                 logger.debug("[OS-5.36] harvest skipped: %s", exc)
         return result
 
+    def reason_adaptive(
+        self, task: ReasoningTask, governor: Any = None
+    ) -> ReasoningResult | None:
+        """Try paradigms in learned-reward order, stopping when more compute is not
+        worth it (CONCEPT:OS-5.37). Returns the best result, value-allocated: a
+        satisficing or diminishing-returns verdict from the compute governor halts the
+        search so test-time compute is spent only where the marginal return is high.
+        """
+        if governor is None:
+            from agent_utilities.harness.compute_governor import ComputeGovernor
+
+            governor = ComputeGovernor()
+        emb = task.embedding or self._uniform_embedding()
+        des = self._index.designate(
+            emb,
+            required_caps=list(task.tags) or None,
+            k=len(self._reasoners),
+            reward_weight=self._reward_weight,
+        )
+        ranked = [self._reasoners[d.id] for d in des if d.id in self._reasoners]
+        if not ranked:
+            r = self.route(task)
+            ranked = [r] if r else []
+
+        results: list[ReasoningResult] = []
+        scores: list[float] = []
+        for reasoner in ranked:
+            if not governor.should_continue(scores):
+                break
+            try:
+                result = reasoner.reason(task)
+            except Exception as exc:  # noqa: BLE001 — a failing paradigm scores 0
+                logger.warning("[KG-2.68] reasoner %s failed: %s", reasoner.name, exc)
+                self._index.record_outcome(reasoner.name, reward=0.0)
+                continue
+            self._index.record_outcome(
+                reasoner.name, reward=max(0.0, min(1.0, result.score))
+            )
+            if self._harvester is not None:
+                try:
+                    self._harvester.harvest_result(task, result)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("[OS-5.36] harvest skipped: %s", exc)
+            results.append(result)
+            scores.append(result.score)
+
+        if not results:
+            return None
+        best = max(results, key=lambda r: r.score)
+        best.trace["attempts"] = len(results)
+        best.trace["governor"] = governor.report(scores)
+        return best
+
     def reward(self, reasoner_name: str) -> float:
         """The current learned routing reward EMA for a paradigm (0.5 = neutral)."""
         des = self._index.designate(
