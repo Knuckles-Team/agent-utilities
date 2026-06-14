@@ -97,7 +97,7 @@ class TestDecisionMapping:
         assert ev.action_decision["decision"] == "deny"
         assert "blocked by action policy (merge_promotion)" in ev.reason
         # The block is on the audit trail, not just the return value.
-        records = merger.audit.query(action="golden_loop.auto_merge")
+        records = merger.audit.query(action="loop_engine.auto_merge")
         assert records and records[0].details["action_decision"] == "deny"
         assert records[0].details["merged"] is False
 
@@ -131,7 +131,7 @@ class TestDecisionMapping:
         (request,) = policy.requests
         assert request.kind == "merge_promotion"
         assert request.target == "proposal:policy-1"
-        assert request.source == "golden_loop"
+        assert request.source == "loop_engine"
 
     def test_allow_notify_proceeds(self):
         policy = _FakePolicy("allow_notify")

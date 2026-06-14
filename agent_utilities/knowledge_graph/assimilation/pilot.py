@@ -61,7 +61,7 @@ def run_pilot(
     ``assimilation.plan_synthesis._default_synth`` to run the pilot fully offline
     (deterministic, no planner LLM).
     """
-    from ..research.golden_loop import run_assimilation_pass
+    from ..research.loop_controller import run_assimilation_pass
 
     ids = _all_feature_ids(engine, feature_types)
     # Snapshot what's already built BEFORE synthesis flips features to 'proposed'.

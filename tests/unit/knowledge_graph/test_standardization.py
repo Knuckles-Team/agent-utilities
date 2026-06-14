@@ -313,10 +313,10 @@ def test_ontology_standardize_runs_pass_against_engine():
     assert rep["recommendations"]
 
 
-def test_golden_loop_standardize_stage_live_path():
+def test_loop_standardize_stage_live_path():
     """run_one_cycle(standardize=True) writes consolidation recommendations."""
-    from agent_utilities.knowledge_graph.research.golden_loop import (
-        GoldenLoopController,
+    from agent_utilities.knowledge_graph.research.loop_controller import (
+        LoopController,
     )
 
     engine = _Engine(
@@ -326,7 +326,7 @@ def test_golden_loop_standardize_stage_live_path():
         }
     )
     # Only the standardize stage; skip assimilate/intake/synthesize (need richer graph).
-    report = GoldenLoopController(engine).run_one_cycle(
+    report = LoopController(engine).run_one_cycle(
         standardize=True, assimilate=False, synthesize=False, max_topics=0
     )
     assert report["standardize"] is not None

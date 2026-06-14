@@ -7,7 +7,7 @@ CONCEPT:AHE-3.26 — recursive-improvement instrumentation aggregating per-cycle
 CONCEPT:SAFE-1.3 — recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags a non-positive derivative as a research-gets-harder signal
 
 The deployed loop already *writes* an audit trail every cycle — ``EvolutionCycle``
-nodes (`golden_loop._finalize_metrics`), ``ProposalPublication`` nodes
+nodes (`loop_controller._finalize_metrics`), ``ProposalPublication`` nodes
 (`change_publisher`, with ``kind`` = ``code``/``sdd_plan``), and
 ``CapabilityRatchetResult`` nodes (`capability_ratchet`, AHE-3.24) — but **nothing
 reads them back**, so AU cannot answer "is the loop improving us, how fast, and

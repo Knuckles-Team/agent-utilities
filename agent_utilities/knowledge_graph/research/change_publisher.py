@@ -48,7 +48,7 @@ from .change_synthesis import ChangeSet, proposal_id_of, synthesize_change_set
 
 logger = logging.getLogger(__name__)
 
-AUDIT_PUBLISH = "golden_loop.publish_proposal"
+AUDIT_PUBLISH = "loop_engine.publish_proposal"
 
 #: Commit identity used when the host has no git identity configured.
 _GIT_IDENTITY = ("evolution-bridge", "evolution-bridge@agent-utilities.local")
@@ -512,7 +512,7 @@ def governed_publish(
     *,
     publisher: ChangePublisher | None = None,
     regression_check: Any = None,
-    source: str = "golden_loop",
+    source: str = "loop_engine",
     action_policy: Any = None,
     code_synthesizer: Any = None,
     capability_ratchet: Any = None,

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Governed golden-loop auto-merge (CONCEPT:AHE-3.14).
 
-The golden loop is *propose-only* by design (``golden_loop.py``): it synthesizes
+The loop engine is *propose-only* by design (``loop_controller.py``): it synthesizes
 ``TeamSpec`` / ``AgentSpec`` / ``PromptSpec`` proposals and persists them as KG
 nodes, but never promotes them to *active* skills/prompts — promotion is left to
 a human. This module adds the missing GOVERNED auto-merge path: a proposal that
@@ -15,7 +15,7 @@ It is deliberately conservative and OFF by default:
   - the default quality threshold is high (``0.85``),
   - SHACL/governance validity is required (when a validator is reachable),
   - regression is checked (a promoted artifact must not lower a tracked metric),
-  - the whole step is opt-in via ``GoldenLoopController(auto_merge=...)`` /
+  - the whole step is opt-in via ``LoopController(auto_merge=...)`` /
     ``KG_GOLDEN_AUTO_MERGE=1`` — the existing propose-only safety is the default
     unless explicitly enabled,
   - the merger's own promotion decision consults the operational
@@ -42,7 +42,7 @@ from agent_utilities.observability.audit_logger import AuditLogger
 
 logger = logging.getLogger(__name__)
 
-AUDIT_AUTO_MERGE = "golden_loop.auto_merge"
+AUDIT_AUTO_MERGE = "loop_engine.auto_merge"
 
 #: Conservative default — only very high-quality proposals auto-merge.
 DEFAULT_QUALITY_THRESHOLD = 0.85
@@ -390,7 +390,7 @@ class GovernedAutoMerger:
                             or ""
                         ),
                     },
-                    source="golden_loop",
+                    source="loop_engine",
                     reason="promote evolution proposal proposal→active",
                 )
             )
@@ -423,7 +423,7 @@ class GovernedAutoMerger:
                 spec,
                 publisher=self._publisher,
                 regression_check=self._regression_check,
-                source="golden_loop",
+                source="loop_engine",
             )
         except Exception as exc:  # noqa: BLE001 — never crash the loop
             logger.warning(
@@ -489,7 +489,7 @@ class GovernedAutoMerger:
 
     def _audit(self, ev: MergeEvaluation) -> None:
         record = self.audit.log(
-            actor="golden_loop",
+            actor="loop_engine",
             action=AUDIT_AUTO_MERGE,
             resource_type="proposal",
             resource_id=ev.proposal_id,

@@ -696,16 +696,16 @@ class TaskManagerMixin(GraphEngineProtocol):
         # single sequential scheduler thread.
         if DEFAULT_KG_MODEL_ID:
             jobs.append(("analysis", 120.0, self._tick_kg_analysis))
-        # Self-evolution golden loop (propose-only) — throttled and OPT-IN
-        # (autonomous LLM work). Enable with KG_GOLDEN_LOOP=1. (KG-2.7)
+        # Self-evolution Loop engine (propose-only) — throttled and OPT-IN
+        # (autonomous LLM work). Enable with KG_LOOP=1. (KG-2.7/2.78)
         from agent_utilities.core.config import config as _cfg
 
-        if _cfg.kg_golden_loop:
+        if _cfg.kg_loop:
             jobs.append(
                 (
-                    "golden_loop",
-                    _cfg.kg_golden_loop_interval,
-                    self._tick_golden_loop,
+                    "loop_cycle",
+                    _cfg.kg_loop_interval,
+                    self._tick_loop,
                 )
             )
         # SAI factory self-specialization (CONCEPT:AHE-3.29) — native, ON by default
@@ -1541,31 +1541,29 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.info("KG embedding backfill: embedded %d nodes", total)
         return total
 
-    def _tick_golden_loop(self) -> None:
+    def _tick_loop(self) -> None:
         """One propose-only self-evolution cycle (CONCEPT:KG-2.7).
 
-        Runs ``GoldenLoopController.run_one_cycle`` (intake unresolved topics →
+        Runs ``LoopController.run_one_cycle`` (intake active Loops →
         acquire related sources → ADDRESSES resolve → optional distill/synthesize
         as DRAFTS/proposals). Always propose-only: nothing is auto-merged or
-        executed. Throttled + opt-in via ``KG_GOLDEN_LOOP``.
+        executed. Throttled + opt-in via ``KG_LOOP``.
         """
         try:
             from agent_utilities.core.config import config as _cfg
 
-            from ..research.golden_loop import GoldenLoopController
+            from ..research.loop_controller import LoopController
 
-            rep = GoldenLoopController(self).run_one_cycle(
-                max_topics=_cfg.kg_golden_loop_topics
-            )
+            rep = LoopController(self).run_one_cycle(max_topics=_cfg.kg_loop_topics)
             logger.info(
-                "Golden loop cycle: intake=%s resolved=%s sources=%s team=%s",
+                "Loop cycle: intake=%s resolved=%s sources=%s team=%s",
                 rep.get("topics_intake"),
                 rep.get("topics_resolved"),
                 rep.get("sources_linked"),
                 bool(rep.get("team")),
             )
         except Exception as e:  # noqa: BLE001
-            logger.error("golden_loop tick error: %s", e)
+            logger.error("loop tick error: %s", e)
 
     def _tick_sai_factory(self) -> None:
         """One SAI-factory world-model specialization cycle (CONCEPT:AHE-3.29).
