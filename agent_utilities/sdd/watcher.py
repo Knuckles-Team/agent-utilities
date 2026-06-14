@@ -555,6 +555,61 @@ def get_scholarx_directories() -> list[Path]:
     return resolved
 
 
+def _parse_dir_list(raw: str | None) -> list[str]:
+    """Parse a directory-list setting: a JSON array, or os.pathsep/comma list."""
+    if not raw:
+        return []
+    raw = raw.strip()
+    if raw.startswith("["):
+        try:
+            import json as _json
+
+            items = _json.loads(raw)
+            return [str(x) for x in items if str(x).strip()]
+        except Exception:  # noqa: BLE001 — fall back to delimiter parsing
+            pass
+    # os.pathsep (':' / ';') or comma — whichever the operator used.
+    parts = raw.split(os.pathsep) if os.pathsep in raw else raw.split(",")
+    return [p.strip() for p in parts if p.strip()]
+
+
+#: Subdirectories skipped when recursively scanning operator document corpora.
+_SKIP_WATCH_DIRS = {
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".cache",
+    ".Trash",
+    ".trash",
+}
+
+
+def get_watched_directories() -> list[tuple[Path, bool, str]]:
+    """All directories the watcher auto-ingests, as ``(path, recursive, source)``.
+
+    Unifies the ScholarX/research download dirs (top-level, provenance
+    ``watcher_scholarx``) with operator-configured document directories from
+    ``KG_WATCH_DIRS`` (recursive, provenance ``watcher_documents``) — e.g. set
+    ``KG_WATCH_DIRS=~/Documents`` to auto-ingest a personal corpus. New files are
+    ingested and modified files re-ingested on the next 5s watcher tick; unchanged
+    files are delta-skipped by content hash (CONCEPT:KG-2.8). ``KG_WATCH_DIRS``
+    accepts a JSON array or an ``os.pathsep``/comma-separated list of paths
+    (``~`` expanded).
+    """
+    watched: list[tuple[Path, bool, str]] = [
+        (d, False, "watcher_scholarx") for d in get_scholarx_directories()
+    ]
+    seen = {str(d) for d, _, _ in watched}
+    for raw in _parse_dir_list(setting("KG_WATCH_DIRS")):
+        p = Path(os.path.expanduser(raw)).resolve()
+        if p.exists() and p.is_dir() and str(p) not in seen:
+            watched.append((p, True, "watcher_documents"))
+            seen.add(str(p))
+    return watched
+
+
 def get_kg_ingest_paths(workspace_path: Path) -> list[Path]:
     """Get all core Knowledge Graph configuration and ontology files to watch."""
     raw_paths = [
@@ -691,8 +746,15 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
     _SEEN_MTIMES[file_key] = mtime
 
 
-def process_scholarx_file(engine: Any, file_path: Path):
-    """Processes a downloaded ScholarX research paper, triggering KG ingestion."""
+def process_watched_file(
+    engine: Any, file_path: Path, source: str = "watcher_scholarx"
+):
+    """Ingest a file detected in a watched directory (ScholarX or operator docs).
+
+    Submits a ``document`` ingest task tagged with ``source`` provenance, with an
+    mtime fast-path + content-hash delta-skip so unchanged files are not
+    re-ingested and modified files are.
+    """
     if not file_path.exists() or not file_path.is_file():
         return
 
@@ -716,19 +778,20 @@ def process_scholarx_file(engine: Any, file_path: Path):
 
     try:
         logger.info(
-            f"ScholarX download detected: {file_path}. Submitting ingestion task."
+            f"Watched document detected ({source}): {file_path}. "
+            "Submitting ingestion task."
         )
         if hasattr(engine, "submit_task"):
             engine.submit_task(
                 target_path=str(file_path.resolve()),
                 is_codebase=False,
                 task_type="document",
-                provenance={"source": "watcher_scholarx"},
+                provenance={"source": source},
             )
         _SEEN_HASHES[file_key].add(mtime_str)
         _SEEN_MTIMES[file_key] = mtime
     except Exception as e:
-        logger.error(f"Failed to submit ScholarX ingestion task: {e}")
+        logger.error(f"Failed to submit watched-document ingestion task: {e}")
 
 
 def process_kg_ingest_location(engine: Any, file_path: Path):
@@ -839,20 +902,27 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
     except Exception as e:
         logger.debug(f"Failed during skills scan: {e}")
 
-    # 5. ScholarX Downloads Scan
+    # 5. Watched directories scan — ScholarX/research downloads (top-level) +
+    #    operator KG_WATCH_DIRS document corpora (recursive). One unified ingest
+    #    with per-file content-hash delta-skip (CONCEPT:KG-2.8): new files ingest,
+    #    modified files re-ingest, unchanged files skip.
     try:
-        scholarx_dirs = get_scholarx_directories()
         target_exts = {".pdf", ".docx", ".doc", ".txt", ".md"}
-        for s_dir in scholarx_dirs:
+        for w_dir, recursive, source in get_watched_directories():
             try:
-                for item in s_dir.iterdir():
-                    if item.is_file() and item.suffix.lower() in target_exts:
-                        if item.name.lower() != "skill.md":
-                            process_scholarx_file(engine, item)
+                items = w_dir.rglob("*") if recursive else w_dir.iterdir()
+                for item in items:
+                    if not item.is_file() or item.suffix.lower() not in target_exts:
+                        continue
+                    if item.name.lower() == "skill.md":
+                        continue
+                    if any(part in _SKIP_WATCH_DIRS for part in item.parts):
+                        continue
+                    process_watched_file(engine, item, source=source)
             except Exception:
                 pass
     except Exception as e:
-        logger.debug(f"Failed during ScholarX scan: {e}")
+        logger.debug(f"Failed during watched-directories scan: {e}")
 
     # 6. Core Knowledge Graph Ingest Locations Scan
     try:
