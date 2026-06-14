@@ -3553,7 +3553,7 @@ def _build_server(bootstrap: bool = True):
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -3678,6 +3678,30 @@ def _build_server(bootstrap: bool = True):
                 return _json.dumps(
                     collect_and_persist(engine, host_ids), indent=2, default=str
                 )
+            elif action == "specialize":
+                # SAI factory (CONCEPT:AHE-3.29): ground a learned world model in
+                # persisted WorldModelTransition history and specialize its config,
+                # returning adaptation-speed metrics (AHE-3.27) + superhuman
+                # certification (SAFE-1.6). On-demand twin of the KG_SAI_FACTORY tick,
+                # so the closed loop is reachable through the gateway, not just the daemon.
+                import json as _json
+
+                from agent_utilities.harness.superhuman_gate import SuperhumanCertifier
+                from agent_utilities.harness.world_model_task import (
+                    specialize_world_model_from_engine,
+                )
+
+                summary = specialize_world_model_from_engine(
+                    engine, certifier=SuperhumanCertifier()
+                )
+                if summary is None:
+                    return _json.dumps(
+                        {
+                            "status": "noop",
+                            "reason": "insufficient WorldModelTransition history to specialize",
+                        }
+                    )
+                return _json.dumps({"status": "ok", **summary}, default=str)
             else:
                 return f"Error: Unknown analyze action '{action}'"
         except Exception as e:

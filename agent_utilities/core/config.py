@@ -666,11 +666,15 @@ class AgentConfig(BaseSettings):
         default=3600.0, alias="KG_GOLDEN_LOOP_INTERVAL"
     )
     kg_golden_loop_topics: int = Field(default=5, alias="KG_GOLDEN_LOOP_TOPICS")
-    # SAI factory self-specialization (CONCEPT:AHE-3.29) — opt-in, off by default
-    # (autonomous compute). When on, a periodic tick grounds a learned world model in
-    # persisted WorldModelTransition history and specializes its config via the SAI
-    # factory, persisting a SaiFactoryCycle node. AU-native (no LLM/GPU required).
-    kg_sai_factory: bool = Field(default=False, alias="KG_SAI_FACTORY")
+    # SAI factory self-specialization (CONCEPT:AHE-3.29). LLM-free, bounded, and
+    # propose-only (it only persists a SaiFactoryCycle metrics node — nothing is
+    # merged or deployed), and a *no-op when there is too little transition history*,
+    # so it costs nothing on an idle system. Like the anomaly consumer, that makes it
+    # safe to run natively ⇒ ON by default (set KG_SAI_FACTORY=0 to disable). The tick
+    # grounds a learned world model in persisted WorldModelTransition history and
+    # specializes its config; the same loop is reachable on demand via
+    # graph_analyze(action='specialize') through the gateway.
+    kg_sai_factory: bool = Field(default=True, alias="KG_SAI_FACTORY")
     kg_sai_factory_interval: float = Field(
         default=3600.0, alias="KG_SAI_FACTORY_INTERVAL"
     )
