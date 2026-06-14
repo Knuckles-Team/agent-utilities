@@ -391,9 +391,7 @@ def _top_k_cosine(
         sims = cmat @ (fv / fnorm)
         cids = [c for c, _ in concept_vecs]
         idx = np.argsort(-sims)[:k]
-        return [
-            (cids[i], float(sims[i])) for i in idx if float(sims[i]) >= threshold
-        ]
+        return [(cids[i], float(sims[i])) for i in idx if float(sims[i]) >= threshold]
     except Exception:  # noqa: BLE001 — numpy optional → pure-Python
         scored = [(cid, _cosine(fvec, cvec)) for cid, cvec in concept_vecs]
         scored.sort(key=lambda t: t[1], reverse=True)
@@ -411,7 +409,9 @@ def _cosine_verdict(cos: float) -> tuple[Verdict, float, str]:
 
 def _decide(fid: str, matches: list[Match], judge_accept: float) -> FeatureMatch:
     """Fuse per-candidate verdicts into a single feature decision."""
-    covered = [m for m in matches if m.verdict == "covered" and m.confidence >= judge_accept]
+    covered = [
+        m for m in matches if m.verdict == "covered" and m.confidence >= judge_accept
+    ]
     related = [m for m in matches if m.verdict == "related"]
     if covered:
         best = max(covered, key=lambda m: m.score)
@@ -419,7 +419,9 @@ def _decide(fid: str, matches: list[Match], judge_accept: float) -> FeatureMatch
     if related:
         best = max(related, key=lambda m: m.score)
         # novel-but-relevant: novelty is high (related, not covered)
-        return FeatureMatch(fid, "related", best, round(1.0 - 0.5 * best.score, 6), matches)
+        return FeatureMatch(
+            fid, "related", best, round(1.0 - 0.5 * best.score, 6), matches
+        )
     return FeatureMatch(fid, "unrelated", None, 1.0, matches)
 
 
@@ -434,7 +436,12 @@ def _clear_auto(engine: Any, feature_ids: set[str], rels: tuple[str, ...]) -> in
     if edges is not None:
         for src, dst, props in edges:
             rel = _rel_of(props)
-            if src in feature_ids and rel in rels and isinstance(props, dict) and props.get("auto"):
+            if (
+                src in feature_ids
+                and rel in rels
+                and isinstance(props, dict)
+                and props.get("auto")
+            ):
                 pairs.append((src, dst, rel))
     else:
         for fid in feature_ids:
