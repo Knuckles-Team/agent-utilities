@@ -643,6 +643,15 @@ class TrapInjectionScorer:
 # Suite factory
 # ---------------------------------------------------------------------------
 
+def _frontier_scorer_types() -> tuple[type, ...]:
+    # CONCEPT:SAFE-1.1 — the non-saturating CompressionScorer rides along in the
+    # reliability suite as an informational (always-pass) signal, so every eval run
+    # gets a ceiling-free information-density metric without changing any guardrail.
+    from agent_utilities.harness.frontier_scorers import CompressionScorer
+
+    return (CompressionScorer,)
+
+
 RELIABILITY_SCORERS: tuple[type, ...] = (
     FaithfulnessScorer,
     SafetyAccuracyScorer,
@@ -653,6 +662,7 @@ RELIABILITY_SCORERS: tuple[type, ...] = (
     BrierSkillScorer,
     RetrievalRecallScorer,
     TrapInjectionScorer,
+    *_frontier_scorer_types(),
 )
 
 
