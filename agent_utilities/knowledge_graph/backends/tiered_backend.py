@@ -107,7 +107,9 @@ class TieredGraphBackend(GraphBackend):
         if write_behind is None:
             from agent_utilities.core.config import setting
 
-            write_behind = str(setting("KG_TIERED_WRITE_BEHIND", "0")).strip().lower() in (
+            write_behind = str(
+                setting("KG_TIERED_WRITE_BEHIND", "0")
+            ).strip().lower() in (
                 "1",
                 "true",
                 "yes",
@@ -291,7 +293,9 @@ class TieredGraphBackend(GraphBackend):
                 self._wb_queue.put(None)  # shutdown sentinel
                 self._wb_thread.join(timeout=30.0)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("TieredGraphBackend: backfeed drain on close failed: %s", exc)
+                logger.warning(
+                    "TieredGraphBackend: backfeed drain on close failed: %s", exc
+                )
         try:
             self.l1.close()
         finally:
@@ -387,123 +391,32 @@ class TieredGraphBackend(GraphBackend):
         return None
 
     def reconcile_to_durable(self) -> dict[str, int]:
-        """Mirror the L1 graph into L3 and report **exact** remaining drift.
+        """Mirror the L1 graph into the durable L3 and report **exact** drift.
 
-        Writes every L1 node/edge to the durable tier (auto-DDL self-heals any
-        missing table/column), then measures the *actual* divergence by comparing
-        per-type L1 vs L3 counts — so the metric reflects what truly landed, not
-        the count of best-effort writes (``execute`` swallows failures and returns
-        ``[]``, so per-write counting over-reports). ``nodes_missing`` /
-        ``edges_missing`` are the honest drift after the pass; non-zero means a
-        write was dropped despite auto-DDL.
+        Delegates to the native cross-backend migration
+        (:func:`agent_utilities.knowledge_graph.migration.copy_graph`), which writes
+        every L1 node/edge (+ embeddings) through the engine's dialect-aware MERGE
+        upserts — so a native-cypher L3 (Neo4j/FalkorDB/AGE) or strict-schema Kuzu
+        gets a correct write, not the reconstructed ``CREATE (n:Label {`k`: $k})``
+        cypher that double-escaped reserved keys and dropped edges. Idempotent
+        (MERGE); ``nodes_missing`` / ``edges_missing`` are the honest post-pass drift.
         """
-        summary: dict[str, int] = {
-            "nodes": 0,
-            "edges": 0,
-            "errors": 0,
-            "nodes_missing": 0,
-            "edges_missing": 0,
-            "prior_l3_failures": self._l3_failures,
-        }
-        graph = getattr(self.l1, "graph", None)
-        if graph is None:
+        from ..migration import copy_graph
+
+        if getattr(self.l1, "graph", None) is None:
             logger.warning(
                 "reconcile_to_durable: L1 exposes no compute graph; skipping"
             )
-            return summary
-
-        # --- Nodes: write each (auto-DDL on the L3 write path heals new types). ---
-        try:
-            node_ids = list(graph._get_all_nodes())
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("reconcile_to_durable: cannot enumerate L1 nodes: %s", exc)
-            node_ids = []
-        import json as _json
-
-        l1_by_label: dict[str, int] = {}
-        for nid in node_ids:
-            try:
-                props = dict(graph._get_node_properties(nid) or {})
-                label = _sanitize_label(
-                    props.get("type") or props.get("label") or "Node"
-                )
-                l1_by_label[label] = l1_by_label.get(label, 0) + 1
-                # Mirror the FULL property set (was only id/name/type, which made the
-                # durable tier a property-poor shadow). JSON-encode nested values;
-                # skip ``embedding`` (re-mirrored via add_embedding into the vector
-                # column, not as a JSON property). L3 auto-DDL heals new columns.
-                clean: dict[str, Any] = {"id": nid}
-                for k, v in props.items():
-                    if k in ("id", "embedding") or v is None:
-                        continue
-                    clean[k] = (
-                        _json.dumps(v, default=str) if isinstance(v, dict | list) else v
-                    )
-                clean.setdefault("type", label)
-                clean.setdefault("name", str(props.get("name") or nid))
-                cols = ", ".join(f"`{k}`: ${k}" for k in clean)
-                self.l3.execute(f"CREATE (n:{label} {{{cols}}})", clean)
-                summary["nodes"] += 1
-            except Exception as exc:  # noqa: BLE001
-                summary["errors"] += 1
-                logger.debug("reconcile node %s failed: %s", nid, exc)
-
-        # --- Edges: mirror into the unified kg_edges table. ---
-        l1_edges = self._l1_edges(graph)
-        for src, dst, edata in l1_edges:
-            try:
-                edata = edata or {}
-                rel = _sanitize_label(edata.get("type", "RELATED_TO"))
-                # Carry the edge's properties (confidence/provenance/bitemporal/
-                # inferred flags) — not just the type — so the durable edge matches
-                # L1. The transpiler recognizes UPSERT_EDGE only with the node-MATCH
-                # prefix (→ INSERT INTO kg_edges); the bare ``MERGE (a)-[r]->(b)``
-                # is UNKNOWN and silently no-ops.
-                eprops = {
-                    k: v for k, v in edata.items() if k != "type" and v is not None
-                }
-                eparams: dict[str, Any] = {"source_id": src, "target_id": dst}
-                set_clause = ""
-                if eprops:
-                    set_clause = " SET " + ", ".join(f"r.`{k}` = ${k}" for k in eprops)
-                    for k, v in eprops.items():
-                        eparams[k] = (
-                            _json.dumps(v, default=str)
-                            if isinstance(v, dict | list)
-                            else v
-                        )
-                self.l3.execute(
-                    f"MATCH (a {{id: $source_id}}), (b {{id: $target_id}}) "
-                    f"MERGE (a)-[r:{rel}]->(b){set_clause}",
-                    eparams,
-                )
-                summary["edges"] += 1
-            except Exception as exc:  # noqa: BLE001
-                summary["errors"] += 1
-                logger.debug("reconcile edge %s->%s failed: %s", src, dst, exc)
-
-        # --- EXACT drift: post-condition L1 vs L3 counts (not per-write trust). ---
-        for label, l1n in l1_by_label.items():
-            l3n = self._l3_label_count(label)
-            if l3n is not None:
-                summary["nodes_missing"] += max(0, l1n - l3n)
-            else:
-                summary["nodes_missing"] += l1n  # couldn't verify → assume unmirrored
-        l3e = getattr(self.l3, "edge_count", lambda: None)()
-        if l3e is not None:
-            summary["edges_missing"] = max(0, len(l1_edges) - l3e)
-        else:
-            summary["edges_missing"] = 0  # not measurable on this backend
-
-        logger.info(
-            "TieredGraphBackend reconcile: %d nodes, %d edges written; "
-            "drift after: %d nodes / %d edges missing; %d write errors",
-            summary["nodes"],
-            summary["edges"],
-            summary["nodes_missing"],
-            summary["edges_missing"],
-            summary["errors"],
-        )
+            return {
+                "nodes": 0,
+                "edges": 0,
+                "errors": 0,
+                "nodes_missing": 0,
+                "edges_missing": 0,
+                "prior_l3_failures": self._l3_failures,
+            }
+        summary = copy_graph(self.l1, self.l3)
+        summary["prior_l3_failures"] = self._l3_failures
         return summary
 
     # ------------------------------------------------------------------

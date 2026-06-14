@@ -320,7 +320,37 @@ are mirrors.
 
 **Portability:** use full-openCypher mirrors (Postgres-AGE / Neo4j / FalkorDB) so
 the same mutation runs unchanged on every store — see the `cypher_support` table
-above.
+above. **LadybugDB** can be a 4th local-write mirror — config only: add a
+`kg_connections` entry `{"name":"local-ladybug","backend":"ladybug","db_path":"<data_dir>/mirror_ladybug.db"}`
+and list it in `GRAPH_MIRROR_TARGETS`. Its single-writer file lock is serialised
+by its one drainer thread; ad-hoc props fold into the `metadata` JSON column and
+edge props into the `properties` JSON column (durably stored, conformance-verified).
+
+### Native cross-backend migration (CONCEPT:KG-2.74)
+
+`knowledge_graph/migration.py` `copy_graph(source, target)` copies every node +
+edge (+ embeddings) from any source (the L1 compute store, or a full-cypher durable
+backend read via `MATCH`) into any target backend. The **write** goes through the
+engine's proven, dialect-aware MERGE upserts (`IntelligenceGraphEngine._upsert_node`
+/ `_upsert_edge`) — so each backend gets a *correct native write*, never one
+backend's raw cypher forwarded to all. It is the right layer for interchangeable
+storage:
+
+* **MERGE-on-`{id}`** → idempotent + resumable (re-running converges, never dupes);
+* per-backend dialect handled once: nested values JSON-encoded for map-rejecting
+  drivers (Neo4j/FalkorDB), ad-hoc keys → `metadata` JSON and edge props →
+  `properties` JSON for strict-schema Kuzu/Ladybug, transpiler-safe for plain
+  Postgres;
+* returns exact post-condition drift (`nodes_missing` / `edges_missing`).
+
+This is what **backfills a freshly-added mirror** (`graph_configure(action="reconcile")`
+and the tiered `reconcile_to_durable` both delegate to `copy_graph`) and what migrates
+data between any two backends (e.g. Neo4j → FalkorDB). It replaced the old reconcile
+that reconstructed `CREATE (n:Label {`k`: $k})` cypher — fragile on native-cypher
+backends (double-escaped reserved keys) and edge-lossy. Parity is proven by
+`tests/integration/backends/test_cross_backend_parity.py` (`pytest -m live`): the same
+source graph copied into Postgres + Neo4j + FalkorDB + LadybugDB lands as identical
+counts.
 
 ### Quick Start: PostgreSQL
 
