@@ -75,7 +75,19 @@ async def run_rlm(
             rlm.mount_skill_unit(merge_skills(skills))
         out = await rlm.run(input_text=input_text)
         value = getattr(out, output_field, None)
-        return {"ok": True, "result": value, "task": task}
+        # CONCEPT:AHE-3.32 — surface token usage (root + folded sub-call) so a caller (e.g. the
+        # benchmark harness) can compute per-query cost. Best-effort; absent trace → empty.
+        trace = getattr(rlm, "last_run_trace", None)
+        usage = trace.usage.model_dump() if trace is not None else {}
+        if trace is not None:
+            usage["total"] = trace.usage.total
+        return {
+            "ok": True,
+            "result": value,
+            "task": task,
+            "usage": usage,
+            "max_depth": (config or RLMConfig()).max_depth,
+        }
     except SandboxFatalError:
         raise  # CONCEPT:ORCH-1.29 — fatal sandbox death must fast-fail, never be swallowed.
     except Exception as e:  # noqa: BLE001 - entry surface must not raise
