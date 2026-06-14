@@ -3,7 +3,7 @@
 CONCEPT:ORCH-1.36 — Declarative Resilience Policy.
 
 These modes exist so hand-rolled retry loops across the codebase (linear
-backoff in ``tools/x_search_tool``, additive lock-contention jitter in the
+backoff in the PulseLink X-search tool, additive lock-contention jitter in the
 LadybugDB backend, zero-delay schema-heal retries in the PostgreSQL backend)
 can migrate onto the ONE shared policy with byte-identical per-site delays.
 """

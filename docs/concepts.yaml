@@ -2352,7 +2352,6 @@ concepts:
   - agent_utilities/knowledge_graph/memory/learning_engine.py
   - agent_utilities/orchestration/resilience.py
   - agent_utilities/patterns/prompt_chain.py
-  - agent_utilities/tools/x_search_tool.py
   doc: retry_on predicate raised; treating as non-retryable
 - id: ORCH-1.37
   name: Orchestration execution-flow mermaid-diagram surfacing in graph_orchestrate responses
@@ -2646,7 +2645,6 @@ concepts:
   - agent_utilities/security/tool_guard.py
   - agent_utilities/tools/scheduler_tools.py
   - agent_utilities/tools/tool_registry.py
-  - agent_utilities/tools/x_search_tool.py
   doc: MaintenanceCron — scheduled autonomous maintenance
 - id: OS-5.3
   name: Reactive Multi-Axis Budget Guardrails

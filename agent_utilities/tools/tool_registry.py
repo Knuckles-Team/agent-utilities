@@ -265,12 +265,19 @@ def register_agent_tools(
     for tool in pattern_tools:
         _safe_tool(tool)
 
-    # 17. X Search & Browsing Tools
+    # 17. X Search & Browsing Tools — externalized to pulselink-mcp (optional).
+    # The X integration lives in PulseLink (the open-web/social reach server), so
+    # agent-utilities core carries no X auth/fetch. Imported optionally: present
+    # only when pulselink-mcp is installed; otherwise X tools are simply absent.
     if DEFAULT_X_TOOLS:
-        from .x_search_tool import x_tools
+        try:
+            from pulselink_mcp.integrations.x_search_tool import x_tools
 
-        for tool in x_tools:
-            _safe_tool(tool)
+            for tool in x_tools:
+                _safe_tool(tool)
+        except ImportError:
+            # pulselink-mcp not installed → X tools simply absent (opt-in feature).
+            pass
 
     # 16. Apply Security Guards
     apply_tool_guard_approvals(agent)
