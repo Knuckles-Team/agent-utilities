@@ -305,3 +305,56 @@ def test_kg_server_watcher_delegation():
         _build_server()
 
         build_engine.start_sdd_watcher.assert_called_once()
+
+
+# ── graph_analyze: SAI factory specialize action (AHE-3.29) ──────────────
+
+
+class _FakeSpecializeEngine:
+    """Serves WorldModelTransition rows + records add_node (SaiFactoryCycle)."""
+
+    def __init__(self) -> None:
+        self.nodes: list[tuple[str, str, dict]] = []
+
+    def query_cypher(self, _cypher: str, *_a, **_k):
+        return [
+            {"state": f"cell_{i:02d}", "action": act, "next_state": f"cell_{i:02d}_{act}"}
+            for i in range(8)
+            for act in ("north", "south", "east", "west")
+        ]
+
+    def add_node(self, node_id: str, label: str, properties=None):
+        self.nodes.append((node_id, label, properties or {}))
+
+
+@pytest.mark.asyncio
+async def test_graph_analyze_specialize_action_is_gateway_reachable(server_tools, monkeypatch):
+    """The SAI factory is reachable through the graph_analyze tool (the gateway path)."""
+    from agent_utilities.mcp import kg_server
+
+    assert "graph_analyze" in kg_server.REGISTERED_TOOLS  # tool is registered
+    eng = _FakeSpecializeEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: eng)
+
+    # _execute_tool is exactly what the REST /graph/analyze route and the MCP tool call.
+    out = await kg_server._execute_tool("graph_analyze", action="specialize")
+    data = json.loads(out)
+
+    assert data["status"] == "ok"
+    assert "final_specialist_reward" in data
+    assert data["transitions"] == 32
+    # a queryable SaiFactoryCycle node was persisted by the live run
+    assert any(label == "SaiFactoryCycle" for _, label, _ in eng.nodes)
+
+
+@pytest.mark.asyncio
+async def test_graph_analyze_specialize_noops_without_history(server_tools, monkeypatch):
+    from agent_utilities.mcp import kg_server
+
+    class _Empty:
+        def query_cypher(self, *_a, **_k):
+            return []
+
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: _Empty())
+    out = await kg_server._execute_tool("graph_analyze", action="specialize")
+    assert json.loads(out)["status"] == "noop"
