@@ -64,6 +64,10 @@ class SandboxCapabilities:
     """Provides a real isolation boundary (false only for ``local`` exec)."""
     preference_rank: int
     """Lower = preferred when multiple backends satisfy the requirements."""
+    workspace: bool = False
+    """Advertises the persistent developer-workspace contract (OS-5.33), NOT the snippet
+    contract. The snippet router never selects a workspace backend; this flag exists so the two
+    runtimes share one capability vocabulary without the router conflating them."""
 
 
 @dataclass

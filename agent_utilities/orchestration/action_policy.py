@@ -87,6 +87,14 @@ DEFAULT_POLICY: dict[str, Any] = {
         {"kind": "observe", "target": "*", "tier": TIER_AUTO},
         {"kind": "notify", "target": "*", "tier": TIER_AUTO},
         {"kind": "record_dry_run", "target": "*", "tier": TIER_AUTO},
+        # Sandboxed developer-workspace actions (CONCEPT:OS-5.33) default to
+        # auto: the workspace container/process IS the containment boundary.
+        # Operators override any of these to approval_required to require human
+        # sign-off on in-sandbox shell/file mutations.
+        {"kind": "workspace.cmd", "target": "*", "tier": TIER_AUTO},
+        {"kind": "workspace.write", "target": "*", "tier": TIER_AUTO},
+        {"kind": "workspace.edit", "target": "*", "tier": TIER_AUTO},
+        {"kind": "workspace.browse", "target": "*", "tier": TIER_AUTO},
         # Playbook *dispatch* is auto+notify: a playbook's mutating steps
         # re-enter this gate individually with their concrete kinds.
         {"kind": "run_playbook", "target": "*", "tier": TIER_AUTO_NOTIFY},

@@ -8,6 +8,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Git issue/PR → SWE task resolver (CONCEPT:ECO-4.43).** `integrations/git_resolver.py`
+  parses GitHub/GitLab issue+PR webhooks, classifies a suggested-task taxonomy
+  (open-issue / open-PR / failing-checks / merge-conflicts / unresolved-comments),
+  ingests the task as a `GitTask` KG object linked to its repo (so suggested-tasks are a
+  graph query, not per-platform code), and enqueues a `swe_engineer` turn on the durable
+  dispatch queue (ORCH-1.45). Exposed at `/api/git/webhook` + `/api/git/suggested-tasks`.
+- **Optional browser-agent tier (CONCEPT:ECO-4.44).** A pluggable `BrowserDriver`
+  (`runtime/browser_tier.py`) + typed `BrowseAction`/`BrowserObservation`, kept off the
+  core edit→test critical path: the `NullBrowserDriver` floor advertises the tier
+  everywhere while a real driver (e.g. agent-browser) is attached only where needed.
+  Gated by `ActionPolicy` as `workspace.browse`.
+- **SWE provenance panel surface (CONCEPT:OS-5.34).** `/api/runtime/sessions/{id}/provenance`
+  returns the run's action/observation trajectory plus the `Code` symbols each edit mutated
+  (KG-2.64) — the data the agent-webui SWE view renders beside the live SSE event stream
+  (`/api/runtime/sessions/{id}/events`). The React components are the remaining agent-webui
+  follow-up; the backend contract is complete.
+- **SWE-bench harness + failure-driven self-improvement (CONCEPT:AHE-3.22 / AHE-3.23) —
+  the "surpass" lever.** `harness/swebench_{corpus,harness,remediation}.py` clone a repo
+  @ base_commit into a workspace, run the KG-grounded SWE agent, apply the gold
+  `test_patch`, run FAIL_TO_PASS/PASS_TO_PASS, and score "resolved" (aggregation mirrors
+  the LongMemEval router). Unlike a static benchmark number, every *unresolved* instance
+  becomes a `FailureRecord` → clustered → filed as a `failure_gap` Concept via the shared
+  AHE-3.18 path, which the golden loop picks up to self-improve; a SWE-specific regression
+  gate re-runs the *exact* failed instance and only passes when it now resolves (gating the
+  AHE-3.14 governed merge). Exposed at `/api/swebench/run` + `/report`. The solver is
+  injectable, so the suite + remediation loop test end-to-end without an LLM.
+- **KG-grounded SWE agent (CONCEPT:ORCH-1.47 / KG-2.65).** A knowledge-grounded
+  software-engineering agent that runs the edit→run→test loop inside the
+  developer-workspace runtime. Its differentiator: it grounds in the live code
+  ontology via graph queries — `find_definition`/`who_calls`/`impacted_tests`/
+  `call_graph`/`dependencies` (`tools/code_intelligence_tools.py`) — instead of
+  context-stuffing, and acts via workspace tools (`tools/swe_workspace_tools.py`)
+  that execute in `deps.workspace` and mirror to the KG. Tools register natively
+  through `register_agent_tools` behind a `SWE_TOOLS` gate (shared
+  `register_swe_tools`); the agent is declared as a `prompts/swe_engineer.json`
+  blueprint using a `capabilities` (intent) list, not hard-coded tool names; and a
+  new `swe` orchestration mode (`engine.execute_swe`, `orchestration/swe_agent.py`)
+  drives it.
+- **Reference-integrity gate for tool/skill references (CONCEPT:ECO-4.45, Layer 1).**
+  `scripts/check_tool_refs.py` resolves every concrete `tools`/`skills` reference in
+  `prompts/*.json` against the live tool-function + skill-slug universe (MCP-prefix
+  tolerant) and reports drift — making rename/refactor and mcp-multiplexer-prefix
+  breakage loud instead of silent. `capabilities` intent lists are exempt (the target
+  model: bounded intents resolved by the KG at construction, rename- and prefix-proof).
+  Report mode by default; `--strict` fails CI. (KG-capability resolver = next workstream.)
+- **Developer-Workspace Runtime — OpenHands-parity SWE substrate (CONCEPT:OS-5.33 /
+  ORCH-1.46 / KG-2.64).** A new `agent_utilities/runtime/` package gives the agent a
+  persistent, sandboxed workspace (stateful shell with cwd-persistence, file
+  read/write/edit, a pytest test-runner, port-expose) driven by a *typed
+  action/observation protocol* — distinct from the snippet-against-a-namespace RLM
+  sandbox. `LocalWorkspace` is the zero-infra floor; `DockerWorkspace` reuses the RLM
+  container hardening flags but keeps the container **long-lived** (`docker exec` +
+  bind-mount file ops) with an idle-reaper. Every action/observation is mirrored into
+  the KG as provenance grounded to the `Code` symbols an edit mutated
+  (`(:WorkspaceAction)-[:MUTATED]->(:Code)`), making runs replayable and failures
+  attributable. Mutating actions (`workspace.cmd|write|edit`) are governed by the
+  fail-closed `ActionPolicy` (OS-5.24, default tier `auto` — the sandbox is the
+  boundary, overridable to `approval_required`). Exposed over `/api/runtime/*`
+  (session → act → SSE event stream). New ontology classes `:WorkspaceAction` /
+  `:WorkspaceObservation` in `ontology_software.ttl`.
 - **Durable execution wired into the live path (CONCEPT:OS-5.16).** The
   `DurableExecutionManager` was built but uninvoked; it now runs on the real async
   paths via the new `arun_durable_action`. `run_goal_loop` resumes from the last

@@ -44,6 +44,12 @@
     rdfs:domain :Test ;
     rdfs:range xsd:integer .
 
+:mutated a owl:ObjectProperty ;
+    rdfs:label "mutated" ;
+    rdfs:comment "A WorkspaceAction (file edit/write) changed a Code symbol — the grounding that makes failures attributable." ;
+    rdfs:domain :WorkspaceAction ;
+    rdfs:range :Code .
+
 :needsWork a owl:DatatypeProperty ;
     rdfs:label "needs work" ;
     rdfs:comment "True when the test trips a quality rule (mock-heavy, assertion-free, dormant)." ;
@@ -55,6 +61,17 @@
     rdfs:comment "A Code symbol belongs to a Feature cluster." ;
     rdfs:domain :Code ;
     rdfs:range :Feature .
+
+:produced a owl:ObjectProperty ;
+    rdfs:label "produced" ;
+    rdfs:comment "A WorkspaceAction produced a WorkspaceObservation." ;
+    rdfs:domain :WorkspaceAction ;
+    rdfs:range :WorkspaceObservation .
+
+:resolvesFailure a owl:ObjectProperty ;
+    rdfs:label "resolves failure" ;
+    rdfs:comment "A WorkspaceAction sequence resolved a recorded failure/unresolved SWE-bench instance (AHE-3.23)." ;
+    rdfs:domain :WorkspaceAction .
 
 :summary a owl:DatatypeProperty ;
     rdfs:comment "LLM capability-card summary: what it does and how." ;
@@ -68,6 +85,14 @@
 :Pattern a owl:Class ;
     rdfs:label "Design Pattern" ;
     rdfs:comment "A design-pattern / implementation-style tag." .
+
+:WorkspaceObservation a owl:Class ;
+    rdfs:label "Workspace Observation" ;
+    rdfs:comment "The typed result a WorkspaceAction produced (command output, file content, test result)." .
+
+:WorkspaceAction a owl:Class ;
+    rdfs:label "Workspace Action" ;
+    rdfs:comment "A typed action the SWE agent executed in the developer-workspace runtime (shell/file/test)." .
 
 :Test a owl:Class ;
     rdfs:label "Test" ;
