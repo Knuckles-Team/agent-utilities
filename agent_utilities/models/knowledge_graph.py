@@ -420,6 +420,8 @@ class RegistryNodeType(StrEnum):
     RESEARCH_ARTIFACT = "research_artifact"
     CODE_SPEC = "code_spec"
     EXPLORATION_NODE = "exploration_node"
+    # ARA Seal certificate — the signed review verdict over an artifact (KG-2.80)
+    SEAL_CERTIFICATE = "seal_certificate"
 
 
 class RegistryEdgeType(StrEnum):
@@ -857,6 +859,7 @@ class RegistryEdgeType(StrEnum):
     IMPLEMENTED_BY = "implemented_by"
     PIVOTED_FROM = "pivoted_from"
     REACHED_DEAD_END = "reached_dead_end"
+    CERTIFIES = "certifies"  # seal_certificate --certifies--> research_artifact
 
 
 class RegistryNode(BaseModel):
