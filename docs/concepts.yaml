@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 240
+total_concepts: 241
 total_pillars: 20
 pillars:
 - AHE-3
@@ -799,6 +799,13 @@ concepts:
   - agent_utilities/agent/capability_resolver.py
   - agent_utilities/agent/factory.py
   doc: bind tools from declared capability intents
+- id: ECO-4.46
+  name: ─────────────────
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+  doc: ─────────────────
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033

@@ -216,6 +216,88 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "text_field": "email",
         "doc_type": "identity",
     },
+    # ── PulseLink open-web/social sources (CONCEPT:ECO-4.46) ─────────────────
+    #
+    # pulselink-mcp is the keyless-first reach server (sibling to scholarx). Its
+    # ``pulse_search`` / ``pulse_list`` tools return a uniform
+    # ``{documents: [{id,title,url,text,author,created_at,metrics,extra}],
+    #    next_cursor}`` envelope, so every source is the SAME flat field map +
+    # cursor pagination — only ``source`` (and channel/query) differs. Auth is
+    # handled inside pulselink via the shared CredentialProvider (OS-5.38); these
+    # presets carry NO secrets. Extend a search preset with the query, e.g.
+    #   {"params": {"query": "agentic retrieval"}}
+    # and a list preset with the channel, e.g. {"params": {"channel": "MachineLearning"}}.
+    **{
+        f"pulselink-{src}": {
+            "server": "pulselink-mcp",
+            "tool": "pulse_search",
+            "params_style": "args",
+            "params": {"source": src},
+            "records_path": "documents",
+            "id_field": "id",
+            "title_field": "title",
+            "text_field": "text",
+            "updated_field": "created_at",
+            "pagination": "cursor",
+            "cursor_param": "cursor",
+            "cursor_path": "next_cursor",
+            "doc_type": "social_post" if src in ("x", "reddit") else "web",
+        }
+        for src in (
+            "x",
+            "reddit",
+            "hackernews",
+            "web",
+            "news",
+            "github",
+            "exa",
+            "bilibili",
+            "xiaohongshu",
+            "xueqiu",
+        )
+    },
+    # YouTube: search returns metadata only; a detail phase pulls the transcript
+    # per video via pulse_fetch ({id} templates the record's id field).
+    "pulselink-youtube": {
+        "server": "pulselink-mcp",
+        "tool": "pulse_search",
+        "params_style": "args",
+        "params": {"source": "youtube"},
+        "records_path": "documents",
+        "id_field": "id",
+        "title_field": "title",
+        "updated_field": "created_at",
+        "pagination": "cursor",
+        "cursor_param": "cursor",
+        "cursor_path": "next_cursor",
+        "doc_type": "video",
+        "detail": {
+            "tool": "pulse_fetch",
+            "params_style": "args",
+            "params": {"source": "youtube", "target": "{id}"},
+            "text_path": "text",
+        },
+    },
+    # List-style sources: enumerate a channel/feed/node via pulse_list. Extend
+    # with {"params": {"channel": "<subreddit | RSS feed URL | V2EX node>"}}.
+    **{
+        f"pulselink-{src}": {
+            "server": "pulselink-mcp",
+            "tool": "pulse_list",
+            "params_style": "args",
+            "params": {"source": src},
+            "records_path": "documents",
+            "id_field": "id",
+            "title_field": "title",
+            "text_field": "text",
+            "updated_field": "created_at",
+            "pagination": "cursor",
+            "cursor_param": "cursor",
+            "cursor_path": "next_cursor",
+            "doc_type": "web",
+        }
+        for src in ("rss", "v2ex")
+    },
 }
 
 
