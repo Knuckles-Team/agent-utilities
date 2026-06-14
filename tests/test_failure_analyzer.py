@@ -255,9 +255,9 @@ class TestGoldenLoopTopicsOverride:
         monkeypatch.setattr(cards_mod, "make_lite_llm_fn", lambda *a, **k: (lambda p: "{}"))
 
         def _boom(*a, **k):  # must never run when topics are supplied
-            raise AssertionError("generic unresolved_topics scan should be skipped")
+            raise AssertionError("generic active_loops scan should be skipped")
 
-        monkeypatch.setattr(gl, "unresolved_topics", _boom)
+        monkeypatch.setattr(gl, "active_loops", _boom)
 
         from unittest.mock import MagicMock
 
