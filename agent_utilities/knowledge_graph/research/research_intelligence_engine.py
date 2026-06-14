@@ -216,12 +216,12 @@ class ResearchIntelligenceEngine:
         """
         import asyncio
 
-        from .golden_loop import GoldenLoopController
+        from .loop_controller import LoopController
 
         if self._engine is None:
             return {"intake_papers": None, "errors": ["no engine"], "skipped": True}
         return await asyncio.to_thread(
-            GoldenLoopController(self._engine).run_one_cycle,
+            LoopController(self._engine).run_one_cycle,
             discover=(papers is None),
             papers=papers,
             breadth=False,

@@ -6,7 +6,7 @@ CONCEPT:KG-2.7
 
 import pytest
 
-from agent_utilities.knowledge_graph.research.golden_loop import GoldenLoopController
+from agent_utilities.knowledge_graph.research.loop_controller import LoopController
 
 pytestmark = pytest.mark.concept("KG-2.7")
 
@@ -86,7 +86,7 @@ def _graph_nodes():
 
 
 def test_run_assimilate_dedups_and_ranks():
-    ctl = GoldenLoopController(_Engine(_graph_nodes()))
+    ctl = LoopController(_Engine(_graph_nodes()))
     rep = ctl._run_assimilate()
     assert rep["skipped"] is False
     assert rep["duplicates_superseded"] >= 1  # f1 supersedes f2
@@ -97,7 +97,7 @@ def test_run_assimilate_dedups_and_ranks():
 
 def test_run_assimilate_idempotent_skip():
     engine = _Engine(_graph_nodes())
-    ctl = GoldenLoopController(engine)
+    ctl = LoopController(engine)
     first = ctl._run_assimilate()
     assert first["skipped"] is False
     second = ctl._run_assimilate()  # nothing changed
@@ -106,14 +106,14 @@ def test_run_assimilate_idempotent_skip():
 
 def test_force_overrides_watermark_skip():
     engine = _Engine(_graph_nodes())
-    ctl = GoldenLoopController(engine)
+    ctl = LoopController(engine)
     ctl._run_assimilate()
     forced = ctl._run_assimilate(force=True)
     assert forced["skipped"] is False
 
 
 def test_run_one_cycle_includes_assimilate():
-    ctl = GoldenLoopController(_Engine(_graph_nodes()))
+    ctl = LoopController(_Engine(_graph_nodes()))
     report = ctl.run_one_cycle()
     assert report["assimilate"] is not None
     assert report["assimilate"]["skipped"] is False
@@ -122,7 +122,7 @@ def test_run_one_cycle_includes_assimilate():
 
 def test_cycle_metrics_and_evolution_node_persisted():
     engine = _Engine(_graph_nodes())
-    report = GoldenLoopController(engine).run_one_cycle()
+    report = LoopController(engine).run_one_cycle()
     # monitoring: per-stage timings + error count + duration
     m = report["metrics"]
     assert "duration_ms" in m and m["error_count"] == 0
@@ -152,7 +152,7 @@ def test_breadth_stage_runs_when_configured(tmp_path, monkeypatch):
     monkeypatch.setattr(_cfg, "kg_breadth_repo_roots", "", raising=False)
     monkeypatch.setattr(_cfg, "kg_breadth_library_roots", "", raising=False)
     engine = _Engine(_graph_nodes())
-    report = GoldenLoopController(engine).run_one_cycle(breadth=True)
+    report = LoopController(engine).run_one_cycle(breadth=True)
     assert report["breadth"] is not None and report["breadth"]["projects"] == 1
     assert engine.submitted == [
         str(tmp_path / "memory-os")

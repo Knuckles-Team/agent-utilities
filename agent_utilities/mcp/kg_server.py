@@ -558,6 +558,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "ingest_sessions": "/usage/ingest-sessions",
     "quant": "/quant",
     "research_artifact": "/research/artifact",
+    "graph_loops": "/graph/loops",
 }
 
 
@@ -4349,7 +4350,7 @@ def _build_server(bootstrap: bool = True):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, golden_loop, assimilate, standardize, failure_ingest, publish_proposal). 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, standardize, failure_ingest, publish_proposal). 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -4880,19 +4881,19 @@ def _build_server(bootstrap: bool = True):
                 except Exception as exc:
                     return f"Error exporting workflow: {exc}"
 
-            elif action == "golden_loop":
-                # Propose-only self-evolution cycle (CONCEPT:KG-2.7): intake
-                # unresolved topics → acquire → ADDRESSES-resolve → optional
+            elif action == "loop_cycle":
+                # Advance the Loop engine one cycle (CONCEPT:KG-2.7/2.78): intake
+                # active Loops → acquire → ADDRESSES-resolve → optional
                 # distil/synthesize as DRAFTS/proposals. Never auto-merges.
                 import json as _json
 
-                from agent_utilities.knowledge_graph.research.golden_loop import (
-                    GoldenLoopController,
+                from agent_utilities.knowledge_graph.research.loop_controller import (
+                    LoopController,
                 )
 
                 engine = _get_engine()
                 _mt = max_fan_out if isinstance(max_fan_out, int) else 5
-                rep = GoldenLoopController(engine).run_one_cycle(
+                rep = LoopController(engine).run_one_cycle(
                     max_topics=_mt if _mt > 0 else 5,
                 )
                 return _json.dumps(rep, indent=2, default=str)
@@ -4941,7 +4942,7 @@ def _build_server(bootstrap: bool = True):
                 # task, also propose grounded SDD plans for the top open gaps.
                 import json as _json
 
-                from agent_utilities.knowledge_graph.research.golden_loop import (
+                from agent_utilities.knowledge_graph.research.loop_controller import (
                     run_assimilation_pass,
                 )
 
@@ -5549,6 +5550,84 @@ def _build_server(bootstrap: bool = True):
             return json.dumps({"error": str(e)})
 
     REGISTERED_TOOLS["graph_goals"] = graph_goals
+
+    @mcp.tool(
+        name="graph_loops",
+        description=(
+            "The single entrypoint for long-running objectives (CONCEPT:KG-2.78). A "
+            "Loop is one objective of kind research|develop|skill; the LoopController "
+            "advances every active Loop through ONE hot path. action in 'submit' "
+            "(create a Loop: objective + kind [+ validation_cmd/end_state for develop, "
+            "skill_ref for skill]), 'list' (active Loops), 'run' (advance all active "
+            "Loops one cycle — research acquires/reasons, develop validates, skill "
+            "executes), 'cancel' (terminate a Loop by id)."
+        ),
+        tags=["graph-os", "loops"],
+    )
+    async def graph_loops(
+        action: str = Field(
+            default="list", description="submit|list|run|cancel"
+        ),
+        objective: str = Field(default="", description="Objective text (submit)."),
+        kind: str = Field(
+            default="research", description="research|develop|skill (submit)."
+        ),
+        loop_id: str = Field(default="", description="Loop id (submit/cancel)."),
+        validation_cmd: str = Field(
+            default="", description="Shell command whose exit-0 completes a develop Loop."
+        ),
+        end_state: str = Field(default="", description="Human end-state (develop)."),
+        skill_ref: str = Field(
+            default="", description="Skill / skill-workflow name or id (skill Loop)."
+        ),
+        max_topics: int = Field(default=5, description="Loops to advance per run."),
+        limit: int = Field(default=10, description="Max rows (list)."),
+    ) -> str:
+        """Submit / list / run / cancel Loops — the one Loop-engine entrypoint."""
+        import json as _json
+
+        from agent_utilities.knowledge_graph.research.loop_controller import (
+            LoopController,
+        )
+        from agent_utilities.knowledge_graph.research.loops import (
+            active_loops,
+            mark_loop_status,
+            submit_loop,
+        )
+
+        try:
+            engine = _get_engine()
+            if action == "submit":
+                if not objective and not skill_ref:
+                    return _json.dumps({"error": "submit needs objective or skill_ref"})
+                loop = submit_loop(
+                    engine,
+                    objective,
+                    kind=kind,  # type: ignore[arg-type]
+                    validation_cmd=validation_cmd,
+                    end_state=end_state,
+                    skill_ref=skill_ref,
+                    loop_id=loop_id,
+                )
+                return _json.dumps({"action": "submit", "loop": loop}, default=str)
+            if action == "list":
+                return _json.dumps(
+                    {"action": "list", "loops": active_loops(engine, limit)},
+                    default=str,
+                )
+            if action == "run":
+                rep = LoopController(engine).run_one_cycle(max_topics=max_topics)
+                return _json.dumps(rep, indent=2, default=str)
+            if action == "cancel":
+                if not loop_id:
+                    return _json.dumps({"error": "cancel needs a loop_id"})
+                ok = mark_loop_status(engine, loop_id, "cancelled", source="user")
+                return _json.dumps({"action": "cancel", "id": loop_id, "ok": ok})
+            return _json.dumps({"error": f"unknown action {action!r}"})
+        except Exception as e:
+            return _json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["graph_loops"] = graph_loops
 
     @mcp.tool(
         name="research_artifact",

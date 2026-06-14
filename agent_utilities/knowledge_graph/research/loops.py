@@ -105,6 +105,39 @@ def _loop_dict(oid: str, data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def mark_loop_status(
+    engine: Any,
+    loop_id: str,
+    status: str,
+    *,
+    iteration: int | None = None,
+    output: str = "",
+    source: str = "loop_engine",
+) -> bool:
+    """Advance a Loop's lifecycle state (CONCEPT:KG-2.78).
+
+    The single shared status-transition path for every kind — the controller's
+    develop/skill stages and the ``graph_loops(action="cancel")`` entrypoint all
+    call this. Upserts the status (+ optional iteration / last output) onto the
+    Loop node; best-effort (a failed persist returns ``False``, never raises).
+    """
+    props: dict[str, Any] = {
+        "status": status,
+        "timestamp": _now_iso(),
+        "last_source": source,
+    }
+    if iteration is not None:
+        props["iteration"] = int(iteration)
+    if output:
+        props["last_output"] = output[:2000]
+    try:
+        engine.add_node(loop_id, "Concept", properties=props)
+        return True
+    except Exception as e:  # noqa: BLE001 — best-effort
+        logger.debug("mark_loop_status persist failed: %s", e)
+        return False
+
+
 def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
     """Every Loop still needing work — the LoopController's intake (CONCEPT:KG-2.78).
 
@@ -158,4 +191,10 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
     return out
 
 
-__all__ = ["LoopKind", "TERMINAL_STATUS", "submit_loop", "active_loops"]
+__all__ = [
+    "LoopKind",
+    "TERMINAL_STATUS",
+    "submit_loop",
+    "active_loops",
+    "mark_loop_status",
+]

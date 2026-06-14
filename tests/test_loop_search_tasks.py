@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 
-from agent_utilities.knowledge_graph.research.golden_loop import GoldenLoopController
+from agent_utilities.knowledge_graph.research.loop_controller import LoopController
 
 
 class _FakeBackend:
@@ -39,9 +39,9 @@ class _FakeEngine:
         self.added.append((node_id, props or {}))
 
 
-def test_golden_loop_search_task_stage(tmp_path):
+def test_loop_search_task_stage(tmp_path):
     engine = _FakeEngine()
-    controller = GoldenLoopController(
+    controller = LoopController(
         engine, codebase_root=str(tmp_path), propose_only=True
     )
     report = controller.run_one_cycle(

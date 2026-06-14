@@ -56,14 +56,14 @@ def remediate(
     results: list[InstanceResult],
     engine: Any,
     *,
-    golden_loop: Any = None,
+    loop_controller: Any = None,
     run_cycle: bool = False,
     max_topics: int = 5,
 ) -> dict[str, Any]:
     """File failure-gap Concepts for every unresolved instance; optionally run a golden cycle.
 
     Returns ``{patterns, gaps, cycle}``. ``gaps`` are the dicts the golden loop intake consumes;
-    when ``run_cycle`` is set and a ``golden_loop`` controller is supplied, one cycle is driven
+    when ``run_cycle`` is set and a ``loop_controller`` controller is supplied, one cycle is driven
     with those gaps as explicit topics.
     """
     records = build_failure_records(results)
@@ -75,9 +75,9 @@ def remediate(
             gaps.append(gap)
 
     cycle: dict[str, Any] | None = None
-    if run_cycle and golden_loop is not None and gaps:
+    if run_cycle and loop_controller is not None and gaps:
         try:
-            cycle = golden_loop.run_one_cycle(topics=gaps, max_topics=max_topics)
+            cycle = loop_controller.run_one_cycle(topics=gaps, max_topics=max_topics)
         except Exception as exc:  # noqa: BLE001 - remediation report must not raise
             logger.warning("golden-loop remediation cycle failed: %s", exc)
             cycle = {"error": str(exc)}

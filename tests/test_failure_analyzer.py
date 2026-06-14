@@ -231,17 +231,17 @@ class TestRunFailureIngest:
         assert "remediation" not in rep
 
 
-class TestGoldenLoopTopicsOverride:
+class TestLoopTopicsOverride:
     """The failure tick addresses its just-created gaps directly, not via the
     generic (limited, arbitrarily-ordered) unresolved_topics scan."""
 
     def test_supplied_topics_bypass_generic_scan(self, monkeypatch):
         import agent_utilities.knowledge_graph.enrichment.cards as cards_mod
         import agent_utilities.knowledge_graph.enrichment.synthesize as synth_mod
-        import agent_utilities.knowledge_graph.research.golden_loop as gl
+        import agent_utilities.knowledge_graph.research.loop_controller as gl
         from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
-        from agent_utilities.knowledge_graph.research.golden_loop import (
-            GoldenLoopController,
+        from agent_utilities.knowledge_graph.research.loop_controller import (
+            LoopController,
         )
 
         captured = {}
@@ -263,7 +263,7 @@ class TestGoldenLoopTopicsOverride:
 
         eng = MagicMock()
         eng.backend.semantic_search = lambda *a, **k: []
-        ctrl = GoldenLoopController(eng)
+        ctrl = LoopController(eng)
         ctrl._capability_search = lambda: (lambda q, top_k=5: [])  # type: ignore[assignment]
 
         rep = ctrl.run_one_cycle(
