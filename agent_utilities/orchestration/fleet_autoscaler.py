@@ -164,6 +164,17 @@ class FleetAutoscaler:
             except Exception:  # noqa: BLE001
                 max_actions = 5
         self.max_actions = max(1, int(max_actions))
+        # CONCEPT:OS-5.35 — cost-aware scale-up budget (opt-in; unset ⇒ no cap, so
+        # the autoscaler behaves exactly as before). ``setting()`` keeps these
+        # config.json-driven without a new typed field.
+        from agent_utilities.core.config import setting
+
+        self._scale_budget_usd_per_hour = setting(
+            "FLEET_SCALE_BUDGET_USD_PER_HOUR", None, cast=float
+        )
+        self._replica_cost_usd_per_hour = setting(
+            "FLEET_REPLICA_COST_USD_PER_HOUR", 0.05, cast=float
+        )
 
     # ── cooldown (durable, shared across processes) ─────────────────
 
@@ -234,11 +245,31 @@ class FleetAutoscaler:
             )
 
         desired = compute_desired_replicas(current, value, spec)
+        # CONCEPT:OS-5.35 — cost-aware scale-up cap. Keep the target-tracking math
+        # unchanged; only trim a scale-up that would breach the hourly budget, and
+        # carry the cost estimate forward for the audit row + ActionRequest.
+        cost_reason = ""
+        cost_per_hour = desired * self._replica_cost_usd_per_hour
+        if self._scale_budget_usd_per_hour is not None:
+            from agent_utilities.orchestration.cost_governor import cost_aware_cap
+
+            verdict = cost_aware_cap(
+                desired,
+                current,
+                cost_per_replica_hour=self._replica_cost_usd_per_hour,
+                budget_per_hour=self._scale_budget_usd_per_hour,
+                load_value=float(value),
+            )
+            desired, cost_per_hour, cost_reason = (
+                verdict.replicas,
+                verdict.cost_per_hour,
+                verdict.reason,
+            )
         if desired == current:
             return ServiceEvaluation(
                 name,
                 "skipped",
-                "at target",
+                cost_reason or "at target",
                 current=current,
                 desired=desired,
                 value=value,
@@ -266,6 +297,8 @@ class FleetAutoscaler:
                 "signal": spec.signal,
                 "value": round(float(value), 3),
                 "target": spec.target,
+                # CONCEPT:OS-5.35 — cost lens on every scaling action.
+                "est_cost_usd_per_hour": round(cost_per_hour, 4),
             },
             source="autoscaler",
             reason=(
