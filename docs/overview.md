@@ -236,6 +236,9 @@ graph TD
 | AHE-3.19 | Performance Anomaly Consumer | Turns persisted `PerformanceAnomaly` nodes into evolution topics (`adaptation/anomaly_consumer.py`) |
 | AHE-3.20 | Promotion Governance Validator | Governed validation gate every promoted proposal must pass (`research/promotion_governance.py`) |
 | AHE-3.21 | Evolution-to-Branch Bridge | Change synthesis + RLM-sandbox validation + ActionPolicy-gated `ChangePublisher` publishing promoted proposals as reviewable local git branches |
+| AHE-3.27 | Adaptation-Speed Metric | SAI primary measure — per-task time-to-target + sample-complexity + learning-AUC over a verified-reward curve (`harness/adaptation_speed.py`) |
+| AHE-3.28 | Specialization Task + Verifier Contract | The `(task, verifier, target, human-baseline)` contract + machine-verifiable `Verifier` protocol every specialization track shares (`harness/sai_task.py`) |
+| AHE-3.29 | SAI Factory Controller | Closed scaffolding+weights specialization loop steered by adaptation speed, ratchet-gated promotion (`research/sai_factory.py`) |
 
 ### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.34)
 

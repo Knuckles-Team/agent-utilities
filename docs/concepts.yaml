@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 210
+total_concepts: 211
 total_pillars: 19
 pillars:
 - AHE-3
@@ -334,6 +334,13 @@ concepts:
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/sai_task.py
   doc: the
+- id: AHE-3.29
+  name: the controller that operationalizes Superhuman Adaptable
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/sai_factory.py
+  doc: the controller that operationalizes Superhuman Adaptable
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
