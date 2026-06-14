@@ -15,8 +15,13 @@ from agent_utilities.domains.finance.trading_swarm import TradingSwarm
 logger = logging.getLogger(__name__)
 
 
-def register_quant_tools(mcp: Any, engine: Any) -> None:
-    """Register quant-specific tools onto the MCP server instance."""
+def register_quant_tools(mcp: Any, engine_default: Any = None) -> Any:
+    """Register the ``quant`` tool onto the MCP server and return the callable.
+
+    The callable is returned so the caller can also register it into the shared
+    ``REGISTERED_TOOLS`` map (gateway↔MCP parity). ``engine_default`` may be None
+    at registration time; the tool resolves the active engine lazily per call.
+    """
 
     @mcp.tool()
     def quant(
@@ -42,6 +47,13 @@ def register_quant_tools(mcp: Any, engine: Any) -> None:
         - 'execute': Trading layer (Actions: submit_order, cancel_order, status). SAFEGUARD: Defaults to mode="paper".
         - 'portfolio': Risk layer (Actions: balances, positions, risk_metrics, optimize)
         """
+        engine = engine_default
+        if engine is None:
+            from agent_utilities.knowledge_graph.core.engine import (
+                IntelligenceGraphEngine,
+            )
+
+            engine = IntelligenceGraphEngine.get_active()
         try:
             if domain == "orchestrate":
                 if action == "debate":
@@ -229,3 +241,5 @@ def register_quant_tools(mcp: Any, engine: Any) -> None:
                 f"quant tool failed for domain '{domain}', action '{action}': {e}"
             )
             return f"Action '{action}' failed in domain '{domain}': {str(e)}"
+
+    return quant

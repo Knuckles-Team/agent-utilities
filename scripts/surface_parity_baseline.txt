@@ -1,46 +1,7 @@
 # Surface-parity baseline — capability modules not yet reachable from the
-# gateway/MCP operator surface (AGENTS.md "Two surfaces by default"). The gate
-# fails only on *new* entries; this is the ratchet backlog to drive to empty.
-# 52 → 34: the internal-plumbing half (data models, transport adapters,
-# controllers, diagnostics, training primitives) was reclassified out of the
-# capability scan (see INFRA_MODULES / EXCLUDE_* in check_surface_parity.py) —
-# those are not operator-invokable features. The 34 below ARE genuine features
-# with no surface; each needs a thin MCP action + REST twin into _execute_tool,
-# grouped here by the natural surface-home so wiring can proceed cluster by cluster.
-
-# ── Finance/quant → register the ready `quant` tool (quant_mcp_tools.register_quant_tools)
-# ── into REGISTERED_TOOLS + ACTION_TOOL_ROUTES; it imports the rest of this cluster.
-agent_utilities/domains/finance/banking.py
-agent_utilities/domains/finance/cross_market_arb.py
-agent_utilities/domains/finance/crypto_connector.py
-agent_utilities/domains/finance/exchange_bridge.py
-agent_utilities/domains/finance/microstructure.py
-agent_utilities/domains/finance/quant_mcp_tools.py
-agent_utilities/domains/finance/regime_detector.py
-agent_utilities/domains/finance/strategy_engine.py
-agent_utilities/domains/hr/workforce_manager.py
-
-# ── Harness self-evolution → new graph_analyze actions (evolve/distill/evaluate);
-# ── daemon-driven today, should also be operator-runnable on demand.
-agent_utilities/harness/agentic_evolution_engine.py
-agent_utilities/harness/background_spawner.py
-agent_utilities/harness/citation_tracker.py
-agent_utilities/harness/constraint_engine.py
-agent_utilities/harness/corpus_collapse_guard.py
-agent_utilities/harness/evaluation_engine.py
-agent_utilities/harness/evolve_agent.py
-agent_utilities/harness/recursive_distill.py
-agent_utilities/harness/search_distillation.py
-
-# ── Specialized orchestration + research engines → graph_orchestrate/graph_analyze actions.
-agent_utilities/knowledge_graph/orchestration/engine_enterprise.py
-agent_utilities/knowledge_graph/orchestration/engine_finance.py
-agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py
-
-# ── KB extraction/linking + maintenance + workflows → graph_ingest/graph_analyze actions.
-agent_utilities/knowledge_graph/kb/entity_claim_extractor.py
-agent_utilities/knowledge_graph/kb/link_inference.py
-agent_utilities/knowledge_graph/kb/x_workflows.py
-agent_utilities/knowledge_graph/maintenance/document_cleanup.py
-agent_utilities/workflows/epistemic_sync.py
-agent_utilities/workflows/skill_picker.py
+# gateway/MCP operator surface (AGENTS.md "Two surfaces by default").
+#
+# RATCHET AT ZERO. Every capability module is now reachable on BOTH surfaces.
+# The gate (scripts/check_surface_parity.py) fails on ANY new unexposed module —
+# so a newly-added feature that isn't wired to gateway + MCP is a build break.
+# Keep this file empty; do not add entries to silence the gate.
