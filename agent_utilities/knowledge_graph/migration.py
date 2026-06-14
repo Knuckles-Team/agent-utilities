@@ -181,21 +181,23 @@ def _ensure_id_indexes(backend: GraphBackend, labels: set[str]) -> int:
         return 0
     made = 0
     for label in labels:
-        # Neo4j 5 takes ``IF NOT EXISTS``; FalkorDB does not, so fall back to the
-        # bare form and treat an "already indexed" error as success.
-        for stmt in (
-            f"CREATE INDEX IF NOT EXISTS FOR (n:`{label}`) ON (n.id)",
-            f"CREATE INDEX FOR (n:`{label}`) ON (n.id)",
-        ):
-            try:
-                backend.execute(stmt)
-                made += 1
-                break
-            except Exception as exc:  # noqa: BLE001
-                if any(w in str(exc).lower() for w in ("already", "equiv", "exist")):
-                    made += 1
-                    break
-                continue
+        # The bare form works on BOTH Neo4j 5 (auto-named) and FalkorDB. Do NOT use
+        # the ``IF NOT EXISTS`` variant: FalkorDB rejects it with a *syntax* error
+        # whose text contains "EXISTS", which a naive "already exists" check
+        # misreads as success — silently leaving the index uncreated (→ O(n) edge
+        # writes). Re-running the bare form on an existing index raises a genuine
+        # "already/equivalent index" error, which IS success.
+        try:
+            backend.execute(f"CREATE INDEX FOR (n:`{label}`) ON (n.id)")
+            made += 1
+        except Exception as exc:  # noqa: BLE001
+            m = str(exc).lower()
+            if ("already" in m or "equivalent" in m or "indexed" in m) and (
+                "syntax" not in m and "invalid" not in m
+            ):
+                made += 1  # an equivalent index already exists → done
+            else:
+                logger.debug("id index for %s not created: %s", label, str(exc)[:140])
     logger.info(
         "copy_graph: ensured %d id index(es) on %s", made, type(backend).__name__
     )
