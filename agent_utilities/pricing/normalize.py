@@ -12,6 +12,7 @@ longer model (``gpt-5.5-codex``).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -99,7 +100,7 @@ def _key_rank(model_provider: str, key_provider: str) -> int:
     return 2
 
 
-def _resolve_canonical(m: dict[str, T], model: str) -> tuple[T | None, bool]:
+def _resolve_canonical(m: Mapping[str, T], model: str) -> tuple[T | None, bool]:
     candidates = _canonical_candidates(model)
     if not candidates:
         return None, False
@@ -131,7 +132,7 @@ def _resolve_canonical(m: dict[str, T], model: str) -> tuple[T | None, bool]:
     return None, False
 
 
-def resolve(m: dict[str, T], model: str) -> tuple[T | None, bool]:
+def resolve(m: Mapping[str, T], model: str) -> tuple[T | None, bool]:
     """Look up ``model`` in ``m``: exact -> normalized -> case-insensitive ->
     canonical-with-decoration-stripped. Returns ``(value, found)``."""
     # 1. Exact match

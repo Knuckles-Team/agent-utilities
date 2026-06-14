@@ -249,10 +249,15 @@ def create_backend(
         _use_age = backend_type in ("age", "pggraph_age") or setting(
             "GRAPH_PG_AGE", ""
         ).lower() in ("1", "true", "yes")
+        from .postgresql_backend import PostgreSQLBackend
+
+        _PGBackend: type[PostgreSQLBackend]
         if _use_age:
-            from .age_backend import AGEBackend as _PGBackend
+            from .age_backend import AGEBackend
+
+            _PGBackend = AGEBackend  # AGEBackend subclasses PostgreSQLBackend
         else:
-            from .postgresql_backend import PostgreSQLBackend as _PGBackend
+            _PGBackend = PostgreSQLBackend
 
         resolved_uri = (
             uri

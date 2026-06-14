@@ -52,7 +52,8 @@ def parse(path: Path, source) -> Iterator[ParsedSessionBundle]:
 
     for rec in read_jsonl(path):
         rtype = rec.get("type")
-        payload = rec.get("payload") if isinstance(rec.get("payload"), dict) else rec
+        _payload = rec.get("payload")
+        payload = _payload if isinstance(_payload, dict) else rec
         ts = rec.get("timestamp") or payload.get("timestamp")
         if ts:
             started_at = started_at or ts
@@ -72,8 +73,10 @@ def parse(path: Path, source) -> Iterator[ParsedSessionBundle]:
                 name = payload.get("name", "")
                 tool_calls.append(
                     UsageToolCall(
-                        session_id=session_id, message_ordinal=ordinal,
-                        tool_name=name, category=categorize_tool(name),
+                        session_id=session_id,
+                        message_ordinal=ordinal,
+                        tool_name=name,
+                        category=categorize_tool(name),
                         occurred_at=ts,
                     )
                 )
@@ -88,8 +91,12 @@ def parse(path: Path, source) -> Iterator[ParsedSessionBundle]:
                 first_message = text[:200]
             messages.append(
                 UsageMessage(
-                    session_id=session_id, ordinal=ordinal, role=role,
-                    content=text, timestamp=ts, model=model,
+                    session_id=session_id,
+                    ordinal=ordinal,
+                    role=role,
+                    content=text,
+                    timestamp=ts,
+                    model=model,
                     content_length=len(text),
                 )
             )
@@ -104,13 +111,17 @@ def parse(path: Path, source) -> Iterator[ParsedSessionBundle]:
                 total_out += out
                 usage_events.append(
                     UsageEvent(
-                        session_id=session_id, source="agent", model=model,
-                        input_tokens=inp, output_tokens=out,
+                        session_id=session_id,
+                        source="agent",
+                        model=model,
+                        input_tokens=inp,
+                        output_tokens=out,
                         cache_read_input_tokens=int(
                             tc.get("cached_input_tokens", 0) or 0
                         ),
                         reasoning_tokens=int(tc.get("reasoning_tokens", 0) or 0),
-                        occurred_at=ts, dedup_key=f"evt:{ordinal}",
+                        occurred_at=ts,
+                        dedup_key=f"evt:{ordinal}",
                     )
                 )
 
@@ -119,10 +130,18 @@ def parse(path: Path, source) -> Iterator[ParsedSessionBundle]:
     user_count = sum(1 for m in messages if m.role == "user")
     yield ParsedSessionBundle(
         session=UsageSession(
-            id=session_id, project=project, agent=source.agent_type,
-            first_message=first_message, started_at=started_at, ended_at=ended_at,
-            message_count=len(messages), user_message_count=user_count,
-            total_output_tokens=total_out, file_path=str(path),
+            id=session_id,
+            project=project,
+            agent=source.agent_type,
+            first_message=first_message,
+            started_at=started_at,
+            ended_at=ended_at,
+            message_count=len(messages),
+            user_message_count=user_count,
+            total_output_tokens=total_out,
+            file_path=str(path),
         ),
-        messages=messages, tool_calls=tool_calls, usage_events=usage_events,
+        messages=messages,
+        tool_calls=tool_calls,
+        usage_events=usage_events,
     )
