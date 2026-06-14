@@ -388,3 +388,10 @@ services:
     container_port: 8000
     host_port: 8251
     profiles: [enterprise]
+  - name: pulselink-mcp
+    package: pulselink-mcp
+    console_script: pulselink-mcp
+    image: knucklessg1/pulselink-mcp:latest
+    container_port: 8000
+    host_port: 8252
+    profiles: [single-node-prod, enterprise]
