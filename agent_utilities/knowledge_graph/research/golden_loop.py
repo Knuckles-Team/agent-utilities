@@ -330,14 +330,24 @@ class GoldenLoopController:
             return {"skipped": True, "reason": "unchanged", "watermark": pre}
 
         from ..assimilation import (
-            auto_satisfy,
+            ConceptMatcher,
             dedup_features,
+            enrich_concepts,
             rank_features,
             synergy_bundles,
         )
+        from ..assimilation.gap_analysis import _CONCEPT_TYPES, _FEATURE_TYPES
 
         dedup = dedup_features(self.engine)
-        gap = auto_satisfy(self.engine)
+        # Ensure the ecosystem Concept registry is embedded so the matcher's
+        # retrieval stage has vectors (idempotent; skips already-embedded). Then
+        # the robust ConceptMatcher (id + embedding-recall + LLM-judge) decides
+        # covered (SATISFIED_BY) vs related-novel (RELATES_TO) — replacing the old
+        # single-cosine auto_satisfy that recognised 0/21. (CONCEPT:KG-2.75)
+        enrich_concepts(self.engine)
+        gap = ConceptMatcher().satisfy(
+            self.engine, feature_types=_FEATURE_TYPES, concept_types=_CONCEPT_TYPES
+        )
         syn = synergy_bundles(self.engine)
         ranked = rank_features(self.engine)
 
@@ -355,6 +365,8 @@ class GoldenLoopController:
             "skipped": False,
             "duplicates_superseded": dedup.duplicates_superseded,
             "auto_satisfied": gap.satisfied,
+            "related": gap.related,
+            "used_llm": gap.used_llm,
             "synergy_bundles": len(syn.bundles),
             "open_gaps": len(ranked),
             # exclusion-filtered, leverage-ranked work-list for plan synthesis (VU-8)
