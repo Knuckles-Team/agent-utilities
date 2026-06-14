@@ -497,3 +497,36 @@ at the `daemon/shards` route, and graph-os `GET /health` carries a config-only
 summary. Metrics: `agent_utilities_engine_shard_up{endpoint}` and
 `agent_utilities_engine_shard_requests_total{endpoint,outcome}`. See
 [Engine Sharding](../architecture/engine_sharding.md).
+
+## 🛠️ Developer-Workspace Runtime (CONCEPT:OS-5.33 / ORCH-1.46 / KG-2.64)
+
+The substrate a knowledge-grounded software-engineering agent (ORCH-1.47) runs in —
+our answer to OpenHands' Docker runtime, projected onto our architecture. Unlike the
+RLM sandbox (ORCH-1.38), which executes one snippet against a namespace and syncs back
+`{vars, stdout}`, a `DevWorkspace` is **long-lived and stateful**: `cd`/edits/installed
+deps persist across steps.
+
+- **Backends (`agent_utilities/runtime/`).** `LocalWorkspace` is the always-available,
+  zero-infra floor (host subprocess in a scratch dir). `DockerWorkspace` is the
+  isolation tier: it reuses the proven hardening flags from
+  `rlm/sandboxes/docker_backend.py` (`--cap-drop ALL`, `--security-opt
+  no-new-privileges`, `--memory`/`--pids-limit`/`--cpus`) but keeps the container
+  detached (`sleep infinity`) and runs actions via `docker exec`, with file ops done
+  host-side on the `/workspace` bind-mount (no in-container shim). A class-level
+  registry + `reap_idle()` reclaims leaked containers.
+- **Typed action/observation protocol (ORCH-1.46, `events.py`/`bridge.py`).** Every
+  step is a frozen, discriminated-union `Action` (`CmdRun`, `FileRead/Write/Edit`,
+  `TestRun`, `PortExpose`, `AgentFinish`) yielding a typed `Observation`. Each event
+  carries `run_id`/`step`/`ts`/`actor`. The shell's cwd persists via a marker file the
+  wrapped command writes `pwd` into.
+- **KG provenance (KG-2.64, `provenance.py`).** Each action/observation is minted into
+  the KG (`(:RunTrace)-[:HAS_ACTION]->(:WorkspaceAction)-[:PRODUCED]->(:WorkspaceObservation)`,
+  `[:NEXT]` for replay), and a file edit is grounded to the `Code` symbols it touched
+  (`(:WorkspaceAction)-[:MUTATED]->(:Code)`). This is what lets the golden loop
+  (AHE-3.23) attribute failures to edit-kinds on symbol classes as a graph query.
+- **Governance.** Mutating actions map to `workspace.cmd|write|edit` and pass through
+  the fail-closed `ActionPolicy` (OS-5.24) when a gate is supplied
+  (`runtime.action_policy_gate`); the shipped default sets them to `auto` (the sandbox
+  is the boundary) and an operator can override any to `approval_required`.
+- **Surface.** `/api/runtime/*` — create a session, post typed actions, and stream the
+  action/observation event log over SSE (consumed by the agent-webui SWE view, OS-5.34).

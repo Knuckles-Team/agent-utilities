@@ -27,6 +27,10 @@ class AgentDeps:
     external_ontologies: list[str] = field(default_factory=list)
     # CONCEPT:ORCH-1.40 — the invoker↔spawned message channel this agent may talk back on.
     message_channel_id: str | None = None
+    # CONCEPT:ORCH-1.47 — the developer-workspace runtime (OS-5.33) the SWE agent acts in.
+    # A ``DevWorkspace`` handle; None for non-SWE agents. Kept ``Any`` to avoid importing the
+    # runtime package into the model layer.
+    workspace: Any | None = None
 
     def __post_init__(self):
         # Auto-register external ontologies with the active graph engine
