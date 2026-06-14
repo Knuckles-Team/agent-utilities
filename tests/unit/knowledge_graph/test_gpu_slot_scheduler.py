@@ -86,6 +86,35 @@ async def test_preempt_backfill_resume_from_checkpoint() -> None:
 
 
 @pytest.mark.asyncio
+async def test_training_job_preempted_by_foreground_inference() -> None:
+    """A long ``kind="training"`` job yields the slot to interactive inference and
+    resumes from its checkpoint — the background tier (CONCEPT:ML-011) needs no
+    ``preempt_foreground`` flag."""
+    log: list = []
+    gate = asyncio.Event()
+    gate.set()
+    sched = GpuSlotScheduler()  # preempt_foreground stays False
+    await sched.start(_make_runner(6, gate=gate, log=log))
+
+    await sched.submit("train", kind="training")
+    await _wait_until(lambda: any(j == "train" for j, _ in log))
+    # Foreground inference (default kind) preempts the background training run.
+    await sched.submit("infer")
+    await _wait_until(
+        lambda: sched.get("infer") and sched.get("infer").state == JobState.DONE,
+        timeout=3.0,
+    )
+    await _wait_until(
+        lambda: sched.get("train") and sched.get("train").state == JobState.DONE,
+        timeout=3.0,
+    )
+    train_steps = [d for j, d in log if j == "train"]
+    assert train_steps == sorted(set(train_steps))  # resumed, never restarted
+    assert train_steps[-1] == 6
+    await sched.stop()
+
+
+@pytest.mark.asyncio
 async def test_held_job_is_not_backfilled() -> None:
     sched = GpuSlotScheduler()
     await sched.start(_make_runner(3))
