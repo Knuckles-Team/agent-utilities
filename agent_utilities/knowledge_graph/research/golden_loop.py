@@ -47,6 +47,26 @@ _WATERMARK_TYPES = {
 _WATERMARK_NODE = "assimilation:watermark"
 
 
+def _run_coro(coro: Any) -> Any:
+    """Run an async coroutine from this sync cycle, loop-running or not.
+
+    The cycle is sync (daemon tick / MCP), but the research-intake mechanism is
+    async. When no loop is running we ``asyncio.run``; when one is (an async MCP
+    handler) we run it on a worker thread with its own loop so we never reenter a
+    running loop. (CONCEPT:KG-2.77)
+    """
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(lambda: asyncio.run(coro)).result()
+
+
 class GoldenLoopController:
     """Run one propose-only self-evolution cycle over the KG."""
 
@@ -110,6 +130,8 @@ class GoldenLoopController:
         standardize: bool | None = None,
         topics: list[dict[str, Any]] | None = None,
         synthesize_search: bool = False,
+        discover: bool | None = None,
+        papers: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -131,12 +153,15 @@ class GoldenLoopController:
             breadth = config.kg_golden_breadth
         if standardize is None:
             standardize = config.kg_golden_standardize
+        if discover is None:
+            discover = config.kg_golden_discover
 
         report: dict[str, Any] = {
             "propose_only": self.propose_only,
             "topics_intake": 0,
             "topics_resolved": 0,
             "sources_linked": 0,
+            "intake_papers": None,
             "breadth": None,
             "assimilate": None,
             "standardize": None,
@@ -161,6 +186,16 @@ class GoldenLoopController:
                 report["metrics"]["stage_ms"][name] = round(
                     (time.monotonic() - t0) * 1000, 1
                 )
+
+        # -2. INTAKE PAPERS — discover + ingest research (scholarx → tiered KB
+        # ingest → LLM concept/fact extraction) so the cycle is a research-pipeline
+        # runner: the assimilate stage then matches the fresh papers against the
+        # ecosystem. Opt-in (external calls) via KG_GOLDEN_DISCOVER; caller-supplied
+        # ``papers`` always run. (CONCEPT:KG-2.77)
+        if discover or papers:
+            report["intake_papers"] = _stage(
+                "intake_papers", lambda: self._run_intake_papers(papers)
+            )
 
         # -1. BREADTH — ingest the OSS/repos/docs corpus (idempotent; opt-in).
         if breadth:
@@ -330,14 +365,24 @@ class GoldenLoopController:
             return {"skipped": True, "reason": "unchanged", "watermark": pre}
 
         from ..assimilation import (
-            auto_satisfy,
+            ConceptMatcher,
             dedup_features,
+            enrich_concepts,
             rank_features,
             synergy_bundles,
         )
+        from ..assimilation.gap_analysis import _CONCEPT_TYPES, _FEATURE_TYPES
 
         dedup = dedup_features(self.engine)
-        gap = auto_satisfy(self.engine)
+        # Ensure the ecosystem Concept registry is embedded so the matcher's
+        # retrieval stage has vectors (idempotent; skips already-embedded). Then
+        # the robust ConceptMatcher (id + embedding-recall + LLM-judge) decides
+        # covered (SATISFIED_BY) vs related-novel (RELATES_TO) — replacing the old
+        # single-cosine auto_satisfy that recognised 0/21. (CONCEPT:KG-2.75)
+        enrich_concepts(self.engine)
+        gap = ConceptMatcher().satisfy(
+            self.engine, feature_types=_FEATURE_TYPES, concept_types=_CONCEPT_TYPES
+        )
         syn = synergy_bundles(self.engine)
         ranked = rank_features(self.engine)
 
@@ -355,6 +400,8 @@ class GoldenLoopController:
             "skipped": False,
             "duplicates_superseded": dedup.duplicates_superseded,
             "auto_satisfied": gap.satisfied,
+            "related": gap.related,
+            "used_llm": gap.used_llm,
             "synergy_bundles": len(syn.bundles),
             "open_gaps": len(ranked),
             # exclusion-filtered, leverage-ranked work-list for plan synthesis (VU-8)
@@ -367,6 +414,28 @@ class GoldenLoopController:
                 for r in ranked[:20]
             ],
             "watermark": watermark,
+        }
+
+    def _run_intake_papers(self, papers: list[dict[str, Any]] | None) -> dict[str, Any]:
+        """Discover + ingest research papers as the cycle's front stage.
+
+        Delegates to the ``ResearchPipelineRunner`` intake mechanism (scholarx
+        discovery → tiered KB ingest → LLM concept/fact extraction → OWL enrich),
+        so the unified cycle is a research-pipeline runner: the ``assimilate`` stage
+        then matches the freshly-ingested papers against the ecosystem Concept
+        registry via the ConceptMatcher. (CONCEPT:KG-2.77)
+        """
+        from agent_utilities.automation.research_pipeline import ResearchPipelineRunner
+
+        runner = ResearchPipelineRunner(engine=self.engine)
+        rep = _run_coro(runner.run_daily_pipeline(papers=papers))
+        return {
+            "papers_discovered": rep.papers_discovered,
+            "papers_relevant": rep.papers_relevant,
+            "papers_marginal": rep.papers_marginal,
+            "papers_already_known": rep.papers_already_known,
+            "owl_inferences": rep.owl_inferences,
+            "errors": rep.errors[:5],
         }
 
     def _run_standardize(self) -> dict[str, Any]:

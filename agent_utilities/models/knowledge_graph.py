@@ -650,6 +650,11 @@ class RegistryEdgeType(StrEnum):
     ASSIMILATED_INTO = "ASSIMILATED_INTO"
     DERIVED_FROM_RESEARCH = "DERIVED_FROM_RESEARCH"
     SATISFIED_BY = "SATISFIED_BY"
+    # research ↔ ecosystem-concept relatedness written by the ConceptMatcher for a
+    # novel-but-relevant paper (NOT a closing edge — the gap stays open). Value
+    # matches the raw "RELATES_TO" label the enrichment semantic-linker already
+    # writes, so the enum is the single source of truth. (CONCEPT:KG-2.75)
+    RELATES_TO = "RELATES_TO"
     # Enterprise Standardization & Consolidation Engine (CONCEPT:KG-2.49)
     # asset -[CONFORMS_TO {drift_score, gaps}]-> EnterpriseStandard. Consolidation
     # reuses ABSORBED_INTO (member -> north-star) + REFERENCES + SUPERSEDES.
@@ -1925,9 +1930,9 @@ class OrganizationNode(RegistryNode):
     org_id: str = Field(description="Stable slug, e.g. 'acme-corp'")
     legal_name: str | None = None
     domain: str | None = Field(default=None, description="Primary DNS domain")
-    org_type: Literal[
-        "company", "team", "vendor", "opensource", "regulator"
-    ] = "company"
+    org_type: Literal["company", "team", "vendor", "opensource", "regulator"] = (
+        "company"
+    )
     parent_org_id: str | None = Field(
         default=None, description="Points to another OrganizationNode"
     )
