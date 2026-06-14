@@ -7,11 +7,31 @@ from __future__ import annotations
 
 
 import logging
+import re
 from typing import Any
 
 from ..base import GraphBackend
 
 logger = logging.getLogger(__name__)
+
+# FalkorDB's query-parameter parser rejects strings containing C0/C1 control
+# characters (e.g. \x01 from PDF/binary text extraction) with "Failed to parse
+# query parameter value", dropping the whole node. Neo4j accepts them, so this is
+# FalkorDB-specific. Strip control chars except tab/newline/carriage-return.
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def _clean_param_value(value: Any) -> Any:
+    """Recursively strip control characters from string param values so FalkorDB's
+    parser accepts them; non-strings (and dict/list containers) pass through."""
+    if isinstance(value, str):
+        return _CONTROL_CHARS.sub("", value)
+    if isinstance(value, list):
+        return [_clean_param_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _clean_param_value(v) for k, v in value.items()}
+    return value
+
 
 try:
     from falkordb import FalkorDB
@@ -37,7 +57,7 @@ class FalkorDBBackend(GraphBackend):
     def execute(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        params = params or {}
+        params = {k: _clean_param_value(v) for k, v in (params or {}).items()}
         result = self.graph.query(query, params)
         # Convert FalkorDB ResultSet to list of dicts
         output = []
