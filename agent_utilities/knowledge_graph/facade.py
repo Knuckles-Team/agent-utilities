@@ -340,6 +340,20 @@ class KnowledgeGraph:
             logger.debug("governance rule application skipped: %s", exc)
         return results
 
+    def reason(self, task: Any) -> Any:
+        """Route a reasoning task to the best-learned paradigm and run it (KG-2.68).
+
+        First-class entry to the pluggable-paradigm router: a :class:`ReasoningTask`
+        is dispatched to the inductive (KG-2.69) / model-based (KG-2.67) / deductive /
+        generative paradigm whose learned reward EMA + capability tags best fit, and
+        the scored result trains the routing so paradigm selection self-improves.
+        """
+        from .core.reasoner import ReasoningTask, get_reasoner_router
+
+        if not isinstance(task, ReasoningTask):
+            task = ReasoningTask(goal=str(task))
+        return get_reasoner_router().reason(task)
+
     def query(self, cypher: str, params: Any = None) -> list[dict[str, Any]]:
         """Run a tenant-scoped, permission-filtered, audited Cypher read.
 
