@@ -32,7 +32,17 @@ from .ingest import ingest_concepts, ingest_documents
 # source for repos that ship no ``docs/concepts.yaml`` registry.
 _CONCEPT_MARKER = re.compile(r"CONCEPT:([A-Z]{2,6}-\d+(?:\.\d+[a-z]?|-\d+)?)")
 _CONCEPT_SCAN_EXT = (
-    ".py", ".rs", ".md", ".js", ".ts", ".tsx", ".go", ".java", ".txt", ".yaml", ".yml",
+    ".py",
+    ".rs",
+    ".md",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".go",
+    ".java",
+    ".txt",
+    ".yaml",
+    ".yml",
 )
 
 # build-file → language
@@ -210,7 +220,9 @@ def discover_concepts(roots: list[str], *, max_depth: int = 3) -> list[dict[str,
                         had_registry = True
         if not had_registry:
             for cid in _scan_concept_markers(rp):
-                found.setdefault(cid, {"id": cid, "name": cid, "source": f"{rp}:marker"})
+                found.setdefault(
+                    cid, {"id": cid, "name": cid, "source": f"{rp}:marker"}
+                )
     return list(found.values())
 
 

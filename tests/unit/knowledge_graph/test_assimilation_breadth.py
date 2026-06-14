@@ -78,6 +78,92 @@ def test_run_breadth_ingest_with_fakes(tmp_path):
     assert report.docs_ingested == 1
 
 
+class _ConceptEngine:
+    """Minimal engine: records add_node calls + supports content-hash idempotency."""
+
+    def __init__(self):
+        self.nodes: dict[str, dict] = {}
+
+    def add_node(self, node_id, node_type, properties=None):
+        self.nodes[node_id] = {"type": node_type, **(properties or {})}
+
+    class _G:
+        def __init__(self, outer):
+            self._o = outer
+
+        def nodes(self, data=False):
+            if data:
+                return list(self._o.nodes.items())
+            return list(self._o.nodes)
+
+    @property
+    def graph(self):
+        return _ConceptEngine._G(self)
+
+
+def test_ingest_concepts_creates_canonical_concept_nodes():
+    from agent_utilities.knowledge_graph.assimilation import ingest_concepts
+
+    eng = _ConceptEngine()
+    rep = ingest_concepts(
+        eng,
+        [
+            {"id": "KG-2.7", "name": "Research Assimilation", "pillar": "KG-2"},
+            {"id": "orch-1.0", "name": "Routing"},  # lowercase normalizes
+            {"id": "not-a-concept"},  # gated out (no letters-then-digit)
+        ],
+    )
+    assert rep.ingested == 2
+    node = eng.nodes["concept:KG-2.7"]
+    assert node["concept_id"] == "KG-2.7" and node["concept_ids"] == ["KG-2.7"]
+    assert "concept:ORCH-1.0" in eng.nodes  # upper-normalized
+    assert not any("NOT-A-CONCEPT" in k for k in eng.nodes)  # junk skipped
+    # idempotent re-run → no new nodes
+    rep2 = ingest_concepts(
+        eng, [{"id": "KG-2.7", "name": "Research Assimilation", "pillar": "KG-2"}]
+    )
+    assert rep2.ingested == 0 and rep2.skipped == 1
+
+
+def test_discover_concepts_reads_registry_then_falls_back_to_markers(tmp_path):
+    from agent_utilities.knowledge_graph.assimilation import discover_concepts
+
+    # repo A: ships a concepts.yaml registry (authoritative)
+    a = tmp_path / "repo-a" / "docs"
+    a.mkdir(parents=True)
+    (a / "concepts.yaml").write_text(
+        "concepts:\n  - id: KG-2.7\n    name: Research Assimilation\n    pillar: KG-2\n",
+        encoding="utf-8",
+    )
+    # repo B: no registry → CONCEPT: markers in source are scanned
+    b = tmp_path / "repo-b"
+    b.mkdir()
+    (b / "engine.rs").write_text("// CONCEPT:EG-009 native reasoner\n", encoding="utf-8")
+
+    out = {c["id"].upper(): c for c in discover_concepts([str(a.parent), str(b)])}
+    assert out["KG-2.7"]["name"] == "Research Assimilation"  # from registry
+    assert "EG-009" in out  # from the raw marker fallback
+
+
+def test_run_breadth_ingest_bridges_concepts(tmp_path):
+    from agent_utilities.knowledge_graph.assimilation import run_breadth_ingest
+
+    docs = tmp_path / "repo" / "docs"
+    docs.mkdir(parents=True)
+    (docs / "concepts.yaml").write_text(
+        "concepts:\n  - id: KG-2.7\n    name: Research Assimilation\n", encoding="utf-8"
+    )
+    captured: list[dict] = []
+    report = run_breadth_ingest(
+        object(),
+        repo_roots=[str(tmp_path / "repo")],
+        codebase_ingest=lambda e, m: True,
+        concept_ingest=lambda e, cs: (captured.extend(cs), len(cs))[1],
+    )
+    assert report.concepts >= 1
+    assert any(c["id"] == "KG-2.7" for c in captured)  # breadth drives the concept bridge
+
+
 def test_workspace_project_roots_returns_existing_local_paths(tmp_path):
     """workspace.yml-defined repos that exist on disk are returned; missing skipped."""
     from agent_utilities.core.workspace_config import workspace_project_roots
