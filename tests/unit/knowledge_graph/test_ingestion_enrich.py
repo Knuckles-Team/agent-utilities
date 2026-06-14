@@ -259,3 +259,21 @@ async def test_policy_adaptor_surfaces_constitution_text(monkeypatch):
 
     assert result.status == "success"
     assert seen == ["policy"]
+
+
+def test_enrichment_windows_bounds_large_text(monkeypatch):
+    """A whole book must not become one infeasible mega-prompt: large text is
+    chunked into bounded windows, capped by KG_ENRICH_MAX_CHUNKS."""
+    eng, _backend = _engine()
+
+    # Small text → exactly one window (unchanged behavior).
+    assert eng._enrichment_windows("short text") == ["short text"]
+    assert eng._enrichment_windows("") == []
+
+    # Large text → many bounded windows, capped at the limit.
+    monkeypatch.setenv("KG_ENRICH_CHUNK_THRESHOLD", "500")
+    monkeypatch.setenv("KG_ENRICH_MAX_CHUNKS", "5")
+    big = ("Reinforcement learning maximizes expected return. " * 50 + "\n\n") * 40
+    windows = eng._enrichment_windows(big)
+    assert 1 < len(windows) <= 5  # chunked AND capped
+    assert all(w.strip() for w in windows)
