@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 238
+total_concepts: 240
 total_pillars: 20
 pillars:
 - AHE-3
@@ -352,6 +352,7 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/sai_factory.py
+  - agent_utilities/mcp/kg_server.py
   doc: the controller that operationalizes Superhuman Adaptable
 - id: AHE-3.30
   name: ──────────────────
@@ -369,6 +370,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/harness/recursive_distill.py
+  - agent_utilities/mcp/kg_server.py
   doc: a recursive-distillation loop that fine-tunes a new prior from the search-distilled corpus, gates
     the candidate model behind a monotone capability ratchet, and promotes it only on a non-regressing
     improvement so test-time search converts into a stronger next prior
@@ -976,6 +978,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/security/policy_ingestor.py
   - agent_utilities/knowledge_graph/security/rule_ingestor.py
+  - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/imodel.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_pack.py
@@ -2979,6 +2982,22 @@ concepts:
   doc: a value-aware test-time-compute governor that decides whether spending more reasoning compute is
     worth it by stopping once a result satisfices or the marginal expected quality gain per extra attempt
     falls below a threshold
+- id: OS-5.38
+  name: Universal Outbound CredentialProvider
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/security/__init__.py
+  - agent_utilities/security/credential_provider.py
+  - agent_utilities/security/source_credentials.py
+  doc: Universal Outbound CredentialProvider
+- id: OS-5.39
+  name: Typed Source-Credential Registry
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/security/source_credentials.py
+  doc: Typed Source-Credential Registry
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
