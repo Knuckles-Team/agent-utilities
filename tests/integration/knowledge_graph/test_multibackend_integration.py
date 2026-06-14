@@ -135,7 +135,7 @@ class TestMultiBackendIntegration:
             ),
             (
                 "postgresql",
-                "docker/pggraph.compose.yml",
+                "docker/paradedb.compose.yml",
                 5433,
                 {
                     "uri": "postgresql://agent:agent@localhost:5433/agent_kg",
@@ -378,7 +378,7 @@ _MULTICONN_BACKENDS = [
         # runs unchanged across all three.
         "pg-main",
         "age",
-        "docker/pggraph-age.compose.yml",
+        "docker/pg-age.compose.yml",
         5434,
         {
             "uri": "postgresql://agent:agent@localhost:5434/agent_kg",

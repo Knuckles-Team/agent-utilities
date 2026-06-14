@@ -205,7 +205,7 @@ migrate it manually:
 4. import on the new shard (`from_msgpack`), then delete the stale copy.
 
 See [engine_sharding.md](../architecture/engine_sharding.md#rebalancing-out-of-scope--the-honest-caveat)
-for the full procedure. Durable tiers (pggraph L3) are not partitioned by
+for the full procedure. Durable tiers (pg-age L3) are not partitioned by
 this mechanism and are unaffected.
 
 ## Verification

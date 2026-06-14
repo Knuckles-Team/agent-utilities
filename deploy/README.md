@@ -17,12 +17,12 @@ side of the segmentation/sharing/audit stack: **OS-5.14** (served identity),
                     ENGINE shards (KG-2.58 HRW: tenant graph → one shard, role=host)
                               │  write-through
                               ▼
-            Postgres: pggraph L3 (RLS) + STATE_DB_URI (sessions/checkpoints)
+            Postgres: pg-age L3 (RLS) + STATE_DB_URI (sessions/checkpoints)
 ```
 
 ## Files
 - `k8s/graphos.yaml` — Namespace, ConfigMap/Secret, front Deployment+Service+HPA+Ingress, engine StatefulSet (headless).
-- `swarm/graphos.stack.yml` — the same image downscaled: front + one engine + external pggraph.
+- `swarm/graphos.stack.yml` — the same image downscaled: front + one engine + external pg-age.
 - `postgres/tenant_rls.sql` — idempotent DB-level tenant isolation (apply once, as table owner).
 
 ## Quick start
@@ -52,7 +52,7 @@ psql "$GRAPH_DB_URI" -f deploy/postgres/tenant_rls.sql
 | `KG_DAEMON_ROLE` | front=`client`, engine=`host` | front pods never own an L1 engine |
 | `KG_DEFAULT_GRAPH` | both | the **commons** graph; tenants route to `tenant__<slug>__<this>` |
 | `GRAPH_SERVICE_ENDPOINTS` | front | engine shard list; HRW routes each tenant graph to one shard |
-| `GRAPH_DB_URI` | both | L3 pggraph (apply RLS here) |
+| `GRAPH_DB_URI` | both | L3 pg-age (apply RLS here) |
 | `STATE_DB_URI` | both | central sessions/goals/durable_checkpoints (OS-5.16) — lets any pod resume any tenant's goal |
 
 Dev escape hatch: `KG_SERVED_PROFILE=0` serves a network transport **without**
@@ -66,7 +66,7 @@ enforced identity (local only).
   HRW winner changes must be moved with the snapshot tooling (KG-2.58 is not
   auto-rebalancing by design).
 - **State/L3** is the one stateful dependency: use managed/HA Postgres in cloud,
-  the existing `kg-backbone_pggraph` in the homelab.
+  the existing `kg-backbone_pg-age` in the homelab.
 
 ## What enforces isolation (defense in depth)
 1. **Identity** — `ActorIdentityMiddleware` mints `tenant_id`/`actor_id` from the JWT; the served profile blocks unauthenticated HTTP.

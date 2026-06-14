@@ -140,6 +140,50 @@ Output ONLY a JSON array of objects, each with keys "name" (short noun phrase),
 (one sentence). Max {limit} items. No other text."""
 
 
+def _parse_json_objects(raw: str) -> list[dict[str, Any]]:
+    """Extract JSON objects from an LLM array response, tolerating truncation.
+
+    LLM completions are routinely cut off by ``max_tokens`` mid-array, so the
+    closing ``]`` is often missing and a strict ``json.loads`` of ``[...]`` fails
+    (dropping ALL items). This salvages every COMPLETE ``{...}`` object via a
+    string-aware brace scan, ignoring a trailing incomplete one — turning a
+    truncated array into the concepts it did manage to emit.
+    """
+    import json
+
+    objs: list[dict[str, Any]] = []
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(raw):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                try:
+                    parsed = json.loads(raw[start : i + 1])
+                    if isinstance(parsed, dict):
+                        objs.append(parsed)
+                except (ValueError, json.JSONDecodeError):
+                    pass
+                start = -1
+    return objs
+
+
 def extract_concepts(
     text: str,
     source_id: str,
@@ -155,16 +199,15 @@ def extract_concepts(
     documents, chat threads, prompts, etc. — the generic ``extract_text_concepts``
     wrapper (``extractors/text.py``) builds the MENTIONS edges.
     """
-    import json
-
     prompt = _CONCEPT_PROMPT.format(
         doc_type=source_type, title=title or source_id, excerpt=text[:8000], limit=limit
     )
     try:
         raw = llm_fn(prompt)
-        start, end = raw.index("["), raw.rindex("]") + 1
-        items = json.loads(raw[start:end])
-    except (ValueError, json.JSONDecodeError, Exception):
+    except Exception:  # noqa: BLE001
+        return []
+    items = _parse_json_objects(raw)
+    if not items:
         return []
     concepts: list[Concept] = []
     seen: set[str] = set()

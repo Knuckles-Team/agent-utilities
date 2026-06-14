@@ -59,7 +59,7 @@ until these are on.
 ## Stage D — Externalize state (multiply stateless tiers) — OS-5.16–18, KG-2.54
 
 ```bash
-export STATE_DB_URI=postgresql://agent:agent@pggraph.arpa:5432/agent_kg
+export STATE_DB_URI=postgresql://agent:agent@pg-age.arpa:5432/agent_kg
 ```
 
 Moves durable-execution checkpoints, sessions/turns/goals, and the KG task queue off

@@ -57,7 +57,7 @@ flowchart TD
     Surfaces -->|REST / MCP| GW["graph-os MCP + REST gateway<br/>(identity · ActionPolicy · metrics)"]
     GW --> KG["KnowledgeGraph facade<br/>(ontology · routing · memory)"]
     KG --> L1["epistemic-graph<br/>Rust engine — L1 (MessagePack/UDS)"]
-    KG --> L2["durable L2<br/>Postgres / pggraph · LadybugDB"]
+    KG --> L2["durable L2<br/>Postgres / pg-age · LadybugDB"]
     KG --> OWL["OWL / SHACL · Fuseki<br/>semantics"]
     GW -. fleet events / autonomy .-> FLEET["reconciler · playbooks · autoscaler"]
 ```
@@ -148,7 +148,7 @@ Grouped by what they do. Each line links to the deep-dive; the full catalog with
 every concept ID is in **[docs/guides/features.md](docs/guides/features.md)**.
 
 **🧠 Knowledge graph & memory** — the zero-infra core.
-A tiered KG (native Rust L1 + durable Postgres/pggraph L2 + OWL semantics; contrib
+A tiered KG (native Rust L1 + durable Postgres/pg-age L2 + OWL semantics; contrib
 Neo4j/FalkorDB/LadybugDB) with **[Schema-Pack domain profiles](docs/pillars/2_epistemic_knowledge_graph/KG-2.37-Research_State_Domain_Pack.md)**
 (KG-2.22–2.37: zero-LLM typed-edge extraction, transitive/inverse OWL closure,
 bitemporal `as_of` recall) over a **[high-performance Rust compute engine](docs/pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md)**

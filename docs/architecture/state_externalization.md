@@ -127,4 +127,4 @@ against in-memory emulations of exactly the SQL each backend issues
 `tests/unit/test_goal_durability.py`, `tests/unit/test_fleet_supervisory.py`).
 A live end-to-end pass (`tests/integration/test_state_postgres_live.py`) runs
 only when `STATE_DB_URI` is set and reachable — e.g. against the deployed
-`kg-backbone_pggraph` service.
+`kg-backbone_pg-age` service.

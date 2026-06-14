@@ -1,4 +1,4 @@
--- Bootstrap the Apache AGE graph + pgvector for the agent-utilities pggraph tier.
+-- Bootstrap the Apache AGE graph + pgvector for the agent-utilities pg-age tier.
 -- Runs once on first container init (docker-entrypoint-initdb.d).
 CREATE EXTENSION IF NOT EXISTS age CASCADE;
 CREATE EXTENSION IF NOT EXISTS vector;

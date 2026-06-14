@@ -1,10 +1,10 @@
-# pggraph on Apache AGE (+ pgvector) — real openCypher-on-Postgres.
+# pg-age on Apache AGE (+ pgvector) — real openCypher-on-Postgres.
 #
 # CONCEPT:KG-2.7 — durable graph tier with native Cypher. Replaces the
 # regex-transpiler path (paradedb) with AGE's `cypher()` execution.
 #
 # Usage:
-#   docker compose -f docker/pggraph-age.compose.yml up -d --build
+#   docker compose -f docker/pg-age.compose.yml up -d --build
 #
 # Environment for agent-utilities:
 #   GRAPH_BACKEND=postgresql
@@ -12,11 +12,11 @@
 #   GRAPH_DB_URI=postgresql://agent:agent@localhost:5434/agent_kg
 
 services:
-  pggraph-age:
+  pg-age:
     build:
-      context: ./pggraph-age
-    image: agent-utilities/pggraph-age:latest
-    container_name: agent-pggraph-age
+      context: ./pg-age
+    image: agent-utilities/pg-age:latest
+    container_name: agent-pg-age
     environment:
       POSTGRES_USER: agent
       POSTGRES_PASSWORD: agent
@@ -24,9 +24,9 @@ services:
     ports:
       - "5434:5432"
     volumes:
-      - pggraph-age-data:/var/lib/postgresql/data
-      - ./pggraph-age-init:/docker-entrypoint-initdb.d
+      - pg-age-data:/var/lib/postgresql/data
+      - ./pg-age-init:/docker-entrypoint-initdb.d
     restart: unless-stopped
 
 volumes:
-  pggraph-age-data:
+  pg-age-data:
