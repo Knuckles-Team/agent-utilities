@@ -136,6 +136,44 @@ def _build_member(spec: dict[str, Any]):
         _ACTIVE_BACKEND = saved
 
 
+def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Build ``{name: backend}`` for ``GRAPH_MIRROR_TARGETS`` (CONCEPT:KG-2.74),
+    resolved against ``kg_connections``. Returns ``{}`` when none are configured.
+
+    Shared by the ``fanout`` backend and the ``tiered`` durable tier (where it
+    tees every write that lands in the L3 authority — e.g. pg-age — out to the
+    named mirrors like neo4j / falkordb).
+    """
+    from agent_utilities.core.config import config as _cfg
+
+    targets = setting("GRAPH_MIRROR_TARGETS") or _cfg.graph_mirror_targets or []
+    if isinstance(targets, str):
+        targets = [t.strip() for t in targets.split(",") if t.strip()]
+    if not targets:
+        return {}
+    conn_specs: dict[str, dict[str, Any]] = {}
+    for spec in _cfg.kg_connections or []:
+        d = dict(spec)
+        nm = str(d.pop("name", "")).strip()
+        if "backend" in d and "backend_type" not in d:
+            d["backend_type"] = d.pop("backend")
+        if nm:
+            conn_specs[nm] = d
+    mirrors: dict[str, Any] = {}
+    for name in targets:
+        if name in skip_names:
+            continue
+        member = _build_member(dict(conn_specs.get(name) or {"backend_type": name}))
+        if member is not None:
+            mirrors[name] = member
+        else:
+            logger.warning(
+                "mirror '%s' unavailable (missing driver / unreachable); skipping.",
+                name,
+            )
+    return mirrors
+
+
 def get_active_backend():
     """Retrieve the currently active graph backend instance."""
     return _ACTIVE_BACKEND
@@ -492,6 +530,26 @@ def create_backend(
                 "persistence). Supported: ladybug, postgresql.",
                 l2_type,
             )
+
+        # CONCEPT:KG-2.74 — tee the durable L3 to mirror stores. When
+        # GRAPH_MIRROR_TARGETS is set, every write that lands in the L3 authority
+        # (e.g. pg-age) is also copied, losslessly, to the named mirrors (neo4j /
+        # falkordb) via the durable outbox. The L3 authority is unchanged; reads
+        # still come from L1 (epistemic). Backfill existing L3 data into fresh
+        # mirrors with TieredGraphBackend.reconcile_to_durable().
+        if l3 is not None:
+            mirrors = _build_mirror_set()
+            if mirrors:
+                from agent_utilities.core.paths import kg_db_path
+
+                from .fanout_backend import FanOutBackend
+
+                outbox_path = str(kg_db_path().parent / "graph_mirror_outbox.db")
+                l3 = FanOutBackend(l3, mirrors, outbox_path=outbox_path)
+                logger.info(
+                    "tiered L3 fan-out enabled: authority=durable tier, mirrors=[%s]",
+                    ", ".join(mirrors),
+                )
 
         # When no durable L2 could be built, degrade to the L1 working store
         # alone rather than crashing the whole engine.
