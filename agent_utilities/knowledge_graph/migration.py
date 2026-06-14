@@ -69,11 +69,14 @@ def _clean_props(props: dict[str, Any]) -> dict[str, Any]:
     """
     clean: dict[str, Any] = {}
     for k, v in props.items():
-        if k == "embedding" or v is None:
-            continue
+        # Sanitise the key FIRST, then test it: legacy corruption stores keys with
+        # backticks (``"`embedding`"``), so checking ``k == "embedding"`` before
+        # stripping let a backticked embedding through — a variable-dim vector that
+        # then breaks Kuzu's fixed-dim ``embedding`` column.
         ck = str(k).replace("`", "").strip()
-        if ck:
-            clean[ck] = v
+        if not ck or ck == "embedding" or v is None:
+            continue
+        clean[ck] = v
     return clean
 
 

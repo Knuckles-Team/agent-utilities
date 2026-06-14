@@ -13,6 +13,32 @@ from .knowledge_graph import GraphSchemaDefinition, RelDefinition, TableDefiniti
 EMBEDDING_DIM = config.kg_embedding_dim or "768"
 EMBEDDING_TYPE = f"FLOAT[{EMBEDDING_DIM}]"
 
+# Canonical column set for an UNKNOWN-label node on a strict-schema backend
+# (LadybugDB/Kuzu has fixed, typed tables — an undeclared label has no table). It is
+# the base template shared by every declared node, plus ``embedding``. The engine
+# folds an arbitrary KG node into this set (ad-hoc props → the ``metadata`` JSON
+# column) and the LadybugBackend auto-creates a node table with exactly these
+# columns on first sight of an unknown label. Both read THIS definition so the SET
+# clause and the DDL never drift. (Schemaless/dynamic backends — Neo4j, FalkorDB,
+# the Postgres transpiler — ignore it; they accept arbitrary labels natively.)
+GENERIC_NODE_COLUMNS: dict[str, str] = {
+    "id": "STRING PRIMARY KEY",
+    "type": "STRING",
+    "name": "STRING",
+    "description": "STRING",
+    "concept_id": "STRING",
+    "importance_score": "FLOAT",
+    "timestamp": "STRING",
+    "metadata": "STRING",
+    "is_permanent": "BOOLEAN",
+    "embedding": EMBEDDING_TYPE,
+}
+
+# Edge props are JSON-folded into a single ``properties`` column on Kuzu REL tables
+# (other backends store native columns); an unknown rel type gets a REL table with
+# this one column, mirroring the declared rel tables.
+GENERIC_REL_PROPERTY_COLUMN = "properties STRING"
+
 SCHEMA = GraphSchemaDefinition(
     nodes=[
         TableDefinition(

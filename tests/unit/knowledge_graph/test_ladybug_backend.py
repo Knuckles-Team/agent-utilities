@@ -17,6 +17,40 @@ def temp_db_dir(tmp_path):
     return db_dir
 
 
+def test_ladybug_auto_creates_tables_for_arbitrary_labels(temp_db_dir):
+    """CONCEPT:KG-2.74 — an arbitrary KG (labels/rels beyond the declared SCHEMA)
+    mirrors into Kuzu losslessly: unknown node labels auto-create a generic table,
+    unknown rel types auto-create / extend their REL table, and ad-hoc props fold
+    into the ``metadata`` column. Without this, every undeclared-label node/edge is
+    dropped (Kuzu has fixed typed tables)."""
+    from agent_utilities.knowledge_graph.migration import _portable_writer
+
+    be = LadybugBackend(db_path=str(temp_db_dir / "arb.db"))
+    be.create_schema()
+    w = _portable_writer(be)
+
+    # two labels NOT in SCHEMA, each with an ad-hoc prop, plus an edge between them
+    w._upsert_node(
+        "idea_block", "a", {"id": "a", "type": "idea_block", "trusted_answer": "ans"}
+    )
+    w._upsert_node("zonkey", "b", {"id": "b", "type": "zonkey", "weird_prop": 7})
+    w._upsert_edge(
+        "a",
+        "b",
+        "LINKS",
+        {"confidence": 0.9},
+        source_label="idea_block",
+        target_label="zonkey",
+    )
+
+    assert be.execute("MATCH (n) RETURN count(n) AS c")[0]["c"] == 2
+    assert be.execute("MATCH ()-[r]->() RETURN count(r) AS c")[0]["c"] == 1
+    # ad-hoc prop preserved in metadata (lossless)
+    rows = be.execute("MATCH (n:idea_block {id:'a'}) RETURN n.metadata AS m")
+    assert rows and "trusted_answer" in (rows[0]["m"] or "")
+    be.close()
+
+
 def test_ladybug_backend_init_and_backup(temp_db_dir):
     db_path = str(temp_db_dir / "test.db")
 
@@ -178,29 +212,31 @@ def test_ladybug_backend_escaped_properties(temp_db_dir):
     )
     mock_backend.reset_mock()
 
-    # 1. Test upsert node with reserved keyword property
-    # Reserved keyword 'order'
+    # 1. Upsert a node with an UNKNOWN label (MemoryNode is not in SCHEMA). On Kuzu
+    # (fixed typed tables) an undeclared property like ``order`` has no column, so it
+    # MUST fold into the ``metadata`` JSON column — a bare ``n.`order` = $order``
+    # would Binder-error and drop the node. Declared/generic columns (``name``) are
+    # still SET, backtick-escaped. (CONCEPT:KG-2.74)
     engine.add_node("node1", "MemoryNode", {"order": 5, "name": "Test Node"})
-
-    # Check what query was executed. The upsert is a single idempotent
-    # MERGE-on-id + SET (the prior MATCH/SET-then-CREATE form silently dropped
-    # nodes on the epistemic_graph backend), so reserved-keyword properties are
-    # escaped in the SET clause.
     assert mock_backend.execute.call_count >= 1
 
-    # MERGE (n:MemoryNode {id: $id}) SET n.`order` = $order, n.`name` = $name
     calls = mock_backend.execute.call_args_list
-    merge_query = calls[0][0][0]
+    merge_query, merge_params = calls[0][0][0], calls[0][0][1]
     assert "MERGE (n:MemoryNode {id: $id})" in merge_query
-    assert "n.`order` = $order" in merge_query
-    assert "n.`name` = $name" in merge_query
+    assert "n.`name` = $name" in merge_query  # generic column, backtick-escaped
+    assert "n.`order`" not in merge_query  # undeclared → not a bare column SET
+    assert "n.`metadata` = $metadata" in merge_query
+    assert '"order": 5' in merge_params.get("metadata", "")  # folded into metadata
 
-    # 2. A node with only a reserved-keyword property still escapes it in SET.
+    # 2. A node whose only property is undeclared → it lives in metadata; the write
+    # never references a non-existent column.
     mock_backend.reset_mock()
     engine.add_node("node2", "MemoryNode", {"order": 10})
     upsert_query = mock_backend.execute.call_args_list[-1][0][0]
+    upsert_params = mock_backend.execute.call_args_list[-1][0][1]
     assert "MERGE (n:MemoryNode {id: $id})" in upsert_query
-    assert "n.`order` = $order" in upsert_query
+    assert "n.`order`" not in upsert_query
+    assert '"order": 10' in upsert_params.get("metadata", "")
 
 
 def test_relative_db_path_resolves_under_data_dir_not_cwd():
