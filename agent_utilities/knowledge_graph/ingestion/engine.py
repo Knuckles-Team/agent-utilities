@@ -856,17 +856,35 @@ class IngestionEngine:
         enriched windows is capped (``KG_ENRICH_MAX_CHUNKS``, default 64) so cost
         stays controlled for big documents — raise it to enrich more deeply.
         """
+        windows = self._enrichment_windows(text)
         concepts = 0
-        facts = 0
-        for window in self._enrichment_windows(text):
-            if enrich_concepts:
+        if enrich_concepts:
+            # Concept extraction uses the sync lite-LLM client; run per window.
+            for window in windows:
                 concepts += self._extract_and_link_concepts(
                     source_id, window, source_type, title
                 )
-            if enrich_facts:
-                facts += await self._extract_facts_into_graph(
-                    source_id, window, source_type
-                )
+        facts = 0
+        if enrich_facts and windows:
+            # Fact extraction is the measured bottleneck (~tens of seconds/window
+            # on the chat model). It is async, so fan the windows out concurrently
+            # with bounded concurrency — vLLM batches requests, turning an N×
+            # sequential cost into ~N/KG_ENRICH_CONCURRENCY. Writes happen in sync
+            # sections of each coroutine, so there is no backend write race.
+            import asyncio
+
+            sem = asyncio.Semaphore(int(setting("KG_ENRICH_CONCURRENCY", "8")))
+
+            async def _facts_for(window: str) -> int:
+                async with sem:
+                    return await self._extract_facts_into_graph(
+                        source_id, window, source_type
+                    )
+
+            results = await asyncio.gather(
+                *(_facts_for(w) for w in windows), return_exceptions=True
+            )
+            facts = sum(r for r in results if isinstance(r, int))
         return {"concepts": concepts, "facts": facts}
 
     def _enrichment_windows(self, text: str) -> list[str]:
@@ -1209,7 +1227,9 @@ class IngestionEngine:
 
         return result
 
-    # Document file extensions the standardized unit can read verbatim.
+    # Document file extensions the standardized unit can read verbatim. Covers the
+    # text/doc family plus every modality the reader registry handles (KG-2.66), so
+    # a directory ingest picks up slides/sheets/email/audio/scanned images too.
     _DOC_EXTENSIONS = {
         ".md",
         ".markdown",
@@ -1221,6 +1241,22 @@ class IngestionEngine:
         ".htm",
         ".org",
         ".adoc",
+        # reader-registry modalities (CONCEPT:KG-2.66)
+        ".eml",
+        ".msg",
+        ".pptx",
+        ".xlsx",
+        ".csv",
+        ".tsv",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tiff",
+        ".tif",
+        ".wav",
+        ".mp3",
+        ".m4a",
+        ".flac",
     }
 
     def _ingest_document_dir(
@@ -1354,12 +1390,13 @@ class IngestionEngine:
         """
         import json as _json
 
-        from ..enrichment.extractors.document import (
-            extract_document,
-            read_document_text,
-        )
+        from ..enrichment.extractors.document import extract_document
+        from ..extraction.readers import read_any
 
-        text = read_document_text(str(path_obj))
+        # read_any routes the document family to the PyMuPDF-fast read_document_text
+        # and every other modality (email/pptx/xlsx/audio/OCR/...) to its registered
+        # reader — one universal front door (CONCEPT:KG-2.66).
+        text = read_any(str(path_obj))
         if not text.strip():
             return IngestionResult(
                 manifest=manifest,
