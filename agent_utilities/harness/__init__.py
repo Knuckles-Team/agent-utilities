@@ -5,6 +5,14 @@ Exposes OptimisticStateLocker, BranchMergeStateLocker, ToolContract, and Contrac
 
 from .contract_validator import ContractValidator, ToolContract
 from .distributed_state_manager import BranchMergeStateLocker, OptimisticStateLocker
+from .edit_engine import (
+    Edit,
+    EditOutcome,
+    EditResult,
+    apply_edits,
+    apply_with_reflection,
+    parse_edits,
+)
 from .evolving_memory import EvolvingMemoryStore, MemoryBank, MemoryRecord
 from .provenance_gate import ProvenanceCriticGate, ProvenanceVerdict
 from .red_team import ATTACK_CATALOG, AttackProbe, RedTeamReport, RedTeamRunner
@@ -40,6 +48,13 @@ __all__ = [
     # Provenance-completeness critic gate (CONCEPT:AHE-3.13)
     "ProvenanceCriticGate",
     "ProvenanceVerdict",
+    # Robust multi-format edit-application engine (CONCEPT:ORCH-1.46)
+    "Edit",
+    "EditOutcome",
+    "EditResult",
+    "parse_edits",
+    "apply_edits",
+    "apply_with_reflection",
     # Unified selection / aggregation operators (CONCEPT:ORCH-1.30)
     "bradley_terry_scores",
     "conservative_rating",
