@@ -7,6 +7,23 @@ across agents/services/research, and harvest them back as research outputs and t
 next Loop iteration's inputs. The keystone is :mod:`reasoning_driver`. (CONCEPT:KG-2.79)
 """
 
+from .artifact import (
+    Claim,
+    CodeSpec,
+    Evidence,
+    ExplorationKind,
+    ExplorationNode,
+    ResearchArtifact,
+)
 from .reasoning_driver import InferenceHarvest, OntologyReasoningDriver
 
-__all__ = ["InferenceHarvest", "OntologyReasoningDriver"]
+__all__ = [
+    "Claim",
+    "CodeSpec",
+    "Evidence",
+    "ExplorationKind",
+    "ExplorationNode",
+    "InferenceHarvest",
+    "OntologyReasoningDriver",
+    "ResearchArtifact",
+]

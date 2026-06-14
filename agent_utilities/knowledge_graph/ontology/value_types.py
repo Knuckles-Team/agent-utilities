@@ -556,6 +556,17 @@ VALUE_TYPES: dict[str, ValueType] = {
         max_value=1,
         unit="ratio",
     ),
+    # ARA — confidence attached to a /logic claim (CONCEPT:KG-2.80). A SHACL value
+    # type so a claim's confidence is constraint-checked at the Seal's L1 gate.
+    "ClaimConfidence": _vt(
+        "ClaimConfidence",
+        "double",
+        description="Confidence a research claim is substantiated, in [0, 1].",
+        examples=[0.0, 0.7, 1.0],
+        min_value=0,
+        max_value=1,
+        unit="ratio",
+    ),
 }
 
 
