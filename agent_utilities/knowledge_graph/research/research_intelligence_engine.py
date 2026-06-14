@@ -202,41 +202,52 @@ class ResearchIntelligenceEngine:
 
     # --- Orchestration API (KG-2.39) ---
 
+    async def _run_unified_cycle(
+        self, papers: list[dict[str, Any]] | None, *, synthesize: bool
+    ) -> dict[str, Any]:
+        """Run the single canonical research-intelligence cycle (CONCEPT:KG-2.77).
+
+        The golden loop IS the research-pipeline runner: its intake stage discovers
+        + ingests + LLM-extracts papers, and its assimilate stage matches them
+        against the ecosystem via the ConceptMatcher. This facade no longer owns a
+        parallel cycle — it delegates here so the daemon, MCP, and this facade all
+        run ONE cycle (No-Legacy). ``run_one_cycle`` is sync; off-thread it so an
+        async caller's loop is never blocked.
+        """
+        import asyncio
+
+        from .golden_loop import GoldenLoopController
+
+        if self._engine is None:
+            return {"intake_papers": None, "errors": ["no engine"], "skipped": True}
+        return await asyncio.to_thread(
+            GoldenLoopController(self._engine).run_one_cycle,
+            discover=(papers is None),
+            papers=papers,
+            breadth=False,
+            synthesize=synthesize,
+        )
+
     async def run_research_cycle(
         self,
-        query: str = "",
+        query: str = "",  # noqa: ARG002 — focus-query biasing of intake is a TODO
         papers: list[dict[str, Any]] | None = None,
     ) -> Any:
-        """Execute a full research-to-KG orchestration cycle.
+        """Execute the unified research-to-KG cycle (intake → match → synthesize).
 
-        Args:
-            query: Optional focus query.
-            papers: Optional pre-fetched papers.
-
-        Returns:
-            OrchestrationReport.
+        Delegates to the single canonical cycle (CONCEPT:KG-2.77).
         """
-        self._lazy_init()
-        if not self._orchestrator:
-            raise RuntimeError("ResearchOrchestrator not available")
-        return await self._orchestrator.run_research_cycle(query=query, papers=papers)
+        return await self._run_unified_cycle(papers, synthesize=True)
 
     async def run_daily_pipeline(
         self,
         papers: list[dict[str, Any]] | None = None,
     ) -> Any:
-        """Execute the daily discovery pipeline.
+        """Execute the unified cycle's intake + matcher (no synthesis).
 
-        Args:
-            papers: Optional pre-fetched papers.
-
-        Returns:
-            PipelineReport.
+        Delegates to the single canonical cycle (CONCEPT:KG-2.77).
         """
-        self._lazy_init()
-        if not self._pipeline:
-            raise RuntimeError("ResearchPipelineRunner not available")
-        return await self._pipeline.run_daily_pipeline(papers=papers)
+        return await self._run_unified_cycle(papers, synthesize=False)
 
     def can_run_cycle(self) -> bool:
         """Check if enough time has elapsed since the last orchestration cycle."""
