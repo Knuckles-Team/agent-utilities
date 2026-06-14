@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 215
+total_concepts: 216
 total_pillars: 19
 pillars:
 - AHE-3
@@ -1823,6 +1823,17 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/world_model.py
   doc: a first-class action-conditioned world model wrapping the graph
+- id: KG-2.68
+  name: a first-class Reasoner paradigm abstraction with an outcome-learning router that selects a reasoning
+    paradigm per task by capability tags blended with a learned reward EMA and feeds the scored result
+    back so routing self-improves
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/reasoner.py
+  doc: a first-class Reasoner paradigm abstraction with an outcome-learning router that selects a reasoning
+    paradigm per task by capability tags blended with a learned reward EMA and feeds the scored result
+    back so routing self-improves
 - id: KG-2.69
   name: inductive program-synthesis search over a typed primitive composition DSL biased by a minimum-description-length
     prior so among programs that fit the examples the shortest is preferred a finite stand-in for the
