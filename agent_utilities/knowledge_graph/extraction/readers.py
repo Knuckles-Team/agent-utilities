@@ -151,11 +151,12 @@ def discover() -> dict[str, Reader]:
     global _DISCOVERED
     if _DISCOVERED:
         return dict(_READER_REGISTRY)
-    for name in _BUILTIN_READER_MODULES:
-        try:
-            importlib.import_module(f"{__package__}.{name}")
-        except Exception as exc:  # noqa: BLE001 — one bad reader must not block others
-            logger.warning("[KG-2.66] failed to import reader module %r: %s", name, exc)
+    # Static imports (not importlib-by-string) so the import-graph wiring check
+    # sees these edges — the built-in readers self-register on import.
+    try:
+        from . import readers_media, readers_office  # noqa: F401
+    except Exception as exc:  # noqa: BLE001 — one bad reader must not block others
+        logger.warning("[KG-2.66] failed to import a built-in reader module: %s", exc)
     # Optional ``readers/`` plugin subpackage (a directory) for out-of-tree readers.
     try:
         pkg = importlib.import_module(f"{__package__}.readers")

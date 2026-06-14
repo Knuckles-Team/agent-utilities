@@ -4321,6 +4321,18 @@ def _build_server(bootstrap: bool = True):
                 wm = WorkforceManager()
                 result = wm.get_workforce_summary()
                 return json.dumps(result, default=str)
+            elif action == "close":
+                # Background OWL-RL + SHACL closure (KG-2.6): promote recent nodes
+                # to RDF, materialize implied edges via the reasoner, validate
+                # against shapes. On-demand twin of the maintenance-tick closure.
+                from agent_utilities.knowledge_graph.maintenance.owl_closure import (
+                    run_closure,
+                )
+
+                summary = run_closure(
+                    engine, limit=top_k * 200 if top_k != 10 else 2000
+                )
+                return json.dumps(summary, default=str)
             else:
                 return f"Error: Unknown analyze action '{action}'"
         except Exception as e:
