@@ -36,6 +36,10 @@ three built-in derived properties).
 
 from typing import Any
 
+# Import for its registration side-effect: research-intelligence interfaces +
+# typed links are populated into the default registries so kg.ontology discovers
+# them by default (CONCEPT:KG-2.76).
+from . import research_objects  # noqa: E402,F401
 from .derived_properties import (
     DEFAULT_DERIVED_ENGINE,
     DEFAULT_DERIVED_REGISTRY,
