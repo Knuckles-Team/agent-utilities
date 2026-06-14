@@ -289,6 +289,10 @@ class XIngestionBridge:
             "evolution_candidate_id": evo_node_id,
             "article_node_id": article_node_id,
             "classification": classification.model_dump(),
+            # Verbatim post text so the ingestion seam can extract concepts +
+            # canonical facts from it (KG-2.8 + KG-2.64).
+            "content_text": answer,
+            "title": f"X post by @{username}",
         }
 
     async def _ingest_article(

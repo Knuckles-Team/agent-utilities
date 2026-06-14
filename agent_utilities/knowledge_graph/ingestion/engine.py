@@ -1070,6 +1070,7 @@ class IngestionEngine:
         # Auto-detect specs: the repo's own ``.specify/**/*.md`` → Spec nodes
         # (bounded to source_path/.specify so we don't walk the whole tree).
         specs = 0
+        spec_enrichable: list[dict[str, Any]] = []
         spec_root = Path(source_path) / ".specify"
         if spec_root.is_dir() and backend is not None:
             import hashlib as _hashlib
@@ -1090,6 +1091,18 @@ class IngestionEngine:
                         summary=text[:500],
                     )
                     specs += 1
+                    # Specs are bounded NL requirement docs — the right grain to
+                    # enrich (concepts + facts), unlike per-symbol code cards whose
+                    # per-item LLM cost would violate native-by-default discipline.
+                    if text.strip():
+                        spec_enrichable.append(
+                            {
+                                "source_id": sid,
+                                "text": text,
+                                "source_type": "spec",
+                                "title": sp.name,
+                            }
+                        )
                 except Exception:  # noqa: BLE001
                     logger.debug("spec write failed for %s", sp, exc_info=True)
 
@@ -1105,6 +1118,7 @@ class IngestionEngine:
             nodes_created=nodes,
             edges_created=summary.covers_edges + summary.calls_edges,
             details=details,
+            enrichable=spec_enrichable,
         )
 
     @adaptor(ContentType.DOCUMENT)
@@ -1550,6 +1564,7 @@ class IngestionEngine:
             )
 
         docs_ok = nodes = edges = acl_synced = 0
+        enrichable: list[dict[str, Any]] = []
         for doc in documents:
             if not getattr(doc, "text", "").strip():
                 continue
@@ -1573,6 +1588,14 @@ class IngestionEngine:
             docs_ok += 1
             nodes += 1 + processed.chunk_count
             edges += len(processed.edges)
+            enrichable.append(
+                {
+                    "source_id": processed.document_id,
+                    "text": doc.text,
+                    "source_type": "connector",
+                    "title": doc.title or doc.id,
+                }
+            )
             # ECO-4.28 — mirror the source's ACL onto the doc + its chunks.
             if doc.external_access is not None:
                 chunk_edges = [
@@ -1611,6 +1634,7 @@ class IngestionEngine:
                 "contextual": contextual,
                 "checkpoint_advanced": new_cp is not None,
             },
+            enrichable=enrichable,
         )
 
     @adaptor(ContentType.CONVERSATION)
@@ -1730,11 +1754,22 @@ class IngestionEngine:
 
             action = result.get("action", "skip")
             node_id = result.get("node_id")
+            enrichable: list[dict[str, Any]] = []
+            if node_id and result.get("content_text"):
+                enrichable.append(
+                    {
+                        "source_id": node_id,
+                        "text": result["content_text"],
+                        "source_type": "social",
+                        "title": result.get("title", ""),
+                    }
+                )
             return IngestionResult(
                 manifest=manifest,
                 status="success" if action != "skip" else "skipped",
                 nodes_created=1 if node_id else 0,
                 details=result,
+                enrichable=enrichable,
             )
         except Exception as e:
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
@@ -1903,14 +1938,30 @@ class IngestionEngine:
                         resp.raise_for_status()
                         card = resp.json()
                     self.kg.ingest_a2a_agent_card(url=source, card=card)
+                    card_name = card.get("name", "")
+                    card_text = "\n".join(
+                        s for s in (card_name, card.get("description", "")) if s
+                    )
                     return IngestionResult(
                         manifest=manifest,
                         status="success",
                         nodes_created=1,
                         details={
                             "type": "a2a_agent",
-                            "name": card.get("name", ""),
+                            "name": card_name,
                         },
+                        enrichable=(
+                            [
+                                {
+                                    "source_id": f"a2a:{card_name or source}",
+                                    "text": card_text,
+                                    "source_type": "mcp_server",
+                                    "title": card_name,
+                                }
+                            ]
+                            if card_text.strip()
+                            else []
+                        ),
                     )
             else:
                 # Local MCP config file
@@ -1971,6 +2022,7 @@ class IngestionEngine:
                 results = await _asyncio.gather(*[_disc(e) for e in entries])
                 ingested = 0
                 tools_total = 0
+                enrichable: list[dict[str, Any]] = []
                 for entry, tools in results:
                     if hasattr(self.kg, "ingest_mcp_server"):
                         self.kg.ingest_mcp_server(
@@ -1981,6 +2033,23 @@ class IngestionEngine:
                         )
                         ingested += 1
                         tools_total += len(tools)
+                        # The server's name + its tools' descriptions are the NL
+                        # surface to mine for concepts + facts (what the server does).
+                        tool_text = "\n".join(
+                            f"{t.get('name', '')}: {t.get('description', '')}"
+                            for t in tools
+                            if isinstance(t, dict)
+                        )
+                        server_text = "\n".join(s for s in (entry["name"], tool_text) if s)
+                        if server_text.strip():
+                            enrichable.append(
+                                {
+                                    "source_id": f"mcp:{entry['name']}",
+                                    "text": server_text,
+                                    "source_type": "mcp_server",
+                                    "title": entry["name"],
+                                }
+                            )
 
                 return IngestionResult(
                     manifest=manifest,
@@ -1993,6 +2062,7 @@ class IngestionEngine:
                         "tools_discovered": tools_total,
                         "discovery": discover,
                     },
+                    enrichable=enrichable,
                 )
 
             return IngestionResult(manifest=manifest, status="skipped")
@@ -2052,6 +2122,7 @@ class IngestionEngine:
                 status="success",
                 nodes_created=node_count,
                 details=stats,
+                enrichable=stats.get("enrichable", []),
             )
         except Exception as e:
             return IngestionResult(manifest=manifest, status="failed", error=str(e))

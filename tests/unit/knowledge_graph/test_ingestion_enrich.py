@@ -173,3 +173,89 @@ async def test_ingest_enrich_opt_out(tmp_path, monkeypatch):
     result = await eng.ingest(manifest)
     assert result.status == "success"
     assert "enrichment" not in result.details
+
+
+@pytest.mark.asyncio
+async def test_social_adaptor_surfaces_post_text(monkeypatch):
+    """The SOCIAL adaptor bubbles the X post's verbatim text into the seam."""
+    from agent_utilities.knowledge_graph.ingestion import engine as eng_mod
+    from agent_utilities.knowledge_graph.ingestion.engine import (
+        ContentType,
+        IngestionManifest,
+    )
+
+    eng, _backend = _engine()
+    seen: list[dict] = []
+
+    async def _recorder(source_id, text, source_type, title="", **_kw):  # noqa: ANN001
+        seen.append({"id": source_id, "text": text, "type": source_type})
+        return {"concepts": 1, "facts": 1}
+
+    monkeypatch.setattr(eng, "_enrich_text", _recorder)
+    monkeypatch.setattr(eng, "_content_identity", lambda _m: None)
+
+    class _FakeBridge:
+        def __init__(self, **_kw):
+            pass
+
+        async def ingest_browse_result(self, **_kw):
+            return {
+                "action": "ingest",
+                "node_id": "social:x:42",
+                "content_text": "ACME Corp shipped a new product today.",
+                "title": "X post by @acme",
+            }
+
+    monkeypatch.setattr(eng_mod, "XIngestionBridge", _FakeBridge, raising=False)
+    # The adaptor imports XIngestionBridge lazily from kb.x_ingestion; patch there.
+    import agent_utilities.knowledge_graph.kb.x_ingestion as x_mod
+
+    monkeypatch.setattr(x_mod, "XIngestionBridge", _FakeBridge, raising=False)
+
+    manifest = IngestionManifest(content_type=ContentType.SOCIAL, source_uri="{}")
+    result = await eng.ingest(manifest)
+
+    assert result.status == "success"
+    assert seen and seen[0]["type"] == "social"
+    assert "ACME Corp" in seen[0]["text"]
+    assert seen[0]["id"] == "social:x:42"
+
+
+@pytest.mark.asyncio
+async def test_policy_adaptor_surfaces_constitution_text(monkeypatch):
+    """The POLICY adaptor bubbles each ingest method's `enrichable` stats up."""
+    from agent_utilities.knowledge_graph.ingestion.engine import (
+        ContentType,
+        IngestionManifest,
+    )
+
+    eng, _backend = _engine()
+    seen: list[str] = []
+
+    async def _recorder(source_id, text, source_type, title="", **_kw):  # noqa: ANN001
+        seen.append(source_type)
+        return {"concepts": 0, "facts": 0}
+
+    monkeypatch.setattr(eng, "_enrich_text", _recorder)
+    monkeypatch.setattr(eng, "_content_identity", lambda _m: None)
+
+    class _FakeKG:
+        def ingest_all_policies(self, **_kw):
+            return {
+                "total_policies": 3,
+                "enrichable": [
+                    {
+                        "source_id": "project:acme",
+                        "text": "The system MUST validate all inputs.",
+                        "source_type": "policy",
+                        "title": "acme",
+                    }
+                ],
+            }
+
+    eng.kg = _FakeKG()
+    manifest = IngestionManifest(content_type=ContentType.POLICY, source_uri="/ws")
+    result = await eng.ingest(manifest)
+
+    assert result.status == "success"
+    assert seen == ["policy"]
