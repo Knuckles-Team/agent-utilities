@@ -34,6 +34,68 @@ from ..models import (
 T = TypeVar("T", ProjectConstitution, Spec, ImplementationPlan, Tasks, DesignDocument)
 
 
+def _heuristic_complexity(task: Task) -> dict[str, Any]:
+    """Zero-infra structural complexity estimate (CONCEPT:ORCH-1.47).
+
+    Proxies complexity from description length, dependency fan-in, touched files,
+    and existing subtask count — a deployable default when no LLM scorer is
+    injected. Returns a 0-10 score plus a recommended subtask count and an
+    expansion prompt.
+    """
+    desc = str(task.description or "")
+    words = len(desc.split())
+    score = 0.0
+    score += min(4.0, words / 40.0)  # longer specs -> more complex
+    score += min(3.0, len(task.depends_on) * 0.75)  # coordination cost
+    score += min(2.0, len(task.file_paths) * 0.5)  # surface area
+    score += min(1.0, len(task.subtasks) * 0.25)
+    score = round(min(10.0, score), 2)
+    recommended = 0 if score < 4 else min(8, 2 + int((score - 4) / 1.5))
+    prompt = (
+        f"Break '{task.title or task.id}' into {recommended} focused subtasks, "
+        "each independently testable."
+    )
+    return {
+        "complexity_score": score,
+        "recommended_subtasks": recommended,
+        "expansion_prompt": prompt if recommended else "",
+    }
+
+
+def _structural_prd_to_tasks(prd_text: str, feature_id: str) -> Tasks:
+    """Heuristic PRD → sequential Tasks (CONCEPT:ORCH-1.47).
+
+    Splits on markdown headings, numbered items, and bullets. Each becomes a task
+    that depends on the prior one (a safe linear default; refine with branch/scope).
+    """
+    items: list[str] = []
+    for raw in prd_text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m = re.match(r"^(?:#{1,6}\s+|\d+[.)]\s+|[-*+]\s+)(.*)$", line)
+        if m and m.group(1).strip():
+            items.append(m.group(1).strip())
+    if not items:
+        # Fall back to non-empty paragraphs.
+        items = [p.strip() for p in prd_text.split("\n\n") if p.strip()]
+    tasks: list[Task] = []
+    prev_id: str | None = None
+    for idx, text in enumerate(items, start=1):
+        tid = str(idx)
+        tasks.append(
+            Task(
+                id=tid,
+                title=text[:80],
+                description=text,
+                depends_on=[prev_id] if prev_id else [],
+                status="pending",
+            )
+        )
+        prev_id = tid
+    return Tasks(feature_id=feature_id, tasks=tasks)
+
+
 class SDDManager:
     """Manages structured DSTDD data within an agent's workspace.
 
@@ -101,6 +163,14 @@ class SDDManager:
             content = self._render_plan_md(model)
         elif isinstance(model, Tasks):
             content = self._render_tasks_md(model)
+            # Full-fidelity JSON sidecar (markdown is lossy for fields like
+            # priority/complexity_score/subtasks). CONCEPT:ORCH-1.47.
+            import json
+
+            (path.parent / "tasks.json").write_text(
+                json.dumps(model.model_dump(), indent=2, default=str),
+                encoding="utf-8",
+            )
         else:
             raise ValueError(f"Unsupported model for saving: {type(model)}")
 
@@ -130,6 +200,13 @@ class SDDManager:
         if model_type == ImplementationPlan:
             return cast(T, self._parse_plan_md(content, feature_id))
         if model_type == Tasks:
+            # Prefer the full-fidelity JSON sidecar; fall back to markdown.
+            json_path = path.parent / "tasks.json"
+            if json_path.exists():
+                import json
+
+                data = json.loads(json_path.read_text(encoding="utf-8"))
+                return cast(T, Tasks.model_validate(data))
             return cast(T, self.import_from_markdown(path, feature_id or "default"))
         return None
 
@@ -318,6 +395,185 @@ class SDDManager:
             remaining = deferred
 
         return groups
+
+    # ------------------------------------------------------------------ #
+    # Task-management ergonomics (CONCEPT:ORCH-1.47)
+    # ------------------------------------------------------------------ #
+    def parse_prd(
+        self,
+        prd_text: str,
+        feature_id: str,
+        generator: Any = None,
+    ) -> Tasks:
+        """Decompose a PRD into a persisted, dependency-aware task list.
+
+        CONCEPT:ORCH-1.47. ``generator(prd_text, feature_id) -> Tasks`` is an
+        optional LLM-backed decomposer; when omitted, a zero-infra structural
+        parser turns headings / numbered items / bullet lines into sequential
+        tasks (each depending on the previous), so PRD intake works with nothing
+        deployed. The result is saved under ``feature_id`` and returned.
+        """
+        if generator is not None:
+            tasks = generator(prd_text, feature_id)
+        else:
+            tasks = _structural_prd_to_tasks(prd_text, feature_id)
+        self.save(tasks, feature_id)
+        return tasks
+
+    def next_task(self, feature_id: str) -> Task | None:
+        """Return the next actionable task for a feature, deps-validated.
+
+        Raises ValueError if the dependency graph is unschedulable (cycle /
+        dangling dependency), surfacing the concrete problems.
+        """
+        tasks = self.get_tasks(feature_id)
+        if tasks is None:
+            return None
+        errors = tasks.validate_dependencies()
+        if any(e.startswith("dependency cycle") for e in errors):
+            raise ValueError("; ".join(errors))
+        return tasks.next_task()
+
+    def set_task_status(
+        self, feature_id: str, task_id: str, status: str
+    ) -> Tasks | None:
+        """Update a task or subtask status and persist (CONCEPT:ORCH-1.47)."""
+        tasks = self.get_tasks(feature_id)
+        if tasks is None:
+            return None
+        for task in tasks.tasks:
+            if task.id == task_id:
+                task.status = status
+                break
+            matched = False
+            for sub in task.subtasks:
+                if sub.id == task_id:
+                    sub.status = status
+                    matched = True
+                    break
+            if matched:
+                break
+        else:
+            raise ValueError(f"task {task_id} not found in feature {feature_id}")
+        self.save(tasks, feature_id)
+        return tasks
+
+    def analyze_complexity(
+        self,
+        feature_id: str,
+        scorer: Any = None,
+    ) -> dict[str, Any]:
+        """Score each task's complexity and recommend subtask counts.
+
+        CONCEPT:ORCH-1.47. ``scorer`` is an optional callable ``(Task) -> dict``
+        returning ``{complexity_score, recommended_subtasks, expansion_prompt}``
+        (e.g. LLM-backed). When omitted a zero-infra structural heuristic is used,
+        so this works with nothing deployed. Persists a report under
+        ``.specify/reports/`` and writes the scores back onto the tasks.
+        """
+        tasks = self.get_tasks(feature_id)
+        if tasks is None:
+            raise ValueError(f"no tasks for feature {feature_id}")
+        score_fn = scorer or _heuristic_complexity
+        analysis: list[dict[str, Any]] = []
+        for task in tasks.tasks:
+            scored = score_fn(task)
+            task.complexity_score = float(scored.get("complexity_score", 0.0))
+            task.recommended_subtasks = int(scored.get("recommended_subtasks", 0))
+            if scored.get("expansion_prompt"):
+                task.expansion_prompt = str(scored["expansion_prompt"])
+            analysis.append(
+                {
+                    "task_id": task.id,
+                    "title": task.title,
+                    "complexity_score": task.complexity_score,
+                    "recommended_subtasks": task.recommended_subtasks,
+                    "expansion_prompt": task.expansion_prompt,
+                }
+            )
+        self.save(tasks, feature_id)
+        report = {"feature_id": feature_id, "complexity_analysis": analysis}
+        reports_dir = self.specify_dir / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        import json
+
+        (reports_dir / f"task-complexity-{feature_id}.json").write_text(
+            json.dumps(report, indent=2), encoding="utf-8"
+        )
+        return report
+
+    def scope_task(
+        self,
+        feature_id: str,
+        task_id: str,
+        direction: str,
+        strength: str = "regular",
+        transformer: Any = None,
+    ) -> Task | None:
+        """Adjust a task's scope up or down (CONCEPT:ORCH-1.47).
+
+        Structural by default: ``scope_down`` collapses pending subtasks and lowers
+        the recommended count; ``scope_up`` raises it. Done/in-progress subtasks are
+        preserved. An optional ``transformer(task, direction, strength) -> Task``
+        (e.g. LLM-backed) can rewrite the task body.
+        """
+        if direction not in {"up", "down"}:
+            raise ValueError("direction must be 'up' or 'down'")
+        tasks = self.get_tasks(feature_id)
+        if tasks is None:
+            return None
+        target = next((t for t in tasks.tasks if t.id == task_id), None)
+        if target is None:
+            raise ValueError(f"task {task_id} not found in feature {feature_id}")
+
+        preserved = {
+            "in_progress",
+            "completed",
+            "done",
+            "review",
+            "cancelled",
+            "deferred",
+            "blocked",
+        }
+        step = {"light": 1, "regular": 2, "heavy": 4}.get(strength, 2)
+        if direction == "down":
+            target.subtasks = [s for s in target.subtasks if str(s.status) in preserved]
+            target.recommended_subtasks = max(0, target.recommended_subtasks - step)
+            target.complexity_score = max(0.0, target.complexity_score - step)
+        else:
+            target.recommended_subtasks += step
+            target.complexity_score = min(10.0, target.complexity_score + step)
+        if transformer is not None:
+            replacement = transformer(target, direction, strength)
+            if replacement is not None:
+                tasks.tasks = [
+                    replacement if t.id == task_id else t for t in tasks.tasks
+                ]
+                target = replacement
+        self.save(tasks, feature_id)
+        return target
+
+    def list_task_contexts(self) -> list[str]:
+        """List feature ids that have a task list (CONCEPT:ORCH-1.47 tagged contexts).
+
+        feature_id is the context key: each is an independent, parallel task
+        stream (the equivalent of task-master's tags).
+        """
+        return [t.feature_id for t in self.get_all_tasks()]
+
+    def branch_tasks(self, source_feature_id: str, new_feature_id: str) -> Tasks | None:
+        """Fork a task context into a new feature id (CONCEPT:ORCH-1.47).
+
+        Copies the source task list under a new context so experiments / feature
+        branches can diverge without touching the original.
+        """
+        src = self.get_tasks(source_feature_id)
+        if src is None:
+            return None
+        clone = src.model_copy(deep=True)
+        clone.feature_id = new_feature_id
+        self.save(clone, new_feature_id)
+        return clone
 
     def export_to_markdown(self, model: Spec | Tasks, feature_id: str) -> Path:
         """Export an SDD model to a human-readable Markdown file.
