@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 202
+total_concepts: 205
 total_pillars: 19
 pillars:
 - AHE-3
@@ -2681,6 +2681,16 @@ concepts:
   - agent_utilities/mcp/client_credentials.py
   - agent_utilities/mcp/multiplexer.py
   doc: so jwt-protected children are reachable, then
+- id: OS-5.35
+  name: cost-and-throughput aware autoscaling that caps scale-up to a configured hourly budget and surfaces
+    a throughput-per-dollar efficiency metric instead of reacting to a single load signal alone
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/cost_governor.py
+  - agent_utilities/orchestration/fleet_autoscaler.py
+  doc: cost-and-throughput aware autoscaling that caps scale-up to a configured hourly budget and surfaces
+    a throughput-per-dollar efficiency metric instead of reacting to a single load signal alone
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
@@ -2688,6 +2698,18 @@ concepts:
   code_paths:
   - agent_utilities/file_safety.py
   doc: Tool-Agnostic File Safety Hooks
+- id: SAFE-1.1
+  name: non-saturating superhuman progress tracking via relative scorers and a saturation detector that
+    keep producing signal past the human or known-answer ceiling so a genuine capability jump is distinguishable
+    from metric saturation
+  pillar: SAFE-1
+  status: live
+  code_paths:
+  - agent_utilities/harness/frontier_scorers.py
+  - agent_utilities/harness/reliability_scorers.py
+  doc: non-saturating superhuman progress tracking via relative scorers and a saturation detector that
+    keep producing signal past the human or known-answer ceiling so a genuine capability jump is distinguishable
+    from metric saturation
 - id: SAFE-1.3
   name: recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags
     a non-positive derivative as a research-gets-harder signal
@@ -2697,6 +2719,15 @@ concepts:
   - agent_utilities/knowledge_graph/research/improvement_ledger.py
   doc: recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags
     a non-positive derivative as a research-gets-harder signal
+- id: SAFE-1.5
+  name: objective-level safety primitives for rising autonomy
+  pillar: SAFE-1
+  status: live
+  code_paths:
+  - agent_utilities/core/corrigibility.py
+  - agent_utilities/core/sessions.py
+  - agent_utilities/orchestration/action_policy.py
+  doc: objective-level safety primitives for rising autonomy
 - id: UTIL-1.0
   name: Data Type Conversion
   pillar: UTIL-1
