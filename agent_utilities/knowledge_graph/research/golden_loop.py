@@ -583,8 +583,10 @@ class GoldenLoopController:
         for answer_id in candidates:
             if len(tasks) >= limit:
                 break
+            if not answer_id:
+                continue
             try:
-                task = synthesize(reader, answer_id, hops=2)
+                task = synthesize(reader, str(answer_id), hops=2)
             except Exception as e:  # noqa: BLE001
                 logger.debug("search-task synthesis failed for %s: %s", answer_id, e)
                 continue

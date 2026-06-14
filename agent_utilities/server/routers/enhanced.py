@@ -384,6 +384,7 @@ async def extract_resume(job_id: str):
 def _read_url(url: str) -> str:
     """Read a URL to clean text via the readability ReaderConnector (KG-2.66)."""
     try:
+        from ...protocols.source_connectors.base import LoadConnector
         from ...protocols.source_connectors.registry import (
             discover,
             get_connector_class,
@@ -391,7 +392,7 @@ def _read_url(url: str) -> str:
 
         discover()
         cls = get_connector_class("reader")
-        if cls is None:
+        if cls is None or not issubclass(cls, LoadConnector):
             return ""
         docs = list(cls(url=url).load())
         return docs[0].text if docs else ""

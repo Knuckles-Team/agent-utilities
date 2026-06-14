@@ -515,7 +515,7 @@ class OWLBridge:
     def __init__(
         self,
         graph: Any,
-        owl_backend: OWLBackend,
+        owl_backend: OWLBackend | None,
         backend: GraphBackend | None = None,
         importance_threshold: float = 0.1,
         recency_days: int = 7,
@@ -568,6 +568,9 @@ class OWLBridge:
         If lightweight=True, performs fast local RDFS+ closures.
         If False, executes full Description Logic reasoning via the OWL backend.
         """
+        # The promote/reason cycle requires a real OWL backend; it is never run in
+        # the None case (graph_api builds a SPARQL-only bridge that uses query_sparql).
+        assert self.owl is not None, "OWL reasoning cycle requires an owl_backend"
         self.owl.clear()
 
         promoted_nodes = self._promote_stable_nodes()
@@ -852,6 +855,7 @@ class OWLBridge:
         if not stable_nodes:
             return 0
 
+        assert self.owl is not None  # only reached from the backend-backed cycle
         return self.owl.promote(stable_nodes)
 
     def _promote_stable_edges(self) -> int:
@@ -872,6 +876,7 @@ class OWLBridge:
         if not stable_edges:
             return 0
 
+        assert self.owl is not None  # only reached from the backend-backed cycle
         return self.owl.promote_edges(stable_edges)
 
     def _downfeed_inferences(self, inferences: list[dict[str, Any]]) -> int:
@@ -997,7 +1002,7 @@ class OWLBridge:
                     and getattr(engine, "backend", None) is self.backend
                 ):
                     engine.link_nodes(src, tgt, predicate, props)
-                else:
+                elif self.backend is not None:
                     rel = _re.sub(r"\W", "_", predicate).upper() or "INFERRED_RELATION"
                     self.backend.execute(
                         f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
@@ -1028,7 +1033,7 @@ class OWLBridge:
             List of result bindings as dicts. Each dict maps variable
             names to their bound values.
         """
-        if hasattr(self.owl, "query_sparql"):
+        if self.owl is not None and hasattr(self.owl, "query_sparql"):
             return self.owl.query_sparql(sparql)
 
         # Try rdflib-based SPARQL execution

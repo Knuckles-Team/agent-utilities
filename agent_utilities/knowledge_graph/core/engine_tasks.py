@@ -708,6 +708,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_golden_loop,
                 )
             )
+        # SAI factory self-specialization (CONCEPT:AHE-3.29) — opt-in, OPT-IN
+        # (autonomous compute). Grounds a learned world model in persisted
+        # transition history and specializes it. Enable with KG_SAI_FACTORY=1.
+        if _cfg.kg_sai_factory:
+            jobs.append(
+                (
+                    "sai_factory",
+                    _cfg.kg_sai_factory_interval,
+                    self._tick_sai_factory,
+                )
+            )
         # Failure-driven evolution (CONCEPT:AHE-3.18) — opt-in (KG_FAILURE_EVOLUTION=True).
         # Ingests Langfuse failures into failure-gap topics and runs a
         # regression-gated remediation cycle. This is the real telemetry sweep that
@@ -1555,6 +1566,36 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
         except Exception as e:  # noqa: BLE001
             logger.error("golden_loop tick error: %s", e)
+
+    def _tick_sai_factory(self) -> None:
+        """One SAI-factory world-model specialization cycle (CONCEPT:AHE-3.29).
+
+        Grounds a learned dynamics model in persisted ``WorldModelTransition``
+        history and specializes its config via the SAI factory, persisting a
+        ``SaiFactoryCycle`` node. AU-native (no LLM/GPU). Throttled + opt-in via
+        ``KG_SAI_FACTORY``; a no-op when too little transition history exists.
+        """
+        try:
+            from agent_utilities.harness.superhuman_gate import SuperhumanCertifier
+            from agent_utilities.harness.world_model_task import (
+                specialize_world_model_from_engine,
+            )
+
+            summary = specialize_world_model_from_engine(
+                self, certifier=SuperhumanCertifier()
+            )
+            if summary is None:
+                logger.debug("SAI factory tick: insufficient transition history")
+                return
+            logger.info(
+                "SAI factory cycle: task=%s reward=%s reached=%s transitions=%s",
+                summary.get("task_id"),
+                summary.get("final_specialist_reward"),
+                summary.get("reached"),
+                summary.get("transitions"),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error("sai_factory tick error: %s", e)
 
     def _tick_failure_ingest(self) -> None:
         """Ingest Langfuse failures → gap topics → regression-gated remediation.

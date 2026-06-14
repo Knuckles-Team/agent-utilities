@@ -43,6 +43,7 @@ from .events import (
 )
 
 if TYPE_CHECKING:
+    from .browser_tier import BrowserDriver
     from .events import Action, Observation
     from .workspace import WorkspaceBackend
 
@@ -105,7 +106,7 @@ class ActionDispatcher:
         action: Action,
         backend: WorkspaceBackend,
         state: WorkspaceState,
-        browser: object | None = None,
+        browser: BrowserDriver | None = None,
     ) -> Observation:
         try:
             if isinstance(action, CmdRunAction):
@@ -265,7 +266,7 @@ class ActionDispatcher:
 
     # ── browser (optional tier, ECO-4.44) ─────────────────────────────────────
     async def _browse(
-        self, action: BrowseAction, browser: object | None
+        self, action: BrowseAction, browser: BrowserDriver | None
     ) -> Observation:
         from .browser_tier import NullBrowserDriver
 
