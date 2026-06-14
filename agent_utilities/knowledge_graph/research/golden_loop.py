@@ -459,6 +459,25 @@ class GoldenLoopController:
         except Exception as e:  # noqa: BLE001 - monitoring persist is best-effort
             logger.debug("EvolutionCycle persist failed: %s", e)
 
+        # CONCEPT:AHE-3.26 / SAFE-1.3 — recursive-improvement velocity. Read the
+        # loop's own audit streams (EvolutionCycle + ProposalPublication +
+        # CapabilityRatchetResult) back into one velocity reading and persist it, so
+        # the loop self-instruments: is it still improving, how fast, and is it
+        # emitting code or only prose? A stalling verdict is the research-gets-harder
+        # signal. Best-effort — never aborts the cycle.
+        try:
+            from .improvement_ledger import ImprovementLedger
+
+            velocity = ImprovementLedger(self.engine).record()
+            report["velocity"] = velocity.to_dict()
+            if velocity.verdict == "stalling":
+                logger.warning(
+                    "[AHE-3.26] self-improvement stalling: %s",
+                    "; ".join(velocity.signals),
+                )
+        except Exception as e:  # noqa: BLE001 — instrumentation never blocks the loop
+            logger.debug("[AHE-3.26] velocity ledger failed: %s", e)
+
     def _distill_specs(self, topics: list[dict[str, Any]]) -> list[str]:
         """Distil ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/``."""
         from ..enrichment.cards import make_lite_llm_fn
