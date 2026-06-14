@@ -850,16 +850,45 @@ class IngestionEngine:
         Default-ON and woven into the flow; both layers share one lite LLM client
         + embedder. Pure best-effort — never raises into ingestion. Returns
         ``{'concepts': n, 'facts': m}``.
+
+        Large text (a whole book is millions of tokens) is split into bounded
+        windows so the LLM always sees a tractable prompt, and the number of
+        enriched windows is capped (``KG_ENRICH_MAX_CHUNKS``, default 64) so cost
+        stays controlled for big documents — raise it to enrich more deeply.
         """
         concepts = 0
-        if enrich_concepts:
-            concepts = self._extract_and_link_concepts(
-                source_id, text, source_type, title
-            )
         facts = 0
-        if enrich_facts:
-            facts = await self._extract_facts_into_graph(source_id, text, source_type)
+        for window in self._enrichment_windows(text):
+            if enrich_concepts:
+                concepts += self._extract_and_link_concepts(
+                    source_id, window, source_type, title
+                )
+            if enrich_facts:
+                facts += await self._extract_facts_into_graph(
+                    source_id, window, source_type
+                )
         return {"concepts": concepts, "facts": facts}
+
+    def _enrichment_windows(self, text: str) -> list[str]:
+        """Bounded LLM windows over ``text``.
+
+        Small text → one window (unchanged). Large text → chunked via the shared
+        document chunker, capped at ``KG_ENRICH_MAX_CHUNKS`` so a book yields
+        robust-but-bounded coverage instead of one infeasible mega-prompt.
+        """
+        if not text:
+            return []
+        threshold = int(setting("KG_ENRICH_CHUNK_THRESHOLD", "12000"))
+        if len(text) <= threshold:
+            return [text]
+        try:
+            from ..distillation.distillation_engine import chunk_text
+
+            chunks = chunk_text(text)
+        except Exception:  # noqa: BLE001 — fall back to a single capped window
+            return [text[:threshold]]
+        cap = int(setting("KG_ENRICH_MAX_CHUNKS", "64"))
+        return [c for c in chunks[:cap] if c and c.strip()]
 
     # ── Adaptors ───────────────────────────────────────────────────────
 
