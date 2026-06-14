@@ -22,7 +22,11 @@ from typing import Any
 
 from agent_utilities.harness.sai_task import SpecializationTask
 from agent_utilities.harness.superhuman_gate import SuperhumanCertifier
-from agent_utilities.knowledge_graph.research.sai_factory import SaiFactoryController
+
+# NOTE: SaiFactoryController is imported lazily inside ``run`` — it lives in
+# knowledge_graph.research and imports back from this harness package, so a
+# module-level import here creates a harness<->research cycle that breaks any cold
+# import of sai_factory (harness/__init__ eagerly loads this module).
 
 GenerateFn = Callable[[str], str]
 #: One benchmark run: a task + the generator that proposes candidates for it.
@@ -47,6 +51,10 @@ class AdaptationBenchmark:
     certifier: SuperhumanCertifier = field(default_factory=SuperhumanCertifier)
 
     def run(self, runs: Sequence[BenchmarkRun]) -> list[BenchmarkEntry]:
+        from agent_utilities.knowledge_graph.research.sai_factory import (
+            SaiFactoryController,
+        )
+
         entries: list[BenchmarkEntry] = []
         for task, generate_fn in runs:
             controller = SaiFactoryController(
