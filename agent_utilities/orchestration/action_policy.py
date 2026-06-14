@@ -9,9 +9,10 @@ Until now every autonomy gate in the platform was a binary env flag
 (``KG_GOLDEN_AUTO_MERGE``, ``FLEET_RECONCILER`` …) — an action was either
 fully autonomous or fully off. This module replaces that cliff with per-action
 *tiers* for operational actions (restart/scale/deploy/playbook), the
-operational sibling of the AHE-3.20 promotion-governance validator (which
-stays code-evolution-specific today and can adopt this decision point later —
-see ``docs/architecture/fleet_autonomy.md``).
+operational sibling of the AHE-3.20 promotion-governance validator — which
+has since adopted this decision point too: ``GovernedAutoMerger`` consults
+the reserved ``merge_promotion`` kind before any proposal→active lifecycle
+flip (see ``docs/architecture/fleet_autonomy.md``).
 
 One call decides everything::
 

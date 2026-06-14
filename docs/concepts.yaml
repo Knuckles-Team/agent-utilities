@@ -2818,6 +2818,7 @@ concepts:
   - agent_utilities/gateway/fleet.py
   - agent_utilities/knowledge_graph/adaptation/remediation_playbooks.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/research/auto_merge.py
   - agent_utilities/knowledge_graph/research/change_publisher.py
   - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/fleet_actuation.py
