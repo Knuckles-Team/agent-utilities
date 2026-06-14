@@ -102,3 +102,41 @@ class CodemapGenerator:
         await self.kg.store_codemap(artifact)
 
         return artifact
+
+    async def skeleton(
+        self,
+        prompt: str,
+        max_nodes: int = 150,
+        max_tokens: int = 1024,
+    ) -> str:
+        """Render a token-budgeted, importance-ranked code skeleton (ORCH-1.48).
+
+        The aider-style "repo map": it does the focused-subgraph extraction and
+        importance ranking but **skips the expensive LLM hierarchy pass**, then
+        renders :meth:`CodemapArtifact.to_skeleton`. Cheap enough to inject into a
+        model's context on every turn.
+        """
+        subgraph = await self.kg.extract_focused_subgraph(
+            query=prompt, max_nodes=max_nodes
+        )
+        nodes = [
+            CodemapNode(
+                id=nd["id"],
+                label=nd["label"],
+                type=nd["type"],
+                file=nd["file"],
+                line=nd.get("line"),
+                end_line=nd.get("end_line"),
+                description=nd.get("description"),
+                importance=nd.get("centrality", 0.0),
+            )
+            for nd in subgraph.nodes
+        ]
+        artifact = CodemapArtifact(
+            id=str(uuid.uuid4()),
+            prompt=prompt,
+            mode="fast",
+            repo_root=getattr(self.kg, "repo_root", None),
+            nodes=nodes,
+        )
+        return artifact.to_skeleton(max_tokens=max_tokens)

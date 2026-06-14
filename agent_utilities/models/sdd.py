@@ -48,6 +48,27 @@ class Task(BaseModel):
     """CONCEPT:ORCH-1.1 — HTN subtasks allowing recursive goal decomposition."""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    # CONCEPT:ORCH-1.47 — task-management ergonomics (complexity-aware expansion,
+    # dependency-aware scheduling, and test-strategy tracking).
+    priority: str = Field(
+        default="medium",
+        description="Scheduling priority: one of low | medium | high | critical.",
+    )
+    complexity_score: float = Field(
+        default=0.0,
+        description="0-10 estimated complexity; drives recommended_subtasks.",
+    )
+    recommended_subtasks: int = Field(
+        default=0, description="Suggested number of subtasks from complexity analysis."
+    )
+    test_strategy: str = Field(
+        default="", description="How this task's result should be verified."
+    )
+    expansion_prompt: str = Field(
+        default="",
+        description="Tailored prompt used when expanding this task into subtasks.",
+    )
+
     # Unified fields from ExecutionStep
     refined_subtask: str | None = Field(
         default=None,
@@ -105,11 +126,120 @@ class Task(BaseModel):
         self.parallel = val
 
 
+# CONCEPT:ORCH-1.47 — ordering used by Tasks.next_task; higher wins.
+_PRIORITY_RANK = {"critical": 3, "high": 2, "medium": 1, "low": 0}
+_DONE_STATUSES = {"completed", "done", "cancelled", "deferred"}
+
+
 class Tasks(BaseModel):
     feature_id: str = "default"
     tasks: list[Task] = Field(default_factory=list)
     parallel_waves: list[list[str]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def detect_cycles(self) -> list[list[str]]:
+        """Return dependency cycles among ``depends_on`` edges (CONCEPT:ORCH-1.47).
+
+        Each cycle is a list of task ids in traversal order. An empty list means
+        the dependency graph is a DAG.
+        """
+        graph = {t.id: list(t.depends_on) for t in self.tasks}
+        known = set(graph)
+        cycles: list[list[str]] = []
+        seen_cycles: set[frozenset[str]] = set()
+        WHITE, GREY, BLACK = 0, 1, 2
+        color = dict.fromkeys(graph, WHITE)
+
+        def visit(node: str, stack: list[str]) -> None:
+            color[node] = GREY
+            stack.append(node)
+            for dep in graph.get(node, []):
+                if dep not in known:
+                    continue  # dangling dep: not a cycle
+                if color[dep] == GREY:
+                    cycle = stack[stack.index(dep) :] + [dep]
+                    key = frozenset(cycle)
+                    if key not in seen_cycles:
+                        seen_cycles.add(key)
+                        cycles.append(cycle)
+                elif color[dep] == WHITE:
+                    visit(dep, stack)
+            stack.pop()
+            color[node] = BLACK
+
+        for node in graph:
+            if color[node] == WHITE:
+                visit(node, [])
+        return cycles
+
+    def validate_dependencies(self) -> list[str]:
+        """Return human-readable dependency problems (CONCEPT:ORCH-1.47).
+
+        Flags dangling dependencies (pointing at unknown ids), self-dependencies,
+        and cycles. An empty list means the graph is schedulable.
+        """
+        errors: list[str] = []
+        known = {t.id for t in self.tasks}
+        for t in self.tasks:
+            for dep in t.depends_on:
+                if dep == t.id:
+                    errors.append(f"task {t.id} depends on itself")
+                elif dep not in known:
+                    errors.append(f"task {t.id} depends on unknown task {dep}")
+        for cycle in self.detect_cycles():
+            errors.append("dependency cycle: " + " -> ".join(cycle))
+        return errors
+
+    def next_task(self) -> Task | None:
+        """Pick the next actionable task respecting deps, status, and priority.
+
+        CONCEPT:ORCH-1.47 — mirrors task-master's selection: subtasks of an
+        in-progress parent are preferred, then top-level tasks whose dependencies
+        are all satisfied. Ties break by priority (critical→low), then fewer
+        dependencies, then id. Returns None when nothing is actionable.
+        """
+        done = {t.id for t in self.tasks if str(t.status) in _DONE_STATUSES}
+        # Subtasks inherit doneness tracking via their own status.
+        for t in self.tasks:
+            for st in t.subtasks:
+                if str(st.status) in _DONE_STATUSES:
+                    done.add(st.id)
+
+        def deps_met(task: Task) -> bool:
+            return all(
+                d in done or d not in {x.id for x in self.tasks}
+                for d in task.depends_on
+            )
+
+        def sort_key(task: Task) -> tuple[int, int, str]:
+            return (
+                -_PRIORITY_RANK.get(str(task.priority), 1),
+                len(task.depends_on),
+                task.id,
+            )
+
+        # 1) Prefer eligible subtasks of in-progress parents.
+        sub_candidates: list[Task] = []
+        for parent in self.tasks:
+            if str(parent.status) != "in_progress":
+                continue
+            for st in parent.subtasks:
+                if str(st.status) in {"pending", "in_progress"} and all(
+                    d in done for d in st.depends_on
+                ):
+                    sub_candidates.append(st)
+        if sub_candidates:
+            return sorted(sub_candidates, key=sort_key)[0]
+
+        # 2) Fall back to top-level actionable tasks.
+        candidates = [
+            t
+            for t in self.tasks
+            if str(t.status) in {"pending", "in_progress"} and deps_met(t)
+        ]
+        if not candidates:
+            return None
+        return sorted(candidates, key=sort_key)[0]
 
     def to_mermaid(self, title: str = "Task Dependencies") -> str:
         """Generate a Mermaid flowchart for the tasks."""

@@ -181,6 +181,155 @@ def _build_server():
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    # --- Task-management ergonomics (CONCEPT:ORCH-1.47) ---
+
+    @mcp.tool()
+    def task_parse_prd(prd_text: str, feature_id: str) -> str:
+        """Decompose a PRD into a persisted, dependency-aware task list.
+
+        Turns a Product Requirements Document into sequential tasks (headings /
+        numbered items / bullets become tasks, each depending on the prior one)
+        saved under ``feature_id``. Refine with task_expand / task_scope.
+
+        Args:
+            prd_text: The raw PRD text/markdown.
+            feature_id: Context key the task list is stored under.
+
+        Returns:
+            JSON with the created task count and the task ids.
+        """
+        try:
+            from agent_utilities.sdd import SDDManager
+
+            mgr = SDDManager(setting("WORKSPACE_PATH", os.getcwd()))
+            tasks = mgr.parse_prd(prd_text, feature_id)
+            return json.dumps(
+                {
+                    "status": "parsed",
+                    "feature_id": feature_id,
+                    "task_count": len(tasks.tasks),
+                    "task_ids": [t.id for t in tasks.tasks],
+                }
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
+    def task_analyze_complexity(feature_id: str) -> str:
+        """Score each task's complexity (0-10) and recommend subtask counts.
+
+        Uses a zero-infra structural heuristic, writes scores back onto the tasks,
+        and persists a report under ``.specify/reports/``.
+
+        Args:
+            feature_id: The task context to analyze.
+
+        Returns:
+            JSON complexity report.
+        """
+        try:
+            from agent_utilities.sdd import SDDManager
+
+            mgr = SDDManager(setting("WORKSPACE_PATH", os.getcwd()))
+            return json.dumps(mgr.analyze_complexity(feature_id))
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
+    def task_next(feature_id: str) -> str:
+        """Return the next actionable task, respecting deps, status, and priority.
+
+        Validates the dependency graph first (errors on cycles), then picks the
+        highest-priority task whose dependencies are satisfied (preferring subtasks
+        of an in-progress parent).
+
+        Args:
+            feature_id: The task context to query.
+
+        Returns:
+            JSON with the chosen task, or ``{"next": null}`` when nothing is ready.
+        """
+        try:
+            from agent_utilities.sdd import SDDManager
+
+            mgr = SDDManager(setting("WORKSPACE_PATH", os.getcwd()))
+            task = mgr.next_task(feature_id)
+            if task is None:
+                return json.dumps({"next": None})
+            return json.dumps(
+                {
+                    "next": {
+                        "id": task.id,
+                        "title": task.title,
+                        "priority": task.priority,
+                        "depends_on": task.depends_on,
+                        "status": str(task.status),
+                    }
+                }
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
+    def task_set_status(feature_id: str, task_id: str, status: str) -> str:
+        """Set a task or subtask status and persist it.
+
+        Args:
+            feature_id: The task context.
+            task_id: The task or subtask id.
+            status: New status (pending | in_progress | completed | failed | ...).
+
+        Returns:
+            JSON confirmation.
+        """
+        try:
+            from agent_utilities.sdd import SDDManager
+
+            mgr = SDDManager(setting("WORKSPACE_PATH", os.getcwd()))
+            mgr.set_task_status(feature_id, task_id, status)
+            return json.dumps(
+                {"status": "updated", "task_id": task_id, "new_status": status}
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.tool()
+    def task_scope(
+        feature_id: str, task_id: str, direction: str, strength: str = "regular"
+    ) -> str:
+        """Adjust a task's scope up or down.
+
+        ``down`` collapses pending subtasks and lowers the recommended count;
+        ``up`` raises it. Done/in-progress subtasks are preserved.
+
+        Args:
+            feature_id: The task context.
+            task_id: The task to adjust.
+            direction: 'up' or 'down'.
+            strength: 'light' | 'regular' | 'heavy'.
+
+        Returns:
+            JSON with the adjusted task's new recommended_subtasks/complexity.
+        """
+        try:
+            from agent_utilities.sdd import SDDManager
+
+            mgr = SDDManager(setting("WORKSPACE_PATH", os.getcwd()))
+            task = mgr.scope_task(feature_id, task_id, direction, strength)
+            if task is None:
+                return json.dumps({"error": f"no tasks for feature {feature_id}"})
+            return json.dumps(
+                {
+                    "status": "scoped",
+                    "task_id": task.id,
+                    "direction": direction,
+                    "recommended_subtasks": task.recommended_subtasks,
+                    "complexity_score": task.complexity_score,
+                }
+            )
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
     # --- Agent Capability Tools ---
 
     @mcp.tool()
@@ -229,6 +378,11 @@ def _build_server():
                     "dstdd_create_design",
                     "dstdd_validate_design",
                     "dstdd_design_to_spec",
+                    "task_parse_prd",
+                    "task_analyze_complexity",
+                    "task_next",
+                    "task_set_status",
+                    "task_scope",
                     "agent_list_tools",
                     "agent_self_model",
                     "agent_team_compose",

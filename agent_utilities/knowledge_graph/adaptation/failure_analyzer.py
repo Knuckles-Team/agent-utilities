@@ -503,10 +503,52 @@ class FailureAnalyzer:
                         f"{name} spiking ({current.get(name, 0)} > baseline {base})",
                     )
                     return False
+            # Verified: the remediation holds against the originally-observed
+            # failures (no signature spiking). Lock each as a plain-English
+            # regression assertion so the same failure can't silently recur.
+            self._lock_regression_cases(gaps)
             self._record_gate_result(_spec, True, "no spike above ingest baseline")
             return True
 
         return _check
+
+    def _lock_regression_cases(self, gaps: list[dict[str, Any]]) -> None:
+        """Promote each verified-remediated gap to a locked EvalCorpus assertion.
+
+        CONCEPT:AHE-3.25 — closes the Opik "lock-as-regression-test" step: once a
+        fix is verified, persist a plain-English assertion case keyed to the
+        failing workflow so future runs are judged against "this failure does not
+        recur" rather than silently regressing. Idempotent per signature.
+        """
+        if not hasattr(self, "_locked_signatures"):
+            self._locked_signatures: set[str] = set()
+        try:
+            from agent_utilities.harness.eval_corpus import EvalCorpus
+        except Exception as exc:  # pragma: no cover - import best-effort
+            logger.debug("eval corpus unavailable: %s", exc)
+            return
+        corpus = EvalCorpus(backend=self.engine)
+        for g in gaps:
+            sig = str(g.get("signature", ""))
+            if not sig or sig in self._locked_signatures:
+                continue
+            workflow = g.get("workflow", "unknown")
+            label = g.get("name") or g.get("label") or workflow
+            try:
+                corpus.add_case(
+                    query=f"Re-run the '{workflow}' workflow that previously failed.",
+                    expected_output="The workflow completes without the prior failure.",
+                    assertion=(
+                        f"The response does not reproduce the failure '{label}' "
+                        f"in workflow '{workflow}'."
+                    ),
+                    tags=["failure_gap", "regression", "verified"],
+                    reason=f"verified remediation of {sig}",
+                    metadata={"signature": sig, "workflow": workflow},
+                )
+                self._locked_signatures.add(sig)
+            except Exception as exc:  # noqa: BLE001 — locking must never gate the gate
+                logger.debug("regression lock failed for %s: %s", sig, exc)
 
     def _record_gate_result(self, spec: Any, passed: bool, detail: str) -> None:
         """Persist the gate verdict as a ``RegressionGateResult`` node.
