@@ -18,6 +18,10 @@ from agent_utilities.security.browser_auth import (
     BaseLoopbackCallbackServer,
     generate_pkce,
 )
+from agent_utilities.security.credential_provider import (
+    CredentialProvider,
+    get_credential_provider,
+)
 from agent_utilities.security.execution_stability_engine import (
     RepetitionGuard,
     RepetitionPolicy,
@@ -40,6 +44,16 @@ from agent_utilities.security.sandboxed_executor import (
     SandboxLimits,
     SandboxResult,
 )
+from agent_utilities.security.source_credentials import (
+    ApiKeyCredential,
+    AuthMaterial,
+    BasicAuthCredential,
+    CookieSessionCredential,
+    NoCredential,
+    OAuth2Credential,
+    SourceCredential,
+    build_credential,
+)
 from agent_utilities.security.threat_defense_engine import (
     PromptInjectionPolicy,
     PromptInjectionScanner,
@@ -61,6 +75,17 @@ __all__ = [
     "BaseLoopbackCallbackHandler",
     "BaseLoopbackCallbackServer",
     "generate_pkce",
+    # credential_provider (CONCEPT:OS-5.38) + source_credentials (CONCEPT:OS-5.39)
+    "CredentialProvider",
+    "get_credential_provider",
+    "SourceCredential",
+    "NoCredential",
+    "ApiKeyCredential",
+    "CookieSessionCredential",
+    "BasicAuthCredential",
+    "OAuth2Credential",
+    "AuthMaterial",
+    "build_credential",
     # guardrails
     "ContentFilterPolicy",
     "CostBudgetPolicy",
