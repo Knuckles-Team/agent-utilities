@@ -190,6 +190,12 @@ class IngestionResult(BaseModel):
     error: str | None = None
     duration_ms: float = 0.0
     details: dict[str, Any] = Field(default_factory=dict)
+    # Text payloads the unified intelligence layer (``_enrich_text``) runs over,
+    # drained centrally in ``ingest()`` so every content type is enriched in one
+    # place (*Native by default*). Each entry: ``{source_id, text, source_type,
+    # title, concepts_done}``. Aggregating adaptors (dir/codebase) collect their
+    # units' payloads here so nested ingests are covered too.
+    enrichable: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ── Adaptor Registry ──────────────────────────────────────────────────────
@@ -584,6 +590,33 @@ class IngestionEngine:
         try:
             handler = _ADAPTORS[manifest.content_type]
             result = await handler(self, manifest)
+            # Unified always-on intelligence layer: drain every text payload the
+            # adaptor surfaced through the one ``_enrich_text`` seam so concepts +
+            # canonical facts are extracted for EVERY content type, not per-adaptor
+            # (*Native by default*). ``enrich=False`` is the single opt-out for
+            # fast structural-only bulk runs. Best-effort — never fails ingest.
+            if (
+                result.status == "success"
+                and result.enrichable
+                and manifest.metadata.get("enrich", True)
+            ):
+                enriched = {"concepts": 0, "facts": 0}
+                for payload in result.enrichable:
+                    try:
+                        counts = await self._enrich_text(
+                            payload["source_id"],
+                            payload.get("text", ""),
+                            payload.get("source_type", manifest.content_type.value),
+                            payload.get("title", ""),
+                            enrich_concepts=not payload.get("concepts_done", False),
+                        )
+                        enriched["concepts"] += counts["concepts"]
+                        enriched["facts"] += counts["facts"]
+                    except Exception:  # noqa: BLE001 — enrichment never breaks ingest
+                        logger.debug("enrich payload failed", exc_info=True)
+                result.nodes_created += enriched["concepts"]
+                result.edges_created += enriched["facts"]
+                result.details.setdefault("enrichment", enriched)
             result.duration_ms = (time.monotonic() - start) * 1000
             # Record the content hash only on a clean success so failures retry.
             if identity and result.status == "success":
@@ -801,6 +834,7 @@ class IngestionEngine:
         source_type: str,
         title: str = "",
         *,
+        enrich_concepts: bool = True,
         enrich_facts: bool = True,
     ) -> dict[str, int]:
         """Unified always-on intelligence layer for any text-bearing ingestion.
@@ -817,7 +851,11 @@ class IngestionEngine:
         + embedder. Pure best-effort — never raises into ingestion. Returns
         ``{'concepts': n, 'facts': m}``.
         """
-        concepts = self._extract_and_link_concepts(source_id, text, source_type, title)
+        concepts = 0
+        if enrich_concepts:
+            concepts = self._extract_and_link_concepts(
+                source_id, text, source_type, title
+            )
         facts = 0
         if enrich_facts:
             facts = await self._extract_facts_into_graph(source_id, text, source_type)
@@ -1164,6 +1202,7 @@ class IngestionEngine:
             )
 
         nodes = edges = docs = 0
+        enrichable: list[dict[str, Any]] = []
         for f in files:
             sub = IngestionManifest(
                 content_type=manifest.content_type,
@@ -1176,6 +1215,9 @@ class IngestionEngine:
                 docs += 1
                 nodes += res.nodes_created or 0
                 edges += res.edges_created or 0
+                # Bubble each unit's text up so the central seam enriches the
+                # whole directory (the unit ran directly, bypassing ``ingest()``).
+                enrichable.extend(res.enrichable)
 
         return IngestionResult(
             manifest=manifest,
@@ -1187,6 +1229,7 @@ class IngestionEngine:
                 "files_seen": len(files),
                 "summary": _json.dumps({"root": str(root)}),
             },
+            enrichable=enrichable,
         )
 
     async def _ingest_document_url(
@@ -1399,6 +1442,17 @@ class IngestionEngine:
                 "chunks": chunks_created,
                 "chunk_objects": chunk_objects_created,
             },
+            # ``extract_document`` already did concepts → central seam adds the
+            # canonical-fact layer over the same verbatim text (KG-2.64).
+            enrichable=[
+                {
+                    "source_id": doc.id,
+                    "text": text,
+                    "source_type": "document",
+                    "title": doc.title,
+                    "concepts_done": want_concepts,
+                }
+            ],
         )
 
     @adaptor(ContentType.CONNECTOR)
@@ -1620,6 +1674,13 @@ class IngestionEngine:
                     status="success",
                     nodes_created=1,
                     details={"episode_id": ep_id},
+                    enrichable=[
+                        {
+                            "source_id": ep_id,
+                            "text": manifest.source_uri,
+                            "source_type": "conversation",
+                        }
+                    ],
                 )
 
             # Fallback: create a simple episode node
@@ -1789,17 +1850,30 @@ class IngestionEngine:
             if not frontmatter.get("name"):
                 frontmatter["name"] = skill_path.name
 
+            skill_id = ""
             if hasattr(self.kg, "ingest_agent_skill"):
-                self.kg.ingest_agent_skill(
-                    skill_file_path=str(skill_md),
-                    frontmatter=frontmatter,
-                    content=content,
+                skill_id = (
+                    self.kg.ingest_agent_skill(
+                        skill_file_path=str(skill_md),
+                        frontmatter=frontmatter,
+                        content=content,
+                    )
+                    or ""
                 )
+            skill_id = skill_id or f"skill:{frontmatter.get('name', skill_path.name)}"
             return IngestionResult(
                 manifest=manifest,
                 status="success",
                 nodes_created=1,
                 details={"skill_name": frontmatter.get("name", "")},
+                enrichable=[
+                    {
+                        "source_id": skill_id,
+                        "text": content,
+                        "source_type": "skill",
+                        "title": frontmatter.get("name", ""),
+                    }
+                ],
             )
         except Exception as e:
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
@@ -2064,22 +2138,21 @@ class IngestionEngine:
                     timestamp=_now(),
                 )
 
-            # Always-on unified intelligence layer (concepts + canonical facts)
-            # so prompts interweave with code/docs/chats (KG-2.8 + KG-2.64). The
-            # single ``extract_concepts=False`` opt-out skips the LLM layer for
-            # fast structural-only bulk runs.
-            enriched = {"concepts": 0, "facts": 0}
-            if manifest.metadata.get("extract_concepts", True):
-                enriched = await self._enrich_text(
-                    prompt_id, content, "prompt", prompt_path.stem
-                )
-
+            # Unified intelligence layer (concepts + canonical facts) runs
+            # centrally in ``ingest()`` over this payload (KG-2.8 + KG-2.64).
             return IngestionResult(
                 manifest=manifest,
                 status="success",
-                nodes_created=1 + enriched["concepts"],
-                edges_created=enriched["facts"],
-                details={"prompt_id": prompt_id, **enriched},
+                nodes_created=1,
+                details={"prompt_id": prompt_id},
+                enrichable=[
+                    {
+                        "source_id": prompt_id,
+                        "text": content,
+                        "source_type": "prompt",
+                        "title": prompt_path.stem,
+                    }
+                ],
             )
         except Exception as e:
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
