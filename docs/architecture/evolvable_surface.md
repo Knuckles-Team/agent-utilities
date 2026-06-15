@@ -1,11 +1,17 @@
 # The Evolvable Surface — DSPy and the Self-Optimization Substrate (CONCEPT:AHE-3.1)
 
 > DSPy optimizes anything you can express as a **Signature** (typed inputs→outputs)
-> + a **metric** + a **trainset** of demonstrations. Today it is wired for one target —
-> system prompts. This page maps the *full* surface that DSPy (and the adjacent
-> evolution machinery) can optimize across agent-utilities: prompts, sampling
-> profiles, MCP tool descriptions, agent skills, knowledge-graph extraction, and
-> routing policies — what is wired, what is ready, and what each still needs.
+> + a **metric** + a **trainset** of demonstrations. This page maps the *full* surface
+> DSPy (and the adjacent evolution machinery) optimizes across agent-utilities — prompts,
+> sampling profiles, MCP tool descriptions, agent skills, knowledge-graph extraction,
+> concept matching, and routing policies.
+>
+> **Status (CONCEPT:AHE-3.39–3.45): all six opportunities are now wired** as one unified
+> optimization subsystem — a real graded metric (no longer exact-match), a pluggable
+> optimizable-target registry, a shared compile+demo-refine driver, generalized KG
+> persistence, two self-supervised optimizers, and a single
+> `graph_orchestrate action=optimize_component` surface (+ REST twin). See
+> [The unified optimization subsystem](#the-unified-optimization-subsystem-now-wired).
 
 ## The mental model: optimizer · substrate · metric
 
@@ -92,63 +98,71 @@ few-shot demos back to the blueprint and to the KG via `DSPyKGBridge` (CONCEPT:O
 
 | Surface | Representation (file:symbol) | Optimizer fit | Metric source | Status |
 |---|---|---|---|---|
-| **System prompts** | `SystemPromptNode`; JSON blueprints (`prompting/`) | DSPy Signature (instruction prefix + demos) | EvidenceCorpus pass-rate | **Wired** (`_dspy_optimize_cluster`) |
+| **System prompts** | `SystemPromptNode`; JSON blueprints; `system_prompt` target | DSPy Signature (instruction prefix + demos) | **graded** EvalCorpus score (AHE-3.39) | **Wired** (registry target) |
 | **Sampling profiles** | `SamplingProfile` (`agent/sampling_profile.py`) | parametric mutation (not DSPy) | `CapabilityIndex` reward EMA | **Wired** (AHE-3.38 `evolve_profile`) |
-| **Few-shot example sets** | compiled `demos` in blueprint `few_shot_examples` | DSPy bootstrap; meta-tune the demo set | eval-corpus delta | **Stored, not refined** |
-| **MCP tool descriptions** | `ToolNode`/`ToolMetadataNode`; `distill_mcp_tool` apply side | DSPy Signature (description → selectability) | tool-selection success / `record_outcome` | **Heuristic-evolved; DSPy = upgrade** |
-| **Agent skills (SOP / trigger / code)** | `ProposedSkillNode`, `SkillProposal` (KG-2.90); `SkillNeologismDetector`/`SkillFactory`; `distill_skill` apply side | DSPy for SOP/trigger text; code via test-pass metric | skill-invocation success; tests pass | **Heuristic-evolved + emergent; DSPy = upgrade** |
-| **KG fact extraction** | `FACT_EXTRACTION_PROMPT` (`extraction/fact_extractor.py`) | DSPy ChainOfThought wrapping extraction | dedup rate / canonicalization / confidence calibration | **Opportunity** |
-| **Concept matching** | `ConceptMatcher` (KG-2.75); `LoopController` search | DSPy classifier (article × concept → relevant?) | human/`ADDRESSES`-edge labels | **Opportunity** |
-| **Routing / role policy** | `AdaptiveAgentRouter`, `ModelRegistry.role_routing` (ORCH-1.27) | DSPy policy (task → model·primitive·profile) | task success from distiller | **Opportunity** |
+| **Few-shot example sets** | compiled `demos`; `refine_demos` | DSPy bootstrap + drop-one ablation | held-out graded score | **Wired** (AHE-3.43) |
+| **MCP tool descriptions** | `tool_description` target; `distill_mcp_tool` apply side | DSPy Signature (description → selectability) | graded score / `record_outcome` | **Wired** (AHE-3.41) |
+| **Agent skills (SOP / trigger)** | `skill` target; SOP via `mount_skill_unit` (ORCH-1.28); `distill_skill` | DSPy for SOP/trigger text | graded score | **Wired** (AHE-3.42) |
+| **KG fact extraction** | `extraction_optimizer.py` over `FACT_EXTRACTION_PROMPT` | DSPy module wrapping extraction | **self-supervised** dedup + canonical consistency | **Wired** (AHE-3.44) |
+| **Concept matching** | `policy_optimization.optimize_concept_matcher` | DSPy classifier (article × concept → relevant?) | classification accuracy vs `ADDRESSES` edges | **Wired** (AHE-3.45) |
+| **Routing / role policy** | `policy_optimization.optimize_routing_policy` | DSPy policy (task → primitive) | realized `ExecutionTrace` success | **Wired** (AHE-3.45) |
 
-### Prompts — wired
-The only operational DSPy path. Optimizes the instruction prefix and the few-shot
-demo set of a system prompt blueprint; persists to KG + git.
+## The unified optimization subsystem (now wired)
 
-### Sampling profiles — wired (parametric, not DSPy)
-Numeric inference knobs are evolved by `VariantPool.evolve_profile` against the reward
-EMA, not DSPy (DSPy optimizes *text*, profiles are *numbers*). They share the same
-substrate (tournament + EMA). See [Sampling Profiles](sampling_profiles.md).
+All six opportunities landed as **one subsystem** (`harness/dspy_optimization.py`), not
+six bolt-ons — the same metric, registry, driver, and persistence spine reused across
+targets.
 
-### MCP tool descriptions — heuristic-evolved; DSPy is the upgrade
-A tool's LLM-facing docstring **is** a prompt: it determines whether the model picks
-the right tool. `EvolveAgent` already emits `tool_description` edits (via the LLM-heuristic
-fallback) and `PhysicalDistillationEngine.distill_mcp_tool` already writes the optimized
-docstring + input schema back to the tool's source file under GitOps. The upgrade: replace
-the one-shot heuristic with a DSPy Signature (description → selectability), metric =
-selection accuracy / reduced wrong-tool calls — a signal already available via
-`CapabilityIndex.record_outcome` (the `designate()` path already blends a `reward_weight`).
-Wiring: add a `tool_description` branch to `_dspy_optimize_cluster` and an
-`ingest_evolved_tool_description` on `DSPyKGBridge`.
+```mermaid
+flowchart TD
+    subgraph Core["harness/dspy_optimization.py"]
+        MET["make_optimization_metric<br/>AHE-3.39 graded, not exact-match"]
+        REG["OPTIMIZABLE_TARGETS registry<br/>AHE-3.40 system_prompt · tool_description · skill"]
+        DRV["run_dspy_optimization<br/>compile + refine_demos AHE-3.43"]
+        DISP["run_component_optimization<br/>one dispatch for all targets"]
+    end
+    EV["EvolveAgent._dspy_optimize_cluster<br/>dispatches by component_attribution"] --> REG
+    REG --> DRV
+    DRV --> MET
+    DRV --> KGB["DSPyKGBridge.ingest_evolved_component<br/>AHE-3.40 generalized persist"]
+    SS1["extraction_optimizer<br/>AHE-3.44 self-supervised"] --> DISP
+    SS2["policy_optimization<br/>AHE-3.45 concept-match + routing"] --> DISP
+    EVSURF["graph_orchestrate action=optimize_component<br/>+ REST twin"] --> DISP
+    DISP --> REG
+```
 
-### Agent skills — heuristic-evolved + emergent; DSPy is the upgrade
-Skills already *emerge* (`SkillNeologismDetector` → `SkillFactory` → `SkillMerger`,
-`agentic_evolution_engine.py`), exist as `ProposedSkillNode`/`SkillProposal` (KG-2.90),
-are edited by `EvolveAgent` (heuristic), and are distilled to files by
-`PhysicalDistillationEngine.distill_skill`. What is *not* yet metric-optimized: the
-skill's SOP/description/trigger_patterns (DSPy text targets) and its generated code (a
-Signature output gated by a "tests pass" metric). A standing Wire-First note:
-`mount_skill_unit` stores a skill's SOP but the prompt builder does not yet read it —
-wiring that in is the prerequisite for optimizing SOPs against execution reliability.
+- **Real metric (AHE-3.39).** `make_optimization_metric` grades `prediction.response`
+  against `example.response` via the existing `EvalRunner` semantic scorer (token-overlap
+  fallback offline), optionally blending a reward EMA. This **replaces the exact-match
+  placeholder** — the upgrade every text target inherits.
+- **Target registry (AHE-3.40).** `OPTIMIZABLE_TARGETS` holds one `OptimizableTarget`
+  handler per `ComponentType` (system_prompt, tool_description, skill), each declaring how
+  to read the artifact's text and name it. `EvolveAgent._dspy_optimize_cluster` is
+  generalized to **dispatch by attribution** through the registry (the hardcoded
+  system-prompt-only path is gone) and now persists *every* target via the bridge —
+  closing a prior Wire-First gap where `DSPyKGBridge.ingest_evolved_*` had no caller.
+- **Demo refinement (AHE-3.43).** `refine_demos` runs a drop-one ablation on the
+  bootstrapped demos against a held-out slice, so a noisy demo can't survive into the
+  blueprint.
+- **Self-supervised optimizers.** `extraction_optimizer` (AHE-3.44) scores extractions by
+  dedup rate + canonical consistency — no labels needed; `policy_optimization` (AHE-3.45)
+  optimizes the concept matcher against `ADDRESSES`-edge labels and the routing policy
+  against realized `ExecutionTrace` success.
+- **One surface.** `graph_orchestrate action=optimize_component`
+  (`task=<system_prompt|tool_description|skill|extraction|concept_match|routing>`,
+  `dependencies`=optional JSON data) dispatches through `run_component_optimization`; the
+  REST twin is automatic (`graph_orchestrate` is already in `ACTION_TOOL_ROUTES`).
 
-### KG fact extraction — opportunity
-`FACT_EXTRACTION_PROMPT` is a large hand-crafted instruction set. Wrapped as a DSPy
-module, its metric is concrete and already computable: deduplication rate (the
-embedding deduper), entity-canonicalization consistency, and confidence calibration.
-Optimized extraction directly improves every downstream KG consumer.
-
-### Concept matching & routing — opportunity
-The research `LoopController`'s "does this source address this topic?" judgement and the
-`AdaptiveAgentRouter`'s task→(model, primitive, profile) choice are both classifiers
-with available ground truth (existing `ADDRESSES` edges; historical routing outcomes
-from the distiller). Both are natural DSPy Signatures whose winners promote into
-`ModelRegistry.role_routing` / `task_class_profiles`.
+> **Sampling profiles** (AHE-3.38) are evolved by parametric mutation, not DSPy — DSPy
+> optimizes *text*, profiles are *numbers* — but share the same reward-EMA + tournament
+> substrate. See [Sampling Profiles](sampling_profiles.md).
 
 ## The metric problem
 
 Every optimization needs a metric, and **the metric is where this gets real**. The
-current `_dspy_optimize_cluster` uses an exact-match placeholder. The system already
-owns three better signals — wiring them in is the highest-leverage improvement:
+original `_dspy_optimize_cluster` used an exact-match placeholder; AHE-3.39 replaced it
+with a graded scorer. The system owns three signals an optimizer can be steered by, in
+increasing strength:
 
 ```mermaid
 flowchart LR
@@ -193,10 +207,10 @@ flowchart TD
     LC --> AEE["AgenticEvolutionEngine"]
     AEE --> EVA["EvolveAgent.evolve"]
     EVA -->|"per failure cluster, by component_attribution"| BR{"attribution?"}
-    BR -->|"system_prompt"| D1["DSPy optimize prompt ✓ wired"]
-    BR -->|"sampling"| D2["evolve_profile ✓ wired"]
-    BR -->|"tool_description / skill / extraction"| D3["DSPy optimize — opportunity"]
-    D1 & D2 & D3 --> SUB["VariantPool: score vs incumbent → promote"]
+    BR -->|"system_prompt / tool_description / skill"| D1["registry target → run_dspy_optimization ✓"]
+    BR -->|"sampling"| D2["evolve_profile ✓"]
+    BR -->|"extraction / concept_match / routing"| D3["self-supervised optimizer ✓"]
+    D1 & D2 & D3 --> SUB["score vs incumbent → promote"]
     SUB --> KGB["persist to KG + git"]
 ```
 
@@ -206,31 +220,42 @@ and the `AgenticEvolutionEngine`/`EvolveAgent`. New optimization targets are add
 new `component_attribution` branches in `EvolveAgent` — each reusing the same
 distiller → optimizer → variant-pool → KG-bridge spine.
 
-## Roadmap (ranked by readiness)
+## Status — all delivered (AHE-3.39–3.45)
 
-1. **Real metric for the wired prompt path** — replace the exact-match placeholder with
-   the `EvalCorpus` pass-rate / `record_outcome` reward. Highest leverage; no new surface.
-2. **Few-shot demo-set refinement** — meta-tune the already-stored `demos` against the
-   eval corpus.
-3. **MCP tool descriptions** — swap the LLM-heuristic editor for a DSPy Signature against
-   selection accuracy (`record_outcome` signal + `distill_mcp_tool` apply side already exist).
-4. **KG extraction prompt** — wrap `fact_extractor` in a DSPy module; metric = dedup /
-   canonicalization.
-5. **Skill SOP/trigger** — first wire `mount_skill_unit` into the prompt builder, then
-   DSPy-optimize SOP text against invocation reliability (`distill_skill` apply side exists).
-6. **Routing / concept-matching policies** — DSPy classifiers promoted into
-   `role_routing` / `task_class_profiles`.
+| # | Opportunity | Concept | Where |
+|---|---|---|---|
+| 1 | Real metric (replaces exact-match) | AHE-3.39 | `dspy_optimization.make_optimization_metric` |
+| 2 | Few-shot demo-set refinement | AHE-3.43 | `dspy_optimization.refine_demos` |
+| 3 | MCP tool descriptions | AHE-3.41 | `tool_description` registry target |
+| 4 | KG extraction prompt | AHE-3.44 | `extraction_optimizer.optimize_extraction_prompt` |
+| 5 | Skill SOP/trigger | AHE-3.42 | `skill` registry target (SOP already reaches the model via ORCH-1.28) |
+| 6 | Concept-matching + routing | AHE-3.45 | `policy_optimization.optimize_concept_matcher` / `optimize_routing_policy` |
 
-Each step is a new `component_attribution` branch + a metric binding + a `DSPyKGBridge`
-persistence method — not new infrastructure. The substrate (variant pool, reward EMA,
-preference pairs, bandit) is already in place; what every target needs is its **metric**.
+Each was a registry target or a self-supervised optimizer reusing the one
+metric/driver/persist spine — not new infrastructure.
+
+**What remains is operational, not structural:** the LLM-gated DSPy *compile* runs only
+when an LLM is reachable, and the self-supervised optimizers want a steady supply of
+production data (documents / `ADDRESSES`-labeled pairs / execution traces). A daemon tick
+that periodically calls `optimize_component` per target — and promotes a winner only when
+it beats the incumbent on the held-out metric — is the natural next operational step.
 
 ## Code paths
 
+- `agent_utilities/harness/dspy_optimization.py` — **the spine**: `make_optimization_metric`
+  (AHE-3.39), `OPTIMIZABLE_TARGETS`/`OptimizableTarget` (AHE-3.40), `refine_demos`
+  (AHE-3.43), `run_dspy_optimization`, `run_component_optimization`.
+- `agent_utilities/knowledge_graph/extraction/extraction_optimizer.py` — AHE-3.44:
+  `extraction_quality` (self-supervised metric), `optimize_extraction_prompt`.
+- `agent_utilities/harness/policy_optimization.py` — AHE-3.45: `classification_accuracy`,
+  `routing_success_rate`, `optimize_concept_matcher`, `optimize_routing_policy`.
+- `agent_utilities/mcp/tools/analysis_tools.py` — `graph_orchestrate action=optimize_component`
+  (the two-surface entry point).
 - `agent_utilities/prompting/dspy_compiler.py` — `compile_json_to_signature`, `AgentTaskModule`.
-- `agent_utilities/harness/evolve_agent.py` — `EvolveAgent._dspy_optimize_cluster` (the wired path).
-- `agent_utilities/knowledge_graph/dspy_kg_bridge.py` — `DSPyKGBridge.ingest_evolved_prompt`
-  (`EvolvedPromptNode`, `OptimizationTrajectoryNode`).
+- `agent_utilities/harness/evolve_agent.py` — `EvolveAgent._dspy_optimize_cluster`
+  (registry-dispatched; was system-prompt-only).
+- `agent_utilities/knowledge_graph/dspy_kg_bridge.py` — `DSPyKGBridge.ingest_evolved_component`
+  (generalized; `Evolved*Node` + `OptimizationTrajectoryNode`).
 - `agent_utilities/knowledge_graph/distillation/physical_distiller.py` — the apply side
   (AHE-3.9/3.11): `distill_system_prompt`, `distill_mcp_tool`, `distill_skill`,
   `commit_distilled_changes` (KG-optimized artifacts → files under GitOps).
