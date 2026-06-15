@@ -508,9 +508,9 @@ class HydrationManager:
         ``externalToolId``/``domain="leanix"``), and advances the delta watermark.
         Default ``mode="delta"`` grabs only what changed since the last run.
         """
-        from .leanix_sync import sync_leanix
+        from .source_sync import sync_source
 
-        return sync_leanix(engine, mode="delta")
+        return sync_source(engine, "leanix", mode="delta")
 
     def _hydrate_process_modeling(self, engine: Any) -> dict[str, Any]:
         """Hydrate business processes. Supports BPMN 2.0 XML, ArchiMate XML, and BPM tools (e.g., Archi)."""

@@ -118,35 +118,32 @@ def _dispatch_liveness(engine: Any, entry: dict[str, Any]) -> dict[str, Any]:
     return run_code_health_sweep(engine)
 
 
-def _dispatch_leanix_delta(engine: Any, entry: dict[str, Any]) -> dict[str, Any]:
-    from agent_utilities.knowledge_graph.core.leanix_sync import sync_leanix
-
-    return sync_leanix(engine, mode="delta")
-
-
-def _dispatch_leanix_reconcile(engine: Any, entry: dict[str, Any]) -> dict[str, Any]:
-    from agent_utilities.knowledge_graph.core.leanix_sync import sync_leanix
-
-    return sync_leanix(engine, mode="reconcile")
-
-
 # Deterministic skill actions runnable unattended on the daemon, keyed (ref, action).
 _SKILL_HANDLERS: dict[
     tuple[str, str], Callable[[Any, dict[str, Any]], dict[str, Any]]
 ] = {
     ("code-enhancer", "liveness"): _dispatch_liveness,
-    ("leanix", "delta"): _dispatch_leanix_delta,
-    ("leanix", "reconcile"): _dispatch_leanix_reconcile,
 }
 
 
 def dispatch(entry: dict[str, Any], engine: Any) -> dict[str, Any]:
     kind = entry.get("kind", "skill")
     if kind == "skill":
-        handler = _SKILL_HANDLERS.get((entry.get("ref", ""), entry.get("action", "")))
-        if handler is None:
-            return {"status": "skipped", "reason": "no_handler"}
-        return handler(engine, entry)
+        ref = entry.get("ref", "")
+        action = entry.get("action", "")
+        handler = _SKILL_HANDLERS.get((ref, action))
+        if handler is not None:
+            return handler(engine, entry)
+        # Generic source-sync dispatch: any source registered in the hydration
+        # capability registry syncs through the one entrypoint (delta/full/reconcile).
+        from agent_utilities.knowledge_graph.core.source_sync import (
+            SYNC_ACTIONS,
+            sync_source,
+        )
+
+        if action in SYNC_ACTIONS:
+            return sync_source(engine, ref, mode=action)
+        return {"status": "skipped", "reason": "no_handler"}
     if kind == "script":
         ref = entry.get("ref", "")
         res = subprocess.run(

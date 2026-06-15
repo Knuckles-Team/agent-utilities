@@ -544,7 +544,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "document_process": "/document/process",
     "source_connector": "/connector/source",
     "leanix_writeback": "/leanix/writeback",
-    "leanix_sync": "/leanix/sync",
+    "source_sync": "/source/sync",
     "ontology_property_types": "/ontology/property-types",
     "ontology_value_types": "/ontology/value-types",
     "ontology_interface": "/ontology/interface",
@@ -6201,22 +6201,26 @@ def _build_server(bootstrap: bool = True):
     REGISTERED_TOOLS["leanix_writeback"] = leanix_writeback
 
     @mcp.tool(
-        name="leanix_sync",
-        description="Sync the LeanIX fact-sheet mirror into the KG (CONCEPT:KG-2.9). mode='delta' (only changes since the watermark, default), 'full' (everything), or 'reconcile' (tombstone fact sheets deleted in LeanIX). ids=[...] narrows to specific fact sheets (webhook-driven).",
-        tags=["graph-os", "leanix"],
+        name="source_sync",
+        description="Sync an external source's mirror into the KG (CONCEPT:KG-2.9). source='leanix'|'camunda'|'servicenow'|… (any registered hydration source). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream). Delta-capable sources do incremental sync; others fall back to a full hydrate. ids=[...] narrows to specific records (webhook-driven).",
+        tags=["graph-os", "ingestion"],
     )
-    def leanix_sync(
+    def source_sync(
+        source: str = Field(
+            default="leanix",
+            description="Registered source to sync (e.g. 'leanix', 'camunda', 'servicenow').",
+        ),
         mode: str = Field(
             default="delta",
             description="'delta' (watermark poll), 'full' (re-mirror all), or 'reconcile' (tombstone deletions).",
         ),
         ids_json: str = Field(
             default="[]",
-            description="JSON list of LeanIX fact sheet ids to narrow the sync (webhook delta).",
+            description="JSON list of record ids to narrow the sync (webhook delta).",
         ),
     ) -> str:
-        """Run a LeanIX delta/full/reconcile sync against the live engine."""
-        from agent_utilities.knowledge_graph.core.leanix_sync import sync_leanix
+        """Run a delta/full/reconcile sync for any registered source against the live engine."""
+        from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
         try:
             ids = json.loads(ids_json) if ids_json else []
@@ -6226,11 +6230,13 @@ def _build_server(bootstrap: bool = True):
                 engine = None
             if engine is None:
                 return json.dumps({"status": "skipped", "reason": "no active engine"})
-            return json.dumps(sync_leanix(engine, mode=str(mode), ids=ids or None))
+            return json.dumps(
+                sync_source(engine, str(source), mode=str(mode), ids=ids or None)
+            )
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
 
-    REGISTERED_TOOLS["leanix_sync"] = leanix_sync
+    REGISTERED_TOOLS["source_sync"] = source_sync
 
     @mcp.tool(
         name="ontology_function",
