@@ -385,3 +385,25 @@ not REST; the legacy `graph_search_hybrid_endpoint` is deprecated.
 - **Cross-encoder fine-tune (KG-2.85).** `NeuralCrossEncoderReranker` runs a stock
   distilled model (`cross-encoder/ms-marco-MiniLM-L-6-v2`); fine-tuning the reranker on
   our own graded-relevance traces is deferred.
+
+## Empirical parity + training track (Round 5)
+
+Parity is **measured**, not asserted: `harness/assimilation_benchmark.py` (`CONCEPT:AHE-3.39`)
+runs each mechanism vs a baseline on a controlled, seeded, CPU-only task and reports the real lift
++ a `claim_reproduced` verdict — surfaced via `graph_analyze action='assimilation_benchmark'`.
+**8/8 mechanisms reproduce their paper's claimed direction** (seed 0). The PauseRec parity gap is
+closed by `retrieval/pause_token_trainer.py` (`CONCEPT:KG-2.93` training track) — the paper's actual
+**trainable `<pause>` tokens optimized by gradient descent** (torch-optional, CPU), measured
+Recall@3 = 1.00 with vs 0.67 without the trained tokens. Full *scale* reproduction (paper datasets +
+GPU training) remains GPU-gated.
+
+```mermaid
+flowchart LR
+    subgraph BENCH["assimilation_benchmark (AHE-3.39)"]
+        B1["bench_pauserec / scoregate / tasr / adore<br/>decentmem / mlevolve / sgs"]
+        B2["bench_pauserec_trained<br/>(torch: real pause-token training)"]
+    end
+    SURF["graph_analyze action=assimilation_benchmark"] --> BENCH
+    BENCH --> RES["BenchmarkResult[] + to_markdown<br/>baseline vs ours + claim_reproduced (8/8)"]
+    PTT["pause_token_trainer.py (KG-2.93)<br/>trainable pause tokens + next-item CE"] --> B2
+```
