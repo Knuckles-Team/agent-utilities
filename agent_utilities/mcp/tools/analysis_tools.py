@@ -482,6 +482,21 @@ def register_analysis_tools(mcp):
                     ],
                     default=str,
                 )
+            elif action == "evolve_code":
+                # CONCEPT:KG-2.92 — Monte-Carlo GRAPH search code evolution (MLEvolve):
+                # a graph of candidate solutions with cross-branch fusion + global code
+                # memory. `query` is the task. Deterministic default coder/evaluator
+                # (zero-infra); inject an LLM coder + executor for real evolution.
+                from agent_utilities.harness.agentic_evolution_engine import (
+                    AgenticEvolutionEngine,
+                )
+
+                if not query:
+                    return "Error: evolve_code needs a task description in `query`."
+                result = AgenticEvolutionEngine(engine).evolve_via_graph_search(
+                    query, num_steps=top_k
+                )
+                return json.dumps(result, default=str)
             elif action == "infer_links":
                 from agent_utilities.knowledge_graph.kb.link_inference import (
                     infer_links,

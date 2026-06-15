@@ -101,6 +101,12 @@ class TraceDistiller:
         # it, so the harness measures its own taste over time.
         self.forecasts = ForecastBoard()
         self._last_round_score: float | None = None
+        # CONCEPT:ORCH-1.55 — the compounding eval set: each round's failures are
+        # harvested as new eval cases, so the org's eval suite (its real IP) grows
+        # with every production failure (GEPA enterprise learning loop).
+        from agent_utilities.rlm.eval_set_optimizer import EvalSet
+
+        self.eval_set = EvalSet()
 
     async def distill(self, round_id: str) -> EvidenceCorpus:
         """Run the full distillation pipeline for an evolution round.
@@ -226,6 +232,22 @@ class TraceDistiller:
                 pile,
                 len(cases),
             )
+
+        # ORCH-1.55 — harvest each failure as a new eval case so the eval set (the
+        # compounding IP) grows every round; the next harness optimization is scored
+        # against this ever-growing suite.
+        from agent_utilities.rlm.eval_set_optimizer import EvalCase
+
+        for entry in corpus.entries:
+            if not entry.pass_fail:
+                self.eval_set.add(
+                    EvalCase(
+                        case_id=f"{corpus.round_id}:{entry.task_id}",
+                        input=entry.content or entry.task_id,
+                        expected=entry.root_cause or "(must pass)",
+                        source="production_failure",
+                    )
+                )
 
     async def _classify_traces(
         self, traces: list[dict[str, Any]]
