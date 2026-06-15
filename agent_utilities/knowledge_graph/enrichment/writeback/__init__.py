@@ -15,6 +15,7 @@ Public surface:
 
 from __future__ import annotations
 
+from .approval import ProposalQueue, approve_proposal
 from .core import (
     WritebackResult,
     list_sinks,
@@ -48,4 +49,6 @@ __all__ = [
     "collect_inventory_creations",
     "push_findings",
     "collect_risk_findings",
+    "ProposalQueue",
+    "approve_proposal",
 ]

@@ -204,7 +204,15 @@ def register_ontology_tools(mcp):
     def graph_writeback(
         target: str = Field(
             default="leanix",
-            description="Write-back target: leanix | servicenow | erpnext | process | capability.",
+            description="Write-back target: leanix | servicenow | erpnext | process | capability | (any registered sink).",
+        ),
+        action: str = Field(
+            default="write",
+            description="'write' (default), 'proposals' (list queued high-stakes proposals), or 'approve' (apply proposal_id).",
+        ),
+        proposal_id: str = Field(
+            default="",
+            description="For action='approve': the queued high-stakes proposal id to apply.",
         ),
         inferences_json: str = Field(
             default="[]",
@@ -241,6 +249,8 @@ def register_ontology_tools(mcp):
     ) -> str:
         """Unified fail-closed write-back to any target system (dry-run-first)."""
         from agent_utilities.knowledge_graph.enrichment.writeback import (
+            ProposalQueue,
+            approve_proposal,
             push_findings,
             push_inventory,
             run_writeback,
@@ -252,6 +262,12 @@ def register_ontology_tools(mcp):
             except Exception:  # noqa: BLE001 - offline → no backend resolver
                 engine = None
             backend = getattr(engine, "backend", None) if engine is not None else None
+            if str(action) == "proposals":
+                return json.dumps({"proposals": ProposalQueue().list(status="pending")})
+            if str(action) == "approve":
+                return json.dumps(
+                    approve_proposal(str(proposal_id), backend=backend, engine=engine)
+                )
             if bool(inventory):
                 return json.dumps(
                     push_inventory(
