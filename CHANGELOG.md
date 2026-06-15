@@ -8,6 +8,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **KG-2.9 connector-expansion: enterprise/EA/governance/CRM/finance/legal
+  bidirectional connectors (CONCEPT:KG-2.9).** A large wave of source connectors
+  that both ingest *and* write back over one fail-closed writeback core. Ops +
+  observability (Phase 1), `spec<->ticket<->agent` bidirectional linking and
+  full Twenty CRM (Phase 2A/2B), EA + governance bidirectional sinks
+  (ArchiMate + Egeria, Phase 3), and finance/legal/personal high-stakes
+  connectors (Phase 4: emerald + legal as propose-only, plus wger + Mealie).
+  Cross-domain batches add Nextcloud (docs/calendar/contacts), Identity
+  (Okta + Keycloak), Salesforce CRM, Ansible (action), and Home Assistant
+  (device inventory) bidirectional. Closing deferrals: Mealie doc-source preset
+  and Microsoft 365 (M365) async ingestion. Registry grows 53 → 54 connectors
+  (`genesis.yaml` regenerated).
+- **Risk-tier approval queue for high-stakes write-backs (CONCEPT:KG-2.9).**
+  Outbound mutations carry a per-sink `risk_tier`; high-stakes writes
+  (finance/legal/identity) are propose-only and route through a durable approval
+  queue before execution, while low-risk sinks auto-apply. The three legacy
+  writeback modules are unified into one fail-closed writeback core that every
+  connector dispatches through.
+- **ServiceNow + ERPNext bidirectional (CMDB/ERP) (CONCEPT:KG-2.9/KG-2.53).**
+  ServiceNow and ERPNext become first-class `materialize` sources (TRM + risk
+  read), with KG-derived inventory pushed back as a reconciled set into the
+  CMDB/ERP (cross-source inventory push), plus scheduling, docs, and both MCP +
+  REST surfaces.
+- **Native LeanIX, Camunda, and ARIS EA/BPM integration (CONCEPT:KG-2.9/KG-2.8/KG-2.53).**
+  A shared EA client (`ecosystem/ea_clients.py`); a LeanIX metamodel→OWL compiler
+  with a dynamic promotable set, a real OWL mirror, delta sync (watermark poll +
+  webhook narrowing + reconcile), and fail-closed dry-run-first backfeed of
+  KG-derived knowledge. Camunda + ARIS gain `<->` KG bidirectional integration
+  with an EPC step-lift extractor and outbound process-intelligence writeback.
+  All sources route through the generic `source_sync` (delta/reconcile for any
+  source) and shared materialize core; `aris-mcp` registered in the fleet.
+- **Loop engine — successor to the golden loop (CONCEPT:KG-2.78).** Collapses the
+  many ad-hoc loops into one `LoopController` over a single `Loop` node model (a
+  long-running-objective unit). Folds the develop + skill loops and the durable
+  goal-runner into the controller (checkpointing cross-cutting), collapses the
+  goals table onto the KG Loop node (one persistence model), and exposes one
+  `graph_loops` entrypoint (L3/L4). Engine intake now advances active research-kind
+  Loops. Adds a Loop Engine runbook.
+- **Agent-Native Research Artifacts — ARA (CONCEPT:KG-2.80).** ARA modeled as an
+  OWL-native ontology object with a compiler, seal, exploration producer, and
+  live manager (A2–A5), exposed via a `research_artifact` MCP tool and REST
+  gateway twin (single source of truth). Includes the ARA comparative-analysis
+  report and one-ontology framing.
+- **Reasoning as the research engine (CONCEPT:KG-2.79).** `OntologyReasoningDriver`
+  turns OWL/RDF reasoning into the engine that drives the research cycle; the
+  reason stage is wired into the cycle natively (best-effort).
+- **Unified research-intelligence cycle + robust ConceptMatcher (CONCEPT:KG-2.75/2.76/2.77).**
+  A multi-signal `ConceptMatcher` (id + embedding-recall + LLM-judge + fusion)
+  wired live into golden-loop assimilate, with matcher-driven tiering (covered
+  papers demoted to memory). The golden loop becomes a unified research-pipeline
+  runner via a single intake stage.
+- **Action-conditioned world model + pluggable reasoning paradigms (CONCEPT:KG-2.67/2.68/2.73).**
+  A learned action-conditioned world model over the Markov kernel (KG-2.67), a
+  pluggable reasoning-paradigm registry with an outcome-learning router (KG-2.68),
+  and a learned world-model SAI track (KG-2.73).
+- **SAI factory: closed-loop self-improvement (CONCEPT:AHE-3.27/3.28/3.29, SAFE-1.6/1.7).**
+  Adaptation-speed metric (time-to-target / sample-complexity, AHE-3.27), a
+  Specialization task/verifier contract (AHE-3.28), and a closed-loop
+  `SaiFactoryController` (AHE-3.29) wired into the gateway hot path
+  (`graph_analyze specialize`) and a native-on daemon tick, plus superhuman
+  certification + benchmark (SAFE-1.6/1.7).
+- **RLM long-context benchmark + drop-in client (CONCEPT:AHE-3.32, ORCH-1.54).**
+  A long-context benchmark with a scoreboard (and `RunTrace.usage` cost capture)
+  and a drop-in, family-aware `RLM.completion()` client.
+- **Recursive-distillation loop (CONCEPT:AHE-3.31).** A recursive knowledge-
+  distillation loop realizing the AHE-3.25 intent.
+- **Universal CredentialProvider + PulseLink open-web/social source presets
+  (CONCEPT:OS-5.38/OS-5.39, ECO-4.46).** A unified outbound `CredentialProvider`
+  with a typed source-credential registry (OS-5.38/5.39); PulseLink `mcp_tool`
+  source presets (ECO-4.46) for keyless open-web/social research, with X
+  integration externalized to the optional `pulselink-mcp` (registered in the
+  fleet).
+- **Ecosystem capability registry → Concept nodes (CONCEPT:KG-2.7).** The
+  golden-loop bridges the ecosystem capability registry into the KG as Concept
+  nodes, and breadth self-configures from `workspace.yml` (default on).
+- **Per-repo baseline deltas in the code-health sweep (CONCEPT:CE-039).** The
+  `code_health` sweep tracks per-repo baseline deltas (new / fixed / graceful),
+  a new-debt gate distilled from VibeDoctor.
+- **Declarative skill / skill-workflow scheduler (CONCEPT:OS-5.30).** A
+  declarative scheduler replaces hardcoded daemon ticks.
 - **Finance microstructure / Kyle-surveillance ontology (CONCEPT:KG-2.81).**
   `knowledge_graph/ontology/finance_objects.py` registers `MicrostructureSignal`
   and `SurveillanceSignal` (extends) OWL interfaces plus typed links (signal
@@ -17,6 +97,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arXiv:2605.27684) reasons transitively over `grounded_in`/`supports`. Pairs
   with the emerald-exchange detector (EE-042) and adverse-selection gate (EE-043)
   over the engine `surveillance_risk` kernel (KG-2.20k). Defensive use only.
+
+### Changed
+- **Loop stage flags renamed `KG_GOLDEN_*` → `KG_LOOP_*` (CONCEPT:KG-2.78).** The
+  four loop-stage env flags follow the golden-loop → Loop-engine rename; no
+  back-compat aliases (No-Legacy).
+- **`kg_server._build_server` tools split into `mcp/tools/` modules.** The
+  monolithic tool-registration block in `mcp/kg_server.py` is decomposed into
+  per-domain modules under `mcp/tools/` — a structural refactor with no behavior
+  change.
+- **Connector sources routed through one materialize core.** Camunda / ARIS /
+  Egeria (and LeanIX as first adopter) standardized onto the generic
+  `source_sync` (delta/reconcile for any source) and the shared materialize core
+  instead of bespoke per-source paths.
+
+### Fixed
+- **PG lock-contention check false-matched "idea_block" → schema heal starved.**
+  The Postgres lock-contention detector matched the substring `idea_block`
+  (e.g. in unrelated identifiers), wedging the schema-heal path into starvation;
+  the check is now precise so schema healing proceeds.
+- **Neo4j / FalkorDB fan-out mirrors unstalled (CONCEPT:KG-2.74).** Map / nested
+  properties are now serialized for the Neo4j and FalkorDB mirror writers, so the
+  fan-out mirror no longer stalls on structured property values.
 
 ## [0.49.0] - 2026-06-14
 
