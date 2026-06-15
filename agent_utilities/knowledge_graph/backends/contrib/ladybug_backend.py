@@ -23,6 +23,11 @@ from typing import Any
 _NODE_LABEL_RE = re.compile(r"\(\s*\w+\s*:\s*`?(\w+)`?\s*\{")
 _REL_TYPE_RE = re.compile(r"-\s*\[\s*\w*\s*:\s*`?(\w+)`?\s*\]\s*->")
 
+# Per-retry backoff cap for file-lock contention. Bounded so a transiently-blocked
+# drainer recovers promptly once the lock frees, instead of over-sleeping into a
+# multi-minute stall (an uncapped 2**n*0.1s reached 400s+ after ~13 attempts).
+_LOCK_BACKOFF_MAX_S = 30.0
+
 import httpx
 
 from agent_utilities.core.config import setting
@@ -741,14 +746,12 @@ class LadybugBackend(GraphBackend):
                     )
                 return []
 
-        # Historical lock-contention backoff, expressed declaratively:
-        # (2**n)*0.1 + rand()*0.1 seconds, uncapped, one attempt per
-        # self.max_retries (CONCEPT:ORCH-1.36).
+        # Lock-contention backoff: (2**n)*0.1 + jitter, capped (CONCEPT:ORCH-1.36).
         policy = ResiliencePolicy(
             max_attempts=max_retries,
             backoff_base_s=0.1,
             backoff_factor=2.0,
-            max_backoff_s=float("inf"),
+            max_backoff_s=_LOCK_BACKOFF_MAX_S,
             jitter=True,
             jitter_strategy="additive",
             retry_on=(LadybugLockContentionError,),
