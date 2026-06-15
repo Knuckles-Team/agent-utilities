@@ -145,38 +145,19 @@ def test_hydrate_twenty(mock_engine):
     },
 )
 def test_hydrate_servicenow(mock_engine):
-    mock_servicenow_api_class = MagicMock()
-    mock_client = MagicMock()
-    mock_servicenow_api_class.return_value = mock_client
+    """ServiceNow hydration is converged onto the materialize path (one read impl)."""
+    import agent_utilities.knowledge_graph.enrichment.materialize as mat
 
-    mock_response = MagicMock()
-    mock_response.result = [
-        {
-            "sys_id": "sys-id-appl-99",
-            "name": "GeniusBot Portal",
-            "display_value": "GeniusBot Portal",
-        }
-    ]
-    mock_client.get_cmdb_instances.return_value = mock_response
+    with patch.object(
+        mat,
+        "run_materialize_source",
+        return_value={"status": "materialized", "source": "servicenow", "nodes": 3},
+    ) as mock_run:
+        res = HydrationManager().hydrate_source(mock_engine, "servicenow")
 
-    modules = {
-        "servicenow_api": MagicMock(),
-        "servicenow_api.api_client": MagicMock(),
-    }
-    with patch.dict("sys.modules", modules):
-        modules["servicenow_api.api_client"].ServiceNowApi = mock_servicenow_api_class
-
-        manager = HydrationManager()
-        res = manager.hydrate_source(mock_engine, "servicenow")
-
-        assert res["status"] == "ok"
-        assert res["nodes_hydrated"] == 3
-
-        mock_engine.ingest_external_batch.assert_called_once()
-        args, _ = mock_engine.ingest_external_batch.call_args
-        assert args[0] == "servicenow"
-        assert args[1][0]["id"] == "servicenow:ci:sys-id-appl-99"
-        assert args[1][0]["type"] == "platform_service"  # OWL Native
+    assert res["status"] == "materialized"
+    assert res["nodes"] == 3
+    assert mock_run.call_args[0][1] == "servicenow"
 
 
 @patch.dict(

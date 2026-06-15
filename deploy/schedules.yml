@@ -45,3 +45,32 @@ schedules:
     action: reconcile
     dispatch: deterministic
     enabled: true
+
+  - name: servicenow-sync
+    description: Mirror ServiceNow ITSM + CMDB + Technology Reference Model into the KG (KG-2.9).
+    cron: "15 */2 * * *" # every 2 hours
+    kind: skill
+    ref: servicenow
+    action: full
+    dispatch: deterministic
+    enabled: true
+
+  - name: erpnext-sync
+    description: Mirror ERPNext assets/inventory + masters into the KG (KG-2.9).
+    cron: "45 */2 * * *" # every 2 hours
+    kind: skill
+    ref: erpnext
+    action: full
+    dispatch: deterministic
+    enabled: true
+
+  # Outbound inventory push — create KG-discovered assets as CMDB CIs. Fail-closed:
+  # also requires SERVICENOW_ENABLE_WRITE. Disabled by default (mutates the SoR).
+  - name: servicenow-inventory-push
+    description: Create the KG's reconciled inventory as ServiceNow CMDB CIs (KG-2.9). Fail-closed.
+    cron: "0 4 * * *"
+    kind: skill
+    ref: servicenow
+    action: inventory
+    dispatch: deterministic
+    enabled: false
