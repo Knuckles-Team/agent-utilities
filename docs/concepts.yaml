@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 268
+total_concepts: 270
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2209,6 +2209,8 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  - agent_utilities/knowledge_graph/retrieval/neural_reranker.py
+  - agent_utilities/knowledge_graph/retrieval/reasoning_reranker.py
   - agent_utilities/knowledge_graph/retrieval/score_gate.py
   doc: Adaptive Chunk Selection
 - id: KG-2.86
@@ -2217,6 +2219,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  - agent_utilities/knowledge_graph/retrieval/generative_recommender.py
   - agent_utilities/knowledge_graph/retrieval/temporal_semantic_id.py
   doc: ChronoID. Fits a residual-quantization codebook on the
 - id: KG-2.87
@@ -2278,6 +2281,14 @@ concepts:
   - agent_utilities/harness/graph_search_evolution.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: Monte-Carlo GRAPH search code evolution
+- id: KG-2.93
+  name: PauseRec implicit-reasoning generative recommender
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/generative_recommender.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: PauseRec implicit-reasoning generative recommender
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -2873,6 +2884,8 @@ concepts:
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/harness/agentic_evolution_engine.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/rlm/__init__.py
   - agent_utilities/rlm/client.py
   - agent_utilities/rlm/config.py
@@ -2895,6 +2908,14 @@ concepts:
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/fast_slow_controller.py
   doc: feed the cycle outcome to the Fast-Slow controller
+- id: ORCH-1.57
+  name: it builds a GRPO corpus from the recurring group and
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/harness/agentic_evolution_engine.py
+  - agent_utilities/harness/substrate_trainer.py
+  doc: it builds a GRPO corpus from the recurring group and
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

@@ -483,18 +483,39 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             elif action == "evolve_code":
-                # CONCEPT:KG-2.92 — Monte-Carlo GRAPH search code evolution (MLEvolve):
-                # a graph of candidate solutions with cross-branch fusion + global code
-                # memory. `query` is the task. Deterministic default coder/evaluator
-                # (zero-infra); inject an LLM coder + executor for real evolution.
+                # CONCEPT:KG-2.92 — Monte-Carlo GRAPH search code evolution (MLEvolve)
+                # driven by a REAL LLM coder (CONCEPT:ORCH-1.54 RLM). Each search node
+                # is coded by the LLM from the step plan + prior code; a deterministic
+                # refinement is the offline fallback. Run in a worker thread so the
+                # sync RLM client has its own event loop.
                 from agent_utilities.harness.agentic_evolution_engine import (
                     AgenticEvolutionEngine,
                 )
 
                 if not query:
                     return "Error: evolve_code needs a task description in `query`."
-                result = AgenticEvolutionEngine(engine).evolve_via_graph_search(
-                    query, num_steps=top_k
+
+                def _llm_coder(plan: str, prior_code: str | None) -> tuple[str, str]:
+                    try:
+                        from agent_utilities.rlm.client import RLM
+
+                        prompt = (
+                            "Improve the code solution for this task. Return ONLY the "
+                            "full updated Python code, no prose.\n"
+                            f"Task: {query}\nStep plan: {plan}\n"
+                            f"Current code:\n{prior_code or '(none)'}"
+                        )
+                        resp = RLM().completion(prompt)
+                        if resp.ok and resp.response.strip():
+                            return (plan, resp.response)
+                    except Exception:  # noqa: BLE001 — offline / LLM error -> fallback
+                        pass
+                    return (plan, f"{prior_code or ''}\n# step for: {plan}".strip())
+
+                result = await asyncio.to_thread(
+                    lambda: AgenticEvolutionEngine(engine).evolve_via_graph_search(
+                        query, num_steps=top_k, coder_fn=_llm_coder
+                    )
                 )
                 return json.dumps(result, default=str)
             elif action == "night_shift":
@@ -510,7 +531,37 @@ def register_analysis_tools(mcp):
 
                 if not target:
                     return "Error: night_shift needs the vault root path in `target`."
-                shift_report = NightShiftSwarm(target).run_shift()
+
+                def _llm_extract(source_text: str) -> list[str]:
+                    # Real LLM Cataloger (CONCEPT:ORCH-1.54 RLM): split a source into
+                    # atomic ideas; deterministic paragraph/sentence splitter fallback.
+                    try:
+                        from agent_utilities.rlm.client import RLM
+
+                        prompt = (
+                            "Extract the atomic ideas from the text below as a list, "
+                            "one self-contained claim per line:\n\n" + source_text
+                        )
+                        resp = RLM().completion(prompt)
+                        if resp.ok and resp.response.strip():
+                            atoms = [
+                                line.lstrip("0123456789.-) \t").strip()
+                                for line in resp.response.splitlines()
+                                if line.strip()
+                            ]
+                            if atoms:
+                                return atoms
+                    except Exception:  # noqa: BLE001 — offline / LLM error -> fallback
+                        pass
+                    from agent_utilities.knowledge_graph.research.night_shift import (
+                        default_extract,
+                    )
+
+                    return default_extract(source_text)
+
+                shift_report = await asyncio.to_thread(
+                    lambda: NightShiftSwarm(target, extract_fn=_llm_extract).run_shift()
+                )
                 return json.dumps(
                     {
                         "sources_ingested": shift_report.sources_ingested,
@@ -519,6 +570,56 @@ def register_analysis_tools(mcp):
                         "frictions": shift_report.frictions,
                         "briefing_path": shift_report.briefing_path,
                     },
+                    default=str,
+                )
+            elif action == "recommend":
+                # CONCEPT:KG-2.93 — PauseRec implicit-reasoning generative recommender:
+                # retrieve candidate items, assign them semantic IDs, then recommend the
+                # next items via a latent-reasoning budget + a text↔SID bridge (no
+                # brittle explicit CoT). `query` is the user intent / history summary.
+                from agent_utilities.knowledge_graph.retrieval.generative_recommender import (  # noqa: E501
+                    ImplicitReasoningRecommender,
+                )
+                from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (  # noqa: E501
+                    TemporalSemanticIdEncoder,
+                )
+
+                if not query:
+                    return "Error: recommend needs a query/intent in `query`."
+                candidates = engine.search_hybrid(query, top_k=max(top_k * 4, 20)) or []
+                items = []
+                for c in candidates:
+                    if not isinstance(c, dict):
+                        continue
+                    inner = c.get("node", c)
+                    inner = inner if isinstance(inner, dict) else {}
+                    emb = inner.get("embedding")
+                    cid = str(inner.get("id") or c.get("id") or "")
+                    if emb and cid:
+                        items.append((cid, emb))
+                if not items:
+                    return json.dumps([])
+                embed_model = getattr(
+                    getattr(engine, "hybrid_retriever", None), "embed_model", None
+                )
+                qemb = None
+                if embed_model is not None:
+                    try:
+                        qemb = embed_model.get_text_embedding(query)
+                    except Exception:  # noqa: BLE001 — embedder down -> anchor on top item
+                        qemb = None
+                recommender = ImplicitReasoningRecommender(TemporalSemanticIdEncoder())
+                recommender.fit_catalog(items)
+                recs = recommender.recommend(qemb or items[0][1], top_k=top_k)
+                return json.dumps(
+                    [
+                        {
+                            "item_id": r.item_id,
+                            "semantic_id": list(r.semantic_id),
+                            "score": r.score,
+                        }
+                        for r in recs
+                    ],
                     default=str,
                 )
             elif action == "infer_links":
