@@ -96,6 +96,35 @@
     rdfs:domain :Workflow ;
     rdfs:range :BusinessProcess .
 
+:automates a owl:ObjectProperty ;
+    rdfs:label "automates" ;
+    rdfs:comment """CONCEPT:KG-2.83 — a synthesized Skill / SkillWorkflow (or its
+    proposal) AUTOMATES the BusinessProcess / Capability it would carry out. The
+    connector→skill bridge: the background distiller writes it process→skill so
+    reasoning relates an automation candidate to the descriptive process it
+    addresses across any connected system.""" ;
+    rdfs:range :BusinessProcess .
+
+:derivedFrom a owl:ObjectProperty ;
+    rdfs:label "derived from" ;
+    rdfs:comment """CONCEPT:KG-2.83 — provenance: a SkillProposal / SkillWorkflow
+    proposal DERIVED_FROM the source system node (egeria/leanix/aris/camunda
+    process or task) it was distilled from. Inverse of :derives so reasoning can
+    walk source→proposal and proposal→source.""" .
+
+:derives a owl:ObjectProperty ;
+    rdfs:label "derives" ;
+    rdfs:comment "CONCEPT:KG-2.83 — inverse of :derivedFrom (source node → the proposal distilled from it)." ;
+    owl:inverseOf :derivedFrom .
+
+:composes a owl:ObjectProperty ,
+        owl:TransitiveProperty ;
+    rdfs:label "composes" ;
+    rdfs:comment """CONCEPT:KG-2.83 — a SkillWorkflowProposal COMPOSES the atomic
+    Skills (or SkillProposals) it sequences as steps. Transitive so a workflow of
+    workflows resolves to its leaf atomic skills under reasoning.""" ;
+    rdfs:range :Skill .
+
 :reportsTo a owl:ObjectProperty,
         owl:TransitiveProperty ;
     rdfs:comment "Team reporting hierarchy (transitive)." ;
@@ -143,6 +172,15 @@
 :Workflow a owl:Class ;
     rdfs:label "Workflow" ;
     rdfs:comment "An orchestration flow (skill-workflow) over agents/skills." .
+
+:SkillProposal a owl:Class ;
+    rdfs:label "Skill Proposal" ;
+    rdfs:comment "CONCEPT:KG-2.82 — a propose-only atomic-skill candidate the background distiller synthesizes from a mapped process/task of any connected system; reviewed+approved by a human before it materializes." .
+
+:SkillWorkflowProposal a owl:Class ;
+    rdfs:label "Skill Workflow Proposal" ;
+    rdfs:comment "CONCEPT:KG-2.82 — a propose-only skill-workflow candidate (composes atomic Skills) distilled from a flowsTo-chain of business tasks." ;
+    rdfs:subClassOf :Workflow .
 
 :Prompt a owl:Class ;
     rdfs:label "Prompt" .
