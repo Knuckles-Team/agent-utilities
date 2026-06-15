@@ -45,6 +45,62 @@ import pytest
 from agent_utilities.knowledge_graph.backends import set_active_backend
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
+@pytest.fixture(autouse=True)
+def _isolate_os_environ():
+    """Restore ``os.environ`` to its pre-test state after every test.
+
+    Several production paths (``save_config_item``/``set_config``,
+    ``apply_served_security_profile``, backend wiring) write directly to
+    ``os.environ`` — NOT via ``monkeypatch`` — so monkeypatch's teardown can't
+    undo them and the value leaks into every later test. Concretely a persisted
+    ``GRAPH_DB_URI=postgresql://…`` makes a neo4j-mirror build raise
+    ``ConfigurationError``, a leaked ``KG_AUTH_REQUIRED=1`` makes unauthenticated
+    tool calls raise ``PermissionError``, and ``GRAPH_PG_AGE=1`` flips backend
+    selection. Snapshotting the whole environment and restoring the delta at the
+    test boundary makes the unit suite order-independent regardless of which test
+    leaked. Safe here: no module/session-scoped fixture sets env across tests.
+    Runs as the first (autouse) fixture, so a test's own ``monkeypatch.setenv``
+    still applies within the test and is restored normally.
+    """
+    snapshot = dict(os.environ)
+    try:
+        yield
+    finally:
+        for key in [k for k in os.environ if k not in snapshot]:
+            del os.environ[key]
+        for key, value in snapshot.items():
+            if os.environ.get(key) != value:
+                os.environ[key] = value
+
+
+@pytest.fixture(autouse=True)
+def _isolate_registered_tools():
+    """Restore ``kg_server.REGISTERED_TOOLS`` to its pre-test contents.
+
+    ``_build_server()`` populates this process-wide dict as a side effect, binding
+    tool callables to the engine resolved at build time. A test that builds the
+    server (e.g. via a ``server_tools``/``registered_tools`` fixture) therefore
+    leaves stale tool bindings in the global registry that corrupt a later test's
+    tool calls (a ``graph_query`` returning ``[]`` from the wrong engine).
+    Snapshotting and restoring the registry at the test boundary keeps tool
+    registration order-independent. Only guards a flag is needless — the dict IS
+    the state. Lazy import so conftest stays cheap.
+    """
+    from agent_utilities.mcp import kg_server
+
+    snapshot = dict(kg_server.REGISTERED_TOOLS)
+    try:
+        yield
+    finally:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.REGISTERED_TOOLS.update(snapshot)
+        # The named-connection registry (CONCEPT:KG-2.63) is a process-wide
+        # singleton seeded from config; a test that registers a backend (e.g. a
+        # Stardog mirror via setup_environment) leaves it pointing at that
+        # backend and corrupts a later test's engine/query routing. Drop it so it
+        # rebuilds fresh from the (restored) config on next use.
+        kg_server._CONNECTION_REGISTRY = None
+
 
 @pytest.fixture(autouse=True)
 def clean_graph_globals(monkeypatch, tmp_path):

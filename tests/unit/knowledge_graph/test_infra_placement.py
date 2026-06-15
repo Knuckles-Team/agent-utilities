@@ -198,9 +198,9 @@ def test_parse_tm_system_nested_and_gpu():
 def test_kg_server_exposes_placement_actions():
     import inspect
 
-    from agent_utilities.mcp import kg_server
+    from agent_utilities.mcp.tools import analysis_tools
 
-    src = inspect.getsource(kg_server)
+    src = inspect.getsource(analysis_tools)
     assert 'action == "placement_plan"' in src
     assert 'action == "infra_sweep"' in src
     assert "optimize_from_graph" in src
