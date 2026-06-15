@@ -15,11 +15,14 @@ from .config_generator import (
     generate_config,
     write_config,
 )
+from .doctor import CHECKS, run_doctor
 
 __all__ = [
+    "CHECKS",
     "PROFILES",
     "config_doctor",
     "config_reference",
     "generate_config",
+    "run_doctor",
     "write_config",
 ]
