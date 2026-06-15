@@ -58,6 +58,13 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "itcomponent",
     "businesscapability",
     "dataobject",
+    # Technology Reference Model + risk (CONCEPT:KG-2.9)
+    "technologyproduct",
+    "technologystandard",
+    "assetinstance",
+    "technologyrisk",
+    "asset",
+    "warehouse",
     "employee",
     "customer",
     "salesorder",

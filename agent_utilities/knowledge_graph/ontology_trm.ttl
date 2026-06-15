@@ -1,0 +1,74 @@
+# Technology Reference Model + Technology Risk ontology (CONCEPT:KG-2.9).
+# Vendor-neutral portfolio classes so LeanIX ITComponents, ServiceNow CMDB
+# products/assets, and ERPNext Assets/Items reason together as ONE technology
+# portfolio with lifecycle + risk. Imported by knowledge_graph/ontology.ttl.
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/trm> a owl:Ontology ;
+    rdfs:label "Technology Reference Model + Risk Ontology" ;
+    rdfs:comment """Vendor-neutral Technology Reference Model: a TechnologyProduct/
+    Standard portfolio, deployed AssetInstances, and the TechnologyRisk findings
+    (lifecycle/EOL/vulnerability) the KG reasons over across LeanIX, ServiceNow CMDB,
+    and ERPNext. CONCEPT:KG-2.9.""" ;
+    owl:imports <http://knuckles.team/kg> .
+
+# ── Core classes ─────────────────────────────────────────────────────────────
+:TechnologyProduct a owl:Class ;
+    rdfs:label "Technology Product" ;
+    rdfs:comment "An approved/standard technology product in the reference model (a software/hardware product or standard the estate is built from)." .
+
+:TechnologyStandard a owl:Class ;
+    rdfs:label "Technology Standard" ;
+    rdfs:comment "A governed technology standard (an approved product baseline / reference)." ;
+    rdfs:subClassOf :TechnologyProduct .
+
+:AssetInstance a owl:Class ;
+    rdfs:label "Asset Instance" ;
+    rdfs:comment "A deployed instance of a technology product — a CMDB CI, an ERPNext Asset, or an infra/topology node." .
+
+:TechnologyRisk a owl:Class ;
+    rdfs:label "Technology Risk" ;
+    rdfs:comment "A risk/compliance finding attached to a product or asset (EOL, vulnerability, lifecycle/risk rating)." .
+
+# ── Cross-vendor alignment: the per-tool classes ARE these portfolio classes ──
+:ITComponent rdfs:subClassOf :TechnologyProduct .
+:ConfigurationItem rdfs:subClassOf :AssetInstance .
+
+# ── Object properties ────────────────────────────────────────────────────────
+:instanceOf a owl:ObjectProperty ;
+    rdfs:label "instance of" ;
+    rdfs:domain :AssetInstance ;
+    rdfs:range :TechnologyProduct ;
+    rdfs:comment "Links a deployed AssetInstance to the TechnologyProduct it realizes." .
+
+:conformsToStandard a owl:ObjectProperty ;
+    rdfs:label "conforms to standard" ;
+    rdfs:range :TechnologyStandard ;
+    rdfs:comment "A product/asset conforms to an approved technology standard." .
+
+:hasRisk a owl:ObjectProperty ;
+    rdfs:label "has risk" ;
+    rdfs:range :TechnologyRisk ;
+    rdfs:comment "Attaches a TechnologyRisk finding to a product or asset." .
+
+# ── Risk / lifecycle datatype properties ─────────────────────────────────────
+:lifecycleStage a owl:DatatypeProperty ;
+    rdfs:label "lifecycle stage" ;
+    rdfs:range xsd:string ;
+    rdfs:comment "Lifecycle phase (e.g. plan/active/eol/retired)." .
+
+:endOfLifeDate a owl:DatatypeProperty ;
+    rdfs:label "end of life date" ;
+    rdfs:range xsd:date .
+
+:riskRating a owl:DatatypeProperty ;
+    rdfs:label "risk rating" ;
+    rdfs:range xsd:string ;
+    rdfs:comment "Qualitative risk rating (e.g. low/medium/high/critical)." .
+
+:vulnerabilityCount a owl:DatatypeProperty ;
+    rdfs:label "vulnerability count" ;
+    rdfs:range xsd:integer .

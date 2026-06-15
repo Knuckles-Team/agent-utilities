@@ -1071,7 +1071,7 @@ class IngestionEngine:
 
         # CONCEPT:KG-2.8 — build the capability writeback callable (EA tools) for injection. Gated
         # by KG_EA_WRITEBACK; returns None (no-op) unless EA writeback is enabled + clients exist.
-        from ..enrichment.capability_writeback import resolve_writeback_fn
+        from ..enrichment.writeback import resolve_writeback_fn
 
         pipe = EnrichmentPipeline(
             backend,
@@ -2146,7 +2146,9 @@ class IngestionEngine:
                             for t in tools
                             if isinstance(t, dict)
                         )
-                        server_text = "\n".join(s for s in (entry["name"], tool_text) if s)
+                        server_text = "\n".join(
+                            s for s in (entry["name"], tool_text) if s
+                        )
                         if server_text.strip():
                             enrichable.append(
                                 {

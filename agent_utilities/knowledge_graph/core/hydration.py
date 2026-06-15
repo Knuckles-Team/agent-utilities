@@ -53,6 +53,7 @@ CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
     "glpi": {"category": "itsm", "method": "_hydrate_servicenow"},
     "openmaint": {"category": "itsm", "method": "_hydrate_servicenow"},
     "servicenow": {"category": "itsm", "method": "_hydrate_servicenow"},
+    "erpnext": {"category": "erp", "method": "_hydrate_erpnext"},
     "jira": {"category": "issue_tracking", "method": "_hydrate_issue_tracking"},
     "plane": {"category": "issue_tracking", "method": "_hydrate_issue_tracking"},
     "issue_tracking": {
@@ -142,6 +143,10 @@ class HydrationManager:
                     setting("SERVICENOW_USER") and setting("SERVICENOW_PASSWORD")
                 ),
                 "url": setting("SERVICENOW_URL", ""),
+            },
+            "erpnext": {
+                "configured": bool(setting("ERPNEXT_TOKEN")),
+                "url": setting("ERPNEXT_URL", ""),
             },
             "glpi": {
                 "configured": bool(setting("GLPI_TOKEN")),
@@ -1624,82 +1629,20 @@ class HydrationManager:
         }
 
     def _hydrate_servicenow(self, engine: Any) -> dict[str, Any]:
-        """Hydrate from ServiceNow CMDB (Tier 3)."""
-        try:
-            from servicenow_api.api_client import ServiceNowApi
-        except ImportError:
-            return {
-                "status": "skipped",
-                "reason": "servicenow-api package not installed",
-            }
+        """Hydrate from ServiceNow (ITSM + CMDB + TRM) via the one materialize path.
 
-        url = setting("SERVICENOW_URL")
-        username = setting("SERVICENOW_USER")
-        password = setting("SERVICENOW_PASSWORD")
-        if not url or not username or not password:
-            return {
-                "status": "skipped",
-                "reason": "Missing SERVICENOW_URL, USER, or PASSWORD",
-            }
+        Converged onto the source extractor + ``run_materialize_source`` (the same
+        path ``source_sync`` uses), so ServiceNow has a single read implementation.
+        """
+        from .source_sync import sync_source
 
-        client = ServiceNowApi(base_url=url, username=username, password=password)
-        entities: list[dict[str, Any]] = []
-        relationships: list[dict[str, Any]] = []
+        return sync_source(engine, "servicenow", mode="full")
 
-        target_classes = {
-            "cmdb_ci_appl": "platform_service",
-            "cmdb_ci_server": "server",
-            "cmdb_ci_database": "system",
-        }
+    def _hydrate_erpnext(self, engine: Any) -> dict[str, Any]:
+        """Hydrate from ERPNext (assets/inventory + masters) via the materialize path."""
+        from .source_sync import sync_source
 
-        for class_name, owl_type in target_classes.items():
-            try:
-                resp = client.get_cmdb_instances(className=class_name, sysparm_limit=20)
-                items = []
-                if hasattr(resp, "result"):
-                    items = resp.result
-                elif isinstance(resp, dict):
-                    items = resp.get("result", [])
-
-                if not isinstance(items, list):
-                    if isinstance(items, dict) and "items" in items:
-                        items = items["items"]
-                    else:
-                        items = []
-
-                for item in items:
-                    if not isinstance(item, dict):
-                        continue
-
-                    sys_id = item.get("sys_id") or item.get("sysId")
-                    if not sys_id:
-                        continue
-
-                    name = item.get("name") or item.get("display_value", f"CI {sys_id}")
-
-                    # OWL Mapping: CMDB Application/Server/Database -> platform_service/server/system
-                    entities.append(
-                        {
-                            "id": f"servicenow:ci:{sys_id}",
-                            "type": owl_type,
-                            "name": name,
-                            "ci_class": class_name,
-                            "domain": "servicenow",
-                        }
-                    )
-            except Exception as class_err:
-                logger.debug(
-                    f"Failed to fetch ServiceNow class {class_name}: {class_err}"
-                )
-
-        if entities:
-            engine.ingest_external_batch("servicenow", entities, relationships)
-
-        return {
-            "status": "ok",
-            "nodes_hydrated": len(entities),
-            "relations_hydrated": len(relationships),
-        }
+        return sync_source(engine, "erpnext", mode="full")
 
     # ══════════════════════════════════════════════════════════════════
     # Tier 4 - LGTM alerts/metrics & Langfuse standardization

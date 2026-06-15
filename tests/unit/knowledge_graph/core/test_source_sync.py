@@ -159,16 +159,17 @@ def test_generic_source_falls_back_to_full_hydrate(monkeypatch):
 
     monkeypatch.setattr(hyd, "HydrationManager", FakeManager)
 
-    out = ss.sync_source(object(), "servicenow", mode="delta")
+    # 'twenty' is a hydration-registry source (not delta-capable, not materialize).
+    out = ss.sync_source(object(), "twenty", mode="delta")
     assert out["status"] == "ok"
-    assert out["source"] == "servicenow"
+    assert out["source"] == "twenty"
     assert out["delta_capable"] is False
     assert out["mode"] == "full"
-    assert calls and calls[0][1] == "servicenow"
+    assert calls and calls[0][1] == "twenty"
 
 
 def test_generic_reconcile_unsupported():
-    out = sync_source(object(), "servicenow", mode="reconcile")
+    out = sync_source(object(), "twenty", mode="reconcile")
     assert out["status"] == "skipped"
     assert "reconcile not supported" in out["reason"]
 

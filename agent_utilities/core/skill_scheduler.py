@@ -143,6 +143,20 @@ def dispatch(entry: dict[str, Any], engine: Any) -> dict[str, Any]:
 
         if action in SYNC_ACTIONS:
             return sync_source(engine, ref, mode=action)
+        # Outbound write-back / inventory push (fail-closed; the target's
+        # *_ENABLE_WRITE gate still governs whether anything is actually written).
+        if action in ("writeback", "inventory"):
+            from agent_utilities.knowledge_graph.enrichment.writeback import (
+                push_inventory,
+                run_writeback,
+            )
+
+            backend = getattr(engine, "backend", None)
+            if action == "inventory":
+                return push_inventory(
+                    ref, backend=backend, engine=engine, dry_run=False
+                )
+            return run_writeback(ref, backend=backend, engine=engine, dry_run=False)
         return {"status": "skipped", "reason": "no_handler"}
     if kind == "script":
         ref = entry.get("ref", "")

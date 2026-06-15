@@ -53,11 +53,12 @@ from .orchestration import (
 )
 from .patterns import detect_patterns
 from .pipeline import EnrichmentPipeline, EnrichmentSummary, make_parse_fn
-from .process_writeback import (
-    ProcessWritebackResult,
-    push_process_intelligence,
-    resolve_process_writeback,
+from .writeback import (
+    WritebackResult,
+    resolve_writeback_fn,
+    run_writeback,
 )
+from .writeback.sinks.process import push_process_intelligence
 from .pydantic_graph import (
     discover_pydantic_graph,
     propose_workflow_evolution,
@@ -118,9 +119,10 @@ __all__ = [
     "make_capability_search",
     "materialize_source",
     "persist_as_runnable",
-    "ProcessWritebackResult",
+    "WritebackResult",
+    "run_writeback",
+    "resolve_writeback_fn",
     "push_process_intelligence",
-    "resolve_process_writeback",
     "resolve_source_client",
     "list_sources",
     "persist_synthesis",
