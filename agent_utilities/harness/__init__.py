@@ -40,6 +40,13 @@ from .reliability_scorers import (
     build_reliability_suite,
 )
 from .sai_task import SpecializationTask, Verifier, VerifierResult
+from .self_guided_play import (
+    Guide,
+    GuideScore,
+    PlayReport,
+    PlayRound,
+    SelfGuidedSelfPlay,
+)
 from .selection_operators import (
     bradley_terry_scores,
     conservative_rating,
@@ -74,6 +81,12 @@ __all__ = [
     "FailureTriage",
     "BeliefEntry",
     "ResearchLog",
+    # Self-guided self-play (CONCEPT:AHE-3.37)
+    "SelfGuidedSelfPlay",
+    "Guide",
+    "GuideScore",
+    "PlayRound",
+    "PlayReport",
     # Provenance-completeness critic gate (CONCEPT:AHE-3.13)
     "ProvenanceCriticGate",
     "ProvenanceVerdict",
