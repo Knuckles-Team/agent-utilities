@@ -106,16 +106,16 @@ def register_query_tools(mcp):
             except Exception as e:
                 return json.dumps({"error": str(e)})
 
-        # Fan-out — per-connection labeled results, partial success.
-        out: dict[str, Any] = {"targets": {}, "errors": dict(errors)}
-        for name, engine in entries:
-            try:
-                out["targets"][name] = engine.query_cypher(
-                    cypher, parsed_params, as_of=as_of or None
-                )
-            except Exception as e:
-                out["errors"][name] = str(e)
-        return json.dumps(out, default=str)
+        # Fan-out — per-target timeout so one slow backend can't stall the set.
+        results, fan_errors = kg_server.fanout_execute(
+            entries,
+            lambda name, engine: engine.query_cypher(
+                cypher, parsed_params, as_of=as_of or None
+            ),
+        )
+        return json.dumps(
+            {"targets": results, "errors": {**errors, **fan_errors}}, default=str
+        )
 
     kg_server.REGISTERED_TOOLS["graph_query"] = graph_query
 
@@ -480,11 +480,15 @@ def register_query_tools(mcp):
         if not fanout:
             return _run_search(entries[0][1])
 
-        # Fan-out — per-connection labeled blocks, partial success.
-        out_lines = [
-            f"=== {name} ===\n{_run_search(engine)}" for name, engine in entries
+        # Fan-out — per-target timeout so one slow backend can't stall the set.
+        results, fan_errors = kg_server.fanout_execute(
+            entries, lambda name, engine: _run_search(engine)
+        )
+        out_lines = [f"=== {name} ===\n{results[name]}" for name in results]
+        out_lines += [
+            f"=== {name} (error) ===\n{err}"
+            for name, err in {**errors, **fan_errors}.items()
         ]
-        out_lines += [f"=== {name} (error) ===\n{err}" for name, err in errors.items()]
         return "\n\n".join(out_lines)
 
     kg_server.REGISTERED_TOOLS["graph_search"] = graph_search
