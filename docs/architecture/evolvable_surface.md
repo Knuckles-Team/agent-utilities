@@ -6,12 +6,14 @@
 > sampling profiles, MCP tool descriptions, agent skills, knowledge-graph extraction,
 > concept matching, and routing policies.
 >
-> **Status (CONCEPT:AHE-3.39–3.45): all six opportunities are now wired** as one unified
+> **Status (CONCEPT:AHE-3.39–3.46): all six opportunities are wired** as one unified
 > optimization subsystem — a real graded metric (no longer exact-match), a pluggable
 > optimizable-target registry, a shared compile+demo-refine driver, generalized KG
-> persistence, two self-supervised optimizers, and a single
-> `graph_orchestrate action=optimize_component` surface (+ REST twin). See
-> [The unified optimization subsystem](#the-unified-optimization-subsystem-now-wired).
+> persistence, two self-supervised optimizers, a single
+> `graph_orchestrate action=optimize_component` surface (+ REST twin), and a **scheduled,
+> propose-only daemon tick** (AHE-3.46) that closes the loop. See
+> [The unified optimization subsystem](#the-unified-optimization-subsystem-now-wired) and
+> [Closing the loop — the scheduled sweep](#closing-the-loop--the-scheduled-sweep-ahe-346).
 
 ## The mental model: optimizer · substrate · metric
 
@@ -220,7 +222,7 @@ and the `AgenticEvolutionEngine`/`EvolveAgent`. New optimization targets are add
 new `component_attribution` branches in `EvolveAgent` — each reusing the same
 distiller → optimizer → variant-pool → KG-bridge spine.
 
-## Status — all delivered (AHE-3.39–3.45)
+## Status — all delivered (AHE-3.39–3.46)
 
 | # | Opportunity | Concept | Where |
 |---|---|---|---|
@@ -230,15 +232,41 @@ distiller → optimizer → variant-pool → KG-bridge spine.
 | 4 | KG extraction prompt | AHE-3.44 | `extraction_optimizer.optimize_extraction_prompt` |
 | 5 | Skill SOP/trigger | AHE-3.42 | `skill` registry target (SOP already reaches the model via ORCH-1.28) |
 | 6 | Concept-matching + routing | AHE-3.45 | `policy_optimization.optimize_concept_matcher` / `optimize_routing_policy` |
+| 7 | **Scheduled sweep + promotion gate** | AHE-3.46 | `run_optimization_sweep` · `should_promote` · daemon tick |
 
 Each was a registry target or a self-supervised optimizer reusing the one
 metric/driver/persist spine — not new infrastructure.
 
-**What remains is operational, not structural:** the LLM-gated DSPy *compile* runs only
-when an LLM is reachable, and the self-supervised optimizers want a steady supply of
-production data (documents / `ADDRESSES`-labeled pairs / execution traces). A daemon tick
-that periodically calls `optimize_component` per target — and promotes a winner only when
-it beats the incumbent on the held-out metric — is the natural next operational step.
+## Closing the loop — the scheduled sweep (AHE-3.46)
+
+The on-demand surface is now matched by a **scheduled, propose-only daemon tick** — the
+operational step that makes optimization continuous rather than manual.
+
+```mermaid
+flowchart LR
+    TICK["KG daemon tick<br/>KG_DSPY_OPTIMIZATION (opt-in)"] --> SWEEP["run_optimization_sweep"]
+    MCP["graph_orchestrate action=optimize_component task=all"] --> SWEEP
+    SWEEP --> GD["gather_optimization_data<br/>query_cypher: Documents / ADDRESSED_BY / ExecutionTrace"]
+    GD --> RUN["run_component_optimization per target"]
+    RUN --> TRAJ["persist OptimizationTrajectory (propose-only)"]
+    TRAJ --> GATE["should_promote(baseline, candidate, min_delta)"]
+    GATE -.future auto-apply gate.-> APPLY["distill → files"]
+```
+
+- **Daemon tick** — `_tick_optimize_components` (`knowledge_graph/core/engine_tasks.py`),
+  registered in the consolidated maintenance scheduler when `KG_DSPY_OPTIMIZATION=True`
+  (off by default — each pass is an LLM-gated compile), on `KG_DSPY_OPTIMIZATION_INTERVAL`
+  (default 3600s). The scheduled twin of the MCP action; both call `run_optimization_sweep`.
+- **Sweep** — runs the schedulable self-supervised targets (extraction / concept_match /
+  routing), gathering live data via `gather_optimization_data` (`engine.query_cypher`,
+  degrading to `no_data` rather than breaking the daemon).
+- **Propose-only** — like `KG_GOLDEN_AUTO_MERGE`, the sweep records optimization
+  trajectories but **never auto-applies**. `should_promote(baseline, candidate, min_delta)`
+  is the gate a candidate must clear on the held-out metric before a future auto-apply
+  step lets it supersede the live artifact.
+
+What remains is genuinely operational tuning: a reachable LLM for the compile, and
+populated graph data for the gatherers to draw on.
 
 ## Code paths
 
@@ -250,7 +278,11 @@ it beats the incumbent on the held-out metric — is the natural next operationa
 - `agent_utilities/harness/policy_optimization.py` — AHE-3.45: `classification_accuracy`,
   `routing_success_rate`, `optimize_concept_matcher`, `optimize_routing_policy`.
 - `agent_utilities/mcp/tools/analysis_tools.py` — `graph_orchestrate action=optimize_component`
-  (the two-surface entry point).
+  (the two-surface entry point; `task=all` runs the sweep).
+- `agent_utilities/harness/dspy_optimization.py` — AHE-3.46: `run_optimization_sweep`,
+  `gather_optimization_data`, `should_promote`, `SCHEDULABLE_TARGETS`.
+- `agent_utilities/knowledge_graph/core/engine_tasks.py` — `_tick_optimize_components`
+  (the `KG_DSPY_OPTIMIZATION` maintenance-scheduler tick).
 - `agent_utilities/prompting/dspy_compiler.py` — `compile_json_to_signature`, `AgentTaskModule`.
 - `agent_utilities/harness/evolve_agent.py` — `EvolveAgent._dspy_optimize_cluster`
   (registry-dispatched; was system-prompt-only).
