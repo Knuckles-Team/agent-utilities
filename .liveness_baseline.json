@@ -1,10 +1,10 @@
 {
   "counts": {
     "orphan_modules": 163,
-    "dead_definitions": 478,
+    "dead_definitions": 479,
     "never_executed": 0,
-    "untyped_seams": 949,
-    "orphan_read_keys": 44,
+    "untyped_seams": 957,
+    "orphan_read_keys": 43,
     "facade_handlers": 46,
     "placeholder_markers": 216
   }
