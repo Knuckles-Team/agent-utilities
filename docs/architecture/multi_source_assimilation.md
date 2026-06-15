@@ -388,7 +388,7 @@ not REST; the legacy `graph_search_hybrid_endpoint` is deprecated.
 
 ## Empirical parity + training track (Round 5)
 
-Parity is **measured**, not asserted: `harness/assimilation_benchmark.py` (`CONCEPT:AHE-3.39`)
+Parity is **measured**, not asserted: `harness/assimilation_benchmark.py` (`CONCEPT:AHE-3.47`)
 runs each mechanism vs a baseline on a controlled, seeded, CPU-only task and reports the real lift
 + a `claim_reproduced` verdict — surfaced via `graph_analyze action='assimilation_benchmark'`.
 **8/8 mechanisms reproduce their paper's claimed direction** (seed 0). The PauseRec parity gap is
@@ -399,7 +399,7 @@ GPU training) remains GPU-gated.
 
 ```mermaid
 flowchart LR
-    subgraph BENCH["assimilation_benchmark (AHE-3.39)"]
+    subgraph BENCH["assimilation_benchmark (AHE-3.47)"]
         B1["bench_pauserec / scoregate / tasr / adore<br/>decentmem / mlevolve / sgs"]
         B2["bench_pauserec_trained<br/>(torch: real pause-token training)"]
     end

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 """Measured-lift benchmark suite for the assimilated-paper mechanisms.
 
-CONCEPT:AHE-3.39 — empirical parity evidence for the assimilation program.
+CONCEPT:AHE-3.47 — empirical parity evidence for the assimilation program.
 
 We adopted eight research mechanisms as shipped code, but parity has so far been
 *asserted*, not *measured*: each module ports a paper's mechanism, yet nothing
