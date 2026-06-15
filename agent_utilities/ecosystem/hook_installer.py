@@ -20,6 +20,10 @@ import platform
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.claude_harness.claude_fence import (
+    GATE_HOOK_COMMAND,
+    GATE_MATCHER,
+)
 from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
@@ -62,6 +66,16 @@ _CLAUDE_HOOKS = {
         ],
         "PreCompact": [
             {"type": "command", "command": _OBSERVE_CMD.format(agent="claude")}
+        ],
+        # CONCEPT:OS-5.41 wires the PreToolUse gate here too, so installing
+        # memory hooks also lays the fail-closed permission fence — an unattended
+        # session is governed even before a full `setup-config harness-fence`
+        # run. Command + matcher come from claude_fence so they never drift.
+        "PreToolUse": [
+            {
+                "matcher": GATE_MATCHER,
+                "hooks": [{"type": "command", "command": GATE_HOOK_COMMAND}],
+            }
         ],
     }
 }
