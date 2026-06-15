@@ -547,6 +547,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "ontology_property_types": "/ontology/property-types",
     "ontology_value_types": "/ontology/value-types",
     "ontology_interface": "/ontology/interface",
+    "ontology_sampling_profile": "/ontology/sampling-profiles",
     "ontology_function": "/ontology/function",
     "ontology_derive": "/ontology/derive",
     "ontology_link_materialize": "/ontology/link-materialize",
@@ -1870,6 +1871,47 @@ def _resolve_target_engines(
         else:
             entries.append((name, registry.get_engine(name)))
     return entries, errors, fanout
+
+
+#: Per-target wall-clock budget (seconds) for a fan-out (``target='all'`` or a
+#: multi-target list). One slow/unreachable backend must not stall the whole set;
+#: override live via ``graph_configure set_config GRAPH_FANOUT_TIMEOUT`` (KG-2.63).
+DEFAULT_FANOUT_TIMEOUT_S = 30.0
+
+
+def fanout_execute(entries, fn, *, timeout=None):
+    """Run ``fn(name, engine)`` for every fan-out target CONCURRENTLY under a shared
+    per-target wall-clock timeout, so one slow/unreachable backend can't stall the
+    others (CONCEPT:KG-2.63).
+
+    Returns ``(results, errors)`` keyed by connection name. A target that exceeds the
+    budget (or raises) lands in ``errors`` while the rest still return — the
+    partial-success contract the sequential loop violated by blocking on the slowest.
+    """
+    import concurrent.futures
+
+    if timeout is None:
+        timeout = float(setting("GRAPH_FANOUT_TIMEOUT", DEFAULT_FANOUT_TIMEOUT_S))
+    results: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    if not entries:
+        return results, errors
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(entries)))
+    futures = {ex.submit(fn, name, engine): name for name, engine in entries}
+    done, not_done = concurrent.futures.wait(futures, timeout=timeout)
+    for fut in done:
+        name = futures[fut]
+        try:
+            results[name] = fut.result()
+        except Exception as e:  # noqa: BLE001 — partial-success contract
+            errors[name] = str(e)
+    for fut in not_done:
+        errors[futures[fut]] = (
+            f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        )
+    # Never block on a hung backend's thread; let it finish in the background.
+    ex.shutdown(wait=False, cancel_futures=True)
+    return results, errors
 
 
 def _provenance_props(agent_id: str | None = None) -> dict[str, Any]:

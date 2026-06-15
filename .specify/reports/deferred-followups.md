@@ -108,3 +108,10 @@ decorator self-registration (`registered_via_plugin`) and no longer false-flags 
 **Update:** the deferred `run_full_rlm` RunTrace integration (item under ORCH-1.29) is now DONE — the
 live REPL loop populates a structured `RunTrace` (per-iteration step + `FailureClass`) exposed as
 `env.last_run_trace`. Live-path test: `tests/unit/rlm/test_orch_1_29_runtrace_live_path.py`.
+
+**Fan-out per-target timeout (CONCEPT:KG-2.63).** A `graph_query/graph_search/graph_write target='all'`
+fan-out iterated connections *sequentially with no timeout*, so one slow/unreachable backend (e.g. a
+mirror under heavy drain) stalled the whole call (~300s). ✅ RESOLVED — `kg_server.fanout_execute()` runs
+every target concurrently under a shared per-target wall-clock budget (`GRAPH_FANOUT_TIMEOUT`, default
+30s, live-tunable via `graph_configure set_config`); a slow/raising target lands in `errors` while the
+rest still return (partial-success contract). Tests: `tests/unit/mcp/test_fanout_timeout.py`.

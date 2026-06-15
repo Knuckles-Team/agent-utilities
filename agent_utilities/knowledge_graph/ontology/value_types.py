@@ -567,6 +567,80 @@ VALUE_TYPES: dict[str, ValueType] = {
         max_value=1,
         unit="ratio",
     ),
+    # CONCEPT:KG-2.94 — LLM inference sampling knobs temperature top_p top_k min_p repetition_penalty max_tokens and penalties as SHACL-bounded ontology value types plus the two-surface sampling-profile tool.
+    # A SamplingProfile (the InferenceProfile interface, KG-2.95) is SHACL-checked at the
+    # graph write gate before the AHE-3.38 loop can promote it. Bounds mirror the
+    # OpenAI/vLLM accepted ranges and the SamplingProfile pydantic field constraints.
+    "Temperature": _vt(
+        "Temperature",
+        "double",
+        description="LLM sampling temperature in [0, 2]; higher = more random.",
+        examples=[0.0, 0.7, 2.0],
+        min_value=0,
+        max_value=2,
+        unit="sampling",
+    ),
+    "TopP": _vt(
+        "TopP",
+        "double",
+        description="Nucleus-sampling cumulative-probability cutoff in [0, 1].",
+        examples=[0.8, 0.95, 1.0],
+        min_value=0,
+        max_value=1,
+        unit="sampling",
+    ),
+    "MinP": _vt(
+        "MinP",
+        "double",
+        description="vLLM min-p relative-probability floor in [0, 1].",
+        examples=[0.0, 0.05],
+        min_value=0,
+        max_value=1,
+        unit="sampling",
+    ),
+    "TopK": _vt(
+        "TopK",
+        "integer",
+        description="vLLM top-k truncation; number of highest-probability tokens kept (>=1).",
+        examples=[20, 40],
+        min_value=1,
+        unit="sampling",
+    ),
+    "RepetitionPenalty": _vt(
+        "RepetitionPenalty",
+        "double",
+        description="vLLM repetition penalty (>0); 1.0 = no penalty.",
+        examples=[1.0, 1.1, 1.5],
+        min_value=0,
+        exclusive_min=True,
+        unit="sampling",
+    ),
+    "MaxTokens": _vt(
+        "MaxTokens",
+        "integer",
+        description="Maximum tokens generated in one turn (>=1).",
+        examples=[1024, 16384],
+        min_value=1,
+        unit="sampling",
+    ),
+    "PresencePenalty": _vt(
+        "PresencePenalty",
+        "double",
+        description="OpenAI presence penalty in [-2, 2].",
+        examples=[0.0, 0.3, 1.5],
+        min_value=-2,
+        max_value=2,
+        unit="sampling",
+    ),
+    "FrequencyPenalty": _vt(
+        "FrequencyPenalty",
+        "double",
+        description="OpenAI frequency penalty in [-2, 2].",
+        examples=[0.0, 0.5],
+        min_value=-2,
+        max_value=2,
+        unit="sampling",
+    ),
 }
 
 
@@ -608,6 +682,40 @@ def validate_value_type(name: str, value: Any) -> bool:
     if vt is None:
         return False
     return vt.validate(value)
+
+
+# CONCEPT:KG-2.94 — the coupling from a SamplingProfile's knobs to the value types
+# that bound them. The single source the governance gate (the ontology set action and
+# the AHE-3.38 promotion) uses to SHACL-check a profile before it is accepted/published.
+INFERENCE_KNOB_VALUE_TYPES: dict[str, str] = {
+    "temperature": "Temperature",
+    "top_p": "TopP",
+    "min_p": "MinP",
+    "top_k": "TopK",
+    "repetition_penalty": "RepetitionPenalty",
+    "max_tokens": "MaxTokens",
+    "presence_penalty": "PresencePenalty",
+    "frequency_penalty": "FrequencyPenalty",
+}
+
+
+def sampling_profile_violations(profile: dict[str, Any]) -> list[str]:
+    """Return value-type violations for a sampling-profile dict (CONCEPT:KG-2.94).
+
+    Validates each present inference knob against its bounding value type
+    (:data:`INFERENCE_KNOB_VALUE_TYPES`). Empty list = the profile conforms to the
+    ontology bounds and may be published. ``None`` knobs (inherit-from-base) are
+    skipped. This is the ontology governance gate the profile passes before the
+    evolution loop promotes it or the operator sets it.
+    """
+    violations: list[str] = []
+    for knob, vt_name in INFERENCE_KNOB_VALUE_TYPES.items():
+        value = profile.get(knob)
+        if value is None:
+            continue
+        if not validate_value_type(vt_name, value):
+            violations.append(f"{knob}={value!r} violates {vt_name}")
+    return violations
 
 
 def value_types_shapes_ttl(
@@ -687,6 +795,8 @@ __all__ = [
     "list_value_types",
     "coerce_value_type",
     "validate_value_type",
+    "INFERENCE_KNOB_VALUE_TYPES",
+    "sampling_profile_violations",
     "value_types_shapes_ttl",
     "value_types_owl_ttl",
     "write_value_shapes_ttl",

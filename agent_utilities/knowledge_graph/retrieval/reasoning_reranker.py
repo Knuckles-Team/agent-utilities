@@ -115,6 +115,25 @@ class LexicalRelevanceScorer:
         return max(0.0, min(1.0, raw))
 
 
+def _auto_scorer() -> RerankScorer:
+    """Default rerank scorer: a neural cross-encoder when one is installed AND loads,
+    else the deterministic lexical proxy (CONCEPT:KG-2.85). Auto-detection — no flag —
+    so the best available cross-encoder is used natively. The neural scorer is *probed*
+    once here; if the model can't load or score (offline / not cached / no GPU), we fall
+    back to the zero-infra lexical scorer so retrieval never breaks.
+    """
+    from .neural_reranker import build_rerank_scorer
+
+    scorer = build_rerank_scorer()
+    if type(scorer).__name__ == "LexicalRelevanceScorer":
+        return scorer
+    try:
+        scorer.score("probe", "probe")  # force model load + verify it scores
+    except Exception:  # pragma: no cover - model absent/unloadable -> safe fallback
+        return LexicalRelevanceScorer()
+    return scorer
+
+
 @dataclass
 class ReasoningAwareReranker:
     """Reorder retrieved candidates by a prior-blended, calibrated relevance.
@@ -129,7 +148,7 @@ class ReasoningAwareReranker:
     Concept: retrieval-reranking
     """
 
-    scorer: RerankScorer = field(default_factory=LexicalRelevanceScorer)
+    scorer: RerankScorer = field(default_factory=_auto_scorer)
     prior_weight: float = 0.4
     prior_key: str = "_score"
 
