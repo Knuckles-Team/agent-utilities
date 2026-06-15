@@ -1,9 +1,9 @@
 {
   "round_id": "r1",
-  "overview": "# Evidence Corpus — Round r1\n\n## Summary\n- Total tasks: 4\n- Pass rate: 50.0%\n- Benchmark score: 0.50\n- Failure clusters: 1\n\n## Top Failure Categories\n- **boom** (2 tasks, severity=0.85): boom\n",
+  "overview": "# Evidence Corpus — Round r1\n\n## Summary\n- Total tasks: 3\n- Pass rate: 33.3%\n- Benchmark score: 0.35\n- Failure clusters: 0\n",
   "entries": [
     {
-      "id": "ev:8cce5670",
+      "id": "ev:864096f3",
       "task_id": "task0",
       "pass_fail": true,
       "root_cause": null,
@@ -14,73 +14,45 @@
       "trace_id": "t0",
       "score": 0.9,
       "tags": [],
-      "timestamp": "2026-06-15T16:04:42Z",
+      "timestamp": "2026-06-15T16:47:29Z",
       "metadata": {}
     },
     {
-      "id": "ev:6ae54393",
+      "id": "ev:e9a232b7",
       "task_id": "task1",
-      "pass_fail": true,
-      "root_cause": null,
+      "pass_fail": false,
+      "root_cause": "boom",
       "success_pattern": null,
       "component_attribution": null,
       "evidence_layer": "per_task",
       "content": "Task: task1",
       "trace_id": "t1",
-      "score": 0.8,
+      "score": 0.1,
       "tags": [],
-      "timestamp": "2026-06-15T16:04:42Z",
+      "timestamp": "2026-06-15T16:47:29Z",
       "metadata": {}
     },
     {
-      "id": "ev:2031db5b",
+      "id": "ev:802e2fd9",
       "task_id": "task2",
       "pass_fail": false,
-      "root_cause": "boom",
+      "root_cause": "kaboom",
       "success_pattern": null,
       "component_attribution": null,
       "evidence_layer": "per_task",
       "content": "Task: task2",
       "trace_id": "t2",
-      "score": 0.2,
+      "score": 0.05,
       "tags": [],
-      "timestamp": "2026-06-15T16:04:42Z",
-      "metadata": {}
-    },
-    {
-      "id": "ev:db5d7887",
-      "task_id": "task3",
-      "pass_fail": false,
-      "root_cause": "boom",
-      "success_pattern": null,
-      "component_attribution": null,
-      "evidence_layer": "per_task",
-      "content": "Task: task3",
-      "trace_id": "t3",
-      "score": 0.1,
-      "tags": [],
-      "timestamp": "2026-06-15T16:04:42Z",
+      "timestamp": "2026-06-15T16:47:29Z",
       "metadata": {}
     }
   ],
-  "failure_clusters": [
-    {
-      "cluster_id": "clst:9f3140a1",
-      "label": "boom",
-      "root_cause_summary": "boom",
-      "task_ids": [
-        "task2",
-        "task3"
-      ],
-      "component_attribution": null,
-      "frequency": 2,
-      "severity": 0.85
-    }
-  ],
+  "failure_clusters": [],
   "success_patterns": [],
-  "total_tasks": 4,
-  "pass_rate": 0.5,
-  "benchmark_score": 0.5,
-  "timestamp": "2026-06-15T16:04:42Z",
+  "total_tasks": 3,
+  "pass_rate": 0.3333333333333333,
+  "benchmark_score": 0.35000000000000003,
+  "timestamp": "2026-06-15T16:47:29Z",
   "metadata": {}
 }
