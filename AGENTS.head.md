@@ -17,6 +17,42 @@ Edit THIS file for any narrative / conventions changes, then run:
 > (or **[llms.txt](llms.txt)** for the AI entry index, **[docs/capabilities.md](docs/capabilities.md)**,
 > and **[docs/ecosystem.md](docs/ecosystem.md)**).
 
+## 🚀 Zero-to-deployed (genesis) — DEPLOYING this for an operator
+
+If the human pointed you here to **stand this up** (not edit it), you are the
+installer. Follow this exact procedure — it is the router; the runbook detail lives
+in the skills and **[`genesis.yaml`](genesis.yaml)** (the machine-readable manifest
+you loop over). The whole thing is built to need only this repo URL.
+
+1. **Ask the profile.** One question decides everything:
+   `tiny` (homelab / laptop, zero-infra) · `single-node-prod` (one durable host) ·
+   `enterprise` (multi-host Swarm, full integration). If they say "homelab", default
+   `tiny`; "enterprise / wire everything in", default `enterprise`. Ask which optional
+   UIs they want too: `agent-webui`, `agent-terminal-ui`, `geniusbot`.
+2. **Preflight the host.** `agent-utilities-doctor --preflight --profile <p>
+   [--component <c>]` (or MCP `graph_configure action=preflight config_key=<p>`).
+   It reports what's missing with fixes. Note: **no Rust needed** — the engine ships
+   as a prebuilt wheel; Rust is only a fallback. Docker is only needed above `tiny`.
+3. **Install.** `scripts/install.sh --profile <p> [--component <c>]`
+   (Windows: `scripts/install.ps1`). It installs the package, drops the skill toolkit
+   into every agent tool on the host, wires the `graph-os` MCP server, and generates a
+   complete config. For a curl-first machine:
+   `curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh`.
+4. **Run the right skill to finish wiring.** `single-node-prod`/`tiny` →
+   **`agent-utilities-deployment`** (self-setup: full config → secrets → databases →
+   launch). `enterprise` → **`agent-os-genesis`** (bare-host swarm → Vault/DNS/SSO/
+   ingress → the *-mcp fleet from `deploy/mcp-fleet.registry.yml`). Loop the `servers`
+   and `components` in `genesis.yaml`; resolve secrets from OpenBao or `.env`.
+5. **Verify.** `agent-utilities-doctor` must come back green (engine reachable, config
+   healthy, fleet valid). Report what's wired and what the operator still needs to
+   supply (e.g. provider keys, host inventory).
+
+| Profile | Infra | MCP fleet | Secrets | Skill |
+|---|---|---|---|---|
+| `tiny` | none (in-process) | none | `.env` | `agent-utilities-deployment` |
+| `single-node-prod` | Postgres/pg-age (+Docker) | core connectors | OpenBao or `.env` | `agent-utilities-deployment` |
+| `enterprise` | Swarm · Vault · SSO · DNS · ingress · observability | all connectors | OpenBao | `agent-os-genesis` |
+
 ## Working Discipline — think, simplify, stay surgical, verify (READ FIRST)
 
 These four habits cut the most common LLM coding mistakes. The deeper, domain-specific
