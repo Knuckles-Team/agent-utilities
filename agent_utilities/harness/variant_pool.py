@@ -402,3 +402,126 @@ class VariantPool:
             {"promoted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
         )
         logger.info("Promoted variant %s → supersedes base %s", variant_id, base_id)
+
+    # CONCEPT:AHE-3.38 — Evolvable sampling profiles via parametric variant mutation scored by the capability-reward EMA and tournament-promoted per task-class into the live model registry.
+    # The parametric-variant dimension this module's docstring has always named
+    # ("mutating configuration parameters (temperature, ...)") wired into a live
+    # tournament: mutate a task-class profile, score each child by the capability
+    # reward EMA (record_outcome), and promote the winner back into the registry's
+    # task_class_profiles — which the router/factory (ORCH-1.57) read on the next run.
+
+    def _profile_id(self, task_class: str, profile: Any) -> str:
+        """Stable reward-EMA key for a profile variant (CONCEPT:AHE-3.38)."""
+        knobs = profile.model_dump(
+            include={
+                "temperature",
+                "top_p",
+                "top_k",
+                "min_p",
+                "repetition_penalty",
+                "max_tokens",
+                "presence_penalty",
+                "frequency_penalty",
+            }
+        )
+        digest = uuid.uuid5(uuid.NAMESPACE_OID, repr(sorted(knobs.items()))).hex[:8]
+        return f"profile:{task_class}:{digest}"
+
+    def mutate_profile(
+        self,
+        base: Any,
+        *,
+        count: int = 4,
+        jitter: float = 0.15,
+        rng: random.Random | None = None,
+    ) -> list[Any]:
+        """Produce ``count`` jittered child profiles within the ontology bounds.
+
+        CONCEPT:AHE-3.38. Gaussian jitter on the float knobs and ±1-step jitter on
+        the integer knobs, clamped to the pydantic field ranges and then filtered
+        through the KG-2.93 value-type SHACL gate (``sampling_profile_violations``),
+        so a malformed mutation can never enter the tournament. ``source`` is set to
+        ``"learned"`` to mark provenance.
+        """
+        from agent_utilities.knowledge_graph.ontology.value_types import (
+            sampling_profile_violations,
+        )
+
+        r = rng or random.Random()
+        out: list[Any] = []
+        for _ in range(count):
+            data = base.model_dump()
+            data["source"] = "learned"
+            if data.get("temperature") is not None:
+                data["temperature"] = min(
+                    2.0, max(0.0, data["temperature"] + r.gauss(0, jitter))
+                )
+            if data.get("top_p") is not None:
+                data["top_p"] = min(1.0, max(0.0, data["top_p"] + r.gauss(0, jitter)))
+            if data.get("min_p") is not None:
+                data["min_p"] = min(
+                    1.0, max(0.0, data["min_p"] + r.gauss(0, jitter / 3))
+                )
+            if data.get("top_k") is not None:
+                data["top_k"] = max(1, data["top_k"] + r.choice([-5, 0, 5, 10]))
+            if data.get("repetition_penalty") is not None:
+                data["repetition_penalty"] = max(
+                    0.01, data["repetition_penalty"] + r.gauss(0, jitter / 3)
+                )
+            try:
+                child = type(base).model_validate(data)
+            except Exception:  # noqa: BLE001 - skip out-of-range mutations
+                continue
+            if sampling_profile_violations(child.model_dump()):
+                continue
+            out.append(child)
+        return out
+
+    def evolve_profile(
+        self,
+        registry: Any,
+        task_class: str,
+        capability_index: Any,
+        evaluator: Any,
+        *,
+        count: int = 4,
+        rng: random.Random | None = None,
+    ) -> Any:
+        """Run one mutate→score→tournament→promote round for a task-class profile.
+
+        CONCEPT:AHE-3.38 — the live loop. Mutates the current
+        :meth:`~agent_utilities.models.model_registry.ModelRegistry.pick_profile_for_task`
+        profile, evaluates each candidate (and the incumbent) via ``evaluator``
+        (a ``Callable[[SamplingProfile], float]`` returning a reward in ``[0, 1]``
+        — the live eval slice that runs the agent under that profile), records the
+        reward EMA via ``capability_index.record_outcome``, then promotes the
+        highest-EMA candidate into ``registry.task_class_profiles`` (via
+        ``set_task_profile``) so the next route picks it up. Returns the promoted
+        profile (the incumbent if no challenger beat it).
+        """
+        incumbent = registry.pick_profile_for_task(task_class)
+        candidates = [incumbent, *self.mutate_profile(incumbent, count=count, rng=rng)]
+
+        best_profile = incumbent
+        best_reward = -1.0
+        for profile in candidates:
+            pid = self._profile_id(task_class, profile)
+            try:
+                reward = float(evaluator(profile))
+            except Exception:  # noqa: BLE001 - a failed eval scores as worst
+                reward = 0.0
+            ema = capability_index.record_outcome(pid, reward=reward)
+            if ema > best_reward:
+                best_reward, best_profile = ema, profile
+
+        promoted = best_profile.model_copy(
+            update={"task_class": task_class, "source": "learned"}
+        )
+        registry.set_task_profile(promoted)
+        logger.info(
+            "Evolved profile for %s → temp=%s (reward EMA=%.3f)",
+            task_class,
+            promoted.temperature,
+            best_reward,
+        )
+        return promoted

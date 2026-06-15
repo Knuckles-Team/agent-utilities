@@ -114,6 +114,29 @@ async def get_interface_implementers(
     )
 
 
+# ── Sampling profiles (CONCEPT:ORCH-1.57 / KG-2.93) ──────────────────────────
+
+
+@ontology_router.get("/ontology/sampling-profiles", response_model=OntologyEnvelope)
+async def list_sampling_profiles() -> OntologyEnvelope:
+    """List the effective per-task-class sampling profiles."""
+    return OntologyEnvelope(
+        result=await _call("ontology_sampling_profile", action="list")
+    )
+
+
+@ontology_router.get(
+    "/ontology/sampling-profiles/{task_class}", response_model=OntologyEnvelope
+)
+async def describe_sampling_profile(task_class: str) -> OntologyEnvelope:
+    """Describe the sampling profile served for a task class."""
+    return OntologyEnvelope(
+        result=await _call(
+            "ontology_sampling_profile", action="describe", task_class=task_class
+        )
+    )
+
+
 # ── Functions (CONCEPT:KG-2.41) ──────────────────────────────────────────────
 
 

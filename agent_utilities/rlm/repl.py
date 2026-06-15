@@ -630,6 +630,16 @@ class RLMEnvironment:
             system_prompt=build_system_prompt(self.config.prompt_family, model_id),
         )
 
+        # CONCEPT:ORCH-1.57 — depth-tiered sampling. The root is the strong proposer/reasoner
+        # (higher temperature for exploration); recursive sub-calls are deterministic executors
+        # writing/running code (low temp + tight top_k). Mirrors the model_id depth split above.
+        from agent_utilities.agent.sampling_profile import resolve_sampling_profile
+
+        _profile_role = "rlm-proposer" if self.depth == 0 else "rlm-executor"
+        _profile_settings = resolve_sampling_profile(
+            role=_profile_role
+        ).to_model_settings({})
+
         history: list[Any] = []
         max_turns = self.max_turns
 
@@ -659,10 +669,18 @@ class RLMEnvironment:
         for turn in range(max_turns):
             run_prompt = initial_prompt if turn == 0 else None
             if run_prompt:
-                res = await agent.run(run_prompt, message_history=history)
+                res = await agent.run(
+                    run_prompt,
+                    message_history=history,
+                    model_settings=_profile_settings,
+                )
             else:
                 # Subsequent turns use the history with stdout metadata appended
-                res = await agent.run("Continue.", message_history=history)
+                res = await agent.run(
+                    "Continue.",
+                    message_history=history,
+                    model_settings=_profile_settings,
+                )
             history = res.all_messages()
             _accumulate_root_usage(
                 run_trace.usage, res

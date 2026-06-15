@@ -12,6 +12,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_graph import End
 
+from agent_utilities.agent.sampling_profile import (
+    DEFAULT_PROFILE,
+    SamplingProfile,
+    resolve_sampling_profile,
+)
+
 try:
     from pydantic_graph.step import StepContext
 except ImportError:
@@ -89,6 +95,9 @@ class RoutingDecision(BaseModel):
     alternatives: list[RoutingCandidate] = Field(default_factory=list)
     decomposition_depth: int = 0
     decision_reason: str = ""
+    # CONCEPT:ORCH-1.57 — the inference-parameter bundle for this route, picked from the
+    # task class alongside the model. Defaults to the inherit-everything profile.
+    sampling_profile: SamplingProfile = Field(default=DEFAULT_PROFILE)
     trace_id: str = Field(
         default_factory=lambda: (
             f"route:{hashlib.sha256(str(datetime.now(UTC)).encode()).hexdigest()[:12]}"
@@ -214,6 +223,7 @@ class RoutingPolicy:
             selected=candidates[0],
             alternatives=candidates[1:],
             decision_reason="Default: first candidate selected",
+            sampling_profile=resolve_sampling_profile(task_text),
         )
 
 
@@ -283,6 +293,7 @@ class RuleBasedPolicy(RoutingPolicy):
             alternatives=[c for c in candidates if c != best],
             decomposition_depth=depth,
             decision_reason=reason,
+            sampling_profile=resolve_sampling_profile(task_text),
         )
 
 
@@ -364,6 +375,7 @@ class TraceLearnedPolicy(RoutingPolicy):
                 selected=best,
                 alternatives=[c for c in candidates if c != best],
                 decision_reason="Cold start — selected highest confidence candidate",
+                sampling_profile=resolve_sampling_profile(task_text),
             )
 
         features = extract_task_features(task_text)
@@ -396,6 +408,7 @@ class TraceLearnedPolicy(RoutingPolicy):
         return RoutingDecision(
             selected=best_candidate,
             alternatives=[c for _, c in scored[1:]],
+            sampling_profile=resolve_sampling_profile(task_text),
             decision_reason=(
                 f"Trace-learned: score={best_score:.3f} "
                 f"(quality×success×similarity/cost)"
@@ -604,6 +617,7 @@ class TopologicalRoutingPolicy(RoutingPolicy):
         return RoutingDecision(
             selected=best_candidate,
             alternatives=[c for _, c, _ in scored[1:]],
+            sampling_profile=resolve_sampling_profile(task_text),
             decision_reason=(
                 f"[TopologicalRouting: score={best_score:.3f}] {best_reason}"
             ),

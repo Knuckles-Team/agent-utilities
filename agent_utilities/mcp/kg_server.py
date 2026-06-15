@@ -547,6 +547,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "ontology_property_types": "/ontology/property-types",
     "ontology_value_types": "/ontology/value-types",
     "ontology_interface": "/ontology/interface",
+    "ontology_sampling_profile": "/ontology/sampling-profiles",
     "ontology_function": "/ontology/function",
     "ontology_derive": "/ontology/derive",
     "ontology_link_materialize": "/ontology/link-materialize",

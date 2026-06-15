@@ -523,6 +523,50 @@ def register_builtin_links(registry: LinkTypeRegistry) -> None:
             description="A claim's /src layer: the code spec that implements it.",
         )
     )
+    # CONCEPT:KG-2.95 — Typed ontology links binding Model/InferenceProfile to TaskClass/Role/Agent (HAS_PROFILE/PROFILE_OF/TUNED_FOR/BOUND_TO_ROLE/USES_PROFILE) for profile extrapolation.
+    # First-class typed links so OWL reasoning extrapolates which sampling profile
+    # fits a task class / role / model from how related ones are tuned.
+    registry.register(
+        LinkType(
+            name="model_has_profile",
+            source_type=RegistryNodeType.MODEL,
+            target_type=RegistryNodeType.INFERENCE_PROFILE,
+            edge_type=RegistryEdgeType.HAS_PROFILE,
+            cardinality=LinkCardinality.ONE_TO_MANY,
+            inverse_edge_type=RegistryEdgeType.PROFILE_OF,
+            description="A model carries a tuned inference profile (inverse: profile_of).",
+        )
+    )
+    registry.register(
+        LinkType(
+            name="profile_tuned_for",
+            source_type=RegistryNodeType.INFERENCE_PROFILE,
+            target_type=RegistryNodeType.TASK_CLASS,
+            edge_type=RegistryEdgeType.TUNED_FOR,
+            cardinality=LinkCardinality.MANY_TO_MANY,
+            description="An inference profile is tuned for a task class.",
+        )
+    )
+    registry.register(
+        LinkType(
+            name="profile_bound_to_role",
+            source_type=RegistryNodeType.INFERENCE_PROFILE,
+            target_type=RegistryNodeType.ROLE,
+            edge_type=RegistryEdgeType.BOUND_TO_ROLE,
+            cardinality=LinkCardinality.MANY_TO_MANY,
+            description="An inference profile is bound to a functional role.",
+        )
+    )
+    registry.register(
+        LinkType(
+            name="agent_uses_profile",
+            source_type=RegistryNodeType.AGENT,
+            target_type=RegistryNodeType.INFERENCE_PROFILE,
+            edge_type=RegistryEdgeType.USES_PROFILE,
+            cardinality=LinkCardinality.MANY_TO_MANY,
+            description="An agent uses an inference profile for a task class.",
+        )
+    )
 
 
 # CONCEPT:KG-2.26 — populated at import with real built-ins, never empty.
