@@ -78,6 +78,18 @@ agent, toolsets = create_agent(name="assistant", skill_types=["universal", "grap
 print(agent.run_sync("What can you do?").output)
 ```
 
+### Stand it up and verify — 3 commands, zero infra
+
+```bash
+setup-config generate --profile tiny     # complete config.json (every option)
+graph-os &                                # KG MCP server — no database needed
+agent-utilities-doctor                    # one health sweep across every subsystem
+```
+
+Scale up (`--profile single-node-prod`/`enterprise`), add Stardog + pg-age, or let
+Claude set itself up — all in the **[Quick Start](docs/guides/quick-start.md)** and
+**[Self-Setup](docs/guides/self-setup.md)** guides.
+
 ### Use the knowledge graph natively — for free, no database
 
 ```python
