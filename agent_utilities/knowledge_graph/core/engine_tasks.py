@@ -223,6 +223,15 @@ _HYGIENE_INTERVAL = 86400.0
 _TASK_REAPER_INTERVAL = 120.0
 _EMBED_BACKFILL_IDLE_INTERVAL = 30.0
 _EMBED_BACKFILL_BUSY_SLEEP = 1.0
+
+# Embedder circuit-breaker (CONCEPT:KG-2.8): when the embedding endpoint is down
+# (e.g. the GPU host power-cycles → vLLM 502s), the backfill tick must NOT keep
+# calling it every 30s across N tables (each with client-side retries) — that
+# retry-storm pegs the daemon and makes the whole KG surface time out. After this
+# many consecutive embed failures the circuit OPENS: ticks become cheap no-ops
+# (zero embed calls) for the cooldown, then one probe batch tests recovery.
+_EMBED_CB_THRESHOLD = 3
+_EMBED_CB_COOLDOWN = 300.0
 _TASK_ORPHAN_GRACE_SEC = 90.0
 _TASK_MAX_RUNTIME_SEC = 7200.0
 _TASK_MAX_REQUEUE = 3
@@ -1460,6 +1469,30 @@ class TaskManagerMixin(GraphEngineProtocol):
         "qualname",
     )
 
+    def _embed_circuit_open(self, now: float) -> bool:
+        """True while the embedder circuit breaker is OPEN (skip embed work).
+
+        CONCEPT:KG-2.8 — keeps a down embedder from being retry-stormed.
+        """
+        return getattr(self, "_embed_cb_open_until", 0.0) > now
+
+    def _embed_circuit_record(self, success: bool, now: float) -> None:
+        """Record an embed attempt outcome; open the breaker after repeated fails."""
+        if success:
+            self._embed_cb_failures = 0
+            self._embed_cb_open_until = 0.0
+            return
+        fails = int(getattr(self, "_embed_cb_failures", 0)) + 1
+        self._embed_cb_failures = fails
+        if fails >= _EMBED_CB_THRESHOLD:
+            self._embed_cb_open_until = now + _EMBED_CB_COOLDOWN
+            logger.warning(
+                "embed backfill: embedder unhealthy (%d consecutive failures) — "
+                "circuit OPEN for %.0fs (skipping embed work to avoid a retry-storm)",
+                fails,
+                _EMBED_CB_COOLDOWN,
+            )
+
     def _tick_embedding_backfill(self) -> int:
         """Backfill vector embeddings onto durable nodes that lack them.
 
@@ -1497,6 +1530,14 @@ class TaskManagerMixin(GraphEngineProtocol):
         if embed_fn is None:
             embed_fn = make_embed_fn()
             self._backfill_embed_fn = embed_fn
+
+        # Circuit breaker: while OPEN (embedder recently failed repeatedly), skip
+        # all embed work so we don't retry-storm a dead endpoint and peg the daemon.
+        import time as _t
+
+        now = _t.monotonic()
+        if self._embed_circuit_open(now):
+            return 0
 
         # Fair per-table share so retrieval-critical labels (e.g. Concept) aren't
         # starved behind a huge table (e.g. Code). Each table gets up to
@@ -1548,8 +1589,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                     conn.commit()
                 total += len(items)
                 remaining -= len(items)
+                self._embed_circuit_record(True, now)  # healthy → close breaker
             except Exception as e:  # noqa: BLE001
                 logger.debug("embed backfill: store %s failed: %s", tbl, e)
+                # An embed/store failure means the endpoint is likely down for
+                # every table — record it and stop hammering the rest this tick.
+                self._embed_circuit_record(False, now)
+                break
         if total:
             logger.info("KG embedding backfill: embedded %d nodes", total)
         return total
