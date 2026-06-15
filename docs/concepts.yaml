@@ -2133,8 +2133,8 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/finance_objects.py
   doc: Kyle insider/stealth surveillance signal ontology
-- id: KG-2.82
-  name: / KG-2.83 — a KG-native, propose-only background distiller that
+- id: KG-2.90
+  name: / KG-2.91 — a KG-native, propose-only background distiller that
   pillar: KG-2
   status: live
   code_paths:
@@ -2145,8 +2145,8 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/models/knowledge_graph.py
-  doc: / KG-2.83 — a KG-native, propose-only background distiller that
-- id: KG-2.83
+  doc: / KG-2.91 — a KG-native, propose-only background distiller that
+- id: KG-2.91
   name: AUTOMATES
   pillar: KG-2
   status: live

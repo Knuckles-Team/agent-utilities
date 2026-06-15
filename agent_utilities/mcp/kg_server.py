@@ -1583,7 +1583,7 @@ async def graph_orchestrate_publish_proposal_endpoint(
 async def graph_orchestrate_distill_skills_endpoint(
     request: Request,
 ) -> JSONResponse:
-    """CONCEPT:KG-2.82/2.83 — REST twin of graph_orchestrate distill_skills.
+    """CONCEPT:KG-2.90/2.83 — REST twin of graph_orchestrate distill_skills.
 
     Connector → skill synthesis: turn the mapped processes of ALL connected
     systems (egeria/leanix/aris/camunda) into propose-only atomic-skill +
