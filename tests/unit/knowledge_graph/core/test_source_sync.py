@@ -171,3 +171,22 @@ def test_generic_reconcile_unsupported():
     out = sync_source(object(), "servicenow", mode="reconcile")
     assert out["status"] == "skipped"
     assert "reconcile not supported" in out["reason"]
+
+
+def test_materialize_source_routes_through_shared_core(monkeypatch):
+    """camunda/aris/egeria route through the shared materialize core, not hydration."""
+    import agent_utilities.knowledge_graph.enrichment.materialize as mat
+
+    calls: list[tuple] = []
+
+    def fake_run(engine, category, *, config=None):
+        calls.append((category, config))
+        return {"status": "materialized", "source": category, "nodes": 4, "edges": 2}
+
+    monkeypatch.setattr(mat, "run_materialize_source", fake_run)
+
+    out = sync_source(object(), "camunda", mode="delta")
+    assert out["status"] == "materialized"
+    assert out["source"] == "camunda"
+    assert out["delta_capable"] is False
+    assert calls and calls[0][0] == "camunda"

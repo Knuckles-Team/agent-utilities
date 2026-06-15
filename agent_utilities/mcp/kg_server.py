@@ -3229,11 +3229,7 @@ def _build_server(bootstrap: bool = True):
                     import json
 
                     from ..knowledge_graph.enrichment.materialize import (
-                        materialize_source,
-                        resolve_source_client,
-                    )
-                    from ..knowledge_graph.research.ara.reasoning_driver import (
-                        OntologyReasoningDriver,
+                        run_materialize_source,
                     )
 
                     category = (corpus_name or "").strip()
@@ -3249,32 +3245,11 @@ def _build_server(bootstrap: bool = True):
                         if description and description.strip().startswith("{")
                         else None
                     )
-                    client = resolve_source_client(category)
-                    if client is None:
-                        return json.dumps(
-                            {
-                                "error": f"no source client for {category!r} — "
-                                "the connector package is absent or its "
-                                "credentials are unset (see the connector's "
-                                "auth.get_client environment)."
-                            }
-                        )
-                    backend = getattr(engine, "backend", None)
-                    nodes, edges = materialize_source(
-                        backend, category, client, config=extractor_config
-                    )
-                    harvest = OntologyReasoningDriver(engine).extrapolate(persist=True)
+                    # Shared core — same path the unified ``source_sync`` uses.
                     return json.dumps(
-                        {
-                            "status": "materialized",
-                            "category": category,
-                            "nodes": nodes,
-                            "edges": edges,
-                            "inferred_edges": len(
-                                getattr(harvest, "inferred_edges", []) or []
-                            ),
-                            "new_topics": len(getattr(harvest, "new_topics", []) or []),
-                        },
+                        run_materialize_source(
+                            engine, category, config=extractor_config
+                        ),
                         default=str,
                     )
                 except Exception as e:
