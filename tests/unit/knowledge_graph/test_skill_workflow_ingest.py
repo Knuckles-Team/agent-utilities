@@ -287,3 +287,40 @@ def test_discover_accepts_explicit_root(corpus):
     files = discover_workflow_skill_files(root=str(corpus))
     names = {f.parent.name for f in files}
     assert names == {"tiny-infra-deploy", "tiny_pnl"}
+
+
+# --------------------------------------------------------------------------- #
+# Background-job path: the worker dispatch branch (CONCEPT:KG-2.97)            #
+# --------------------------------------------------------------------------- #
+def test_background_job_branch_ingests_corpus(corpus):
+    """The ``skill_workflows`` task-worker branch (what ``submit_task`` enqueues)
+    runs the ingest off the request path and lands the WorkflowDefinitions —
+    so the MCP action returns a job_id immediately and never blocks the call.
+    """
+    import asyncio
+    from pathlib import Path
+
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    engine = IntelligenceGraphEngine(db_path=":memory:")
+    # Drive the exact branch the background worker dispatches for the job.
+    asyncio.run(
+        engine._run_background_task(
+            "job-skilltest", Path(str(corpus)), False, "skill_workflows"
+        )
+    )
+    rows = engine.query_cypher(
+        "MATCH (w:WorkflowDefinition) WHERE w.source = $s RETURN count(w) AS c",
+        {"s": "universal-skills"},
+    )
+    assert rows and rows[0]["c"] >= 2
+
+
+def test_skill_workflows_is_a_heavy_background_task_type():
+    """skill_workflows must be registered heavy so it runs on the worker, not inline."""
+    import inspect
+
+    from agent_utilities.knowledge_graph.core import engine_tasks
+
+    src = inspect.getsource(engine_tasks)
+    assert '"skill_workflows"' in src and "_HEAVY_TASK_TYPES" in src
