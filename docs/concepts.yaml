@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 268
+total_concepts: 273
 total_pillars: 20
 pillars:
 - AHE-3
@@ -441,6 +441,17 @@ concepts:
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/self_guided_play.py
   doc: when a task is in scope, run a short self-guided
+- id: AHE-3.38
+  name: Evolvable sampling profiles via parametric variant mutation scored by the capability-reward EMA
+    and tournament-promoted per task-class into the live model registry
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/agent/sampling_profile.py
+  - agent_utilities/harness/variant_pool.py
+  - agent_utilities/models/model_registry.py
+  doc: Evolvable sampling profiles via parametric variant mutation scored by the capability-reward EMA
+    and tournament-promoted per task-class into the live model registry
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -2278,6 +2289,34 @@ concepts:
   - agent_utilities/harness/graph_search_evolution.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: Monte-Carlo GRAPH search code evolution
+- id: KG-2.93
+  name: LLM inference sampling knobs temperature top_p top_k min_p repetition_penalty max_tokens and penalties
+    as SHACL-bounded ontology value types plus the two-surface sampling-profile tool
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/value_types.py
+  doc: LLM inference sampling knobs temperature top_p top_k min_p repetition_penalty max_tokens and penalties
+    as SHACL-bounded ontology value types plus the two-surface sampling-profile tool
+- id: KG-2.94
+  name: InferenceProfile + SamplingConfigurable ontology interfaces and a first-class Model object type
+    projecting configured models and their tuned sampling profiles to OWL
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/interfaces.py
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/models/model_registry.py
+  doc: InferenceProfile + SamplingConfigurable ontology interfaces and a first-class Model object type
+    projecting configured models and their tuned sampling profiles to OWL
+- id: KG-2.95
+  name: Typed ontology links binding Model/InferenceProfile to TaskClass/Role/Agent
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/links.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: Typed ontology links binding Model/InferenceProfile to TaskClass/Role/Agent
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -2895,6 +2934,21 @@ concepts:
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/fast_slow_controller.py
   doc: feed the cycle outcome to the Fast-Slow controller
+- id: ORCH-1.57
+  name: Task-aware per-call LLM sampling that selects and threads a SamplingProfile of temperature top_p
+    top_k min_p repetition_penalty max_tokens and penalties per question by task-class and role
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/agent/factory.py
+  - agent_utilities/agent/sampling_profile.py
+  - agent_utilities/gateway/ontology_api.py
+  - agent_utilities/graph/adaptive_agent_router.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/models/model_registry.py
+  - agent_utilities/rlm/repl.py
+  doc: Task-aware per-call LLM sampling that selects and threads a SamplingProfile of temperature top_p
+    top_k min_p repetition_penalty max_tokens and penalties per question by task-class and role
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
