@@ -949,6 +949,71 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
+    # CONCEPT:KG-2.7 — A SkillGraph is an externally-consumable knowledge corpus
+    # (crawled docs / extracted PDF / distilled subgraph / generated text) packaged
+    # as an agent skill. Declaring it as an interface lets the reasoner extrapolate
+    # coverage across the fleet: which skill-graphs CONTAIN which Documents, which
+    # Concepts they cover (RELATES_TO), and what upstream source they were
+    # DERIVED_FROM — so overlap/gaps and rebuild candidates are queryable. Links reuse
+    # existing edge types; no new enum members (keeps the shared registry stable).
+    registry.register(
+        Interface(
+            name="SkillGraph",
+            description=(
+                "An externally-consumable corpus of knowledge captured as an agent "
+                "skill: a SKILL.md index over a reference/ markdown tree built from one "
+                "or more sources (web/pdf/office/dir/url_reader/rest/database/mcp_tool/"
+                "generated/kg_query). CONTAINS its source Documents, RELATES_TO the "
+                "Concepts it covers, and is DERIVED_FROM its upstream source systems."
+            ),
+            extends=["HasProvenance"],
+            properties=[
+                InterfaceProperty(
+                    name="name",
+                    type_ref="string",
+                    description="Kebab-case skill-graph name (== directory name).",
+                ),
+                InterfaceProperty(
+                    name="skill_graph_version",
+                    type_ref="string",
+                    description="Semantic version, bumped on each rebuild.",
+                ),
+                InterfaceProperty(
+                    name="source_types",
+                    type_ref="array<string>",
+                    description="The source kinds this graph was distilled from.",
+                ),
+                InterfaceProperty(
+                    name="kg_ingested",
+                    type_ref="boolean",
+                    description="Whether the corpus was also ingested into the KG.",
+                ),
+            ],
+            link_constraints=[
+                InterfaceLinkConstraint(
+                    name="contains",
+                    edge_type=RegistryEdgeType.CONTAINS,
+                    target_type=RegistryNodeType.DOCUMENT,
+                    min_count=0,
+                    description="The source Documents that make up the corpus.",
+                ),
+                InterfaceLinkConstraint(
+                    name="covers",
+                    edge_type=RegistryEdgeType.RELATES_TO,
+                    target_type=RegistryNodeType.CONCEPT,
+                    min_count=0,
+                    description="The Concepts this skill-graph covers.",
+                ),
+                InterfaceLinkConstraint(
+                    name="derived_from",
+                    edge_type=RegistryEdgeType.DERIVED_FROM,
+                    min_count=0,
+                    description="Provenance link to upstream source system(s).",
+                ),
+            ],
+        )
+    )
+
     # CONCEPT:KG-2.95 — InferenceProfile + SamplingConfigurable ontology interfaces and a first-class Model object type projecting configured models and their tuned sampling profiles to OWL.
     # Task-aware inference profiles. An InferenceProfile is the
     # shape of a SamplingProfile (ORCH-1.58): the sampling knobs as shared
