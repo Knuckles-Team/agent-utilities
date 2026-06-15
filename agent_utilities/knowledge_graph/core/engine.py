@@ -41,7 +41,9 @@ from ..backends import create_backend, get_active_backend
 from ..backends.base import GraphBackend
 from ..orchestration.engine_ahe import AHEMixin
 from ..orchestration.engine_federation import FederationMixin
+from ..orchestration.engine_finance import FinanceEngineMixin
 from ..orchestration.engine_infra import InfrastructureEngineMixin
+from ..orchestration.engine_ml_rlm import MachineLearningEngineMixin
 from ..orchestration.engine_query import QueryMixin
 from .engine_ingestion import IngestionMixin
 from .engine_mcp_discovery import MCPDiscoveryMixin
@@ -93,6 +95,11 @@ class IntelligenceGraphEngine(
     FederationMixin,
     AHEMixin,
     InfrastructureEngineMixin,
+    # CONCEPT:KG-2.6 — finance + ML/RLM domain methods composed onto the engine, so
+    # callers use engine.fit_markov_regime(...) / engine.register_rlm_actor(...) directly
+    # instead of instantiating the abstract mixins standalone (the prior workaround).
+    FinanceEngineMixin,
+    MachineLearningEngineMixin,
 ):
     """Engine for querying the unified intelligence graph (Agents, Tools, Code, Memory).
 
