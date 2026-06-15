@@ -46,16 +46,20 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Start Here: start-here.md
+  - Quick Start: guides/quick-start.md
   - Capabilities: capabilities.md
   - Consumption Models: guides/consumption-models.md
   - Ecosystem: ecosystem.md
   - The Narrative Journey: journey.md
   - Deployment:
+      - Quick Start: guides/quick-start.md
+      - Self-Setup (config-complete): guides/self-setup.md
       - Supported Configurations (the ladder): guides/deployment-configurations.md
       - Day-0 Deployment: guides/day0.md
       - Recipe — Tiny (all-local): recipes/tiny.md
       - Recipe — Single-node prod: recipes/single-node-prod.md
       - Recipe — Enterprise: recipes/enterprise.md
+      - Recipe — Stardog + pg-age databases: recipes/databases.md
       - Deploying agent-utilities: guides/deployment.md
       - Configuration: guides/configuration.md
       - Configuration Reference & Flag Audit: architecture/configuration.md
