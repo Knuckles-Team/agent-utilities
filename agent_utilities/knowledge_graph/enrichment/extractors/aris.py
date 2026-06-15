@@ -219,7 +219,9 @@ def _lift_epc_structure(
     # Camunda BPMN sequence-flow collapse so the two graphs are shaped alike.
     outgoing: dict[str, list[tuple[str, str | None]]] = {}
     for rec in raw_connections:
-        src = _first(rec, "sourceObjectId", "source", "fromObjectId", "from", "sourceId")
+        src = _first(
+            rec, "sourceObjectId", "source", "fromObjectId", "from", "sourceId"
+        )
         tgt = _first(rec, "targetObjectId", "target", "toObjectId", "to", "targetId")
         if not src or not tgt:
             continue

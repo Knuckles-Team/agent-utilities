@@ -141,10 +141,18 @@ def test_aris_writeback_sets_model_attribute():
             return [("aris_model:M1", {"type": "BusinessProcess"})]
 
         def in_edges(self, nid):
-            return self._in.get("bpmn_process:invoice", []) if nid == "aris_model:M1" else []
+            return (
+                self._in.get("bpmn_process:invoice", [])
+                if nid == "aris_model:M1"
+                else []
+            )
 
         def out_edges(self, nid):
-            return self._out.get("bpmn_process:invoice", []) if nid == "aris_model:M1" else self._out.get(nid, [])
+            return (
+                self._out.get("bpmn_process:invoice", [])
+                if nid == "aris_model:M1"
+                else self._out.get(nid, [])
+            )
 
     aris = FakeAris()
     res = push_process_intelligence(ArisReader(), aris_client=aris)

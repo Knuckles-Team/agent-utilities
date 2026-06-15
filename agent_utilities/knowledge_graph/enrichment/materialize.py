@@ -62,9 +62,7 @@ def materialize_source(
     if backend is None:
         return (0, 0)
     n, e = write_batch(backend, batch)
-    logger.info(
-        "materialized source %s: %d nodes, %d edges", category, n, e
-    )
+    logger.info("materialized source %s: %d nodes, %d edges", category, n, e)
     return n, e
 
 
