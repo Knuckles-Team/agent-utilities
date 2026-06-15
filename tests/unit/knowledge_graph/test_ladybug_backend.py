@@ -260,3 +260,13 @@ def test_absolute_db_path_is_left_untouched(tmp_path):
     with patch("ladybug.Database"), patch("ladybug.Connection"):
         backend = LadybugBackend(abs_path)
     assert backend.db_path == abs_path
+
+
+def test_lock_backoff_is_capped():
+    """The file-lock retry backoff must be bounded so a transiently-blocked drainer
+    recovers promptly instead of over-sleeping into a multi-minute stall."""
+    from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import (
+        _LOCK_BACKOFF_MAX_S,
+    )
+
+    assert 0 < _LOCK_BACKOFF_MAX_S <= 60.0
