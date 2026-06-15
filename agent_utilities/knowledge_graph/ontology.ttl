@@ -35,6 +35,7 @@ Modular imports:
         <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,
         <http://knuckles.team/kg/harness>,
+        <http://knuckles.team/kg/identity>,
         <http://knuckles.team/kg/leanix>,
         <http://knuckles.team/kg/media>,
         <http://knuckles.team/kg/personal>,
