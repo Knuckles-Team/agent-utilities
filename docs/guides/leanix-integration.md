@@ -19,7 +19,7 @@ duplicating it.
 | **Discover the metamodel → OWL** | introspect the live LeanIX data model, generate a faithful `ontology_leanix.ttl` (every fact sheet type → `owl:Class` ArchiMate-aligned, every relation → `owl:ObjectProperty`, every field → `owl:DatatypeProperty`) | `ontology_leanix_sync` MCP / `POST /api/ontology/leanix/sync` |
 | **Mirror all fact sheets** | typed extractor + `ingest_external_batch`; every node stamped `externalToolId` + `domain="leanix"` | `source_sync` MCP (`source=leanix mode=full`) / `POST /api/source/sync` / `graph_hydrate source=leanix` |
 | **Delta sync** | watermark poll (only fact sheets changed since last run) + webhook narrowing + nightly reconcile for deletions | `source_sync` MCP (`source=leanix mode=delta`/`reconcile`) + `deploy/schedules.yml` |
-| **Backfeed to LeanIX** | inferred relationships, enrichment attrs/tags, new fact sheets — fail-closed, dry-run-first | `leanix_writeback` MCP / `POST /api/leanix/writeback` |
+| **Backfeed to LeanIX** | inferred relationships, enrichment attrs/tags, new fact sheets — fail-closed, dry-run-first | `graph_writeback target=leanix` MCP / `POST /api/graph/writeback` |
 
 ---
 
@@ -113,10 +113,10 @@ federation key the write-back layer resolves against.
 
 ```bash
 # preview (default): returns the exact proposed writes, nothing mutates
-graph-os call leanix_writeback '{"inferences_json": "[{\"source\":\"app:a1\",\"rel_type\":\"REL_APPLICATION_TO_IT_COMPONENT\",\"target\":\"itcomponent:ic1\"}]", "dry_run": true}'
+graph-os call graph_writeback '{"target": "leanix", "inferences_json": "[{\"source\":\"app:a1\",\"rel_type\":\"REL_APPLICATION_TO_IT_COMPONENT\",\"target\":\"itcomponent:ic1\"}]", "dry_run": true}'
 
 # apply (needs LEANIX_ENABLE_WRITE=true)
-graph-os call leanix_writeback '{"inferences_json": "[...]", "dry_run": false}'
+graph-os call graph_writeback '{"target": "leanix", "inferences_json": "[...]", "dry_run": false}'
 ```
 
 - **Inferred relationships** — written between existing fact sheets and tagged
@@ -137,7 +137,7 @@ graph-os call leanix_writeback '{"inferences_json": "[...]", "dry_run": false}'
 | Typed extractor (mirror mapping) | `agent_utilities/knowledge_graph/enrichment/extractors/leanix.py` |
 | Hydration wiring | `core/hydration.py` (`_hydrate_leanix`) |
 | Delta sync / reconcile (source-agnostic) | `core/source_sync.py` |
-| Backfeed | `enrichment/leanix_writeback.py` |
+| Backfeed | unified `enrichment/writeback/` (sink `sinks/leanix.py`) |
 | Dynamic OWL promotion | `core/owl_bridge.py` (`DYNAMIC_PROMOTABLE_NODE_TYPES`) |
 | Scheduling | `agent_utilities/core/skill_scheduler.py` + `deploy/schedules.yml` |
 
@@ -154,7 +154,7 @@ graph-os call leanix_writeback '{"inferences_json": "[...]", "dry_run": false}'
 | Relations missing in the KG | relation fields not in the metamodel, or unusual envelope | Confirm the relation appears in `client.meta_model()`; the extractor walks every `rel*` field tolerantly — file the envelope shape if a custom one is dropped. |
 | Delta keeps re-pulling everything | LeanIX `updatedAt` not monotonic, or watermark node not persisted | Check the `LeanixSyncState` node exists and `backend.execute` works; LeanIX has no reliable server-side time filter, so the watermark filters client-side — a missing `updatedAt` field on fact sheets disables it (falls back to full pulls, still correct). |
 | Deletions linger in the KG | reconcile not running | Run `source_sync source=leanix mode=reconcile`; confirm `leanix-reconcile` is enabled in `deploy/schedules.yml`. |
-| `leanix_writeback` → `{"status":"refused"}` | `LEANIX_ENABLE_WRITE` not set for a live write | Intended fail-closed behavior. Review the dry-run proposals, then set `LEANIX_ENABLE_WRITE=true`. |
+| `graph_writeback target=leanix` → `{"status":"refused"}` | `LEANIX_ENABLE_WRITE` not set for a live write | Intended fail-closed behavior. Review the dry-run proposals, then set `LEANIX_ENABLE_WRITE=true`. |
 | Write-back skips relations | KG nodes lack `externalToolId`, or rel_type has no LeanIX field | Re-mirror so nodes carry the federation key; the rel_type must invert to a LeanIX relation field via the metamodel. |
 | Scheduled jobs don't run | daemon scheduler off, or schedule disabled | Ensure the daemon runs the scheduler tick; check `enabled: true` for `leanix-*` in `deploy/schedules.yml`; `/cron calendar` lists due jobs. |
 

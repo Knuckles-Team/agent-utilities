@@ -40,6 +40,7 @@ Modular imports:
         <http://knuckles.team/kg/quant>,
         <http://knuckles.team/kg/sdd>,
         <http://knuckles.team/kg/social>,
+        <http://knuckles.team/kg/trm>,
         <http://knuckles.team/kg/wellness>,
         <https://agent-utilities.dev/ontology/infrastructure> .
 

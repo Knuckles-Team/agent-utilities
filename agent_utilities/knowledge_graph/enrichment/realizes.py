@@ -17,7 +17,7 @@ Three modes, unified in one call (composable via flags):
 2. **Mint bottom-up**: when nothing matches and ``mint_missing`` is set, derive a
    new provisional ``BusinessCapability`` from the feature (post-merger
    codebases whose EA catalog is sparse). Provisional capabilities can be pushed
-   back to LeanIX/Archi via :mod:`capability_writeback`.
+   back to LeanIX/Archi via the :mod:`writeback` capability sink.
 3. **Curated registry**: pass a curated capability list as ``registry`` and set
    ``mint_missing=False`` to match strictly against an authored catalog.
 """

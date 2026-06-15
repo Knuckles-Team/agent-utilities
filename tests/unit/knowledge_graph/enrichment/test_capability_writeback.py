@@ -1,17 +1,17 @@
-"""Capability write-back tests (CONCEPT:KG-2.8).
+"""Capability write-back sink tests (CONCEPT:KG-2.8).
 
-Fake Archi/LeanIX clients assert that only provisional/derived capabilities are
-pushed, that existing names are skipped (idempotent), and that one failing client
-never aborts the batch.
+Fake Archi/LeanIX clients assert only provisional/derived capabilities are pushed,
+existing names are skipped (idempotent), and one failing client never aborts the
+batch. Now on the unified WritebackResult (pushes → ``created``, dedup → ``skipped``).
 """
 
 from __future__ import annotations
 
-from agent_utilities.knowledge_graph.enrichment.capability_writeback import (
+from agent_utilities.knowledge_graph.enrichment.models import GraphNode
+from agent_utilities.knowledge_graph.enrichment.writeback.sinks.capability import (
     make_writeback_fn,
     push_capabilities,
 )
-from agent_utilities.knowledge_graph.enrichment.models import GraphNode
 
 
 class FakeArchi:
@@ -41,32 +41,47 @@ def _derived(cid, name):
 
 def test_pushes_provisional_to_both_targets():
     archi, leanix = FakeArchi(), FakeLeanIX()
-    nodes = [_derived("capability:derived:billing", "Billing")]
-    result = push_capabilities(nodes, archi_client=archi, leanix_client=leanix)
-
-    assert result.archi_pushed == 1
-    assert result.leanix_pushed == 1
+    result = push_capabilities(
+        [_derived("capability:derived:billing", "Billing")],
+        archi_client=archi,
+        leanix_client=leanix,
+    )
+    assert result.created == 2  # one archi + one leanix
     assert archi.added == [("Capability", "Billing")]
     assert leanix.created == ["Billing"]
 
 
 def test_skips_non_provisional_capabilities():
     archi = FakeArchi()
-    # A mirrored upstream capability (no provisional/derived flag) is not pushed.
     upstream = GraphNode(
         id="capability:LEANIX", type="BusinessCapability", props={"name": "HR"}
     )
     result = push_capabilities([upstream], archi_client=archi)
-    assert result.archi_pushed == 0
+    assert result.created == 0
     assert archi.added == []
 
 
 def test_skips_existing_names_idempotent():
     archi = FakeArchi()
-    nodes = [_derived("capability:derived:billing", "Billing")]
-    result = push_capabilities(nodes, archi_client=archi, existing_names=["billing"])
-    assert result.skipped_existing == 1
-    assert result.archi_pushed == 0
+    result = push_capabilities(
+        [_derived("capability:derived:billing", "Billing")],
+        archi_client=archi,
+        existing_names=["billing"],
+    )
+    assert result.skipped == 1
+    assert result.created == 0
+
+
+def test_dry_run_proposes_without_pushing():
+    archi = FakeArchi()
+    result = push_capabilities(
+        [_derived("capability:derived:billing", "Billing")],
+        archi_client=archi,
+        dry_run=True,
+    )
+    assert result.created == 0
+    assert archi.added == []
+    assert result.proposals and result.proposals[0]["op"] == "create_capability"
 
 
 def test_one_failing_client_does_not_abort():
@@ -75,24 +90,22 @@ def test_one_failing_client_does_not_abort():
             raise RuntimeError("down")
 
     leanix = FakeLeanIX()
-    nodes = [_derived("capability:derived:x", "X")]
-    result = push_capabilities(nodes, archi_client=Boom(), leanix_client=leanix)
+    result = push_capabilities(
+        [_derived("capability:derived:x", "X")],
+        archi_client=Boom(),
+        leanix_client=leanix,
+    )
     assert result.errors == 1
-    assert result.leanix_pushed == 1  # leanix still succeeded
+    assert result.created == 1  # leanix still succeeded
 
 
 def test_make_writeback_fn_returns_callable():
     archi = FakeArchi()
     fn = make_writeback_fn(archi_client=archi)
     result = fn([_derived("capability:derived:y", "Y")])
-    assert result.archi_pushed == 1
+    assert result.created == 1
 
 
 def test_no_clients_is_noop():
     result = push_capabilities([_derived("capability:derived:z", "Z")])
-    assert result.as_dict() == {
-        "archi_pushed": 0,
-        "leanix_pushed": 0,
-        "skipped_existing": 0,
-        "errors": 0,
-    }
+    assert result.created == 0 and result.errors == 0 and not result.proposals

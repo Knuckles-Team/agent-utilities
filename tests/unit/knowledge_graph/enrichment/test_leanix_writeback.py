@@ -1,11 +1,8 @@
-"""Tests for LeanIX backfeed / write-back (CONCEPT:KG-2.9)."""
+"""Tests for LeanIX backfeed via the unified write-back core (CONCEPT:KG-2.8/2.9)."""
 
 from __future__ import annotations
 
-from agent_utilities.knowledge_graph.enrichment import leanix_writeback as wb
-from agent_utilities.knowledge_graph.enrichment.leanix_writeback import (
-    run_leanix_writeback,
-)
+from agent_utilities.knowledge_graph.enrichment.writeback import core, run_writeback
 
 META_MODEL = {
     "factSheets": {
@@ -47,50 +44,46 @@ class FakeBackend:
     """Resolves two KG nodes to LeanIX GUIDs via externalToolId."""
 
     def execute(self, query, params=None):
-        return [
-            {"id": "app:a1", "guid": "lx-a1"},
-            {"id": "itcomponent:ic1", "guid": "lx-ic1"},
-        ]
+        if "externalToolId" in query:
+            return [
+                {"id": "app:a1", "guid": "lx-a1"},
+                {"id": "itcomponent:ic1", "guid": "lx-ic1"},
+            ]
+        return []
 
 
-def test_dry_run_proposes_without_writing(monkeypatch):
+def _rel(src="app:a1", tgt="itcomponent:ic1"):
+    return {"source": src, "rel_type": "REL_APPLICATION_TO_IT_COMPONENT", "target": tgt}
+
+
+def test_dry_run_proposes_without_writing():
     client = FakeClient()
-    out = run_leanix_writeback(
+    out = run_writeback(
+        "leanix",
         backend=FakeBackend(),
         client=client,
-        inferences=[
-            {
-                "source": "app:a1",
-                "rel_type": "REL_APPLICATION_TO_IT_COMPONENT",
-                "target": "itcomponent:ic1",
-            }
-        ],
+        inferences=[_rel()],
         dry_run=True,
     )
     assert out["status"] == "completed"
     assert out["dry_run"] is True
     assert out["relations_written"] == 0
-    assert client.relations == []  # nothing actually written
+    assert client.relations == []
     prop = out["proposals"][0]
     assert prop["op"] == "create_relation"
     assert prop["factSheet"] == "lx-a1"
     assert prop["relation"] == "relApplicationToITComponent"
     assert prop["target"] == "lx-ic1"
-    assert prop["provenance"] == wb.PROVENANCE_TAG
+    assert prop["provenance"] == core.PROVENANCE_TAG
 
 
 def test_live_write_refused_without_enable_flag(monkeypatch):
-    monkeypatch.setattr(wb, "setting", lambda k, d=None, cast=None: False)
-    out = run_leanix_writeback(
+    monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: False)
+    out = run_writeback(
+        "leanix",
         backend=FakeBackend(),
         client=FakeClient(),
-        inferences=[
-            {
-                "source": "app:a1",
-                "rel_type": "REL_APPLICATION_TO_IT_COMPONENT",
-                "target": "itcomponent:ic1",
-            }
-        ],
+        inferences=[_rel()],
         dry_run=False,
     )
     assert out["status"] == "refused"
@@ -98,48 +91,43 @@ def test_live_write_refused_without_enable_flag(monkeypatch):
 
 
 def test_live_write_when_enabled(monkeypatch):
-    monkeypatch.setattr(wb, "setting", lambda k, d=None, cast=None: True)
+    monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
     client = FakeClient()
-    out = run_leanix_writeback(
+    out = run_writeback(
+        "leanix",
         backend=FakeBackend(),
         client=client,
-        inferences=[
-            {
-                "source": "app:a1",
-                "rel_type": "REL_APPLICATION_TO_IT_COMPONENT",
-                "target": "itcomponent:ic1",
-            }
-        ],
+        inferences=[_rel()],
         creations=[{"type": "DataObject", "name": "Ledger"}],
         dry_run=False,
     )
     assert out["status"] == "completed"
     assert out["relations_written"] == 1
-    assert out["factsheets_created"] == 1
+    assert out["created"] == 1
     assert client.relations == [("lx-a1", "relApplicationToITComponent", "lx-ic1")]
     assert client.created == [("DataObject", "Ledger")]
 
 
 def test_unresolvable_relation_is_skipped(monkeypatch):
-    monkeypatch.setattr(wb, "setting", lambda k, d=None, cast=None: True)
+    monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
     client = FakeClient()
-    out = run_leanix_writeback(
+    out = run_writeback(
+        "leanix",
         backend=FakeBackend(),
         client=client,
-        # target node not in the resolver → skipped, never written
-        inferences=[
-            {
-                "source": "app:a1",
-                "rel_type": "REL_APPLICATION_TO_IT_COMPONENT",
-                "target": "app:unknown",
-            }
-        ],
+        inferences=[_rel(tgt="app:unknown")],
         dry_run=False,
     )
-    assert out["relations_skipped"] == 1
+    assert out["skipped"] == 1
     assert out["relations_written"] == 0
 
 
 def test_no_client_skips():
-    out = run_leanix_writeback(client=None, dry_run=True)
-    assert out["status"] == "skipped"
+    out = run_writeback("leanix", client=None, dry_run=True)
+    assert out["status"] == "completed"
+    assert out["skipped"] == 1
+
+
+def test_unknown_target_errors():
+    out = run_writeback("nope", dry_run=True)
+    assert out["status"] == "error"

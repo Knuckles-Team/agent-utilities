@@ -543,7 +543,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_message": "/graph/message",
     "document_process": "/document/process",
     "source_connector": "/connector/source",
-    "leanix_writeback": "/leanix/writeback",
+    "graph_writeback": "/graph/writeback",
     "source_sync": "/source/sync",
     "ontology_property_types": "/ontology/property-types",
     "ontology_value_types": "/ontology/value-types",
@@ -3768,50 +3768,32 @@ def _build_server(bootstrap: bool = True):
                 )
             # ── KG-2.8: Outbound process-intelligence writeback ──
             elif action == "process_writeback":
-                # Push KG-derived intelligence (capability/code lineage, OWL
-                # inferences, operational signals, glossary/data lineage) back
-                # INTO Camunda instances + ARIS models. target=camunda|aris|both
-                # (default both); query=optional comma-separated process ids.
+                # Push KG-derived process intelligence back INTO Camunda instances
+                # + ARIS models via the unified write-back core (target=process).
+                # target=camunda|aris|both (default both); query=optional process ids.
                 import json as _json
 
-                from agent_utilities.knowledge_graph.enrichment.materialize import (
-                    resolve_source_client,
-                )
-                from agent_utilities.knowledge_graph.enrichment.process_writeback import (
-                    GraphComputeReader,
-                    push_process_intelligence,
+                from agent_utilities.knowledge_graph.enrichment.writeback import (
+                    run_writeback,
                 )
 
                 scope = (target or "both").strip().lower()
-                camunda_client = (
-                    resolve_source_client("camunda")
-                    if scope in ("camunda", "both")
-                    else None
-                )
-                aris_client = (
-                    resolve_source_client("aris") if scope in ("aris", "both") else None
-                )
-                if camunda_client is None and aris_client is None:
-                    return _json.dumps(
-                        {
-                            "error": "no Camunda/ARIS client for scope "
-                            f"{scope!r} — connector package absent or "
-                            "credentials unset (see the connector's "
-                            "auth.get_client environment)."
-                        }
-                    )
                 process_ids = (
                     [p.strip() for p in query.split(",") if p.strip()]
                     if query
                     else None
                 )
-                res = push_process_intelligence(
-                    GraphComputeReader(engine),
-                    camunda_client=camunda_client,
-                    aris_client=aris_client,
-                    process_ids=process_ids,
+                backend = getattr(engine, "backend", None)
+                return _json.dumps(
+                    run_writeback(
+                        "process",
+                        backend=backend,
+                        engine=engine,
+                        dry_run=False,
+                        target=scope,
+                        process_ids=process_ids,
+                    )
                 )
-                return _json.dumps({"status": "written", **res.as_dict()})
             # ── KG-2.7: Startup Context Generation ──
             elif action == "context":
                 try:
@@ -6139,55 +6121,87 @@ def _build_server(bootstrap: bool = True):
     REGISTERED_TOOLS["ontology_leanix_sync"] = ontology_leanix_sync
 
     @mcp.tool(
-        name="leanix_writeback",
-        description="Backfeed KG-derived knowledge into LeanIX: inferred relationships, enrichment attributes/tags, and (optional) new fact sheets (CONCEPT:KG-2.9). Fail-closed: live writes need LEANIX_ENABLE_WRITE; dry_run=true (default) previews the exact proposed writes.",
-        tags=["graph-os", "leanix"],
+        name="graph_writeback",
+        description="Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:KG-2.8/2.9). target='leanix'|'servicenow'|'erpnext'|'process'|'capability'. ops: inferences_json [{source,rel_type,target}] (relationships), enrichments_json [{node,patches,tag}], creations_json [{type,name}] (inventory CIs/items/fact sheets), retirements_json [{node}]. Fail-closed: live writes need the target's enable flag (e.g. LEANIX_ENABLE_WRITE / SERVICENOW_ENABLE_WRITE / ERPNEXT_ENABLE_WRITE / KG_PROCESS_WRITEBACK); dry_run=true (default) previews the exact proposed writes.",
+        tags=["graph-os", "writeback"],
     )
-    def leanix_writeback(
+    def graph_writeback(
+        target: str = Field(
+            default="leanix",
+            description="Write-back target: leanix | servicenow | erpnext | process | capability.",
+        ),
         inferences_json: str = Field(
             default="[]",
-            description="JSON list of inferred edges [{source,rel_type,target}] to write as LeanIX relations.",
+            description="JSON list of inferred edges [{source,rel_type,target}] to write as upstream relations.",
         ),
         enrichments_json: str = Field(
             default="[]",
-            description="JSON list of enrichments [{node, patches:[{op,path,value}], tag}] to write onto fact sheets.",
+            description="JSON list of enrichments [{node, patches, tag}] onto existing records.",
         ),
         creations_json: str = Field(
             default="[]",
-            description="JSON list of new fact sheets [{type,name}] to create (highest risk).",
+            description="JSON list of new records [{type,name,...}] to create upstream (inventory CIs/items).",
+        ),
+        retirements_json: str = Field(
+            default="[]",
+            description="JSON list [{node}] to retire/decommission upstream (highest risk).",
+        ),
+        process_ids_json: str = Field(
+            default="[]",
+            description="For target=process: JSON list of process ids to narrow to.",
+        ),
+        inventory: bool = Field(
+            default=False,
+            description="If true, collect the KG's reconciled inventory (infra/topology + LeanIX + TRM, deduped via ALIGNED_WITH) and create the items missing from the target CMDB/ERP.",
         ),
         dry_run: bool = Field(
             default=True,
-            description="Preview proposed writes without mutating LeanIX (default). Set false to apply.",
+            description="Preview proposed writes without mutating the system-of-record (default). Set false to apply.",
         ),
     ) -> str:
-        """Write inferred relations / enrichment / fact sheets back to LeanIX (fail-closed)."""
-        from agent_utilities.knowledge_graph.enrichment.leanix_writeback import (
-            run_leanix_writeback,
+        """Unified fail-closed write-back to any target system (dry-run-first)."""
+        from agent_utilities.knowledge_graph.enrichment.writeback import (
+            push_inventory,
+            run_writeback,
         )
 
         try:
-            inferences = json.loads(inferences_json) if inferences_json else []
-            enrichments = json.loads(enrichments_json) if enrichments_json else []
-            creations = json.loads(creations_json) if creations_json else []
             try:
                 engine = _get_engine()
             except Exception:  # noqa: BLE001 - offline → no backend resolver
                 engine = None
             backend = getattr(engine, "backend", None) if engine is not None else None
+            if bool(inventory):
+                return json.dumps(
+                    push_inventory(
+                        str(target),
+                        backend=backend,
+                        engine=engine,
+                        dry_run=bool(dry_run),
+                    )
+                )
+            ops = {
+                "inferences": json.loads(inferences_json) if inferences_json else [],
+                "enrichments": json.loads(enrichments_json) if enrichments_json else [],
+                "creations": json.loads(creations_json) if creations_json else [],
+                "retirements": json.loads(retirements_json) if retirements_json else [],
+                "process_ids": json.loads(process_ids_json)
+                if process_ids_json
+                else None,
+            }
             return json.dumps(
-                run_leanix_writeback(
+                run_writeback(
+                    str(target),
                     backend=backend,
-                    inferences=inferences,
-                    enrichments=enrichments,
-                    creations=creations,
+                    engine=engine,
                     dry_run=bool(dry_run),
+                    **ops,
                 )
             )
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
 
-    REGISTERED_TOOLS["leanix_writeback"] = leanix_writeback
+    REGISTERED_TOOLS["graph_writeback"] = graph_writeback
 
     @mcp.tool(
         name="source_sync",
