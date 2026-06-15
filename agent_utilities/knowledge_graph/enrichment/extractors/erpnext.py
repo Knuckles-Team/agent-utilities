@@ -123,17 +123,73 @@ def extract(config: Any) -> ExtractionBatch:
                 )
             )
 
-    # Item -> Item node
+    # Item -> Item node (with stock/inventory props when present)
     for row in _get_list(client, "Item"):
         name = _first(row, "name", "item_code", "item_name")
         if name is None:
             continue
-        item_name = _first(row, "item_name", "name")
+        props = {
+            "item_name": _first(row, "item_name", "name"),
+            "item_group": _first(row, "item_group"),
+            "stock_uom": _first(row, "stock_uom"),
+            "actual_qty": _first(row, "actual_qty", "opening_stock"),
+        }
         nodes.append(
             GraphNode(
                 id=f"item:{name}",
                 type="Item",
-                props={"item_name": item_name},
+                props={k: v for k, v in props.items() if v is not None},
+            )
+        )
+
+    # Asset -> AssetInstance (TRM); lifecycle/risk + INSTANCE_OF its Item.
+    for row in _get_list(client, "Asset"):
+        name = _first(row, "name", "asset_name")
+        if name is None:
+            continue
+        props = {
+            "name": _first(row, "asset_name", "name"),
+            "asset_category": _first(row, "asset_category"),
+            "lifecycleStage": _first(row, "status"),
+            "endOfLifeDate": _first(
+                row, "disposal_date", "expected_value_after_useful_life"
+            ),
+        }
+        node_id = f"asset:{name}"
+        nodes.append(
+            GraphNode(
+                id=node_id,
+                type="AssetInstance",
+                props={k: v for k, v in props.items() if v is not None},
+            )
+        )
+        item = _first(row, "item_code", "item")
+        if item is not None:
+            edges.append(
+                EnrichmentEdge(
+                    source=node_id, target=f"item:{item}", rel_type="INSTANCE_OF"
+                )
+            )
+        warehouse = _first(row, "warehouse", "location")
+        if warehouse is not None:
+            edges.append(
+                EnrichmentEdge(
+                    source=node_id,
+                    target=f"warehouse:{warehouse}",
+                    rel_type="LOCATED_IN",
+                )
+            )
+
+    # Warehouse -> Warehouse node (stock location master).
+    for row in _get_list(client, "Warehouse"):
+        name = _first(row, "name", "warehouse_name")
+        if name is None:
+            continue
+        nodes.append(
+            GraphNode(
+                id=f"warehouse:{name}",
+                type="Warehouse",
+                props={"name": _first(row, "warehouse_name", "name")},
             )
         )
 
@@ -167,6 +223,12 @@ def extract(config: Any) -> ExtractionBatch:
             )
 
     nodes.extend(orgunits.values())
+    # Stamp the federation key on every node (externalToolId = Frappe doc name =
+    # the node id suffix; domain="erpnext") so write-back can resolve KG node →
+    # ERPNext doc and reconcile across sources.
+    for node in nodes:
+        node.props.setdefault("domain", "erpnext")
+        node.props.setdefault("externalToolId", node.id.split(":", 1)[-1])
     return ExtractionBatch(category="erpnext", nodes=nodes, edges=edges)
 
 
