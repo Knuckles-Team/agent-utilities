@@ -43,7 +43,7 @@ CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
     },
     "leanix": {
         "category": "enterprise_architecture",
-        "method": "_hydrate_enterprise_architecture",
+        "method": "_hydrate_leanix",
     },
     "enterprise_architecture": {
         "category": "enterprise_architecture",
@@ -498,6 +498,19 @@ class HydrationManager:
             "nodes_hydrated": len(entities),
             "relations_hydrated": len(relationships),
         }
+
+    def _hydrate_leanix(self, engine: Any) -> dict[str, Any]:
+        """Mirror the LeanIX fact-sheet graph natively into the KG (CONCEPT:KG-2.9).
+
+        Delegates to the one delta-aware sync path (:func:`leanix_sync.sync_leanix`),
+        which injects a live LeanIX client into the typed extractor, batch-ingests
+        every fact sheet + relation (each node stamped
+        ``externalToolId``/``domain="leanix"``), and advances the delta watermark.
+        Default ``mode="delta"`` grabs only what changed since the last run.
+        """
+        from .leanix_sync import sync_leanix
+
+        return sync_leanix(engine, mode="delta")
 
     def _hydrate_process_modeling(self, engine: Any) -> dict[str, Any]:
         """Hydrate business processes. Supports BPMN 2.0 XML, ArchiMate XML, and BPM tools (e.g., Archi)."""
