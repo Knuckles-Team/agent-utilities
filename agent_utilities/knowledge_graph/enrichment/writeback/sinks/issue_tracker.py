@@ -37,6 +37,9 @@ class _IssueSinkBase:
     enable_flag = ""
     module = ""
 
+    def _client(self, ops: dict[str, Any]) -> Any | None:
+        return _resolve_client(ops, self.module)
+
     def _create(self, client: Any, title: str, body: str, c: dict[str, Any]) -> None:
         raise NotImplementedError  # ABSTRACT-OK
 
@@ -44,7 +47,7 @@ class _IssueSinkBase:
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
     ) -> WritebackResult:
         result = WritebackResult(target=self.domain)
-        client = _resolve_client(ops, self.module)
+        client = self._client(ops)
         if client is None and not dry_run:
             result.skipped += 1
             return result
@@ -99,6 +102,35 @@ class PlaneIssueSink(_IssueSinkBase):
         )
 
 
+class JiraIssueSink(_IssueSinkBase):
+    domain = "jira"
+    enable_flag = "JIRA_ENABLE_WRITE"
+    module = "atlassian_agent"
+
+    def _client(self, ops):
+        if ops.get("client") is not None:
+            return ops["client"]
+        try:
+            from atlassian_agent.auth import get_jira_cloud_client
+
+            return get_jira_cloud_client()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _create(self, client, title, body, c):
+        client.jira_cloud_create_issue(
+            payload={
+                "fields": {
+                    "project": {"key": c.get("project") or c.get("project_id")},
+                    "summary": title,
+                    "description": body,
+                    "issuetype": {"name": c.get("issue_type", "Task")},
+                }
+            }
+        )
+
+
 register_sink(GitLabIssueSink())
 register_sink(GitHubIssueSink())
 register_sink(PlaneIssueSink())
+register_sink(JiraIssueSink())

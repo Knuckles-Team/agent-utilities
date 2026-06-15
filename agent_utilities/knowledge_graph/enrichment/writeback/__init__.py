@@ -24,6 +24,7 @@ from .core import (
 )
 from .findings import collect_risk_findings, push_findings
 from .inventory import collect_inventory_creations, push_inventory
+from .spec_link import link_spec, pull_assigned
 
 # Import sinks so they self-register (plugin pattern).
 from .sinks import ansible as _ansible  # noqa: F401
@@ -38,6 +39,7 @@ from .sinks import ops as _ops  # noqa: F401
 from .sinks import process as _process  # noqa: F401
 from .sinks import salesforce as _salesforce  # noqa: F401
 from .sinks import servicenow as _servicenow  # noqa: F401
+from .sinks import twenty as _twenty  # noqa: F401
 from .sinks.capability import resolve_writeback_fn
 
 __all__ = [
@@ -52,4 +54,6 @@ __all__ = [
     "collect_risk_findings",
     "ProposalQueue",
     "approve_proposal",
+    "link_spec",
+    "pull_assigned",
 ]
