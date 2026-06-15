@@ -30,11 +30,25 @@ from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
 
 def make_sql_server(rows: list[dict] | None = None, page_size: int = 2) -> FastMCP:
     """A fake sql-mcp: keyset-paginated sql_query + sql_schema columns."""
-    table = rows if rows is not None else [
-        {"id": 1, "title": "Alpha", "body": "alpha body", "updated_at": "2026-01-01"},
-        {"id": 2, "title": "Beta", "body": "beta body", "updated_at": "2026-02-01"},
-        {"id": 3, "title": "Gamma", "body": "gamma body", "updated_at": "2026-03-01"},
-    ]
+    table = (
+        rows
+        if rows is not None
+        else [
+            {
+                "id": 1,
+                "title": "Alpha",
+                "body": "alpha body",
+                "updated_at": "2026-01-01",
+            },
+            {"id": 2, "title": "Beta", "body": "beta body", "updated_at": "2026-02-01"},
+            {
+                "id": 3,
+                "title": "Gamma",
+                "body": "gamma body",
+                "updated_at": "2026-03-01",
+            },
+        ]
+    )
     server = FastMCP("fake-sql-mcp")
 
     @server.tool
@@ -454,3 +468,62 @@ def test_missing_server_in_mcp_config_is_typed(monkeypatch, tmp_path):
     conn = build_connector("mcp_tool", {"server": "ghost", "tool": "t"})
     with pytest.raises(McpToolSourceError, match="ghost"):
         list(conn.load())
+
+
+# ── mealie recipes doc-preset (CONCEPT:KG-2.59) ───────────────────────────────
+
+
+def make_mealie_server(page_size: int = 2) -> FastMCP:
+    """A fake mealie-mcp: action-routed mealie_recipes with Mealie's page envelope."""
+    recipes = [
+        {"id": "1", "slug": "soup", "name": "Soup", "description": "warm soup"},
+        {"id": "2", "slug": "salad", "name": "Salad", "description": "cold salad"},
+        {"id": "3", "slug": "stew", "name": "Stew", "description": "hearty stew"},
+    ]
+    server = FastMCP("fake-mealie-mcp")
+
+    @server.tool
+    def mealie_recipes(action: str, params_json: str = "{}") -> dict:
+        assert action == "get_recipes"
+        p = json.loads(params_json)
+        page = int(p.get("page", 1))
+        per = int(p.get("per_page", page_size))
+        start = (page - 1) * per
+        items = recipes[start : start + per]
+        return {"items": items, "page": page, "per_page": per, "total": len(recipes)}
+
+    return server
+
+
+@pytest.mark.concept("KG-2.59")
+def test_mealie_preset_builds_with_verified_shape():
+    assert "mealie-recipes" in list_tool_presets()
+    conn = build_connector("mcp_tool", {"preset": "mealie-recipes"})
+    assert conn.server == "mealie-mcp"
+    assert conn.tool == "mealie_recipes"
+    assert conn.action == "get_recipes"
+    assert conn.params_style == "json"
+    assert conn.records_path == "items"
+    assert (conn.id_field, conn.title_field, conn.text_field) == (
+        "slug",
+        "name",
+        "description",
+    )
+
+
+@pytest.mark.concept("KG-2.59")
+def test_mealie_recipes_sweep_paginates_pages():
+    conn = build_connector(
+        "mcp_tool",
+        {
+            "preset": "mealie-recipes",
+            "client": make_mealie_server(page_size=2),
+            "params": {"per_page": 2},
+            "page_size": 2,
+        },
+    )
+    docs = list(conn.load())
+    # 3 recipes across 2 pages (number-based, start_page=1), descriptions as text
+    assert [d.id for d in docs] == ["soup", "salad", "stew"]
+    assert docs[0].text == "warm soup"
+    assert docs[0].doc_type == "record"
