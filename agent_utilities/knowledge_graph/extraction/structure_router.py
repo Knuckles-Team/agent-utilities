@@ -145,7 +145,7 @@ def _looks_like_json(text: str) -> bool:
         obj = json.loads(s)
     except (ValueError, TypeError):
         return False
-    return isinstance(obj, (dict, list))
+    return isinstance(obj, dict | list)
 
 
 def _kv_match(line: str) -> tuple[str, str] | None:

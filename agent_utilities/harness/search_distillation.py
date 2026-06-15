@@ -52,7 +52,7 @@ def _stringify(answer: Any) -> str:
         return ""
     if hasattr(answer, "render") and callable(answer.render):
         return str(answer.render())
-    if isinstance(answer, (set, frozenset)):
+    if isinstance(answer, set | frozenset):
         return ", ".join(sorted(str(x) for x in answer))
     return str(answer)
 

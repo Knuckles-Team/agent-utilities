@@ -200,7 +200,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/research/auto_merge.py
-  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: consider promoting the team
 - id: AHE-3.15
   name: this is the read-back half of agent-step policy
@@ -239,7 +239,7 @@ concepts:
   - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/change_publisher.py
-  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/mcp/kg_server.py
   doc: Failure-Driven Evolution
 - id: AHE-3.19
@@ -324,8 +324,8 @@ concepts:
   pillar: AHE-3
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/research/golden_loop.py
   - agent_utilities/knowledge_graph/research/improvement_ledger.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: recursive-improvement instrumentation aggregating per-cycle proposal merge and capability-delta
     metrics so the self-evolution loop can measure its own rate and per-mechanism contribution
 - id: AHE-3.27
@@ -1180,7 +1180,7 @@ concepts:
   - agent_utilities/security/threat_defense_engine.py
   doc: Generates actionable LLM artifacts from KG-ingested research
 - id: KG-2.7
-  name: the durable PostgreSQL graph tier executed via a bounded regex
+  name: / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis
   pillar: KG-2
   status: live
   code_paths:
@@ -1229,12 +1229,12 @@ concepts:
   - agent_utilities/knowledge_graph/memory/agent_context.py
   - agent_utilities/knowledge_graph/pipeline/__init__.py
   - agent_utilities/knowledge_graph/pipeline/phases/__init__.py
-  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/research/search.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/server/app.py
-  doc: the durable PostgreSQL graph tier executed via a bounded regex
+  doc: / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis
 - id: KG-2.8
   name: / OS-5.9 — the KG runs exactly ONE consolidated background daemon
   pillar: KG-2
@@ -1267,6 +1267,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/models.py
   - agent_utilities/knowledge_graph/enrichment/patterns.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  - agent_utilities/knowledge_graph/enrichment/process_writeback.py
   - agent_utilities/knowledge_graph/enrichment/query.py
   - agent_utilities/knowledge_graph/enrichment/realizes.py
   - agent_utilities/knowledge_graph/enrichment/semantic.py
@@ -1289,7 +1290,11 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/ecosystem/ea_clients.py
+  - agent_utilities/gateway/ontology_api.py
+  - agent_utilities/knowledge_graph/core/hydration.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/enrichment/extractors/archer.py
   - agent_utilities/knowledge_graph/enrichment/extractors/aris.py
   - agent_utilities/knowledge_graph/enrichment/extractors/camunda.py
@@ -1300,11 +1305,14 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/extractors/leanix.py
   - agent_utilities/knowledge_graph/enrichment/extractors/odoo.py
   - agent_utilities/knowledge_graph/enrichment/extractors/servicenow.py
+  - agent_utilities/knowledge_graph/enrichment/leanix_writeback.py
+  - agent_utilities/knowledge_graph/enrichment/materialize.py
   - agent_utilities/knowledge_graph/enrichment/models.py
   - agent_utilities/knowledge_graph/enrichment/registry.py
   - agent_utilities/knowledge_graph/infra/__init__.py
   - agent_utilities/knowledge_graph/infra/inventory_collector.py
   - agent_utilities/knowledge_graph/infra/placement_optimizer.py
+  - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/protocols/universal_connector.py
@@ -1719,7 +1727,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ontology/__init__.py
-  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/standardization/__init__.py
   - agent_utilities/knowledge_graph/standardization/cohorts.py
   - agent_utilities/knowledge_graph/standardization/consolidation.py
@@ -1753,6 +1761,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/aris.py
   - agent_utilities/knowledge_graph/enrichment/extractors/camunda.py
   - agent_utilities/knowledge_graph/enrichment/models.py
   doc: the descriptive process world gains step-level shape
@@ -1937,7 +1946,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/search_synthesis/__init__.py
   - agent_utilities/knowledge_graph/search_synthesis/evidence_subgraph.py
   - agent_utilities/knowledge_graph/search_synthesis/models.py
@@ -1975,6 +1984,7 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/backends/__init__.py
+  - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/outbox.py
   - agent_utilities/knowledge_graph/extraction/ontology_grounding.py
@@ -1991,7 +2001,7 @@ concepts:
   - agent_utilities/automation/research_pipeline.py
   - agent_utilities/knowledge_graph/assimilation/concept_matcher.py
   - agent_utilities/knowledge_graph/assimilation/ingest.py
-  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/models/knowledge_graph.py
   doc: KG-2.75
 - id: KG-2.76
@@ -2008,17 +2018,20 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
-  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/research/research_intelligence_engine.py
   doc: KG-2.77
 - id: KG-2.78
-  name: KG-2.78
+  name: These properties carry the
   pillar: KG-2
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/core/sessions.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/research/loops.py
-  doc: KG-2.78
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/orchestration/agent_dispatch_worker.py
+  doc: These properties carry the
 - id: KG-2.79
   name: Best-effort + lightweight; never blocks
   pillar: KG-2
@@ -2027,7 +2040,7 @@ concepts:
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/knowledge_graph/research/ara/__init__.py
   - agent_utilities/knowledge_graph/research/ara/reasoning_driver.py
-  - agent_utilities/knowledge_graph/research/golden_loop.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/mcp/kg_server.py
   doc: Best-effort + lightweight; never blocks
 - id: KG-2.80
@@ -2895,6 +2908,7 @@ concepts:
   - agent_utilities/gateway/fleet.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
+  - agent_utilities/mcp/kg_server.py
   - agent_utilities/orchestration/agent_dispatch.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/orchestration/durable_execution.py
@@ -2916,7 +2930,6 @@ concepts:
   pillar: OS-5
   status: live
   code_paths:
-  - agent_utilities/core/sessions.py
   - agent_utilities/gateway/fleet.py
   doc: Fleet supervisory plane at scale — SQL aggregation, paginated and filtered session queries, and
     desired-state pause and kill reconciliation across hosts
@@ -3165,7 +3178,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/corrigibility.py
-  - agent_utilities/core/sessions.py
   - agent_utilities/orchestration/action_policy.py
   doc: objective-level safety primitives for rising autonomy
 - id: SAFE-1.6
