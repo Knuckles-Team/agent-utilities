@@ -623,6 +623,41 @@ def register_analysis_tools(mcp):
                     ],
                     default=str,
                 )
+            elif action == "assimilation_benchmark":
+                # CONCEPT:AHE-3.39 — measured empirical-parity evidence: run each
+                # assimilated paper's mechanism vs a baseline on a controlled task and
+                # report the real lift + claim-reproduced verdict (the proof that we
+                # got feature parity, not just shipped the mechanism). Deterministic,
+                # CPU; the trained-pause-token bench runs when torch is present.
+                from agent_utilities.harness.assimilation_benchmark import (
+                    run_all as _bench_run_all,
+                )
+                from agent_utilities.harness.assimilation_benchmark import (
+                    to_markdown as _bench_md,
+                )
+
+                bench_results = _bench_run_all(seed=int(top_k) if top_k else 0)
+                return json.dumps(
+                    {
+                        "reproduced": sum(
+                            1 for r in bench_results if r.claim_reproduced
+                        ),
+                        "total": len(bench_results),
+                        "results": [
+                            {
+                                "name": r.name,
+                                "metric": r.metric,
+                                "baseline": r.baseline,
+                                "ours": r.ours,
+                                "lift": r.lift,
+                                "claim_reproduced": r.claim_reproduced,
+                            }
+                            for r in bench_results
+                        ],
+                        "markdown": _bench_md(bench_results),
+                    },
+                    default=str,
+                )
             elif action == "infer_links":
                 from agent_utilities.knowledge_graph.kb.link_inference import (
                     infer_links,
