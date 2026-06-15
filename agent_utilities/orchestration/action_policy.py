@@ -412,6 +412,29 @@ class ActionPolicy:
 
     # ── the decision ────────────────────────────────────────────────
 
+    def classify(self, request: ActionRequest) -> str:
+        """Return the policy *tier* for ``request`` with NO side effects.
+
+        Unlike :meth:`decide`, this writes no ``ActionDecision`` audit node and
+        files no ``ActionApproval`` — it only resolves the matching rule (file +
+        KG ``governance_rule`` overrides) and returns its tier
+        (``auto`` | ``auto_notify`` | ``approval_required`` | ``forbidden``).
+
+        For surfaces that need the governed *verdict* per call without the
+        durable fleet-accounting side effects — e.g. the Claude Code PreToolUse
+        gate (CONCEPT:OS-5.41), which would otherwise spam the KG with an audit
+        node for every IDE tool call. Never raises — fails CLOSED to
+        ``forbidden`` on any internal error.
+        """
+        try:
+            rule, _defaults = self._match(request)
+            return rule.tier
+        except Exception as e:  # noqa: BLE001 — classification fails CLOSED
+            logger.warning(
+                "action_policy: classify error for %s: %s", request.summary(), e
+            )
+            return TIER_FORBIDDEN
+
     def decide(self, request: ActionRequest) -> ActionDecision:
         """Decide one action: allow / allow+notify / queue-approval / deny.
 

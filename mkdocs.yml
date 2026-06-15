@@ -115,6 +115,7 @@ nav:
       - Tenant-Partitioned Engine Sharding: architecture/engine_sharding.md
       - Queue-Driven Agent Dispatch: architecture/agent_dispatch.md
       - Fleet Autonomy Control Plane: architecture/fleet_autonomy.md
+      - Unattended Claude Code Harness: architecture/unattended_claude_harness.md
       - Event Backbone (Kafka): architecture/event_backbone_architecture.md
       - Ontology System: architecture/ontology_system.md
       - Graph Backend Architecture: architecture/graph_backends_architecture.md

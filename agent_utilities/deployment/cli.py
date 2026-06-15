@@ -42,6 +42,24 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("reference", help="Print every option grouped by subsystem (JSON).")
 
+    hf = sub.add_parser(
+        "harness-fence",
+        help="Write a governance-derived Claude Code permission fence (CONCEPT:OS-5.40).",
+    )
+    hf.add_argument(
+        "--target",
+        default=None,
+        help="Claude config dir (default: ~/.claude). Writes settings.json + ../.claudeignore.",
+    )
+    hf.add_argument(
+        "--policy", default=None, help="ActionPolicy YAML (default: shipped policy)."
+    )
+    hf.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show the fence that would be written without touching disk.",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "generate":
@@ -54,6 +72,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if res.get("healthy") else 1
     if args.command == "reference":
         print(json.dumps(config_reference(), indent=2, default=str))
+        return 0
+    if args.command == "harness-fence":
+        from pathlib import Path
+
+        from agent_utilities.claude_harness.claude_fence import write_fence
+        from agent_utilities.orchestration.action_policy import ActionPolicy
+
+        target = args.target or str(Path.home() / ".claude")
+        policy = (
+            ActionPolicy(policy_path=args.policy) if args.policy else ActionPolicy()
+        )
+        res = write_fence(target, policy, dry_run=args.dry_run)
+        print(json.dumps(res, indent=2, default=str))
         return 0
     return 2
 

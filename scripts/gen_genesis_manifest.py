@@ -152,6 +152,8 @@ def build() -> dict:
         "ide_targets": {
             "install_skills": "install-skills --all-detected",
             "install_mcp": "mcp-installer --all-detected",
+            # CONCEPT:OS-5.40 — governance-derived Claude Code permission fence.
+            "harness_fence": "setup-config harness-fence --target ~/.claude",
             "tools": IDE_TARGETS,
         },
         "servers": {
