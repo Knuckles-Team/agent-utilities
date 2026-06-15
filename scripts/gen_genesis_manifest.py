@@ -128,7 +128,7 @@ def build() -> dict:
         "version": 1,
         "entrypoints": {
             "preflight": "agent-utilities-doctor --preflight --profile <profile> [--component <c>]",
-            "install": "scripts/install.sh",
+            "install": "scripts/install.sh (Windows: scripts/install.ps1)",
             "config": "setup-config generate --profile <profile>",
             "verify": "agent-utilities-doctor",
             "single_node_skill": "agent-utilities-deployment",
