@@ -26,7 +26,7 @@ Design constraints (repo policy):
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 __all__ = [
     "EvalCase",
@@ -71,7 +71,7 @@ class EvalResult:
 # (system_output, case) -> result. Injected by the caller; never an LLM at the type level.
 JudgeFn = Callable[[str, EvalCase], EvalResult]
 # (failing_case, system_output) -> sharper case. Optional; sharpens harvested failures.
-RefineFn = Optional[Callable[[EvalCase, str], EvalCase]]
+RefineFn = Callable[[EvalCase, str], EvalCase] | None
 
 
 class EvalSet:

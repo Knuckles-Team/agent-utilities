@@ -510,14 +510,14 @@ def register_analysis_tools(mcp):
 
                 if not target:
                     return "Error: night_shift needs the vault root path in `target`."
-                report = NightShiftSwarm(target).run_shift()
+                shift_report = NightShiftSwarm(target).run_shift()
                 return json.dumps(
                     {
-                        "sources_ingested": report.sources_ingested,
-                        "atoms_created": report.atoms_created,
-                        "links_added": report.links_added,
-                        "frictions": report.frictions,
-                        "briefing_path": report.briefing_path,
+                        "sources_ingested": shift_report.sources_ingested,
+                        "atoms_created": shift_report.atoms_created,
+                        "links_added": shift_report.links_added,
+                        "frictions": shift_report.frictions,
+                        "briefing_path": shift_report.briefing_path,
                     },
                     default=str,
                 )
