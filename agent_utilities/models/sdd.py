@@ -28,6 +28,10 @@ class Spec(BaseModel):
     success_metrics: list[str] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # CONCEPT:KG-2.9 — external tracker ids this spec is tracked by, e.g.
+    # {"jira": "PROJ-123", "plane": "<project>/<work_item>"}. Mirrored to the KG
+    # spec node's :trackedBy property by the spec↔ticket link flow.
+    external_links: dict[str, str] = Field(default_factory=dict)
 
 
 class Task(BaseModel):

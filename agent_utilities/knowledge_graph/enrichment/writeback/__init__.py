@@ -24,6 +24,7 @@ from .core import (
 )
 from .findings import collect_risk_findings, push_findings
 from .inventory import collect_inventory_creations, push_inventory
+from .spec_link import link_spec, pull_assigned
 
 # Import sinks so they self-register (plugin pattern).
 from .sinks import ansible as _ansible  # noqa: F401
@@ -52,4 +53,6 @@ __all__ = [
     "collect_risk_findings",
     "ProposalQueue",
     "approve_proposal",
+    "link_spec",
+    "pull_assigned",
 ]

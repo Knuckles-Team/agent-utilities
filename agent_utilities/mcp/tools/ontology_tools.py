@@ -316,6 +316,73 @@ def register_ontology_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_writeback"] = graph_writeback
 
     @mcp.tool(
+        name="spec_ticket",
+        description="Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable (CONCEPT:KG-2.9). action='link' (push spec content onto the item, link it, assign to user/agent/act-as-user, comment) or 'pull' (read items assigned to a user — 'what do I own?'). Fail-closed (PLANE_ENABLE_WRITE/JIRA_ENABLE_WRITE), dry_run=true previews.",
+        tags=["graph-os", "writeback", "sdd"],
+    )
+    def spec_ticket(
+        action: str = Field(default="link", description="'link' or 'pull'."),
+        target: str = Field(default="plane", description="'plane' or 'jira'."),
+        spec_json: str = Field(
+            default="{}",
+            description="For action='link': the spec dict {feature_id,title,user_stories,...}.",
+        ),
+        issue_id: str = Field(
+            default="", description="The Plane work-item id / Jira issue key."
+        ),
+        project_id: str = Field(
+            default="", description="Plane project id (for plane)."
+        ),
+        assignee: str = Field(default="", description="Explicit user id to assign."),
+        agent: str = Field(
+            default="", description="Agent id to assign (maps via AGENT_USER_MAP)."
+        ),
+        comment: str = Field(default="", description="Optional comment to post."),
+        user: str = Field(
+            default="", description="For action='pull': user whose items to read."
+        ),
+        dry_run: bool = Field(
+            default=True, description="Preview without writing (default)."
+        ),
+    ) -> str:
+        """Spec↔ticket↔agent linking + assignment + assigned-items read."""
+        from agent_utilities.knowledge_graph.enrichment.writeback import (
+            link_spec,
+            pull_assigned,
+        )
+
+        try:
+            try:
+                engine = kg_server._get_engine()
+            except Exception:  # noqa: BLE001
+                engine = None
+            backend = getattr(engine, "backend", None) if engine is not None else None
+            if str(action) == "pull":
+                return json.dumps(
+                    pull_assigned(
+                        str(target), user=user or None, project_id=project_id or None
+                    )
+                )
+            spec = json.loads(spec_json) if spec_json else {}
+            return json.dumps(
+                link_spec(
+                    spec,
+                    target=str(target),
+                    issue_id=str(issue_id),
+                    project_id=project_id or None,
+                    assignee=assignee or None,
+                    agent=agent or None,
+                    comment=comment or None,
+                    backend=backend,
+                    dry_run=bool(dry_run),
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["spec_ticket"] = spec_ticket
+
+    @mcp.tool(
         name="source_sync",
         description="Sync an external source's mirror into the KG (CONCEPT:KG-2.9). source='leanix'|'camunda'|'servicenow'|… (any registered hydration source). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream). Delta-capable sources do incremental sync; others fall back to a full hydrate. ids=[...] narrows to specific records (webhook-driven).",
         tags=["graph-os", "ingestion"],
