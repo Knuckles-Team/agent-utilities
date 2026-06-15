@@ -60,6 +60,10 @@ from .query import (
     list_features,
     tests_needing_work,
 )
+from .materialize import (
+    materialize_source,
+    resolve_source_client,
+)
 from .registry import (
     discover_extractors,
     list_sources,
@@ -107,7 +111,9 @@ __all__ = [
     "execute_agent_spec",
     "execute_team_spec",
     "make_capability_search",
+    "materialize_source",
     "persist_as_runnable",
+    "resolve_source_client",
     "list_sources",
     "persist_synthesis",
     "prompt_to_batch",
