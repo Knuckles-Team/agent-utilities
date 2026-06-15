@@ -543,6 +543,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_message": "/graph/message",
     "document_process": "/document/process",
     "source_connector": "/connector/source",
+    "leanix_writeback": "/leanix/writeback",
     "ontology_property_types": "/ontology/property-types",
     "ontology_value_types": "/ontology/value-types",
     "ontology_interface": "/ontology/interface",
@@ -5994,6 +5995,57 @@ def _build_server(bootstrap: bool = True):
             return json.dumps({"error": str(e)})
 
     REGISTERED_TOOLS["ontology_leanix_sync"] = ontology_leanix_sync
+
+    @mcp.tool(
+        name="leanix_writeback",
+        description="Backfeed KG-derived knowledge into LeanIX: inferred relationships, enrichment attributes/tags, and (optional) new fact sheets (CONCEPT:KG-2.9). Fail-closed: live writes need LEANIX_ENABLE_WRITE; dry_run=true (default) previews the exact proposed writes.",
+        tags=["graph-os", "leanix"],
+    )
+    def leanix_writeback(
+        inferences_json: str = Field(
+            default="[]",
+            description="JSON list of inferred edges [{source,rel_type,target}] to write as LeanIX relations.",
+        ),
+        enrichments_json: str = Field(
+            default="[]",
+            description="JSON list of enrichments [{node, patches:[{op,path,value}], tag}] to write onto fact sheets.",
+        ),
+        creations_json: str = Field(
+            default="[]",
+            description="JSON list of new fact sheets [{type,name}] to create (highest risk).",
+        ),
+        dry_run: bool = Field(
+            default=True,
+            description="Preview proposed writes without mutating LeanIX (default). Set false to apply.",
+        ),
+    ) -> str:
+        """Write inferred relations / enrichment / fact sheets back to LeanIX (fail-closed)."""
+        from agent_utilities.knowledge_graph.enrichment.leanix_writeback import (
+            run_leanix_writeback,
+        )
+
+        try:
+            inferences = json.loads(inferences_json) if inferences_json else []
+            enrichments = json.loads(enrichments_json) if enrichments_json else []
+            creations = json.loads(creations_json) if creations_json else []
+            try:
+                engine = _get_engine()
+            except Exception:  # noqa: BLE001 - offline → no backend resolver
+                engine = None
+            backend = getattr(engine, "backend", None) if engine is not None else None
+            return json.dumps(
+                run_leanix_writeback(
+                    backend=backend,
+                    inferences=inferences,
+                    enrichments=enrichments,
+                    creations=creations,
+                    dry_run=bool(dry_run),
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["leanix_writeback"] = leanix_writeback
 
     @mcp.tool(
         name="ontology_function",
