@@ -579,10 +579,14 @@ class LoopController:
     def _advance_skill(self, loop: dict[str, Any]) -> dict[str, Any]:
         """Run a skill / skill-workflow Loop to its completion state."""
         ref = (loop.get("skill_ref") or "").strip()
-        runner = self._skill_runner or _default_skill_runner
         if not ref:
             return {"status": "failed", "output": "skill Loop has no skill_ref"}
-        ok, output = runner(ref, loop.get("objective", ""))
+        if self._skill_runner is not None:
+            ok, output = self._skill_runner(ref, loop.get("objective", ""))
+        else:
+            ok, output = _default_skill_runner(
+                ref, loop.get("objective", ""), self.engine
+            )
         return {"status": "completed" if ok else "failed", "output": output}
 
     # -- durable, resumable run-to-completion (CONCEPT:KG-2.78 + OS-5.16) --- #
@@ -1003,7 +1007,9 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
     return proc.returncode == 0, out
 
 
-def _default_skill_runner(skill_ref: str, objective: str) -> tuple[bool, str]:
+def _default_skill_runner(
+    skill_ref: str, objective: str, engine: Any = None
+) -> tuple[bool, str]:
     """Execute a skill / skill-workflow Loop via the orchestration engine.
 
     Compiles (if needed) and runs the workflow named/identified by ``skill_ref``;
@@ -1011,9 +1017,9 @@ def _default_skill_runner(skill_ref: str, objective: str) -> tuple[bool, str]:
     (CONCEPT:KG-2.78)
     """
     try:
-        from ...orchestration.manager import AgentManager
+        from ...orchestration.manager import Orchestrator
 
-        mgr = AgentManager()
+        mgr = Orchestrator(engine)
         wid = skill_ref
         if not skill_ref.startswith("workflow:"):
             wid = _run_coro(mgr.compile_workflow(skill_ref, objective or skill_ref))

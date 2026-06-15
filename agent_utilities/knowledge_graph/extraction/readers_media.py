@@ -166,7 +166,7 @@ def read_audio_transcript(file_path: str) -> str:
     if model is None:
         return ""
     try:
-        segments, _info = model.transcribe(file_path)
+        segments, _info = model.transcribe(file_path)  # type: ignore[attr-defined]  # faster-whisper untyped model
         return " ".join(seg.text.strip() for seg in segments if seg.text).strip()
     except Exception:
         logger.warning("audio transcription failed for %s", file_path, exc_info=True)
@@ -225,7 +225,7 @@ def _ocr_with_rapidocr(file_path: str) -> str | None:
     if engine is None:
         return None
     try:
-        result, _elapsed = engine(file_path)
+        result, _elapsed = engine(file_path)  # type: ignore[operator]  # optional ASR engine untyped
         if not result:
             return ""
         # result rows are [box, text, score]; join recognised text lines.

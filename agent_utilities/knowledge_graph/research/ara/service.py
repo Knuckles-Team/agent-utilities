@@ -23,6 +23,7 @@ Concept: ara-service
 """
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from .compiler import ARACompiler
@@ -54,7 +55,7 @@ class ARAService:
     # -- dispatch --------------------------------------------------------- #
     def run(self, action: str, **kwargs: Any) -> dict[str, Any]:
         """Route ``action`` to its handler; unknown/erroring actions → error dict."""
-        handler = {
+        handlers: dict[str, Callable[..., dict[str, Any]]] = {
             "reason": self._reason,
             "compile": self._compile,
             "review": self._review,
@@ -62,7 +63,8 @@ class ARAService:
             "capture": self._capture,
             "get": self._get,
             "list": self._list,
-        }.get(action)
+        }
+        handler = handlers.get(action)
         if handler is None:
             return {"error": f"unknown action {action!r}; expected one of {ACTIONS}"}
         try:

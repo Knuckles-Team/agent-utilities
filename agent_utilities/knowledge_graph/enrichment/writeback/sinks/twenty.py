@@ -61,11 +61,9 @@ class TwentySink:
                 continue
             try:
                 method = getattr(client, create_m, None)
-                if create_m == "create_company":
+                if method is not None:
                     method(name)
-                else:
-                    method(name)
-                result.created += 1
+                    result.created += 1
             except Exception:  # noqa: BLE001
                 logger.debug("twenty %s failed", create_m, exc_info=True)
                 result.errors += 1

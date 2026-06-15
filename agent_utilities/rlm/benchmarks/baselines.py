@@ -82,7 +82,7 @@ class PydanticAICompleter:
 def _usage_tokens(res: object) -> int:
     """Best-effort total-token extraction across pydantic-ai versions."""
     try:
-        usage = res.usage() if callable(getattr(res, "usage", None)) else None
+        usage = res.usage() if callable(getattr(res, "usage", None)) else None  # type: ignore[attr-defined]  # pydantic-ai result usage() varies by version
     except Exception:  # noqa: BLE001
         usage = None
     if usage is None:
@@ -197,7 +197,9 @@ class RLMSystem(System):
     def __init__(self, config: object | None = None):
         from ..config import RLMConfig
 
-        self.config = config or RLMConfig(enabled=True)
+        self.config: RLMConfig = (
+            config if isinstance(config, RLMConfig) else RLMConfig(enabled=True)
+        )
 
     async def answer(self, case: TaskCase) -> SystemOutput:
         from ..runner import run_rlm

@@ -55,7 +55,7 @@ try:
     from .readers import register_reader  # type: ignore[attr-defined]
 except Exception:  # pragma: no cover - registry not present yet
 
-    def register_reader(*extensions: str) -> Callable[[Reader], Reader]:
+    def register_reader(*extensions: str) -> Callable[[Reader], Reader]:  # type: ignore[misc]  # optional-registry fallback shim
         """Fallback no-op decorator used until ``extraction.readers`` exists."""
 
         def _decorator(fn: Reader) -> Reader:
@@ -223,7 +223,7 @@ def _collect_shape_text(shape: object, parts: list[str]) -> None:
             parts.append(text)
     if getattr(shape, "has_table", False):
         try:
-            table = shape.table
+            table = shape.table  # type: ignore[attr-defined]  # python-pptx untyped shape
             for row in table.rows:
                 cells = [(c.text or "").strip() for c in row.cells]
                 line = "\t".join(c for c in cells)
@@ -237,7 +237,7 @@ def _pptx_notes(slide: object) -> str:
     """Speaker notes for a slide, or empty string."""
     try:
         if getattr(slide, "has_notes_slide", False):
-            tf = slide.notes_slide.notes_text_frame
+            tf = slide.notes_slide.notes_text_frame  # type: ignore[attr-defined]  # python-pptx untyped slide
             return (getattr(tf, "text", "") or "").strip()
     except Exception:  # pragma: no cover
         pass

@@ -294,7 +294,7 @@ def _check_observability() -> dict[str, Any]:
 
 
 # Registry: name -> callable. Order is the report order.
-CHECKS: dict[str, Callable[[], dict[str, Any]]] = {
+CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
     "config": _check_config,
     "engine": _check_engine,
