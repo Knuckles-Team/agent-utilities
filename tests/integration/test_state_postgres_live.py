@@ -108,7 +108,9 @@ def test_live_sessions_schema_migrates():
     try:
         assert conn.dialect == "postgres"
         cur = conn.cursor()
-        for table in ("sessions", "turns", "goals"):
+        # goal state lives on the KG Loop node now, not a SQLite/PG goals table
+        # (CONCEPT:KG-2.78); only sessions/turns remain in the sessions store.
+        for table in ("sessions", "turns"):
             cur.execute(f"SELECT COUNT(*) FROM {table}")  # nosec B608
             assert cur.fetchone()[0] >= 0
     finally:

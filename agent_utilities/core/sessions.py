@@ -123,22 +123,6 @@ _SQLITE_DDL = """
         FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS goals (
-        goal_id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        objective TEXT DEFAULT '',
-        owner_host TEXT DEFAULT '',
-        total_iterations INTEGER DEFAULT 0,
-        total_duration_ms INTEGER DEFAULT 0,
-        total_tool_calls INTEGER DEFAULT 0,
-        summary TEXT DEFAULT '',
-        error TEXT DEFAULT '',
-        iterations_json TEXT DEFAULT '[]',
-        created_at REAL NOT NULL,
-        updated_at REAL NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS dispatch_workers (
         worker_id TEXT PRIMARY KEY,
         host TEXT DEFAULT '',
@@ -149,6 +133,10 @@ _SQLITE_DDL = """
         last_heartbeat REAL NOT NULL
     );
 """
+# NOTE: goal state is NOT a SQLite table — it lives on the KG Loop node (a develop
+# ``Concept``, CONCEPT:KG-2.78). The ``goals`` table was collapsed onto the one Loop
+# model so there is a single durable source of truth; see ``_persist_goal`` /
+# ``_list_goal_entries`` below.
 
 # Same logical schema on Postgres (CONCEPT:OS-5.16). REAL epoch timestamps
 # become DOUBLE PRECISION; everything else maps 1:1 so the handlers' SQL works
@@ -181,21 +169,6 @@ _PG_DDL = """
         usage_json TEXT DEFAULT '{}',
         duration_ms INTEGER DEFAULT 0
     );
-    CREATE TABLE IF NOT EXISTS goals (
-        goal_id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        objective TEXT DEFAULT '',
-        owner_host TEXT DEFAULT '',
-        total_iterations INTEGER DEFAULT 0,
-        total_duration_ms INTEGER DEFAULT 0,
-        total_tool_calls INTEGER DEFAULT 0,
-        summary TEXT DEFAULT '',
-        error TEXT DEFAULT '',
-        iterations_json TEXT DEFAULT '[]',
-        created_at DOUBLE PRECISION NOT NULL,
-        updated_at DOUBLE PRECISION NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS dispatch_workers (
         worker_id TEXT PRIMARY KEY,
         host TEXT DEFAULT '',
@@ -208,7 +181,6 @@ _PG_DDL = """
     CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions (updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions (status);
     CREATE INDEX IF NOT EXISTS idx_turns_session ON turns (session_id, turn_number);
-    CREATE INDEX IF NOT EXISTS idx_goals_status ON goals (status);
     CREATE INDEX IF NOT EXISTS idx_dispatch_workers_hb
         ON dispatch_workers (last_heartbeat DESC);
 """
@@ -257,58 +229,74 @@ def _status_value(status: Any) -> str:
     return getattr(status, "value", None) or str(status)
 
 
+# Goal state lives on the KG Loop node (a develop ``Concept``) — there is one durable
+# source of truth, the unified Loop model (CONCEPT:KG-2.78). These properties carry the
+# goal record; ``session_id`` distinguishes a goal-originated develop Loop from one
+# submitted bare via ``graph_loops``.
+_GOAL_RETURN = (
+    "c.id AS goal_id, c.session_id AS session_id, c.status AS status, "
+    "c.objective AS objective, c.owner_host AS owner_host, c.summary AS summary, "
+    "c.error AS error, c.total_iterations AS total_iterations, "
+    "c.total_duration_ms AS total_duration_ms, c.total_tool_calls AS total_tool_calls, "
+    "c.iterations_json AS iterations_json"
+)
+
+
+def _goal_engine() -> Any:
+    """The active KG engine (durable source of truth for goals), or ``None``.
+
+    Best-effort: never constructs one — when no engine is active (e.g. a bare REST
+    process) the in-memory ``active_goals`` cache is the live view and goal execution
+    (the ``run_goal_loop`` adapter) persists to the KG once its engine is up.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+        return IntelligenceGraphEngine.get_active()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _persist_goal(goal_id: str) -> None:
-    """Upsert the in-memory goal entry into the durable ``goals`` table."""
+    """Persist the goal entry onto its KG Loop node (CONCEPT:KG-2.78).
+
+    The goal is a develop ``Concept`` Loop; its full record (status, totals,
+    iterations, owner) is upserted as node properties. Best-effort: with no active
+    engine the cache stands in until one comes up.
+    """
     entry = active_goals.get(goal_id)
     if not entry:
         return
+    engine = _goal_engine()
+    if engine is None:
+        return
     import json as _json
 
+    now = time.time()
+    props = {
+        "name": str(entry.get("objective", "")) or goal_id,
+        "objective": str(entry.get("objective", "")),
+        "loop_kind": "develop",
+        "status": _status_value(entry.get("status", "pending")),
+        "session_id": entry.get("session_id", ""),
+        "owner_host": entry.get("owner_host", _owner_token()),
+        "summary": str(entry.get("summary", "")),
+        "error": str(entry.get("error", "")),
+        "total_iterations": int(entry.get("total_iterations", 0)),
+        "total_duration_ms": int(entry.get("total_duration_ms", 0)),
+        "total_tool_calls": int(entry.get("total_tool_calls", 0)),
+        "iterations_json": _json.dumps(make_serializable(entry.get("iterations", []))),
+        "created_at": float(entry.get("created_at", now)),
+        "updated_at": now,
+    }
     try:
-        conn = _connect_db()
-        cursor = conn.cursor()
-        now = time.time()
-        cursor.execute(
-            """
-            INSERT INTO goals (goal_id, session_id, status, objective, owner_host,
-                               total_iterations, total_duration_ms, total_tool_calls,
-                               summary, error, iterations_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(goal_id) DO UPDATE SET
-                status = excluded.status,
-                total_iterations = excluded.total_iterations,
-                total_duration_ms = excluded.total_duration_ms,
-                total_tool_calls = excluded.total_tool_calls,
-                summary = excluded.summary,
-                error = excluded.error,
-                iterations_json = excluded.iterations_json,
-                owner_host = excluded.owner_host,
-                updated_at = excluded.updated_at
-            """,
-            (
-                goal_id,
-                entry.get("session_id", ""),
-                _status_value(entry.get("status", "pending")),
-                str(entry.get("objective", "")),
-                entry.get("owner_host", _owner_token()),
-                int(entry.get("total_iterations", 0)),
-                int(entry.get("total_duration_ms", 0)),
-                int(entry.get("total_tool_calls", 0)),
-                str(entry.get("summary", "")),
-                str(entry.get("error", "")),
-                _json.dumps(make_serializable(entry.get("iterations", []))),
-                float(entry.get("created_at", now)),
-                now,
-            ),
-        )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error persisting goal {goal_id}: {e}")
+        engine.add_node(goal_id, "Concept", properties=props)
+    except Exception as e:  # noqa: BLE001 — best-effort persist
+        logger.error(f"Error persisting goal {goal_id} to KG: {e}")
 
 
 def _goal_row_to_entry(row: dict[str, Any]) -> dict[str, Any]:
-    """Deserialize a ``goals`` row into the ``active_goals`` entry shape."""
+    """Deserialize a KG goal-node row into the ``active_goals`` entry shape."""
     import json as _json
 
     try:
@@ -328,6 +316,40 @@ def _goal_row_to_entry(row: dict[str, Any]) -> dict[str, Any]:
         "summary": row.get("summary", ""),
         "error": row.get("error", ""),
     }
+
+
+def _load_goal_entry(engine: Any, goal_id: str) -> dict[str, Any] | None:
+    """Read one goal's record back from its KG Loop node, or ``None``."""
+    try:
+        rows = engine.query_cypher(
+            f"MATCH (c:Concept) WHERE c.id = $id RETURN {_GOAL_RETURN}",
+            {"id": goal_id},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"goal KG lookup failed: {e}")
+        return None
+    for r in rows or []:
+        if isinstance(r, dict) and r.get("goal_id"):
+            return _goal_row_to_entry(r)
+    return None
+
+
+def _list_goal_entries(engine: Any, *, limit: int = 200) -> list[dict[str, Any]]:
+    """List goal records from the KG — develop Loops that carry a ``session_id``."""
+    try:
+        rows = engine.query_cypher(
+            f"MATCH (c:Concept) WHERE c.loop_kind = 'develop' RETURN {_GOAL_RETURN} "
+            "LIMIT $limit",
+            {"limit": int(limit)},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"goal KG list failed: {e}")
+        return []
+    return [
+        _goal_row_to_entry(r)
+        for r in rows or []
+        if isinstance(r, dict) and r.get("session_id")
+    ]
 
 
 _rehydrated = False
@@ -352,24 +374,20 @@ def rehydrate_goals() -> int:
             return 0
         _rehydrated = True
         orphaned = 0
+        engine = _goal_engine()
+        if engine is None:
+            return 0
         try:
-            conn = _connect_db()
-            cursor = conn.cursor()
-            placeholders = ", ".join("?" for _ in _NON_TERMINAL_GOAL_STATUSES)
-            cursor.execute(
-                "SELECT goal_id, session_id, status, objective, owner_host, "
-                "summary, total_iterations, total_duration_ms, total_tool_calls, "
-                f"iterations_json FROM goals WHERE status IN ({placeholders})",  # nosec B608 — placeholders, not values
-                _NON_TERMINAL_GOAL_STATUSES,
-            )
-            rows = [dict(r) for r in cursor.fetchall()]
+            non_terminal = {_status_value(s) for s in _NON_TERMINAL_GOAL_STATUSES}
             me = _owner_token()
-            now = time.time()
-            for row in rows:
-                gid = row.get("goal_id")
+            for entry in _list_goal_entries(engine):
+                gid = entry.get("goal_id")
+                status = str(entry.get("status") or "")
                 if not gid or gid in background_goal_runs:
                     continue  # live in this process
-                owner = str(row.get("owner_host") or "")
+                if status not in non_terminal:
+                    continue  # already terminal — nothing to rehydrate
+                owner = str(entry.get("owner_host") or "")
                 if owner == me:
                     continue
                 if owner and owner.split(":", 1)[0] != _HOSTNAME:
@@ -377,29 +395,22 @@ def rehydrate_goals() -> int:
                     continue
                 summary = (
                     "Orphaned by a host restart while "
-                    f"'{row.get('status')}' (owner {owner or 'unknown'}); "
+                    f"'{status}' (owner {owner or 'unknown'}); "
                     "resume or cancel explicitly."
                 )
-                cursor.execute(
-                    "UPDATE goals SET status = ?, summary = ?, updated_at = ? "
-                    "WHERE goal_id = ?",
-                    (GoalStatus.ORPHANED.value, summary, now, gid),
-                )
-                entry = _goal_row_to_entry(row)
                 entry["status"] = GoalStatus.ORPHANED
                 entry["summary"] = summary
                 active_goals[gid] = entry
+                _persist_goal(gid)  # write the orphaned status back to the Loop node
                 orphaned += 1
                 logger.warning(
                     "Rehydrated goal %s as orphaned (session=%s, was %s, owner=%s)",
                     gid,
-                    row.get("session_id"),
-                    row.get("status"),
+                    entry.get("session_id"),
+                    status,
                     owner,
                 )
-            conn.commit()
-            conn.close()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"Goal rehydration failed: {e}")
         return orphaned
 
@@ -731,7 +742,7 @@ async def run_goal_loop(
         )
         from agent_utilities.knowledge_graph.research.loops import submit_loop
 
-        engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
+        engine = _goal_engine() or IntelligenceGraphEngine()
         # Register the goal as a first-class develop Loop so it is visible to and
         # advanced by the one controller (CONCEPT:KG-2.78).
         submit_loop(
@@ -1032,16 +1043,10 @@ async def list_goals(request: Request) -> JSONResponse:
     """Retrieve active + durable goals (in-memory cache overlays the store)."""
     rehydrate_goals()
     merged: dict[str, Any] = {}
-    try:
-        conn = _connect_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM goals ORDER BY updated_at DESC LIMIT 200")
-        for row in cursor.fetchall():
-            entry = _goal_row_to_entry(dict(row))
+    engine = _goal_engine()
+    if engine is not None:
+        for entry in _list_goal_entries(engine):
             merged[entry["goal_id"]] = entry
-        conn.close()
-    except Exception as e:  # noqa: BLE001 — degrade to the in-memory view
-        logger.debug(f"durable goal list unavailable: {e}")
     for gid, entry in active_goals.items():
         merged[gid] = make_serializable(entry)
     return JSONResponse(list(merged.values()))
@@ -1055,17 +1060,12 @@ async def get_goal_iterations(request: Request) -> JSONResponse:
     rehydrate_goals()
     if goal_id in active_goals:
         return JSONResponse(make_serializable(active_goals[goal_id]))
-    # Fall back to the durable registry (goal from a previous run / other host).
-    try:
-        conn = _connect_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM goals WHERE goal_id = ?", (goal_id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            return JSONResponse(_goal_row_to_entry(dict(row)))
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"durable goal lookup failed: {e}")
+    # Fall back to the KG Loop node (goal from a previous run / other host).
+    engine = _goal_engine()
+    if engine is not None:
+        entry = _load_goal_entry(engine, goal_id)
+        if entry is not None:
+            return JSONResponse(entry)
     return JSONResponse({"error": "Goal run not found"}, status_code=404)
 
 

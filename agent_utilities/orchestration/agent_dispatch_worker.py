@@ -96,82 +96,97 @@ def claim_goal_run(
 ) -> dict[str, Any] | None:
     """Claim one goal run; return its rehydrated spec, or ``None`` to skip.
 
-    Reads the durable ``goals`` row plus the ``goal_spec`` persisted in the
-    session's metadata (the envelope carried only the reference). Skips
-    terminal/paused goals (duplicate delivery) and goals whose 'running' claim
-    is FRESH (a live worker owns them); re-claims stale 'running' and
-    'orphaned' goals — that re-claim IS the crash-recovery path.
+    Reads the goal's KG Loop node (CONCEPT:KG-2.78) plus the ``goal_spec``
+    persisted in the session's metadata (the envelope carried only the reference).
+    Skips terminal/paused goals (duplicate delivery) and goals whose 'running'
+    claim is FRESH (a live worker owns them); re-claims stale 'running' and
+    'orphaned' goals — that re-claim IS the crash-recovery path. The exactly-once
+    effect is now guaranteed at the iteration level by ``DurableExecutionManager``
+    (OS-5.16), so this node claim is best-effort owner dedup.
     """
     from agent_utilities.core import sessions as _sessions
 
     token = token or worker_token()
     now = now if now is not None else time.time()
 
-    conn = _sessions._connect_db()
+    engine = _sessions._goal_engine()
+    if engine is None:
+        logger.warning("No active KG engine — cannot claim goal %s.", goal_id)
+        return None
     try:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT goal_id, session_id, status, objective, updated_at "
-            "FROM goals WHERE goal_id = ?",
-            (goal_id,),
+        rows = engine.query_cypher(
+            "MATCH (c:Concept) WHERE c.id = $id RETURN c.id AS goal_id, "
+            "c.session_id AS session_id, c.status AS status, c.objective AS objective, "
+            "c.validation_cmd AS validation_cmd, c.max_iterations AS max_iterations, "
+            "c.updated_at AS updated_at",
+            {"id": goal_id},
         )
-        row = cursor.fetchone()
-        if not row:
-            logger.warning("Dispatch envelope for unknown goal %s skipped.", goal_id)
-            return None
-        status = str(row["status"] or "")
-        if status in _GOAL_TERMINAL:
-            logger.debug("Duplicate delivery of goal %s (%s) skipped.", goal_id, status)
-            return None
-        if status == "running":
-            age = now - float(row["updated_at"] or 0)
-            if age < claim_ttl_s:
-                logger.debug(
-                    "Goal %s is running with a fresh claim (%.0fs) — skipping.",
-                    goal_id,
-                    age,
-                )
-                return None
-            logger.warning(
-                "Re-claiming goal %s: previous claim is stale (%.0fs > %.0fs).",
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Goal %s claim query failed: %s", goal_id, e)
+        return None
+    row = next(
+        (r for r in (rows or []) if isinstance(r, dict) and r.get("goal_id")), None
+    )
+    if not row:
+        logger.warning("Dispatch envelope for unknown goal %s skipped.", goal_id)
+        return None
+    status = str(row.get("status") or "")
+    if status in _GOAL_TERMINAL:
+        logger.debug("Duplicate delivery of goal %s (%s) skipped.", goal_id, status)
+        return None
+    if status == "running":
+        age = now - float(row.get("updated_at") or 0)
+        if age < claim_ttl_s:
+            logger.debug(
+                "Goal %s is running with a fresh claim (%.0fs) — skipping.",
                 goal_id,
                 age,
-                claim_ttl_s,
             )
+            return None
+        logger.warning(
+            "Re-claiming goal %s: previous claim is stale (%.0fs > %.0fs).",
+            goal_id,
+            age,
+            claim_ttl_s,
+        )
 
-        session_id = str(row["session_id"] or "")
-        spec: dict[str, Any] = {
-            "goal_id": goal_id,
-            "session_id": session_id,
-            "objective": str(row["objective"] or ""),
-            "validation_cmd": "",
-            "max_iterations": 20,
-            "constraints": [],
-        }
+    session_id = str(row.get("session_id") or "")
+    spec: dict[str, Any] = {
+        "goal_id": goal_id,
+        "session_id": session_id,
+        "objective": str(row.get("objective") or ""),
+        "validation_cmd": str(row.get("validation_cmd") or ""),
+        "max_iterations": int(row.get("max_iterations") or 20),
+        "constraints": [],
+    }
+    try:
+        conn = _sessions._connect_db()
+        cursor = conn.cursor()
         cursor.execute("SELECT metadata_json FROM sessions WHERE id = ?", (session_id,))
         sess = cursor.fetchone()
+        conn.close()
         if sess:
-            try:
-                stored = (json.loads(sess["metadata_json"] or "{}") or {}).get(
-                    "goal_spec"
-                ) or {}
-            except (TypeError, ValueError):
-                stored = {}
+            stored = (json.loads(sess["metadata_json"] or "{}") or {}).get(
+                "goal_spec"
+            ) or {}
             for key in ("objective", "validation_cmd", "max_iterations"):
                 if stored.get(key):
                     spec[key] = stored[key]
             if stored.get("constraints"):
                 spec["constraints"] = list(stored["constraints"])
+    except Exception as e:  # noqa: BLE001 — session goal_spec is a fallback
+        logger.debug("session goal_spec fallback failed: %s", e)
 
-        cursor.execute(
-            "UPDATE goals SET status = 'running', owner_host = ?, updated_at = ? "
-            "WHERE goal_id = ?",
-            (token, now, goal_id),
+    # Claim: stamp running + owner onto the Loop node (best-effort owner dedup).
+    try:
+        engine.add_node(
+            goal_id,
+            "Concept",
+            properties={"status": "running", "owner_host": token, "updated_at": now},
         )
-        conn.commit()
-        return spec
-    finally:
-        conn.close()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Goal %s claim write failed: %s", goal_id, e)
+    return spec
 
 
 def claim_orchestrator_task(
@@ -310,19 +325,27 @@ def _fail_expired(envelope: AgentTurnEnvelope, engine: Any) -> None:
     if envelope.kind == KIND_GOAL_LOOP:
         from agent_utilities.core import sessions as _sessions
 
+        gid = envelope.payload_ref
+        goal_engine = _sessions._goal_engine()
+        if goal_engine is None:
+            logger.error("No KG engine — cannot expire goal %s.", gid)
+            return
         try:
-            conn = _sessions._connect_db()
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE goals SET status = 'failed', error = ?, updated_at = ? "
-                "WHERE goal_id = ? AND status NOT IN "
-                "('completed', 'failed', 'cancelled')",
-                (reason, time.time(), envelope.payload_ref),
-            )
-            conn.commit()
-            conn.close()
+            from agent_utilities.knowledge_graph.research.loops import TERMINAL_STATUS
+
+            entry = _sessions._load_goal_entry(goal_engine, gid)
+            if entry and str(entry.get("status") or "") not in TERMINAL_STATUS:
+                goal_engine.add_node(
+                    gid,
+                    "Concept",
+                    properties={
+                        "status": "failed",
+                        "error": reason,
+                        "updated_at": time.time(),
+                    },
+                )
         except Exception as e:  # noqa: BLE001
-            logger.error("Failed to expire goal %s: %s", envelope.payload_ref, e)
+            logger.error("Failed to expire goal %s: %s", gid, e)
     elif engine is not None:
         try:
             engine._update_task_status(

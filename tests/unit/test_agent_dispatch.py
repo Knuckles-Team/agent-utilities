@@ -56,15 +56,65 @@ class FakeDispatchQueue:
         return len(self.items)
 
 
+class _GoalEngine:
+    """Fake KG engine — the goal Loop-node store (CONCEPT:KG-2.78)."""
+
+    def __init__(self):
+        self.nodes: dict[str, dict] = {}
+
+    def add_node(self, nid, ntype, properties=None):
+        cur = self.nodes.get(nid, {})
+        cur.update({"type": ntype, **(properties or {})})
+        self.nodes[nid] = cur
+
+    def _row(self, nid, n):
+        return {
+            "goal_id": nid,
+            "session_id": n.get("session_id", ""),
+            "status": n.get("status", "pending"),
+            "objective": n.get("objective", ""),
+            "owner_host": n.get("owner_host", ""),
+            "summary": n.get("summary", ""),
+            "error": n.get("error", ""),
+            "total_iterations": n.get("total_iterations", 0),
+            "total_duration_ms": n.get("total_duration_ms", 0),
+            "total_tool_calls": n.get("total_tool_calls", 0),
+            "iterations_json": n.get("iterations_json", "[]"),
+            "validation_cmd": n.get("validation_cmd", ""),
+            "max_iterations": n.get("max_iterations", 20),
+            "updated_at": n.get("updated_at", 0),
+        }
+
+    def query_cypher(self, q, params=None):
+        params = params or {}
+        if "c.id = $id" in q:
+            n = self.nodes.get(params.get("id"))
+            return [self._row(params.get("id"), n)] if n else []
+        if "c.loop_kind = 'develop'" in q:
+            return [
+                self._row(i, n)
+                for i, n in self.nodes.items()
+                if n.get("loop_kind") == "develop"
+            ]
+        return []
+
+
+def _goal_node(goal_id: str) -> dict:
+    """The goal's KG Loop node (the durable record), via the patched engine."""
+    return _sessions._goal_engine().nodes.get(goal_id, {})
+
+
 @pytest.fixture
 def dispatch_db(tmp_path, monkeypatch):
-    """Isolated sessions store (the goal_db pattern from test_goal_durability)."""
+    """Isolated sessions store + the KG goal-node store (the one durable model)."""
     db = tmp_path / "sessions.db"
     conn = sqlite3.connect(str(db))
     conn.executescript(_sessions._SQLITE_DDL)
     conn.commit()
     conn.close()
+    eng = _GoalEngine()
     monkeypatch.setattr(_sessions, "_get_db_path", lambda: db)
+    monkeypatch.setattr(_sessions, "_goal_engine", lambda: eng)
     monkeypatch.setattr(_sessions, "_rehydrated", False)
     monkeypatch.setattr(_sessions, "active_goals", {})
     monkeypatch.setattr(_sessions, "background_goal_runs", {})
@@ -301,9 +351,9 @@ async def test_create_goal_queue_mode_enqueues_and_returns_handle(
     assert spec["validation_cmd"] == "true"
     assert spec["max_iterations"] == 3
 
-    goals = _rows(dispatch_db, "goals")
-    assert goals[0]["status"] == "pending"
-    assert goals[0]["owner_host"] == ""  # unowned until a worker claims
+    node = _goal_node(goal_id)
+    assert node["status"] == "pending"
+    assert node.get("owner_host", "") == ""  # unowned until a worker claims
 
     # The envelope is session-keyed and references the goal.
     _, item = fake_queue.get()
@@ -329,8 +379,8 @@ async def test_create_goal_queue_mode_enqueue_failure_is_loud(
     finally:
         agent_dispatch.reset_dispatch_queue_for_tests(None)
     assert resp.status_code == 503
-    goals = _rows(dispatch_db, "goals")
-    assert goals[0]["status"] == "failed"
+    nodes = list(_sessions._goal_engine().nodes.values())
+    assert nodes and nodes[0]["status"] == "failed"
 
 
 # ── graph_orchestrate dispatch seam ───────────────────────────────────────
@@ -468,7 +518,6 @@ def test_worker_claims_executes_and_writes_back(dispatch_db, fake_queue, queued_
     from agent_utilities.orchestration import agent_dispatch_worker as worker
 
     goal_id = queued_goal["goal_id"]
-    session_id = queued_goal["session_id"]
 
     item_id, payload = fake_queue.get()
     env = AgentTurnEnvelope.from_item(payload)
@@ -476,9 +525,9 @@ def test_worker_claims_executes_and_writes_back(dispatch_db, fake_queue, queued_
     assert outcome == "completed"
     fake_queue.ack(item_id)
 
-    goals = _rows(dispatch_db, "goals")
-    assert goals[0]["status"] == "completed"  # run_goal_loop wrote back durably
-    assert goals[0]["total_iterations"] == 1
+    node = _goal_node(goal_id)
+    assert node["status"] == "completed"  # run_goal_loop wrote back durably
+    assert node["total_iterations"] == 1
     sessions = _rows(dispatch_db, "sessions")
     assert sessions[0]["status"] == "completed"
     turns = _rows(dispatch_db, "turns")
@@ -502,14 +551,16 @@ def test_worker_skips_goal_with_fresh_live_claim(dispatch_db, fake_queue, queued
     from agent_utilities.orchestration import agent_dispatch_worker as worker
 
     goal_id = queued_goal["goal_id"]
-    conn = sqlite3.connect(str(dispatch_db))
-    conn.execute(
-        "UPDATE goals SET status = 'running', owner_host = 'hostB:9:agent-dispatch', "
-        "updated_at = ? WHERE goal_id = ?",
-        (time.time(), goal_id),
+    # A fresh live claim by another worker (status running, recent) → skip.
+    _sessions._goal_engine().add_node(
+        goal_id,
+        "Concept",
+        properties={
+            "status": "running",
+            "owner_host": "hostB:9:agent-dispatch",
+            "updated_at": time.time(),
+        },
     )
-    conn.commit()
-    conn.close()
     _, payload = fake_queue.get()
     env = AgentTurnEnvelope.from_item(payload)
     assert worker.execute_agent_turn(env) == "skipped"
@@ -522,14 +573,15 @@ def test_crash_requeue_stale_claim_is_reclaimed(dispatch_db, fake_queue, queued_
 
     goal_id = queued_goal["goal_id"]
     # Worker A claimed (status=running) then died — claim timestamp far in the past.
-    conn = sqlite3.connect(str(dispatch_db))
-    conn.execute(
-        "UPDATE goals SET status = 'running', owner_host = 'dead:1:agent-dispatch', "
-        "updated_at = ? WHERE goal_id = ?",
-        (time.time() - 2 * worker.CLAIM_TTL_S, goal_id),
+    _sessions._goal_engine().add_node(
+        goal_id,
+        "Concept",
+        properties={
+            "status": "running",
+            "owner_host": "dead:1:agent-dispatch",
+            "updated_at": time.time() - 2 * worker.CLAIM_TTL_S,
+        },
     )
-    conn.commit()
-    conn.close()
 
     # The unacked item is still in the queue (head-until-ack / redelivery).
     assert fake_queue.get_queue_size() == 1
@@ -538,8 +590,7 @@ def test_crash_requeue_stale_claim_is_reclaimed(dispatch_db, fake_queue, queued_
     outcome = worker.execute_agent_turn(env, token="hostB:2:agent-dispatch")
     assert outcome == "completed"
     fake_queue.ack(item_id)
-    goals = _rows(dispatch_db, "goals")
-    assert goals[0]["status"] == "completed"
+    assert _goal_node(goal_id)["status"] == "completed"
 
 
 def test_worker_expires_past_deadline_turn(dispatch_db, fake_queue, queued_goal):
@@ -549,9 +600,9 @@ def test_worker_expires_past_deadline_turn(dispatch_db, fake_queue, queued_goal)
     payload = dict(payload, deadline_unix=time.time() - 10)
     env = AgentTurnEnvelope.from_item(payload)
     assert worker.execute_agent_turn(env) == "expired"
-    goals = _rows(dispatch_db, "goals")
-    assert goals[0]["status"] == "failed"
-    assert "deadline" in goals[0]["error"].lower()
+    node = _goal_node(queued_goal["goal_id"])
+    assert node["status"] == "failed"
+    assert "deadline" in node["error"].lower()
 
 
 def test_consumer_loop_processes_and_acks_after(dispatch_db, fake_queue, queued_goal):
@@ -573,8 +624,7 @@ def test_consumer_loop_processes_and_acks_after(dispatch_db, fake_queue, queued_
     fake_queue.get = _get
     worker.run_dispatch_consumer_loop(fake_queue, stop, idle_sleep_s=0.01)
     assert fake_queue.get_queue_size() == 0  # processed AND acked
-    goals = _rows(dispatch_db, "goals")
-    assert goals[0]["status"] == "completed"
+    assert _goal_node(queued_goal["goal_id"])["status"] == "completed"
 
 
 def test_consumer_loop_acks_poison_envelope(dispatch_db, fake_queue):

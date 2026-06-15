@@ -63,7 +63,7 @@ def test_active_loops_dispatch_by_kind_and_status():
             "id": "loop:develop:b",
             "name": "B",
             "loop_kind": "develop",
-            "status": "running",
+            "status": "pending",
             "validation_cmd": "pytest",
         },
         {
