@@ -151,6 +151,30 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
             "text_path": "content",
         },
     },
+    # mealie-mcp: recipes as documents. ``mealie_recipes`` is an action-routed
+    # tool (action + params_json envelope), so the fleet-default params_style
+    # "json" drives it directly. get_recipes returns Mealie's ``{"items": [...],
+    # "page", "per_page", "total"}`` page envelope; descriptions are the body.
+    # Extend with richer filters, e.g. {"params": {"categories": "dinner"}}.
+    "mealie-recipes": {
+        "server": "mealie-mcp",
+        "tool": "mealie_recipes",
+        "action": "get_recipes",
+        "params_style": "json",
+        "params": {"per_page": 50},
+        "records_path": "items",
+        "id_field": "slug",
+        "title_field": "name",
+        "text_field": "description",
+        "updated_field": "updateAt",
+        "doc_type": "record",
+        "pagination": "page",
+        "page_kind": "number",
+        "page_param": "page",
+        "page_size_param": "per_page",
+        "page_size": 50,
+        "start_page": 1,
+    },
     # searxng-mcp: privacy-respecting metasearch — one `web_search` call,
     # each result (url/title/content snippet) becomes a document. Extend with
     #   {"params": {"query": "..."}}  (plus optional categories/engines/
