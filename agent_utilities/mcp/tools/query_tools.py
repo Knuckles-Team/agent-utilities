@@ -329,7 +329,7 @@ def register_query_tools(mcp):
         query: str = Field(description="Natural language search query or concept ID."),
         mode: str = Field(
             default="hybrid",
-            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:KG-2.12).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.7', 'ORCH-1.0').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.\n- 'latent': Latent-topology hierarchical routing (CONCEPT:KG-2.3).\n- 'sira': Single-shot SIRA sparsity-aligned context.\n- 'hard_negatives': Mine hard negatives for the query (CONCEPT:KG-2.3).\n- 'rerank': Hybrid semantic+keyword re-scoring of candidates.",
+            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:KG-2.12).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'KG-2.7', 'ORCH-1.0').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.\n- 'latent': Latent-topology hierarchical routing (CONCEPT:KG-2.3).\n- 'sira': Single-shot SIRA sparsity-aligned context.\n- 'hard_negatives': Mine hard negatives for the query (CONCEPT:KG-2.3).\n- 'rerank': Hybrid semantic+keyword re-scoring of candidates.\n- 'adore': Iterative query expansion with retrieval-grounded graded relevance feedback + training-free stopping (CONCEPT:KG-2.88/2.87).\n- 'chrono_ids': Attach an explicit temporal semantic ID (+recency bucket) to each result for generative retrieval (CONCEPT:KG-2.86).",
         ),
         top_k: int = Field(default=10, description="Maximum results to return."),
         self_correct: bool = Field(
@@ -375,6 +375,10 @@ def register_query_tools(mcp):
                 results = engine.search_hybrid(query=query, top_k=top_k)
             elif mode == "analogy":
                 results = engine.search_hybrid(query=query, top_k=top_k)
+            elif mode == "adore":
+                results = engine.search_adore(query=query, top_k=top_k)
+            elif mode == "chrono_ids":
+                results = engine.temporal_semantic_ids(query=query, top_k=top_k)
             elif mode == "dci":
                 results = engine.search_dci(query=query, top_k=top_k)
             elif mode == "memory":
