@@ -25,7 +25,7 @@ class _FakeAgent:
     def __init__(self, **kwargs):
         pass
 
-    async def run(self, prompt, message_history=None):
+    async def run(self, prompt, message_history=None, **kwargs):
         return _FakeRes()
 
 

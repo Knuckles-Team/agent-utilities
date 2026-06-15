@@ -116,6 +116,20 @@ def _ensure_env_loaded():
     _load_xdg_json_config()
 
 
+def _under_pytest() -> bool:
+    """True during a pytest session.
+
+    Used to keep the developer's XDG-default deployment ``config.json`` out of
+    the test environment even if a test flips ``AGENT_UTILITIES_TESTING`` off (a
+    few tests do, to exercise real-validation branches). ``PYTEST_CURRENT_TEST``
+    is set by pytest while a test runs — exactly when such a config reload would
+    leak host-specific values into ``os.environ`` and pollute later tests.
+    """
+    import sys
+
+    return "PYTEST_CURRENT_TEST" in os.environ or "pytest" in sys.modules
+
+
 def _load_xdg_json_config():
     import json
     from pathlib import Path
@@ -126,6 +140,19 @@ def _load_xdg_json_config():
     APP_AUTHOR = "knuckles-team"
 
     override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
+    # Hermetic tests never read the developer's XDG-default deployment
+    # ``config.json`` (e.g. a homelab ``GRAPH_DB_URI=postgresql://…pggraph.arpa``
+    # with neo4j/falkor mirror targets, ``KG_AUTH_REQUIRED``, a brain-guard
+    # backend). config-loading injects those into ``os.environ`` and they would
+    # override the unit suite's defaults — making tests fail on a dev box while
+    # staying green in CI (which has no such file). Mirrors the ``.env`` skip in
+    # ``get_env_file``. An explicit ``AGENT_UTILITIES_CONFIG_DIR`` (integration
+    # fixtures) is still honored.
+    if not override and (
+        _under_pytest()
+        or to_boolean(os.environ.get("AGENT_UTILITIES_TESTING", "false"))
+    ):
+        return
     if override:
         cfg_dir = Path(override).expanduser()
     else:
@@ -1858,6 +1885,13 @@ def _ensure_config_template():
     APP_AUTHOR = "knuckles-team"
 
     override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
+    # Hermetic tests never write a template into the developer's XDG-default
+    # config dir (companion to the read-skip in ``_load_xdg_json_config``).
+    if not override and (
+        _under_pytest()
+        or to_boolean(os.environ.get("AGENT_UTILITIES_TESTING", "false"))
+    ):
+        return
     if override:
         cfg_dir = Path(override).expanduser()
     else:
