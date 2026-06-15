@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 250
+total_concepts: 252
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1306,10 +1306,12 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/enrichment/extractors/ansible.py
   - agent_utilities/knowledge_graph/enrichment/extractors/archer.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/archimate.py
   - agent_utilities/knowledge_graph/enrichment/extractors/aris.py
   - agent_utilities/knowledge_graph/enrichment/extractors/caddy.py
   - agent_utilities/knowledge_graph/enrichment/extractors/camunda.py
   - agent_utilities/knowledge_graph/enrichment/extractors/egeria.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/emerald.py
   - agent_utilities/knowledge_graph/enrichment/extractors/erpnext.py
   - agent_utilities/knowledge_graph/enrichment/extractors/grafana.py
   - agent_utilities/knowledge_graph/enrichment/extractors/home_assistant.py
@@ -1318,6 +1320,8 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/extractors/keycloak.py
   - agent_utilities/knowledge_graph/enrichment/extractors/leanix.py
   - agent_utilities/knowledge_graph/enrichment/extractors/lgtm.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/mealie.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/microsoft.py
   - agent_utilities/knowledge_graph/enrichment/extractors/nextcloud.py
   - agent_utilities/knowledge_graph/enrichment/extractors/odoo.py
   - agent_utilities/knowledge_graph/enrichment/extractors/okta.py
@@ -1326,6 +1330,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/extractors/technitium_dns.py
   - agent_utilities/knowledge_graph/enrichment/extractors/twenty.py
   - agent_utilities/knowledge_graph/enrichment/extractors/uptime_kuma.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/wger.py
   - agent_utilities/knowledge_graph/enrichment/materialize.py
   - agent_utilities/knowledge_graph/enrichment/models.py
   - agent_utilities/knowledge_graph/enrichment/registry.py
@@ -1334,16 +1339,22 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/writeback/findings.py
   - agent_utilities/knowledge_graph/enrichment/writeback/inventory.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/ansible.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/archimate.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/egeria.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/emerald.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/erpnext.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/home_assistant.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/identity.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/issue_tracker.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/leanix.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/legal.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/mealie.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/nextcloud.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/ops.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/salesforce.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/servicenow.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/twenty.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/wger.py
   - agent_utilities/knowledge_graph/enrichment/writeback/spec_link.py
   - agent_utilities/knowledge_graph/infra/__init__.py
   - agent_utilities/knowledge_graph/infra/inventory_collector.py
@@ -1913,7 +1924,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/tenant_engine_pool.py
   doc: The elastic layer over KG-2.58 shard routing
 - id: KG-2.63
-  name: Multi-Connection Graph Registry. The engine has always been
+  name: Profile / imprint / ontology-map a registered external graph
   pillar: KG-2
   status: live
   code_paths:
@@ -1924,12 +1935,13 @@ concepts:
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+  - agent_utilities/knowledge_graph/core/connection_profiler.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
-  doc: Multi-Connection Graph Registry. The engine has always been
+  doc: Profile / imprint / ontology-map a registered external graph
 - id: KG-2.64
   name: document → atomic-triple fact extraction
   pillar: KG-2
@@ -2033,6 +2045,7 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/backends/__init__.py
+  - agent_utilities/knowledge_graph/backends/base.py
   - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/outbox.py
@@ -2120,6 +2133,27 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/finance_objects.py
   doc: Kyle insider/stealth surveillance signal ontology
+- id: KG-2.82
+  name: / KG-2.83 — a KG-native, propose-only background distiller that
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/distillation/skill_synthesizer.py
+  - agent_utilities/knowledge_graph/ontology/interfaces.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: / KG-2.83 — a KG-native, propose-only background distiller that
+- id: KG-2.83
+  name: AUTOMATES
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: AUTOMATES
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
