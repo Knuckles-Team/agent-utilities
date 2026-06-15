@@ -575,3 +575,61 @@ def test_hydrate_message_protocol(mock_engine):
     assert res["status"] == "ok"
     assert res["nodes_hydrated"] == 2
     assert res["relations_hydrated"] == 1
+
+
+def test_hydrate_leanix_mirrors_factsheets(mock_engine):
+    """_hydrate_leanix injects a live client into the extractor and batch-ingests."""
+    from types import SimpleNamespace
+
+    fake_client = SimpleNamespace(
+        meta_model=lambda: {
+            "factSheets": {
+                "Application": {
+                    "fields": {},
+                    "relations": {
+                        "relApplicationToITComponent": {
+                            "targetFactSheetType": "ITComponent"
+                        }
+                    },
+                },
+                "ITComponent": {"fields": {}, "relations": {}},
+            }
+        },
+        factsheets=lambda type=None, since=None, ids=None: {
+            "Application": [
+                {
+                    "id": "a1",
+                    "name": "Billing",
+                    "type": "Application",
+                    "relApplicationToITComponent": [{"factSheetId": "ic1"}],
+                }
+            ],
+            "ITComponent": [{"id": "ic1", "name": "PG", "type": "ITComponent"}],
+        }.get(type, []),
+    )
+
+    with patch(
+        "agent_utilities.ecosystem.ea_clients.get_leanix_client",
+        return_value=fake_client,
+    ):
+        res = HydrationManager().hydrate_source(mock_engine, "leanix")
+
+    assert res["status"] == "ok"
+    assert res["nodes_hydrated"] == 2
+    assert res["relations_hydrated"] == 1
+    mock_engine.ingest_external_batch.assert_called_once()
+    domain, entities, relationships = mock_engine.ingest_external_batch.call_args[0]
+    assert domain == "leanix"
+    assert {e["id"] for e in entities} == {"app:a1", "itcomponent:ic1"}
+    assert all(e["domain"] == "leanix" for e in entities)
+    assert all(e["externalToolId"] for e in entities)
+    assert relationships[0]["type"] == "REL_APPLICATION_TO_IT_COMPONENT"
+
+
+def test_hydrate_leanix_no_client_skips(mock_engine):
+    with patch(
+        "agent_utilities.ecosystem.ea_clients.get_leanix_client", return_value=None
+    ):
+        res = HydrationManager().hydrate_source(mock_engine, "leanix")
+    assert res["status"] == "skipped"
+    mock_engine.ingest_external_batch.assert_not_called()

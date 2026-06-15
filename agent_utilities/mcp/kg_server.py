@@ -543,6 +543,8 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_message": "/graph/message",
     "document_process": "/document/process",
     "source_connector": "/connector/source",
+    "leanix_writeback": "/leanix/writeback",
+    "leanix_sync": "/leanix/sync",
     "ontology_property_types": "/ontology/property-types",
     "ontology_value_types": "/ontology/value-types",
     "ontology_interface": "/ontology/interface",
@@ -5615,16 +5617,15 @@ def _build_server(bootstrap: bool = True):
         tags=["graph-os", "loops"],
     )
     async def graph_loops(
-        action: str = Field(
-            default="list", description="submit|list|run|cancel"
-        ),
+        action: str = Field(default="list", description="submit|list|run|cancel"),
         objective: str = Field(default="", description="Objective text (submit)."),
         kind: str = Field(
             default="research", description="research|develop|skill (submit)."
         ),
         loop_id: str = Field(default="", description="Loop id (submit/cancel)."),
         validation_cmd: str = Field(
-            default="", description="Shell command whose exit-0 completes a develop Loop."
+            default="",
+            description="Shell command whose exit-0 completes a develop Loop.",
         ),
         end_state: str = Field(default="", description="Human end-state (develop)."),
         skill_ref: str = Field(
@@ -5971,6 +5972,112 @@ def _build_server(bootstrap: bool = True):
             return json.dumps({"error": str(e)})
 
     REGISTERED_TOOLS["ontology_interface"] = ontology_interface
+
+    @mcp.tool(
+        name="ontology_leanix_sync",
+        description="Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.ttl (every fact sheet type, relation, field) and registers the types for OWL promotion (CONCEPT:KG-2.9). dry_run=true previews without writing.",
+        tags=["graph-os", "ontology"],
+    )
+    def ontology_leanix_sync(
+        dry_run: bool = Field(
+            default=True,
+            description="Preview the generated ontology without writing (default). Set false to apply.",
+        ),
+    ) -> str:
+        """Compile the live LeanIX data model into OWL and apply it to both reasoning layers."""
+        from agent_utilities.knowledge_graph.ontology.leanix_metamodel import (
+            sync_leanix_ontology,
+        )
+
+        try:
+            return json.dumps(sync_leanix_ontology(dry_run=bool(dry_run)))
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["ontology_leanix_sync"] = ontology_leanix_sync
+
+    @mcp.tool(
+        name="leanix_writeback",
+        description="Backfeed KG-derived knowledge into LeanIX: inferred relationships, enrichment attributes/tags, and (optional) new fact sheets (CONCEPT:KG-2.9). Fail-closed: live writes need LEANIX_ENABLE_WRITE; dry_run=true (default) previews the exact proposed writes.",
+        tags=["graph-os", "leanix"],
+    )
+    def leanix_writeback(
+        inferences_json: str = Field(
+            default="[]",
+            description="JSON list of inferred edges [{source,rel_type,target}] to write as LeanIX relations.",
+        ),
+        enrichments_json: str = Field(
+            default="[]",
+            description="JSON list of enrichments [{node, patches:[{op,path,value}], tag}] to write onto fact sheets.",
+        ),
+        creations_json: str = Field(
+            default="[]",
+            description="JSON list of new fact sheets [{type,name}] to create (highest risk).",
+        ),
+        dry_run: bool = Field(
+            default=True,
+            description="Preview proposed writes without mutating LeanIX (default). Set false to apply.",
+        ),
+    ) -> str:
+        """Write inferred relations / enrichment / fact sheets back to LeanIX (fail-closed)."""
+        from agent_utilities.knowledge_graph.enrichment.leanix_writeback import (
+            run_leanix_writeback,
+        )
+
+        try:
+            inferences = json.loads(inferences_json) if inferences_json else []
+            enrichments = json.loads(enrichments_json) if enrichments_json else []
+            creations = json.loads(creations_json) if creations_json else []
+            try:
+                engine = _get_engine()
+            except Exception:  # noqa: BLE001 - offline → no backend resolver
+                engine = None
+            backend = getattr(engine, "backend", None) if engine is not None else None
+            return json.dumps(
+                run_leanix_writeback(
+                    backend=backend,
+                    inferences=inferences,
+                    enrichments=enrichments,
+                    creations=creations,
+                    dry_run=bool(dry_run),
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["leanix_writeback"] = leanix_writeback
+
+    @mcp.tool(
+        name="leanix_sync",
+        description="Sync the LeanIX fact-sheet mirror into the KG (CONCEPT:KG-2.9). mode='delta' (only changes since the watermark, default), 'full' (everything), or 'reconcile' (tombstone fact sheets deleted in LeanIX). ids=[...] narrows to specific fact sheets (webhook-driven).",
+        tags=["graph-os", "leanix"],
+    )
+    def leanix_sync(
+        mode: str = Field(
+            default="delta",
+            description="'delta' (watermark poll), 'full' (re-mirror all), or 'reconcile' (tombstone deletions).",
+        ),
+        ids_json: str = Field(
+            default="[]",
+            description="JSON list of LeanIX fact sheet ids to narrow the sync (webhook delta).",
+        ),
+    ) -> str:
+        """Run a LeanIX delta/full/reconcile sync against the live engine."""
+        from agent_utilities.knowledge_graph.core.leanix_sync import sync_leanix
+
+        try:
+            ids = json.loads(ids_json) if ids_json else []
+            try:
+                engine = _get_engine()
+            except Exception:  # noqa: BLE001
+                engine = None
+            if engine is None:
+                return json.dumps({"status": "skipped", "reason": "no active engine"})
+            return json.dumps(sync_leanix(engine, mode=str(mode), ids=ids or None))
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["leanix_sync"] = leanix_sync
 
     @mcp.tool(
         name="ontology_function",

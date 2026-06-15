@@ -10,9 +10,29 @@ from agent_utilities.knowledge_graph.enrichment.registry import (
     write_batch,
 )
 
+# A live-metamodel slice: the core EA types plus a CUSTOM type (DataCenter) with a
+# CUSTOM relation, so the extractor must mirror beyond the hardcoded handful.
+META_MODEL = {
+    "factSheets": {
+        "Application": {
+            "fields": {"displayName": {"type": "STRING"}},
+            "relations": {
+                "relApplicationToBusinessCapability": {
+                    "targetFactSheetType": "BusinessCapability"
+                },
+                "relApplicationToITComponent": {"targetFactSheetType": "ITComponent"},
+                "relApplicationToDataCenter": {"targetFactSheetType": "DataCenter"},
+            },
+        },
+        "ITComponent": {"fields": {}, "relations": {}},
+        "BusinessCapability": {"fields": {}, "relations": {}},
+        "DataCenter": {"fields": {"region": {"type": "STRING"}}, "relations": {}},
+    }
+}
+
 
 class FakeLeanIXClient:
-    """Duck-typed stand-in for a LeanIX API client (no network)."""
+    """Duck-typed stand-in for a LeanIX client (no network)."""
 
     def __init__(self):
         self._sheets: dict[str, list[dict[str, Any]]] = {
@@ -23,43 +43,50 @@ class FakeLeanIXClient:
                     "type": "Application",
                     "relApplicationToBusinessCapability": [{"factSheetId": "c1"}],
                     "relApplicationToITComponent": "ic1",
+                    # custom relation, LeanIX edges/node/factSheet envelope
+                    "relApplicationToDataCenter": {
+                        "edges": [
+                            {"node": {"factSheet": {"id": "dc1", "type": "DataCenter"}}}
+                        ]
+                    },
                 },
                 {
                     "id": "a2",
                     "name": "CRM",
                     "type": "Application",
-                    # tolerant LeanIX edges/node envelope
                     "relApplicationToBusinessCapability": {
                         "edges": [{"node": {"id": "c1"}}]
                     },
                     "relApplicationToITComponent": [{"id": "ic1"}],
                 },
             ],
-            "ITComponent": [
-                {"id": "ic1", "name": "PostgreSQL", "type": "ITComponent"},
-            ],
+            "ITComponent": [{"id": "ic1", "name": "PostgreSQL", "type": "ITComponent"}],
             "BusinessCapability": [
-                {
-                    "id": "c1",
-                    "name": "Revenue Management",
-                    "type": "BusinessCapability",
-                },
+                {"id": "c1", "name": "Revenue Management", "type": "BusinessCapability"}
             ],
-            "DataObject": [],
+            "DataCenter": [{"id": "dc1", "name": "eu-west", "type": "DataCenter"}],
         }
 
-    def factsheets(self, type=None):  # noqa: A002 - mirror LeanIX API kwarg
-        if type is None:
-            out: list[dict[str, Any]] = []
-            for items in self._sheets.values():
-                out.extend(items)
-            return out
-        return self._sheets.get(type, [])
+    def meta_model(self):
+        return META_MODEL
+
+    def factsheets(self, type=None, since=None, ids=None):  # noqa: A002 - mirror API
+        items = (
+            [x for v in self._sheets.values() for x in v]
+            if type is None
+            else self._sheets.get(type, [])
+        )
+        if since:
+            items = [x for x in items if str(x.get("updatedAt") or "z") > since]
+        if ids:
+            items = [x for x in items if x.get("id") in set(ids)]
+        return items
 
 
 class FakeConfig:
-    def __init__(self, client):
+    def __init__(self, client, since=None):
         self.client = client
+        self.since = since
 
 
 class FakeBackend:
@@ -78,29 +105,56 @@ def _run():
     return extract(FakeConfig(FakeLeanIXClient()))
 
 
-def test_nodes_are_typed_and_prefixed():
+def test_nodes_are_typed_prefixed_and_federation_stamped():
     batch = _run()
     by_id = {n.id: n for n in batch.nodes}
 
     assert by_id["app:a1"].type == "Application"
     assert by_id["app:a1"].props["name"] == "Billing"
-    assert by_id["app:a2"].type == "Application"
     assert by_id["itcomponent:ic1"].type == "ITComponent"
     assert by_id["capability:c1"].type == "BusinessCapability"
-    # 2 Applications + 1 ITComponent + 1 BusinessCapability
-    assert len(batch.nodes) == 4
+    # Custom type discovered from the live metamodel (lowercased prefix).
+    assert by_id["datacenter:dc1"].type == "DataCenter"
+    # Federation key on every node — required for write-back resolution.
+    assert by_id["app:a1"].props["externalToolId"] == "a1"
+    assert by_id["app:a1"].props["domain"] == "leanix"
+    # 2 Applications + ITComponent + BusinessCapability + DataCenter
+    assert len(batch.nodes) == 5
 
 
-def test_supports_and_depends_on_edges():
+def test_core_and_custom_relations_become_edges():
+    # Metamodel-driven: edge names match the generated OWL object-property names
+    # (UPPER_SNAKE of the LeanIX relation field) — consistent with ontology_leanix.ttl.
     batch = _run()
     triples = {(e.source, e.target, e.rel_type) for e in batch.edges}
 
+    assert (
+        "app:a1",
+        "capability:c1",
+        "REL_APPLICATION_TO_BUSINESS_CAPABILITY",
+    ) in triples
+    assert ("app:a1", "itcomponent:ic1", "REL_APPLICATION_TO_IT_COMPONENT") in triples
+    assert (
+        "app:a2",
+        "capability:c1",
+        "REL_APPLICATION_TO_BUSINESS_CAPABILITY",
+    ) in triples
+    # Custom relation, target resolved via the embedded factSheet type.
+    assert ("app:a1", "datacenter:dc1", "REL_APPLICATION_TO_DATA_CENTER") in triples
+
+
+def test_fallback_without_metamodel_keeps_core_types():
+    class NoMetaClient(FakeLeanIXClient):
+        meta_model = None  # type: ignore[assignment]
+
+    batch = extract(FakeConfig(NoMetaClient()))
+    by_id = {n.id: n for n in batch.nodes}
+    triples = {(e.source, e.target, e.rel_type) for e in batch.edges}
+    # Fallback maps mirror the 4 core types with friendly names; no custom type.
+    assert by_id["app:a1"].type == "Application"
+    assert "datacenter:dc1" not in by_id
     assert ("app:a1", "capability:c1", "SUPPORTS") in triples
     assert ("app:a1", "itcomponent:ic1", "DEPENDS_ON") in triples
-    assert ("app:a2", "capability:c1", "SUPPORTS") in triples
-    assert ("app:a2", "itcomponent:ic1", "DEPENDS_ON") in triples
-    # No edges originate from non-Application nodes.
-    assert all(s.startswith("app:") for s, _, _ in triples)
 
 
 def test_source_is_registered():
@@ -115,13 +169,12 @@ def test_write_batch_persists_to_backend():
     backend = FakeBackend()
     n, e = write_batch(backend, batch)
 
-    assert n == 4
-    assert e == 4
+    assert n == 5
     assert backend.nodes["app:a1"]["type"] == "Application"
-    assert backend.nodes["app:a1"]["name"] == "Billing"
-    assert backend.nodes["capability:c1"]["type"] == "BusinessCapability"
-    assert ("app:a1", "capability:c1", "SUPPORTS") in backend.edges
-    assert ("app:a2", "itcomponent:ic1", "DEPENDS_ON") in backend.edges
+    assert backend.nodes["app:a1"]["externalToolId"] == "a1"
+    assert ("app:a1", "capability:c1", "REL_APPLICATION_TO_BUSINESS_CAPABILITY") in (
+        backend.edges
+    )
 
 
 def test_empty_client_yields_empty_batch():

@@ -11,6 +11,7 @@ enriches the LPG with OWL-inferred facts.
 import json
 import logging
 import time
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,20 @@ if TYPE_CHECKING:
     from ..backends.owl.base import OWLBackend
 
 logger = logging.getLogger(__name__)
+
+# Node types registered at runtime from an external metamodel (e.g. the live
+# LeanIX data model compiled by ``ontology.leanix_metamodel``). Unioned into
+# every bridge's effective promotable set so generated types reach the reasoner
+# without editing the static set below. (CONCEPT:KG-2.9)
+DYNAMIC_PROMOTABLE_NODE_TYPES: set[str] = set()
+
+
+def register_promotable_node_types(types: Iterable[str]) -> None:
+    """Mark externally-generated node-type labels eligible for OWL promotion."""
+    DYNAMIC_PROMOTABLE_NODE_TYPES.update(
+        str(t).strip().lower() for t in types if str(t).strip()
+    )
+
 
 # Node types eligible for OWL promotion (must have matching class in ontology.ttl)
 PROMOTABLE_NODE_TYPES: set[str] = {
@@ -553,14 +568,17 @@ class OWLBridge:
         self._rdf_cache: Any = None
         self._rdf_cache_hash: int = -1
 
-        # Compute effective promotable types filtered by schema pack (CONCEPT:KG-2.2)
+        # Compute effective promotable types filtered by schema pack (CONCEPT:KG-2.2).
+        # Static built-ins are unioned with any runtime-registered types (e.g. the
+        # generated LeanIX metamodel) so external sources reason without hub edits.
+        promotable_nodes = PROMOTABLE_NODE_TYPES | DYNAMIC_PROMOTABLE_NODE_TYPES
         if schema_pack is not None:
             active_nodes = {str(t) for t in schema_pack.get_active_node_types()}
             active_edges = {str(t) for t in schema_pack.get_active_edge_types()}
-            self._effective_node_types = PROMOTABLE_NODE_TYPES & active_nodes
+            self._effective_node_types = promotable_nodes & active_nodes
             self._effective_edge_types = PROMOTABLE_EDGE_TYPES & active_edges
         else:
-            self._effective_node_types = PROMOTABLE_NODE_TYPES
+            self._effective_node_types = promotable_nodes
             self._effective_edge_types = PROMOTABLE_EDGE_TYPES
 
         # A pack may declare its edge types as transitive/symmetric/inverse

@@ -60,6 +60,7 @@ nav:
       - Recipe — Single-node prod: recipes/single-node-prod.md
       - Recipe — Enterprise: recipes/enterprise.md
       - Recipe — Stardog + pg-age databases: recipes/databases.md
+      - LeanIX EA Integration (mirror/delta/backfeed): guides/leanix-integration.md
       - Deploying agent-utilities: guides/deployment.md
       - Configuration: guides/configuration.md
       - Configuration Reference & Flag Audit: architecture/configuration.md
