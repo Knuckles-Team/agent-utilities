@@ -35,6 +35,7 @@ Pipeline (each stage best-effort, composable, idempotent where it can be):
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -231,7 +232,10 @@ class ConnectorSkillDistiller:
             try:
                 for tid in task_ids:
                     for _src, tgt, edata in graph.out_edges(tid, data=True):
-                        if self._edge_rel(edata or {}) == "FLOWS_TO" and tgt in task_ids:
+                        if (
+                            self._edge_rel(edata or {}) == "FLOWS_TO"
+                            and tgt in task_ids
+                        ):
                             flows.append((tid, tgt))
             except Exception:  # noqa: BLE001
                 flows = []
@@ -252,7 +256,10 @@ class ConnectorSkillDistiller:
     @staticmethod
     def _label(props: dict[str, Any], fallback: str) -> str:
         return str(
-            props.get("name") or props.get("element_id") or props.get("label") or fallback
+            props.get("name")
+            or props.get("element_id")
+            or props.get("label")
+            or fallback
         )
 
     @staticmethod
@@ -345,7 +352,11 @@ class ConnectorSkillDistiller:
                 plan = _run_coro(compiler.compile(proc["id"]))
                 for label in plan.metadata.get("unresolved_tasks", []) or []:
                     out.append(
-                        {"label": label, "process_id": proc["id"], "system": proc["system"]}
+                        {
+                            "label": label,
+                            "process_id": proc["id"],
+                            "system": proc["system"],
+                        }
                     )
             except Exception as exc:  # noqa: BLE001 — one process failing is fine
                 logger.debug("[KG-2.82] compile %s failed: %s", proc["id"], exc)
@@ -368,7 +379,9 @@ class ConnectorSkillDistiller:
         return [dict(t) for t in (harvest.new_topics or [])][: self.max_candidates]
 
     # ── stage 2: classify ─────────────────────────────────────────────────── #
-    def classify(self, discovered: dict[str, list[dict[str, Any]]]) -> list[SkillCandidate]:
+    def classify(
+        self, discovered: dict[str, list[dict[str, Any]]]
+    ) -> list[SkillCandidate]:
         """Map discovered structure to atomic-skill / skill-workflow candidates.
 
         - A single coherent action/capability (a lone BusinessTask, a Capability,
@@ -395,9 +408,7 @@ class ConnectorSkillDistiller:
             # insertion order for disconnected/parallel tasks).
             ordered = self._order_tasks(tasks, flows)
             # action tasks only (skip gateways) for the workflow body.
-            action_ids = [
-                tid for tid in ordered if not tasks[tid].get("is_gateway")
-            ]
+            action_ids = [tid for tid in ordered if not tasks[tid].get("is_gateway")]
             if len(action_ids) >= _WORKFLOW_MIN_STEPS:
                 steps = []
                 for tid in action_ids:
@@ -698,12 +709,18 @@ class ConnectorSkillDistiller:
                 tags=["skill", kind, candidate.source_system],
             )
         except Exception as exc:  # noqa: BLE001 — materialization best-effort
-            logger.debug("[KG-2.82] physical distill failed for %s: %s", proposal_id, exc)
+            logger.debug(
+                "[KG-2.82] physical distill failed for %s: %s", proposal_id, exc
+            )
         try:
             self.engine.add_node(
                 proposal_id,
                 str(props.get("type")),
-                properties={**props, "proposal_status": "approved", "status": "approved"},
+                properties={
+                    **props,
+                    "proposal_status": "approved",
+                    "status": "approved",
+                },
             )
         except Exception as exc:  # noqa: BLE001
             logger.debug("[KG-2.82] approval stamp failed for %s: %s", proposal_id, exc)
@@ -752,10 +769,15 @@ class ConnectorSkillDistiller:
 def render_atomic_skill_md(candidate: SkillCandidate) -> str:
     """Render a standard atomic-skill SKILL.md (frontmatter + body)."""
     triggers = ", ".join(candidate.trigger_patterns) or candidate.name
+    suffix = f" Triggers: {triggers}."
+    desc = candidate.description
+    if len(desc) + len(suffix) > 1024:
+        desc = desc[: 1024 - len(suffix) - 3] + "..."
+    # JSON literal = YAML-safe double-quoted scalar (the Triggers suffix adds a colon).
     return (
         "---\n"
         f"name: {candidate.name}\n"
-        f"description: {candidate.description} Triggers: {triggers}.\n"
+        f"description: {json.dumps(desc + suffix)}\n"
         "domain: process-automation\n"
         f"tags: [skill, atomic, {candidate.source_system}]\n"
         "concept: KG-2.82\n"
@@ -778,14 +800,32 @@ def render_workflow_skill_md(candidate: SkillCandidate) -> str:
     """
     triggers = ", ".join(candidate.trigger_patterns) or candidate.name
     specialist_ids = [s["name"] for s in candidate.steps]
+    # The SKILL.md step DAG references steps by their 1-based number ("Step N") so the
+    # universal-skills validator resolves them. ``depends_on`` may carry step numbers
+    # (the distiller's own shape), "Step N", or step names — normalize all three.
+    name_to_idx = {s["name"]: i for i, s in enumerate(candidate.steps, start=1)}
+
+    def _dep_to_num(dep: Any) -> int | None:
+        sd = str(dep).strip()
+        m = re.fullmatch(r"(?:step\s*)?(\d+)", sd, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+        return name_to_idx.get(sd)
+
+    # Keep the description + appended "Triggers:" suffix within the 1024-char Claude
+    # frontmatter limit that the universal-skills gate enforces.
+    suffix = f" Triggers: {triggers}."
     desc = candidate.description
-    if len(desc) > 1024:
-        desc = desc[:1021] + "..."
+    if len(desc) + len(suffix) > 1024:
+        desc = desc[: 1024 - len(suffix) - 3] + "..."
 
     lines: list[str] = []
     lines.append("---")
     lines.append(f"name: {candidate.name}")
-    lines.append(f"description: {desc} Triggers: {triggers}.")
+    # Quote the description: it contains ": " (the Triggers suffix) which would make
+    # an unquoted YAML scalar parse as a mapping. A JSON string literal is a valid
+    # double-quoted YAML scalar (handles colons, quotes, unicode).
+    lines.append(f"description: {json.dumps(desc + suffix)}")
     lines.append("domain: process-automation")
     lines.append(f"tags: [skill-workflow, dual-mode, {candidate.source_system}]")
     lines.append("team_config:")
@@ -803,15 +843,23 @@ def render_workflow_skill_md(candidate: SkillCandidate) -> str:
     lines.append("## Steps")
     lines.append("")
     for i, s in enumerate(candidate.steps, start=1):
-        deps = sorted(set(s.get("depends_on", [])))
-        if deps:
-            dep_str = ", ".join(f"Step {d}" for d in deps)
+        dep_nums = sorted(
+            {
+                n
+                for d in set(s.get("depends_on", []))
+                if (n := _dep_to_num(d)) is not None
+            }
+        )
+        if dep_nums:
+            dep_str = ", ".join(f"Step {n}" for n in dep_nums)
             lines.append(f"### Step {i}: {s['name']} [depends_on: {dep_str}]")
             lines.append(f"Run after {dep_str} completes.")
         else:
             lines.append(f"### Step {i}: {s['name']}")
-            lines.append("No dependencies — safe to run in parallel with other "
-                         "independent steps.")
+            lines.append(
+                "No dependencies — safe to run in parallel with other "
+                "independent steps."
+            )
         lines.append("")
     lines.append("## Execution")
     lines.append("")
