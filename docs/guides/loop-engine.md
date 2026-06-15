@@ -120,10 +120,10 @@ stage flags gate the heavier stages:
 
 | Variable | Default | Stage |
 |---|---|---|
-| `KG_GOLDEN_BREADTH` | `true` | ingest the OSS/repos/docs corpus (idempotent) |
-| `KG_GOLDEN_DISCOVER` | `false` | discover + ingest new papers (external calls) |
-| `KG_GOLDEN_DISTILL` | `false` | write SpecDraft markdown under `.specify/` |
-| `KG_GOLDEN_STANDARDIZE` | `false` | enterprise standardization pass |
+| `KG_LOOP_BREADTH` | `true` | ingest the OSS/repos/docs corpus (idempotent) |
+| `KG_LOOP_DISCOVER` | `false` | discover + ingest new papers (external calls) |
+| `KG_LOOP_DISTILL` | `false` | write SpecDraft markdown under `.specify/` |
+| `KG_LOOP_STANDARDIZE` | `false` | enterprise standardization pass |
 
 ## Migration — what changed from the "golden loop"
 
@@ -133,11 +133,12 @@ stage flags gate the heavier stages:
 | `research/golden_loop.py` | `research/loop_controller.py` |
 | `graph_orchestrate(action="golden_loop")` | `graph_orchestrate(action="loop_cycle")` — **no alias** |
 | `KG_GOLDEN_LOOP` / `_INTERVAL` / `_TOPICS` | `KG_LOOP` / `KG_LOOP_INTERVAL` / `KG_LOOP_TOPICS` |
+| `KG_GOLDEN_BREADTH` / `_DISCOVER` / `_DISTILL` / `_STANDARDIZE` | `KG_LOOP_BREADTH` / `_DISCOVER` / `_DISTILL` / `_STANDARDIZE` |
 | separate goal-runner (`run_goal_loop`) + `goals` SQLite table | folded into `LoopController.run_loop`; goal state lives on the **KG Loop node** |
 | `run_golden_loop_cycle()` facade | removed — call `LoopController(...).run_one_cycle()` |
 
-> The `KG_GOLDEN_BREADTH/DISCOVER/DISTILL/STANDARDIZE` per-stage flags still carry
-> the `GOLDEN` prefix; the loop-enable flag and controller are the renamed parts.
+> The governed auto-merge gate keeps its own names — `KG_GOLDEN_AUTO_MERGE` /
+> `KG_GOLDEN_MERGE_THRESHOLD` (AHE-3.14) — since it gates promotion, not the loop.
 
 ## Loop kinds at a glance
 

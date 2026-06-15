@@ -110,7 +110,7 @@ an ActionPolicy posture** — start locked-down, graduate deliberately.
    `POST /api/fleet/events` so the pull-only monitoring stack becomes a wake-up source.
 3. **Enable the propose-only learning loops** (still off by default):
    ```bash
-   export KG_GOLDEN_LOOP=true            # research assimilation tick (propose-only)
+   export KG_LOOP=true            # research assimilation tick (propose-only)
    export KG_FAILURE_EVOLUTION=true      # Langfuse-failure-driven remediation (propose-only)
    ```
    These publish reviewable **local branches** via the ActionPolicy-gated `ChangePublisher`
@@ -175,7 +175,7 @@ Three homes, by kind:
 | Shared state (OS-5.16) | `STATE_DB_URI` | unset | **yes** (`STATE_DB_URI`) | uses Postgres when set, else SQLite |
 | Sharding (KG-2.58) | `GRAPH_SERVICE_ENDPOINTS` | unset | no | 2+ endpoints → HRW sharding |
 | Company Brain | `KG_BRAIN_ENFORCE` | `false` | no | explicit |
-| Golden loop | `KG_GOLDEN_LOOP` | `false` | no | explicit (propose-only) |
+| Loop engine | `KG_LOOP` | `false` | no | explicit (propose-only) |
 | Failure evolution | `KG_FAILURE_EVOLUTION` | `false` | no | explicit (propose-only) |
 | Queue dispatch | `AGENT_DISPATCH_BACKEND` | `inline` | no | explicit |
 | Kafka ingest | `TASK_QUEUE_BACKEND` | unset | no | fail-loud when set |
