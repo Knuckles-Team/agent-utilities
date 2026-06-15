@@ -31,6 +31,11 @@ from .graph_search_evolution import (
     GraphSearchEvolver,
     SearchNode,
 )
+from .latent_efficiency_benchmark import (
+    bench_latent_rollout_memory,
+    bench_ontology_prior_retrieval,
+)
+from .latent_efficiency_benchmark import run_all as run_latent_efficiency_benchmarks
 from .provenance_gate import ProvenanceCriticGate, ProvenanceVerdict
 from .red_team import ATTACK_CATALOG, AttackProbe, RedTeamReport, RedTeamRunner
 from .reliability_scorers import (
@@ -70,6 +75,10 @@ __all__ = [
     "BenchmarkResult",
     "run_all",
     "to_markdown",
+    # Latent-native efficiency benchmark (CONCEPT:AHE-3.48)
+    "bench_latent_rollout_memory",
+    "bench_ontology_prior_retrieval",
+    "run_latent_efficiency_benchmarks",
     "OptimisticStateLocker",
     "BranchMergeStateLocker",
     "ToolContract",

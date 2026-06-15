@@ -252,3 +252,4 @@ failure cannot silently recur. See
 - **AHE-3.21**: Evolution-to-Branch Bridge (change synthesis + RLM-sandbox validation + ActionPolicy-gated local-branch publication)
 - **AHE-3.25**: Plain-English regression assertions (LLM-judge `TestCase.assertion`; verified remediations auto-lock a regression case)
 - **ORCH-1.49**: Robust edit-application engine (multi-format fuzzy edits + reflection loop)
+- **AHE-3.48**: Latent-native efficiency benchmark (rollout drift KG-2.73b + retrieval type-coherence KG-2.44b vs round-tripped/flat baselines; `graph_analyze action="latent_efficiency_benchmark"`; distilled from arXiv:2606.09828)

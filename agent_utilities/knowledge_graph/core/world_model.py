@@ -30,6 +30,14 @@ logger = logging.getLogger(__name__)
 
 _SEP = "\x1f"  # composite "state|action" key separator (unit-separator, collision-safe)
 
+# Persistent-latent-memory EMA weight (CONCEPT:KG-2.73b). Each rollout step blends
+# this fraction of the carried latent into the next prediction so an imagined
+# trajectory stays on-manifold instead of snapping to the nearest discrete next-state
+# and re-deriving from a bare string (the drift Mirage / arXiv:2606.09828 eliminates by
+# keeping a persistent latent cache). Gentle by default: smooths step-to-step drift
+# without overriding the prediction.
+_DEFAULT_LATENT_MEMORY_WEIGHT = 0.25
+
 
 def _key(state: str, action: str) -> str:
     return f"{state}{_SEP}{action}"
@@ -44,6 +52,12 @@ class Transition:
     next_state: str
     probability: float = 0.0
     reward: float = 0.0
+    # Persistent-latent-memory telemetry (CONCEPT:KG-2.73b): the L2 norm of the
+    # carried next-state latent at this step and its distance from the prior step's
+    # carried latent (step-to-step drift). Both are 0.0 on the symbolic backend and
+    # on memoryless steps; populated only when latent rollout memory is active.
+    latent_norm: float = 0.0
+    drift: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +66,8 @@ class Transition:
             "next_state": self.next_state,
             "probability": round(self.probability, 4),
             "reward": round(self.reward, 4),
+            "latent_norm": round(self.latent_norm, 4),
+            "drift": round(self.drift, 4),
         }
 
 
@@ -137,22 +153,54 @@ class LatentDynamicsModel:
         self._known = {ns: self._embed(ns) for _, _, ns in self._buffer}
         self._dirty = False
 
-    def predict(self, state: str, action: str, k: int = 1) -> list[tuple[str, float]]:
-        """Top-``k`` ``(next_state, score∈[0,1])`` by cosine to the predicted latent."""
+    def predict_latent(
+        self,
+        state: str,
+        action: str,
+        k: int = 1,
+        *,
+        prior: Any = None,
+        memory_weight: float = 0.0,
+    ) -> tuple[list[tuple[str, float]], Any]:
+        """Like :meth:`predict`, but also returns the predicted next-state latent.
+
+        CONCEPT:KG-2.73b — the latent the model already computes (``y_hat``) is
+        returned so a rollout can *carry it forward* instead of discarding it and
+        re-deriving from the bare next-state string each step. When ``prior`` (the
+        previous step's carried latent) is supplied with ``memory_weight>0`` the two
+        are EMA-blended, so the trajectory's latent moves on-manifold rather than
+        snapping to whichever discrete known next-state is nearest each step — the
+        persistent-latent-memory analogue of arXiv:2606.09828. With ``prior=None`` or
+        ``memory_weight=0`` the result is identical to :meth:`predict`.
+
+        Returns ``(results, latent)`` where ``latent`` is the (blended) next-state
+        latent to carry, or ``None`` when the model is untrained.
+        """
         import numpy as np
 
         if self._dirty or self._w is None:
             self.fit()
         if self._w is None or not self._known:
-            return []
+            return [], None
         y_hat = self._feature(state, action) @ self._w
-        ny = float(np.linalg.norm(y_hat)) or 1.0
+        if prior is not None and memory_weight > 0.0:
+            w = min(1.0, max(0.0, float(memory_weight)))
+            y_eff = (1.0 - w) * y_hat + w * np.asarray(prior, dtype=np.float64)
+        else:
+            y_eff = y_hat
+        ny = float(np.linalg.norm(y_eff)) or 1.0
         scored = [
-            (ns, float(emb @ y_hat) / ((float(np.linalg.norm(emb)) or 1.0) * ny))
+            (ns, float(emb @ y_eff) / ((float(np.linalg.norm(emb)) or 1.0) * ny))
             for ns, emb in self._known.items()
         ]
         scored.sort(key=lambda p: p[1], reverse=True)
-        return [(ns, max(0.0, (sim + 1.0) / 2.0)) for ns, sim in scored[: max(1, k)]]
+        results = [(ns, max(0.0, (sim + 1.0) / 2.0)) for ns, sim in scored[: max(1, k)]]
+        return results, y_eff
+
+    def predict(self, state: str, action: str, k: int = 1) -> list[tuple[str, float]]:
+        """Top-``k`` ``(next_state, score∈[0,1])`` by cosine to the predicted latent."""
+        results, _ = self.predict_latent(state, action, k=k)
+        return results
 
 
 class WorldModel:
@@ -209,14 +257,18 @@ class WorldModel:
         return n
 
     @classmethod
-    def from_engine(cls, engine: Any, *, limit: int = 2000) -> WorldModel:
+    def from_engine(
+        cls, engine: Any, *, limit: int = 2000, latent: bool = False
+    ) -> WorldModel:
         """Ground a world model in persisted transition history from the KG.
 
         Reads ``WorldModelTransition`` observation nodes (state/action/next_state/
         reward) if any have been recorded; best-effort, returns an empty model when
-        none exist or the engine has no query support.
+        none exist or the engine has no query support. With ``latent=True`` the
+        learned latent-dynamics backend (KG-2.73) is used, enabling persistent latent
+        rollout memory (KG-2.73b) on :meth:`rollout`.
         """
-        wm = cls(engine)
+        wm = cls(engine, backend="latent" if latent else "symbolic")
         try:
             rows = engine.query_cypher(
                 "MATCH (t:WorldModelTransition) "
@@ -255,9 +307,42 @@ class WorldModel:
         rs = self._rewards.get((state, action), [])
         return sum(rs) / len(rs) if rs else 0.0
 
-    def step(self, state: str, action: str) -> Transition:
-        """The most-likely single transition (absorbing in ``state`` if unseen)."""
-        preds = self.predict(state, action, k=1)
+    def step(
+        self,
+        state: str,
+        action: str,
+        *,
+        latent_cache: dict[str, Any] | None = None,
+        memory_weight: float = _DEFAULT_LATENT_MEMORY_WEIGHT,
+    ) -> Transition:
+        """The most-likely single transition (absorbing in ``state`` if unseen).
+
+        When the learned latent backend is active and ``latent_cache`` is supplied
+        (persistent rollout memory, CONCEPT:KG-2.73b), the predicted next-state latent
+        is carried in the cache under ``"latent"`` and EMA-blended into each step so an
+        imagined trajectory stays coherent; the step's ``latent_norm`` and ``drift``
+        (distance from the prior carried latent) are recorded on the Transition.
+        ``latent_cache=None`` (the default for a direct ``step`` call) reproduces the
+        memoryless per-step prediction exactly.
+        """
+        latent_norm = 0.0
+        drift = 0.0
+        if self._latent is not None and latent_cache is not None:
+            import numpy as np
+
+            prior = latent_cache.get("latent")
+            preds, y_eff = self._latent.predict_latent(
+                state, action, k=1, prior=prior, memory_weight=memory_weight
+            )
+            if y_eff is not None:
+                latent_norm = float(np.linalg.norm(y_eff))
+                if prior is not None:
+                    drift = float(
+                        np.linalg.norm(y_eff - np.asarray(prior, dtype=np.float64))
+                    )
+                latent_cache["latent"] = y_eff
+        else:
+            preds = self.predict(state, action, k=1)
         if preds:
             next_state, prob = preds[0]
         else:
@@ -268,17 +353,34 @@ class WorldModel:
             next_state=next_state,
             probability=float(prob),
             reward=self.expected_reward(state, action),
+            latent_norm=latent_norm,
+            drift=drift,
         )
 
     def rollout(
-        self, state: str, policy: Callable[[str], str], horizon: int
+        self,
+        state: str,
+        policy: Callable[[str], str],
+        horizon: int,
+        *,
+        latent_memory: bool = True,
+        memory_weight: float = _DEFAULT_LATENT_MEMORY_WEIGHT,
     ) -> list[Transition]:
-        """Forward-simulate ``policy`` (``state -> action``) for ``horizon`` steps."""
+        """Forward-simulate ``policy`` (``state -> action``) for ``horizon`` steps.
+
+        With ``latent_memory=True`` (the default) and the learned backend active, a
+        persistent latent cache is carried across steps so the imagined trajectory
+        stays on-manifold (CONCEPT:KG-2.73b); ``latent_memory=False`` — or the symbolic
+        backend, which has no latents — reproduces the memoryless rollout exactly.
+        """
         traj: list[Transition] = []
         cur = state
+        cache: dict[str, Any] | None = (
+            {} if (latent_memory and self._latent is not None) else None
+        )
         for _ in range(max(0, int(horizon))):
             action = policy(cur)
-            t = self.step(cur, action)
+            t = self.step(cur, action, latent_cache=cache, memory_weight=memory_weight)
             traj.append(t)
             cur = t.next_state
         return traj
