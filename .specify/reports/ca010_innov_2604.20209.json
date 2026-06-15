@@ -1,0 +1,164 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": ".",
+  "concept_id": "",
+  "kg_source_query": null,
+  "results": [
+    {
+      "source": "/home/apps/workspace/.scholarx/papers/2604.20209_scaling_self_play_with_self_guidance.md",
+      "source_type": "filesystem",
+      "concept_id": "",
+      "signals": {
+        "biomimicry_signals": [
+          {
+            "keyword": "neural",
+            "count": 5,
+            "analogy": "adaptive model routing",
+            "target_domain": "model_selection"
+          }
+        ],
+        "tech_signals": [
+          {
+            "keyword": "reinforcement",
+            "count": 12,
+            "analogy": "reward-driven routing optimization",
+            "target_domain": "confidence_gating"
+          },
+          {
+            "keyword": "topology",
+            "count": 3,
+            "analogy": "structural graph analysis and shape metrics",
+            "target_domain": "partitioning"
+          },
+          {
+            "keyword": "inference",
+            "count": 2,
+            "analogy": "derived knowledge from explicit assertions",
+            "target_domain": "owl_reasoning"
+          },
+          {
+            "keyword": "attention",
+            "count": 1,
+            "analogy": "context-aware retrieval weighting",
+            "target_domain": "hybrid_retriever"
+          },
+          {
+            "keyword": "tree search",
+            "count": 1,
+            "analogy": "MCTS planning fallback",
+            "target_domain": "lats"
+          },
+          {
+            "keyword": "curriculum",
+            "count": 1,
+            "analogy": "progressive complexity scheduling",
+            "target_domain": "horizon_curriculum"
+          },
+          {
+            "keyword": "subgoal",
+            "count": 1,
+            "analogy": "intermediate milestone decomposition",
+            "target_domain": "task_decomposition"
+          },
+          {
+            "keyword": "owl",
+            "count": 1,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          }
+        ],
+        "innovation_claims": [
+          "---\ntitle: Scaling Self-Play with Self-Guidance\narxiv_id: 2604.20209\nauthors: Luke Bailey, Kaiyue Wen, Kefan Dong, Tatsunori Hashimoto, Tengyu Ma\nurl: https://arxiv.org/abs/2604.20209\n---\n\n## Abstract\n\nLLM self-play algorithms are notable in that, in principle, nothing bounds their learning: a Conjecturer model creates problems for a Solver, and both improve together",
+          "We argue this is because over long training runs, the Conjecturer learns to hack its reward, collapsing to artificially complex problems that do not help the Solver improve",
+          "To overcome this, we introduce Self-Guided Self-Play (SGS), a self-play algorithm in which the language model itself guides the Conjecturer away from degeneracy",
+          "## Full Text\n\n# **Scaling Self-Play with Self-Guidance** \n\n**Luke Bailey, Kaiyue Wen, Kefan Dong, Tatsunori Hashimoto, Tengyu Ma** \n\nStanford University \n\n## **Abstract** \n\nLLM self-play algorithms are notable in that, in principle, nothing bounds their learning: a Conjecturer model creates problems for a Solver, and both improve together",
+          "We argue this is because over long training runs, the Conjecturer learns to hack its reward, collapsing to artificially complex problems that do not help the Solver improve",
+          "To overcome this, we introduce Self-Guided Self-Play (SGS), a self-play algorithm in which the language model itself guides the Conjecturer away from degeneracy",
+          "In this framework, a Conjecturer model proposes new learning problems that bridge the gap between the current Solver capability and the unsolved problems (Sukhbaatar et al., 2017; Florensa et al., 2018)",
+          "Over time, the Solver and Conjecturer improve together",
+          "In the pursuit of this ideal, we ask the question: \n\n## _**Given a fixed set of hard problems, how can we scale self-play to solve as many as possible?**_ \n\nTowards this end, we propose Self-Guided Self-Play (SGS)",
+          "First, for each unsolved problem, the Conjecturer is prompted to produce a synthetic problem that is useful for solving that problem"
+        ],
+        "concept_id": ""
+      },
+      "synergies": [
+        {
+          "innovation": "adaptive model routing",
+          "source_keyword": "neural",
+          "target_domain": "model_selection",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "reward-driven routing optimization",
+          "source_keyword": "reinforcement",
+          "target_domain": "confidence_gating",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "structural graph analysis and shape metrics",
+          "source_keyword": "topology",
+          "target_domain": "partitioning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "derived knowledge from explicit assertions",
+          "source_keyword": "inference",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "context-aware retrieval weighting",
+          "source_keyword": "attention",
+          "target_domain": "hybrid_retriever",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "MCTS planning fallback",
+          "source_keyword": "tree search",
+          "target_domain": "lats",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "progressive complexity scheduling",
+          "source_keyword": "curriculum",
+          "target_domain": "horizon_curriculum",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "intermediate milestone decomposition",
+          "source_keyword": "subgoal",
+          "target_domain": "task_decomposition",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 9
+    }
+  ]
+}

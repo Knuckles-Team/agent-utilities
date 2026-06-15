@@ -59,6 +59,7 @@ Every gap below is closed *through* four ecosystem-unique substrates rather than
 | 18 | **Predict-before-run forecasting + calibration** (Be-good-at-research) | none | M | AHE-3.34 |
 | 19 | **Tuned-baseline gate + single-batch overfit smoke** (Be-good-at-research) | quality gates; no baseline/overfit gate | M | AHE-3.35 |
 | 20 | **Failure-transcript triage + disconfirming-evidence log** (Be-good-at-research / Darwin) | `TraceDistiller` clusters; no human-triage queue / belief log | P | AHE-3.36 |
+| 21 | **Implicit-reasoning generative recommendation over semantic IDs** + text↔SID bridge (PauseRec, 2606.14142) | KG-2.86 semantic IDs only; no generative recommender, no latent reasoning / SID-text alignment | M | KG-2.93 |
 
 ### Where we already meet or exceed the sources (no new work)
 - **GEPA core** — genetic-Pareto + held-out generalization already in `rlm/gepa.py` (ORCH-1.13/1.30):
@@ -122,6 +123,37 @@ the **TASR** stop (KG-2.87) as the saturation rule.
 - **ChronoID** — inject **explicit temporal signals into semantic IDs** for generative recommendation
   → **KG-2.86** `temporal_semantic_id.py` (codebook + explicit time-bucket token).
 
+### PauseRec — Implicit Reasoning for LLM-based Generative Recommendation (2606.14142)
+
+*Authors:* He, Collins, Kumar, Li, Shah, Loveland (UVA + Snap). *Formal innovation-extraction
+artifact:* `.specify/reports/ca010_innov_2606.14142.json`.
+
+**Core innovations (extracted).** (1) **Diagnostic** — for SID-based generative recommendation,
+*explicit* Chain-of-Thought is a **brittle interface**: CoT-SFT *underperforms* plain next-item SFT,
+gains only appear after expensive RL, and three failure modes are proven — weakened world-knowledge
+verbalization, **text↔SID embedding-space misalignment** (a geometric separation that provably limits
+how much NL rationale can shape the SID prediction), and sensitivity to rationale quality.
+(2) **PauseRec** — a *lightweight implicit-reasoning* paradigm: insert a short run of trainable
+`<pause>` tokens before SID generation, giving the model **latent computation steps** that bridge the
+text and SID spaces, optimized only by the next-item objective (no rationale supervision). Result:
++6.22% over CoT, −65% GPU-hours, +71.3% inference speed.
+
+**agent-utilities before-state (gap).** We had semantic IDs (KG-2.86 ChronoID) and query-time recency,
+but **no generative recommender** and **no notion of latent/implicit reasoning over SIDs** — and no
+mechanism addressing the text↔SID misalignment at retrieval time. Generative recommendation over our
+semantic-ID space was **MISSING**.
+
+**Assimilation (how we adopt + adapt).** We are an agentic framework, not training an LLM backbone, so
+we adopt PauseRec's *mechanism at inference time* in **KG-2.93** (`retrieval/generative_recommender.py`):
+- **Latent-reasoning budget** — `pause_steps` deliberate refinement steps before emitting a
+  recommendation (the inference analogue of `<pause>` tokens), implicit by design (no decoded rationale
+  string — exactly PauseRec's finding that explicit CoT is brittle).
+- **Text↔SID bridge** (`TextSidBridge`) — projects a natural-language query embedding through the *same*
+  KG-2.86 codebooks the items use, so query world-knowledge and item SIDs share one space (directly
+  targeting the paper's misalignment failure mode).
+- **Reuse, not reinvent** — rides the existing `TemporalSemanticIdEncoder` (KG-2.86); two-surface via
+  `graph_analyze action='recommend'`. **Verdict: M→shipped.**
+
 ### Enterprise loop — GEPA + FST (Article 3)
 The compounding-IP thesis: learning lives in the **harness** (portable across frontier models) and a
 small **owned model**; **evals themselves are optimized** from expert annotations; each production
@@ -141,6 +173,15 @@ detector + report) + **KG-2.84** (night-shift roles + vault + briefing on the Lo
 all propose-only.
 
 ---
+
+## Formal comparative-analysis artifacts (CA skill run)
+
+The `comparative-analysis` skill (Lightweight Mode — the KG was locked/down) produced structured
+**innovation-extraction artifacts for all 8 papers** under `.specify/reports/ca010_innov_<arxiv-id>.json`
+(biomimicry / TRIZ / analogical signals + claim rows vs the target). The **concept × paper
+cross-reference** (`concept_cross_reference.py`) could not run — it requires the KG backend, which was
+`database is locked` (GB10 embed fault / concurrent engine); re-run it when the engine is healthy.
+Architecture diagrams for the whole program live in `docs/architecture/multi_source_assimilation.md`.
 
 ## Sequenced plan (concept allocation)
 
