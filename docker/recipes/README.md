@@ -27,7 +27,7 @@ GRAPH_DB_URI=postgresql://agent:REDACTED@localhost:5432/agent_kg \
 
 ## Enterprise
 
-Use the `day0_bootstrap_orchestrator` skill-workflow (enterprise profile). It
+Use the `agent-os-genesis` (alias `day0`) skill-workflow (enterprise profile). It
 provisions the swarm, core services, and binds every connector stack from the
 registry to Git for Portainer GitOps auto-sync. Backend composes
 (`pg-age`, `kafka-kraft`) are deployed as swarm stacks; integrations

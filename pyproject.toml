@@ -249,6 +249,9 @@ agent-utilities = "agent_utilities.cli:main"
 # Provision the database environment (Stardog + pg-age) from credentials; also
 # `python -m agent_utilities.knowledge_graph.setup.cli`.
 setup-databases = "agent_utilities.knowledge_graph.setup.cli:main"
+# Generate/validate/document the FULL deployment config (all AgentConfig options);
+# also `python -m agent_utilities.deployment.cli`.
+setup-config = "agent_utilities.deployment.cli:main"
 # CONCEPT:KG-2.57 — decoupled kg-ingest consumer-group worker (engine client, no
 # KG host role); also `python -m agent_utilities.knowledge_graph.ingest_worker`.
 kg-ingest-worker = "agent_utilities.knowledge_graph.ingest_worker:main"
