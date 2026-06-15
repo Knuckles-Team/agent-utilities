@@ -1098,6 +1098,27 @@ async def graph_ingest_materialize_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_ingest_materialize_source_endpoint(request: Request) -> JSONResponse:
+    """Persist an enterprise source extractor (camunda/aris/egeria) into the KG.
+
+    Body: ``{"category": "camunda", "config": {...}}`` — ``category`` is the
+    extractor key (required); ``config`` is an optional extractor-config dict.
+    """
+    try:
+        body = await request.json()
+        category = body.get("category") or body.get("corpus_name") or ""
+        config = body.get("config")
+        res = await _execute_tool(
+            "graph_ingest",
+            action="materialize_source",
+            corpus_name=category,
+            description=json.dumps(config) if isinstance(config, dict) else "",
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_ingest_sync_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_ingest", action="sync")
@@ -2870,7 +2891,7 @@ def _build_server(bootstrap: bool = True):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, sync, reflect). 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
+            description="Action to perform (ingest, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -3170,6 +3191,73 @@ def _build_server(bootstrap: bool = True):
                     return result or "No observations to reflect on."
                 except Exception as e:
                     return f"Reflect error: {e}"
+
+            elif action == "materialize_source":
+                # CONCEPT:KG-2.9 — persist an enterprise source extractor
+                # (camunda/aris/egeria/…) INTO the graph, then run one OWL
+                # reasoning cycle so the new BusinessProcess/BusinessTask/
+                # FLOWS_TO structure folds into the cross-vendor crosswalk
+                # natively. corpus_name=category; description=optional JSON
+                # extractor config; an in-process vendor client is resolved
+                # from the connector package's auth.get_client().
+                try:
+                    import json
+
+                    from ..knowledge_graph.enrichment.materialize import (
+                        materialize_source,
+                        resolve_source_client,
+                    )
+                    from ..knowledge_graph.research.ara.reasoning_driver import (
+                        OntologyReasoningDriver,
+                    )
+
+                    category = (corpus_name or "").strip()
+                    if not category:
+                        return json.dumps(
+                            {
+                                "error": "materialize_source requires corpus_name "
+                                "(the extractor category, e.g. 'camunda' or 'aris')"
+                            }
+                        )
+                    extractor_config = (
+                        json.loads(description)
+                        if description and description.strip().startswith("{")
+                        else None
+                    )
+                    client = resolve_source_client(category)
+                    if client is None:
+                        return json.dumps(
+                            {
+                                "error": f"no source client for {category!r} — "
+                                "the connector package is absent or its "
+                                "credentials are unset (see the connector's "
+                                "auth.get_client environment)."
+                            }
+                        )
+                    backend = getattr(engine, "backend", None)
+                    nodes, edges = materialize_source(
+                        backend, category, client, config=extractor_config
+                    )
+                    harvest = OntologyReasoningDriver(engine).extrapolate(
+                        persist=True
+                    )
+                    return json.dumps(
+                        {
+                            "status": "materialized",
+                            "category": category,
+                            "nodes": nodes,
+                            "edges": edges,
+                            "inferred_edges": len(
+                                getattr(harvest, "inferred_edges", []) or []
+                            ),
+                            "new_topics": len(
+                                getattr(harvest, "new_topics", []) or []
+                            ),
+                        },
+                        default=str,
+                    )
+                except Exception as e:
+                    return f"Materialize source error: {e}"
 
             elif action == "curate_wiki":
                 # CONCEPT:KG-2.19 — delta-skip continuous ingest of a self-curating wiki dir.
@@ -6920,6 +7008,11 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     )
     route("/graph/ingest/observe", graph_ingest_observe_endpoint, ["POST"])
     route("/graph/ingest/materialize", graph_ingest_materialize_endpoint, ["POST"])
+    route(
+        "/graph/ingest/materialize-source",
+        graph_ingest_materialize_source_endpoint,
+        ["POST"],
+    )
     route("/graph/ingest/sync", graph_ingest_sync_endpoint, ["POST"])
     route("/graph/ingest/reflect", graph_ingest_reflect_endpoint, ["POST"])
     route("/graph/ingest/agent-toolkit", graph_ingest_agent_toolkit_endpoint, ["POST"])
