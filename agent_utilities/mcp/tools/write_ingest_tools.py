@@ -168,11 +168,30 @@ def register_write_ingest_tools(mcp):
         except Exception as e:
             return f"Write error: {str(e)}"
 
-        if not fanout:
-            return _write_with_engine(entries[0][1])
-
-        out: dict[str, Any] = {"targets": {}, "errors": dict(errors)}
+        # CONCEPT:KG-2.89 — role enforcement: a 'read' (data source) or 'mirror'
+        # (fan-out replica) connection rejects direct target= writes. Mirrors are
+        # written only through the fan-out outbox, never here.
+        registry = kg_server.get_connection_registry()
+        errors = dict(errors)
+        writable = []
         for name, eng in entries:
+            if registry.is_writable(name):
+                writable.append((name, eng))
+            else:
+                errors[name] = (
+                    f"connection '{name}' is read-only (role={registry.role(name)})"
+                )
+
+        if not fanout:
+            if not writable:
+                return json.dumps(
+                    {"error": errors.get(entries[0][0], "target is read-only")},
+                    default=str,
+                )
+            return _write_with_engine(writable[0][1])
+
+        out: dict[str, Any] = {"targets": {}, "errors": errors}
+        for name, eng in writable:
             out["targets"][name] = _write_with_engine(eng)
         return json.dumps(out, default=str)
 

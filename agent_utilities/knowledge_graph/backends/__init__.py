@@ -168,6 +168,19 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
                 targets = []
         else:
             targets = [t.strip() for t in s.split(",") if t.strip()]
+    # CONCEPT:KG-2.89 — derive the mirror set from connections with role="mirror";
+    # the explicit GRAPH_MIRROR_TARGETS above stays an optional override/addition.
+    targets = list(targets) if isinstance(targets, list) else list(targets or [])
+    role_mirrors = [
+        str(s.get("name") or "").strip()
+        for s in (_cfg.kg_connections or [])
+        if str(s.get("role") or "").strip().lower() == "mirror"
+        and str(s.get("name") or "").strip()
+    ]
+    _seen: set[str] = set()
+    targets = [
+        t for t in (targets + role_mirrors) if t and not (t in _seen or _seen.add(t))
+    ]
     if not targets:
         return {}
     conn_specs: dict[str, dict[str, Any]] = {}
