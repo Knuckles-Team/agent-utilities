@@ -1,0 +1,220 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": ".",
+  "concept_id": "",
+  "kg_source_query": null,
+  "results": [
+    {
+      "source": "/home/apps/workspace/.scholarx/papers/2605.22721_self_evolving_multi_agent_systems_via_decentralized_memory.md",
+      "source_type": "filesystem",
+      "concept_id": "",
+      "signals": {
+        "biomimicry_signals": [
+          {
+            "keyword": "evolution",
+            "count": 8,
+            "analogy": "genetic algorithm optimization",
+            "target_domain": "prompt_evolution"
+          },
+          {
+            "keyword": "swarm",
+            "count": 2,
+            "analogy": "multi-agent coordination",
+            "target_domain": "orchestration"
+          },
+          {
+            "keyword": "neural",
+            "count": 2,
+            "analogy": "adaptive model routing",
+            "target_domain": "model_selection"
+          },
+          {
+            "keyword": "emergent",
+            "count": 1,
+            "analogy": "complex behavior from simple rules",
+            "target_domain": "swarm_presets"
+          }
+        ],
+        "tech_signals": [
+          {
+            "keyword": "owl",
+            "count": 4,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          },
+          {
+            "keyword": "transformer",
+            "count": 3,
+            "analogy": "parallel sequence processing",
+            "target_domain": "batch_processing"
+          },
+          {
+            "keyword": "hierarchical",
+            "count": 3,
+            "analogy": "multi-level abstraction layering",
+            "target_domain": "hierarchical_planning"
+          },
+          {
+            "keyword": "reinforcement",
+            "count": 2,
+            "analogy": "reward-driven routing optimization",
+            "target_domain": "confidence_gating"
+          },
+          {
+            "keyword": "embedding",
+            "count": 1,
+            "analogy": "semantic vector representation",
+            "target_domain": "knowledge_graph"
+          },
+          {
+            "keyword": "chain-of-thought",
+            "count": 1,
+            "analogy": "rationale persistence",
+            "target_domain": "quiet_star"
+          },
+          {
+            "keyword": "join",
+            "count": 1,
+            "analogy": "cross-entity relationship resolution",
+            "target_domain": "entity_linking"
+          },
+          {
+            "keyword": "topology",
+            "count": 1,
+            "analogy": "structural graph analysis and shape metrics",
+            "target_domain": "partitioning"
+          },
+          {
+            "keyword": "inference",
+            "count": 1,
+            "analogy": "derived knowledge from explicit assertions",
+            "target_domain": "owl_reasoning"
+          }
+        ],
+        "innovation_claims": [
+          "---\ntitle: Self-Evolving Multi-Agent Systems via Decentralized Memory\narxiv_id: 2605.22721\nauthors: Guangya Hao, Yunbo Long, Zhuokai Zhao\nurl: https://arxiv.org/abs/2605.22721\n---\n\n## Abstract\n\nSelf-evolving multi-agent systems (MAS) have emerged as a promising route to LLM agents that continually improve from experience, with persistent memory at their foundation",
+          "We propose DecentMem, a decentralized memory framework in which each agent maintains its own dual-pool memory -- an exploitation pool of consolidated past trajectories and an exploration pool of LLM-generated candidates for unseen contexts",
+          "Theoretically, we prove that this design guarantees global reachability of the solution space and achieves $O(\\log T)$ cumulative regret, matching the stochastic bandit lower bound up to constants",
+          "## Full Text\n\n# **Self-Evolving Multi-Agent Systems via Decentralized Memory** \n\n**Guangya Hao[1] Yunbo Long[1] Zhuokai Zhao[2]** 1University of Cambridge 2University of Chicago \n\n## **Abstract** \n\nSelf-evolving multi-agent systems (MAS) have emerged as a promising route to LLM agents that continually improve from experience, with persistent memory at their foundation",
+          "We propose **DECENTMEM** , a _decentralized_ memory framework in which each agent maintains its own dual-pool memory \u2014 an exploitation pool of consolidated past trajectories and an exploration pool of LLM-generated candidates for unseen contexts",
+          "Theoretically, we prove that this design guarantees global reachability of the solution space and achieves _O_ (log _T_ ) cumulative regret, matching the stochastic bandit lower bound up to constants",
+          "Figure 1: Compared to traditional centralized memory frameworks, DECENTMEM provides the first decentralized memory framework with adaptability to various MAS frameworks",
+          "that makes collaboration valuable in the first place, rather than drive the system toward a single shared strategy",
+          "Motivated by these limitations, we propose **DECENTMEM** , a decentralized self-evolving memory framework for LLM-based MAS",
+          "Under this formulation, we prove that DECENTMEM achieves global reachability over each agent\u2019s local solution subspace and attains _O_ (log _T_ ) cumulative regret, order-optimal against the \u2126(log _T_ ) bandit lower bound [14]"
+        ],
+        "concept_id": ""
+      },
+      "synergies": [
+        {
+          "innovation": "genetic algorithm optimization",
+          "source_keyword": "evolution",
+          "target_domain": "prompt_evolution",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "multi-agent coordination",
+          "source_keyword": "swarm",
+          "target_domain": "orchestration",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "adaptive model routing",
+          "source_keyword": "neural",
+          "target_domain": "model_selection",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "complex behavior from simple rules",
+          "source_keyword": "emergent",
+          "target_domain": "swarm_presets",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "parallel sequence processing",
+          "source_keyword": "transformer",
+          "target_domain": "batch_processing",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "multi-level abstraction layering",
+          "source_keyword": "hierarchical",
+          "target_domain": "hierarchical_planning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "reward-driven routing optimization",
+          "source_keyword": "reinforcement",
+          "target_domain": "confidence_gating",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "semantic vector representation",
+          "source_keyword": "embedding",
+          "target_domain": "knowledge_graph",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "rationale persistence",
+          "source_keyword": "chain-of-thought",
+          "target_domain": "quiet_star",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "cross-entity relationship resolution",
+          "source_keyword": "join",
+          "target_domain": "entity_linking",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "structural graph analysis and shape metrics",
+          "source_keyword": "topology",
+          "target_domain": "partitioning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "derived knowledge from explicit assertions",
+          "source_keyword": "inference",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 13
+    }
+  ]
+}

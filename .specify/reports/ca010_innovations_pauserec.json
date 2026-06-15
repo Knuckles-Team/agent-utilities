@@ -1,0 +1,178 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": ".",
+  "concept_id": "",
+  "kg_source_query": null,
+  "results": [
+    {
+      "source": "/home/apps/workspace/.scholarx/papers/2606.14142_implicit_reasoning_for_large_language_model_based_generative.md",
+      "source_type": "filesystem",
+      "concept_id": "",
+      "signals": {
+        "biomimicry_signals": [
+          {
+            "keyword": "neural",
+            "count": 1,
+            "analogy": "adaptive model routing",
+            "target_domain": "model_selection"
+          }
+        ],
+        "tech_signals": [
+          {
+            "keyword": "embedding",
+            "count": 39,
+            "analogy": "semantic vector representation",
+            "target_domain": "knowledge_graph"
+          },
+          {
+            "keyword": "owl",
+            "count": 30,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          },
+          {
+            "keyword": "inference",
+            "count": 20,
+            "analogy": "derived knowledge from explicit assertions",
+            "target_domain": "owl_reasoning"
+          },
+          {
+            "keyword": "attention",
+            "count": 7,
+            "analogy": "context-aware retrieval weighting",
+            "target_domain": "hybrid_retriever"
+          },
+          {
+            "keyword": "zero-shot",
+            "count": 4,
+            "analogy": "inductive generalization",
+            "target_domain": "encpi"
+          },
+          {
+            "keyword": "chain-of-thought",
+            "count": 3,
+            "analogy": "rationale persistence",
+            "target_domain": "quiet_star"
+          },
+          {
+            "keyword": "transformer",
+            "count": 2,
+            "analogy": "parallel sequence processing",
+            "target_domain": "batch_processing"
+          },
+          {
+            "keyword": "reinforcement",
+            "count": 2,
+            "analogy": "reward-driven routing optimization",
+            "target_domain": "confidence_gating"
+          },
+          {
+            "keyword": "hierarchical",
+            "count": 1,
+            "analogy": "multi-level abstraction layering",
+            "target_domain": "hierarchical_planning"
+          }
+        ],
+        "innovation_claims": [
+          "To circumvent these issues, we propose PauseRec, a lightweight implicit reasoning paradigm tailored for GR",
+          "To circumvent these issues, we propose PAUSEREC, a lightweight implicit reasoning paradigm tailored for GR",
+          "To address this gap, we first analyze explicit reasoning pipelines for LLM-based GR, examining each stage\u2019s contribution and necessity",
+          "We then test whether CoT SFT with various reasoning formats, including template-based reasoning and teacher-generated reasoning, can improve recommendation performance",
+          "First, we find that CoT SFT makes pretrained world knowledge harder to verbalize under standard decoding, even though this knowledge remains recoverable from the model\u2019s logits",
+          "Third, we demonstrate that recommendation performance is sensitive to superficial perturbations of the ground-truth rationales",
+          "To circumvent the aforementioned challenges, we propose PAUSEREC, a lightweight _implicit_ reasoning framework for SID-based GR",
+          "- **Implicit reasoning framework.** We introduce a novel pipeline termed PAUSEREC, which uses trainable <pause> tokens to elicit latent reasoning without rationale supervision",
+          "- **Empirical evaluation.** Across three Amazon review datasets, PAUSEREC improves over standard SFT and CoT-based methods by up to 6.22% while reducing training and inference overhead",
+          "## **3.2 CoT SFT: The Failure of Explicit CoT** \n\nHere, we investigate if CoT SFT improves GR"
+        ],
+        "concept_id": ""
+      },
+      "synergies": [
+        {
+          "innovation": "adaptive model routing",
+          "source_keyword": "neural",
+          "target_domain": "model_selection",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "semantic vector representation",
+          "source_keyword": "embedding",
+          "target_domain": "knowledge_graph",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "derived knowledge from explicit assertions",
+          "source_keyword": "inference",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "context-aware retrieval weighting",
+          "source_keyword": "attention",
+          "target_domain": "hybrid_retriever",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "inductive generalization",
+          "source_keyword": "zero-shot",
+          "target_domain": "encpi",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "rationale persistence",
+          "source_keyword": "chain-of-thought",
+          "target_domain": "quiet_star",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "parallel sequence processing",
+          "source_keyword": "transformer",
+          "target_domain": "batch_processing",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "reward-driven routing optimization",
+          "source_keyword": "reinforcement",
+          "target_domain": "confidence_gating",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "multi-level abstraction layering",
+          "source_keyword": "hierarchical",
+          "target_domain": "hierarchical_planning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 10
+    }
+  ]
+}

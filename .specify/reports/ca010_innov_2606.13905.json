@@ -1,0 +1,164 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": ".",
+  "concept_id": "",
+  "kg_source_query": null,
+  "results": [
+    {
+      "source": "/home/apps/workspace/.scholarx/papers/2606.13905_adore__iterative_query_expansion_with_retrieval_grounded_rel.md",
+      "source_type": "filesystem",
+      "concept_id": "",
+      "signals": {
+        "biomimicry_signals": [
+          {
+            "keyword": "neural",
+            "count": 1,
+            "analogy": "adaptive model routing",
+            "target_domain": "model_selection"
+          }
+        ],
+        "tech_signals": [
+          {
+            "keyword": "zero-shot",
+            "count": 17,
+            "analogy": "inductive generalization",
+            "target_domain": "encpi"
+          },
+          {
+            "keyword": "owl",
+            "count": 3,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          },
+          {
+            "keyword": "embedding",
+            "count": 2,
+            "analogy": "semantic vector representation",
+            "target_domain": "knowledge_graph"
+          },
+          {
+            "keyword": "attention",
+            "count": 1,
+            "analogy": "context-aware retrieval weighting",
+            "target_domain": "hybrid_retriever"
+          },
+          {
+            "keyword": "reinforcement",
+            "count": 1,
+            "analogy": "reward-driven routing optimization",
+            "target_domain": "confidence_gating"
+          },
+          {
+            "keyword": "chain-of-thought",
+            "count": 1,
+            "analogy": "rationale persistence",
+            "target_domain": "quiet_star"
+          },
+          {
+            "keyword": "ontology",
+            "count": 1,
+            "analogy": "formal domain modeling with class hierarchies",
+            "target_domain": "owl_reasoning"
+          },
+          {
+            "keyword": "inference",
+            "count": 1,
+            "analogy": "derived knowledge from explicit assertions",
+            "target_domain": "owl_reasoning"
+          }
+        ],
+        "innovation_claims": [
+          "Clarke, Ebrahim Bagheri\nurl: https://arxiv.org/abs/2606.13905\n---\n\n## Abstract\n\nLLM-based query expansion improves retrieval by enriching the original query with additional context",
+          "This can introduce retrieval drift, amplify misleading vocabulary, or miss terms that distinguish relevant from non-relevant documents",
+          "We introduce ADORE (ADapt, Observe, Relevance Evaluate), an iterative framework that turns retrieval outcomes into feedback for the next expansion",
+          "Clarke[1]** , **Ebrahim Bagheri[3]** \n\n1University of Waterloo, 2Mila \u2013 Quebec AI Institute, \n\n3University of Toronto, 4University of California, Berkeley \n\n## **Abstract** \n\nLLM-based query expansion improves retrieval by enriching the original query with additional context",
+          "This can introduce retrieval drift, amplify misleading vocabulary, or miss terms that distinguish relevant from nonrelevant documents",
+          "We introduce ADORE ( **AD** apt, **O** bserve, **R** elevance **E** valuate), an iterative framework that turns retrieval outcomes into feedback for the next expansion",
+          "Large language models have \n\n1https://github.com/aminbigdeli/ADORE \n\nmade this strategy more flexible by generating synthetic expansion text that broadens query coverage and introduces potentially useful terminology",
+          "Together, these methods have shown that LLM-generated expansion text can substantially improve retrieval effectiveness across standard benchmarks",
+          "They therefore cannot tell which terms improved retrieval, which were ineffective, and which caused retrieval drift",
+          "**Unverified iteration.** Iterative methods like ThinkQE (Lei et al., 2025) assume that feeding retrieved documents back into the generator will pro- \n\ngressively improve the reformulation, but they do not verify that each round improves retrieval"
+        ],
+        "concept_id": ""
+      },
+      "synergies": [
+        {
+          "innovation": "adaptive model routing",
+          "source_keyword": "neural",
+          "target_domain": "model_selection",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "inductive generalization",
+          "source_keyword": "zero-shot",
+          "target_domain": "encpi",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "semantic vector representation",
+          "source_keyword": "embedding",
+          "target_domain": "knowledge_graph",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "context-aware retrieval weighting",
+          "source_keyword": "attention",
+          "target_domain": "hybrid_retriever",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "reward-driven routing optimization",
+          "source_keyword": "reinforcement",
+          "target_domain": "confidence_gating",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "rationale persistence",
+          "source_keyword": "chain-of-thought",
+          "target_domain": "quiet_star",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "formal domain modeling with class hierarchies",
+          "source_keyword": "ontology",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "derived knowledge from explicit assertions",
+          "source_keyword": "inference",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 9
+    }
+  ]
+}
