@@ -59,7 +59,7 @@ class ErpNextSink:
     ) -> WritebackResult:
         result = WritebackResult(target=self.domain)
         client = self._client(ops)
-        if client is None:
+        if client is None and not dry_run:
             result.skipped += 1
             return result
         resolve = ctx.resolver("erpnext")

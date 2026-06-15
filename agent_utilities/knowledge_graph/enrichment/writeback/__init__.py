@@ -21,6 +21,7 @@ from .core import (
     resolve_external_id,
     run_writeback,
 )
+from .inventory import collect_inventory_creations, push_inventory
 
 # Import sinks so they self-register (plugin pattern).
 from .sinks import capability as _capability  # noqa: F401
@@ -36,4 +37,6 @@ __all__ = [
     "resolve_external_id",
     "run_writeback",
     "resolve_writeback_fn",
+    "push_inventory",
+    "collect_inventory_creations",
 ]
