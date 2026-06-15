@@ -8,7 +8,7 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from agent_utilities.core.config import setting
 
@@ -2484,6 +2484,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             "deep_extract",
             "background_research",
             "relevance_sweep",
+            "skill_workflows",
         }
         if task_type in _HEAVY_TASK_TYPES:
             from agent_utilities.core.background_throttle import get_throttle
@@ -2549,6 +2550,40 @@ class TaskManagerMixin(GraphEngineProtocol):
                     },
                 )
 
+            elif task_type == "skill_workflows":
+                # CONCEPT:KG-2.97 — ingest the universal-skills workflow corpus as
+                # dispatchable WorkflowDefinition DAGs, OFF the request path. The
+                # per-node durable writes (~150s for ~315 workflows) exceed the MCP
+                # 300s call ceiling, so the action enqueues this job and returns a
+                # job_id; the worker runs it to completion here. ``target`` is the
+                # corpus root, or the ``"universal-skills"`` sentinel = default
+                # installed package.
+                from agent_utilities.knowledge_graph.core.engine import (
+                    IntelligenceGraphEngine,
+                )
+                from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+                    ingest_skill_workflows,
+                )
+
+                root = None if str(target) == "universal-skills" else str(target)
+                # ``self`` is the engine (this mixin is mixed into it).
+                summary = ingest_skill_workflows(
+                    cast(IntelligenceGraphEngine, self), root=root
+                )
+                self._update_task_status(
+                    job_id,
+                    "completed",
+                    {
+                        "workflows": summary.get("workflows", 0),
+                        "steps": summary.get("steps", 0),
+                        "skill_links": summary.get("skill_links", 0),
+                        "skipped": summary.get("skipped", 0),
+                        "errors": summary.get("errors", 0),
+                        "target": str(target),
+                        "type": "skill_workflows",
+                    },
+                )
+
             elif task_type == "diff":
                 # Process a patch file or diff string
                 import hashlib
@@ -2570,7 +2605,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 nid = f"diff-{hashlib.sha256(diff_content.encode()).hexdigest()[:8]}"
                 embedding = embed_model.get_text_embedding(diff_content)
 
-                props = {
+                props: dict[str, Any] = {
                     "content": diff_content,
                     "embedding": embedding,
                     "target_path": str(target),
