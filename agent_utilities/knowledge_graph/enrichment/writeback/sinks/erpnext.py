@@ -78,7 +78,7 @@ class ErpNextSink:
                 )
                 continue
             try:
-                client.create_document(doctype, data)
+                client.create_document(doctype, data)  # type: ignore[union-attr]  # client None-checked above
                 result.created += 1
             except Exception:  # noqa: BLE001
                 logger.debug("erpnext create_document failed", exc_info=True)
@@ -98,7 +98,7 @@ class ErpNextSink:
                 )
                 continue
             try:
-                client.update_document(doctype, doc_name, attrs)
+                client.update_document(doctype, doc_name, attrs)  # type: ignore[union-attr]  # client None-checked above
                 result.enriched += 1
             except Exception:  # noqa: BLE001
                 logger.debug("erpnext update_document failed", exc_info=True)
@@ -117,7 +117,7 @@ class ErpNextSink:
                 )
                 continue
             try:
-                client.update_document(doctype, doc_name, {"disabled": 1})
+                client.update_document(doctype, doc_name, {"disabled": 1})  # type: ignore[union-attr]  # client None-checked above
                 result.retired += 1
             except Exception:  # noqa: BLE001
                 logger.debug("erpnext retire failed", exc_info=True)

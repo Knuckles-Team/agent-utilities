@@ -67,7 +67,7 @@ class ArchimateSink:
                 )
                 continue
             try:
-                client.add_element(
+                client.add_element(  # type: ignore[union-attr]  # client None-checked above
                     type=etype, name=name, documentation=c.get("documentation", "")
                 )
                 result.created += 1
@@ -93,7 +93,7 @@ class ArchimateSink:
                 )
                 continue
             try:
-                client.add_relationship(src, tgt, rel)
+                client.add_relationship(src, tgt, rel)  # type: ignore[union-attr]  # client None-checked above
                 result.relations_written += 1
             except Exception:  # noqa: BLE001
                 logger.debug("archimate add_relationship failed", exc_info=True)

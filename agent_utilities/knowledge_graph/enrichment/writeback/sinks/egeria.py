@@ -69,7 +69,7 @@ class EgeriaSink:
                 )
                 continue
             try:
-                res = client.create_asset(
+                res = client.create_asset(  # type: ignore[union-attr]  # client None-checked above
                     asset_type,
                     qn,
                     name,

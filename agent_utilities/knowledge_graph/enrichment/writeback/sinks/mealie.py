@@ -56,21 +56,21 @@ class MealieSink:
                     if dry_run:
                         result.proposals.append({"op": "post_mealplan", **data})
                     else:
-                        client.post_households_mealplans(data=data)
+                        client.post_households_mealplans(data=data)  # type: ignore[union-attr]  # client None-checked above
                         result.created += 1
                 elif ctype == "shoppinglist":
                     data = {"name": c.get("name", "KG shopping list")}
                     if dry_run:
                         result.proposals.append({"op": "post_shopping_list", **data})
                     else:
-                        client.post_households_shopping_lists(data=data)
+                        client.post_households_shopping_lists(data=data)  # type: ignore[union-attr]  # client None-checked above
                         result.created += 1
                 elif ctype == "shoppingitem":
                     data = {"note": c.get("name"), "shoppingListId": c.get("list_id")}
                     if dry_run:
                         result.proposals.append({"op": "post_shopping_item", **data})
                     else:
-                        client.post_households_shopping_items(data=data)
+                        client.post_households_shopping_items(data=data)  # type: ignore[union-attr]  # client None-checked above
                         result.created += 1
                 else:
                     result.skipped += 1

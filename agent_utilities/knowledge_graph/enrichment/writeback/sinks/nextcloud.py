@@ -90,7 +90,7 @@ class NextcloudSink:
             try:
                 uid = c.get("node") or name
                 ics = _ics(str(uid), name, c.get("start"), c.get("end"))
-                client.create_calendar_event(cal_url, ics)
+                client.create_calendar_event(cal_url, ics)  # type: ignore[union-attr]  # client None-checked above
                 result.created += 1
             except Exception:  # noqa: BLE001
                 logger.debug("nextcloud create_calendar_event failed", exc_info=True)
@@ -107,7 +107,7 @@ class NextcloudSink:
                 result.proposals.append({"op": "write_file", "path": path})
                 continue
             try:
-                client.write_file(path, content)
+                client.write_file(path, content)  # type: ignore[union-attr]  # client None-checked above
                 result.enriched += 1
             except Exception:  # noqa: BLE001
                 logger.debug("nextcloud write_file failed", exc_info=True)
