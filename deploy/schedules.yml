@@ -27,3 +27,21 @@ schedules:
     action: liveness
     dispatch: deterministic
     enabled: true
+
+  - name: leanix-delta-sync
+    description: Pull only LeanIX fact sheets changed since the last watermark into the KG (KG-2.9).
+    cron: "*/30 * * * *" # every 30 minutes — bite-sized deltas
+    kind: skill
+    ref: leanix
+    action: delta
+    dispatch: deterministic
+    enabled: true
+
+  - name: leanix-reconcile
+    description: Tombstone KG fact sheets that were deleted/archived in LeanIX (KG-2.9).
+    cron: "0 3 * * *" # nightly full reconcile (catches deletions deltas miss)
+    kind: skill
+    ref: leanix
+    action: reconcile
+    dispatch: deterministic
+    enabled: true

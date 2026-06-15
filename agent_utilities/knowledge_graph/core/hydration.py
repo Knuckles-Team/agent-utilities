@@ -502,34 +502,15 @@ class HydrationManager:
     def _hydrate_leanix(self, engine: Any) -> dict[str, Any]:
         """Mirror the LeanIX fact-sheet graph natively into the KG (CONCEPT:KG-2.9).
 
-        Injects a live LeanIX client into the typed extractor (single mapping
-        source of truth), then batch-ingests every fact sheet + relation, each
-        node stamped ``externalToolId``/``domain="leanix"`` for write-back
-        resolution. ``since`` enables delta sync (Piece 3); no client → no-op.
+        Delegates to the one delta-aware sync path (:func:`leanix_sync.sync_leanix`),
+        which injects a live LeanIX client into the typed extractor, batch-ingests
+        every fact sheet + relation (each node stamped
+        ``externalToolId``/``domain="leanix"``), and advances the delta watermark.
+        Default ``mode="delta"`` grabs only what changed since the last run.
         """
-        from types import SimpleNamespace
+        from .leanix_sync import sync_leanix
 
-        from ...ecosystem.ea_clients import get_leanix_client
-        from ..enrichment.extractors.leanix import extract as leanix_extract
-
-        client = get_leanix_client()
-        if client is None:
-            return {"status": "skipped", "reason": "no LeanIX client configured"}
-
-        since = setting("LEANIX_SYNC_SINCE", "") or None
-        batch = leanix_extract(SimpleNamespace(client=client, since=since))
-        entities = [{"id": n.id, "type": n.type, **n.props} for n in batch.nodes]
-        relationships = [
-            {"source": e.source, "target": e.target, "type": e.rel_type, **e.props}
-            for e in batch.edges
-        ]
-        if entities:
-            engine.ingest_external_batch("leanix", entities, relationships)
-        return {
-            "status": "ok",
-            "nodes_hydrated": len(entities),
-            "relations_hydrated": len(relationships),
-        }
+        return sync_leanix(engine, mode="delta")
 
     def _hydrate_process_modeling(self, engine: Any) -> dict[str, Any]:
         """Hydrate business processes. Supports BPMN 2.0 XML, ArchiMate XML, and BPM tools (e.g., Archi)."""
