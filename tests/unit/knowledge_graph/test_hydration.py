@@ -595,7 +595,7 @@ def test_hydrate_leanix_mirrors_factsheets(mock_engine):
                 "ITComponent": {"fields": {}, "relations": {}},
             }
         },
-        factsheets=lambda type=None, since=None: {
+        factsheets=lambda type=None, since=None, ids=None: {
             "Application": [
                 {
                     "id": "a1",

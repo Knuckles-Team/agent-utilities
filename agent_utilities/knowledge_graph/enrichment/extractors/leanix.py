@@ -123,7 +123,7 @@ def _iter_related_targets(value: Any) -> list[tuple[str, str | None]]:
 
 
 def _collect_factsheets(
-    client: Any, fs_types: list[str], since: str | None
+    client: Any, fs_types: list[str], since: str | None, ids: list[str] | None
 ) -> list[dict]:
     """Fetch fact sheets per type from the injected client, tolerant of its surface."""
     sheets: list[dict] = []
@@ -132,14 +132,14 @@ def _collect_factsheets(
         return sheets
     try:
         for fs_type in fs_types:
-            result = factsheets(type=fs_type, since=since)
+            result = factsheets(type=fs_type, since=since, ids=ids)
             for item in result or []:
                 if isinstance(item, dict):
                     item.setdefault("type", fs_type)
                     sheets.append(item)
         return sheets
     except TypeError:
-        # Client without type/since kwargs → single unfiltered call.
+        # Client without type/since/ids kwargs → single unfiltered call.
         result = factsheets()
         return [item for item in (result or []) if isinstance(item, dict)]
 
@@ -155,6 +155,7 @@ def extract(config: Any) -> ExtractionBatch:
         return ExtractionBatch(category=CATEGORY, nodes=nodes, edges=edges)
 
     since = getattr(config, "since", None)
+    ids = getattr(config, "ids", None)
     type_map, relation_map = _discover_maps(client)
 
     def _node_id(fs_type: str, raw_id: str) -> str:
@@ -162,7 +163,7 @@ def extract(config: Any) -> ExtractionBatch:
         return f"{prefix}:{raw_id}"
 
     seen_nodes: set[str] = set()
-    for fs in _collect_factsheets(client, list(type_map), since):
+    for fs in _collect_factsheets(client, list(type_map), since, ids):
         raw_id = fs.get("id")
         fs_type = fs.get("type")
         if not raw_id or fs_type not in type_map:
@@ -171,17 +172,16 @@ def extract(config: Any) -> ExtractionBatch:
         nid = _node_id(fs_type, raw_id)
         if nid not in seen_nodes:
             seen_nodes.add(nid)
-            nodes.append(
-                GraphNode(
-                    id=nid,
-                    type=label,
-                    props={
-                        "name": fs.get("name"),
-                        "externalToolId": raw_id,
-                        "domain": "leanix",
-                    },
-                )
-            )
+            props: dict[str, Any] = {
+                "name": fs.get("name"),
+                "externalToolId": raw_id,
+                "domain": "leanix",
+            }
+            # Surface the modification time so the sync layer can advance its
+            # delta watermark (Piece 3); harmless metadata when absent.
+            if fs.get("updatedAt"):
+                props["updatedAt"] = fs["updatedAt"]
+            nodes.append(GraphNode(id=nid, type=label, props=props))
 
         # Every relation field becomes typed edges to the related fact sheets.
         for key, value in fs.items():

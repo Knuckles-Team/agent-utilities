@@ -68,7 +68,7 @@ class FakeLeanIXClient:
     def meta_model(self):
         return META_MODEL
 
-    def factsheets(self, type=None, since=None):  # noqa: A002 - mirror LeanIX API
+    def factsheets(self, type=None, since=None, ids=None):  # noqa: A002 - mirror API
         items = (
             [x for v in self._sheets.values() for x in v]
             if type is None
@@ -76,6 +76,8 @@ class FakeLeanIXClient:
         )
         if since:
             items = [x for x in items if str(x.get("updatedAt") or "z") > since]
+        if ids:
+            items = [x for x in items if x.get("id") in set(ids)]
         return items
 
 
