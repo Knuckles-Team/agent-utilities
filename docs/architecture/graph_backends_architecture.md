@@ -265,6 +265,38 @@ query to run unchanged across neo4j + falkordb + postgres. `list_connections`
 reports each connection's `cypher_support` so fan-out callers can tell which
 backends can serve a full query.
 
+## Connection roles + live config (CONCEPT:KG-2.89)
+
+Every registered connection carries a **role**, so you can safely attach an existing
+third-party graph as a data source — not just for mirroring:
+
+| role | meaning | `target=` writes |
+|---|---|---|
+| `read` (default) | external **data source** — query/profile/imprint only | rejected |
+| `read_write` | full query + write target | allowed |
+| `mirror` | receives fan-out replication of *our* KG | rejected (written only via the outbox) |
+
+```jsonc
+// KG_CONNECTIONS entry — role + a secret reference (kept out of config.json)
+{"name":"prod-neo4j","backend":"neo4j","uri":"bolt://neo4j.arpa:7687",
+ "user":"neo4j","password":"vault://agents/kg/neo4j#password","role":"read"}
+```
+
+- **Credentials** may be literals *or* `vault://…` / `env://VAR` refs, resolved at
+  connect; `list_connections` redacts them either way.
+- **The mirror set is derived from `role=mirror`** connections (`GRAPH_MIRROR_TARGETS`
+  stays an optional override) — one registry drives both query targets and mirrors.
+- **Durable + live:** `graph_configure add_connection/remove_connection` persists the
+  list to `config.json` (survives restart). `profile_connection` / `imprint_connection`
+  introspect a foreign graph's schema and write a self-describing
+  `ExternalGraphReference` catalog node, mapping its labels onto our ontology.
+- **Generic live config:** `graph_configure get_config|set_config|list_config`
+  read/update/list **any** config option (validated against `config_reference`),
+  persisted to config.json and applied live; engine-rebuild settings come back with
+  `restart_required: true`. The doctor's `graph_connections` check reports each
+  connection's role + flags stalled mirrors. All of this is exposed on **MCP and the
+  API gateway** (`POST /api/graph/configure`).
+
 ## Mirror every write to N stores at once (CONCEPT:KG-2.74)
 
 Where KG-2.63 lets you *target* several connections per call, **fan-out** makes

@@ -151,6 +151,62 @@ def _load_xdg_json_config():
             logging.getLogger(__name__).debug(f"Failed to load XDG JSON config: {e}")
 
 
+def _xdg_config_file():
+    """Path to the XDG ``config.json`` (honors ``AGENT_UTILITIES_CONFIG_DIR``)."""
+    from pathlib import Path
+
+    import platformdirs
+
+    override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
+    cfg_dir = (
+        Path(override).expanduser()
+        if override
+        else Path(platformdirs.user_config_path("agent-utilities", "knuckles-team"))
+    )
+    return cfg_dir / "config.json"
+
+
+def save_config_item(key: str, value) -> str:
+    """Persist one config item to ``config.json`` AND live ``os.environ``, then reload.
+
+    CONCEPT:KG-2.89 — the write-back companion to the read-only XDG loader, so a
+    config change made via the MCP/REST surfaces survives restart and applies live
+    for settings read at call time (``config.setting`` / re-parsed fields). Returns
+    the resolved env key. Engine-rebuild settings (GRAPH_BACKEND/…) update the value
+    but need a restart to take effect — see the restart classifier.
+    """
+    import json
+    from pathlib import Path
+
+    cfg_file = _xdg_config_file()
+    Path(cfg_file).parent.mkdir(parents=True, exist_ok=True)
+    data: dict = {}
+    if cfg_file.exists():
+        try:
+            data = json.loads(cfg_file.read_text())
+        except Exception:
+            data = {}
+    data[key.lower()] = value
+    cfg_file.write_text(json.dumps(data, indent=2, default=str))
+
+    env_key = key.upper()
+    if isinstance(value, list | dict):
+        os.environ[env_key] = json.dumps(value)
+    elif value is None:
+        os.environ[env_key] = ""
+    else:
+        os.environ[env_key] = str(value)
+    # Reload the live singleton (defined later in this module) so typed fields and
+    # config.setting() pick up the new value immediately.
+    _singleton = globals().get("config")
+    if _singleton is not None:
+        try:
+            _singleton.reload()
+        except Exception:  # noqa: BLE001 — persistence already succeeded
+            pass
+    return env_key
+
+
 from pydantic import BaseModel
 
 
@@ -681,9 +737,7 @@ class AgentConfig(BaseSettings):
     # to ``data_dir()/evolution_worktrees`` — NEVER the canonical checkout's
     # working tree.
     evolution_worktree_root: str = Field(default="", alias="EVOLUTION_WORKTREE_ROOT")
-    kg_loop_interval: float = Field(
-        default=3600.0, alias="KG_LOOP_INTERVAL"
-    )
+    kg_loop_interval: float = Field(default=3600.0, alias="KG_LOOP_INTERVAL")
     kg_loop_topics: int = Field(default=5, alias="KG_LOOP_TOPICS")
     # SAI factory self-specialization (CONCEPT:AHE-3.29). LLM-free, bounded, and
     # propose-only (it only persists a SaiFactoryCycle metrics node — nothing is
