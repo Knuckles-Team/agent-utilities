@@ -39,6 +39,12 @@ from .reliability_scorers import (
     TrapInjectionScorer,
     build_reliability_suite,
 )
+from .fast_slow_controller import FastSlowController, SlowUpdate, Trace
+from .graph_search_evolution import (
+    GlobalCodeMemory,
+    GraphSearchEvolver,
+    SearchNode,
+)
 from .sai_task import SpecializationTask, Verifier, VerifierResult
 from .self_guided_play import (
     Guide,
@@ -87,6 +93,13 @@ __all__ = [
     "GuideScore",
     "PlayRound",
     "PlayReport",
+    # Graph-search code evolution (CONCEPT:KG-2.92) + Fast-Slow controller (ORCH-1.56)
+    "GraphSearchEvolver",
+    "SearchNode",
+    "GlobalCodeMemory",
+    "FastSlowController",
+    "Trace",
+    "SlowUpdate",
     # Provenance-completeness critic gate (CONCEPT:AHE-3.13)
     "ProvenanceCriticGate",
     "ProvenanceVerdict",
