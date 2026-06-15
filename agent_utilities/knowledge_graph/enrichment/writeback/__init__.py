@@ -27,6 +27,7 @@ from .inventory import collect_inventory_creations, push_inventory
 from .sinks import capability as _capability  # noqa: F401
 from .sinks import erpnext as _erpnext  # noqa: F401
 from .sinks import leanix as _leanix  # noqa: F401
+from .sinks import nextcloud as _nextcloud  # noqa: F401
 from .sinks import process as _process  # noqa: F401
 from .sinks import servicenow as _servicenow  # noqa: F401
 from .sinks.capability import resolve_writeback_fn

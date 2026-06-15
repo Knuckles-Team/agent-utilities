@@ -102,6 +102,10 @@ def resolve_source_client(category: str) -> Any | None:
             from .source_adapters import ErpNextSourceClient
 
             return ErpNextSourceClient(get_client())
+        if category == "nextcloud":
+            from nextcloud_agent.auth import get_client
+
+            return get_client()
     except Exception as exc:  # noqa: BLE001 - missing/unconfigured connector → no client
         logger.debug("no source client for %s: %s", category, exc)
         return None
@@ -112,7 +116,7 @@ def resolve_source_client(category: str) -> Any | None:
 # in-process vendor client + reasoning cycle), as opposed to the CAPABILITY_REGISTRY
 # hydration path. Used by the unified ``source_sync`` entrypoint to route correctly.
 MATERIALIZE_SOURCES: frozenset[str] = frozenset(
-    {"camunda", "aris", "egeria", "servicenow", "erpnext"}
+    {"camunda", "aris", "egeria", "servicenow", "erpnext", "nextcloud"}
 )
 
 

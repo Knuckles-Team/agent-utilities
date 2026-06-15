@@ -65,6 +65,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "technologyrisk",
     "asset",
     "warehouse",
+    "calendarevent",
     "employee",
     "customer",
     "salesorder",
