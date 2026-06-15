@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 275
+total_concepts: 276
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1267,6 +1267,8 @@ concepts:
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
   - agent_utilities/knowledge_graph/backends/sparql/base.py
   - agent_utilities/knowledge_graph/backends/sparql/jena_fuseki_backend.py
+  - agent_utilities/knowledge_graph/backends/sparql/source_partition.py
+  - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
   - agent_utilities/knowledge_graph/backends/tiered_backend.py
   - agent_utilities/knowledge_graph/core/company_brain.py
   - agent_utilities/knowledge_graph/core/engine.py
@@ -1284,6 +1286,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/__init__.py
   - agent_utilities/knowledge_graph/ingestion/__main__.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/integrations/stardog_sync.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
   - agent_utilities/knowledge_graph/pipeline/__init__.py
   - agent_utilities/knowledge_graph/pipeline/phases/__init__.py
@@ -1990,6 +1993,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+  - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
   - agent_utilities/knowledge_graph/core/connection_profiler.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
@@ -2104,6 +2108,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/outbox.py
+  - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
   - agent_utilities/knowledge_graph/extraction/ontology_grounding.py
   - agent_utilities/knowledge_graph/extraction/readers_media.py
   - agent_utilities/knowledge_graph/extraction/structure_router.py
@@ -2258,6 +2263,7 @@ concepts:
   - agent_utilities/deployment/config_generator.py
   - agent_utilities/knowledge_graph/backends/__init__.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
+  - agent_utilities/knowledge_graph/setup/database_environment.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: Role-aware multi-database registry plus live config mutation
@@ -2328,6 +2334,14 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/links.py
   - agent_utilities/models/knowledge_graph.py
   doc: Typed ontology links binding Model/InferenceProfile to TaskClass/Role/Agent
+- id: KG-2.97
+  name: ingest the universal-skills workflow corpus
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: ingest the universal-skills workflow corpus
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
