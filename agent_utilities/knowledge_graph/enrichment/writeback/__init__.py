@@ -39,6 +39,7 @@ from .sinks import ops as _ops  # noqa: F401
 from .sinks import process as _process  # noqa: F401
 from .sinks import salesforce as _salesforce  # noqa: F401
 from .sinks import servicenow as _servicenow  # noqa: F401
+from .sinks import twenty as _twenty  # noqa: F401
 from .sinks.capability import resolve_writeback_fn
 
 __all__ = [
