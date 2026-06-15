@@ -107,6 +107,6 @@ curl -s -X POST localhost:9000/api/graph/query \
 
 Add a swarm, Keycloak SSO, the Kafka event backbone, LGTM observability, and the
 full connector fleet — see [Enterprise](enterprise.md), driven by the
-`day0_bootstrap_orchestrator` skill-workflow. The flag-level path is rungs
+`agent-os-genesis` (alias `day0`) skill-workflow. The flag-level path is rungs
 (d) and (e) of the
 [deployment configurations ladder](../guides/deployment-configurations.md#rung-d-scaled-multi-host).

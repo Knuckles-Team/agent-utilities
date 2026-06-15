@@ -97,7 +97,10 @@ tier switches automatically — nothing else changes. See
 [Deployment Recipes](recipes/tiny.md) for tiny → single-node → enterprise, and
 [Stardog + pg-age databases](recipes/databases.md) to push your ontology to
 Stardog (or a local SPARQL endpoint) and backfill relationships into Apache AGE
-from `.env`/OpenBao in one command.
+from `.env`/OpenBao in one command. For a config-complete, end-to-end install (the
+path Claude follows to set itself up), see the [Self-Setup guide](guides/self-setup.md)
+— one command generates a `config.json` covering every option and a `doctor`
+validates the deployment.
 
 ## When one host is not enough
 
