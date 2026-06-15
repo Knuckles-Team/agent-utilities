@@ -183,6 +183,11 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
         status = (r.get("status") or "").lower()
         if status in TERMINAL_STATUS:
             continue
+        if kind in ("develop", "skill") and status == "running":
+            # In-flight: a run_loop / goal driver owns it. Excluding it from intake
+            # keeps the daemon cycle from double-driving the same iteration; a crash
+            # leaves it 'orphaned' (rehydrated, re-intakeable). (CONCEPT:KG-2.78)
+            continue
         if kind == "research" and cid in addressed:
             continue  # research loop already addressed → resolved
         out.append(_loop_dict(cid, r))
