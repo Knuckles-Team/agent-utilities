@@ -1580,6 +1580,32 @@ async def graph_orchestrate_publish_proposal_endpoint(
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_orchestrate_distill_skills_endpoint(
+    request: Request,
+) -> JSONResponse:
+    """CONCEPT:KG-2.90/2.83 — REST twin of graph_orchestrate distill_skills.
+
+    Connector → skill synthesis: turn the mapped processes of ALL connected
+    systems (egeria/leanix/aris/camunda) into propose-only atomic-skill +
+    skill-workflow PROPOSALS, connector-agnostic over the ontology. Pass
+    ``{"draft": true}`` to also render reviewable SKILL.md staging artifacts.
+    Dispatches into the SAME action core as the MCP tool.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_orchestrate",
+            action="distill_skills",
+            task="draft" if body.get("draft") else "",
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_orchestrate_list_workflows_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_orchestrate", action="list_workflows")
@@ -2557,6 +2583,11 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route(
         "/graph/orchestrate/publish-proposal",
         graph_orchestrate_publish_proposal_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/orchestrate/distill-skills",
+        graph_orchestrate_distill_skills_endpoint,
         ["POST"],
     )
     route(

@@ -423,6 +423,14 @@ class RegistryNodeType(StrEnum):
     # ARA Seal certificate — the signed review verdict over an artifact (KG-2.80)
     SEAL_CERTIFICATE = "seal_certificate"
 
+    # Connector → Skill synthesis proposals (CONCEPT:KG-2.90). Propose-only node
+    # types the background distiller emits from mapped processes of any connected
+    # system (egeria/leanix/aris/camunda): an atomic-skill candidate and a
+    # skill-workflow candidate. A human/Claude reviews+approves; nothing lands in
+    # any repo automatically.
+    SKILL_PROPOSAL = "skill_proposal"
+    SKILL_WORKFLOW_PROPOSAL = "skill_workflow_proposal"
+
 
 class RegistryEdgeType(StrEnum):
     """Enumeration of relationship types in the registry graph."""
@@ -860,6 +868,16 @@ class RegistryEdgeType(StrEnum):
     PIVOTED_FROM = "pivoted_from"
     REACHED_DEAD_END = "reached_dead_end"
     CERTIFIES = "certifies"  # seal_certificate --certifies--> research_artifact
+
+    # Connector → Skill synthesis edges (CONCEPT:KG-2.91). AUTOMATES: a proposed
+    # Skill/Workflow automates a BusinessProcess/Capability. DERIVED_FROM:
+    # provenance from a proposal back to the source system node it was distilled
+    # from. COMPOSES: a SkillWorkflowProposal composes its atomic Skill steps.
+    # Mirrored in ontology_orchestration.ttl (:automates/:derivedFrom/:composes)
+    # so OWL reasoning runs transitive/inverse over them.
+    AUTOMATES = "AUTOMATES"
+    DERIVED_FROM = "DERIVED_FROM"
+    COMPOSES = "COMPOSES"
 
 
 class RegistryNode(BaseModel):
