@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Finance microstructure / Kyle-surveillance ontology (CONCEPT:KG-2.81).**
+  `knowledge_graph/ontology/finance_objects.py` registers `MicrostructureSignal`
+  and `SurveillanceSignal` (extends) OWL interfaces plus typed links (signal
+  `grounded_in` Article / `relates_to` Concept) into the default registries, and
+  promotes the `microstructure_signal`/`surveillance_signal` node types in the
+  OWL bridge so the Kyle insider/stealth-surveillance signal (distilling
+  arXiv:2605.27684) reasons transitively over `grounded_in`/`supports`. Pairs
+  with the emerald-exchange detector (EE-042) and adverse-selection gate (EE-043)
+  over the engine `surveillance_risk` kernel (KG-2.20k). Defensive use only.
+
 ## [0.49.0] - 2026-06-14
 
 > Note: per-release CHANGELOG sections for 0.4.0–0.48.x were not maintained; this
