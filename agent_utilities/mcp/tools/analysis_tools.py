@@ -482,6 +482,45 @@ def register_analysis_tools(mcp):
                     ],
                     default=str,
                 )
+            elif action == "evolve_code":
+                # CONCEPT:KG-2.92 — Monte-Carlo GRAPH search code evolution (MLEvolve):
+                # a graph of candidate solutions with cross-branch fusion + global code
+                # memory. `query` is the task. Deterministic default coder/evaluator
+                # (zero-infra); inject an LLM coder + executor for real evolution.
+                from agent_utilities.harness.agentic_evolution_engine import (
+                    AgenticEvolutionEngine,
+                )
+
+                if not query:
+                    return "Error: evolve_code needs a task description in `query`."
+                result = AgenticEvolutionEngine(engine).evolve_via_graph_search(
+                    query, num_steps=top_k
+                )
+                return json.dumps(result, default=str)
+            elif action == "night_shift":
+                # CONCEPT:KG-2.84 — run one autonomous night-shift cycle over a
+                # local markdown vault: scout→catalog→cartograph→critique→edit
+                # (the second-brain swarm). `target` is the vault root; sources
+                # dropped in <vault>/0-raw|sources are refined into linked atomic
+                # notes with [FRICTION] surfaced + a morning briefing. Schedule it
+                # via cron for the overnight pattern. Propose-only; never deletes.
+                from agent_utilities.knowledge_graph.research.night_shift import (
+                    NightShiftSwarm,
+                )
+
+                if not target:
+                    return "Error: night_shift needs the vault root path in `target`."
+                shift_report = NightShiftSwarm(target).run_shift()
+                return json.dumps(
+                    {
+                        "sources_ingested": shift_report.sources_ingested,
+                        "atoms_created": shift_report.atoms_created,
+                        "links_added": shift_report.links_added,
+                        "frictions": shift_report.frictions,
+                        "briefing_path": shift_report.briefing_path,
+                    },
+                    default=str,
+                )
             elif action == "infer_links":
                 from agent_utilities.knowledge_graph.kb.link_inference import (
                     infer_links,

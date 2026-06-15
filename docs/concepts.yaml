@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 264
+total_concepts: 268
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2192,8 +2192,17 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/adaptation/contradiction_detector.py
+  - agent_utilities/knowledge_graph/research/night_shift.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: explicit node↔node contradiction/friction surface
+- id: KG-2.84
+  name: run one autonomous night-shift cycle over a
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/night_shift.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: run one autonomous night-shift cycle over a
 - id: KG-2.85
   name: Adaptive Chunk Selection
   pillar: KG-2
@@ -2259,6 +2268,16 @@ concepts:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/models/knowledge_graph.py
   doc: AUTOMATES
+- id: KG-2.92
+  name: Monte-Carlo GRAPH search code evolution
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/agentic_evolution_engine.py
+  - agent_utilities/harness/graph_search_evolution.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: Monte-Carlo GRAPH search code evolution
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -2860,6 +2879,22 @@ concepts:
   - agent_utilities/rlm/prompts.py
   - agent_utilities/rlm/repl.py
   doc: Drop-in RLM completion client and model-family-aware REPL prompt
+- id: ORCH-1.55
+  name: Eval-Set Optimization & Compounding Learning Loop
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/harness/continuous_evaluation_engine.py
+  - agent_utilities/rlm/eval_set_optimizer.py
+  doc: Eval-Set Optimization & Compounding Learning Loop
+- id: ORCH-1.56
+  name: feed the cycle outcome to the Fast-Slow controller
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/harness/agentic_evolution_engine.py
+  - agent_utilities/harness/fast_slow_controller.py
+  doc: feed the cycle outcome to the Fast-Slow controller
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
