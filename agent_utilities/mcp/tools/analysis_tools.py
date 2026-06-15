@@ -974,7 +974,7 @@ def register_analysis_tools(mcp):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers (CONCEPT:AHE-3.39/3.40/3.44/3.45); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:KG-2.90/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers; task='all'/'sweep' runs the propose-only sweep over all self-supervised targets — the on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AHE-3.39/3.40/3.44/3.45/3.46); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:KG-2.90/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -1542,6 +1542,7 @@ def register_analysis_tools(mcp):
 
                 from agent_utilities.harness.dspy_optimization import (
                     run_component_optimization,
+                    run_optimization_sweep,
                 )
 
                 data = {}
@@ -1554,7 +1555,14 @@ def register_analysis_tools(mcp):
                         )
                     except Exception:  # noqa: BLE001
                         data = {}
-                rep = run_component_optimization((task or "").strip(), data)
+                tgt = (task or "").strip()
+                # task='all'/'sweep' (or empty) runs the full propose-only sweep — the
+                # on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AHE-3.46);
+                # a specific target name runs just that one (CONCEPT:AHE-3.40).
+                if tgt in ("", "all", "sweep"):
+                    rep = run_optimization_sweep(kg_server._get_engine())
+                else:
+                    rep = run_component_optimization(tgt, data)
                 return _json.dumps(rep, indent=2, default=str)
 
             elif action == "publish_proposal":
