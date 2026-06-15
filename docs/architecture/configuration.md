@@ -234,6 +234,8 @@ opt-in, all off by default.** The boolean gates are parsed via `to_boolean`
 | `KG_FAILURE_EVOLUTION_INTERVAL` | `3600` | daemon tick interval (s) |
 | `KG_FAILURE_EVOLUTION_WINDOW` | `86400` | telemetry look-back window (s) |
 | `KG_FAILURE_REGRESSION_DATASET` | `False` | enable the dataset-based regression path |
+| `KG_DSPY_OPTIMIZATION` | `False` | enable the daemon `dspy_optimization` tick — propose-only DSPy optimization sweep over the self-supervised targets (CONCEPT:AHE-3.46) |
+| `KG_DSPY_OPTIMIZATION_INTERVAL` | `3600` | DSPy optimization sweep interval (s) |
 
 **`KG_FUSEKI_*` — Ontology distribution to Apache Jena Fuseki (`CONCEPT:KG-2.52`), typed on
 `AgentConfig`, opt-in.** The `fuseki_publish` maintenance tick pushes the bundled ontology
