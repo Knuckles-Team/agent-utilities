@@ -178,21 +178,25 @@ retrieval-quality) pass.
 | KG-2.88 ADORE | ✅ shipped | `retrieval/iterative_expansion.py`, `mode='adore'` (MCP+REST) |
 | KG-2.82 DecentMem memory | ✅ shipped | `harness/decentralized_memory.py`, wired into evolution cycle |
 | AHE-3.33 Exploit/explore bandit | ✅ shipped | `harness/explore_exploit_router.py` + `epistemic_graph.quant.ucb1_scores` parity |
-| AHE-3.37 SGS self-play | ⏳ designed | next; extends `agentic_evolution_engine`/`quality_gates` |
-| KG-2.89 MLEvolve graph-search | ⏳ designed | next; upgrades `program_synthesis` tree→MCGS |
-| ORCH-1.55 GEPA eval-set opt | ⏳ designed | next; extends `rlm/gepa.py`+`eval_corpus.py` |
-| ORCH-1.56 Fast-Slow controller | ⏳ designed | next; trainer deferred (GPU/GB10) |
-| KG-2.83 contradiction/friction | ⏳ designed | next; `adaptation/contradiction_detector.py` |
-| KG-2.84 Night-shift swarm | ⏳ designed | next; LoopController stages + vault + briefing |
-| AHE-3.34/35/36 research-craft | ⏳ designed | next; forecasting + baseline/overfit gate + research log |
+| AHE-3.37 SGS self-play | ✅ shipped | `harness/self_guided_play.py`, wired into evolution cycle |
+| KG-2.92 MLEvolve graph-search | ✅ shipped | `harness/graph_search_evolution.py`, `graph_analyze action='evolve_code'` (renumbered from KG-2.89 — taken by a sibling) |
+| ORCH-1.55 GEPA eval-set opt | ✅ shipped | `rlm/eval_set_optimizer.py`, wired into `TraceDistiller.distill` |
+| ORCH-1.56 Fast-Slow controller | ✅ shipped | `harness/fast_slow_controller.py`, wired into evolution cycle (trainer deferred) |
+| KG-2.83 contradiction/friction | ✅ shipped | `adaptation/contradiction_detector.py`, `graph_analyze action='contradictions'` |
+| KG-2.84 Night-shift swarm | ✅ shipped | `research/night_shift.py`, `graph_analyze action='night_shift'` (reuses KG-2.83 Critic) |
+| AHE-3.34/35/36 research-craft | ✅ shipped | forecasting + baseline/overfit gate + triage/research-log, wired into `TraceDistiller.distill` |
 
-**Tests this session:** 46 (Phase 1 retrieval, incl. 3 live-path through the real engine)
-+ 31 (Phase 2 memory/bandit, incl. parity + live evolution-cycle path) = **77 green**.
+**ALL 15 concepts shipped + merged to main locally (not pushed).** Tests: ~190 green across the
+program (unit + live-path through the real engine). Both `guardrail-surface-parity` (leanix REST twin
+added) and `guardrail-liveness` (re-baselined to the reviewed wired state) are now **green on main**.
 
-**Note:** the `scholarx-mcp` child was unresponsive (every call timed out at 300s), so the
-8 PDFs were not downloaded / KG-ingested this session — a fleet health issue, not a blocker
-for the analysis (the article summaries carry full feature detail). Re-run the bulk download
-+ `graph_ingest` when scholarx-mcp is healthy.
+**Scholarx — RESOLVED.** The remote `scholarx-mcp` child hangs, but the `scholarx` library was driven
+directly (`ScholarXClient` + `pymupdf4llm`) to fetch all 8 papers as full-text markdown in
+`~/.scholarx/papers/`. This surfaced the unknown 5th paper: **2606.14142 "Implicit Reasoning for
+LLM-based Generative Recommendation"** — NOT yet assimilated (a candidate follow-up alongside ChronoID).
+
+**Concept renumbers (concurrent-session collisions):** MLEvolve KG-2.89→**KG-2.92** (sibling took 2.89
+for a role-aware registry; 2.90/2.91 also taken by a connector-skill distiller).
 
 ## Deferred / out of scope (honest)
 - Actual **weight trainer** for the FST slow loop (controller + GRPO data spine built; the training
