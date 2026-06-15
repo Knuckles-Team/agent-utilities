@@ -49,8 +49,16 @@ def loop_env(tmp_path, monkeypatch):
 
     # The loop sleeps 2s between failing iterations; fast-forward it so the
     # exactly-once assertions don't pay real wall-clock. (Subprocess execution
-    # does not depend on asyncio.sleep.)
-    async def _fast_sleep(_delay):
+    # does not depend on asyncio.sleep.) Only collapse the loop's SHORT retry
+    # sleep — a fresh ``IntelligenceGraphEngine`` starts a background subscriber
+    # that idles on ``await asyncio.sleep(3600)`` in a loop, and no-oping that
+    # would busy-spin the bridge thread and hang the test; let long idle sleeps
+    # sleep for real (they run on a daemon thread and never block the test).
+    _real_sleep = asyncio.sleep
+
+    async def _fast_sleep(delay=0, *args, **kwargs):
+        if delay and delay >= 60:
+            return await _real_sleep(delay, *args, **kwargs)
         return None
 
     monkeypatch.setattr(asyncio, "sleep", _fast_sleep)

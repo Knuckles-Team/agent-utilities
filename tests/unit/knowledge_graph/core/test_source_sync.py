@@ -159,13 +159,15 @@ def test_generic_source_falls_back_to_full_hydrate(monkeypatch):
 
     monkeypatch.setattr(hyd, "HydrationManager", FakeManager)
 
-    # 'twenty' is a hydration-registry source (not delta-capable, not materialize).
-    out = ss.sync_source(object(), "twenty", mode="delta")
+    # A generic source name that is NOT delta-capable and NOT a materialize
+    # source (a synthetic name, immune to future additions to MATERIALIZE_SOURCES
+    # — e.g. 'twenty' became a materialize source) → falls back to full hydrate.
+    out = ss.sync_source(object(), "generic_fallback_src", mode="delta")
     assert out["status"] == "ok"
-    assert out["source"] == "twenty"
+    assert out["source"] == "generic_fallback_src"
     assert out["delta_capable"] is False
     assert out["mode"] == "full"
-    assert calls and calls[0][1] == "twenty"
+    assert calls and calls[0][1] == "generic_fallback_src"
 
 
 def test_generic_reconcile_unsupported():

@@ -39,7 +39,7 @@ def _make_fake_agent(script):
             self._system_prompt = kwargs.get("system_prompt", "")
             self._calls = 0
 
-        async def run(self, prompt, message_history=None):
+        async def run(self, prompt, message_history=None, **kwargs):
             code = script(self._calls, self._system_prompt, prompt)
             self._calls += 1
             return _ScriptedRes(f"```python\n{code}\n```")
