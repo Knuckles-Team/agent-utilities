@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 276
+total_concepts: 283
 total_pillars: 20
 pillars:
 - AHE-3
@@ -59,7 +59,7 @@ concepts:
   - agent_utilities/sdd/__init__.py
   doc: Agentic Harness Engineering / Evolution
 - id: AHE-3.1
-  name: Adversarial verification passed — no issues found
+  name: / AHE-3.40 — generalized from the original system-prompt-only
   pillar: AHE-3
   status: live
   code_paths:
@@ -90,7 +90,7 @@ concepts:
   - agent_utilities/prompting/builder.py
   - agent_utilities/prompting/dspy_compiler.py
   - agent_utilities/tools/eval_harness.py
-  doc: Adversarial verification passed — no issues found
+  doc: / AHE-3.40 — generalized from the original system-prompt-only
 - id: AHE-3.2
   name: Optional convergence monitor for multi-loop tasks
   pillar: AHE-3
@@ -452,6 +452,59 @@ concepts:
   - agent_utilities/models/model_registry.py
   doc: Evolvable sampling profiles via parametric variant mutation scored by the capability-reward EMA
     and tournament-promoted per task-class into the live model registry
+- id: AHE-3.39
+  name: the real optimization metric
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/dspy_optimization.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: the real optimization metric
+- id: AHE-3.40
+  name: Optimizable-target registry + generalized DSPy driver
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/dspy_optimization.py
+  - agent_utilities/harness/evolve_agent.py
+  - agent_utilities/knowledge_graph/dspy_kg_bridge.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: Optimizable-target registry + generalized DSPy driver
+- id: AHE-3.41
+  name: MCP tool descriptions become a DSPy-optimizable target
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/dspy_optimization.py
+  doc: MCP tool descriptions become a DSPy-optimizable target
+- id: AHE-3.42
+  name: agent skill SOP/description as a DSPy-optimizable target; the SOP
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/dspy_optimization.py
+  doc: agent skill SOP/description as a DSPy-optimizable target; the SOP
+- id: AHE-3.43
+  name: Few-shot demo-set refinement
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/dspy_optimization.py
+  doc: Few-shot demo-set refinement
+- id: AHE-3.44
+  name: DSPy optimization of the KG extraction prompt against a
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/extraction/extraction_optimizer.py
+  doc: DSPy optimization of the KG extraction prompt against a
+- id: AHE-3.45
+  name: Concept-matching and routing-policy optimization
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/policy_optimization.py
+  doc: Concept-matching and routing-policy optimization
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -2151,7 +2204,6 @@ concepts:
   - agent_utilities/core/sessions.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/research/loops.py
-  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   doc: These properties carry the

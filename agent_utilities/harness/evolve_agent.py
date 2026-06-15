@@ -281,154 +281,152 @@ class EvolveAgent:
 
         return edits
 
+    def _build_trainset(
+        self, evidence: EvidenceCorpus, cluster: FailureCluster
+    ) -> list[Any]:
+        """Passing traces in this cluster as DSPy demonstrations (CONCEPT:AHE-3.40)."""
+        try:
+            import dspy
+        except ImportError:
+            return []
+        trainset: list[Any] = []
+        for t in getattr(evidence, "traces", []) or []:
+            if t.task_id in cluster.task_ids and getattr(t, "passed", False):
+                trainset.append(
+                    dspy.Example(
+                        context=getattr(t, "context", ""),
+                        task=getattr(t, "query", ""),
+                        response=getattr(t, "output", ""),
+                    ).with_inputs("context", "task")
+                )
+        return trainset
+
+    def _kg_bridge(self) -> Any | None:
+        """Lazily build the DSPyKGBridge from the knowledge engine (closes the prior
+        Wire-First gap: the bridge existed but nothing called it)."""
+        if self.knowledge_engine is None:
+            return None
+        try:
+            from agent_utilities.knowledge_graph.dspy_kg_bridge import DSPyKGBridge
+
+            return DSPyKGBridge(self.knowledge_engine, self.workspace_path)
+        except Exception:  # noqa: BLE001
+            return None
+
     async def _dspy_optimize_cluster(
         self,
         cluster: FailureCluster,
         evidence: EvidenceCorpus,
     ) -> list[ComponentEdit]:
-        """Use DSPy to mathematically optimize a failing component based on traces.
+        """DSPy-optimize a failing component via the optimizable-target registry.
 
-        CONCEPT:AHE-3.1 — Mathematical Prompt Optimization
-
-        Extracts passing traces from the EvidenceCorpus, compiles a new DSPy
-        signature from the target JSON blueprint, and runs BootstrapFewShot
-        to generate optimized few-shot examples and instruction prefixes.
+        CONCEPT:AHE-3.1 / AHE-3.40 — generalized from the original system-prompt-only,
+        exact-match path. Dispatches on ``cluster.component_attribution`` to a registered
+        :class:`OptimizableTarget` (system prompt, MCP tool description, agent skill),
+        builds a trainset of passing traces, compiles + demo-refines under the **real**
+        graded metric (AHE-3.39/3.43), writes a system-prompt blueprint's compiled state
+        back to disk, and persists the optimization to the KG for *every* target. Returns
+        no edits for unregistered types, so the LLM-heuristic fallback still handles them.
         """
-        edits: list[ComponentEdit] = []
+        import json
+        import os
 
-        if (
-            not cluster.component_attribution
-            or cluster.component_attribution.value != "system_prompt"
-        ):
+        from .dspy_optimization import get_target, run_dspy_optimization
+
+        edits: list[ComponentEdit] = []
+        attribution = cluster.component_attribution
+        if attribution is None:
+            return edits
+        target = get_target(attribution)
+        if target is None:
             return edits
 
-        registered = self.registry.get_components_by_type(cluster.component_attribution)
+        registered = self.registry.get_components_by_type(attribution)
         if not registered:
             return edits
 
-        target_file = registered[0].file_path
-        if not target_file.endswith(".json"):
+        reg = registered[0]
+        target_file = reg.file_path
+        full_path = os.path.join(self.workspace_path, target_file)
+
+        # Load the artifact: a JSON blueprint for system prompts, otherwise the
+        # registration's text (description) — the target handler knows which key to read.
+        artifact: dict[str, Any] = {}
+        is_json = target_file.endswith(".json") and os.path.exists(full_path)
+        if is_json:
+            with open(full_path, encoding="utf-8") as f:
+                artifact = json.load(f)
+        else:
+            text = reg.description or ""
+            if not text and os.path.exists(full_path):
+                try:
+                    text = open(full_path, encoding="utf-8").read()[:4000]
+                except OSError:
+                    text = ""
+            stem = os.path.splitext(os.path.basename(target_file))[0]
+            artifact = {
+                "name": stem,
+                "description": text,
+                "sop": text,
+                "docstring": text,
+            }
+        artifact["__file_path__"] = target_file
+
+        trainset = self._build_trainset(evidence, cluster)
+        if not trainset:
+            logger.info(
+                "EvolveAgent: no passing traces for cluster %s to bootstrap DSPy.",
+                cluster.label,
+            )
             return edits
 
-        try:
-            import json
-            import os
+        result = run_dspy_optimization(
+            target,
+            artifact,
+            trainset,
+            optimizer_name=getattr(self, "dspy_optimizer_type", "BootstrapFewShot"),
+        )
+        if result is None:
+            return edits
 
-            import dspy
-
-            from agent_utilities.prompting.dspy_compiler import (
-                AgentTaskModule,
-                compile_json_to_signature,
-            )
-
-            full_path = os.path.join(self.workspace_path, target_file)
-            if not os.path.exists(full_path):
-                return edits
-
-            with open(full_path, encoding="utf-8") as f:
-                blueprint = json.load(f)
-
-            TaskSignature = compile_json_to_signature(blueprint)
-
-            trainset = []
-            # Gather passing traces from the evidence corpus to use as few-shot demonstrations
-            # Assuming evidence exposes traces or task iterations
-            if hasattr(evidence, "traces"):
-                for t in evidence.traces:
-                    if t.task_id in cluster.task_ids and getattr(t, "passed", False):
-                        trainset.append(
-                            dspy.Example(
-                                context=getattr(t, "context", ""),
-                                task=getattr(t, "query", ""),
-                                response=getattr(t, "output", ""),
-                            ).with_inputs("context", "task")
-                        )
-
-            if not trainset:
-                logger.info(
-                    f"EvolveAgent: No passing traces for cluster {cluster.label} to bootstrap DSPy."
-                )
-                return edits
-
-            # Define a simple exact match or heuristic metric
-            def basic_metric(example, pred, trace=None):
-                return example.response.strip() == pred.response.strip()
-
-            optimizer_name = getattr(self, "dspy_optimizer_type", "BootstrapFewShot")
-            logger.info(f"EvolveAgent: Initializing DSPy optimizer: {optimizer_name}")
-
-            if optimizer_name == "MIPROv2":
-                try:
-                    from dspy.teleprompt import MIPROv2
-
-                    optimizer = MIPROv2(
-                        metric=basic_metric, num_candidates=5, init_temperature=1.0
-                    )
-                except ImportError:
-                    logger.warning(
-                        "MIPROv2 not available in dspy.teleprompt, falling back to BootstrapFewShot"
-                    )
-                    from dspy.teleprompt import BootstrapFewShot
-
-                    optimizer = BootstrapFewShot(
-                        metric=basic_metric,
-                        max_bootstrapped_demos=3,
-                        max_labeled_demos=3,
-                    )
-            elif optimizer_name == "BootstrapFewShotWithRandomSearch":
-                try:
-                    from dspy.teleprompt import BootstrapFewShotWithRandomSearch
-
-                    optimizer = BootstrapFewShotWithRandomSearch(
-                        metric=basic_metric,
-                        max_bootstrapped_demos=3,
-                        num_candidate_programs=5,
-                    )
-                except ImportError:
-                    logger.warning(
-                        "BootstrapFewShotWithRandomSearch not available, falling back to BootstrapFewShot"
-                    )
-                    from dspy.teleprompt import BootstrapFewShot
-
-                    optimizer = BootstrapFewShot(
-                        metric=basic_metric,
-                        max_bootstrapped_demos=3,
-                        max_labeled_demos=3,
-                    )
-            else:
-                from dspy.teleprompt import BootstrapFewShot
-
-                optimizer = BootstrapFewShot(
-                    metric=basic_metric, max_bootstrapped_demos=3, max_labeled_demos=3
-                )
-
-            program = AgentTaskModule(TaskSignature)
-            compiled_program = optimizer.compile(program, trainset=trainset)
-
-            blueprint["dspy_compiled_state"] = compiled_program.dump_state()
-            blueprint["few_shot_examples"] = [
-                ex.toDict() for ex in compiled_program.demos
-            ]
-
+        # System-prompt blueprints carry the compiled state on disk (existing behavior).
+        if target.component_type == "system_prompt" and is_json:
+            artifact.pop("__file_path__", None)
+            artifact["dspy_compiled_state"] = result.compiled_state
+            artifact["few_shot_examples"] = result.demos
             with open(full_path, "w", encoding="utf-8") as f:
-                json.dump(blueprint, f, indent=4)
+                json.dump(artifact, f, indent=4)
 
-            edits.append(
-                ComponentEdit(
-                    component_type=cluster.component_attribution,
+        # Persist the optimization for EVERY target (was dead code before).
+        bridge = self._kg_bridge()
+        if bridge is not None:
+            try:
+                await bridge.ingest_evolved_component(
+                    kg_label=target.kg_label,
+                    component_type=target.component_type,
+                    identifier=target.task_name(artifact),
                     file_path=target_file,
-                    edit_summary=f"DSPy {optimizer_name} optimization applied using {len(trainset)} passing traces.",
-                    predicted_fixes=cluster.task_ids[:10],
-                    predicted_regressions=[],
-                    evidence_references=[f"dspy_optimization:{cluster.cluster_id}"],
+                    compiled_state=result.compiled_state,
+                    version=str(artifact.get("version", "unknown")),
+                    optimizer=result.optimizer,
+                    demos=result.demos,
                 )
-            )
+            except Exception as e:  # noqa: BLE001
+                logger.debug("EvolveAgent: KG persist failed: %s", e)
 
-        except Exception as e:
-            logger.warning(
-                f"EvolveAgent: DSPy optimization failed for {target_file}: {e}"
+        edits.append(
+            ComponentEdit(
+                component_type=attribution,
+                file_path=target_file,
+                edit_summary=(
+                    f"DSPy {result.optimizer} optimization "
+                    f"({result.trainset_size} traces, {len(result.demos)} demos kept)."
+                ),
+                predicted_fixes=cluster.task_ids[:10],
+                predicted_regressions=[],
+                evidence_references=[f"dspy_optimization:{cluster.cluster_id}"],
             )
-
+        )
         return edits
 
     async def apply_edits(
