@@ -5617,16 +5617,15 @@ def _build_server(bootstrap: bool = True):
         tags=["graph-os", "loops"],
     )
     async def graph_loops(
-        action: str = Field(
-            default="list", description="submit|list|run|cancel"
-        ),
+        action: str = Field(default="list", description="submit|list|run|cancel"),
         objective: str = Field(default="", description="Objective text (submit)."),
         kind: str = Field(
             default="research", description="research|develop|skill (submit)."
         ),
         loop_id: str = Field(default="", description="Loop id (submit/cancel)."),
         validation_cmd: str = Field(
-            default="", description="Shell command whose exit-0 completes a develop Loop."
+            default="",
+            description="Shell command whose exit-0 completes a develop Loop.",
         ),
         end_state: str = Field(default="", description="Human end-state (develop)."),
         skill_ref: str = Field(
@@ -6073,12 +6072,8 @@ def _build_server(bootstrap: bool = True):
             except Exception:  # noqa: BLE001
                 engine = None
             if engine is None:
-                return json.dumps(
-                    {"status": "skipped", "reason": "no active engine"}
-                )
-            return json.dumps(
-                sync_leanix(engine, mode=str(mode), ids=ids or None)
-            )
+                return json.dumps({"status": "skipped", "reason": "no active engine"})
+            return json.dumps(sync_leanix(engine, mode=str(mode), ids=ids or None))
         except Exception as e:  # noqa: BLE001
             return json.dumps({"error": str(e)})
 

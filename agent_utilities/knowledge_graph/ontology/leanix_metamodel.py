@@ -167,9 +167,7 @@ def _relations_of(defn: dict) -> dict[str, str]:
         items = [(str(k), v) for k, v in rels.items() if isinstance(v, dict)]
     elif isinstance(rels, list):
         items = [
-            (str(r["name"]), r)
-            for r in rels
-            if isinstance(r, dict) and r.get("name")
+            (str(r["name"]), r) for r in rels if isinstance(r, dict) and r.get("name")
         ]
     for name, rd in items:
         if not name.startswith("rel"):
