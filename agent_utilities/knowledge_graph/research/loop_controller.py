@@ -630,6 +630,9 @@ class LoopController:
             durable = DurableExecutionManager(session_id=loop_id)
         it = self._resume_iteration(durable)
         status = str(loop.get("status") or "running")
+        # Claim the Loop as in-flight so a concurrent daemon cycle's intake
+        # (active_loops) skips it — only this driver advances it (CONCEPT:KG-2.78).
+        mark_loop_status(self.engine, loop_id, "running", iteration=it)
 
         while it < max_it and status not in TERMINAL_STATUS:
             if desired_state is not None:

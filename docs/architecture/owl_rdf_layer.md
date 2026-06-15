@@ -101,6 +101,13 @@ thin adapter onto `LoopController.run_loop`. The single entrypoint is the **`gra
 MCP tool (`submit` / `list` / `run` / `drive` / `cancel`); `submit_loop` is the shared
 creation path for goals, research topics, failure gaps and skill executions.
 
+**One persistence model.** Goal state is *not* a separate SQLite/Postgres `goals` table —
+it was collapsed onto the **KG Loop node** (a develop `Concept`): status, owner, totals and
+the full iteration record are node properties, so the KG (the durable backend) is the
+single source of truth. `/goals` REST, `graph_goals`, the dispatch worker's claim, and
+restart rehydration all read/write that one node; a `running` claim is excluded from the
+daemon's `active_loops` intake so a goal is never double-driven.
+
 **Durable checkpointing is cross-cutting, not goal-specific.** `LoopController.run_loop`
 drives one Loop of any kind to completion durably: it resumes from the last checkpoint
 (`DurableExecutionManager`, backend-selected SQLite/Postgres via `state_store`, OS-5.16),
