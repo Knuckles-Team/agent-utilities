@@ -26,6 +26,7 @@ from .inventory import collect_inventory_creations, push_inventory
 # Import sinks so they self-register (plugin pattern).
 from .sinks import capability as _capability  # noqa: F401
 from .sinks import erpnext as _erpnext  # noqa: F401
+from .sinks import identity as _identity  # noqa: F401
 from .sinks import leanix as _leanix  # noqa: F401
 from .sinks import nextcloud as _nextcloud  # noqa: F401
 from .sinks import process as _process  # noqa: F401
