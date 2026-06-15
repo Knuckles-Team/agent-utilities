@@ -250,6 +250,22 @@ def test_migrate_wrap_preserves_content_and_standardizes(tmp_path):
     assert fm["skill_graph_version"] == "1.0.0"
 
 
+def test_migrate_wrap_records_upstream_web_provenance(tmp_path):
+    # A crawled legacy graph (has source_url) wrapped offline: content is adopted from
+    # the existing reference/, but the durable sources are the web URLs so it stays
+    # re-crawlable. No temp path leaks into the manifest.
+    g = _legacy_graph(tmp_path, "site-docs", source_url="https://site/docs", files=2)
+    res = _pipe().migrate_legacy(g, mode="wrap")
+    assert res["migrated_mode"] == "wrap" and res["file_count"] == 2
+    manifest = json.loads((g / "sources.json").read_text())
+    assert [s["kind"] for s in manifest["sources"]] == ["web"]
+    assert manifest["sources"][0]["uri"] == "https://site/docs"
+    assert "/tmp/" not in json.dumps(manifest["sources"])
+    fm = parse_frontmatter((g / "SKILL.md").read_text())
+    assert fm["source_types"] == ["web"]
+    assert fm["source_url"] == "https://site/docs"
+
+
 def test_migrate_reacquire_uses_source_url(tmp_path):
     seen = {}
 

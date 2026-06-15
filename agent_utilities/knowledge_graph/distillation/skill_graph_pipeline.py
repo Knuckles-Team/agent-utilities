@@ -363,15 +363,26 @@ class SkillGraphPipeline:
         max_file_kb: int = 50,
         kg_enrich: bool | None = None,
         version: str | None = None,
+        record_specs: list[SourceSpec] | None = None,
     ) -> dict[str, Any]:
-        """Acquire all sources → write a standardized skill-graph at ``out_dir/name``."""
+        """Acquire all sources → write a standardized skill-graph at ``out_dir/name``.
+
+        ``record_specs`` overrides the *logical* sources recorded in ``sources.json``
+        (and the SKILL.md ``source_url``) while ``specs`` still drives acquisition —
+        used by wrap-migration to adopt existing content (``specs=[dir]``) yet record
+        the durable upstream web sources so the graph stays re-crawlable.
+        """
         skill_dir = Path(out_dir) / name
         ref = skill_dir / "reference"
+
+        # Acquire FIRST (into memory), THEN wipe + rewrite — so a slow/failed crawl
+        # never destroys the existing corpus (acquisition touches its own temp dirs
+        # only, never ``ref``). Critical for safe in-place migration/rebuild.
+        bundles = [self.acquire(s) for s in specs]
+
         if ref.exists():
             shutil.rmtree(ref)
         ref.mkdir(parents=True, exist_ok=True)
-
-        bundles = [self.acquire(s) for s in specs]
 
         # Write the merged, de-duplicated reference tree.
         used: set[str] = set()
@@ -408,11 +419,62 @@ class SkillGraphPipeline:
         version = version or "0.1.0"
         description = description or _default_description(name)
 
+        # Logical sources recorded in the manifest: the override (durable upstream)
+        # when given, else the acquisition bundles' own specs.
+        if record_specs is not None:
+            corpus_hash = sha256_text(
+                "\n".join(
+                    sorted(
+                        f"{doc.source_uri}\n{doc.text}"
+                        for b in bundles
+                        for doc in b.docs
+                    )
+                )
+            )
+            recorded = [
+                {
+                    "kind": s.kind,
+                    "uri": s.uri,
+                    "options": dict(s.options),
+                    "extractor": "wrap-existing",
+                    "fetched_at": _now_iso(),
+                    "content_hash": corpus_hash,
+                    "doc_count": len(md_files),
+                }
+                for s in record_specs
+            ]
+            record_kinds = sorted({s.kind for s in record_specs})
+            source_url = ", ".join(
+                s.uri for s in record_specs if s.uri.startswith("http")
+            )
+        else:
+            recorded = None
+            record_kinds = None
+            source_url = ", ".join(
+                b.spec.uri for b in bundles if b.spec.uri.startswith("http")
+            )
+
         self._write_sources_manifest(
-            skill_dir, name, version, bundles, md_files, ref, kg_result
+            skill_dir,
+            name,
+            version,
+            bundles,
+            md_files,
+            ref,
+            kg_result,
+            recorded=recorded,
         )
         self._render_skill_md(
-            skill_dir, name, description, version, bundles, md_files, ref, kg_result
+            skill_dir,
+            name,
+            description,
+            version,
+            bundles,
+            md_files,
+            ref,
+            kg_result,
+            source_types_override=record_kinds,
+            source_url=source_url,
         )
 
         errors = validate_skill_graph(skill_dir)
@@ -485,19 +547,24 @@ class SkillGraphPipeline:
         md_files: list[Path],
         ref: Path,
         kg_result: dict[str, Any],
+        recorded: list[dict[str, Any]] | None = None,
     ) -> None:
-        sources = [
-            {
-                "kind": b.spec.kind,
-                "uri": b.spec.uri,
-                "options": dict(b.spec.options),
-                "extractor": b.extractor,
-                "fetched_at": b.fetched_at,
-                "content_hash": b.content_hash,
-                "doc_count": len(b.docs),
-            }
-            for b in bundles
-        ]
+        sources = (
+            recorded
+            if recorded is not None
+            else [
+                {
+                    "kind": b.spec.kind,
+                    "uri": b.spec.uri,
+                    "options": dict(b.spec.options),
+                    "extractor": b.extractor,
+                    "fetched_at": b.fetched_at,
+                    "content_hash": b.content_hash,
+                    "doc_count": len(b.docs),
+                }
+                for b in bundles
+            ]
+        )
         files = [
             {
                 "path": p.relative_to(skill_dir).as_posix(),
@@ -518,7 +585,7 @@ class SkillGraphPipeline:
             "concepts": kg_result.get("concepts") or [],
             "sources": sources,
             "files": files,
-            "stats": {"file_count": len(md_files), "source_count": len(bundles)},
+            "stats": {"file_count": len(md_files), "source_count": len(sources)},
         }
         (skill_dir / "sources.json").write_text(
             json.dumps(manifest, indent=2), encoding="utf-8"
@@ -534,8 +601,10 @@ class SkillGraphPipeline:
         md_files: list[Path],
         ref: Path,
         kg_result: dict[str, Any],
+        source_types_override: list[str] | None = None,
+        source_url: str = "",
     ) -> None:
-        source_types = sorted({b.spec.kind for b in bundles})
+        source_types = source_types_override or sorted({b.spec.kind for b in bundles})
         concepts = kg_result.get("concepts") or []
         toc = _render_toc(_build_doc_tree(ref))
         title = name.replace("-", " ").replace("docs", "").strip().title()
@@ -543,6 +612,8 @@ class SkillGraphPipeline:
         lines = ["---", f"name: {name}", f"description: {description}"]
         lines.append(f"skill_graph_version: {version}")
         lines.append(f"source_types: [{', '.join(source_types)}]")
+        if source_url:
+            lines.append(f"source_url: {source_url}")
         lines.append(f"built_at: {_now_iso()}")
         lines.append(f"builder_version: {_pkg_version()}")
         lines.append(f"file_count: {len(md_files)}")
@@ -561,10 +632,17 @@ class SkillGraphPipeline:
         lines.append("")
         lines.append(description)
         lines.append("")
-        lines.append(f"**Sources** ({len(bundles)}):")
-        for b in bundles:
-            label = b.spec.uri or b.spec.kind
-            lines.append(f"- `{b.spec.kind}` — {label}")
+        # Body source list: prefer the recorded upstream URLs (wrap-migration), else
+        # the acquisition bundles.
+        if source_url:
+            urls = [u.strip() for u in source_url.split(",") if u.strip()]
+            lines.append(f"**Sources** ({len(urls)}):")
+            for u in urls:
+                lines.append(f"- {u}")
+        else:
+            lines.append(f"**Sources** ({len(bundles)}):")
+            for b in bundles:
+                lines.append(f"- `{b.spec.kind}` — {b.spec.uri or b.spec.kind}")
         lines.append("")
         lines.append(
             f"**Contains**: {len(md_files)} markdown files. "
@@ -740,7 +818,7 @@ class SkillGraphPipeline:
             return {"name": d.name, "skipped": True, "reason": chosen}
 
         depth = int(info["crawl_depth"] or 2)
-        tmp: Path | None = None
+        record_specs: list[SourceSpec] | None = None
         if chosen == "reacquire":
             specs = self._specs_from_source_url(info["source_url"], depth)
             if not specs:
@@ -749,22 +827,23 @@ class SkillGraphPipeline:
                     "skipped": True,
                     "reason": "no usable source_url",
                 }
-        else:  # wrap — copy the existing corpus aside so build() can wipe reference/
-            tmp = Path(tempfile.mkdtemp(prefix="sg_wrap_"))
-            shutil.copytree(d / "reference", tmp, dirs_exist_ok=True)
-            specs = [SourceSpec("dir", str(tmp))]
-        try:
-            result = self.build(
-                name=d.name,
-                specs=specs,
-                out_dir=d.parent,
-                description=info["description"] or None,
-                kg_enrich=kg_enrich,
-                version="1.0.0",
+        else:  # wrap — adopt the existing corpus in place. build() acquires into memory
+            # BEFORE wiping reference/, so the graph's own reference/ is a safe dir
+            # source (no temp copy). Record the upstream web sources (not the local
+            # dir) so the wrapped graph stays re-crawlable via status/rebuild.
+            specs = [SourceSpec("dir", str(d / "reference"))]
+            record_specs = (
+                self._specs_from_source_url(info["source_url"], depth) or None
             )
-        finally:
-            if tmp is not None:
-                shutil.rmtree(tmp, ignore_errors=True)
+        result = self.build(
+            name=d.name,
+            specs=specs,
+            out_dir=d.parent,
+            description=info["description"] or None,
+            kg_enrich=kg_enrich,
+            version="1.0.0",
+            record_specs=record_specs,
+        )
         result["migrated_mode"] = chosen
         return result
 
