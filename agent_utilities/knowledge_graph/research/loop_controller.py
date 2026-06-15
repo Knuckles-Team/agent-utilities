@@ -979,13 +979,19 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
     Synchronous (the controller advances one iteration per cycle), timeout-bounded,
     best-effort — mirrors the durable goal loop's validation step (``sessions``) but
     as a single step in the unified hot path. (CONCEPT:KG-2.78)
+
+    Security: ``cmd`` is the operator-authored validation command from a develop
+    Loop definition (e.g. ``pytest -q && ruff check``), a trusted internal source —
+    the same trust boundary as the engine's other intentional dynamic-execution
+    sites. ``shell=True`` is deliberate so those commands can use shell operators
+    (``&&``, pipes, env expansion); it is never fed external/untrusted input.
     """
     import subprocess
 
     try:
         proc = subprocess.run(
             cmd,
-            shell=True,
+            shell=True,  # nosec B602 — trusted operator-authored validation command (see docstring)
             cwd=cwd,
             capture_output=True,
             text=True,
