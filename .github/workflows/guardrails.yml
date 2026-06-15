@@ -55,6 +55,9 @@ jobs:
       - name: Concept-freshness gate
         run: python3 scripts/check_concepts.py
 
+      - name: Genesis-manifest freshness gate
+        run: python3 scripts/check_genesis_manifest.py
+
       - name: Retrieval-quality gate
         run: python3 scripts/check_retrieval_quality.py
 
