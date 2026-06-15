@@ -661,4 +661,12 @@ def create_agent(
     if tool_guard_mode != "off":
         apply_tool_guard_approvals(agent)
 
+    # CONCEPT:ORCH-1.58 — task-aware per-call sampling. The static `settings` above is
+    # the base floor; this wraps the agent's run path so each call threads a profile
+    # (deterministic low-temp for code/extraction, exploratory for brainstorm) as a
+    # per-call model_settings override, unless a caller passes one explicitly.
+    from agent_utilities.agent.sampling_profile import attach_profile_resolver
+
+    attach_profile_resolver(agent, settings)
+
     return agent, initialized_mcp_toolsets

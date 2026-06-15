@@ -431,6 +431,14 @@ class RegistryNodeType(StrEnum):
     SKILL_PROPOSAL = "skill_proposal"
     SKILL_WORKFLOW_PROPOSAL = "skill_workflow_proposal"
 
+    # Task-aware inference (CONCEPT:KG-2.95). A configured LLM (MODEL) carries a
+    # SamplingProfile (INFERENCE_PROFILE) tuned for a TASK_CLASS / bound to a ROLE,
+    # so the reasoner can extrapolate which sampling profile fits a new task class
+    # from how related models/roles are tuned. ROLE already exists above.
+    MODEL = "model"
+    INFERENCE_PROFILE = "inference_profile"
+    TASK_CLASS = "task_class"
+
 
 class RegistryEdgeType(StrEnum):
     """Enumeration of relationship types in the registry graph."""
@@ -878,6 +886,17 @@ class RegistryEdgeType(StrEnum):
     AUTOMATES = "AUTOMATES"
     DERIVED_FROM = "DERIVED_FROM"
     COMPOSES = "COMPOSES"
+
+    # Task-aware inference edges (CONCEPT:KG-2.96). HAS_PROFILE: a Model carries an
+    # InferenceProfile (inverse PROFILE_OF). TUNED_FOR: a profile is tuned for a
+    # TaskClass. BOUND_TO_ROLE: a profile is bound to a functional Role. USES_PROFILE:
+    # an Agent uses a profile. Mirrored as OWL object properties so reasoning can
+    # extrapolate profiles across task-classes/roles/models.
+    HAS_PROFILE = "HAS_PROFILE"
+    PROFILE_OF = "PROFILE_OF"
+    TUNED_FOR = "TUNED_FOR"
+    BOUND_TO_ROLE = "BOUND_TO_ROLE"
+    USES_PROFILE = "USES_PROFILE"
 
 
 class RegistryNode(BaseModel):
@@ -1968,9 +1987,9 @@ class OrganizationNode(RegistryNode):
     org_id: str = Field(description="Stable slug, e.g. 'acme-corp'")
     legal_name: str | None = None
     domain: str | None = Field(default=None, description="Primary DNS domain")
-    org_type: Literal["company", "team", "vendor", "opensource", "regulator"] = (
-        "company"
-    )
+    org_type: Literal[
+        "company", "team", "vendor", "opensource", "regulator"
+    ] = "company"
     parent_org_id: str | None = Field(
         default=None, description="Points to another OrganizationNode"
     )
