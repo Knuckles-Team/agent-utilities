@@ -83,6 +83,7 @@ __all__ = [
     "Neo4jBackend",
     "PostgreSQLBackend",
     "JenaFusekiBackend",
+    "StardogSparqlBackend",
     "LADYBUG_AVAILABLE",
     "create_backend",
     "get_active_backend",
@@ -121,6 +122,10 @@ def __getattr__(name: str):
         from .sparql.jena_fuseki_backend import JenaFusekiBackend
 
         return JenaFusekiBackend
+    if name == "StardogSparqlBackend":
+        from .sparql.stardog_backend import StardogSparqlBackend
+
+        return StardogSparqlBackend
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -608,18 +613,24 @@ def create_backend(
         backend = TieredGraphBackend(l1=l1, l3=l3) if l3 is not None else l1
 
     elif backend_type == "stardog":
-        # Stardog is primarily an OWLBackend; wrap it for GraphBackend compatibility
-        logger.info(
-            "Stardog backend requested — use OWL backend factory for full "
-            "reasoning support: create_owl_backend('stardog')"
+        # First-class SPARQL DATA backend (push/pull/query of instance data), usable
+        # standalone, as a fan-out mirror, or an ad-hoc connection. The OWL
+        # *reasoning* backend (TBox + inference) is separate:
+        # ``create_owl_backend('stardog')``.
+        from .sparql.stardog_backend import StardogSparqlBackend
+
+        backend = StardogSparqlBackend(
+            endpoint=kwargs.get("endpoint") or uri or setting("STARDOG_ENDPOINT"),
+            database=db_name or kwargs.get("database") or setting("STARDOG_DATABASE"),
+            username=user or kwargs.get("username") or setting("STARDOG_USER"),
+            password=password or kwargs.get("password") or setting("STARDOG_PASSWORD"),
         )
-        return None
 
     else:
         logger.error(
             f"Unknown graph backend type: '{backend_type}'. "
             f"Supported: memory, file, epistemic_graph, postgresql, tiered, "
-            f"fanout, ladybug, falkordb, neo4j, jena_fuseki"
+            f"fanout, ladybug, falkordb, neo4j, jena_fuseki, stardog"
         )
         return None
 

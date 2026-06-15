@@ -308,6 +308,17 @@ class IngestionMixin(_Base):
         This is the primary ingestion API for the hub-and-spoke model (e.g., directory services, ITSM connectors).
         Entities are expected to be pre-mapped to the BFO/PROV-O ontology.
         """
+        # Stamp the originating source system on every row so provenance is explicit
+        # and downstream stores (e.g. a Stardog mirror) can partition data into
+        # ``urn:source:<domain>`` named graphs. Mirrors the ``source="system"`` stamp
+        # link_nodes already applies to internal edges. Caller-supplied values win.
+        _domain = (domain or "").strip().lower()
+        if _domain:
+            for _row in entities:
+                _row.setdefault("source_system", _domain)
+            for _row in relationships or []:
+                _row.setdefault("source_system", _domain)
+
         if not self.backend:
             logger.warning(
                 "Backend not available for batch ingestion. Falling back to slow graph compute loop."

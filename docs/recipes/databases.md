@@ -133,12 +133,51 @@ setup-databases --profile prod --postgres-mode managed_image \
 
 This (1) verifies Postgres, (2) wires `GRAPH_DB_URI`+`GRAPH_PG_AGE=1`+`GRAPH_BACKEND=tiered`
 so the graph backfills into AGE, (3) **pushes the bundled ontology to Stardog**
-(`OntologyPublisher.push_to_stardog`), (4) reconciles the working graph into AGE,
-and (5) smoke-tests a SPARQL `SELECT` against Stardog.
+(`OntologyPublisher.push_to_stardog`), (3b) **registers Stardog as a live data
+mirror** so instance data replicates continuously (see Step 2b), (4) reconciles the
+working graph into AGE *and* backfills the Stardog mirror, and (5) smoke-tests a
+SPARQL `SELECT` against Stardog.
 
 **Consume it** from your system against Stardog's SPARQL endpoint
 (`$STARDOG_ENDPOINT/$STARDOG_DATABASE/query`) — reasoning included, since the
 Stardog OWL backend answers queries with inference on.
+
+---
+
+## Step 2b — Populate Stardog with your DATA (not just the ontology)
+
+Pushing the ontology (Step 2) loads the **TBox** (schema). To also get your
+**instance data** — the LeanIX fact sheets, ServiceNow TRM requests, etc. that land
+in the KG as nodes/edges — Stardog is a first-class **SPARQL data backend**
+(`StardogSparqlBackend`, distinct from the OWL *reasoning* backend). Data is
+partitioned into `urn:source:<system>` **named graphs** so each source is a slice
+you can push, query, or re-ingest on its own.
+
+**Continuous (live mirror).** `setup-databases --profile prod` registers Stardog as
+a `role="mirror"` connection by default, so under `GRAPH_BACKEND=tiered` every KG
+write — including each `source_sync` of LeanIX/ServiceNow — fans out into Stardog
+via the durable outbox. Backfill what's already there with `reconcile` (or `setup`'s
+Step 4). Opt out with `--no-mirror-data` if you only want the ontology.
+
+```bash
+# Register the mirror by hand (idempotent) + backfill the existing graph:
+python -c "import json; from agent_utilities.knowledge_graph.setup import register_stardog_mirror; print(json.dumps(register_stardog_mirror(), indent=2))"
+```
+
+**On-demand (explicit push / pull / query)** via `graph_configure`:
+
+```jsonc
+// Push a subset — only LeanIX + ServiceNow — into their named graphs:
+{"action":"push_to_stardog","config_value":"{\"sources\":[\"leanix\",\"servicenow\"]}"}
+
+// Query one source's slice (SELECT/ASK/CONSTRUCT/UPDATE):
+{"action":"stardog_sparql","config_value":"{\"query\":\"SELECT ?s ?p ?o WHERE { GRAPH <urn:source:servicenow> { ?s ?p ?o } } LIMIT 25\"}"}
+
+// Pull a named graph back into the KG:
+{"action":"pull_from_stardog","config_value":"{\"source\":\"leanix\"}"}
+```
+
+All three are reachable identically over REST (`POST /graph/configure`).
 
 ---
 

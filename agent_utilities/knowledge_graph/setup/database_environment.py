@@ -266,6 +266,64 @@ def publish_ontology(
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Step 3b — register Stardog as a live DATA mirror (instance data, not just TBox)
+# ──────────────────────────────────────────────────────────────────────────
+def register_stardog_mirror(
+    name: str = "stardog",
+    *,
+    endpoint: str | None = None,
+    database: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+) -> dict[str, Any]:
+    """Register Stardog as a ``role="mirror"`` graph connection (CONCEPT:KG-2.89).
+
+    Once registered, ``_build_mirror_set`` auto-includes it, so under
+    ``GRAPH_BACKEND=tiered``/``fanout`` every KG write (incl. LeanIX/ServiceNow
+    ingests) replicates into Stardog via the durable fan-out outbox. Credentials
+    default to the existing ``STARDOG_*`` settings. The connection is persisted to
+    config.json so it survives restart. Pair with :func:`backfill_to_age`'s
+    reconcile to backfill the existing graph into a freshly added mirror.
+    """
+    spec: dict[str, Any] = {
+        "backend": "stardog",
+        "role": "mirror",
+        "endpoint": endpoint or setting("STARDOG_ENDPOINT", "http://localhost:5820"),
+        "database": database or setting("STARDOG_DATABASE", "agent_kg"),
+        "user": username or setting("STARDOG_USER", "admin"),
+        "password": password or setting("STARDOG_PASSWORD", "admin"),
+    }
+    try:
+        from agent_utilities.core.config import save_config_item
+        from agent_utilities.mcp import kg_server
+
+        registry = kg_server.get_connection_registry()
+        registered = registry.register(name, spec)
+        save_config_item("kg_connections", registry.export_specs())
+    except Exception as exc:  # noqa: BLE001 — surface a clear failure to the operator
+        return {"status": "error", "error": str(exc), "connection": name}
+
+    # Force the next backend build to include the new mirror.
+    try:
+        from agent_utilities.knowledge_graph.backends import set_active_backend
+
+        set_active_backend(None)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("could not reset active backend: %s", exc)
+
+    return {
+        "status": "success",
+        "connection": registered,
+        "role": "mirror",
+        "endpoint": spec["endpoint"],
+        "database": spec["database"],
+        "persisted": True,
+        "note": "KG writes now fan out to Stardog (GRAPH_BACKEND=tiered/fanout). "
+        "Run 'reconcile' (or backfill_to_age) to backfill existing data.",
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Step 4 — backfill the working graph into the durable AGE tier
 # ──────────────────────────────────────────────────────────────────────────
 def backfill_to_age() -> dict[str, Any]:
@@ -415,6 +473,7 @@ def setup_environment(
     sparql_target: str | None = None,
     mirror_targets: list[str] | None = None,
     do_backfill: bool = True,
+    mirror_data_to_stardog: bool | None = None,
 ) -> dict[str, Any]:
     """Provision a complete database environment and return a step-by-step report.
 
@@ -427,6 +486,9 @@ def setup_environment(
             (``stardog``/``fuseki``/``builtin``); defaults from ``profile``.
         mirror_targets: optional fanout mirror connection names (KG-2.74).
         do_backfill: run the durable backfill after wiring (default on).
+        mirror_data_to_stardog: register Stardog as a live data mirror so instance
+            data (not just the TBox) replicates continuously. Defaults to ON for the
+            Stardog (prod) target; set False to publish only the ontology.
 
     The driver never raises on a sub-step failure — each step's report carries its
     own ``status`` so the operator sees exactly where to intervene.
@@ -457,10 +519,16 @@ def setup_environment(
         mirror_targets=mirror_targets,
     )
 
-    # 3. Ontology distribution.
+    # 3. Ontology distribution (TBox).
     report["steps"]["publish_ontology"] = publish_ontology(target)
 
-    # 4. Durable backfill.
+    # 3b. Live instance-data mirror into Stardog (default on for the Stardog target).
+    if mirror_data_to_stardog is None:
+        mirror_data_to_stardog = target == "stardog"
+    if mirror_data_to_stardog:
+        report["steps"]["register_stardog_mirror"] = register_stardog_mirror()
+
+    # 4. Durable backfill (also backfills a freshly registered Stardog mirror).
     if do_backfill:
         report["steps"]["backfill_to_age"] = backfill_to_age()
 

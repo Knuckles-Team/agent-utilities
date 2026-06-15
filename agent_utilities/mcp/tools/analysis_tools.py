@@ -1669,7 +1669,7 @@ def register_analysis_tools(mcp):
     def graph_configure(
         action: str = Field(
             default="register_mcp",
-            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher; CONCEPT:KG-2.89 — spec may set role 'read'(default, query-only data source)|'read_write'|'mirror', and password/user/uri may be a vault://path or env://VAR ref; the connection is persisted to config.json so it survives restart); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health + role; 'set_default_connection' (config_key=name) repoints the default target. 'profile_connection' (config_key=name) read-only-introspects a registered external graph's schema (labels, relationship types, property keys, per-label counts + sample property shapes); 'imprint_connection' profiles it, maps each external label onto our ontology (interfaces + our node types; unmatched flagged 'novel'), and writes a self-describing ExternalGraphReference catalog node (no credentials) into the authority KG so the foreign graph becomes discoverable+usable. CONCEPT:KG-2.74 — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass. 'setup_databases' provisions the Stardog + pg-age environment end-to-end (config_key=profile 'dev'|'prod', config_value=JSON options e.g. {\"postgres_mode\":\"managed_image\",\"dsn\":\"postgresql://...\",\"sparql_target\":\"builtin\"}); 'verify_databases' probes a Postgres for the age/vector/pg_search extensions (config_key or config_value.dsn = DSN). 'generate_config' writes a COMPLETE profile-seeded config.json covering every option (config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"out\":path,\"redact_secrets\":true}); 'config_doctor' validates a deployment's config completeness/health (config_key=profile, config_value optional {\"config\":path}); 'config_reference' returns every option grouped by subsystem. CONCEPT:KG-2.89 — 'get_config' (config_key=env name) returns a live value; 'set_config' (config_key=env name, config_value=scalar or JSON) validates against config_reference, persists to config.json + applies live, and flags 'restart_required' for engine-rebuild settings; 'list_config' returns every current value (secrets redacted). 'system_doctor' runs a holistic deployment health sweep (brew/flutter-doctor style) across config/engine/backend/secrets/auth/mcp-fleet/hooks/observability, each with a remediation + skill (config_value optional {\"only\":[...],\"fix\":true,\"live\":true}). 'preflight' checks whether THIS HOST has the runtimes/tools to deploy a profile BEFORE installing (Python 3.11-<3.15, uv/pip, the epistemic-graph engine binary — Rust only as a fallback, Docker when not the tiny profile, and per-component deps): config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"components\":[\"agent-webui\",\"geniusbot\",\"agent-terminal-ui\"]}.",
+            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher; CONCEPT:KG-2.89 — spec may set role 'read'(default, query-only data source)|'read_write'|'mirror', and password/user/uri may be a vault://path or env://VAR ref; the connection is persisted to config.json so it survives restart); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health + role; 'set_default_connection' (config_key=name) repoints the default target. 'profile_connection' (config_key=name) read-only-introspects a registered external graph's schema (labels, relationship types, property keys, per-label counts + sample property shapes); 'imprint_connection' profiles it, maps each external label onto our ontology (interfaces + our node types; unmatched flagged 'novel'), and writes a self-describing ExternalGraphReference catalog node (no credentials) into the authority KG so the foreign graph becomes discoverable+usable. CONCEPT:KG-2.74 — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass. 'setup_databases' provisions the Stardog + pg-age environment end-to-end (config_key=profile 'dev'|'prod', config_value=JSON options e.g. {\"postgres_mode\":\"managed_image\",\"dsn\":\"postgresql://...\",\"sparql_target\":\"builtin\"}); 'verify_databases' probes a Postgres for the age/vector/pg_search extensions (config_key or config_value.dsn = DSN). CONCEPT:KG-2.7 — Stardog instance-data sync (push/pull/query of real KG data, distinct from the ontology/TBox): 'push_to_stardog' writes KG nodes+edges into Stardog, partitioned into urn:source:<system> named graphs (config_value optional {\"sources\":[\"leanix\",\"servicenow\"],\"connection\":<registered name>} — omit sources to push everything; resolves a Stardog backend from config_key/connection name or inline {\"endpoint\",\"database\",\"username\",\"password\"} or STARDOG_* env); 'pull_from_stardog' re-ingests Stardog data back into the KG (config_value optional {\"source\":\"leanix\"} or {\"graph_uri\":\"urn:source:...\"} to scope to one named graph, {\"limit\":N}); 'stardog_sparql' runs a SPARQL SELECT/ASK/CONSTRUCT/UPDATE against Stardog (config_value={\"query\":\"SELECT ...\"} or a bare query string). For continuous live replication instead, register Stardog as a role='mirror' connection (add_connection {\"backend\":\"stardog\",...}) under GRAPH_BACKEND=tiered/fanout and use 'reconcile' to backfill. 'generate_config' writes a COMPLETE profile-seeded config.json covering every option (config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"out\":path,\"redact_secrets\":true}); 'config_doctor' validates a deployment's config completeness/health (config_key=profile, config_value optional {\"config\":path}); 'config_reference' returns every option grouped by subsystem. CONCEPT:KG-2.89 — 'get_config' (config_key=env name) returns a live value; 'set_config' (config_key=env name, config_value=scalar or JSON) validates against config_reference, persists to config.json + applies live, and flags 'restart_required' for engine-rebuild settings; 'list_config' returns every current value (secrets redacted). 'system_doctor' runs a holistic deployment health sweep (brew/flutter-doctor style) across config/engine/backend/secrets/auth/mcp-fleet/hooks/observability, each with a remediation + skill (config_value optional {\"only\":[...],\"fix\":true,\"live\":true}). 'preflight' checks whether THIS HOST has the runtimes/tools to deploy a profile BEFORE installing (Python 3.11-<3.15, uv/pip, the epistemic-graph engine binary — Rust only as a fallback, Docker when not the tiny profile, and per-component deps): config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"components\":[\"agent-webui\",\"geniusbot\",\"agent-terminal-ui\"]}.",
         ),
         config_key: str = Field(
             default="",
@@ -1855,6 +1855,82 @@ def register_analysis_tools(mcp):
                 # reconcile — full authority→mirror drift repair (config_key =
                 # optional single mirror name; empty = all mirrors).
                 return json.dumps(inner.reconcile(config_key or None), default=str)
+            # ── CONCEPT:KG-2.7: Stardog instance-data push / pull / query ──
+            if action in ("push_to_stardog", "pull_from_stardog", "stardog_sparql"):
+                try:
+                    opts = json.loads(config_value) if config_value else {}
+                except Exception as e:
+                    return json.dumps({"error": f"Invalid config_value JSON: {e}"})
+                if not isinstance(opts, dict):
+                    # stardog_sparql also accepts a bare query string in config_value.
+                    if action == "stardog_sparql" and isinstance(config_value, str):
+                        opts = {"query": config_value}
+                    else:
+                        return json.dumps(
+                            {"error": "config_value must be a JSON object"}
+                        )
+
+                def _resolve_stardog_backend():
+                    """A StardogSparqlBackend from a named connection (config_key /
+                    opts.connection) or built from opts/env STARDOG_* defaults."""
+                    name = config_key or opts.get("connection")
+                    if name:
+                        eng = kg_server.get_connection_registry().get_engine(name)
+                        be = getattr(eng, "backend", eng)
+                        return getattr(be, "_authority", be)
+                    from agent_utilities.knowledge_graph.backends.sparql.stardog_backend import (  # noqa: E501
+                        StardogSparqlBackend,
+                    )
+
+                    return StardogSparqlBackend(
+                        endpoint=opts.get("endpoint"),
+                        database=opts.get("database"),
+                        username=opts.get("username"),
+                        password=opts.get("password"),
+                    )
+
+                try:
+                    sd_backend = _resolve_stardog_backend()
+                except Exception as e:
+                    return json.dumps({"error": f"Stardog backend: {e}"})
+
+                if action == "stardog_sparql":
+                    query = opts.get("query")
+                    if not query:
+                        return json.dumps(
+                            {"error": "config_value.query (a SPARQL string) required"}
+                        )
+                    return json.dumps(
+                        {"results": sd_backend.execute_sparql(query)}, default=str
+                    )
+
+                authority = kg_server.get_connection_registry().get_engine(None)
+                if action == "push_to_stardog":
+                    from agent_utilities.knowledge_graph.integrations.stardog_sync import (  # noqa: E501
+                        push_to_stardog,
+                    )
+
+                    return json.dumps(
+                        push_to_stardog(
+                            authority, sd_backend, sources=opts.get("sources")
+                        ),
+                        default=str,
+                    )
+                # pull_from_stardog
+                from agent_utilities.knowledge_graph.integrations.stardog_sync import (
+                    pull_from_stardog,
+                )
+
+                return json.dumps(
+                    pull_from_stardog(
+                        sd_backend,
+                        authority,
+                        graph_uri=opts.get("graph_uri"),
+                        source=opts.get("source"),
+                        limit=int(opts.get("limit", 10_000)),
+                    ),
+                    default=str,
+                )
             # ── Database environment provisioning (Stardog + pg-age) ──
             if action in ("setup_databases", "verify_databases"):
                 from agent_utilities.knowledge_graph.setup import (
