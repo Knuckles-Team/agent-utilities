@@ -94,3 +94,52 @@ def resolve_source_client(category: str) -> Any | None:
         logger.debug("no source client for %s: %s", category, exc)
         return None
     return None
+
+
+# Categories whose ingest substrate is the materialize path (extractor over an
+# in-process vendor client + reasoning cycle), as opposed to the CAPABILITY_REGISTRY
+# hydration path. Used by the unified ``source_sync`` entrypoint to route correctly.
+MATERIALIZE_SOURCES: frozenset[str] = frozenset({"camunda", "aris", "egeria"})
+
+
+def run_materialize_source(
+    engine: Any, category: str, *, config: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Materialize a source extractor + run one reasoning cycle (the shared core).
+
+    The single implementation both ``graph_ingest action=materialize_source`` and
+    the unified ``source_sync`` entrypoint call, so the two never drift. Resolves
+    the in-process vendor client, persists the extractor batch, then extrapolates
+    OWL inferences so the new structure folds into the cross-vendor crosswalk.
+    """
+    category = (category or "").strip()
+    if not category:
+        return {"status": "error", "error": "materialize requires a source category"}
+    client = resolve_source_client(category)
+    if client is None:
+        return {
+            "status": "skipped",
+            "reason": f"no source client for {category!r} (connector absent or creds unset)",
+            "source": category,
+        }
+    backend = getattr(engine, "backend", None)
+    nodes, edges = materialize_source(backend, category, client, config=config)
+    inferred = 0
+    new_topics = 0
+    try:
+        from ..research.ara.reasoning_driver import OntologyReasoningDriver
+
+        harvest = OntologyReasoningDriver(engine).extrapolate(persist=True)
+        inferred = len(getattr(harvest, "inferred_edges", []) or [])
+        new_topics = len(getattr(harvest, "new_topics", []) or [])
+    except Exception:  # noqa: BLE001 - reasoning is best-effort post-persist
+        logger.debug("reasoning cycle after materialize failed", exc_info=True)
+    return {
+        "status": "materialized",
+        "source": category,
+        "category": category,
+        "nodes": nodes,
+        "edges": edges,
+        "inferred_edges": inferred,
+        "new_topics": new_topics,
+    }

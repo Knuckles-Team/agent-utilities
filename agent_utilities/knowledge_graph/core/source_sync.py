@@ -180,7 +180,18 @@ def sync_source(
             "status": "skipped",
             "reason": f"reconcile not supported for '{source}' (no delta handler)",
         }
-    # Generic full hydrate via the standard capability registry.
+
+    # Extractor/materialize-substrate sources (camunda/aris/egeria) route through the
+    # shared materialize core so this stays the one entrypoint for every source.
+    from ..enrichment.materialize import MATERIALIZE_SOURCES, run_materialize_source
+
+    if source in MATERIALIZE_SOURCES:
+        res = run_materialize_source(engine, source)
+        res.setdefault("mode", "full")
+        res.setdefault("delta_capable", False)
+        return res
+
+    # Otherwise: generic full hydrate via the CAPABILITY_REGISTRY.
     from .hydration import HydrationManager
 
     res = HydrationManager().hydrate_source(engine, source)
