@@ -52,7 +52,7 @@ class OktaSink:
                 result.proposals.append({"op": "create_user", "name": name})
                 continue
             try:
-                client.create_user({"profile": {"login": name, "email": name}})
+                client.create_user({"profile": {"login": name, "email": name}})  # type: ignore[union-attr]  # client None-checked above
                 result.created += 1
             except Exception:  # noqa: BLE001
                 logger.debug("okta create_user failed", exc_info=True)
@@ -71,7 +71,7 @@ class OktaSink:
                 )
                 continue
             try:
-                client.assign_user_to_app(app, user)
+                client.assign_user_to_app(app, user)  # type: ignore[union-attr]  # client None-checked above
                 result.relations_written += 1
             except Exception:  # noqa: BLE001
                 logger.debug("okta assign_user_to_app failed", exc_info=True)
@@ -86,7 +86,7 @@ class OktaSink:
                 result.proposals.append({"op": "deactivate_user", "user": uid})
                 continue
             try:
-                client.deactivate_user(uid)
+                client.deactivate_user(uid)  # type: ignore[union-attr]  # client None-checked above
                 result.retired += 1
             except Exception:  # noqa: BLE001
                 logger.debug("okta deactivate_user failed", exc_info=True)
@@ -128,9 +128,9 @@ class KeycloakSink:
                 continue
             try:
                 if ntype == "application":
-                    client.create_client(realm, {"clientId": name})
+                    client.create_client(realm, {"clientId": name})  # type: ignore[union-attr]  # client None-checked above
                 else:
-                    client.create_user(realm, {"username": name, "enabled": True})
+                    client.create_user(realm, {"username": name, "enabled": True})  # type: ignore[union-attr]  # client None-checked above
                 result.created += 1
             except Exception:  # noqa: BLE001
                 logger.debug("keycloak create failed", exc_info=True)

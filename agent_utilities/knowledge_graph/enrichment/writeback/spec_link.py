@@ -156,22 +156,22 @@ def link_spec(
                 data["assignees"] = [who]
             elif agent:
                 data["metadata"] = {"kg_agent": agent}
-            cl.update_work_item(project_id, issue_id, data)
-            cl.create_work_item_link(
+            cl.update_work_item(project_id, issue_id, data)  # type: ignore[union-attr]  # client None-checked above
+            cl.create_work_item_link(  # type: ignore[union-attr]  # client None-checked above
                 project_id, issue_id, {"url": spec_url, "title": f"KG spec: {title}"}
             )
             if comment:
-                cl.create_work_item_comment(
+                cl.create_work_item_comment(  # type: ignore[union-attr]  # client None-checked above
                     project_id, issue_id, {"comment_html": comment}
                 )
         elif target == "jira":
             cl = _jira_client(client)
-            cl.jira_cloud_edit_issue(
+            cl.jira_cloud_edit_issue(  # type: ignore[union-attr]  # client None-checked above
                 issue_id, payload={"fields": {"summary": title, "description": body}}
             )
             if who:
-                cl.jira_cloud_assign_issue(issue_id, payload={"accountId": who})
-            cl.jira_cloud_create_or_update_remote_issue_link(
+                cl.jira_cloud_assign_issue(issue_id, payload={"accountId": who})  # type: ignore[union-attr]  # client None-checked above
+            cl.jira_cloud_create_or_update_remote_issue_link(  # type: ignore[union-attr]  # client None-checked above
                 issue_id,
                 payload={
                     "globalId": spec_url,
@@ -179,7 +179,7 @@ def link_spec(
                 },
             )
             if comment:
-                cl.jira_cloud_add_comment(issue_id, payload={"body": comment})
+                cl.jira_cloud_add_comment(issue_id, payload={"body": comment})  # type: ignore[union-attr]  # client None-checked above
         else:
             return {"status": "error", "error": f"unsupported tracker {target!r}"}
     except Exception as e:  # noqa: BLE001

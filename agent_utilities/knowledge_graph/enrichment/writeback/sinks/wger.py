@@ -55,7 +55,7 @@ class WgerSink:
                         if dry_run:
                             result.proposals.append(op)
                         else:
-                            client.create_weight_entry(op["date"], op["weight"])
+                            client.create_weight_entry(op["date"], op["weight"])  # type: ignore[union-attr]  # client None-checked above
                             result.created += 1
                     else:
                         op = {
@@ -67,7 +67,7 @@ class WgerSink:
                         if dry_run:
                             result.proposals.append(op)
                         else:
-                            client.create_measurement(
+                            client.create_measurement(  # type: ignore[union-attr]  # client None-checked above
                                 op["category"], op["date"], op["value"]
                             )
                             result.created += 1
@@ -82,7 +82,7 @@ class WgerSink:
                     if dry_run:
                         result.proposals.append(op)
                     else:
-                        client.create_workout_session(
+                        client.create_workout_session(  # type: ignore[union-attr]  # client None-checked above
                             op["routine"],
                             op["date"],
                             impression=op["impression"],

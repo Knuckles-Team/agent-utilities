@@ -78,7 +78,7 @@ class ServiceNowSink:
                 )
                 continue
             try:
-                client.create_cmdb_instance(
+                client.create_cmdb_instance(  # type: ignore[union-attr]  # client None-checked above
                     className=class_name, attributes=attrs, source=_SOURCE
                 )
                 result.created += 1
@@ -100,7 +100,7 @@ class ServiceNowSink:
                 )
                 continue
             try:
-                client.patch_cmdb_instance(
+                client.patch_cmdb_instance(  # type: ignore[union-attr]  # client None-checked above
                     className=class_name,
                     sys_id=sys_id,
                     attributes=attrs,
@@ -132,7 +132,7 @@ class ServiceNowSink:
                 )
                 continue
             try:
-                client.create_cmdb_relation(
+                client.create_cmdb_relation(  # type: ignore[union-attr]  # client None-checked above
                     className=class_name,
                     sys_id=src,
                     outbound_relations=[{"type": rel, "target": tgt}],
@@ -156,7 +156,7 @@ class ServiceNowSink:
                 )
                 continue
             try:
-                client.patch_cmdb_instance(
+                client.patch_cmdb_instance(  # type: ignore[union-attr]  # client None-checked above
                     className=class_name,
                     sys_id=sys_id,
                     attributes={"install_status": "7"},
