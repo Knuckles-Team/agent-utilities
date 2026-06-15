@@ -144,13 +144,14 @@ class AgenticEvolutionEngine:
             logger.debug("SelfGuidedSelfPlay not available: %s", e)
             self._self_play = None
 
-        # Fast-Slow learning controller (CONCEPT:ORCH-1.56, FST arXiv:2605.12484):
-        # each cycle's outcome is a trace; the FAST loop updates the harness now and
+        # Fast-Slow learning controller (FST arXiv:2605.12484, CONCEPT:ORCH-1.56).
+        # Each cycle's outcome is a trace; the FAST loop updates the harness now and
         # the SLOW loop absorbs what RECURS across bases via the REAL SubstrateTrainer
-        # (CONCEPT:ORCH-1.57): it builds a GRPO corpus from the recurring group and
-        # emits a training-job spec to the gradient substrate (DSM/GPU). The gradient
-        # step itself runs in data-science-mcp and is GPU-gated; jobs are recorded
-        # (queued) when no substrate is reachable, never lost.
+        # (CONCEPT:ORCH-1.57).
+        # It builds a GRPO corpus from the recurring group and emits a training-job
+        # spec to the gradient substrate (DSM/GPU); the gradient step runs in
+        # data-science-mcp and is GPU-gated; jobs are recorded (queued) when no
+        # substrate is reachable, never lost.
         try:
             from .fast_slow_controller import FastSlowController
             from .substrate_trainer import SubstrateTrainer

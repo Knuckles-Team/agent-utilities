@@ -319,6 +319,40 @@ governs internal behavior; "reachable from gateway + MCP" governs the operator
 surface. A feature satisfies neither by existing — it satisfies both by being
 wired, defaulted on, and exposed on both surfaces in the same change.
 
+## Document & diagram by default — every change updates the architecture + docs (READ BEFORE finishing a feature)
+
+Code is only half the deliverable: **a change is not done until its architecture
+diagram and documentation are created or updated in the same change.** We have
+repeatedly shipped substantial capability (whole concept clusters) whose only
+written trace was a commit message — leaving the C4 diagrams, pillar docs, and
+`docs/` guides stale and the references pointing at a system that no longer
+matches reality. Stale architecture is worse than none: it actively misleads the
+next agent.
+
+The standing rule, applied to **every** non-trivial change (new feature, new
+concept, refactor that moves a seam, new MCP action / REST route / loop stage):
+
+1. **Diagram new work, refresh touched diagrams.** If you add a component or a
+   flow, add a **Mermaid** diagram (C4 container/component or a flowchart) — or
+   extend the existing one for that subsystem so it still reflects reality. Never
+   leave a diagram describing a path you just changed. New cross-cutting programs
+   get their own `docs/architecture/<name>.md`; single-component changes update
+   the owning pillar/architecture doc.
+2. **Document touched + new work.** Update the relevant `docs/` page (pillar,
+   guide, architecture, or recipe) and the module docstring in the same change.
+   A new capability gets prose + the diagram + a `CONCEPT:ID`; a changed one gets
+   its existing docs corrected. If a doc references the thing you changed, update
+   the reference so it never drifts.
+3. **Wire it into the docs nav.** A new page is added to `mkdocs.yml` so it is
+   discoverable — an unlinked page is the documentation equivalent of dead code.
+4. **Keep the single sources of truth in sync.** `CONCEPT:ID` → `docs/concepts.yaml`
+   (regenerate), the concept map, and the architecture diagram must agree. The
+   diagram and the code are one contract; if they disagree, the change is not done.
+
+In short: **if you touched the architecture, update the architecture diagram; if
+you touched behavior, update the docs.** Treat diagrams and docs as part of the
+definition of done, exactly like tests and Wire-First — not as a follow-up.
+
 ## No Legacy — no back-compat, update every consumer, delete the old path (READ BEFORE adding a shim)
 
 **We own every consumer.** The whole world that calls our code lives under

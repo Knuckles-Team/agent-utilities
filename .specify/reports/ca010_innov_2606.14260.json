@@ -1,0 +1,164 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": ".",
+  "concept_id": "",
+  "kg_source_query": null,
+  "results": [
+    {
+      "source": "/home/apps/workspace/.scholarx/papers/2606.14260_chronoid__infusing_explicit_temporal_signals_into_semantic_i.md",
+      "source_type": "filesystem",
+      "concept_id": "",
+      "signals": {
+        "biomimicry_signals": [
+          {
+            "keyword": "neural",
+            "count": 7,
+            "analogy": "adaptive model routing",
+            "target_domain": "model_selection"
+          },
+          {
+            "keyword": "evolution",
+            "count": 2,
+            "analogy": "genetic algorithm optimization",
+            "target_domain": "prompt_evolution"
+          }
+        ],
+        "tech_signals": [
+          {
+            "keyword": "embedding",
+            "count": 64,
+            "analogy": "semantic vector representation",
+            "target_domain": "knowledge_graph"
+          },
+          {
+            "keyword": "owl",
+            "count": 8,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          },
+          {
+            "keyword": "attention",
+            "count": 7,
+            "analogy": "context-aware retrieval weighting",
+            "target_domain": "hybrid_retriever"
+          },
+          {
+            "keyword": "hierarchical",
+            "count": 6,
+            "analogy": "multi-level abstraction layering",
+            "target_domain": "hierarchical_planning"
+          },
+          {
+            "keyword": "transformer",
+            "count": 3,
+            "analogy": "parallel sequence processing",
+            "target_domain": "batch_processing"
+          },
+          {
+            "keyword": "join",
+            "count": 2,
+            "analogy": "cross-entity relationship resolution",
+            "target_domain": "entity_linking"
+          },
+          {
+            "keyword": "inference",
+            "count": 1,
+            "analogy": "derived knowledge from explicit assertions",
+            "target_domain": "owl_reasoning"
+          }
+        ],
+        "innovation_claims": [
+          "First, we systematically characterize the design space along three orthogonal dimensions of temporal signals and present a unified framework, ChronoID, for time-aware semantic ID learning",
+          "Then, by contributing a new time-explicit generation recommendation benchmark, ChronoID answers the questions: what is the effective way of infusing time, how to design the architecture, and where does the gain come from",
+          "First, we systematically characterize the design space along three orthogonal dimensions of temporal signals and present a unified framework, ChronoID, for time-aware semantic ID learning",
+          "Then, by contributing a new time-explicit generation recommendation benchmark, ChronoID answers the questions: what is the effective way of infusing time, how to design the architecture, and where does the gain come from",
+          "**Date:** June 15, 2026 \n\n**Correspondence:** Jian Kang at `jian.kang@@mbzuai.ac.ae` \n\n**==> picture [5 x 6] intentionally omitted <==**\n\n## **1 Introduction** \n\nRecent advances in generative recommendation systems (Deldjoo et al., 2024; Hou et al., 2025a) have demonstrated the promise of replacing traditional multi-stage pipelines with end-to-end sequence generations",
+          "By systematically exploring these designs, we aim to answer a fundamental question: _Where and how should time enter semantic abstraction to enable effective generative recommendation?_ Building upon this perspective, we make the following contributions",
+          "## **2 Preliminary** \n\nIn this section, we provide a formal definition of the generative recommendation task and review the standard Semantic ID learning paradigm, which serves as the foundation for our proposed time-aware techniques",
+          "## **3 ChronoID: Learning Time-Aware Semantic IDs for Recommendation** \n\nHere, we introduce ChronoID, a unified framework for learning the effective time-aware semantic IDs for generative recommendation",
+          "## **3.1 Design Dimension I: Time Embedding** \n\nDifferent from existing generative recommendation models that implicitly encode temporal information through sequence order, we treat temporal information as a first-class member in learning semantic IDs",
+          "To capture the temporal relationship between events, time is first transformed into a time embedding by a time encoder"
+        ],
+        "concept_id": ""
+      },
+      "synergies": [
+        {
+          "innovation": "adaptive model routing",
+          "source_keyword": "neural",
+          "target_domain": "model_selection",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "genetic algorithm optimization",
+          "source_keyword": "evolution",
+          "target_domain": "prompt_evolution",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "semantic vector representation",
+          "source_keyword": "embedding",
+          "target_domain": "knowledge_graph",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "context-aware retrieval weighting",
+          "source_keyword": "attention",
+          "target_domain": "hybrid_retriever",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "multi-level abstraction layering",
+          "source_keyword": "hierarchical",
+          "target_domain": "hierarchical_planning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "parallel sequence processing",
+          "source_keyword": "transformer",
+          "target_domain": "batch_processing",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "cross-entity relationship resolution",
+          "source_keyword": "join",
+          "target_domain": "entity_linking",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "derived knowledge from explicit assertions",
+          "source_keyword": "inference",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 9
+    }
+  ]
+}

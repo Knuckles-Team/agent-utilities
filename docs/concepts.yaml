@@ -2948,13 +2948,13 @@ concepts:
   - agent_utilities/harness/fast_slow_controller.py
   doc: feed the cycle outcome to the Fast-Slow controller
 - id: ORCH-1.57
-  name: it builds a GRPO corpus from the recurring group and
+  name: Substrate training-job emission
   pillar: ORCH-1
   status: live
   code_paths:
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/substrate_trainer.py
-  doc: it builds a GRPO corpus from the recurring group and
+  doc: Substrate training-job emission
 - id: ORCH-1.58
   name: Task-aware per-call LLM sampling that selects and threads a SamplingProfile of temperature top_p
     top_k min_p repetition_penalty max_tokens and penalties per question by task-class and role
