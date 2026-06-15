@@ -80,7 +80,10 @@ The ontology layer sits on the facade's L2 semantic layer:
 ### 4.1 MCP tools (`mcp/kg_server.py`)
 Thin handlers reaching the live `kg.ontology`:
 `ontology_property_types`, `ontology_value_types`, `ontology_interface`,
-`ontology_function`, `ontology_derive`, `ontology_link_materialize` (plus
+`ontology_function`, `ontology_derive`, `ontology_link_materialize`,
+`ontology_sampling_profile` (list/describe/resolve/set/evolve/owl — task-aware LLM
+sampling profiles, CONCEPT:KG-2.94, see
+[Task-Aware Sampling Profiles](sampling_profiles.md)) (plus
 edit / permissioning / document-processing handlers in the same registration block).
 
 ### 4.2 REST (`agent-webui` `api_extensions.py`, `/api/enhanced/ontology/*`)

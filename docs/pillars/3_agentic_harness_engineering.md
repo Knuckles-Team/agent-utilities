@@ -78,6 +78,13 @@ The **Multi-Optimizer Prompt Selection Strategy** ensures that the optimization 
 - **Source Code**: `agent_utilities/harness/evolve_agent.py`
 - **Hot Path**: `EvolveAgent._dspy_optimize_cluster(failure_cluster=...)`
 
+> **What can be evolved, and how DSPy fits the whole substrate** — for the full map of
+> the evolvable surface (prompts, sampling profiles, MCP tool descriptions, agent skills,
+> KG extraction, routing policies), the optimizer/substrate/metric model, and where a DSPy
+> pass hooks into the live loop, see **[The Evolvable Surface](../architecture/evolvable_surface.md)**.
+> For per-call inference-parameter evolution (temperature/top_p/…), see
+> **[Task-Aware Sampling Profiles](../architecture/sampling_profiles.md)** (AHE-3.38).
+
 ### GitOps Commit & Evolution Boundary Traceability (AHE-3.11) 🔬
 Every evolutionary cycle is governed by strict, declarative **GitOps boundaries**. When changes are distilled to the physical file system, a structured, isolated git commit is generated programmatically. This commit is tagged with concept traceability IDs and the source failure cluster ID, linking runtime agent telemetry directly to code version control.
 - **Source Code**: `agent_utilities/knowledge_graph/distillation/physical_distiller.py`
