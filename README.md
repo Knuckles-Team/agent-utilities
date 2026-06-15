@@ -28,6 +28,40 @@
 > **[llms.txt](llms.txt)** is the entry index. Full docs are
 > [published here](https://knuckles-team.github.io/agent-utilities/).
 
+> 🤖 **AI agents — this repo is self-deploying.** If you were pointed here to set it
+> up: read the **[🚀 Zero-to-deployed](AGENTS.md#-zero-to-deployed-genesis--deploying-this-for-an-operator)**
+> procedure in `AGENTS.md`, loop **[`genesis.yaml`](genesis.yaml)**, and run the
+> `agent-utilities-deployment` skill (or `agent-os-genesis` for enterprise). Ask the
+> operator one question — *homelab or enterprise?* — and take it from there.
+
+## 🚀 Deploy in one command
+
+Point yourself (or any agent) at this repo, or just run:
+
+```bash
+# macOS / Linux
+curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh
+
+# Windows (PowerShell)
+irm https://knuckles-team.github.io/agent-utilities/install.ps1 | iex
+```
+
+The installer checks your host, installs agent-utilities, drops the skill toolkit
+into every AI tool you have (Claude Code, Cursor, Codex, Windsurf, …), wires the
+knowledge-graph MCP server, and hands off to a guided deployment. Pick your shape:
+
+| You are… | Profile | What you get |
+|---|---|---|
+| A homelab / self-hoster | `tiny` | Zero-infra, all-local. No databases, no Docker. |
+| One durable server | `single-node-prod` | Postgres/pg-age + the core MCP connector fleet. |
+| An enterprise | `enterprise` | Multi-host Swarm, **everything wired** — Vault, SSO, DNS, ingress, observability, all 50+ connectors. |
+
+```bash
+curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh -s -- --profile enterprise
+```
+
+→ Full procedure: **[Zero-to-deployed](AGENTS.md#-zero-to-deployed-genesis--deploying-this-for-an-operator)** · manifest: **[`genesis.yaml`](genesis.yaml)**.
+
 ## ⚡ What it is
 
 `agent-utilities` is a **batteries-included harness for building Pydantic-AI
