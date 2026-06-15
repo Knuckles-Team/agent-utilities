@@ -65,6 +65,7 @@ class AgenticEvolutionEngine:
         self._decentralized_memory: Any = None
         self._self_play: Any = None
         self._fast_slow: Any = None
+        self._substrate_trainer: Any = None
         self._replay_buffer: Any = None
         self._gap_threshold = gap_threshold
         self._merge_threshold = merge_threshold
@@ -145,18 +146,26 @@ class AgenticEvolutionEngine:
 
         # Fast-Slow learning controller (CONCEPT:ORCH-1.56, FST arXiv:2605.12484):
         # each cycle's outcome is a trace; the FAST loop updates the harness now and
-        # the SLOW loop absorbs what RECURS across bases (real weight training is
-        # deferred — the GRPO advantage spine runs, the trainer is a no-op default).
+        # the SLOW loop absorbs what RECURS across bases via the REAL SubstrateTrainer
+        # (CONCEPT:ORCH-1.57): it builds a GRPO corpus from the recurring group and
+        # emits a training-job spec to the gradient substrate (DSM/GPU). The gradient
+        # step itself runs in data-science-mcp and is GPU-gated; jobs are recorded
+        # (queued) when no substrate is reachable, never lost.
         try:
             from .fast_slow_controller import FastSlowController
+            from .substrate_trainer import SubstrateTrainer
 
             def _harness_update(traces: Any) -> str:
                 return f"harness:{len(traces)}"
 
-            self._fast_slow = FastSlowController(_harness_update)
+            self._substrate_trainer = SubstrateTrainer()
+            self._fast_slow = FastSlowController(
+                _harness_update, trainer_fn=self._substrate_trainer.as_trainer_fn()
+            )
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("FastSlowController not available: %s", e)
             self._fast_slow = None
+            self._substrate_trainer = None
 
         # Skill evolution (ECO-4.1)
         try:
@@ -438,14 +447,21 @@ class AgenticEvolutionEngine:
         return report
 
     def evolve_via_graph_search(
-        self, task_text: str, *, num_branches: int = 3, num_steps: int = 10
+        self,
+        task_text: str,
+        *,
+        num_branches: int = 3,
+        num_steps: int = 10,
+        coder_fn: Any = None,
+        evaluate_fn: Any = None,
     ) -> dict[str, Any]:
         """Evolve a solution by Monte-Carlo GRAPH search (CONCEPT:KG-2.92, MLEvolve).
 
         Unlike tournament evolution, this searches a GRAPH of candidate solutions
-        with cross-branch fusion edges + a global code memory. The default coder /
-        evaluator are deterministic (zero-infra); inject an LLM coder + a real
-        executor for production code evolution. Returns the best node found.
+        with cross-branch fusion edges + a global code memory. ``coder_fn`` /
+        ``evaluate_fn`` default to deterministic, zero-infra implementations (used by
+        tests and offline runs); the MCP ``evolve_code`` action injects an LLM-backed
+        coder (CONCEPT:ORCH-1.54 ``RLM``) for real production code evolution.
         """
         from .graph_search_evolution import GraphSearchEvolver
 
@@ -454,11 +470,15 @@ class AgenticEvolutionEngine:
             return (plan, f"{base}\n# step for: {plan}".strip())
 
         def _evaluate(code: str) -> tuple[float, bool]:
-            # Deterministic proxy: more refinement steps => marginally better metric.
-            return (float(code.count("# step")), False)
+            # Deterministic proxy: a longer, more-refined solution scores marginally
+            # higher. Replace evaluate_fn with a real sandboxed executor in production.
+            return (float(code.count("# step") + code.count("\n")), False)
 
         evolver = GraphSearchEvolver(
-            _coder, _evaluate, num_branches=num_branches, num_steps=num_steps
+            coder_fn or _coder,
+            evaluate_fn or _evaluate,
+            num_branches=num_branches,
+            num_steps=num_steps,
         )
         best = evolver.run(task_text)
         return {
