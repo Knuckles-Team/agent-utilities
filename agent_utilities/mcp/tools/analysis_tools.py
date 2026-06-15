@@ -28,7 +28,7 @@ def register_analysis_tools(mcp):
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -205,6 +205,33 @@ def register_analysis_tools(mcp):
                         }
                     )
                 return _json.dumps({"status": "ok", **summary}, default=str)
+            elif action == "world_model_rollout":
+                # CONCEPT:KG-2.73b — forward-simulate the learned world model with
+                # persistent latent rollout memory (carry the predicted latent across
+                # steps so the imagined trajectory stays on-manifold instead of
+                # re-deriving from the bare next-state string each step). Grounds in
+                # persisted WorldModelTransition history, rolls a fixed policy forward,
+                # and persists the imagined trajectory as a WorldModelRollout node.
+                from agent_utilities.knowledge_graph.core.world_model import WorldModel
+
+                world_model = WorldModel.from_engine(engine, latent=True)
+                start = (query or "").strip()
+                horizon = int(top_k) if top_k else 8
+                repeat_action = "advance"
+                traj = world_model.rollout(start, lambda _s: repeat_action, horizon)
+                rollout_id = world_model.persist_rollout(traj)
+                return json.dumps(
+                    {
+                        "status": "ok",
+                        "start": start,
+                        "horizon": horizon,
+                        "rollout_id": rollout_id,
+                        "expected_return": round(world_model.expected_return(traj), 4),
+                        "total_drift": round(sum(t.drift for t in traj), 4),
+                        "steps": [t.as_dict() for t in traj],
+                    },
+                    default=str,
+                )
             elif action == "research_ingest":
                 # KG-2.33 — deep-research ingestion: fetch a paper/URL, run the
                 # research pipeline (orchestrator + citation subagents), and persist
@@ -655,6 +682,39 @@ def register_analysis_tools(mcp):
                             for r in bench_results
                         ],
                         "markdown": _bench_md(bench_results),
+                    },
+                    default=str,
+                )
+            elif action == "latent_efficiency_benchmark":
+                # CONCEPT:AHE-3.48 — measured lift for the latent-native memory
+                # mechanisms: latent rollout memory (KG-2.73b) reduces trajectory
+                # drift vs a memoryless rollout, and the ontology-type prior (KG-2.44b)
+                # improves top-k neighbourhood coherence vs flat cosine. Deterministic,
+                # CPU; the on-demand twin of the latent-native enhancements' evidence.
+                from agent_utilities.harness.latent_efficiency_benchmark import (
+                    run_all as _lat_run_all,
+                )
+                from agent_utilities.harness.latent_efficiency_benchmark import (
+                    to_markdown as _lat_md,
+                )
+
+                lat_results = _lat_run_all(seed=int(top_k) if top_k else 0)
+                return json.dumps(
+                    {
+                        "reproduced": sum(1 for r in lat_results if r.claim_reproduced),
+                        "total": len(lat_results),
+                        "results": [
+                            {
+                                "name": r.name,
+                                "metric": r.metric,
+                                "baseline": r.baseline,
+                                "ours": r.ours,
+                                "lift": r.lift,
+                                "claim_reproduced": r.claim_reproduced,
+                            }
+                            for r in lat_results
+                        ],
+                        "markdown": _lat_md(lat_results),
                     },
                     default=str,
                 )

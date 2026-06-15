@@ -688,3 +688,19 @@ flowchart LR
     R --> BS{binary-search\nprefix that fits\nmax_tokens}
     BS --> SK[per-file symbol skeleton\n+ omitted-count note]
 ```
+
+### KG-2.73b — Persistent Latent Rollout Memory
+The learned world-model rollout (KG-2.73) now **carries the predicted next-state
+latent forward** and EMA-blends it each step instead of discarding it and re-deriving
+from the bare next-state string — keeping an imagined trajectory on-manifold
+(measurably lower step-to-step drift). Default-on; `latent_memory=False` reproduces
+the legacy memoryless rollout. Surfaced via `graph_analyze action="world_model_rollout"`.
+Distilled from arXiv:2606.09828. See [Latent-Native Memory](../architecture/latent_native_memory.md).
+
+### KG-2.44b — Ontology-Prior Retrieval Ranking
+`CapabilityIndex.designate` re-projects the flat cosine neighbourhood through the
+ontology **type structure** — the dominant type among the strongest cosine hits is
+boosted, so a type-coherent neighbourhood survives interleaving different-type
+candidates. Node types flow in from the live nodes (`add(node_type=…)` / funnel);
+`prior_weight=0` (or no stored types) restores pure cosine. Distilled from
+arXiv:2606.09828. See [Latent-Native Memory](../architecture/latent_native_memory.md).

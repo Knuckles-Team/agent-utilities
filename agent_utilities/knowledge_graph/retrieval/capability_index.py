@@ -149,6 +149,12 @@ class CapabilityIndex:
         # id -> reward EMA in [0, 1] (0.5 = neutral/unproven). Updated by
         # record_outcome() to close the learning loop (Plan 08 Synergy 5).
         self._reward: dict[str, float] = {}
+        # id -> ontology type/class (CONCEPT:KG-2.44b). Optional; populated from the
+        # live node's ``type`` when the funnel/bulk loader knows it. Lets
+        # ``designate`` re-project the flat cosine neighbourhood through the ontology
+        # class structure (the structured-prior analogue of arXiv:2606.09828's
+        # depth-guided back-projection) instead of ranking on cosine alone.
+        self._id_to_type: dict[str, str] = {}
 
         # HNSW-specific state
         self._hnsw: Any = None
@@ -205,6 +211,7 @@ class CapabilityIndex:
         capabilities: Any,
         *,
         swappable_with: Any = None,
+        node_type: str | None = None,
     ) -> None:
         """Add (or replace) an entity in the index.
 
@@ -215,6 +222,10 @@ class CapabilityIndex:
                 ``providesCapability``.
             swappable_with: Optional iterable of ids this entity is
                 ``swappableWith`` (edges are made symmetric).
+            node_type: Optional ontology type/class of the entity (CONCEPT:KG-2.44b).
+                When supplied, ``designate`` uses it to bias ranking toward the
+                ontology-coherent neighbourhood; omitting it leaves ranking on pure
+                cosine (+ reward), exactly as before.
         """
         vec = np.asarray(embedding, dtype=np.float32).reshape(-1)
         if vec.size == 0:
@@ -230,6 +241,11 @@ class CapabilityIndex:
         norm_vec = _l2_normalize(vec)
         is_update = id in self._id_to_vec
         self._id_to_vec[id] = norm_vec
+
+        # Ontology type for structured-prior ranking (KG-2.44b). Only overwrite when
+        # a type is supplied so a typeless update never erases a known type.
+        if node_type:
+            self._id_to_type[id] = str(node_type)
 
         # Capability maps — clear old assignments on update.
         if is_update:
@@ -291,7 +307,10 @@ class CapabilityIndex:
                 or []
             )
             swap = getter("swappable_with") or getter("swappableWith") or None
-            self.add(str(nid), emb, caps, swappable_with=swap)
+            node_type = (
+                getter("type") or getter("node_type") or getter("nodeType") or None
+            )
+            self.add(str(nid), emb, caps, swappable_with=swap, node_type=node_type)
 
     # ------------------------------------------------------------------
     # Query
@@ -322,6 +341,9 @@ class CapabilityIndex:
         required_caps: Any = None,
         k: int = 5,
         reward_weight: float = 0.15,
+        *,
+        ontology_prior: Any = None,
+        prior_weight: float = 0.15,
     ) -> list[Designation]:
         """Designate the top-``k`` entities for a task.
 
@@ -331,6 +353,15 @@ class CapabilityIndex:
                 provide. Candidates are restricted to the set-intersection of
                 providers before ranking.
             k: Maximum number of designations to return.
+            reward_weight: Blend weight for the learned reward EMA.
+            ontology_prior: Optional structured prior (CONCEPT:KG-2.44b) — a mapping
+                ``id -> alignment∈[0,1]`` or a callable ``id -> alignment`` (0.5 =
+                neutral). When omitted, an *exact-type-coherence* prior is derived
+                automatically from the stored node types (the dominant ontology type
+                among the strongest cosine candidates is boosted), so ontology-grounded
+                ranking is on by default; pass a richer (e.g. subsumption-aware) prior
+                to override it, or ``prior_weight=0`` to fall back to pure cosine.
+            prior_weight: Blend weight for the ontology prior; ``0`` disables it.
 
         Returns:
             Up to ``k`` :class:`Designation` objects sorted by descending
@@ -351,19 +382,37 @@ class CapabilityIndex:
         if candidates is not None and not candidates:
             return []
 
-        # Oversample by pure similarity (keeps the ANN fast path intact), then
-        # blend in the learned reward EMA so proven designations rise to the top
-        # (Plan 08 Synergy 5). reward_weight=0 disables the boost.
-        if reward_weight and self._reward:
-            pool_size = (
-                len(candidates) if candidates is not None else len(self._id_to_vec)
-            )
-            oversample = min(pool_size, max(k, k * 4))
+        # Oversample by pure similarity (keeps the ANN fast path intact), then blend
+        # in two structured boosts so proven / ontology-coherent designations rise to
+        # the top: the learned reward EMA (Plan 08 Synergy 5) and the ontology-type
+        # prior (KG-2.44b). Either weight at 0 (or no signal present) disables its
+        # term, and with both off the ranking is pure cosine — exact prior parity.
+        use_reward = bool(reward_weight) and bool(self._reward)
+        oversample_size = (
+            len(candidates) if candidates is not None else len(self._id_to_vec)
+        )
+        oversample = min(oversample_size, max(k, k * 4))
+        prior_fn = (
+            self._resolve_ontology_prior(ontology_prior, query, candidates, oversample)
+            if prior_weight
+            else None
+        )
+        if use_reward or prior_fn is not None:
             ranked = self._rank(query, candidates, oversample)
             ranked = sorted(
                 ranked,
                 key=lambda t: (
-                    t[1] + reward_weight * (self._reward.get(t[0], 0.5) - 0.5)
+                    t[1]
+                    + (
+                        reward_weight * (self._reward.get(t[0], 0.5) - 0.5)
+                        if use_reward
+                        else 0.0
+                    )
+                    + (
+                        prior_weight * (prior_fn(t[0]) - 0.5)
+                        if prior_fn is not None
+                        else 0.0
+                    )
                 ),
                 reverse=True,
             )
@@ -382,6 +431,9 @@ class CapabilityIndex:
                 ),
             }
             provenance["reward"] = round(self._reward.get(nid, 0.5), 4)
+            if prior_fn is not None:
+                provenance["ontology_type"] = self._id_to_type.get(nid)
+                provenance["ontology_prior"] = round(prior_fn(nid), 4)
             alts = self.alternatives(nid)
             if alts:
                 provenance["alternatives"] = alts
@@ -394,6 +446,41 @@ class CapabilityIndex:
                 )
             )
         return results
+
+    def _resolve_ontology_prior(
+        self,
+        ontology_prior: Any,
+        query: np.ndarray,
+        candidates: set[str] | None,
+        oversample: int,
+    ) -> Any:
+        """Resolve the ontology prior into a callable ``id -> alignment∈[0,1]``.
+
+        CONCEPT:KG-2.44b. An explicit ``ontology_prior`` (mapping or callable) is
+        honoured as-is — that is how a caller injects a richer, subsumption-aware
+        prior. When none is given, derive the default *exact-type-coherence* prior:
+        rank the candidate pool by cosine, take the dominant ontology type among the
+        strongest hits, and boost every candidate sharing it. Returns ``None`` when no
+        structured signal exists (no stored types and no explicit prior) so ranking
+        stays pure cosine — exact parity with the pre-KG-2.44b behaviour.
+        """
+        if ontology_prior is not None:
+            if callable(ontology_prior):
+                return lambda nid: float(ontology_prior(nid))
+            return lambda nid: float(ontology_prior.get(nid, 0.5))
+        if not self._id_to_type:
+            return None
+        # Dominant type among the strongest cosine candidates = the coherent
+        # neighbourhood the flat ranking is re-projected toward.
+        ranked = self._rank(query, candidates, oversample)
+        types = [self._id_to_type.get(nid) for nid, _ in ranked]
+        typed = [t for t in types if t]
+        if not typed:
+            return None
+        from collections import Counter
+
+        modal_type = Counter(typed).most_common(1)[0][0]
+        return lambda nid: 1.0 if self._id_to_type.get(nid) == modal_type else 0.5
 
     def _rank(
         self, query: np.ndarray, candidates: set[str] | None, k: int
@@ -504,6 +591,7 @@ class CapabilityIndex:
             "id_to_caps": {i: sorted(c) for i, c in self._id_to_caps.items()},
             "swappable": {i: sorted(s) for i, s in self._swappable.items()},
             "reward": dict(self._reward),
+            "id_to_type": dict(self._id_to_type),
             "id_to_label": self._id_to_label,
             "next_label": self._next_label,
             "ids": list(self._id_to_vec.keys()),
@@ -549,6 +637,7 @@ class CapabilityIndex:
         idx._id_to_caps = {i: set(c) for i, c in meta["id_to_caps"].items()}
         idx._swappable = {i: set(s) for i, s in meta["swappable"].items()}
         idx._reward = dict(meta.get("reward", {}))
+        idx._id_to_type = dict(meta.get("id_to_type", {}))
         idx._id_to_label = dict(meta["id_to_label"])
         idx._label_to_id = {v: k for k, v in idx._id_to_label.items()}
         idx._next_label = meta["next_label"]

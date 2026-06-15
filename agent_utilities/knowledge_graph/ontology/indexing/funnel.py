@@ -93,6 +93,13 @@ def _swap_of(node: Any) -> list[str]:
     return [str(s) for s in swap]
 
 
+def _type_of(node: Any) -> str | None:
+    """Ontology type/class of a node, for the structured-prior index (KG-2.44b)."""
+    g = _getter_for(node)
+    t = g("type") or g("node_type") or g("nodeType")
+    return str(t) if t else None
+
+
 def index_payload_of(node: Any) -> dict[str, Any]:
     """Extract the index-relevant payload used for content hashing/staleness.
 
@@ -341,7 +348,13 @@ class ObjectIndexFunnel:
             pass
         # Native in-place upsert: CapabilityIndex.add replaces an existing id and
         # uses hnsw add_items when the HNSW backend is active.
-        self.index.add(nid, emb, _caps_of(node), swappable_with=_swap_of(node))
+        self.index.add(
+            nid,
+            emb,
+            _caps_of(node),
+            swappable_with=_swap_of(node),
+            node_type=_type_of(node),
+        )
         self._live_nodes[nid] = node
         self._tombstones.discard(nid)
         self.ledger.record_payload(nid, index_payload_of(node), source_watermark)
@@ -387,6 +400,7 @@ class ObjectIndexFunnel:
                 if not peers:
                     idx._swappable.pop(partner, None)
         idx._reward.pop(object_id, None)
+        idx._id_to_type.pop(object_id, None)  # KG-2.44b ontology-type map
 
         if idx.backend == "hnsw" and object_id in idx._id_to_label:
             # Physically unreachable from rank only once the vector is gone; keep

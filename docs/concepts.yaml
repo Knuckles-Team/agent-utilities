@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 287
+total_concepts: 290
 total_pillars: 20
 pillars:
 - AHE-3
@@ -523,6 +523,15 @@ concepts:
   - agent_utilities/harness/assimilation_benchmark.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: empirical parity evidence for the assimilation program
+- id: AHE-3.48
+  name: empirical evidence that the latent-native enhancements move
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/latent_efficiency_benchmark.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: empirical evidence that the latent-native enhancements move
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1865,6 +1874,13 @@ concepts:
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: batch/incremental sync of the live search index from source nodes, report staleness, or reindex
     stale objects
+- id: KG-2.44b
+  name: Optional; populated from the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/capability_index.py
+  doc: Optional; populated from the
 - id: KG-2.45
   name: pivot across a link type. Computes the 1-hop related set
   pillar: KG-2
@@ -2171,6 +2187,14 @@ concepts:
   - agent_utilities/harness/world_model_task.py
   - agent_utilities/knowledge_graph/core/world_model.py
   doc: KG-2.73
+- id: KG-2.73b
+  name: forward-simulate the learned world model with
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/world_model.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: forward-simulate the learned world model with
 - id: KG-2.74
   name: Concurrent N-way mirroring health/repair ──
   pillar: KG-2
