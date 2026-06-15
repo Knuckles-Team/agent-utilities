@@ -423,7 +423,7 @@ class RegistryNodeType(StrEnum):
     # ARA Seal certificate — the signed review verdict over an artifact (KG-2.80)
     SEAL_CERTIFICATE = "seal_certificate"
 
-    # Connector → Skill synthesis proposals (CONCEPT:KG-2.82). Propose-only node
+    # Connector → Skill synthesis proposals (CONCEPT:KG-2.90). Propose-only node
     # types the background distiller emits from mapped processes of any connected
     # system (egeria/leanix/aris/camunda): an atomic-skill candidate and a
     # skill-workflow candidate. A human/Claude reviews+approves; nothing lands in
@@ -869,7 +869,7 @@ class RegistryEdgeType(StrEnum):
     REACHED_DEAD_END = "reached_dead_end"
     CERTIFIES = "certifies"  # seal_certificate --certifies--> research_artifact
 
-    # Connector → Skill synthesis edges (CONCEPT:KG-2.83). AUTOMATES: a proposed
+    # Connector → Skill synthesis edges (CONCEPT:KG-2.91). AUTOMATES: a proposed
     # Skill/Workflow automates a BusinessProcess/Capability. DERIVED_FROM:
     # provenance from a proposal back to the source system node it was distilled
     # from. COMPOSES: a SkillWorkflowProposal composes its atomic Skill steps.

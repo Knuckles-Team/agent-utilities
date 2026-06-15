@@ -865,7 +865,7 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
-    # Connector → Skill synthesis proposals (CONCEPT:KG-2.82). The background
+    # Connector → Skill synthesis proposals (CONCEPT:KG-2.90). The background
     # distiller turns mapped processes of any connected system (egeria/leanix/
     # aris/camunda) into propose-only candidates. Making these ontology interfaces
     # lets the reasoner extrapolate over automates/derived_from/composes so a
@@ -975,7 +975,7 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         link_types=[RegistryEdgeType.WAS_DERIVED_FROM, RegistryEdgeType.CONTAINS],
     )
     registry.implement(RegistryNodeType.RESEARCH_ARTIFACT, "ResearchArtifactShape")
-    # CONCEPT:KG-2.82 — connector→skill synthesis proposal shapes.
+    # CONCEPT:KG-2.90 — connector→skill synthesis proposal shapes.
     _proposal_props = {
         "name": "string",
         "description": "string",

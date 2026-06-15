@@ -1,7 +1,7 @@
 # Knowledge Distillation → Skill-Graphs
 
 > **CONCEPT:KG-2.7** (standardized ingestion) · **CONCEPT:AHE-3.9** (physical distillation)
-> **CONCEPT:KG-2.82** (connector → skill synthesis) · **CONCEPT:KG-2.83** (skill-synthesis ontology links)
+> **CONCEPT:KG-2.90** (connector → skill synthesis) · **CONCEPT:KG-2.91** (skill-synthesis ontology links)
 > **Packages:** `agent_utilities/knowledge_graph/distillation/` · `agent_utilities/knowledge_graph/ingestion/`
 > **Engine:** `epistemic-graph` `GetSubgraph` (batched subgraph read)
 > **MCP:** `graph_ingest(action="distill" | "import_pack")` · **CLIs:** `python -m agent_utilities.knowledge_graph.distillation.skill_graph_distiller`, `python -m agent_utilities.knowledge_graph.ingestion`
@@ -137,7 +137,7 @@ docs (skill-graph) *and* the how-to-act (skill-workflow), versioned together.
 
 ## 4a. Connector → skill synthesis (propose-only)
 
-> **CONCEPT:KG-2.82** (the distiller) · **CONCEPT:KG-2.83** (the ontology links)
+> **CONCEPT:KG-2.90** (the distiller) · **CONCEPT:KG-2.91** (the ontology links)
 > **Module:** `agent_utilities/knowledge_graph/distillation/skill_synthesizer.py`
 > (`ConnectorSkillDistiller`)
 
@@ -178,7 +178,7 @@ flowchart LR
     classDef c fill:#eef,stroke:#88a;
 ```
 
-**Ontology additions (KG-2.83):** `SkillProposal` / `SkillWorkflowProposal`
+**Ontology additions (KG-2.91):** `SkillProposal` / `SkillWorkflowProposal`
 interfaces (`ontology/interfaces.py`) + node types + the object properties
 `AUTOMATES` (skill/workflow → process/capability), `DERIVED_FROM` (proposal →
 source node, inverse `:derives`), `COMPOSES` (workflow → atomic skills,
@@ -266,7 +266,7 @@ Implemented across the three engine layers (`src/protocol.rs` `Method::GetSubgra
 | Concern | Path |
 |---|---|
 | Distiller (KG → reference/ + manifest, workflows) | `knowledge_graph/distillation/skill_graph_distiller.py` |
-| Connector → skill synthesis (propose-only, KG-2.82/2.83) | `knowledge_graph/distillation/skill_synthesizer.py` |
+| Connector → skill synthesis (propose-only, KG-2.90/2.83) | `knowledge_graph/distillation/skill_synthesizer.py` |
 | Loop stage (`_distill_skills`) | `knowledge_graph/research/loop_controller.py` |
 | `distill_skills` action (MCP + REST) | `mcp/tools/analysis_tools.py` (`graph_orchestrate`) · `mcp/kg_server.py` |
 | Importer (pack → KG) | `knowledge_graph/distillation/skill_graph_importer.py` |

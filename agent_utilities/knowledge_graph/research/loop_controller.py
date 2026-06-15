@@ -234,7 +234,7 @@ class LoopController:
 
         # 0a2. DISTILL SKILLS — turn the mapped processes of ALL connected systems
         # (egeria/leanix/aris/camunda) into propose-only atomic-skill and
-        # skill-workflow PROPOSALS (CONCEPT:KG-2.82/2.83). Connector-agnostic over
+        # skill-workflow PROPOSALS (CONCEPT:KG-2.90/2.83). Connector-agnostic over
         # the ontology, default-ON, propose-only (nothing lands in any repo). Best-
         # effort: a failing stage never aborts the cycle.
         report["skill_proposals"] = _stage("distill_skills", self._distill_skills)
@@ -505,7 +505,7 @@ class LoopController:
     def _distill_skills(self) -> dict[str, Any]:
         """Distil connector processes into propose-only skill candidates.
 
-        The connector→skill synthesis stage (CONCEPT:KG-2.82/2.83): the
+        The connector→skill synthesis stage (CONCEPT:KG-2.90/2.83): the
         :class:`ConnectorSkillDistiller` queries the KG over the ontology classes
         (BusinessProcess flowsTo-chains, BusinessTask, Capability) of EVERY
         connected system, classifies atomic-skill vs skill-workflow candidates,
@@ -530,7 +530,7 @@ class LoopController:
             if bounded_embed(probe, "ping", _ACQUIRE_TIMEOUT_S) is not None:
                 embed_fn = probe
         except Exception as e:  # noqa: BLE001 — embedder optional, name-pass still runs
-            logger.debug("[KG-2.82] embedder probe failed: %s", e)
+            logger.debug("[KG-2.90] embedder probe failed: %s", e)
 
         distiller = ConnectorSkillDistiller(self.engine, embed_fn=embed_fn)
         return distiller.run().to_dict()

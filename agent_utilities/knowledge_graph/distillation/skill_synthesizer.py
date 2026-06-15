@@ -1,6 +1,6 @@
 """Connector → skill synthesis: mapped processes → propose-only skill candidates.
 
-CONCEPT:KG-2.82 / KG-2.83 — a KG-native, propose-only background distiller that
+CONCEPT:KG-2.90 / KG-2.91 — a KG-native, propose-only background distiller that
 turns the mapped processes of **all** connected systems (egeria / leanix / aris /
 camunda) into NEW atomic-skill and skill-workflow PROPOSALS. The distiller is
 generic over the ONTOLOGY (``BusinessProcess`` / ``BusinessTask`` / ``flowsTo`` /
@@ -123,7 +123,7 @@ class DistillReport:
 class ConnectorSkillDistiller:
     """Distil mapped connector processes into propose-only skill candidates.
 
-    CONCEPT:KG-2.82 — connector-agnostic over the ontology; propose-only. Reuses
+    CONCEPT:KG-2.90 — connector-agnostic over the ontology; propose-only. Reuses
     the same engine traversal surface as :class:`ProcessPlanCompiler` (the warm L1
     compute mirror, then the backend Cypher fallback) so it works on a seeded
     in-memory engine and a live daemon alike.
@@ -342,7 +342,7 @@ class ConnectorSkillDistiller:
 
             compiler = ProcessPlanCompiler(self.engine)
         except Exception as exc:  # noqa: BLE001 — compiler unavailable
-            logger.debug("[KG-2.82] ProcessPlanCompiler unavailable: %s", exc)
+            logger.debug("[KG-2.90] ProcessPlanCompiler unavailable: %s", exc)
             return out
 
         from ..research.loop_controller import _run_coro
@@ -359,7 +359,7 @@ class ConnectorSkillDistiller:
                         }
                     )
             except Exception as exc:  # noqa: BLE001 — one process failing is fine
-                logger.debug("[KG-2.82] compile %s failed: %s", proc["id"], exc)
+                logger.debug("[KG-2.90] compile %s failed: %s", proc["id"], exc)
         return out
 
     def _discover_patterns(self) -> list[dict[str, Any]]:
@@ -374,7 +374,7 @@ class ConnectorSkillDistiller:
 
             harvest = OntologyReasoningDriver(self.engine).extrapolate()
         except Exception as exc:  # noqa: BLE001 — reasoning best-effort
-            logger.debug("[KG-2.82] reasoning extrapolate failed: %s", exc)
+            logger.debug("[KG-2.90] reasoning extrapolate failed: %s", exc)
             return []
         return [dict(t) for t in (harvest.new_topics or [])][: self.max_candidates]
 
@@ -569,7 +569,7 @@ class ConnectorSkillDistiller:
             try:
                 self._semantic_dedup(novel, existing)
             except Exception as exc:  # noqa: BLE001 — embedder/LLM optional
-                logger.debug("[KG-2.82] semantic dedup skipped: %s", exc)
+                logger.debug("[KG-2.90] semantic dedup skipped: %s", exc)
 
         kept = [c for c in candidates if c.novelty != "covered"]
         return kept
@@ -626,7 +626,7 @@ class ConnectorSkillDistiller:
             try:
                 self.engine.add_node(pid, node_type, properties=c.to_props())
             except Exception as exc:  # noqa: BLE001 — persistence best-effort
-                logger.debug("[KG-2.82] proposal persist failed for %s: %s", pid, exc)
+                logger.debug("[KG-2.90] proposal persist failed for %s: %s", pid, exc)
                 continue
             link = getattr(self.engine, "link_nodes", None)
             if callable(link):
@@ -645,7 +645,7 @@ class ConnectorSkillDistiller:
                                 )
                                 link(pid, step_pid, RegistryEdgeType.COMPOSES.value)
                 except Exception as exc:  # noqa: BLE001 — edge writes best-effort
-                    logger.debug("[KG-2.82] proposal edges failed for %s: %s", pid, exc)
+                    logger.debug("[KG-2.90] proposal edges failed for %s: %s", pid, exc)
             ids.append(pid)
         return ids
 
@@ -710,7 +710,7 @@ class ConnectorSkillDistiller:
             )
         except Exception as exc:  # noqa: BLE001 — materialization best-effort
             logger.debug(
-                "[KG-2.82] physical distill failed for %s: %s", proposal_id, exc
+                "[KG-2.90] physical distill failed for %s: %s", proposal_id, exc
             )
         try:
             self.engine.add_node(
@@ -723,7 +723,7 @@ class ConnectorSkillDistiller:
                 },
             )
         except Exception as exc:  # noqa: BLE001
-            logger.debug("[KG-2.82] approval stamp failed for %s: %s", proposal_id, exc)
+            logger.debug("[KG-2.90] approval stamp failed for %s: %s", proposal_id, exc)
         return {
             "proposal_id": proposal_id,
             "status": "approved" if ok else "drafted",
@@ -780,7 +780,7 @@ def render_atomic_skill_md(candidate: SkillCandidate) -> str:
         f"description: {json.dumps(desc + suffix)}\n"
         "domain: process-automation\n"
         f"tags: [skill, atomic, {candidate.source_system}]\n"
-        "concept: KG-2.82\n"
+        "concept: KG-2.90\n"
         "---\n\n"
         f"# {candidate.name}\n\n"
         f"{candidate.description}\n\n"
@@ -833,7 +833,7 @@ def render_workflow_skill_md(candidate: SkillCandidate) -> str:
     lines.append("  tool_assignments:")
     for s in candidate.steps:
         lines.append(f"    {s['name']}: [{s['name']}]")
-    lines.append("concept: KG-2.82")
+    lines.append("concept: KG-2.90")
     lines.append("---")
     lines.append("")
     lines.append(f"# {candidate.name}")

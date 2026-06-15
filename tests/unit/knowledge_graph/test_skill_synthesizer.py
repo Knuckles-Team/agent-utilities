@@ -1,4 +1,4 @@
-"""Tests for the connector → skill synthesis distiller (CONCEPT:KG-2.82/2.83).
+"""Tests for the connector → skill synthesis distiller (CONCEPT:KG-2.90/2.83).
 
 Covers: classify (single-action→atomic, flowsTo-chain→workflow), dedup (existing
 skill ⇒ no proposal), proposal node shape + AUTOMATES/DERIVED_FROM edges, the
@@ -280,7 +280,7 @@ def test_dual_mode_artifact_has_dag_and_execution_and_footer():
     assert "name: invoice-approval" in md
     assert "team_config:" in md
     assert "specialist_ids:" in md
-    assert "concept: KG-2.82" in md
+    assert "concept: KG-2.90" in md
     # machine-readable DAG: ### Step N with depends_on
     assert "### Step 1: receive-invoice" in md
     assert "[depends_on: Step 1]" in md
