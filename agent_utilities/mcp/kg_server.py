@@ -6150,15 +6150,36 @@ def _build_server(bootstrap: bool = True):
             default="[]",
             description="For target=process: JSON list of process ids to narrow to.",
         ),
+        inventory: bool = Field(
+            default=False,
+            description="If true, collect the KG's reconciled inventory (infra/topology + LeanIX + TRM, deduped via ALIGNED_WITH) and create the items missing from the target CMDB/ERP.",
+        ),
         dry_run: bool = Field(
             default=True,
             description="Preview proposed writes without mutating the system-of-record (default). Set false to apply.",
         ),
     ) -> str:
         """Unified fail-closed write-back to any target system (dry-run-first)."""
-        from agent_utilities.knowledge_graph.enrichment.writeback import run_writeback
+        from agent_utilities.knowledge_graph.enrichment.writeback import (
+            push_inventory,
+            run_writeback,
+        )
 
         try:
+            try:
+                engine = _get_engine()
+            except Exception:  # noqa: BLE001 - offline → no backend resolver
+                engine = None
+            backend = getattr(engine, "backend", None) if engine is not None else None
+            if bool(inventory):
+                return json.dumps(
+                    push_inventory(
+                        str(target),
+                        backend=backend,
+                        engine=engine,
+                        dry_run=bool(dry_run),
+                    )
+                )
             ops = {
                 "inferences": json.loads(inferences_json) if inferences_json else [],
                 "enrichments": json.loads(enrichments_json) if enrichments_json else [],
@@ -6168,11 +6189,6 @@ def _build_server(bootstrap: bool = True):
                 if process_ids_json
                 else None,
             }
-            try:
-                engine = _get_engine()
-            except Exception:  # noqa: BLE001 - offline → no backend resolver
-                engine = None
-            backend = getattr(engine, "backend", None) if engine is not None else None
             return json.dumps(
                 run_writeback(
                     str(target),
