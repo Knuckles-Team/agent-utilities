@@ -88,6 +88,7 @@ _CLIENT_MODULES: dict[str, str] = {
     "kafka": "kafka_mcp",
     "lgtm": "lgtm_mcp",
     "twenty": "twenty_mcp",
+    "archimate": "archimate_mcp",
 }
 
 
@@ -148,6 +149,7 @@ MATERIALIZE_SOURCES: frozenset[str] = frozenset(
         "kafka",
         "lgtm",
         "twenty",
+        "archimate",
     }
 )
 
