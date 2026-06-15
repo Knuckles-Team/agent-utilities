@@ -949,6 +949,82 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
+    # CONCEPT:KG-2.95 — InferenceProfile + SamplingConfigurable ontology interfaces and a first-class Model object type projecting configured models and their tuned sampling profiles to OWL.
+    # Task-aware inference profiles. An InferenceProfile is the
+    # shape of a SamplingProfile (ORCH-1.58): the sampling knobs as shared
+    # properties. The bounds are enforced by the matching value types (KG-2.94,
+    # Temperature/TopP/...) at the SHACL write gate; the interface declares the
+    # shape so Functions/queries can target "any inference profile". A Model
+    # implements SamplingConfigurable: it must declare a HAS_PROFILE link to its
+    # tuned profile, letting the reasoner extrapolate profiles across models/roles.
+    registry.register(
+        Interface(
+            name="InferenceProfile",
+            description=(
+                "An LLM sampling profile: the per-call inference knobs (temperature, "
+                "top_p, top_k, min_p, repetition_penalty, max_tokens, penalties) tuned "
+                "for a task class. Bounds enforced by the KG-2.94 value types."
+            ),
+            properties=[
+                InterfaceProperty(
+                    name="task_class",
+                    type_ref="string",
+                    description="The task class this profile is tuned for.",
+                ),
+                InterfaceProperty(
+                    name="temperature",
+                    type_ref="double",
+                    required=False,
+                    description="Sampling temperature (value type Temperature, [0,2]).",
+                ),
+                InterfaceProperty(
+                    name="top_p",
+                    type_ref="double",
+                    required=False,
+                    description="Nucleus cutoff (value type TopP, [0,1]).",
+                ),
+                InterfaceProperty(
+                    name="top_k",
+                    type_ref="integer",
+                    required=False,
+                    description="Top-k truncation (value type TopK, >=1).",
+                ),
+                InterfaceProperty(
+                    name="max_tokens",
+                    type_ref="integer",
+                    required=False,
+                    description="Max generated tokens (value type MaxTokens, >=1).",
+                ),
+            ],
+        )
+    )
+    registry.register(
+        Interface(
+            name="SamplingConfigurable",
+            description=(
+                "A configured LLM model that carries a tuned sampling profile. "
+                "Declares a HAS_PROFILE link to an InferenceProfile so model→profile "
+                "tuning is first-class in the ontology."
+            ),
+            properties=[
+                InterfaceProperty(
+                    name="model_id",
+                    type_ref="string",
+                    description="The provider model identifier.",
+                ),
+            ],
+            link_constraints=[
+                InterfaceLinkConstraint(
+                    name="has_profile",
+                    edge_type=RegistryEdgeType.HAS_PROFILE,
+                    target_type="InferenceProfile",
+                    min_count=0,
+                    description="Links the model to its tuned inference profile.",
+                ),
+            ],
+        )
+    )
+
     # Declare built-in type shapes and record the implements-by relations so the
     # registry ships with live implementers (programmatic targeting works out of
     # the box, not just after a caller wires it).
@@ -1004,7 +1080,21 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
             RegistryEdgeType.COMPOSES,
         ],
     )
-    registry.implement(RegistryNodeType.SKILL_WORKFLOW_PROPOSAL, "SkillWorkflowProposal")
+    registry.implement(
+        RegistryNodeType.SKILL_WORKFLOW_PROPOSAL, "SkillWorkflowProposal"
+    )
+    # CONCEPT:KG-2.95 — inference-profile shapes ship with live implementers.
+    registry.declare_type_shape(
+        RegistryNodeType.INFERENCE_PROFILE,
+        properties={"task_class": "string"},
+    )
+    registry.implement(RegistryNodeType.INFERENCE_PROFILE, "InferenceProfile")
+    registry.declare_type_shape(
+        RegistryNodeType.MODEL,
+        properties={"model_id": "string"},
+        link_types=[RegistryEdgeType.HAS_PROFILE],
+    )
+    registry.implement(RegistryNodeType.MODEL, "SamplingConfigurable")
 
 
 # CONCEPT:KG-2.38 — populated at import with real built-ins, never empty.

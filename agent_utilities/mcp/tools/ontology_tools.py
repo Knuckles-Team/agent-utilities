@@ -174,6 +174,105 @@ def register_ontology_tools(mcp):
     kg_server.REGISTERED_TOOLS["ontology_interface"] = ontology_interface
 
     @mcp.tool(
+        name="ontology_sampling_profile",
+        description=(
+            "Task-aware LLM sampling profiles (CONCEPT:ORCH-1.58/KG-2.94): list/describe "
+            "the per-task-class profiles, 'resolve' the profile that would be picked for a "
+            "prompt/role, 'set' a profile (SHACL-validated), 'evolve' one round, or emit OWL."
+        ),
+        tags=["graph-os", "ontology"],
+    )
+    def ontology_sampling_profile(
+        action: str = Field(
+            default="list",
+            description="'list' | 'describe' | 'resolve' | 'set' | 'evolve' | 'owl'.",
+        ),
+        task_class: str = Field(
+            default="", description="Task class for describe/set/evolve."
+        ),
+        task_text: str = Field(
+            default="", description="Free-text prompt for action='resolve'."
+        ),
+        role: str = Field(
+            default="", description="Functional role for action='resolve'."
+        ),
+        profile_json: str = Field(
+            default="{}", description="JSON SamplingProfile dict for action='set'."
+        ),
+    ) -> str:
+        """List/describe/resolve/set/evolve sampling profiles, or emit their OWL."""
+        from agent_utilities.agent.sampling_profile import (
+            SamplingProfile,
+            resolve_sampling_profile,
+        )
+        from agent_utilities.knowledge_graph.ontology.value_types import (
+            sampling_profile_violations,
+        )
+        from agent_utilities.models.model_registry import (
+            _DEFAULT_TASK_PROFILES,
+            inference_owl_ttl,
+            load_active_registry,
+        )
+
+        try:
+            registry = load_active_registry()
+            if action == "list":
+                effective = {**_DEFAULT_TASK_PROFILES, **registry.task_class_profiles}
+                return json.dumps(
+                    {"profiles": {k: v.model_dump() for k, v in effective.items()}},
+                    default=str,
+                )
+            if action == "describe":
+                return json.dumps(
+                    registry.pick_profile_for_task(task_class).model_dump(), default=str
+                )
+            if action == "resolve":
+                prof = resolve_sampling_profile(task_text or None, role=role or None)
+                return json.dumps(prof.model_dump(), default=str)
+            if action == "set":
+                data = json.loads(profile_json) if profile_json else {}
+                if task_class:
+                    data.setdefault("task_class", task_class)
+                profile = SamplingProfile.model_validate(data)
+                violations = sampling_profile_violations(profile.model_dump())
+                if violations:
+                    return json.dumps(
+                        {"error": "SHACL bound violation", "violations": violations}
+                    )
+                registry.set_task_profile(profile)
+                return json.dumps({"set": profile.model_dump()}, default=str)
+            if action == "evolve":
+                from agent_utilities.harness.variant_pool import VariantPool
+                from agent_utilities.knowledge_graph.core.engine import (
+                    IntelligenceGraphEngine,
+                )
+
+                engine = IntelligenceGraphEngine.get_active()
+                kg = getattr(engine, "kg", None) or getattr(engine, "_kg", None)
+                ci = kg.retrieval if kg is not None else None
+                if ci is None:
+                    return json.dumps(
+                        {"error": "no capability index available to score"}
+                    )
+                vp = VariantPool.__new__(VariantPool)
+
+                # Live eval: reward = mean capability-index reward already recorded for
+                # this profile's prior outcomes; absent history, neutral 0.5 keeps the
+                # incumbent. The daemon/evolve loop feeds real outcomes over time.
+                def _evaluator(p: SamplingProfile) -> float:
+                    return ci.reward_of(vp._profile_id(task_class, p))
+
+                promoted = vp.evolve_profile(registry, task_class, ci, _evaluator)
+                return json.dumps({"promoted": promoted.model_dump()}, default=str)
+            if action == "owl":
+                return json.dumps({"owl": inference_owl_ttl(registry)})
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["ontology_sampling_profile"] = ontology_sampling_profile
+
+    @mcp.tool(
         name="ontology_leanix_sync",
         description="Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.ttl (every fact sheet type, relation, field) and registers the types for OWL promotion (CONCEPT:KG-2.9). dry_run=true previews without writing.",
         tags=["graph-os", "ontology"],

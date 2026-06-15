@@ -3,7 +3,7 @@
   "overview": "# Evidence Corpus — Round r2\n\n## Summary\n- Total tasks: 4\n- Pass rate: 0.0%\n- Benchmark score: 0.12\n- Failure clusters: 1\n\n## Top Failure Categories\n- **boom** (4 tasks, severity=0.88): boom\n",
   "entries": [
     {
-      "id": "ev:fce08f30",
+      "id": "ev:48b81307",
       "task_id": "task0",
       "pass_fail": false,
       "root_cause": "boom",
@@ -14,11 +14,11 @@
       "trace_id": "t0",
       "score": 0.2,
       "tags": [],
-      "timestamp": "2026-06-15T16:04:42Z",
+      "timestamp": "2026-06-15T16:47:29Z",
       "metadata": {}
     },
     {
-      "id": "ev:bf7a50f2",
+      "id": "ev:c731384c",
       "task_id": "task1",
       "pass_fail": false,
       "root_cause": "boom",
@@ -29,11 +29,11 @@
       "trace_id": "t1",
       "score": 0.1,
       "tags": [],
-      "timestamp": "2026-06-15T16:04:42Z",
+      "timestamp": "2026-06-15T16:47:29Z",
       "metadata": {}
     },
     {
-      "id": "ev:0c6d06f7",
+      "id": "ev:db24cf49",
       "task_id": "task2",
       "pass_fail": false,
       "root_cause": "boom",
@@ -44,11 +44,11 @@
       "trace_id": "t2",
       "score": 0.1,
       "tags": [],
-      "timestamp": "2026-06-15T16:04:42Z",
+      "timestamp": "2026-06-15T16:47:29Z",
       "metadata": {}
     },
     {
-      "id": "ev:5cfe3960",
+      "id": "ev:146a8869",
       "task_id": "task3",
       "pass_fail": false,
       "root_cause": "boom",
@@ -59,13 +59,13 @@
       "trace_id": "t3",
       "score": 0.1,
       "tags": [],
-      "timestamp": "2026-06-15T16:04:42Z",
+      "timestamp": "2026-06-15T16:47:29Z",
       "metadata": {}
     }
   ],
   "failure_clusters": [
     {
-      "cluster_id": "clst:4b83c26d",
+      "cluster_id": "clst:838a07b8",
       "label": "boom",
       "root_cause_summary": "boom",
       "task_ids": [
@@ -83,6 +83,6 @@
   "total_tasks": 4,
   "pass_rate": 0.0,
   "benchmark_score": 0.125,
-  "timestamp": "2026-06-15T16:04:42Z",
+  "timestamp": "2026-06-15T16:47:29Z",
   "metadata": {}
 }

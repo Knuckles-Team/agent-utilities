@@ -26,6 +26,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agent_utilities.agent.sampling_profile import DEFAULT_PROFILE, SamplingProfile
+
 ModelTier = Literal["light", "medium", "heavy", "reasoning"]
 
 # Ordered tier list for CONCEPT:ORCH-1.2 confidence-gated routing helpers.
@@ -78,6 +80,40 @@ _DEFAULT_ROLE_ROUTING: dict[str, RoleSpec] = {
     "rlm-executor": RoleSpec(tier="light", tags=["code"]),
     "rlm-sublm": RoleSpec(tier="light", tags=[]),
     "rlm-proposer": RoleSpec(tier="reasoning", tags=["synthesis"]),
+}
+
+
+# CONCEPT:ORCH-1.58 — curated per-task-class sampling profiles. Hand-tuned starting
+# points: deterministic low-temp (+ tight top_k/min_p) for code/extraction/judge where
+# we want one right answer; exploratory high-temp for generate/brainstorm where we want
+# spread. The AHE-3.38 evolution loop refines these in place via promote_winner; they are
+# module constants (one correct default each), never env flags (Configuration discipline).
+_DEFAULT_TASK_PROFILES: dict[str, SamplingProfile] = {
+    "code": SamplingProfile(
+        task_class="code", temperature=0.1, top_p=0.9, top_k=20, min_p=0.0
+    ),
+    "extraction": SamplingProfile(
+        task_class="extraction", temperature=0.0, top_p=0.8, top_k=20, min_p=0.0
+    ),
+    "judge": SamplingProfile(task_class="judge", temperature=0.0, top_p=1.0),
+    "reasoning": SamplingProfile(task_class="reasoning", temperature=0.6, top_p=0.95),
+    "plan": SamplingProfile(task_class="plan", temperature=0.4, top_p=0.9),
+    "generate": SamplingProfile(task_class="generate", temperature=0.7, top_p=1.0),
+    "brainstorm": SamplingProfile(
+        task_class="brainstorm", temperature=1.0, top_p=1.0, presence_penalty=0.3
+    ),
+}
+
+# How a functional role (ORCH-1.27) maps to a sampling task-class, so picking a model
+# for a role also yields the matching profile.
+_ROLE_TASK_CLASS: dict[str, str] = {
+    "planner": "plan",
+    "generator": "generate",
+    "learner": "extraction",
+    "judge": "judge",
+    "rlm-executor": "code",
+    "rlm-sublm": "code",
+    "rlm-proposer": "reasoning",
 }
 
 
@@ -165,6 +201,14 @@ class ModelRegistry(BaseModel):
         description=(
             "CONCEPT:ORCH-1.27 — optional role→(tier,tags) overrides. Empty keys "
             "fall back to the built-in default map. Round-trips through JSON/YAML."
+        ),
+    )
+    task_class_profiles: dict[str, SamplingProfile] = Field(
+        default_factory=dict,
+        description=(
+            "CONCEPT:ORCH-1.58 — optional per-task-class sampling-profile overrides. "
+            "Empty keys fall back to the curated built-in defaults; the AHE-3.38 loop "
+            "writes learned profiles here. Round-trips through JSON/YAML."
         ),
     )
 
@@ -293,6 +337,36 @@ class ModelRegistry(BaseModel):
         spec = self.resolve_role(role, override=override)
         return self.pick_for_task(complexity=spec.tier, required_tags=spec.tags)
 
+    # ── CONCEPT:ORCH-1.58 sampling-profile selection ─────────────────────────────
+
+    def pick_profile_for_task(self, task_class: str) -> SamplingProfile:
+        """Return the sampling profile for a task-class (CONCEPT:ORCH-1.58).
+
+        Precedence: this registry's ``task_class_profiles`` (learned/operator
+        overrides) → the curated :data:`_DEFAULT_TASK_PROFILES` built-ins →
+        :data:`DEFAULT_PROFILE` for an unknown class. Never raises.
+        """
+        if task_class in self.task_class_profiles:
+            return self.task_class_profiles[task_class]
+        return _DEFAULT_TASK_PROFILES.get(task_class, DEFAULT_PROFILE)
+
+    def pick_profile_for_role(self, role: ModelRole | str) -> SamplingProfile:
+        """Return the sampling profile bound to a functional role (CONCEPT:ORCH-1.58).
+
+        Maps the role to its sampling task-class (:data:`_ROLE_TASK_CLASS`) and
+        delegates to :meth:`pick_profile_for_task`, so role-routed model selection
+        and profile selection share one task-class key.
+        """
+        return self.pick_profile_for_task(_ROLE_TASK_CLASS.get(str(role), "default"))
+
+    def set_task_profile(self, profile: SamplingProfile) -> None:
+        """Install/replace the profile for ``profile.task_class`` (CONCEPT:AHE-3.38).
+
+        The single write seam the evolution loop's ``promote_winner`` and the
+        ``ontology_sampling_profile`` ``set`` action use to publish a profile.
+        """
+        self.task_class_profiles[profile.task_class] = profile
+
     # ── CONCEPT:ORCH-1.2 tier helpers ────────────────────────────────────────────
 
     @staticmethod
@@ -413,3 +487,92 @@ class ModelRegistry(BaseModel):
             "models": [m.model_dump() for m in self.models],
             "default_id": default.id if default else None,
         }
+
+
+def inference_owl_ttl(registry: ModelRegistry | None = None) -> str:
+    """Project the registry's models + sampling profiles to OWL turtle (CONCEPT:KG-2.95).
+
+    Emits each configured model as a ``kg:Model`` individual and each effective
+    task-class profile (built-in defaults overlaid with the registry's learned
+    overrides) as a ``kg:InferenceProfile`` individual carrying its knob values and
+    a ``kg:tunedFor`` triple to its task-class — the OWL the reasoner extrapolates
+    profiles across. Reuses the shared ``kg:`` namespace and the KG-2.96 edge names.
+    """
+    reg = registry or load_active_registry()
+    kg = "http://knuckles.team/kg#"
+    lines = [
+        f"@prefix kg: <{kg}> .",
+        "@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .",
+        "",
+    ]
+
+    def _frag(text: str) -> str:
+        return "".join(c if c.isalnum() else "_" for c in text)
+
+    effective: dict[str, SamplingProfile] = {**_DEFAULT_TASK_PROFILES}
+    effective.update(reg.task_class_profiles)
+    for task_class, profile in effective.items():
+        pid = f"kg:profile_{_frag(task_class)}"
+        lines.append(f"{pid} rdf:type kg:InferenceProfile ;")
+        lines.append(f'    kg:taskClass "{task_class}" ;')
+        for knob in (
+            "temperature",
+            "top_p",
+            "top_k",
+            "min_p",
+            "repetition_penalty",
+            "max_tokens",
+            "presence_penalty",
+            "frequency_penalty",
+        ):
+            value = getattr(profile, knob)
+            if value is not None:
+                lines.append(f"    kg:{knob} {value} ;")
+        lines.append(f"    kg:tunedFor kg:taskclass_{_frag(task_class)} .")
+        lines.append("")
+
+    for model in reg.models:
+        mid = f"kg:model_{_frag(model.id)}"
+        lines.append(f"{mid} rdf:type kg:Model ;")
+        lines.append(f'    kg:modelId "{model.model_id}" ;')
+        lines.append(f'    kg:tier "{model.tier}" .')
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+# Process-global active registry. Cached so a profile learned/set at runtime
+# (AHE-3.38 promotion, the ontology_sampling_profile 'set' action) persists across
+# calls and is seen by the router/factory (ORCH-1.58) within the process.
+_ACTIVE_REGISTRY: ModelRegistry | None = None
+
+
+def load_active_registry() -> ModelRegistry:
+    """Return the process-global active registry (lazy-loaded, cached).
+
+    CONCEPT:ORCH-1.58. Mirrors ``model_factory._resolve_role_model``'s load
+    (``config.model_registry_path``), but always returns a usable ``ModelRegistry``
+    so the curated/learned sampling profiles are available even in the zero-infra
+    ``tiny`` profile where no registry file exists. The same object is returned on
+    every call, so ``set_task_profile``/``evolve_profile`` writes are visible to the
+    router and factory until the process restarts. Never raises.
+    """
+    global _ACTIVE_REGISTRY
+    if _ACTIVE_REGISTRY is None:
+        try:
+            from agent_utilities.core.config import config
+
+            cfg_path = getattr(config, "model_registry_path", None)
+            if cfg_path and Path(cfg_path).is_file():
+                _ACTIVE_REGISTRY = ModelRegistry.load_from_file(cfg_path)
+        except Exception:  # noqa: BLE001 - registry load is best-effort
+            _ACTIVE_REGISTRY = None
+        if _ACTIVE_REGISTRY is None:
+            _ACTIVE_REGISTRY = ModelRegistry()
+    return _ACTIVE_REGISTRY
+
+
+def reset_active_registry() -> None:
+    """Drop the cached active registry (test isolation / config reload)."""
+    global _ACTIVE_REGISTRY
+    _ACTIVE_REGISTRY = None
