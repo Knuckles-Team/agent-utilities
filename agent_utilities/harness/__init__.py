@@ -66,7 +66,7 @@ from .superhuman_gate import CertificationResult, SuperhumanCertifier
 from .world_model_task import WorldModelVerifier, build_world_model_task
 
 __all__ = [
-    # Assimilation empirical-parity benchmark suite (CONCEPT:AHE-3.39)
+    # Assimilation empirical-parity benchmark suite (CONCEPT:AHE-3.47)
     "BenchmarkResult",
     "run_all",
     "to_markdown",

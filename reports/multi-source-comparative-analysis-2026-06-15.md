@@ -253,9 +253,9 @@ All merged to main locally (AU merge `e04b621`); ~190+39 tests green; both guard
 The only remaining deferral is the **actual GPU gradient run** of the FST job (correctly DSM's, blocked by
 the GB10 hardware fault) and **fine-tuning** a cross-encoder — both inherently GPU/training-time, not code.
 
-## Round 5 — MEASURED feature parity (AHE-3.39) + PauseRec training track
+## Round 5 — MEASURED feature parity (AHE-3.47) + PauseRec training track
 
-Parity was *asserted* (we shipped each mechanism) but never *measured*. **AHE-3.39
+Parity was *asserted* (we shipped each mechanism) but never *measured*. **AHE-3.47
 `harness/assimilation_benchmark.py`** runs each mechanism vs a baseline on a controlled, seeded,
 CPU-only task and reports the real lift + a `claim_reproduced` verdict (two-surface via
 `graph_analyze action='assimilation_benchmark'`). Measured (seed 0):
