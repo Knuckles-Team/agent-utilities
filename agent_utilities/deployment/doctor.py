@@ -398,7 +398,34 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--json", action="store_true", help="Emit JSON instead of text."
     )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="Run the host DEPENDENCY preflight (runtimes/tools) instead of the deployment sweep.",
+    )
+    parser.add_argument(
+        "--profile",
+        default="tiny",
+        help="Deployment profile for --preflight (tiny | single-node-prod | enterprise).",
+    )
+    parser.add_argument(
+        "--component",
+        dest="components",
+        action="append",
+        default=None,
+        help="UI component to preflight (repeatable): agent-webui | geniusbot | agent-terminal-ui.",
+    )
     args = parser.parse_args(argv)
+
+    if args.preflight:
+        from .preflight import run_preflight
+
+        report = run_preflight(args.profile, args.components)
+        if args.json:
+            print(json.dumps(report, indent=2, default=str))
+        else:
+            _print_human(report, title="agent-utilities preflight")
+        return 0 if report["status"] != "blocked" else 1
 
     report = run_doctor(args.only, fix=args.fix, live=args.live)
     if args.json:
@@ -408,9 +435,9 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if report["status"] != "unhealthy" else 1
 
 
-def _print_human(report: dict[str, Any]) -> None:
+def _print_human(report: dict[str, Any], title: str = "agent-utilities doctor") -> None:
     glyph = {"ok": "✓", "warn": "!", "fail": "✗", "error": "✗", "skip": "·"}
-    print(f"agent-utilities doctor — {report['status'].upper()}\n")
+    print(f"{title} — {report['status'].upper()}\n")
     for r in report["checks"]:
         line = f"  {glyph.get(r['status'], '?')} {r['name']:<14} {r['detail']}"
         print(line)

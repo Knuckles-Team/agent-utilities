@@ -16,6 +16,7 @@ from .config_generator import (
     write_config,
 )
 from .doctor import CHECKS, run_doctor
+from .preflight import run_preflight
 
 __all__ = [
     "CHECKS",
@@ -24,5 +25,6 @@ __all__ = [
     "config_reference",
     "generate_config",
     "run_doctor",
+    "run_preflight",
     "write_config",
 ]

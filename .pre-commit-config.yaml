@@ -168,6 +168,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: guardrail-genesis-manifest
+    name: Guardrail — genesis.yaml freshness
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_genesis_manifest.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: guardrail-surface-parity
     name: Guardrail — every feature reachable via gateway + MCP
     entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_surface_parity.py

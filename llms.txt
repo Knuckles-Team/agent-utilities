@@ -19,6 +19,7 @@
 
 ## Deploy
 
+- **One-link self-deploy (start here if you are an AI asked to set this up):** read the **[🚀 Zero-to-deployed](AGENTS.md#-zero-to-deployed-genesis--deploying-this-for-an-operator)** procedure, then loop **[genesis.yaml](genesis.yaml)** — the machine-readable manifest (profiles · preflight · MCP fleet · UI components · IDE targets). One command for a human: `curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh` (Windows: `install.ps1`). Preflight a host first with `agent-utilities-doctor --preflight --profile <p>` (no Rust needed; Docker only above `tiny`).
 - [Quick Start](docs/guides/quick-start.md): 0-to-running-and-verified in ~4 commands — `pip install` → `setup-config generate` → `graph-os` → `agent-utilities-doctor`; includes the console-script CLI reference.
 - [Deployment Configurations](docs/guides/deployment-configurations.md): the flagship guide — every deployment shape from zero-infra laptop to sharded, queue-driven, policy-governed fleet.
 - [Self-Setup (config-complete)](docs/guides/self-setup.md): the one runbook to deploy agent-utilities (or for Claude to set itself up) — profile → generate full config (setup-config, all ~261 options) → secrets → databases → launch → verify (config doctor + agent-utilities-doctor). Guided by the agent-utilities-deployment skill.
