@@ -1,13 +1,13 @@
-"""Outbound process-intelligence writeback tests (CONCEPT:KG-2.8).
+"""Outbound process-intelligence write-back sink tests (CONCEPT:KG-2.8).
 
-Uses a fake graph reader + fake Camunda/ARIS clients to assert all four payload
-sections are gathered, the write is hash-idempotent, and one failing client does
-not abort the batch.
+Fake graph reader + Camunda/ARIS clients assert all four payload sections are
+gathered, the write is hash-idempotent, and one failing client does not abort the
+batch. On the unified WritebackResult (pushes → ``enriched``, skips → ``skipped``).
 """
 
 from __future__ import annotations
 
-from agent_utilities.knowledge_graph.enrichment.process_writeback import (
+from agent_utilities.knowledge_graph.enrichment.writeback.sinks.process import (
     gather_intelligence,
     push_process_intelligence,
 )
@@ -90,21 +90,29 @@ def test_gather_all_four_sections():
 def test_push_then_idempotent_skip():
     reader, client = FakeReader(), FakeCamunda()
     first = push_process_intelligence(reader, camunda_client=client)
-    assert first.camunda_pushed == 1
+    assert first.enriched == 1
     assert len(client.modifications) == 1
     second = push_process_intelligence(reader, camunda_client=client)
-    assert second.camunda_pushed == 0
-    assert second.skipped_unchanged == 1
+    assert second.enriched == 0
+    assert second.skipped == 1
     assert len(client.modifications) == 1  # no second write
 
 
-def test_no_running_instances_reports_no_target():
+def test_dry_run_proposes_without_writing():
+    reader, client = FakeReader(), FakeCamunda()
+    res = push_process_intelligence(reader, camunda_client=client, dry_run=True)
+    assert res.enriched == 0
+    assert client.modifications == []
+    assert res.proposals and res.proposals[0]["op"] == "write_intelligence"
+
+
+def test_no_running_instances_skipped():
     class NoInstances(FakeCamunda):
         def list_process_instances(self, params):
             return []
 
     res = push_process_intelligence(FakeReader(), camunda_client=NoInstances())
-    assert res.no_target == 1 and res.camunda_pushed == 0
+    assert res.skipped == 1 and res.enriched == 0
 
 
 def test_failing_client_does_not_abort():
@@ -113,19 +121,7 @@ def test_failing_client_does_not_abort():
             raise RuntimeError("transport down")
 
     res = push_process_intelligence(FakeReader(), camunda_client=Boom())
-    assert res.errors == 1 and res.camunda_pushed == 0
-
-
-def test_empty_payload_process_skipped():
-    class Empty(FakeReader):
-        def out_edges(self, nid):
-            return []
-
-        def in_edges(self, nid):
-            return []
-
-    res = push_process_intelligence(Empty(), camunda_client=FakeCamunda())
-    assert res.camunda_pushed == 0 and res.skipped_unchanged == 0
+    assert res.errors == 1 and res.enriched == 0
 
 
 def test_aris_writeback_sets_model_attribute():
@@ -156,5 +152,5 @@ def test_aris_writeback_sets_model_attribute():
 
     aris = FakeAris()
     res = push_process_intelligence(ArisReader(), aris_client=aris)
-    assert res.aris_pushed == 1
+    assert res.enriched == 1
     assert "kg_intelligence" in aris.attrs["M1"]

@@ -76,7 +76,7 @@ def main() -> int:
 
         llm_fn = make_llm_fn()
 
-    from .capability_writeback import resolve_writeback_fn
+    from .writeback import resolve_writeback_fn
 
     pipe = EnrichmentPipeline(
         backend,
