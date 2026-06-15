@@ -27,7 +27,6 @@ the same shape (and same human/JSON renderers) as a doctor report.
 
 from __future__ import annotations
 
-import os
 import platform
 import shutil
 import subprocess
@@ -35,6 +34,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from agent_utilities.core.config import setting
 
 from .doctor import _RANK, _result
 
@@ -167,7 +168,7 @@ def _check_webui() -> dict[str, Any]:
 
 def _check_geniusbot() -> dict[str, Any]:
     """geniusbot is a PySide6/Qt desktop app — needs a display + Qt system libs."""
-    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    has_display = bool(setting("DISPLAY", "") or setting("WAYLAND_DISPLAY", ""))
     # Best-effort probe for the Qt platform libs on Linux.
     libgl = None
     if sys.platform.startswith("linux"):

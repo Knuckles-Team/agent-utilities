@@ -207,9 +207,9 @@ class ConnectionRegistry:
         # unresolved pydantic ``FieldInfo`` default when a tool fn is called
         # directly rather than via ``_execute_tool``) routes to the default —
         # never a spurious fan-out.
-        if target is None or not isinstance(target, (str, list, tuple)):
+        if target is None or not isinstance(target, str | list | tuple):
             return [self._default_target], False
-        if isinstance(target, (list, tuple)):
+        if isinstance(target, list | tuple):
             names = [str(x).strip() for x in target if str(x).strip()]
             return (names or [self._default_target]), len(names) > 1
         t = str(target).strip()

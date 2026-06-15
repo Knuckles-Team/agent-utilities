@@ -18,8 +18,9 @@ the ORCH-1.38 sandbox before use.
 """
 
 import itertools
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from agent_utilities.harness.selection_operators import select_top_k
 
@@ -92,7 +93,12 @@ def synthesize(
 
     rows = [{"cand": c, "score": c.score, "length": c.length} for c in candidates]
     best = select_top_k(
-        rows, 1, method="mdl", score_key="score", length_key="length", mdl_weight=mdl_weight
+        rows,
+        1,
+        method="mdl",
+        score_key="score",
+        length_key="length",
+        mdl_weight=mdl_weight,
     )
     if not best:
         return None
@@ -139,4 +145,6 @@ def synthesize_and_validate(
             validated, detail = sandbox.validate(source)
         except Exception as exc:  # noqa: BLE001 — a sandbox failure is non-fatal
             validated, detail = False, f"sandbox error: {exc}"
-    return SynthesisResult(program=program, source=source, validated=validated, detail=detail)
+    return SynthesisResult(
+        program=program, source=source, validated=validated, detail=detail
+    )

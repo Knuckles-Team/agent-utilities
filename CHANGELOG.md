@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-06-14
+
+> Note: per-release CHANGELOG sections for 0.4.0–0.48.x were not maintained; this
+> section consolidates the accumulated unreleased work up to 0.49.0 (the current
+> `pyproject.toml` / bumpversion version). Full history is in git.
+
 ### Changed
 - **Dependency floors refreshed to current PyPI latest.** Raised the declared
   minimum versions across `pyproject.toml` and `requirements.txt` to the latest

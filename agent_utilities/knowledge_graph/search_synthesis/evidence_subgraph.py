@@ -38,7 +38,8 @@ EnrichFn = Callable[[list[EvidenceFact], dict[str, Any]], list[EvidenceFact]]
 class GraphReader(Protocol):
     """Minimal read surface — satisfied by ``KnowledgeGraph`` (``query``)."""
 
-    def query(self, cypher: str, params: Any = None) -> list[dict[str, Any]]: ...
+    def query(self, cypher: str, params: Any = None) -> list[dict[str, Any]]:
+        ...
 
 
 _NEIGHBOR_QUERY = "MATCH (a {id: $id})-[r]-(b) RETURN a, r, b"
@@ -52,7 +53,7 @@ def _names(node: dict[str, Any]) -> tuple[str, ...]:
     aliases = node.get("aliases")
     if isinstance(aliases, str):
         out.extend(a.strip() for a in aliases.split(",") if a.strip())
-    elif isinstance(aliases, (list, tuple)):
+    elif isinstance(aliases, list | tuple):
         out.extend(str(a) for a in aliases if a)
     return tuple(dict.fromkeys(out))  # de-dup, keep order
 
