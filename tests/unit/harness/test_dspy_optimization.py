@@ -1,9 +1,10 @@
 """Unified DSPy optimization subsystem — metric, registry, driver, targets, surface.
 
 Covers CONCEPT:AHE-3.39 (metric), AHE-3.40 (registry/driver/dispatch), AHE-3.43 (demo
-refine), AHE-3.44 (extraction), AHE-3.45 (concept-match/routing). The LLM-gated DSPy
-compile itself is exercised by the live evolution path; here we test the wiring, the
-real metric, and the self-supervised metrics — all offline-deterministic.
+refine), AHE-3.44 (extraction), AHE-3.45 (concept-match/routing), AHE-3.46 (scheduled
+sweep + promotion gate). The LLM-gated DSPy compile itself is exercised by the live
+evolution path; here we test the wiring, the real metric, and the self-supervised
+metrics — all offline-deterministic.
 """
 
 from __future__ import annotations
@@ -212,3 +213,82 @@ def test_run_component_optimization_dispatch():
         "no_data_or_dspy_unavailable"
     )
     assert run_component_optimization("routing")["status"] == "no_data_or_dspy_unavailable"
+
+
+# ── AHE-3.46 — scheduled optimization sweep (the daemon-tick twin) ───────────
+
+
+def test_should_promote_gate():
+    from agent_utilities.harness.dspy_optimization import should_promote
+
+    assert should_promote(0.7, 0.8) is True
+    assert should_promote(0.7, 0.7) is True  # ties promote at min_delta=0
+    assert should_promote(0.7, 0.72, min_delta=0.05) is False
+    assert should_promote(0.7, 0.8, min_delta=0.05) is True
+
+
+def test_gather_optimization_data_best_effort():
+    from agent_utilities.harness.dspy_optimization import gather_optimization_data
+
+    # no engine / no query_cypher → empty (degrades, never raises)
+    assert gather_optimization_data(None, "extraction") == {}
+
+    class FakeEngine:
+        def query_cypher(self, cypher):
+            if "Document" in cypher:
+                return [{"content": "doc one"}, {"content": "doc two"}]
+            if "Concept" in cypher:
+                return [
+                    {"concept": "RAG", "article": "retrieval augmented..."},
+                    {"concept": "RLHF", "article": "reward modeling..."},
+                ]
+            if "ExecutionTrace" in cypher:
+                return [{"task_text": "t", "primitive_used": "direct", "success": True}]
+            return []
+
+    eng = FakeEngine()
+    assert len(gather_optimization_data(eng, "extraction")["documents"]) == 2
+    pairs = gather_optimization_data(eng, "concept_match")["labeled_pairs"]
+    assert any(rel for *_, rel in pairs) and any(not rel for *_, rel in pairs)
+    assert len(gather_optimization_data(eng, "routing")["traces"]) == 1
+
+
+def test_gather_degrades_when_query_raises():
+    from agent_utilities.harness.dspy_optimization import gather_optimization_data
+
+    class BadEngine:
+        def query_cypher(self, cypher):
+            raise RuntimeError("backend down")
+
+    assert gather_optimization_data(BadEngine(), "extraction") == {"documents": []}
+
+
+def test_run_optimization_sweep_is_propose_only():
+    from agent_utilities.harness.dspy_optimization import (
+        SCHEDULABLE_TARGETS,
+        run_optimization_sweep,
+    )
+
+    rep = run_optimization_sweep(None)
+    assert rep["propose_only"] is True
+    assert set(rep["targets"]) == set(SCHEDULABLE_TARGETS)
+    # no engine/data/LLM → nothing optimized, but the sweep completes cleanly
+    assert rep["optimized"] == []
+
+
+def test_daemon_tick_calls_sweep(monkeypatch):
+    from agent_utilities.knowledge_graph.core import engine_tasks
+    from agent_utilities.harness import dspy_optimization
+
+    called = {}
+
+    def fake_sweep(engine, targets=None):
+        called["engine"] = engine
+        return {"targets": {}, "optimized": ["extraction"], "propose_only": True}
+
+    monkeypatch.setattr(dspy_optimization, "run_optimization_sweep", fake_sweep)
+
+    sentinel = object()
+    # invoke the unbound tick with a sentinel self — it must dispatch to the sweep
+    engine_tasks.TaskManagerMixin._tick_optimize_components(sentinel)
+    assert called["engine"] is sentinel

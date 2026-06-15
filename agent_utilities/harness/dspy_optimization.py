@@ -443,3 +443,104 @@ def run_component_optimization(
         report["status"] = "error"
         report["error"] = str(e)
     return report
+
+
+# --------------------------------------------------------------------------- #
+# CONCEPT:AHE-3.46 — scheduled optimization sweep (the daemon-tick twin)
+# --------------------------------------------------------------------------- #
+# The self-supervised targets the daemon can run unattended (the registry targets —
+# system_prompt/tool_description/skill — are driven by the failure-cluster evolution
+# cycle, not this sweep).
+SCHEDULABLE_TARGETS: tuple[str, ...] = ("extraction", "concept_match", "routing")
+
+
+def should_promote(
+    baseline_score: float, candidate_score: float, *, min_delta: float = 0.0
+) -> bool:
+    """Promotion gate (CONCEPT:AHE-3.46): a candidate replaces the incumbent only when it
+    beats it on the held-out metric by at least ``min_delta``. The criterion the sweep
+    applies before an optimized artifact is allowed to supersede the live one."""
+    return candidate_score >= baseline_score + min_delta
+
+
+def gather_optimization_data(
+    engine: Any, target: str, *, limit: int = 50
+) -> dict[str, Any]:
+    """Best-effort production data for a self-supervised target (CONCEPT:AHE-3.46).
+
+    Reads the live graph via ``engine.query_cypher`` for the data each optimizer needs —
+    recent ``Document`` text (extraction), ``ADDRESSED_BY``-labeled concept/source pairs
+    (concept_match), or ``ExecutionTrace`` rows (routing). Returns ``{}`` on any failure or
+    when the engine/data is absent, so the sweep degrades to ``no_data`` rather than
+    breaking the daemon.
+    """
+    if engine is None or not hasattr(engine, "query_cypher"):
+        return {}
+
+    def _rows(cypher: str) -> list[dict[str, Any]]:
+        try:
+            res = engine.query_cypher(cypher)
+            return list(res) if res else []
+        except Exception:  # noqa: BLE001 - data gathering is best-effort
+            return []
+
+    if target == "extraction":
+        rows = _rows(
+            f"MATCH (d:Document) WHERE d.content IS NOT NULL "
+            f"RETURN d.content AS content LIMIT {limit}"
+        )
+        return {"documents": [str(r.get("content")) for r in rows if r.get("content")]}
+    if target == "concept_match":
+        rows = _rows(
+            f"MATCH (c:Concept)-[:ADDRESSED_BY]->(s) "
+            f"RETURN c.name AS concept, coalesce(s.content, s.name) AS article "
+            f"LIMIT {limit}"
+        )
+        positives = [
+            (str(r.get("article")), str(r.get("concept")), True)
+            for r in rows
+            if r.get("article") and r.get("concept")
+        ]
+        # Synthesize negatives by pairing each concept with a neighbour's article.
+        negatives = (
+            [
+                (positives[(i + 1) % len(positives)][0], positives[i][1], False)
+                for i in range(len(positives))
+            ]
+            if len(positives) > 1
+            else []
+        )
+        return {"labeled_pairs": positives + negatives}
+    if target == "routing":
+        rows = _rows(
+            f"MATCH (t:ExecutionTrace) "
+            f"RETURN t.task_text AS task_text, t.primitive_used AS primitive_used, "
+            f"t.success AS success LIMIT {limit}"
+        )
+        return {"traces": rows}
+    return {}
+
+
+def run_optimization_sweep(
+    engine: Any = None, targets: Sequence[str] | None = None
+) -> dict[str, Any]:
+    """Propose-only DSPy optimization sweep over the schedulable targets (CONCEPT:AHE-3.46).
+
+    The reusable core the daemon tick and the on-demand ``optimize_component task=all``
+    surface both call. For each target it gathers live data
+    (:func:`gather_optimization_data`) and runs :func:`run_component_optimization`. It is
+    **propose-only**: the optimizers persist optimization trajectories to the KG but
+    nothing is auto-applied to source — promotion stays behind :func:`should_promote` and
+    a future auto-apply gate (mirroring ``KG_GOLDEN_AUTO_MERGE``). Returns a per-target
+    report; never raises.
+    """
+    names = list(targets) if targets else list(SCHEDULABLE_TARGETS)
+    report: dict[str, Any] = {}
+    optimized: list[str] = []
+    for name in names:
+        data = gather_optimization_data(engine, name)
+        result = run_component_optimization(name, data)
+        report[name] = result
+        if result.get("status") == "optimized":
+            optimized.append(name)
+    return {"targets": report, "optimized": optimized, "propose_only": True}

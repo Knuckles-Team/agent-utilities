@@ -731,6 +731,19 @@ class TaskManagerMixin(GraphEngineProtocol):
                     self._tick_failure_ingest,
                 )
             )
+        # DSPy optimization sweep (CONCEPT:AHE-3.46) — opt-in (KG_DSPY_OPTIMIZATION=True),
+        # off by default because each pass runs an LLM-gated DSPy compile per target. The
+        # scheduled, propose-only twin of `graph_orchestrate action=optimize_component`:
+        # optimizes the self-supervised targets (extraction/concept_match/routing) from
+        # live graph data and records optimization trajectories (nothing auto-applies).
+        if _cfg.kg_dspy_optimization:
+            jobs.append(
+                (
+                    "dspy_optimization",
+                    _cfg.kg_dspy_optimization_interval,
+                    self._tick_optimize_components,
+                )
+            )
         # PerformanceAnomaly consumer (CONCEPT:AHE-3.19) — drains unconsumed
         # PerformanceAnomaly nodes into failure_gap topics. LLM-free, bounded,
         # propose-only ⇒ ON by default (KG_ANOMALY_CONSUMER=0 to disable).
@@ -1617,6 +1630,26 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
         except Exception as e:  # noqa: BLE001
             logger.error("failure_ingest tick error: %s", e)
+
+    def _tick_optimize_components(self) -> None:
+        """Propose-only DSPy optimization sweep over the self-supervised targets.
+
+        The scheduled twin of ``graph_orchestrate action=optimize_component`` (CONCEPT:
+        AHE-3.46): gathers live graph data and runs the extraction / concept_match /
+        routing optimizers, recording optimization trajectories. Nothing is auto-applied —
+        promotion stays behind ``should_promote`` and a future auto-apply gate. Opt-in via
+        KG_DSPY_OPTIMIZATION.
+        """
+        try:
+            from ...harness.dspy_optimization import run_optimization_sweep
+
+            report = run_optimization_sweep(self)
+            logger.info(
+                "DSPy optimization sweep: optimized=%s (propose-only)",
+                report.get("optimized"),
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error("dspy_optimization tick error: %s", e)
 
     def _tick_anomaly_consumer(self) -> None:
         """Drain unconsumed PerformanceAnomaly nodes into failure_gap topics.
