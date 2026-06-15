@@ -204,3 +204,72 @@ def test_skillgraph_ontology_interface_registered_and_owl():
     link_names = {lc.name for lc in iface.link_constraints}
     assert {"contains", "covers", "derived_from"} <= link_names
     assert "SkillGraph" in DEFAULT_INTERFACE_REGISTRY.to_owl()
+
+
+# ── legacy migration ──────────────────────────────────────────────────────────
+
+
+def _legacy_graph(root: Path, name: str, *, source_url: str | None, files: int) -> Path:
+    """Write a legacy-format skill-graph (old frontmatter, no sources.json)."""
+    d = root / name
+    (d / "reference").mkdir(parents=True)
+    for i in range(files):
+        (d / "reference" / f"f{i}.md").write_text(f"# F{i}\n\nbody {i}\n", encoding="utf-8")
+    fm = [f"name: {name}", "description: Legacy docs.", "crawl_depth: 3"]
+    if source_url:
+        fm.append(f"source_url: {source_url}")
+    (d / "SKILL.md").write_text(
+        "---\n" + "\n".join(fm) + "\n---\n# legacy\n", encoding="utf-8"
+    )
+    return d
+
+
+def test_classify_legacy_modes(tmp_path):
+    pipe = _pipe()
+    reacq = _legacy_graph(tmp_path, "a-docs", source_url="https://x/docs", files=2)
+    wrap = _legacy_graph(tmp_path, "b-docs", source_url=None, files=2)
+    native = tmp_path / "c"
+    (native).mkdir()
+    (native / "SKILL.md").write_text("---\nname: c\n---\n# native\n", encoding="utf-8")
+
+    assert pipe.classify_legacy(reacq)["mode"] == "reacquire"
+    assert pipe.classify_legacy(wrap)["mode"] == "wrap"
+    assert pipe.classify_legacy(native)["mode"] == "native"
+
+
+def test_migrate_wrap_preserves_content_and_standardizes(tmp_path):
+    g = _legacy_graph(tmp_path, "b-docs", source_url=None, files=3)
+    res = _pipe().migrate_legacy(g, mode="auto")
+    assert res["migrated_mode"] == "wrap"
+    assert res["version"] == "1.0.0"
+    assert res["file_count"] == 3
+    assert res["validation_errors"] == []
+    manifest = json.loads((g / "sources.json").read_text())
+    assert manifest["schema"] == SOURCES_SCHEMA
+    fm = parse_frontmatter((g / "SKILL.md").read_text())
+    assert fm["skill_graph_version"] == "1.0.0"
+
+
+def test_migrate_reacquire_uses_source_url(tmp_path):
+    seen = {}
+
+    def crawler_fn(spec):
+        seen["uri"] = spec.uri
+        return [AcquiredDoc(rel_path="page.md", text="# Fresh\n\nnew\n",
+                            source_uri=spec.uri)]
+
+    pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
+    g = _legacy_graph(tmp_path, "a-docs", source_url="https://x/docs", files=2)
+    res = pipe.migrate_legacy(g, mode="auto")
+    assert res["migrated_mode"] == "reacquire"
+    assert seen["uri"] == "https://x/docs"
+    fm = parse_frontmatter((g / "SKILL.md").read_text())
+    assert fm["source_types"] == ["web"]
+
+
+def test_migrate_skips_native(tmp_path):
+    native = tmp_path / "c"
+    native.mkdir()
+    (native / "SKILL.md").write_text("---\nname: c\n---\n# native\n", encoding="utf-8")
+    res = _pipe().migrate_legacy(native, mode="auto")
+    assert res["skipped"] is True and res["reason"] == "native"
