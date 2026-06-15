@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 267
+total_concepts: 268
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2192,8 +2192,17 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/adaptation/contradiction_detector.py
+  - agent_utilities/knowledge_graph/research/night_shift.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: explicit node↔node contradiction/friction surface
+- id: KG-2.84
+  name: run one autonomous night-shift cycle over a
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/night_shift.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: run one autonomous night-shift cycle over a
 - id: KG-2.85
   name: Adaptive Chunk Selection
   pillar: KG-2
