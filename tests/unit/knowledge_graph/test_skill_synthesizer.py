@@ -337,6 +337,32 @@ def test_leanix_capability_becomes_atomic_skill():
 
 
 # --------------------------------------------------------------------------- #
+# materialize — human-approved proposal → physical SKILL.md (staging)
+# --------------------------------------------------------------------------- #
+def test_materialize_approved_proposal_writes_skill_md_and_stamps_node(tmp_path):
+    engine = _camunda_engine()
+    d = ConnectorSkillDistiller(engine, staging_root=tmp_path)
+    d.run()
+    pid = "skill_proposal:receive-invoice"
+    res = d.materialize(pid)
+    assert res["proposal_id"] == pid
+    assert res["status"] in ("approved", "drafted")
+    # the SKILL.md exists in the staging dir (never a repo)
+    assert str(tmp_path) in res["skill_md"]
+    assert (tmp_path / "receive-invoice" / "SKILL.md").exists()
+    # the node is stamped approved
+    nodes = dict(engine.graph.nodes(data=True))
+    assert nodes[pid]["proposal_status"] == "approved"
+
+
+def test_materialize_unknown_proposal_is_not_found():
+    engine = _camunda_engine()
+    d = ConnectorSkillDistiller(engine)
+    res = d.materialize("skill_proposal:does-not-exist")
+    assert res["status"] == "not_found"
+
+
+# --------------------------------------------------------------------------- #
 # LIVE-PATH — LoopController.run_one_cycle invokes the distiller
 # --------------------------------------------------------------------------- #
 def test_loop_cycle_populates_skill_proposals_live_path():

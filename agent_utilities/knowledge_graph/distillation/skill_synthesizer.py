@@ -657,6 +657,63 @@ class ConnectorSkillDistiller:
         skill_md.write_text(content, encoding="utf-8")
         return str(skill_md)
 
+    # ── materialization (human-approved → physical SKILL.md) ───────────────── #
+    def materialize(
+        self, proposal_id: str, *, skill_code_path: str | None = None
+    ) -> dict[str, Any]:
+        """Materialize an APPROVED proposal to a physical SKILL.md, then stamp it.
+
+        The review→approve→materialize close-out: reads the SkillProposal /
+        SkillWorkflowProposal node, renders its SKILL.md into the staging dir, and
+        writes the frontmatter via :class:`PhysicalDistillationEngine.distill_skill`
+        (the same physical-distillation path used for evolved skills). Marks the
+        node ``proposal_status="approved"``. Still never touches a source repo —
+        the artifact lands in the staging dir for a human to place. Returns a
+        JSON-able report.
+        """
+        props = self._node_props(proposal_id)
+        if not props:
+            return {"proposal_id": proposal_id, "status": "not_found"}
+        kind = "workflow" if "workflow" in str(props.get("type", "")) else "atomic"
+        candidate = SkillCandidate(
+            candidate_id=proposal_id,
+            name=str(props.get("name") or proposal_id),
+            description=str(props.get("description") or ""),
+            kind=kind,
+            source_id=proposal_id,
+            source_system=str(props.get("provenance") or "connector").split(":", 1)[0],
+            trigger_patterns=list(props.get("trigger_patterns") or []),
+        )
+        skill_md = self.draft_artifact(candidate)
+        code_path = skill_code_path or skill_md
+        from .physical_distiller import PhysicalDistillationEngine
+
+        ok = False
+        try:
+            ok = PhysicalDistillationEngine().distill_skill(
+                skill_id=proposal_id,
+                new_name=candidate.name,
+                new_description=candidate.description,
+                skill_code_path=code_path,
+                tags=["skill", kind, candidate.source_system],
+            )
+        except Exception as exc:  # noqa: BLE001 — materialization best-effort
+            logger.debug("[KG-2.82] physical distill failed for %s: %s", proposal_id, exc)
+        try:
+            self.engine.add_node(
+                proposal_id,
+                str(props.get("type")),
+                properties={**props, "proposal_status": "approved", "status": "approved"},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[KG-2.82] approval stamp failed for %s: %s", proposal_id, exc)
+        return {
+            "proposal_id": proposal_id,
+            "status": "approved" if ok else "drafted",
+            "skill_md": skill_md,
+            "materialized": ok,
+        }
+
     # ── orchestration ─────────────────────────────────────────────────────── #
     def run(self, *, draft: bool = False) -> DistillReport:
         """One propose-only pass: discover → classify → dedup → propose [→ draft].
