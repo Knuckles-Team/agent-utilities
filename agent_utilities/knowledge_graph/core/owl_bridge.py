@@ -287,6 +287,11 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     # reasons over grounded_in/supports transitively.
     "microstructure_signal",
     "surveillance_signal",
+    # Connector → Skill synthesis proposals (CONCEPT:KG-2.90) — the distiller's
+    # propose-only candidates; OWL reasoning runs transitive/inverse over their
+    # automates/derived_from/composes edges (CONCEPT:KG-2.91).
+    "skill_proposal",
+    "skill_workflow_proposal",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)

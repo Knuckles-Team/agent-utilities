@@ -1,6 +1,7 @@
 # Knowledge Distillation → Skill-Graphs
 
 > **CONCEPT:KG-2.7** (standardized ingestion) · **CONCEPT:AHE-3.9** (physical distillation)
+> **CONCEPT:KG-2.90** (connector → skill synthesis) · **CONCEPT:KG-2.91** (skill-synthesis ontology links)
 > **Packages:** `agent_utilities/knowledge_graph/distillation/` · `agent_utilities/knowledge_graph/ingestion/`
 > **Engine:** `epistemic-graph` `GetSubgraph` (batched subgraph read)
 > **MCP:** `graph_ingest(action="distill" | "import_pack")` · **CLIs:** `python -m agent_utilities.knowledge_graph.distillation.skill_graph_distiller`, `python -m agent_utilities.knowledge_graph.ingestion`
@@ -134,6 +135,82 @@ docs (skill-graph) *and* the how-to-act (skill-workflow), versioned together.
 
 ---
 
+## 4a. Connector → skill synthesis (propose-only)
+
+> **CONCEPT:KG-2.90** (the distiller) · **CONCEPT:KG-2.91** (the ontology links)
+> **Module:** `agent_utilities/knowledge_graph/distillation/skill_synthesizer.py`
+> (`ConnectorSkillDistiller`)
+
+The same "graph ops, LLM at the edges" philosophy runs *outward*: once
+connectors (egeria / leanix / aris / camunda) have **mapped their processes into
+the KG**, those processes are themselves a source of skills. The
+`ConnectorSkillDistiller` is a **KG-native, propose-only background distiller**
+that turns mapped processes into NEW atomic-skill and skill-workflow
+**PROPOSALS** — a human/Claude reviews + approves; nothing lands in any repo
+automatically.
+
+It is **generic over the ontology, never per-connector.** Every connector
+already lifts into the same ArchiMate/capability classes, so one ontology-driven
+pass covers them all:
+
+| Ontology class / edge | …becomes a |
+|---|---|
+| a lone `BusinessTask` / `Capability` | atomic-skill candidate |
+| a `flowsTo`-chain of ≥2 `BusinessTask`s | skill-workflow candidate (steps = atomic skills) |
+| an unresolved `manual:` task (ProcessPlanCompiler gap) | atomic-skill candidate (automation gap) |
+| a recurring cross-process inference (OntologyReasoningDriver) | cross-process candidate |
+
+```mermaid
+flowchart LR
+    subgraph CONN["connectors → KG (already mapped)"]
+        C1["camunda"]:::c --> KG
+        C2["aris"]:::c --> KG
+        C3["egeria"]:::c --> KG
+        C4["leanix"]:::c --> KG
+    end
+    KG["KG ontology<br/>BusinessProcess · BusinessTask · flowsTo · Capability"] --> DISC
+    DISC["discover<br/>processes + unresolved manual: gaps + OWL patterns"] --> CLS
+    CLS["classify<br/>action→atomic · flowsTo-chain→workflow"] --> DED
+    DED["dedup<br/>ConceptMatcher / skill registry → covered|related|novel"] --> PROP
+    PROP["propose (PROPOSE-ONLY)<br/>SkillProposal / SkillWorkflowProposal<br/>+ AUTOMATES · DERIVED_FROM · COMPOSES"] --> REV
+    REV{{"human / Claude<br/>review + approve"}} -->|approve| MAT
+    MAT["materialize<br/>PhysicalDistillationEngine → SKILL.md (STAGING dir)"]
+    classDef c fill:#eef,stroke:#88a;
+```
+
+**Ontology additions (KG-2.91):** `SkillProposal` / `SkillWorkflowProposal`
+interfaces (`ontology/interfaces.py`) + node types + the object properties
+`AUTOMATES` (skill/workflow → process/capability), `DERIVED_FROM` (proposal →
+source node, inverse `:derives`), `COMPOSES` (workflow → atomic skills,
+transitive) in `ontology_orchestration.ttl`. The new node-type labels are marked
+**promotable** (`core/owl_bridge.py`) so OWL reasoning runs transitive/inverse
+over them — a workflow proposal's `COMPOSES` chain resolves to its leaf atomic
+skills, and `AUTOMATES`/`derives` relate a proposal to the process it covers and
+the source it came from.
+
+**Dual-mode workflow SKILL.md.** A workflow proposal's artifact runs under BOTH
+Claude AND graph-os. Frontmatter carries `name`/`description`/`domain`/`tags`/
+`team_config` (`specialist_ids` + `tool_assignments`)/`concept`; the body has a
+machine-readable step DAG (`### Step N: <atomic-skill> [depends_on: Step M, ...]`),
+a Claude-executable `## Execution` section (run independent steps in parallel,
+dependents after), and a standard delegation footer:
+
+> If graph-os is reachable, offload the whole DAG via `graph_orchestrate
+> action=execute_workflow` (or the kg-delegation-router skill); otherwise execute
+> steps natively in dependency order.
+
+**Wiring (default-ON, propose-only).** The distiller runs as the `distill_skills`
+stage of `LoopController.run_one_cycle` (best-effort, alongside reason/standardize/
+distill; reuses the per-cycle embedder for semantic dedup), and is reachable on
+both surfaces: MCP `graph_orchestrate(action="distill_skills")` and REST
+`POST /api/graph/orchestrate/distill-skills`, both dispatching into the same
+action core. Review uses the proposal nodes; on approval
+`graph_orchestrate(action="distill_skills", task="materialize:<proposal_id>")`
+materializes via `PhysicalDistillationEngine` — into a **staging dir**, never a
+source repo.
+
+---
+
 ## 5. Crawler → KG routing
 
 So the KG is the canonical store, crawled docs land there first (via the standardized
@@ -176,6 +253,8 @@ Implemented across the three engine layers (`src/protocol.rs` `Method::GetSubgra
 |---|---|
 | Distill skill-graph | `graph_ingest(action="distill", target_path="<out>", corpus_name="<seed>" \| description="<query>", max_depth=2)` |
 | Distill workflow | …same, with `content_type="workflow"` |
+| Connector → skill proposals | `graph_orchestrate(action="distill_skills"[, task="draft"])` · `POST /api/graph/orchestrate/distill-skills` |
+| Materialize an approved proposal | `graph_orchestrate(action="distill_skills", task="materialize:<proposal_id>")` |
 | Import a pack | `graph_ingest(action="import_pack", target_path="<dir>", corpus_name="dedup")` |
 | Build from KG | `generate_skill.py --from-kg "<seed-or-query>" <name>` |
 | Route crawl → KG | `crawl.py --ingest-kg` · `generate_skill.py --ingest-kg` |
@@ -187,6 +266,9 @@ Implemented across the three engine layers (`src/protocol.rs` `Method::GetSubgra
 | Concern | Path |
 |---|---|
 | Distiller (KG → reference/ + manifest, workflows) | `knowledge_graph/distillation/skill_graph_distiller.py` |
+| Connector → skill synthesis (propose-only, KG-2.90/2.83) | `knowledge_graph/distillation/skill_synthesizer.py` |
+| Loop stage (`_distill_skills`) | `knowledge_graph/research/loop_controller.py` |
+| `distill_skills` action (MCP + REST) | `mcp/tools/analysis_tools.py` (`graph_orchestrate`) · `mcp/kg_server.py` |
 | Importer (pack → KG) | `knowledge_graph/distillation/skill_graph_importer.py` |
 | Standardized document ingestion | `knowledge_graph/ingestion/engine.py` |
 | Ingest CLI | `knowledge_graph/ingestion/__main__.py` |

@@ -10,6 +10,24 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+:SkillProposal a owl:Class ;
+    rdfs:label "Skill Proposal" ;
+    rdfs:comment "CONCEPT:KG-2.90 — a propose-only atomic-skill candidate the background distiller synthesizes from a mapped process/task of any connected system; reviewed+approved by a human before it materializes." .
+
+:SkillWorkflowProposal a owl:Class ;
+    rdfs:label "Skill Workflow Proposal" ;
+    rdfs:comment "CONCEPT:KG-2.90 — a propose-only skill-workflow candidate (composes atomic Skills) distilled from a flowsTo-chain of business tasks." ;
+    rdfs:subClassOf :Workflow .
+
+:automates a owl:ObjectProperty ;
+    rdfs:label "automates" ;
+    rdfs:comment """CONCEPT:KG-2.91 — a synthesized Skill / SkillWorkflow (or its
+    proposal) AUTOMATES the BusinessProcess / Capability it would carry out. The
+    connector→skill bridge: the background distiller writes it process→skill so
+    reasoning relates an automation candidate to the descriptive process it
+    addresses across any connected system.""" ;
+    rdfs:range :BusinessProcess .
+
 :canKG a owl:DatatypeProperty ;
     rdfs:domain :Model ;
     rdfs:range xsd:boolean .
@@ -18,6 +36,14 @@
     rdfs:domain :Model ;
     rdfs:range xsd:boolean .
 
+:composes a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "composes" ;
+    rdfs:comment """CONCEPT:KG-2.91 — a SkillWorkflowProposal COMPOSES the atomic
+    Skills (or SkillProposals) it sequences as steps. Transitive so a workflow of
+    workflows resolves to its leaf atomic skills under reasoning.""" ;
+    rdfs:range :Skill .
+
 :contextWindow a owl:DatatypeProperty ;
     rdfs:domain :Model ;
     rdfs:range xsd:integer .
@@ -25,6 +51,11 @@
 :delegatesTo a owl:ObjectProperty ;
     rdfs:comment "Agent delegates to an external A2A agent." ;
     rdfs:domain :Agent .
+
+:derives a owl:ObjectProperty ;
+    rdfs:label "derives" ;
+    rdfs:comment "CONCEPT:KG-2.91 — inverse of :derivedFrom (source node → the proposal distilled from it)." ;
+    owl:inverseOf :derivedFrom .
 
 :evolvedFrom a owl:ObjectProperty,
         owl:TransitiveProperty ;
@@ -126,9 +157,6 @@
 :Goal a owl:Class ;
     rdfs:label "Goal" .
 
-:Skill a owl:Class ;
-    rdfs:label "Skill" .
-
 :Team a owl:Class ;
     rdfs:label "Team" ;
     rdfs:comment "A hierarchical group of specialized agents for a goal." .
@@ -136,13 +164,19 @@
 :Tool a owl:Class ;
     rdfs:label "Tool" .
 
+:derivedFrom a owl:ObjectProperty ;
+    rdfs:label "derived from" ;
+    rdfs:comment """CONCEPT:KG-2.91 — provenance: a SkillProposal / SkillWorkflow
+    proposal DERIVED_FROM the source system node (egeria/leanix/aris/camunda
+    process or task) it was distilled from. Inverse of :derives so reasoning can
+    walk source→proposal and proposal→source.""" .
+
 :ContextBlob a owl:Class ;
     rdfs:label "ContextBlob" ;
     rdfs:comment "CONCEPT:ORCH-1.39 — curated context an invoking agent persists for a spawned agent to reference (session-scoped, optionally TTL'd)." .
 
-:Workflow a owl:Class ;
-    rdfs:label "Workflow" ;
-    rdfs:comment "An orchestration flow (skill-workflow) over agents/skills." .
+:Skill a owl:Class ;
+    rdfs:label "Skill" .
 
 :Prompt a owl:Class ;
     rdfs:label "Prompt" .
@@ -150,6 +184,10 @@
 :Session a owl:Class ;
     rdfs:label "Session" ;
     rdfs:comment "CONCEPT:ORCH-1.40 — id-addressable anchor (session:{sid}) for a session's collections; lets 'list by session' be a reliable single-hop traversal on a property-index-free engine." .
+
+:Workflow a owl:Class ;
+    rdfs:label "Workflow" ;
+    rdfs:comment "An orchestration flow (skill-workflow) over agents/skills." .
 
 :Model a owl:Class ;
     rdfs:label "Model" ;

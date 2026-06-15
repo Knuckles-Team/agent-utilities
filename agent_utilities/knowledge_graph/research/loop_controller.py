@@ -182,6 +182,7 @@ class LoopController:
             "assimilate": None,
             "reason": None,
             "standardize": None,
+            "skill_proposals": None,
             "executed": None,
             "spec_drafts": [],
             "team": None,
@@ -230,6 +231,13 @@ class LoopController:
         # research Loops (CONCEPT:KG-2.79). Best-effort + lightweight; never blocks.
         if reason:
             report["reason"] = _stage("reason", self._run_reason)
+
+        # 0a2. DISTILL SKILLS — turn the mapped processes of ALL connected systems
+        # (egeria/leanix/aris/camunda) into propose-only atomic-skill and
+        # skill-workflow PROPOSALS (CONCEPT:KG-2.90/2.83). Connector-agnostic over
+        # the ontology, default-ON, propose-only (nothing lands in any repo). Best-
+        # effort: a failing stage never aborts the cycle.
+        report["skill_proposals"] = _stage("distill_skills", self._distill_skills)
 
         # 0b. STANDARDIZE — enterprise standardization + consolidation (CONCEPT:KG-2.49),
         # propose-only. Gated (KG_LOOP_STANDARDIZE) since it requires a harvested
@@ -493,6 +501,39 @@ class LoopController:
             "stats": harvest.stats,
             "error": harvest.error,
         }
+
+    def _distill_skills(self) -> dict[str, Any]:
+        """Distil connector processes into propose-only skill candidates.
+
+        The connector→skill synthesis stage (CONCEPT:KG-2.90/2.83): the
+        :class:`ConnectorSkillDistiller` queries the KG over the ontology classes
+        (BusinessProcess flowsTo-chains, BusinessTask, Capability) of EVERY
+        connected system, classifies atomic-skill vs skill-workflow candidates,
+        dedups against the existing skill registry, and writes SkillProposal /
+        SkillWorkflowProposal nodes (with AUTOMATES + DERIVED_FROM provenance
+        edges) — propose-only. Drafting SKILL.md artifacts is deferred to
+        review/approval to keep the cycle cheap.
+
+        Reuses the per-cycle embedder (built once for the acquire_resolve stage)
+        for semantic dedup rather than constructing a fresh one — and only when
+        embeddings are actually reachable, so an embedding outage degrades the
+        dedup to the deterministic name pass instead of stalling the cycle.
+        """
+        from ..distillation.skill_synthesizer import ConnectorSkillDistiller
+
+        embed_fn = None
+        try:
+            from ..enrichment.semantic import make_embed_fn
+            from .search import _ACQUIRE_TIMEOUT_S, bounded_embed
+
+            probe = make_embed_fn()
+            if bounded_embed(probe, "ping", _ACQUIRE_TIMEOUT_S) is not None:
+                embed_fn = probe
+        except Exception as e:  # noqa: BLE001 — embedder optional, name-pass still runs
+            logger.debug("[KG-2.90] embedder probe failed: %s", e)
+
+        distiller = ConnectorSkillDistiller(self.engine, embed_fn=embed_fn)
+        return distiller.run().to_dict()
 
     # -- develop / skill Loop execution (CONCEPT:KG-2.78 L3) ---------------- #
     def _run_execute_loops(self, loops: list[dict[str, Any]]) -> dict[str, Any]:

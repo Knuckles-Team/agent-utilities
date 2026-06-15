@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 262
+total_concepts: 264
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2238,6 +2238,27 @@ concepts:
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: Role-aware multi-database registry plus live config mutation
+- id: KG-2.90
+  name: / KG-2.91 — a KG-native, propose-only background distiller that
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/distillation/skill_synthesizer.py
+  - agent_utilities/knowledge_graph/ontology/interfaces.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: / KG-2.91 — a KG-native, propose-only background distiller that
+- id: KG-2.91
+  name: AUTOMATES
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: AUTOMATES
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

@@ -833,7 +833,7 @@ def register_analysis_tools(mcp):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, standardize, failure_ingest, publish_proposal). 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal). 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:KG-2.90/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -1436,6 +1436,31 @@ def register_analysis_tools(mcp):
                     force="force" in (task or "").lower(),
                 )
                 return _json.dumps(rep, indent=2, default=str)
+
+            elif action == "distill_skills":
+                # Connector → skill synthesis (CONCEPT:KG-2.90/2.83): turn the
+                # mapped processes of ALL connected systems (egeria/leanix/aris/
+                # camunda) into propose-only atomic-skill + skill-workflow
+                # PROPOSALS — connector-agnostic over the ontology. With "draft"
+                # in the task, also render reviewable SKILL.md artifacts into a
+                # STAGING dir (never a repo). Propose-only; nothing auto-merges.
+                import json as _json
+
+                from agent_utilities.knowledge_graph.distillation.skill_synthesizer import (  # noqa: E501
+                    ConnectorSkillDistiller,
+                )
+
+                distiller = ConnectorSkillDistiller(kg_server._get_engine())
+                _task = (task or "").strip()
+                if _task.startswith("materialize:"):
+                    # human-approved close-out: materialize the named proposal to a
+                    # physical SKILL.md (staging dir) via PhysicalDistillationEngine.
+                    pid = _task.split(":", 1)[1].strip()
+                    return _json.dumps(
+                        distiller.materialize(pid), indent=2, default=str
+                    )
+                distill_rep = distiller.run(draft="draft" in _task.lower())
+                return _json.dumps(distill_rep.to_dict(), indent=2, default=str)
 
             elif action == "standardize":
                 # Enterprise standardization + consolidation pass (CONCEPT:KG-2.49):
