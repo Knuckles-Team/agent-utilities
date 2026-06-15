@@ -61,15 +61,28 @@ def list_sources() -> list[SourceExtractor]:
     return sorted(_REGISTRY.values(), key=lambda s: s.category)
 
 
-def write_batch(backend: Any, batch: ExtractionBatch) -> tuple[int, int]:
+def write_batch(
+    backend: Any, batch: ExtractionBatch, source: str | None = None
+) -> tuple[int, int]:
     """Persist an ExtractionBatch via the single GraphBackend interface.
 
     Generic — works for every source, so new extractors never touch writer code.
     Returns (nodes_written, edges_written).
+
+    ``source`` (the connector category, e.g. ``"egeria"``) stamps the shared
+    provenance contract (``source_system`` + ``domain``) on every node/edge via
+    :func:`.provenance.stamp_source`, identical to the ``ingest_external_batch``
+    path — so materialized sources route into their ``urn:source:<system>`` named
+    graph on a SPARQL mirror just like hydration sources. Omit ``source`` for
+    internal-fact batches (finance/synthesize) to leave them untagged.
     """
+    from .provenance import stamp_source
+
     n = e = 0
     for node in batch.nodes:
-        props = {k: v for k, v in node.props.items() if v is not None}
+        props = stamp_source(
+            {k: v for k, v in node.props.items() if v is not None}, source
+        )
         try:
             backend.add_node(node.id, type=node.type, **props)
             n += 1
@@ -78,7 +91,9 @@ def write_batch(backend: Any, batch: ExtractionBatch) -> tuple[int, int]:
     add_edge = getattr(backend, "add_edge", None)
     if callable(add_edge):
         for edge in batch.edges:
-            edge_props = {k: v for k, v in edge.props.items() if v is not None}
+            edge_props = stamp_source(
+                {k: v for k, v in edge.props.items() if v is not None}, source
+            )
             try:
                 add_edge(edge.source, edge.target, rel_type=edge.rel_type, **edge_props)
                 e += 1

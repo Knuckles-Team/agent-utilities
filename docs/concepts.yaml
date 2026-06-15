@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 276
+total_concepts: 278
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1358,6 +1358,7 @@ concepts:
   code_paths:
   - agent_utilities/ecosystem/ea_clients.py
   - agent_utilities/gateway/ontology_api.py
+  - agent_utilities/knowledge_graph/core/engine_ingestion.py
   - agent_utilities/knowledge_graph/core/hydration.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/core/source_sync.py
@@ -1390,6 +1391,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/extractors/wger.py
   - agent_utilities/knowledge_graph/enrichment/materialize.py
   - agent_utilities/knowledge_graph/enrichment/models.py
+  - agent_utilities/knowledge_graph/enrichment/provenance.py
   - agent_utilities/knowledge_graph/enrichment/registry.py
   - agent_utilities/knowledge_graph/enrichment/source_adapters.py
   - agent_utilities/knowledge_graph/enrichment/writeback/approval.py
@@ -2342,6 +2344,23 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: ingest the universal-skills workflow corpus
+- id: KG-2.98
+  name: One source→
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/etl/__init__.py
+  - agent_utilities/knowledge_graph/etl/pipeline.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: One source→
+- id: KG-2.99
+  name: KG-2.99
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/etl/lineage.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: KG-2.99
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

@@ -232,4 +232,5 @@ SELECT * FROM cypher('agent_graph', $$ MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 5 $
 
 - Backends & selection: [docs/architecture/graph_backends_architecture.md](../architecture/graph_backends_architecture.md)
 - OWL/RDF + SPARQL: [docs/architecture/owl_rdf_layer.md](../architecture/owl_rdf_layer.md)
+- KG-as-ETL hub (Stardog data backend, `graph_etl`, lineage): [docs/architecture/kg_etl_hub.md](../architecture/kg_etl_hub.md)
 - Other recipes: [tiny](tiny.md) · [single-node-prod](single-node-prod.md) · [enterprise](enterprise.md)

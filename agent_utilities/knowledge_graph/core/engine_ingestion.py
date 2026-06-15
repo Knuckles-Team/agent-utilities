@@ -308,16 +308,16 @@ class IngestionMixin(_Base):
         This is the primary ingestion API for the hub-and-spoke model (e.g., directory services, ITSM connectors).
         Entities are expected to be pre-mapped to the BFO/PROV-O ontology.
         """
-        # Stamp the originating source system on every row so provenance is explicit
-        # and downstream stores (e.g. a Stardog mirror) can partition data into
-        # ``urn:source:<domain>`` named graphs. Mirrors the ``source="system"`` stamp
-        # link_nodes already applies to internal edges. Caller-supplied values win.
-        _domain = (domain or "").strip().lower()
-        if _domain:
-            for _row in entities:
-                _row.setdefault("source_system", _domain)
-            for _row in relationships or []:
-                _row.setdefault("source_system", _domain)
+        # One provenance contract for ALL external ingestion (CONCEPT:KG-2.9): stamp
+        # source_system (named-graph routing / provenance) + domain (federation
+        # resolver key) on every row, identical to the materialize/write_batch path,
+        # so downstream stores (e.g. a Stardog mirror) treat every connector the same.
+        from ..enrichment.provenance import stamp_source
+
+        for _row in entities:
+            stamp_source(_row, domain)
+        for _row in relationships or []:
+            stamp_source(_row, domain)
 
         if not self.backend:
             logger.warning(
@@ -359,43 +359,80 @@ class IngestionMixin(_Base):
                     """
                     self.backend.execute(q_rel, row)
         else:
-            # Use Neo4j/FalkorDB high-throughput UNWIND batching
-            # dynamically generate SET keys to avoid SET n += row
-            if entities:
-                keys = [k for k in entities[0].keys() if k != "id"]
+            # Use Neo4j/FalkorDB/AGE/epistemic high-throughput UNWIND batching.
+            # Group by the REAL node type / edge rel-type so each entity keeps its
+            # specific label (e.g. :Application, :BusinessProcess) instead of being
+            # flattened to the generic :DomainEntity superclass — uniform with the
+            # materialize/write_batch path, and so a SPARQL mirror types each node
+            # by rdf:type correctly. One UNWIND per type-group preserves batching.
+            for label, rows in self._group_by_label(entities).items():
+                keys = sorted({k for row in rows for k in row} - {"id"})
                 set_clause = (
-                    "SET " + ", ".join([f"n.{k} = row.{k}" for k in keys])
+                    "SET " + ", ".join([f"n.`{k}` = row.`{k}`" for k in keys])
                     if keys
                     else ""
                 )
-                q_nodes = f"""
-                UNWIND $batch AS row
-                MERGE (n:DomainEntity {{id: row.id}})
-                {set_clause}
-                """
-                self.backend.execute_batch(q_nodes, entities)
+                q_nodes = (
+                    f"UNWIND $batch AS row "
+                    f"MERGE (n:{label} {{id: row.id}}) {set_clause}".rstrip()
+                )
+                self.backend.execute_batch(q_nodes, rows)
 
-            if relationships:
-                r_keys = [
-                    k
-                    for k in relationships[0].keys()
-                    if k not in ("source", "target", "type")
-                ]
+            for rel, rows in self._group_by_rel(relationships or []).items():
+                r_keys = sorted(
+                    {k for row in rows for k in row} - {"source", "target", "type"}
+                )
                 r_set_clause = (
-                    "SET " + ", ".join([f"r.{k} = row.{k}" for k in r_keys])
+                    "SET " + ", ".join([f"r.`{k}` = row.`{k}`" for k in r_keys])
                     if r_keys
                     else ""
                 )
-                q_rels = f"""
-                UNWIND $batch AS row
-                MATCH (s {{id: row.source}})
-                MATCH (t {{id: row.target}})
-                MERGE (s)-[r:EXTERNAL_LINK {{type: row.type}}]->(t)
-                {r_set_clause}
-                """
-                self.backend.execute_batch(q_rels, relationships)
+                q_rels = (
+                    f"UNWIND $batch AS row "
+                    f"MATCH (s {{id: row.source}}) MATCH (t {{id: row.target}}) "
+                    f"MERGE (s)-[r:{rel}]->(t) {r_set_clause}".rstrip()
+                )
+                self.backend.execute_batch(q_rels, rows)
 
         return {"status": "success", "nodes": len(entities), "backend": True}
+
+    def _group_by_label(
+        self, entities: list[dict[str, Any]]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Bucket entities by their normalized, label-safe node type (fallback
+        ``DomainEntity``) for per-type UNWIND MERGE."""
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for row in entities:
+            groups.setdefault(self._safe_label(row.get("type")), []).append(row)
+        return groups
+
+    def _group_by_rel(
+        self, relationships: list[dict[str, Any]]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Bucket edges by their label-safe rel type (fallback ``EXTERNAL_LINK``)."""
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for row in relationships:
+            groups.setdefault(
+                self._safe_label(row.get("type"), fallback="EXTERNAL_LINK"), []
+            ).append(row)
+        return groups
+
+    def _safe_label(self, raw: Any, *, fallback: str = "DomainEntity") -> str:
+        """A Cypher-safe label from a node/edge type: normalize via the schema, then
+        require a bare identifier so it can be inlined into MERGE; else the generic
+        fallback superclass (real type survives as the ``type`` property regardless)."""
+        import re as _re
+
+        # _normalize_label is provided by the composed engine (IntelligenceGraphEngine),
+        # not this mixin's base — resolve dynamically so a node type is canonicalized
+        # to its schema casing when available.
+        normalize = getattr(self, "_normalize_label", None)
+        label = (
+            normalize(str(raw or ""))
+            if (raw and callable(normalize))
+            else str(raw or "")
+        )
+        return label if _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label) else fallback
 
     def re_embed_node(self, node_id: str) -> bool:
         """Dynamically re-calculate and store the context-aware embedding for a node.

@@ -407,3 +407,10 @@ graph-os
 4. Register in the `create_backend()` factory in `backends/__init__.py`
 5. Add optional dependency group to `pyproject.toml`
 6. Add integration tests
+
+## Related
+
+- [KG as Bidirectional ETL Hub](kg_etl_hub.md) — how these backends serve as ETL load
+  targets (Stardog SPARQL data backend, fan-out mirrors) under the unified `graph_etl`
+  interface, plus the one ingestion contract and data lineage.
+- [OWL/RDF Layer](owl_rdf_layer.md) — local SPARQL + reasoning over any backend.
