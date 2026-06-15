@@ -178,9 +178,9 @@ def register_write_ingest_tools(mcp):
             if registry.is_writable(name):
                 writable.append((name, eng))
             else:
-                errors[
-                    name
-                ] = f"connection '{name}' is read-only (role={registry.role(name)})"
+                errors[name] = (
+                    f"connection '{name}' is read-only (role={registry.role(name)})"
+                )
 
         if not fanout:
             if not writable:
@@ -275,7 +275,7 @@ def register_write_ingest_tools(mcp):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegation-router / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
+            description="Action to perform (ingest, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegation-router / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -617,14 +617,31 @@ def register_write_ingest_tools(mcp):
                 # execute_workflow can discover & fire them. ``target_path`` is
                 # an optional explicit corpus root (a dir that is/contains
                 # ``workflows/``); default = installed universal_skills package.
+                #
+                # Durable per-node writes for the full corpus (~315 workflows)
+                # take ~150s — over the MCP call ceiling — and the backend can't
+                # bulk-write durably here, so this enqueues a BACKGROUND job (run
+                # by the task worker, off the request path) and returns its id;
+                # poll with ``action=job_status job_id=<id>``.
                 try:
-                    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
-                        ingest_skill_workflows,
-                    )
-
                     root = target_path if isinstance(target_path, str) else ""
-                    summary = ingest_skill_workflows(engine, root=root or None)
-                    return json.dumps(summary, default=str)
+                    jid = engine.submit_task(
+                        target_path=root or "universal-skills",
+                        is_codebase=False,
+                        provenance={"agent_id": agent_id},
+                        task_type="skill_workflows",
+                    )
+                    return json.dumps(
+                        {
+                            "job_id": jid,
+                            "status": "submitted",
+                            "message": (
+                                f"Skill-workflow ingest enqueued as background job "
+                                f"{jid}; poll with graph_ingest action=job_status "
+                                f"job_id={jid}."
+                            ),
+                        }
+                    )
                 except Exception as e:
                     return f"Skill-workflow ingest error: {e}"
 
