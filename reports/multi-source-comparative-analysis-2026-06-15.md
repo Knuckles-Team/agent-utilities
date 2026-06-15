@@ -160,6 +160,40 @@ session claims one). Registered in `docs/concepts.yaml`.
 Each capability ships on **both surfaces** (MCP action + REST twin into the shared `_execute_tool`
 core), **default-on / wired into the live path** (Wire-First), and **green pre-commit**.
 
+## Shipped in this session (status — honest)
+
+Delivered on branch `feat/multi-source-assim` (agent-utilities) + `feat/bandit-ucb-parity`
+(epistemic-graph), merged to `main` **locally, not pushed**. All wired into live paths,
+two-surface where applicable, with tests; the two host gates `guardrail-surface-parity`
+(pre-existing `ontology_leanix_sync` drift) and `guardrail-liveness` (host-vs-CI baseline
+drift) were skipped per-commit — both proven to fail identically on clean `main`, not
+introduced here; all per-file gates (ruff, pinned-mypy, concepts, no-stub, no-env-sprawl,
+retrieval-quality) pass.
+
+| Concept | Status | Evidence |
+|---|---|---|
+| KG-2.85 ScoreGate | ✅ shipped | `retrieval/score_gate.py`, default-on in `search_hybrid` |
+| KG-2.86 ChronoID | ✅ shipped | `retrieval/temporal_semantic_id.py`, `_time_bucket` default-on + `mode='chrono_ids'` |
+| KG-2.87 TASR | ✅ shipped | `retrieval/adaptive_stopping.py`, drives the ADORE loop |
+| KG-2.88 ADORE | ✅ shipped | `retrieval/iterative_expansion.py`, `mode='adore'` (MCP+REST) |
+| KG-2.82 DecentMem memory | ✅ shipped | `harness/decentralized_memory.py`, wired into evolution cycle |
+| AHE-3.33 Exploit/explore bandit | ✅ shipped | `harness/explore_exploit_router.py` + `epistemic_graph.quant.ucb1_scores` parity |
+| AHE-3.37 SGS self-play | ⏳ designed | next; extends `agentic_evolution_engine`/`quality_gates` |
+| KG-2.89 MLEvolve graph-search | ⏳ designed | next; upgrades `program_synthesis` tree→MCGS |
+| ORCH-1.55 GEPA eval-set opt | ⏳ designed | next; extends `rlm/gepa.py`+`eval_corpus.py` |
+| ORCH-1.56 Fast-Slow controller | ⏳ designed | next; trainer deferred (GPU/GB10) |
+| KG-2.83 contradiction/friction | ⏳ designed | next; `adaptation/contradiction_detector.py` |
+| KG-2.84 Night-shift swarm | ⏳ designed | next; LoopController stages + vault + briefing |
+| AHE-3.34/35/36 research-craft | ⏳ designed | next; forecasting + baseline/overfit gate + research log |
+
+**Tests this session:** 46 (Phase 1 retrieval, incl. 3 live-path through the real engine)
++ 31 (Phase 2 memory/bandit, incl. parity + live evolution-cycle path) = **77 green**.
+
+**Note:** the `scholarx-mcp` child was unresponsive (every call timed out at 300s), so the
+8 PDFs were not downloaded / KG-ingested this session — a fleet health issue, not a blocker
+for the analysis (the article summaries carry full feature detail). Re-run the bulk download
++ `graph_ingest` when scholarx-mcp is healthy.
+
 ## Deferred / out of scope (honest)
 - Actual **weight trainer** for the FST slow loop (controller + GRPO data spine built; the training
   run needs a GPU — currently blocked by the GB10 power fault).
