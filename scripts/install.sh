@@ -159,6 +159,15 @@ JSON
   [ "$DRY_RUN" = 1 ] || rm -f "$MCP_SRC"
 fi
 
+# 4.5 Draw the Claude Code permission fence (CONCEPT:OS-5.40) so the CLI can run
+# unattended safely: settings.json allow/ask/deny + defaultMode=acceptEdits +
+# .claudeignore, derived from the live ActionPolicy. Idempotent + best-effort.
+if command -v setup-config >/dev/null 2>&1; then
+  c_info "Writing the Claude Code permission fence into ~/.claude (harness-fence)…"
+  run "setup-config harness-fence --target \"$HOME/.claude\"" \
+    || c_warn "harness-fence reported issues (non-fatal)."
+fi
+
 # 5. Hand off to the deployment skill.
 SKILL="agent-utilities-deployment"
 [ "$PROFILE" = "enterprise" ] && SKILL="agent-os-genesis"

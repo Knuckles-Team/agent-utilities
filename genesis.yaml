@@ -75,6 +75,7 @@ components:
 ide_targets:
   install_skills: install-skills --all-detected
   install_mcp: mcp-installer --all-detected
+  harness_fence: setup-config harness-fence --target ~/.claude
   tools:
   - claude
   - claude-desktop
