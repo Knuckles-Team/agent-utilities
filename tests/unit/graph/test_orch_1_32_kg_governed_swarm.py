@@ -176,9 +176,9 @@ def test_swarm_action_registered_in_graph_orchestrate():
     """Wire-First: the one-shot swarm action must exist on the graph_orchestrate tool body."""
     import inspect
 
-    from agent_utilities.mcp import kg_server
+    from agent_utilities.mcp.tools import analysis_tools
 
-    src = inspect.getsource(kg_server)
+    src = inspect.getsource(analysis_tools)
     assert 'action == "swarm"' in src
     assert "ParallelEngine(engine=engine).execute(manifest)" in src
     assert 'manifest.metadata["verify"] = True' in src  # governance ON by default

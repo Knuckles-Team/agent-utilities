@@ -34,7 +34,7 @@ class _DepthAwareFakeAgent:
         sysp = kwargs.get("system_prompt", "")
         _CAPTURED_SYSTEM_PROMPTS.append(sysp)
 
-    async def run(self, prompt, message_history=None):
+    async def run(self, prompt, message_history=None, **kwargs):
         if "boolean" in str(
             prompt
         ):  # the injected output contract reached the sub-agent

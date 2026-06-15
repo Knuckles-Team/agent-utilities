@@ -199,9 +199,9 @@ class TestExecuteWorkflowWiring:
         """The MCP execute_workflow branch calls the gate before orch dispatch."""
         import inspect
 
-        from agent_utilities.mcp import kg_server
+        from agent_utilities.mcp.tools import analysis_tools
 
-        source = inspect.getsource(kg_server)
+        source = inspect.getsource(analysis_tools)
         gate_idx = source.find("gate_workflow_execution(engine, gate_name)")
         dispatch_idx = source.find("await orch.execute_workflow(")
         assert gate_idx != -1, "execute_workflow must run the ORCH-1.42 gate"
@@ -293,9 +293,9 @@ class TestDispatchWorkflowWiring:
         """Source order: the gate runs BEFORE asyncio.create_task in the branch."""
         import inspect
 
-        from agent_utilities.mcp import kg_server
+        from agent_utilities.mcp.tools import analysis_tools
 
-        source = inspect.getsource(kg_server)
+        source = inspect.getsource(analysis_tools)
         branch_idx = source.find('elif action == "dispatch_workflow":')
         assert branch_idx != -1
         gate_idx = source.find("gate_workflow_execution(engine, gate_name)", branch_idx)
