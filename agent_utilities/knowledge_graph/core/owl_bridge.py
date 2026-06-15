@@ -283,6 +283,10 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "marking",
     # Document processing pipeline — exploded chunk objects (CONCEPT:KG-2.48)
     "chunk",
+    # Finance microstructure signals (CONCEPT:KG-2.81) — Kyle surveillance signal
+    # reasons over grounded_in/supports transitively.
+    "microstructure_signal",
+    "surveillance_signal",
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)

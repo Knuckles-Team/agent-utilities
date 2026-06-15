@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 249
+total_concepts: 250
 total_pillars: 20
 pillars:
 - AHE-3
@@ -167,7 +167,7 @@ concepts:
   - agent_utilities/knowledge_graph/distillation/physical_distiller.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_importer.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: Distills updated tool description back into Python function docstring
 - id: AHE-3.11
   name: GitOps Git Commit Automation
@@ -240,7 +240,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/change_publisher.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: Failure-Driven Evolution
 - id: AHE-3.19
   name: Performance Anomaly Consumer
@@ -272,6 +272,7 @@ concepts:
   - agent_utilities/knowledge_graph/research/change_publisher.py
   - agent_utilities/knowledge_graph/research/change_synthesis.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/orchestration/fleet_reconciler.py
   doc: Evolution-to-branch bridge publishing promoted proposals as regression-gated reviewable local git
     branches via change synthesis, RLM-sandbox validation and a governed ChangePublisher seam
@@ -352,7 +353,7 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/sai_factory.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: the controller that operationalizes Superhuman Adaptable
 - id: AHE-3.30
   name: ──────────────────
@@ -370,7 +371,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/harness/recursive_distill.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: a recursive-distillation loop that fine-tunes a new prior from the search-distilled corpus, gates
     the candidate model behind a monotone capability ratchet, and promotes it only on a non-regressing
     improvement so test-time search converts into a stronger next prior
@@ -379,7 +380,7 @@ concepts:
   pillar: AHE-3
   status: live
   code_paths:
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/rlm/benchmarks/__init__.py
   - agent_utilities/rlm/benchmarks/base.py
   - agent_utilities/rlm/benchmarks/baselines.py
@@ -446,6 +447,7 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/mcp/server_factory.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp_utilities.py
   - agent_utilities/messaging/__init__.py
   - agent_utilities/messaging/backends/__init__.py
@@ -604,6 +606,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/protocols/source_connectors/__init__.py
   - agent_utilities/protocols/source_connectors/base.py
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
@@ -617,7 +620,7 @@ concepts:
   pillar: ECO-4
   status: live
   code_paths:
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/protocols/source_connectors/base.py
   - agent_utilities/protocols/source_connectors/checkpoint.py
   - agent_utilities/protocols/source_connectors/connectors/database.py
@@ -785,7 +788,7 @@ concepts:
   - agent_utilities/gateway/usage_api.py
   - agent_utilities/gateway_client/client.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/server/app.py
   doc: usage/cost/observability surface for all 3 UIs
 - id: ECO-4.42
@@ -794,7 +797,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/gateway/usage_api.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: clients parse local logs and POST normalized
 - id: ECO-4.43
   name: git issue/PR -> SWE task resolver + webhook ingress
@@ -1008,7 +1011,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/security/policy_ingestor.py
   - agent_utilities/knowledge_graph/security/rule_ingestor.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/models/imodel.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_pack.py
@@ -1167,6 +1170,7 @@ concepts:
   - agent_utilities/knowledge_graph/streams/kafka_adapter.py
   - agent_utilities/knowledge_graph/streams/nats_adapter.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/models/company.py
   - agent_utilities/models/company_brain.py
   - agent_utilities/models/domains/finance.py
@@ -1231,7 +1235,8 @@ concepts:
   - agent_utilities/knowledge_graph/pipeline/phases/__init__.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/research/search.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/server/app.py
   doc: / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis
@@ -1255,7 +1260,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/enrichment/__init__.py
   - agent_utilities/knowledge_graph/enrichment/__main__.py
-  - agent_utilities/knowledge_graph/enrichment/capability_writeback.py
   - agent_utilities/knowledge_graph/enrichment/cards.py
   - agent_utilities/knowledge_graph/enrichment/classify.py
   - agent_utilities/knowledge_graph/enrichment/distill.py
@@ -1267,10 +1271,13 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/models.py
   - agent_utilities/knowledge_graph/enrichment/patterns.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
-  - agent_utilities/knowledge_graph/enrichment/process_writeback.py
   - agent_utilities/knowledge_graph/enrichment/query.py
   - agent_utilities/knowledge_graph/enrichment/realizes.py
   - agent_utilities/knowledge_graph/enrichment/semantic.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/__init__.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/core.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/capability.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/process.py
   - agent_utilities/knowledge_graph/facade.py
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
@@ -1279,6 +1286,8 @@ concepts:
   - agent_utilities/knowledge_graph/research/code_synthesis.py
   - agent_utilities/knowledge_graph/retrieval/governance_rules.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/protocols/source_connectors/checkpoint.py
@@ -1295,25 +1304,55 @@ concepts:
   - agent_utilities/knowledge_graph/core/hydration.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/ansible.py
   - agent_utilities/knowledge_graph/enrichment/extractors/archer.py
   - agent_utilities/knowledge_graph/enrichment/extractors/aris.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/caddy.py
   - agent_utilities/knowledge_graph/enrichment/extractors/camunda.py
   - agent_utilities/knowledge_graph/enrichment/extractors/egeria.py
   - agent_utilities/knowledge_graph/enrichment/extractors/erpnext.py
   - agent_utilities/knowledge_graph/enrichment/extractors/grafana.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/home_assistant.py
   - agent_utilities/knowledge_graph/enrichment/extractors/infra.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/kafka.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/keycloak.py
   - agent_utilities/knowledge_graph/enrichment/extractors/leanix.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/lgtm.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/nextcloud.py
   - agent_utilities/knowledge_graph/enrichment/extractors/odoo.py
-  - agent_utilities/knowledge_graph/enrichment/extractors/servicenow.py
-  - agent_utilities/knowledge_graph/enrichment/leanix_writeback.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/okta.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/portainer.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/salesforce.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/technitium_dns.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/twenty.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/uptime_kuma.py
   - agent_utilities/knowledge_graph/enrichment/materialize.py
   - agent_utilities/knowledge_graph/enrichment/models.py
   - agent_utilities/knowledge_graph/enrichment/registry.py
+  - agent_utilities/knowledge_graph/enrichment/source_adapters.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/approval.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/findings.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/inventory.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/ansible.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/erpnext.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/home_assistant.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/identity.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/issue_tracker.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/leanix.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/nextcloud.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/ops.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/salesforce.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/servicenow.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/twenty.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/spec_link.py
   - agent_utilities/knowledge_graph/infra/__init__.py
   - agent_utilities/knowledge_graph/infra/inventory_collector.py
   - agent_utilities/knowledge_graph/infra/placement_optimizer.py
   - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/models/sdd.py
   - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/protocols/universal_connector.py
   - agent_utilities/tools/db_tools.py
@@ -1339,7 +1378,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_pack.py
   doc: optional ISO-8601 instant. When set, rows are filtered to
@@ -1353,7 +1392,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/executable_rag.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/query_tools.py
   doc: run a self-correcting second retrieval pass at the deep threshold when the quality gate fails
 - id: KG-2.13
   name: targeted ADD/UPDATE/DELETE learner
@@ -1415,7 +1454,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py
   - agent_utilities/knowledge_graph/ingestion/wiki_curator.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: delta-skip continuous ingest of a self-curating wiki dir
 - id: KG-2.20
   name: live Memento block-compress-evict sawtooth
@@ -1449,7 +1488,7 @@ concepts:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/autocut.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/models/schema_pack.py
   - agent_utilities/models/schema_packs/research.py
   doc: Pack-Driven Retrieval Signals
@@ -1498,7 +1537,8 @@ concepts:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/links.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/state_tools.py
   doc: the Palantir *many-to-many link backed by an object type*
 - id: KG-2.27
   name: Agent Calibration and Reputation Tracking
@@ -1569,7 +1609,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/models/schema_pack_audit.py
   - agent_utilities/models/schema_pack_loader.py
   doc: Schema-Pack Lifecycle and Audit
@@ -1602,7 +1642,8 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/interfaces.py
   - agent_utilities/knowledge_graph/ontology/object_set.py
   - agent_utilities/knowledge_graph/standardization/standards.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/state_tools.py
   doc: the function the A3 functions runtime / object queries call
 - id: KG-2.39
   name: the live consumer hook. Writes the combined SHACL document
@@ -1614,7 +1655,8 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/value_types.py
   - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/state_tools.py
   doc: the live consumer hook. Writes the combined SHACL document
 - id: KG-2.40
   name: import-populated registry + a default engine bound to it and
@@ -1623,7 +1665,8 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/derived_properties.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/state_tools.py
   doc: import-populated registry + a default engine bound to it and
 - id: KG-2.41
   name: a default runtime bound to the import-populated registry, so
@@ -1636,7 +1679,8 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/functions/objects.py
   - agent_utilities/knowledge_graph/ontology/functions/registry.py
   - agent_utilities/knowledge_graph/ontology/functions/runtime.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/state_tools.py
   doc: a default runtime bound to the import-populated registry, so
 - id: KG-2.42
   name: Palantir submission-criteria gate. An action with no
@@ -1663,7 +1707,7 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/edits/ledger.py
   - agent_utilities/knowledge_graph/ontology/edits/revert.py
   - agent_utilities/knowledge_graph/ontology/edits/writeback.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   doc: the write-back leg of the edit ledger. Sinks are registered
 - id: KG-2.44
   name: batch/incremental sync of the live search index from source nodes, report staleness, or reindex
@@ -1676,7 +1720,7 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/indexing/__init__.py
   - agent_utilities/knowledge_graph/ontology/indexing/funnel.py
   - agent_utilities/knowledge_graph/ontology/indexing/staleness.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   doc: batch/incremental sync of the live search index from source nodes, report staleness, or reindex
     stale objects
 - id: KG-2.45
@@ -1686,7 +1730,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/object_set.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   doc: pivot across a link type. Computes the 1-hop related set
 - id: KG-2.46
   name: redact an object, materialize a restricted view, or attach a mandatory marking. Actor is resolved
@@ -1697,7 +1741,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/facade.py
   - agent_utilities/knowledge_graph/ontology/permissioning.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   doc: redact an object, materialize a restricted view, or attach a mandatory marking. Actor is resolved
     from the ambient context — never from caller-supplied clearance
 - id: KG-2.47
@@ -1708,7 +1752,8 @@ concepts:
   - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/property_types.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/state_tools.py
   doc: bridges the ontology type vocabulary onto the exact
 - id: KG-2.48
   name: the one-call form the ingestion engine / MCP wrapper invokes
@@ -1719,7 +1764,7 @@ concepts:
   - agent_utilities/knowledge_graph/facade.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   doc: the one-call form the ingestion engine / MCP wrapper invokes
 - id: KG-2.49
   name: populated at import with real built-in standards, never empty
@@ -1733,7 +1778,8 @@ concepts:
   - agent_utilities/knowledge_graph/standardization/consolidation.py
   - agent_utilities/knowledge_graph/standardization/drift.py
   - agent_utilities/knowledge_graph/standardization/standards.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/models/knowledge_graph.py
   doc: populated at import with real built-in standards, never empty
 - id: KG-2.50
@@ -1744,7 +1790,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ontology/contextual_enrichment.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   doc: situate each chunk within the document and embed context+chunk for better recall
 - id: KG-2.52
   name: the authoritative TBox the platform ships
@@ -1849,7 +1895,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/brain_guarded_backend.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/tenant_sharing.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   doc: Data is private-to-its-owner by default; this is the explicit promotion path. action=
 - id: KG-2.61
   name: ──
@@ -1880,6 +1926,9 @@ concepts:
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: Multi-Connection Graph Registry. The engine has always been
 - id: KG-2.64
   name: document → atomic-triple fact extraction
@@ -1888,7 +1937,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/extraction/__init__.py
   - agent_utilities/knowledge_graph/extraction/fact_extractor.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/runtime/provenance.py
   doc: document → atomic-triple fact extraction
 - id: KG-2.65
@@ -1897,7 +1946,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/gpu_slot_scheduler.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/tools/code_intelligence_tools.py
   doc: GPU-slot-scheduled fact extraction. Unlike the
 - id: KG-2.66
@@ -1950,7 +1999,7 @@ concepts:
   - agent_utilities/knowledge_graph/search_synthesis/__init__.py
   - agent_utilities/knowledge_graph/search_synthesis/evidence_subgraph.py
   - agent_utilities/knowledge_graph/search_synthesis/models.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/query_tools.py
   doc: /2.71/2.72, AHE-3.30; distills arXiv
 - id: KG-2.71
   name: and formulate + adversarially refine a
@@ -1991,7 +2040,7 @@ concepts:
   - agent_utilities/knowledge_graph/extraction/readers_media.py
   - agent_utilities/knowledge_graph/extraction/structure_router.py
   - agent_utilities/knowledge_graph/migration.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: Concurrent N-way mirroring health/repair ──
 - id: KG-2.75
   name: KG-2.75
@@ -2029,7 +2078,8 @@ concepts:
   - agent_utilities/core/sessions.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/research/loops.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   doc: These properties carry the
 - id: KG-2.79
@@ -2041,7 +2091,7 @@ concepts:
   - agent_utilities/knowledge_graph/research/ara/__init__.py
   - agent_utilities/knowledge_graph/research/ara/reasoning_driver.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/state_tools.py
   doc: Best-effort + lightweight; never blocks
 - id: KG-2.80
   name: verified_by/implemented_by/contains/
@@ -2061,6 +2111,15 @@ concepts:
   - agent_utilities/knowledge_graph/research/ara/service.py
   - agent_utilities/models/knowledge_graph.py
   doc: verified_by/implemented_by/contains/
+- id: KG-2.81
+  name: Kyle insider/stealth surveillance signal ontology
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/ontology/__init__.py
+  - agent_utilities/knowledge_graph/ontology/finance_objects.py
+  doc: Kyle insider/stealth surveillance signal ontology
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -2280,7 +2339,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/graph/_router_impl.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/rlm/config.py
   - agent_utilities/rlm/predict_rlm.py
   - agent_utilities/rlm/repl.py
@@ -2292,7 +2351,7 @@ concepts:
   pillar: ORCH-1
   status: live
   code_paths:
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/rlm/gepa.py
   - agent_utilities/rlm/runner.py
@@ -2354,7 +2413,7 @@ concepts:
   - agent_utilities/core/model_factory.py
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/routing/strategies/llm_planner.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/models/model_registry.py
   - agent_utilities/models/sdd.py
   - agent_utilities/rlm/gepa.py
@@ -2404,7 +2463,7 @@ concepts:
   code_paths:
   - agent_utilities/graph/parallel_engine.py
   - agent_utilities/graph/social_system.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/models/execution_manifest.py
   doc: model the wave as a Multi-Agent Social System and
 - id: ORCH-1.33
@@ -2465,7 +2524,7 @@ concepts:
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/hierarchical_planner.py
   - agent_utilities/graph/verification.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/manager.py
   doc: Orchestration execution-flow mermaid-diagram surfacing in graph_orchestrate responses
@@ -2499,7 +2558,8 @@ concepts:
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/state.py
   - agent_utilities/knowledge_graph/core/engine.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
   - agent_utilities/orchestration/manager.py
@@ -2512,7 +2572,8 @@ concepts:
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/state.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/messaging/agent_channel.py
   - agent_utilities/models/agent.py
   - agent_utilities/orchestration/agent_runner.py
@@ -2525,6 +2586,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/process_plan_compiler.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: REST twin of graph_orchestrate compile_process
 - id: ORCH-1.42
   name: Ontology Validation on the Execution Path
@@ -2533,7 +2595,7 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/core/workflow_gate.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   doc: Ontology Validation on the Execution Path
 - id: ORCH-1.43
   name: close the descriptive↔executable provenance loop
@@ -2563,7 +2625,7 @@ concepts:
   - agent_utilities/gateway/fleet.py
   - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/core/postgres_queue_backend.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/observability/gateway_metrics.py
   - agent_utilities/orchestration/agent_dispatch.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
@@ -2908,7 +2970,7 @@ concepts:
   - agent_utilities/gateway/fleet.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
-  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/orchestration/agent_dispatch.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/orchestration/durable_execution.py
