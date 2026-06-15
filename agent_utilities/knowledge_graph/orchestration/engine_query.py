@@ -21,6 +21,9 @@ import logging
 from typing import Any
 
 from ...models.knowledge_graph import RegistryNodeType
+from ..retrieval.iterative_expansion import IterativeQueryExpander
+from ..retrieval.score_gate import score_gate
+from ..retrieval.temporal_semantic_id import TemporalSemanticIdEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -381,6 +384,16 @@ class QueryMixin(_Base):
             results = [
                 r for r in results if str(r.get("status", "")).upper() != "ARCHIVED"
             ]
+        # CONCEPT:KG-2.85 (ScoreGate) — adaptively trim the weak tail by statistically
+        # fusing the bi-encoder (`_score`) and cross-encoder (`_rerank_score`) signals
+        # rather than a blind top_k cut. Recall-safe: keeps >= min_results, never more
+        # than top_k, and only trims results more than ~1σ below the fused mean.
+        results = score_gate(
+            results, min_results=min(top_k, 5), max_results=top_k, keep_z=-1.0
+        )
+        # CONCEPT:KG-2.86 (ChronoID) — infuse an explicit temporal-recency bucket onto
+        # every result so generative/recommendation consumers can condition on time.
+        self._annotate_time_buckets(results)
         # Public contract: every search result exposes its relevance under the
         # `score` key. The hybrid retriever ranks into the internal `_score` (it
         # re-weights it during fusion); without this projection the MCP formatter
@@ -390,7 +403,147 @@ class QueryMixin(_Base):
         for r in results:
             if isinstance(r, dict) and r.get("score") is None and "_score" in r:
                 r["score"] = r["_score"]
-        return results[:top_k]
+        return results
+
+    # ------------------------------------------------------------------
+    # Temporal semantic IDs (CONCEPT:KG-2.86 — ChronoID)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _node_event_epoch(node: dict[str, Any]) -> float | None:
+        """Best-effort epoch (seconds) for a result's event time, or None.
+
+        Reads the bi-temporal fields (CONCEPT:KG-2.11) first, then common
+        creation/timestamp aliases, parsing either an epoch number or an
+        ISO-8601 string (``Z`` accepted).
+        """
+        import datetime as _dt
+
+        inner = node.get("node", node) if isinstance(node, dict) else {}
+        src = inner if isinstance(inner, dict) else {}
+        for key in (
+            "event_time",
+            "valid_from",
+            "storage_time",
+            "created_at",
+            "timestamp",
+        ):
+            val = node.get(key) if isinstance(node, dict) else None
+            val = val if val is not None else src.get(key)
+            if val is None or val == "":
+                continue
+            if isinstance(val, int | float):
+                return float(val)
+            try:
+                text = str(val).replace("Z", "+00:00")
+                return _dt.datetime.fromisoformat(text).timestamp()
+            except (ValueError, TypeError):
+                continue
+        return None
+
+    def _annotate_time_buckets(self, results: list[dict[str, Any]]) -> None:
+        """Annotate each result with a ``_time_bucket`` recency token (KG-2.86).
+
+        Uses only the (fit-free) time bucketer, so it is cheap enough to run on
+        every search; recent results land in bucket 0, unknown-date in the last.
+        """
+        import time as _time
+
+        bucketer = TemporalSemanticIdEncoder()
+        now = _time.time()
+        for r in results:
+            if isinstance(r, dict):
+                r["_time_bucket"] = bucketer.time_bucket(
+                    self._node_event_epoch(r), now_epoch=now
+                )
+
+    def temporal_semantic_ids(
+        self, query: str, top_k: int = 10
+    ) -> list[dict[str, Any]]:
+        """Retrieve, then attach a temporal **semantic ID** to each result (KG-2.86).
+
+        CONCEPT:KG-2.86 — ChronoID. Fits a residual-quantization codebook on the
+        retrieved embeddings and infuses an explicit temporal token, exposing a
+        compact ``_temporal_sid`` per node for generative retrieval/recommendation.
+        """
+        import time as _time
+
+        results = self.search_hybrid(query, top_k=top_k) or []
+        embeddings: list[Any] = []
+        for r in results:
+            inner = r.get("node", r) if isinstance(r, dict) else {}
+            emb = (inner or {}).get("embedding") if isinstance(inner, dict) else None
+            if emb:
+                embeddings.append(emb)
+        encoder = TemporalSemanticIdEncoder()
+        if embeddings:
+            encoder.fit(embeddings)
+        now = _time.time()
+        for r in results:
+            if not isinstance(r, dict):
+                continue
+            inner = r.get("node", r)
+            emb = (inner or {}).get("embedding") if isinstance(inner, dict) else None
+            event = self._node_event_epoch(r)
+            r["_time_bucket"] = encoder.time_bucket(event, now_epoch=now)
+            if emb and encoder.is_fitted:
+                r["_temporal_sid"] = list(encoder.encode(emb, event, now_epoch=now))
+        return results
+
+    # ------------------------------------------------------------------
+    # Iterative query expansion with graded relevance feedback
+    # (CONCEPT:KG-2.88 — ADORE, with CONCEPT:KG-2.87 TASR stopping)
+    # ------------------------------------------------------------------
+    def search_adore(
+        self, query: str, top_k: int = 10, max_rounds: int = 4
+    ) -> list[dict[str, Any]]:
+        """Iterative query expansion with retrieval-grounded relevance feedback.
+
+        CONCEPT:KG-2.88 (ADORE) — reformulate → retrieve → judge → partition by
+        graded relevance → repeat, until CONCEPT:KG-2.87 (TASR) training-free
+        stopping (answer repeat / coverage saturation) or ``max_rounds``. The
+        judge is the deterministic lexical relevance proxy (no network), and the
+        relevance feedback is grounded in the highest-graded retrieved passages.
+        """
+        from ..retrieval.reasoning_reranker import LexicalRelevanceScorer
+
+        scorer = LexicalRelevanceScorer()
+        node_cache: dict[str, dict[str, Any]] = {}
+
+        def retrieve_fn(expanded: str, k: int) -> list[dict[str, Any]]:
+            nodes = self.search_hybrid(query=expanded, top_k=k) or []
+            for n in nodes:
+                if isinstance(n, dict):
+                    nid = str(n.get("id") or (n.get("node", {}) or {}).get("id") or "")
+                    if nid:
+                        node_cache.setdefault(nid, n)
+            return nodes
+
+        def judge_fn(q: str, text: str) -> int:
+            return max(0, min(3, round(scorer.score(q, text) * 3)))
+
+        def reformulate_fn(
+            original: str,
+            prev_pseudo: list[str],
+            graded: dict[int, list[str]],
+        ) -> list[str]:
+            feedback = list(graded.get(3, [])) + list(graded.get(2, []))
+            return feedback[:3] or prev_pseudo or [original]
+
+        expander = IterativeQueryExpander(
+            retrieve_fn,
+            judge_fn,
+            reformulate_fn,
+            max_rounds=max_rounds,
+            top_k=max(top_k * 2, 20),
+            judge_depth=10,
+        )
+        history = expander.run(query, query)
+        ranked: list[dict[str, Any]] = []
+        for doc_id, _score in history.final_ranking[:top_k]:
+            node = node_cache.get(doc_id)
+            if node is not None:
+                ranked.append(node)
+        return ranked[:top_k]
 
     def search_dci(
         self,
