@@ -117,6 +117,7 @@ from laptop to fleet: **[Deployment Configurations](guides/deployment-configurat
 
 - **[Capabilities](capabilities.md)** — the concrete list of what an agent can do, with copy-paste snippets.
 - **[Consumption Models](guides/consumption-models.md)** — library vs MCP stdio vs MCP HTTP vs REST.
+- **[Loop Engine](guides/loop-engine.md)** — run the self-improvement / research / goal loop (formerly the "golden loop"): the `graph_loops` entrypoint, the autonomous daemon tick, and the rename/migration notes.
 - **[Deployment Configurations](guides/deployment-configurations.md)** — the flagship guide: every deployment shape from zero-infra laptop to sharded, queue-driven fleet.
 - **[Ecosystem](ecosystem.md)** — how agent-utilities anchors the wider `agent-packages/*` fleet.
 - **[Day-0 Deployment](guides/day0.md)** — from `scripts/bootstrap.sh` to a full enterprise swarm.
