@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any
 
-from ..base import GraphBackend
+from ..base import GraphBackend, coerce_cypher_property
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,12 @@ class FalkorDBBackend(GraphBackend):
     def execute(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        params = {k: _clean_param_value(v) for k, v in (params or {}).items()}
+        # coerce_cypher_property first (Map/nested → JSON string so FalkorDB doesn't
+        # reject a Map-valued prop and stall a mirror), then strip control chars.
+        params = {
+            k: _clean_param_value(coerce_cypher_property(v))
+            for k, v in (params or {}).items()
+        }
         result = self.graph.query(query, params)
         # Convert FalkorDB ResultSet to list of dicts
         output = []
