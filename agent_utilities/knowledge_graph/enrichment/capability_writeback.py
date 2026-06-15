@@ -77,6 +77,17 @@ def _push_archi(client: Any, node: GraphNode, result: WritebackResult) -> None:
 
 
 def _push_leanix(client: Any, node: GraphNode, result: WritebackResult) -> None:
+    # Prefer the unified LeanixEAClient surface (create_fact_sheet); fall back to
+    # legacy duck-typed methods for any other injected client.
+    create_fs = getattr(client, "create_fact_sheet", None)
+    if callable(create_fs):
+        try:
+            create_fs("BusinessCapability", _name_of(node))
+            result.leanix_pushed += 1
+        except Exception as exc:  # pragma: no cover - external client transport
+            logger.debug("LeanIX create_fact_sheet failed for %s: %s", node.id, exc)
+            result.errors += 1
+        return
     payload = {
         "name": _name_of(node),
         "description": str(node.props.get("summary") or ""),
