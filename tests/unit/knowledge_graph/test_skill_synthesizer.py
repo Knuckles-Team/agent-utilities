@@ -81,8 +81,8 @@ class FakeEngine:
     def link_nodes(self, source, target, rel_type, properties=None) -> None:
         self.graph.add_edge(source, target, type=rel_type, **(properties or {}))
 
-    # the distiller never calls these on the fake path, but compiler/reasoner may
-    def query_cypher(self, *a, **k):  # noqa: D401 - stub for compat
+    # the distiller never calls this on the fake path, but compiler/reasoner may
+    def query_cypher(self, *a, **k):  # noqa: D401 - inert fake for tests
         return []
 
 

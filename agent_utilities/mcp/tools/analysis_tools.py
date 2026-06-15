@@ -1417,8 +1417,8 @@ def register_analysis_tools(mcp):
                     return _json.dumps(
                         distiller.materialize(pid), indent=2, default=str
                     )
-                rep = distiller.run(draft="draft" in _task.lower())
-                return _json.dumps(rep.to_dict(), indent=2, default=str)
+                distill_rep = distiller.run(draft="draft" in _task.lower())
+                return _json.dumps(distill_rep.to_dict(), indent=2, default=str)
 
             elif action == "standardize":
                 # Enterprise standardization + consolidation pass (CONCEPT:KG-2.49):
