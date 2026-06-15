@@ -190,10 +190,13 @@ def register_write_ingest_tools(mcp):
                 )
             return _write_with_engine(writable[0][1])
 
-        out: dict[str, Any] = {"targets": {}, "errors": errors}
-        for name, eng in writable:
-            out["targets"][name] = _write_with_engine(eng)
-        return json.dumps(out, default=str)
+        # Fan-out — per-target timeout so one slow backend can't stall the set.
+        results, fan_errors = kg_server.fanout_execute(
+            writable, lambda name, eng: _write_with_engine(eng)
+        )
+        return json.dumps(
+            {"targets": results, "errors": {**errors, **fan_errors}}, default=str
+        )
 
     kg_server.REGISTERED_TOOLS["graph_write"] = graph_write
 
