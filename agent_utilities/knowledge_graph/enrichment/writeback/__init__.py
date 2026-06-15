@@ -28,7 +28,9 @@ from .spec_link import link_spec, pull_assigned
 
 # Import sinks so they self-register (plugin pattern).
 from .sinks import ansible as _ansible  # noqa: F401
+from .sinks import archimate as _archimate  # noqa: F401
 from .sinks import capability as _capability  # noqa: F401
+from .sinks import egeria as _egeria  # noqa: F401
 from .sinks import erpnext as _erpnext  # noqa: F401
 from .sinks import home_assistant as _home_assistant  # noqa: F401
 from .sinks import identity as _identity  # noqa: F401
