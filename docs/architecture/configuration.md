@@ -191,14 +191,14 @@ opt-in, all off by default, single typed source of truth.
 
 | Flag | Default | What it gates |
 |---|---|---|
-| `KG_GOLDEN_LOOP` | `False` | enable the autonomous golden-loop daemon cycle (intake→acquire→resolve→distil→synthesize) |
-| `KG_GOLDEN_DISTILL` | `False` | distillation step of the golden loop |
-| `KG_GOLDEN_BREADTH` | `False` | breadth ingest step (auto-ingest of the roots below) |
-| `KG_GOLDEN_STANDARDIZE` | `False` | standardization pass of the golden loop |
+| `KG_LOOP` | `False` | enable the autonomous golden-loop daemon cycle (intake→acquire→resolve→distil→synthesize) |
+| `KG_LOOP_DISTILL` | `False` | distillation step of the golden loop |
+| `KG_LOOP_BREADTH` | `False` | breadth ingest step (auto-ingest of the roots below) |
+| `KG_LOOP_STANDARDIZE` | `False` | standardization pass of the golden loop |
 | `KG_GOLDEN_AUTO_MERGE` | `False` | governed auto-merge of promoted proposals |
 | `KG_GOLDEN_MERGE_THRESHOLD` | `None` | score threshold gating auto-merge |
-| `KG_GOLDEN_LOOP_INTERVAL` | `3600` | daemon tick interval (s) |
-| `KG_GOLDEN_LOOP_TOPICS` | `5` | hot topics processed per cycle |
+| `KG_LOOP_INTERVAL` | `3600` | daemon tick interval (s) |
+| `KG_LOOP_TOPICS` | `5` | hot topics processed per cycle |
 | `KG_BREADTH_LIBRARY_ROOTS` | `""` | comma-separated OSS library roots auto-ingested by the breadth step (deployment-specific; empty = no-op) |
 | `KG_BREADTH_REPO_ROOTS` | `""` | comma-separated code-repo roots auto-ingested by the breadth step |
 

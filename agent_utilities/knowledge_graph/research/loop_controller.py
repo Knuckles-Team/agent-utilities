@@ -152,10 +152,10 @@ class LoopController:
         """Execute one cycle. Returns a structured, JSON-able report.
 
         Stages (each best-effort + timed; one failing stage never aborts the cycle):
-        ``breadth`` (env ``KG_GOLDEN_BREADTH`` — ingest the OSS/repos/docs corpus,
+        ``breadth`` (env ``KG_LOOP_BREADTH`` — ingest the OSS/repos/docs corpus,
         idempotent/content-addressed) → ``assimilate`` (dedup→gap→synergy→rank,
         idempotent via the state watermark) → intake/acquire/resolve →
-        ``distill`` (env ``KG_GOLDEN_DISTILL``) → ``synthesize``. The report carries
+        ``distill`` (env ``KG_LOOP_DISTILL``) → ``synthesize``. The report carries
         a ``metrics`` block (per-stage timings + error count) and is persisted as an
         ``EvolutionCycle`` node for monitoring.
         """
@@ -164,13 +164,13 @@ class LoopController:
         from agent_utilities.core.config import config
 
         if distill is None:
-            distill = config.kg_golden_distill
+            distill = config.kg_loop_distill
         if breadth is None:
-            breadth = config.kg_golden_breadth
+            breadth = config.kg_loop_breadth
         if standardize is None:
-            standardize = config.kg_golden_standardize
+            standardize = config.kg_loop_standardize
         if discover is None:
-            discover = config.kg_golden_discover
+            discover = config.kg_loop_discover
 
         report: dict[str, Any] = {
             "propose_only": self.propose_only,
@@ -208,7 +208,7 @@ class LoopController:
         # -2. INTAKE PAPERS — discover + ingest research (scholarx → tiered KB
         # ingest → LLM concept/fact extraction) so the cycle is a research-pipeline
         # runner: the assimilate stage then matches the fresh papers against the
-        # ecosystem. Opt-in (external calls) via KG_GOLDEN_DISCOVER; caller-supplied
+        # ecosystem. Opt-in (external calls) via KG_LOOP_DISCOVER; caller-supplied
         # ``papers`` always run. (CONCEPT:KG-2.77)
         if discover or papers:
             report["intake_papers"] = _stage(
@@ -232,7 +232,7 @@ class LoopController:
             report["reason"] = _stage("reason", self._run_reason)
 
         # 0b. STANDARDIZE — enterprise standardization + consolidation (CONCEPT:KG-2.49),
-        # propose-only. Gated (KG_GOLDEN_STANDARDIZE) since it requires a harvested
+        # propose-only. Gated (KG_LOOP_STANDARDIZE) since it requires a harvested
         # enterprise estate; idempotent (CONFORMS_TO/ABSORBED_INTO cleared on re-write).
         if standardize:
             report["standardize"] = _stage("standardize", self._run_standardize)

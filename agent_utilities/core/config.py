@@ -653,23 +653,24 @@ class AgentConfig(BaseSettings):
     # ingest. Deployment-specific (set in ``.env``); empty ⇒ breadth is a no-op.
     kg_breadth_library_roots: str = Field(default="", alias="KG_BREADTH_LIBRARY_ROOTS")
     kg_breadth_repo_roots: str = Field(default="", alias="KG_BREADTH_REPO_ROOTS")
-    # Golden-loop (autonomous research) parameters. Typed config replaces the
-    # scattered bare KG_GOLDEN_* env reads (CONCEPT:KG-2.7).
+    # Loop-engine (autonomous research) parameters. Typed config replaces the
+    # scattered bare env reads (CONCEPT:KG-2.7). The loop-enable + stage flags are
+    # KG_LOOP*; the separate governed auto-merge gate keeps KG_GOLDEN_AUTO_MERGE.
     kg_loop: bool = Field(default=False, alias="KG_LOOP")
-    kg_golden_distill: bool = Field(default=False, alias="KG_GOLDEN_DISTILL")
+    kg_loop_distill: bool = Field(default=False, alias="KG_LOOP_DISTILL")
     # Opt-in (external scholarx calls cost): the intake stage discovers + ingests
     # research papers (LLM concept/fact extraction) at the front of the unified
     # research-intelligence cycle, so the matcher then compares the fresh papers
     # against the ecosystem. Caller-supplied ``papers`` always run regardless.
     # (CONCEPT:KG-2.77)
-    kg_golden_discover: bool = Field(default=False, alias="KG_GOLDEN_DISCOVER")
+    kg_loop_discover: bool = Field(default=False, alias="KG_LOOP_DISCOVER")
     # On by default: the breadth stage auto-ingests the ecosystem so ``assimilate``
     # has the codebase capability map to compare research against. With no
     # KG_BREADTH_* roots set it self-configures from the XDG workspace.yml, so the
     # default is zero-config; content-addressed ingest makes re-runs cheap. Set
-    # KG_GOLDEN_BREADTH=0 to opt out. (CONCEPT:KG-2.7)
-    kg_golden_breadth: bool = Field(default=True, alias="KG_GOLDEN_BREADTH")
-    kg_golden_standardize: bool = Field(default=False, alias="KG_GOLDEN_STANDARDIZE")
+    # KG_LOOP_BREADTH=0 to opt out. (CONCEPT:KG-2.7)
+    kg_loop_breadth: bool = Field(default=True, alias="KG_LOOP_BREADTH")
+    kg_loop_standardize: bool = Field(default=False, alias="KG_LOOP_STANDARDIZE")
     kg_golden_auto_merge: bool = Field(default=False, alias="KG_GOLDEN_AUTO_MERGE")
     kg_golden_merge_threshold: float | None = Field(
         default=None, alias="KG_GOLDEN_MERGE_THRESHOLD"
