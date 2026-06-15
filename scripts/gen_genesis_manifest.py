@@ -101,7 +101,10 @@ IDE_TARGETS = [
 
 def _load_registry() -> list[dict]:
     if not REGISTRY.exists():
-        print(f"error: {REGISTRY} missing — run gen_mcp_fleet_registry.py", file=sys.stderr)
+        print(
+            f"error: {REGISTRY} missing — run gen_mcp_fleet_registry.py",
+            file=sys.stderr,
+        )
         raise SystemExit(2)
     data = yaml.safe_load(REGISTRY.read_text(encoding="utf-8")) or {}
     return data.get("services", [])
@@ -137,7 +140,7 @@ def build() -> dict:
         "profiles": profiles,
         "preflight": {
             "command": "agent-utilities-doctor --preflight",
-            "mcp_action": 'graph_configure action=preflight config_key=<profile>',
+            "mcp_action": "graph_configure action=preflight config_key=<profile>",
             "always": [
                 "python>=3.11,<3.15",
                 "uv-or-pip",
@@ -179,14 +182,20 @@ HEADER = (
 
 def render() -> str:
     body = yaml.safe_dump(
-        build(), sort_keys=False, default_flow_style=False, width=100, allow_unicode=True
+        build(),
+        sort_keys=False,
+        default_flow_style=False,
+        width=100,
+        allow_unicode=True,
     )
     return HEADER + body
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", type=Path, default=None, help="Output path (default: stdout).")
+    ap.add_argument(
+        "--out", type=Path, default=None, help="Output path (default: stdout)."
+    )
     args = ap.parse_args()
     text = render()
     if args.out:
