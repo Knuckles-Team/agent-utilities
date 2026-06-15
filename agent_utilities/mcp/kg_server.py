@@ -550,6 +550,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "ontology_function": "/ontology/function",
     "ontology_derive": "/ontology/derive",
     "ontology_link_materialize": "/ontology/link-materialize",
+    "ontology_leanix_sync": "/ontology/leanix-sync",
     "object_edits": "/object/edits",
     "object_index": "/object/index",
     "object_permissioning": "/object/permissioning",

@@ -6,6 +6,7 @@ Exposes OptimisticStateLocker, BranchMergeStateLocker, ToolContract, and Contrac
 from .adaptation_benchmark import AdaptationBenchmark, BenchmarkEntry
 from .adaptation_speed import AdaptationCurve, CurvePoint, marginal_speed_gain
 from .contract_validator import ContractValidator, ToolContract
+from .decentralized_memory import Contribution, DecentralizedMemory, MemoryPool
 from .distributed_state_manager import BranchMergeStateLocker, OptimisticStateLocker
 from .edit_engine import (
     Edit,
@@ -50,6 +51,10 @@ __all__ = [
     "EvolvingMemoryStore",
     "MemoryBank",
     "MemoryRecord",
+    # Decentralized per-agent memory + exploit/explore bandit (CONCEPT:KG-2.82/AHE-3.33)
+    "DecentralizedMemory",
+    "MemoryPool",
+    "Contribution",
     # Provenance-completeness critic gate (CONCEPT:AHE-3.13)
     "ProvenanceCriticGate",
     "ProvenanceVerdict",
