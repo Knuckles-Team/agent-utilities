@@ -114,6 +114,18 @@ def resolve_source_client(category: str) -> Any | None:
             from keycloak_agent.auth import get_client
 
             return get_client()
+        if category == "salesforce":
+            from salesforce_agent.auth import get_client
+
+            return get_client()
+        if category == "ansible":
+            from ansible_tower_mcp.auth import get_client
+
+            return get_client()
+        if category == "homeassistant":
+            from home_assistant_agent.auth import get_client
+
+            return get_client()
     except Exception as exc:  # noqa: BLE001 - missing/unconfigured connector → no client
         logger.debug("no source client for %s: %s", category, exc)
         return None
@@ -133,6 +145,9 @@ MATERIALIZE_SOURCES: frozenset[str] = frozenset(
         "nextcloud",
         "okta",
         "keycloak",
+        "salesforce",
+        "ansible",
+        "homeassistant",
     }
 )
 
