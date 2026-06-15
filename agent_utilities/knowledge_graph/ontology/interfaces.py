@@ -865,6 +865,90 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
+    # Connector → Skill synthesis proposals (CONCEPT:KG-2.82). The background
+    # distiller turns mapped processes of any connected system (egeria/leanix/
+    # aris/camunda) into propose-only candidates. Making these ontology interfaces
+    # lets the reasoner extrapolate over automates/derived_from/composes so a
+    # proposal is related to the process it automates and the source it came from,
+    # not treated as opaque text. SkillProposal extends HasProvenance so every
+    # proposal records what source it was distilled from.
+    registry.register(
+        Interface(
+            name="SkillProposal",
+            description=(
+                "A propose-only atomic-skill candidate distilled from a mapped "
+                "process/task of a connected system. Carries the drafted skill "
+                "identity (name/description/trigger_patterns), a review status, and "
+                "provenance back to the source node. AUTOMATES the BusinessProcess/"
+                "Capability it would cover; DERIVED_FROM its source system node."
+            ),
+            extends=["HasProvenance"],
+            properties=[
+                InterfaceProperty(
+                    name="name",
+                    type_ref="string",
+                    description="Kebab-case skill name.",
+                ),
+                InterfaceProperty(
+                    name="description",
+                    type_ref="string",
+                    description="Trigger-oriented skill description.",
+                ),
+                InterfaceProperty(
+                    name="trigger_patterns",
+                    type_ref="array<string>",
+                    description="Phrases/intents that should invoke the skill.",
+                ),
+                InterfaceProperty(
+                    name="proposal_status",
+                    type_ref="string",
+                    description="Review lifecycle state (proposal|approved|rejected).",
+                ),
+                InterfaceProperty(
+                    name="provenance",
+                    type_ref="string",
+                    description="Source system + node id the candidate came from.",
+                ),
+            ],
+            link_constraints=[
+                InterfaceLinkConstraint(
+                    name="automates",
+                    edge_type=RegistryEdgeType.AUTOMATES,
+                    target_type="BusinessProcess",
+                    min_count=0,
+                    description="Must declare what process/capability it automates.",
+                ),
+                InterfaceLinkConstraint(
+                    name="derived_from",
+                    edge_type=RegistryEdgeType.DERIVED_FROM,
+                    min_count=0,
+                    description="Provenance link to the source system node.",
+                ),
+            ],
+        )
+    )
+    registry.register(
+        Interface(
+            name="SkillWorkflowProposal",
+            description=(
+                "A propose-only skill-workflow candidate whose steps compose atomic "
+                "Skills/SkillProposals, distilled from a flowsTo-chain of business "
+                "tasks. AUTOMATES the end-to-end process; COMPOSES its step skills; "
+                "DERIVED_FROM the source process node."
+            ),
+            extends=["SkillProposal"],
+            link_constraints=[
+                InterfaceLinkConstraint(
+                    name="composes",
+                    edge_type=RegistryEdgeType.COMPOSES,
+                    target_type=RegistryNodeType.SKILL,
+                    min_count=0,
+                    description="Composes the atomic skills it sequences as steps.",
+                ),
+            ],
+        )
+    )
+
     # Declare built-in type shapes and record the implements-by relations so the
     # registry ships with live implementers (programmatic targeting works out of
     # the box, not just after a caller wires it).
@@ -891,6 +975,36 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         link_types=[RegistryEdgeType.WAS_DERIVED_FROM, RegistryEdgeType.CONTAINS],
     )
     registry.implement(RegistryNodeType.RESEARCH_ARTIFACT, "ResearchArtifactShape")
+    # CONCEPT:KG-2.82 — connector→skill synthesis proposal shapes.
+    _proposal_props = {
+        "name": "string",
+        "description": "string",
+        "trigger_patterns": "array<string>",
+        "proposal_status": "string",
+        "provenance": "string",
+        "timestamp": "timestamp",
+    }
+    registry.declare_type_shape(
+        RegistryNodeType.SKILL_PROPOSAL,
+        properties=_proposal_props,
+        link_types=[
+            RegistryEdgeType.AUTOMATES,
+            RegistryEdgeType.DERIVED_FROM,
+            RegistryEdgeType.WAS_DERIVED_FROM,
+        ],
+    )
+    registry.implement(RegistryNodeType.SKILL_PROPOSAL, "SkillProposal")
+    registry.declare_type_shape(
+        RegistryNodeType.SKILL_WORKFLOW_PROPOSAL,
+        properties=_proposal_props,
+        link_types=[
+            RegistryEdgeType.AUTOMATES,
+            RegistryEdgeType.DERIVED_FROM,
+            RegistryEdgeType.WAS_DERIVED_FROM,
+            RegistryEdgeType.COMPOSES,
+        ],
+    )
+    registry.implement(RegistryNodeType.SKILL_WORKFLOW_PROPOSAL, "SkillWorkflowProposal")
 
 
 # CONCEPT:KG-2.38 — populated at import with real built-ins, never empty.
