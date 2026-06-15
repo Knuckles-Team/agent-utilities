@@ -79,15 +79,68 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("agent")
     run_p.add_argument("task")
     run_p.add_argument("--project", default="")
+
+    # ── Claude Code harness (claude_harness package) ──
+    # CONCEPT:OS-5.41 — the PreToolUse dynamic gate body (reads the event on stdin).
+    sub.add_parser("harness-gate")
+    # CONCEPT:OS-5.40 — write the governance-derived permission fence.
+    hf = sub.add_parser("harness-fence")
+    hf.add_argument(
+        "--target", default=None, help="Claude config dir (default ~/.claude)."
+    )
+    hf.add_argument("--policy", default=None, help="ActionPolicy YAML override.")
+    hf.add_argument("--dry-run", action="store_true")
+    # CONCEPT:ECO-4.47 — drive the Loop engine unattended + write a morning summary.
+    sr = sub.add_parser("sleep-run")
+    sr.add_argument("--max-cycles", type=int, default=6)
+    sr.add_argument("--max-topics", type=int, default=5)
+    sr.add_argument("--workspace", default=None)
+    sr.add_argument("--no-commit", action="store_true")
     return p
+
+
+def _harness_gate() -> int:
+    """PreToolUse gate body — read the event on stdin, print the verdict JSON."""
+    from agent_utilities.claude_harness.pretooluse_gate import run as gate_run
+
+    print(json.dumps(gate_run()))
+    return 0
+
+
+def _harness_fence(args: argparse.Namespace) -> dict[str, Any]:
+    from agent_utilities.claude_harness.claude_fence import write_fence
+    from agent_utilities.orchestration.action_policy import ActionPolicy
+
+    target = args.target or str(Path.home() / ".claude")
+    policy = ActionPolicy(policy_path=args.policy) if args.policy else ActionPolicy()
+    return write_fence(target, policy, dry_run=args.dry_run)
+
+
+def _sleep_run(args: argparse.Namespace) -> dict[str, Any]:
+    from agent_utilities.claude_harness.overnight_runner import run_session
+
+    return run_session(
+        max_cycles=args.max_cycles,
+        max_topics=args.max_topics,
+        commit=not args.no_commit,
+        workspace=args.workspace,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "harness-gate":
+        # Prints ONLY the verdict JSON (Claude Code reads stdout); bypass the
+        # generic envelope below.
+        return _harness_gate()
     if args.command == "status":
         out = status(args.namespace)
     elif args.command == "run":
         out = run(args.namespace, args.agent, args.task, project=args.project)
+    elif args.command == "harness-fence":
+        out = _harness_fence(args)
+    elif args.command == "sleep-run":
+        out = _sleep_run(args)
     else:
         # start/stop/logs/inspect orchestrate the existing console-scripts; report intent + namespace.
         out = {

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 287
+total_concepts: 291
 total_pillars: 20
 pillars:
 - AHE-3
@@ -957,6 +957,15 @@ concepts:
   code_paths:
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: ─────────────────
+- id: ECO-4.47
+  name: Unattended overnight loop-driver + morning-summary write-back
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/claude_harness/__init__.py
+  - agent_utilities/claude_harness/overnight_runner.py
+  - agent_utilities/cli/__init__.py
+  doc: Unattended overnight loop-driver + morning-summary write-back
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -1751,7 +1760,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine.py
-  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/models/schema_pack_audit.py
   - agent_utilities/models/schema_pack_loader.py
   doc: Schema-Pack Lifecycle and Audit
@@ -3541,6 +3549,28 @@ concepts:
   code_paths:
   - agent_utilities/security/source_credentials.py
   doc: Typed Source-Credential Registry
+- id: OS-5.40
+  name: Governance-derived Claude Code permission-fence generator
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/claude_harness/__init__.py
+  - agent_utilities/claude_harness/claude_fence.py
+  - agent_utilities/cli/__init__.py
+  - agent_utilities/deployment/cli.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: Governance-derived Claude Code permission-fence generator
+- id: OS-5.41
+  name: Dynamic two-layer fail-closed PreToolUse ActionPolicy permission gate
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/claude_harness/__init__.py
+  - agent_utilities/claude_harness/pretooluse_gate.py
+  - agent_utilities/cli/__init__.py
+  - agent_utilities/ecosystem/hook_installer.py
+  - agent_utilities/orchestration/action_policy.py
+  doc: Dynamic two-layer fail-closed PreToolUse ActionPolicy permission gate
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
@@ -3613,6 +3643,13 @@ concepts:
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/adaptation_benchmark.py
   doc: SAFE-1.7
+- id: SAFE-1.8
+  name: Unattended-session stop-on-ask containment
+  pillar: SAFE-1
+  status: live
+  code_paths:
+  - agent_utilities/claude_harness/overnight_runner.py
+  doc: Unattended-session stop-on-ask containment
 - id: UTIL-1.0
   name: Data Type Conversion
   pillar: UTIL-1
