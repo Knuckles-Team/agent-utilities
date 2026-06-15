@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..base import GraphBackend
+from ..base import GraphBackend, coerce_cypher_property
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class Neo4jBackend(GraphBackend):
     def execute(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        params = params or {}
+        params = {k: coerce_cypher_property(v) for k, v in (params or {}).items()}
         with self.driver.session() as session:
             result = session.run(query, params)
             return [
@@ -79,6 +79,14 @@ class Neo4jBackend(GraphBackend):
                 "Batch query does not contain UNWIND. Execution might be slow or fail."
             )
 
+        # Sanitize each row's property values (Map/nested → JSON string) so a single
+        # Map-valued prop can't fail the whole UNWIND batch (and stall a mirror).
+        batch = [
+            {k: coerce_cypher_property(v) for k, v in row.items()}
+            if isinstance(row, dict)
+            else row
+            for row in batch
+        ]
         with self.driver.session() as session:
             try:
                 result = session.run(query, {"batch": batch})
