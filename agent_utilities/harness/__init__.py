@@ -6,7 +6,15 @@ Exposes OptimisticStateLocker, BranchMergeStateLocker, ToolContract, and Contrac
 from .adaptation_benchmark import AdaptationBenchmark, BenchmarkEntry
 from .adaptation_speed import AdaptationCurve, CurvePoint, marginal_speed_gain
 from .contract_validator import ContractValidator, ToolContract
+from .baseline_overfit_gate import (
+    GateVerdict,
+    PreRunGate,
+    baseline_gate,
+    overfit_smoke_gate,
+)
+from .decentralized_memory import Contribution, DecentralizedMemory, MemoryPool
 from .distributed_state_manager import BranchMergeStateLocker, OptimisticStateLocker
+from .forecasting import Forecast, ForecastBoard
 from .edit_engine import (
     Edit,
     EditOutcome,
@@ -17,6 +25,7 @@ from .edit_engine import (
 )
 from .evolving_memory import EvolvingMemoryStore, MemoryBank, MemoryRecord
 from .provenance_gate import ProvenanceCriticGate, ProvenanceVerdict
+from .research_log import BeliefEntry, FailureCase, FailureTriage, ResearchLog
 from .red_team import ATTACK_CATALOG, AttackProbe, RedTeamReport, RedTeamRunner
 from .reliability_scorers import (
     BrierSkillScorer,
@@ -31,6 +40,13 @@ from .reliability_scorers import (
     build_reliability_suite,
 )
 from .sai_task import SpecializationTask, Verifier, VerifierResult
+from .self_guided_play import (
+    Guide,
+    GuideScore,
+    PlayReport,
+    PlayRound,
+    SelfGuidedSelfPlay,
+)
 from .selection_operators import (
     bradley_terry_scores,
     conservative_rating,
@@ -50,6 +66,27 @@ __all__ = [
     "EvolvingMemoryStore",
     "MemoryBank",
     "MemoryRecord",
+    # Decentralized per-agent memory + exploit/explore bandit (CONCEPT:KG-2.82/AHE-3.33)
+    "DecentralizedMemory",
+    "MemoryPool",
+    "Contribution",
+    # Research-craft disciplines (CONCEPT:AHE-3.34/3.35/3.36)
+    "Forecast",
+    "ForecastBoard",
+    "GateVerdict",
+    "baseline_gate",
+    "overfit_smoke_gate",
+    "PreRunGate",
+    "FailureCase",
+    "FailureTriage",
+    "BeliefEntry",
+    "ResearchLog",
+    # Self-guided self-play (CONCEPT:AHE-3.37)
+    "SelfGuidedSelfPlay",
+    "Guide",
+    "GuideScore",
+    "PlayRound",
+    "PlayReport",
     # Provenance-completeness critic gate (CONCEPT:AHE-3.13)
     "ProvenanceCriticGate",
     "ProvenanceVerdict",

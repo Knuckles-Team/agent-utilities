@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 257
+total_concepts: 262
 total_pillars: 20
 pillars:
 - AHE-3
@@ -103,6 +103,7 @@ concepts:
   - agent_utilities/graph/workspace_attention.py
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/engineering.py
+  - agent_utilities/harness/self_guided_play.py
   - agent_utilities/harness/variant_pool.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/models/imodel.py
@@ -193,6 +194,7 @@ concepts:
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/provenance_gate.py
   - agent_utilities/harness/quality_gates.py
+  - agent_utilities/harness/self_guided_play.py
   doc: pre-emit quality gate on the live execution path
 - id: AHE-3.14
   name: consider promoting the team
@@ -406,6 +408,39 @@ concepts:
   - agent_utilities/harness/decentralized_memory.py
   - agent_utilities/harness/explore_exploit_router.py
   doc: one online exploit/explore bandit router per agent
+- id: AHE-3.34
+  name: operationalizes the research-craft habit of *forecasting every
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/continuous_evaluation_engine.py
+  - agent_utilities/harness/forecasting.py
+  doc: operationalizes the research-craft habit of *forecasting every
+- id: AHE-3.35
+  name: AHE-3.35
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/baseline_overfit_gate.py
+  doc: AHE-3.35
+- id: AHE-3.36
+  name: disconfirming-evidence research log, fed each round
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/continuous_evaluation_engine.py
+  - agent_utilities/harness/research_log.py
+  doc: disconfirming-evidence research log, fed each round
+- id: AHE-3.37
+  name: when a task is in scope, run a short self-guided
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/agentic_evolution_engine.py
+  - agent_utilities/harness/self_guided_play.py
+  doc: when a task is in scope, run a short self-guided
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -2147,9 +2182,18 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/harness/__init__.py
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/decentralized_memory.py
   doc: / AHE-3.33 — record this base
+- id: KG-2.83
+  name: explicit node↔node contradiction/friction surface
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/contradiction_detector.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: explicit node↔node contradiction/friction surface
 - id: KG-2.85
   name: Adaptive Chunk Selection
   pillar: KG-2

@@ -90,6 +90,17 @@ class TraceDistiller:
         self.backend = backend
         self.config = config or DistillationConfig()
         self.knowledge_engine = knowledge_engine
+        # CONCEPT:AHE-3.36 — disconfirming-evidence research log, fed each round
+        # from the distilled corpus so failures become recorded belief updates.
+        from .forecasting import ForecastBoard
+        from .research_log import ResearchLog
+
+        self.research_log = ResearchLog()
+        # CONCEPT:AHE-3.34 — predict-before-resolve calibration over rounds; the
+        # distiller forecasts each round's score (naively, ≈ last round) then resolves
+        # it, so the harness measures its own taste over time.
+        self.forecasts = ForecastBoard()
+        self._last_round_score: float | None = None
 
     async def distill(self, round_id: str) -> EvidenceCorpus:
         """Run the full distillation pipeline for an evolution round.
@@ -147,10 +158,74 @@ class TraceDistiller:
             f"Pass rate: {corpus.pass_rate:.1%}, Score: {corpus.benchmark_score:.2f}"
         )
 
+        # Stage 6b — research-craft triage (CONCEPT:AHE-3.36): cluster the failures
+        # into piles and surface the BIGGEST one to attack first (Ng's "pull the
+        # failures, sort into piles, attack the biggest"), and log the failure
+        # root-causes as disconfirming evidence (Darwin's rule).
+        self._triage_failures(corpus)
+
         # Persist evidence artifacts
         await self._persist_evidence(corpus)
 
         return corpus
+
+    def _triage_failures(self, corpus: EvidenceCorpus) -> None:
+        """Apply research-craft discipline to a distilled round (AHE-3.34/35/36).
+
+        - AHE-3.34: forecast this round's score (≈ last round) then resolve it, so
+          the harness builds a calibration record of its own predictions.
+        - AHE-3.35: baseline-gate the round score against the previous round — a
+          regression (failing to beat the prior baseline) is logged loudly.
+        - AHE-3.36: cluster failures into piles, surface the biggest to attack
+          first, and record the outcome as (dis)confirming evidence.
+        """
+        from .baseline_overfit_gate import baseline_gate
+        from .research_log import FailureTriage
+
+        # AHE-3.34 — predict-before-resolve calibration.
+        predicted = (
+            self._last_round_score
+            if self._last_round_score is not None
+            else corpus.benchmark_score
+        )
+        self.forecasts.predict(
+            corpus.round_id,
+            "round score holds vs the previous round",
+            predicted=predicted,
+            confidence=0.5,
+        )
+        self.forecasts.resolve(corpus.round_id, corpus.benchmark_score)
+
+        # AHE-3.35 — round-over-round baseline gate (regression detection).
+        if self._last_round_score is not None:
+            verdict = baseline_gate(
+                corpus.benchmark_score, self._last_round_score, min_lift=0.0
+            )
+            if not verdict.passed:
+                logger.warning(
+                    "TraceDistiller: round %s REGRESSED vs baseline (%s)",
+                    corpus.round_id,
+                    verdict.reason,
+                )
+        self._last_round_score = corpus.benchmark_score
+
+        # AHE-3.36 — failure triage + disconfirming-evidence log.
+        triage = FailureTriage()
+        added = triage.from_evidence_corpus(corpus)
+        self.research_log.record(
+            f"round {corpus.round_id} approach is sound",
+            f"pass_rate={corpus.pass_rate:.2f}, {added} failure cases",
+            supports=corpus.pass_rate >= 0.5,
+        )
+        biggest = triage.biggest_pile()
+        if biggest is not None:
+            pile, cases = biggest
+            logger.info(
+                "TraceDistiller: largest failure pile to attack first: "
+                "%r (%d cases)",
+                pile,
+                len(cases),
+            )
 
     async def _classify_traces(
         self, traces: list[dict[str, Any]]
