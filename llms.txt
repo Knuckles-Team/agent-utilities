@@ -19,8 +19,9 @@
 
 ## Deploy
 
+- [Quick Start](docs/guides/quick-start.md): 0-to-running-and-verified in ~4 commands — `pip install` → `setup-config generate` → `graph-os` → `agent-utilities-doctor`; includes the console-script CLI reference.
 - [Deployment Configurations](docs/guides/deployment-configurations.md): the flagship guide — every deployment shape from zero-infra laptop to sharded, queue-driven, policy-governed fleet.
-- [Self-Setup (config-complete)](docs/guides/self-setup.md): the one runbook to deploy agent-utilities (or for Claude to set itself up) — profile → generate full config (setup-config, all ~261 options) → secrets → databases → launch → verify (config doctor). Guided by the agent-utilities-deployment skill.
+- [Self-Setup (config-complete)](docs/guides/self-setup.md): the one runbook to deploy agent-utilities (or for Claude to set itself up) — profile → generate full config (setup-config, all ~261 options) → secrets → databases → launch → verify (config doctor + agent-utilities-doctor). Guided by the agent-utilities-deployment skill.
 - [Day-0 Deployment](docs/guides/day0.md): install deps → run graph-os + multiplexer → deploy the *-mcp fleet → wire integrations.
 - [Recipe: Tiny (all-local, zero-infra)](docs/recipes/tiny.md)
 - [Recipe: Single-node prod](docs/recipes/single-node-prod.md)
