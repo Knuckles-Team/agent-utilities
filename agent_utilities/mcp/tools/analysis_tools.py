@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import uuid
+from typing import Any
 
 from pydantic import Field
 
@@ -973,7 +974,7 @@ def register_analysis_tools(mcp):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal). 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:KG-2.90/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers (CONCEPT:AHE-3.39/3.40/3.44/3.45); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:KG-2.90/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -1531,6 +1532,31 @@ def register_analysis_tools(mcp):
                 rep = run_failure_ingest(kg_server._get_engine())
                 return _json.dumps(rep, indent=2, default=str)
 
+            elif action == "optimize_component":
+                # DSPy optimization pass for any evolvable target (CONCEPT:AHE-3.40):
+                # task=<system_prompt|tool_description|skill|extraction|concept_match|
+                # routing>; dependencies=optional JSON data (documents / labeled_pairs /
+                # traces) for the self-supervised targets. The single entry point over the
+                # unified target registry + self-supervised optimizers.
+                import json as _json
+
+                from agent_utilities.harness.dspy_optimization import (
+                    run_component_optimization,
+                )
+
+                data = {}
+                if dependencies:
+                    try:
+                        data = (
+                            _json.loads(dependencies)
+                            if isinstance(dependencies, str)
+                            else dict(dependencies)
+                        )
+                    except Exception:  # noqa: BLE001
+                        data = {}
+                rep = run_component_optimization((task or "").strip(), data)
+                return _json.dumps(rep, indent=2, default=str)
+
             elif action == "publish_proposal":
                 # Evolution→branch bridge (CONCEPT:AHE-3.21): publish a promoted
                 # golden-loop proposal (task=proposal node id) as a reviewable
@@ -1653,10 +1679,6 @@ def register_analysis_tools(mcp):
             elif action == "finance_op":
                 import json as _json
 
-                from agent_utilities.knowledge_graph.orchestration.engine_finance import (
-                    FinanceEngineMixin,
-                )
-
                 engine = kg_server._get_engine()
                 if not engine:
                     return (
@@ -1686,11 +1708,9 @@ def register_analysis_tools(mcp):
                     return "Error: task must include strategy_id."
 
                 try:
-                    mixin = FinanceEngineMixin()  # type: ignore[abstract]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
-                    mixin.graph = engine.graph
-                    mixin.backend = engine.backend
-
-                    matrix_id = mixin.fit_markov_regime(
+                    # FinanceEngineMixin is composed onto IntelligenceGraphEngine (KG-2.6),
+                    # so call the method directly on the live engine.
+                    matrix_id = engine.fit_markov_regime(
                         returns=returns,
                         strategy_id=strategy_id,
                         asset_class=asset_class,
@@ -1711,42 +1731,29 @@ def register_analysis_tools(mcp):
                 # or plain text actor name (uses sensible defaults: learning_rate=0.01, discount_factor=0.99).
                 import json as _json
 
-                from agent_utilities.knowledge_graph.orchestration.engine_ml_rlm import (
-                    MachineLearningEngineMixin,
-                )
-
                 if not task:
                     return "Error: ml_rlm_op needs a task (actor name or JSON config)."
                 if not engine:
                     return "Error: ml_rlm_op needs an active engine."
 
                 # Parse task as JSON or plain text.
-                config = {"name": task, "learning_rate": 0.01, "discount_factor": 0.99}
+                config: dict[str, Any] = {
+                    "name": task,
+                    "learning_rate": 0.01,
+                    "discount_factor": 0.99,
+                }
                 if task.startswith("{"):
                     try:
                         config.update(_json.loads(task))
                     except Exception:
                         pass
 
-                # Instantiate mixin with engine and call register_rlm_actor.
-                mixin = MachineLearningEngineMixin()  # type: ignore[abstract, assignment]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
-                mixin.graph = engine.graph if hasattr(engine, "graph") else None  # type: ignore[assignment]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
-                mixin.backend = engine.backend if hasattr(engine, "backend") else None
-                mixin._serialize_node = (  # type: ignore[method-assign]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
-                    engine._serialize_node  # type: ignore[assignment]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
-                    if hasattr(engine, "_serialize_node")
-                    else lambda n, label: n.model_dump()  # type: ignore[misc]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
-                )
-                mixin._upsert_node = (  # type: ignore[method-assign]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
-                    engine._upsert_node  # type: ignore[assignment]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
-                    if hasattr(engine, "_upsert_node")
-                    else lambda label, id, data: None
-                )
-
-                actor_id = mixin.register_rlm_actor(  # type: ignore[attr-defined]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
+                # MachineLearningEngineMixin is composed onto IntelligenceGraphEngine
+                # (KG-2.6), so register the actor directly on the live engine.
+                actor_id = engine.register_rlm_actor(
                     name=config.get("name", "rlm_actor"),
-                    learning_rate=float(config.get("learning_rate", 0.01)),  # type: ignore[arg-type]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
-                    discount_factor=float(config.get("discount_factor", 0.99)),  # type: ignore[arg-type]  # FIXME: standalone abstract-mixin instantiation is broken (no concrete engine composes it) — needs proper engine integration
+                    learning_rate=float(config.get("learning_rate", 0.01)),
+                    discount_factor=float(config.get("discount_factor", 0.99)),
                 )
                 return _json.dumps(
                     {"actor_id": actor_id, "status": "registered"}, default=str
