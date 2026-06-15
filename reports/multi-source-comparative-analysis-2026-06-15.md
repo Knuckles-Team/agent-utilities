@@ -253,6 +253,38 @@ All merged to main locally (AU merge `e04b621`); ~190+39 tests green; both guard
 The only remaining deferral is the **actual GPU gradient run** of the FST job (correctly DSM's, blocked by
 the GB10 hardware fault) and **fine-tuning** a cross-encoder — both inherently GPU/training-time, not code.
 
+## Round 5 — MEASURED feature parity (AHE-3.39) + PauseRec training track
+
+Parity was *asserted* (we shipped each mechanism) but never *measured*. **AHE-3.39
+`harness/assimilation_benchmark.py`** runs each mechanism vs a baseline on a controlled, seeded,
+CPU-only task and reports the real lift + a `claim_reproduced` verdict (two-surface via
+`graph_analyze action='assimilation_benchmark'`). Measured (seed 0):
+
+| Mechanism | Metric | Baseline | Ours | Claim reproduced |
+|---|---|---|---|---|
+| PauseRec KG-2.93 (inference) | NDCG@6 | 0.00 | 0.43 | ✅ |
+| ScoreGate KG-2.85 | precision@matched-recall | 0.50 | 1.00 | ✅ |
+| TASR KG-2.87 | rounds (equal recall) | 6 | 4 | ✅ (−2 rounds) |
+| ADORE KG-2.88 | Recall@8 | 0.50 | 1.00 | ✅ |
+| DecentMem bandit AHE-3.33 | cumulative regret | 83.3 | 36.0 | ✅ (lower) |
+| MLEvolve KG-2.92 | best-metric | 0.40 | 0.70 | ✅ |
+| SGS AHE-3.37 | accepted-quality fraction | 0.50 | 1.00 | ✅ |
+| **PauseRec-trained KG-2.93** | Recall@3 | 0.67 | 1.00 | ✅ |
+
+**8/8 reproduced.** The last row closes the real PauseRec parity gap flagged in the audit: we now
+implement the paper's **actual** mechanism — **trainable `<pause>` tokens optimized by gradient
+descent** (`retrieval/pause_token_trainer.py`, torch-optional, CPU) — not just the inference-time
+adaptation. Recall@3 = 1.00 *with* trained pause tokens vs 0.67 *without* (ablation), on a task whose
+next item is a nonlinear interaction of history (a no-pause linear readout provably cannot represent
+it) — a faithful reproduction of PauseRec's "latent computation bridges history into SID selection".
+
+**Honest scope of the parity claim.** These are *mechanism-faithful, seeded demonstrations on small
+synthetic tasks* — they prove each mechanism moves the metric in the paper's claimed direction, not
+the papers' full-scale published numbers (which need their datasets + GPU training at scale). True
+*scale* reproduction (e.g. MLE-bench medal rate, Amazon-review GR accuracy, Lean4 solve rate) remains
+GPU/dataset-gated; the GPU serving stack (vLLM/DSM) was unreachable this session despite the GB10
+reboot, so all of the above was measured **CPU-only**.
+
 ## Deferred / out of scope (honest)
 - The **GPU gradient run** of the FST training-job spec — built + dispatched from agent-utilities, but the
   gradient step lives in data-science-mcp and needs a GPU (GB10 power fault). Jobs are recorded/queued.

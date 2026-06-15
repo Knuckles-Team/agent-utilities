@@ -5,6 +5,7 @@ Exposes OptimisticStateLocker, BranchMergeStateLocker, ToolContract, and Contrac
 
 from .adaptation_benchmark import AdaptationBenchmark, BenchmarkEntry
 from .adaptation_speed import AdaptationCurve, CurvePoint, marginal_speed_gain
+from .assimilation_benchmark import BenchmarkResult, run_all, to_markdown
 from .baseline_overfit_gate import (
     GateVerdict,
     PreRunGate,
@@ -65,6 +66,10 @@ from .superhuman_gate import CertificationResult, SuperhumanCertifier
 from .world_model_task import WorldModelVerifier, build_world_model_task
 
 __all__ = [
+    # Assimilation empirical-parity benchmark suite (CONCEPT:AHE-3.39)
+    "BenchmarkResult",
+    "run_all",
+    "to_markdown",
     "OptimisticStateLocker",
     "BranchMergeStateLocker",
     "ToolContract",
