@@ -90,6 +90,18 @@ def resolve_source_client(category: str) -> Any | None:
             from egeria_mcp.auth import get_client
 
             return get_client()
+        if category == "servicenow":
+            from servicenow_api.auth import get_client
+
+            from .source_adapters import ServiceNowSourceClient
+
+            return ServiceNowSourceClient(get_client())
+        if category == "erpnext":
+            from erpnext_agent.auth import get_client
+
+            from .source_adapters import ErpNextSourceClient
+
+            return ErpNextSourceClient(get_client())
     except Exception as exc:  # noqa: BLE001 - missing/unconfigured connector → no client
         logger.debug("no source client for %s: %s", category, exc)
         return None
@@ -99,7 +111,9 @@ def resolve_source_client(category: str) -> Any | None:
 # Categories whose ingest substrate is the materialize path (extractor over an
 # in-process vendor client + reasoning cycle), as opposed to the CAPABILITY_REGISTRY
 # hydration path. Used by the unified ``source_sync`` entrypoint to route correctly.
-MATERIALIZE_SOURCES: frozenset[str] = frozenset({"camunda", "aris", "egeria"})
+MATERIALIZE_SOURCES: frozenset[str] = frozenset(
+    {"camunda", "aris", "egeria", "servicenow", "erpnext"}
+)
 
 
 def run_materialize_source(
