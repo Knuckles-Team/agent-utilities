@@ -63,6 +63,7 @@ class AgenticEvolutionEngine:
         self._skill_merger: Any = None
         self._memory_store: Any = None
         self._decentralized_memory: Any = None
+        self._self_play: Any = None
         self._replay_buffer: Any = None
         self._gap_threshold = gap_threshold
         self._merge_threshold = merge_threshold
@@ -112,6 +113,34 @@ class AgenticEvolutionEngine:
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("PrioritizedReplayBuffer not available: %s", e)
             self._replay_buffer = None
+
+        # Self-guided self-play (CONCEPT:AHE-3.37, SGS arXiv:2604.20209): a
+        # Conjecturer proposes difficulty-matched tasks, the Guide gatekeeps quality
+        # (rejecting gamed/illogical conjectures — the anti-plateau mechanism), and a
+        # Solver attempts them, raising a curriculum. Deterministic defaults run with
+        # zero infra; an LLM-backed conjecture/solve pair can be injected later.
+        try:
+            from .self_guided_play import SelfGuidedSelfPlay
+
+            def _conjecture(target: str, difficulty: float) -> str:
+                return f"{target} [difficulty={difficulty:.2f}]"
+
+            def _solve(task: str) -> tuple[str, bool]:
+                # Parse the curriculum difficulty; the solver succeeds while the task
+                # stays within reach, then starts failing as difficulty climbs — a
+                # realistic curriculum signal for the plateau breaker.
+                diff = 0.0
+                if "[difficulty=" in task:
+                    try:
+                        diff = float(task.rsplit("[difficulty=", 1)[1].rstrip("]"))
+                    except ValueError:
+                        diff = 0.0
+                return ("solved", diff <= 0.7)
+
+            self._self_play = SelfGuidedSelfPlay(_conjecture, _solve)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("SelfGuidedSelfPlay not available: %s", e)
+            self._self_play = None
 
         # Skill evolution (ECO-4.1)
         try:
@@ -350,6 +379,19 @@ class AgenticEvolutionEngine:
                     key=base_id,
                 )
                 report["replay_buffer_size"] = len(self._replay_buffer)
+
+        # CONCEPT:AHE-3.37 — when a task is in scope, run a short self-guided
+        # self-play curriculum for it: the Guide rejects gamed conjectures so the
+        # solver trains on quality tasks, and the plateau-breaker fires if progress
+        # stalls. Surfaces accept/solve rates + plateau flag for the loop.
+        if task_text and self._self_play is not None:
+            play = self._self_play.run(task_text, rounds=6)
+            report["self_play"] = {
+                "accept_rate": play.accept_rate,
+                "solve_rate": play.solve_rate,
+                "plateaued": play.plateaued,
+                "rounds": len(play.rounds),
+            }
 
         # Skill gap detection
         if task_text and self._skill_detector:

@@ -440,6 +440,48 @@ def register_analysis_tools(mcp):
                     domain=None,
                 )
                 return json.dumps(ext_result.model_dump(), default=str)
+            elif action == "contradictions":
+                # CONCEPT:KG-2.83 — explicit node↔node contradiction/friction surface
+                # (the night-shift Critic): retrieve topically-similar existing nodes
+                # and flag those that OPPOSE the new claim in `query`. Propose-only —
+                # never auto-resolves; returns FRICTION findings for human judgment.
+                from agent_utilities.knowledge_graph.adaptation.contradiction_detector import (  # noqa: E501
+                    Claim,
+                    ContradictionDetector,
+                )
+
+                if not query:
+                    return "Error: contradictions needs the new claim text in `query`."
+                neighbours = engine.search_hybrid(query, top_k=top_k) or []
+                existing = [
+                    Claim(
+                        id=str(n.get("id") or (n.get("node", {}) or {}).get("id") or i),
+                        text=str(
+                            n.get("description")
+                            or n.get("name")
+                            or (n.get("node", {}) or {}).get("description")
+                            or ""
+                        ),
+                    )
+                    for i, n in enumerate(neighbours)
+                    if isinstance(n, dict)
+                ]
+                findings = ContradictionDetector().check(
+                    Claim(id=node_id or "new", text=query), existing
+                )
+                return json.dumps(
+                    [
+                        {
+                            "new_id": f.new_id,
+                            "conflict_id": f.conflict_id,
+                            "similarity": round(f.similarity, 3),
+                            "severity": f.severity,
+                            "reason": f.reason,
+                        }
+                        for f in findings
+                    ],
+                    default=str,
+                )
             elif action == "infer_links":
                 from agent_utilities.knowledge_graph.kb.link_inference import (
                     infer_links,
