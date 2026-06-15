@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.knowledge_graph.enrichment.capability_writeback import (
+from agent_utilities.knowledge_graph.enrichment.writeback.sinks.capability import (
     make_writeback_fn,
     push_capabilities,
     resolve_writeback_fn,
@@ -60,7 +60,7 @@ def test_push_capabilities_idempotent_and_pushes_provisional():
         existing_names=["billing"],  # already upstream → skipped (case-insensitive)
     )
     assert "Search" in archi.added and "Billing" not in archi.added
-    assert result.skipped_existing >= 1
+    assert result.skipped >= 1
 
 
 @pytest.mark.concept(id="KG-2.8")
