@@ -302,7 +302,7 @@ class PolicyIngestor:
         content = constitution_path.read_text(encoding="utf-8")
         parsed = parse_constitution_md(content)
 
-        stats: dict[str, int] = {
+        stats: dict[str, Any] = {
             "policies_ingested": 0,
             "edges_created": 0,
         }

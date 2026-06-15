@@ -53,12 +53,6 @@ from .orchestration import (
 )
 from .patterns import detect_patterns
 from .pipeline import EnrichmentPipeline, EnrichmentSummary, make_parse_fn
-from .writeback import (
-    WritebackResult,
-    resolve_writeback_fn,
-    run_writeback,
-)
-from .writeback.sinks.process import push_process_intelligence
 from .pydantic_graph import (
     discover_pydantic_graph,
     propose_workflow_evolution,
@@ -89,6 +83,12 @@ from .synthesize import (
     synthesize_agent,
     synthesize_team,
 )
+from .writeback import (
+    WritebackResult,
+    resolve_writeback_fn,
+    run_writeback,
+)
+from .writeback.sinks.process import push_process_intelligence
 
 __all__ = [
     "AgentSpec",

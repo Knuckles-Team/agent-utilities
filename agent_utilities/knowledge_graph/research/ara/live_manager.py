@@ -146,7 +146,7 @@ class LiveResearchManager:
                     else ("question" if ev.type == "question" else "decision")
                 )
                 artifact.exploration.append(
-                    ExplorationNode(id=ev.id, kind=kind, text=ev.text)
+                    ExplorationNode(id=ev.id, kind=kind, text=ev.text)  # type: ignore[arg-type]  # kind is provably one of the ExplorationNode literals
                 )
                 counts["exploration"] += 1
             ev.crystallized = True

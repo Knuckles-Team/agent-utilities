@@ -187,7 +187,7 @@ def _format_probe_error(exc: BaseException) -> str:
         if isinstance(e, BaseExceptionGroup) or (
             subs and isinstance(subs, list | tuple)
         ):
-            for sub in subs:
+            for sub in subs or []:
                 _walk(sub)
         else:
             msg = str(e).strip()
@@ -759,7 +759,10 @@ class MCPMultiplexer:
             return self._probe_cache[server_name]
 
         if server_name in self.children:
-            info = {"tools": self._live_tools_for_server(server_name), "error": None}
+            info: dict[str, Any] = {
+                "tools": self._live_tools_for_server(server_name),
+                "error": None,
+            }
             self._probe_cache[server_name] = info
             return info
 

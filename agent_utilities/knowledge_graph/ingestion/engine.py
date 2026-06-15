@@ -773,7 +773,7 @@ class IngestionEngine:
         signatures, so canonical-entity facts land as ``Entity`` nodes + typed
         edges that interlink with the Concept/Code graph (KG-2.64 + KG-2.8).
         """
-        backend = self.backend
+        backend: Any = self.backend
 
         class _Store:
             def add_node(self, node_id: str, label: str = "", **props: Any) -> None:
@@ -833,7 +833,7 @@ class IngestionEngine:
             from ..extraction.fact_extractor import ExtractedFact as _EF
             from ..extraction.ontology_grounding import ground_facts
 
-            add_node = self.backend.add_node
+            add_node = self.backend.add_node  # type: ignore[union-attr]  # best-effort; backend present during ingest (try-guarded)
             for fact, grounding in ground_facts(facts):
                 for surface, type_key in (
                     (fact.subject, "subject_type"),
@@ -925,7 +925,12 @@ class IngestionEngine:
                 *(_facts_for(w) for w in windows), return_exceptions=True
             )
             facts = sum(r for r in results if isinstance(r, int))
-        return {"concepts": concepts, "facts": facts, "structure": structure}
+        summary: dict[str, Any] = {
+            "concepts": concepts,
+            "facts": facts,
+            "structure": structure,
+        }
+        return summary
 
     def _enrichment_windows(self, text: str) -> list[str]:
         """Bounded LLM windows over ``text``.
