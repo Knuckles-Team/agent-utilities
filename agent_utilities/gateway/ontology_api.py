@@ -167,6 +167,22 @@ async def get_object_as_of(
     )
 
 
+# ── LeanIX metamodel sync (CONCEPT:KG-2.9) ──────────────────────────────────
+
+
+@ontology_router.post("/ontology/leanix/sync", response_model=OntologyEnvelope)
+async def sync_leanix_ontology_route(
+    dry_run: bool = Query(
+        default=True,
+        description="Preview the generated ontology without writing (default). Set false to apply.",
+    ),
+) -> OntologyEnvelope:
+    """Discover the live LeanIX metamodel and mirror it natively as OWL/RDF."""
+    return OntologyEnvelope(
+        result=await _call("ontology_leanix_sync", dry_run=dry_run)
+    )
+
+
 def register_ontology_routes(app, prefix: str = "/api") -> None:
     """Mount the granular typed ontology surface onto ``app``.
 
