@@ -1,11 +1,12 @@
-"""WorkflowCompiler degrades gracefully when the embedding endpoint is down.
+"""WorkflowCompiler agent matching is bounded and never triggers a full scan.
 
-CONCEPT:ORCH-1.23 — NL workflow compilation. The semantic agent-matching
-fallback (`_match_agent` → `engine.search_hybrid`) embeds the step text; when
-the embedder is unreachable (e.g. the GB10/vLLM power fault) an unbounded embed
-call stalls compilation. These tests pin the bounded-probe behavior: one cached
-probe decides embedder health for the whole compile, and the hybrid fallback is
-skipped entirely when it is down — so compilation never hangs on a dead endpoint.
+CONCEPT:ORCH-1.23 — NL workflow compilation. Resolving a step to an agent first
+tries a structural KG query; the semantic fallback ranks candidates via the
+engine's bounded vector index (``backend.semantic_search``, HNSW top-k). It must
+NOT use ``engine.search_hybrid``, whose retriever materializes the whole graph
+(a per-label full-node scan, once per search table) — O(graph) work that
+OOM-crashed the graph-os child on a large KG. The embed is wall-clock bounded, so
+a slow/down embedder degrades to the generic executor in seconds.
 """
 
 from __future__ import annotations
@@ -18,45 +19,53 @@ from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
 
 
 class _Backend:
-    """Structural KG query layer that never matches (forces the fallback)."""
+    """KG backend stub: structural query misses; bounded vector search hits."""
+
+    def __init__(self) -> None:
+        self.semantic_calls = 0
 
     def execute(self, _cypher: str, _params: dict[str, Any]) -> list[dict[str, Any]]:
-        return []
+        return []  # structural match misses → forces the semantic fallback
+
+    def semantic_search(self, _vec: list[float], _n: int = 5) -> list[dict[str, Any]]:
+        self.semantic_calls += 1
+        return [{"id": "matched-server", "type": "Server"}]
 
 
 class _Engine:
-    """Minimal engine stub exposing the surface `_match_agent` touches."""
+    """Minimal engine stub. ``search_hybrid`` must NEVER be reached."""
 
     def __init__(self) -> None:
         self.backend = _Backend()
-        self.hybrid_calls = 0
 
-    def search_hybrid(self, _text: str, top_k: int = 3) -> list[dict[str, Any]]:
-        self.hybrid_calls += 1
-        return [{"name": "matched-server", "resource_type": "Server"}]
+    def search_hybrid(self, *_a: Any, **_k: Any) -> list[dict[str, Any]]:
+        raise AssertionError(
+            "search_hybrid must not be called — it triggers a full-graph scan"
+        )
 
 
 def _patch_embed(monkeypatch: pytest.MonkeyPatch, *, available: bool) -> dict[str, int]:
-    """Stub the embedder so no real endpoint is contacted; count probes."""
-    counters = {"probes": 0}
+    """Stub the embedder so no real endpoint is contacted; count fn builds."""
+    counters = {"make_fn": 0}
+
+    def _make(*_a: Any, **_k: Any):
+        counters["make_fn"] += 1
+        return lambda texts: [[0.1, 0.2, 0.3] for _ in texts]
 
     monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
-        lambda *a, **k: lambda texts: [[0.0] for _ in texts],
+        "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn", _make
     )
 
-    def _bounded_embed(_embed_fn: Any, _text: str, _timeout: float):
-        counters["probes"] += 1
-        return [0.0] if available else None
+    def _bounded(_embed_fn: Any, _text: str, _timeout: float):
+        return [0.1, 0.2, 0.3] if available else None
 
     monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.research.search.bounded_embed",
-        _bounded_embed,
+        "agent_utilities.knowledge_graph.research.search.bounded_embed", _bounded
     )
     return counters
 
 
-def test_match_agent_skips_hybrid_when_embedder_down(
+def test_match_agent_skips_semantic_search_when_embedder_down(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_embed(monkeypatch, available=False)
@@ -67,43 +76,44 @@ def test_match_agent_skips_hybrid_when_embedder_down(
 
     assert agent_id == "executor"
     assert tools == []
-    # The whole point: a dead embedder means the hybrid call is never made.
-    assert engine.hybrid_calls == 0
+    # A down embedder means even the bounded vector search is skipped.
+    assert engine.backend.semantic_calls == 0
 
 
-def test_match_agent_uses_hybrid_when_embedder_up(
+def test_match_agent_uses_bounded_semantic_search_when_up(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_embed(monkeypatch, available=True)
     engine = _Engine()
     compiler = WorkflowCompiler(engine)
 
+    # If the full-scan path were used, _Engine.search_hybrid would raise.
     agent_id, _tools = compiler._match_agent("summarize the findings", "general")
 
     assert agent_id == "matched-server"
-    assert engine.hybrid_calls == 1
+    assert engine.backend.semantic_calls == 1
 
 
-def test_embed_probe_is_cached_once_per_compile(
+def test_embed_fn_built_once_per_compiler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    counters = _patch_embed(monkeypatch, available=False)
+    counters = _patch_embed(monkeypatch, available=True)
     engine = _Engine()
     compiler = WorkflowCompiler(engine)
 
     for _ in range(5):
         compiler._match_agent("do a thing", "general")
 
-    # Five steps, but the bounded embedder probe runs exactly once.
-    assert counters["probes"] == 1
-    assert engine.hybrid_calls == 0
+    # Five steps, but the embedding fn is constructed exactly once and reused.
+    assert counters["make_fn"] == 1
+    assert engine.backend.semantic_calls == 5
 
 
 @pytest.mark.asyncio
 async def test_compile_completes_with_embedder_down(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """End-to-end compile() returns a plan (no hang) when the embedder is down."""
+    """compile() returns a plan (no hang, no full scan) when the embedder is down."""
     _patch_embed(monkeypatch, available=False)
     engine = _Engine()
     compiler = WorkflowCompiler(engine)
@@ -115,4 +125,4 @@ async def test_compile_completes_with_embedder_down(
 
     assert plan is not None
     assert plan.steps
-    assert engine.hybrid_calls == 0
+    assert engine.backend.semantic_calls == 0
