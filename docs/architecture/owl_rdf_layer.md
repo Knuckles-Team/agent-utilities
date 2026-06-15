@@ -96,9 +96,18 @@ Every long-running objective is a **Loop** (KG-2.78) — kind `research`, `devel
 `skill` — and the **one** `LoopController` (formerly the "golden loop") advances every
 active Loop through a single hot path: research loops acquire sources + reason, `develop`
 loops run act→validate (their `validation_cmd`), `skill` loops execute their skill /
-skill-workflow. There is no separate goal-runner or research-runner. The single entrypoint
-is the **`graph_loops`** MCP tool (`submit` / `list` / `run` / `cancel`); `submit_loop` is
-the shared creation path for goals, research topics, failure gaps and skill executions.
+skill-workflow. There is no separate goal-runner or research-runner — the goal system is a
+thin adapter onto `LoopController.run_loop`. The single entrypoint is the **`graph_loops`**
+MCP tool (`submit` / `list` / `run` / `drive` / `cancel`); `submit_loop` is the shared
+creation path for goals, research topics, failure gaps and skill executions.
+
+**Durable checkpointing is cross-cutting, not goal-specific.** `LoopController.run_loop`
+drives one Loop of any kind to completion durably: it resumes from the last checkpoint
+(`DurableExecutionManager`, backend-selected SQLite/Postgres via `state_store`, OS-5.16),
+runs each iteration under an idempotency key (at-least-once retries, exactly-once effect),
+and honors corrigible interruption (a fleet pause/kill signal → checkpoint and yield,
+SAFE-1.5). The same durable engine that runs autonomous goals therefore resumes a
+research or skill Loop after a crash.
 
 The research path runs the **`OntologyReasoningDriver`** (KG-2.79) each cycle: it promotes
 the loop's working set + the surrounding ecosystem subgraph, runs `OWLBridge.run_cycle`

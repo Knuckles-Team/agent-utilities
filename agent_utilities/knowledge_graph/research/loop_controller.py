@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from agent_utilities.core.config import setting
@@ -509,14 +510,10 @@ class LoopController:
         out: dict[str, Any] = {"develop": 0, "skill": 0, "completed": 0, "results": []}
         for loop in loops:
             kind = loop.get("kind", "research")
-            if kind == "develop":
-                res = self._advance_develop(loop)
-                out["develop"] += 1
-            elif kind == "skill":
-                res = self._advance_skill(loop)
-                out["skill"] += 1
-            else:
+            if kind not in ("develop", "skill"):
                 continue
+            res = self._iterate(loop)
+            out[kind] += 1
             status = res.get("status", "pending")
             mark_loop_status(
                 self.engine,
@@ -528,6 +525,46 @@ class LoopController:
                 out["completed"] += 1
             out["results"].append({"id": loop["id"], "kind": kind, "status": status})
         return out
+
+    def _iterate(self, loop: dict[str, Any]) -> dict[str, Any]:
+        """Advance ANY Loop one step, dispatched by kind (CONCEPT:KG-2.78).
+
+        The single kind-agnostic step the controller runs everywhere — the
+        per-cycle execute stage, the durable :meth:`run_loop`, and the
+        goal adapter all funnel through here, so research/develop/skill share one
+        execution path. Returns ``{"status", "output", "done"?}``.
+        """
+        kind = loop.get("kind", "research")
+        if kind == "develop":
+            return self._advance_develop(loop)
+        if kind == "skill":
+            return self._advance_skill(loop)
+        return self._advance_research(loop)
+
+    def _advance_research(self, loop: dict[str, Any]) -> dict[str, Any]:
+        """Run one research iteration: acquire related sources and ADDRESS the topic.
+
+        The same acquire→resolve the cycle's research stage does, exposed as a
+        single durable-able step so a research Loop can be driven to completion by
+        :meth:`run_loop` exactly like develop/skill — durability is cross-cutting.
+        """
+        from ..adaptation.topic_resolver import mark_addressed
+        from ..enrichment.semantic import make_embed_fn
+        from .search import acquire_for_topic
+
+        try:
+            embed_fn = make_embed_fn()
+            srcs = acquire_for_topic(self.engine, loop, embed_fn=embed_fn)
+        except Exception as e:  # noqa: BLE001 — best-effort
+            return {"status": "pending", "output": f"acquire failed: {e}"}
+        if srcs:
+            mark_addressed(self.engine, loop["id"], srcs, source="loop_engine")
+            return {
+                "status": "completed",
+                "output": f"addressed by {len(srcs)} sources",
+                "done": True,
+            }
+        return {"status": "pending", "output": "no sources found"}
 
     def _advance_develop(self, loop: dict[str, Any]) -> dict[str, Any]:
         """Run one develop iteration: execute ``validation_cmd``; done on exit 0."""
@@ -547,6 +584,131 @@ class LoopController:
             return {"status": "failed", "output": "skill Loop has no skill_ref"}
         ok, output = runner(ref, loop.get("objective", ""))
         return {"status": "completed" if ok else "failed", "output": output}
+
+    # -- durable, resumable run-to-completion (CONCEPT:KG-2.78 + OS-5.16) --- #
+    async def run_loop(
+        self,
+        loop: dict[str, Any],
+        *,
+        max_iterations: int | None = None,
+        on_iteration: Callable[[int, dict[str, Any]], None] | None = None,
+        desired_state: Callable[[], str | None] | None = None,
+        sleep_s: float = 0.0,
+        durable: Any = None,
+    ) -> dict[str, Any]:
+        """Drive ONE Loop to completion, durably and resumably — for any kind.
+
+        This is the generalized fold of the old goal-runner: it owns the durable,
+        checkpointed, corrigible iteration machinery once, for research/develop/skill
+        alike (durability is cross-cutting, not goal-specific):
+
+        - **Resume** from the last durable checkpoint (``DurableExecutionManager``,
+          backend-selected SQLite/Postgres via ``state_store``) so a crash/redelivery
+          continues near the in-flight iteration instead of replaying from zero.
+        - **Durable iteration**: each step runs under an idempotency key
+          (``<loop>:iter:<n>``) — at-least-once retries, exactly-once effect.
+        - **Corrigible interruption** (SAFE-1.5): ``desired_state`` (e.g. a fleet
+          pause/kill signal) is honored each iteration — checkpoint and yield without
+          resistance.
+        - Advances the Loop node lifecycle (:func:`mark_loop_status`) each step and
+          invokes ``on_iteration`` so a caller can record observability (e.g. the
+          goal console).
+
+        Returns ``{"id", "status", "iterations", "interrupted"?}``.
+        """
+        import asyncio
+
+        from agent_utilities.orchestration.durable_execution import (
+            DurableExecutionManager,
+        )
+
+        from .loops import TERMINAL_STATUS, mark_loop_status
+
+        loop_id = loop["id"]
+        max_it = int(max_iterations or loop.get("max_iterations") or 20)
+        if durable is None:
+            durable = DurableExecutionManager(session_id=loop_id)
+        it = self._resume_iteration(durable)
+        status = str(loop.get("status") or "running")
+
+        while it < max_it and status not in TERMINAL_STATUS:
+            if desired_state is not None:
+                desired = desired_state()
+                if desired:
+                    from agent_utilities.core.corrigibility import (
+                        corrigibility_decision,
+                    )
+
+                    final, summary = corrigibility_decision(desired)
+                    fstatus = final.value if final is not None else "paused"
+                    mark_loop_status(
+                        self.engine, loop_id, fstatus, iteration=it, output=summary
+                    )
+                    return {
+                        "id": loop_id,
+                        "status": fstatus,
+                        "iterations": it,
+                        "interrupted": True,
+                    }
+
+            it += 1
+
+            async def _step() -> dict[str, Any]:
+                # _iterate may block (subprocess validation / workflow run); offload
+                # to a thread so the durable loop never stalls the event loop.
+                return await asyncio.to_thread(self._iterate, loop)
+
+            outcome = await durable.arun_durable_action(
+                node_id=f"{loop_id}:iter:{it}",
+                action=_step,
+                idempotency_key=f"{loop_id}:{it}",
+                state={"iteration": it, "kind": loop.get("kind", "research")},
+            )
+            outcome = outcome if isinstance(outcome, dict) else {"status": "pending"}
+            status = str(outcome.get("status", "pending"))
+            mark_loop_status(
+                self.engine,
+                loop_id,
+                status,
+                iteration=it,
+                output=str(outcome.get("output", ""))[:2000],
+            )
+            if on_iteration is not None:
+                try:
+                    on_iteration(it, outcome)
+                except Exception as e:  # noqa: BLE001 — observability never blocks
+                    logger.debug("run_loop on_iteration callback failed: %s", e)
+            if status in TERMINAL_STATUS or outcome.get("done"):
+                break
+            if sleep_s:
+                await asyncio.sleep(sleep_s)
+
+        if status not in TERMINAL_STATUS and status != "completed":
+            # ran out of iterations without converging
+            status = "failed"
+            mark_loop_status(self.engine, loop_id, status, iteration=it)
+        return {"id": loop_id, "status": status, "iterations": it}
+
+    @staticmethod
+    def _resume_iteration(durable: Any) -> int:
+        """Read the durable checkpoint → number of already-applied iterations."""
+        import json
+
+        try:
+            pending = durable.resume_session()
+        except Exception as e:  # noqa: BLE001 — recovery is best-effort
+            logger.debug("durable resume failed: %s", e)
+            return 0
+        if not pending:
+            return 0
+        state = pending.get("state")
+        try:
+            state = json.loads(state) if isinstance(state, str) else (state or {})
+        except (TypeError, ValueError):
+            state = {}
+        prior = state.get("iteration")
+        # the pending iteration was in flight (never completed) → re-run it
+        return (prior - 1) if isinstance(prior, int) and prior > 0 else 0
 
     def _run_standardize(self) -> dict[str, Any]:
         """Run the enterprise standardization + consolidation pass (CONCEPT:KG-2.49).
