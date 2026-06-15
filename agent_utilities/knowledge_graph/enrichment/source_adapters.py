@@ -7,10 +7,33 @@ path as Camunda/ARIS/Egeria. Tolerant: any transport failure degrades to ``[]``.
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
+import inspect
 import logging
+from collections.abc import Callable
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def run_sync(factory: Callable[[], Any]) -> Any:
+    """Run an async ``factory()`` coroutine to completion from sync code.
+
+    The sync-over-async bridge for connectors whose client is async (e.g.
+    Microsoft Graph) but whose materialize/extractor path is synchronous. Works
+    whether or not an event loop is already running: with no running loop it uses
+    ``asyncio.run``; inside one (the MCP handler may itself be async) it runs the
+    coroutine on a dedicated thread with its own loop so we never re-enter the
+    current loop. The coroutine is *created inside* the executing thread so it is
+    bound to the loop that runs it.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(factory())
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(lambda: asyncio.run(factory())).result()
 
 
 def _rows(resp: Any) -> list[dict]:
@@ -131,3 +154,54 @@ class ErpNextSourceClient:
             return rows[0] if rows else {}
         except Exception:  # noqa: BLE001
             return {}
+
+
+def _graph_rows(resp: Any) -> list[dict]:
+    """Normalize a Microsoft Graph response (``{"value": [...]}``) to dict rows."""
+    body = resp
+    if isinstance(body, dict):
+        payload = body.get("value")
+        if payload is None:
+            payload = body.get("data", body.get("result"))
+        if payload is not None:
+            body = payload
+        else:
+            return [body]
+    if isinstance(body, list):
+        return [r for r in body if isinstance(r, dict)]
+    return []
+
+
+class MicrosoftGraphSourceClient:
+    """Adapts the async ``microsoft-agent`` ``MicrosoftGraphApi`` to the M365
+    extractor surface (CONCEPT:KG-2.9).
+
+    The Graph client is fully ``async``; this wrapper bridges each call to sync
+    via :func:`run_sync`, so M365 flows through the same synchronous
+    materialize/source_sync path as every other connector. Exposes
+    ``calendar_events()`` and ``users()`` as tolerant ``list[dict]`` (Graph's
+    ``{"value": [...]}`` envelope unwrapped). Accepts a sync fake too (tests).
+    """
+
+    def __init__(self, api: Any) -> None:
+        self._api = api
+
+    def _call(self, name: str, *args: Any, **kwargs: Any) -> list[dict]:
+        method = getattr(self._api, name, None)
+        if not callable(method):
+            return []
+        try:
+            if inspect.iscoroutinefunction(method):
+                resp = run_sync(lambda: method(*args, **kwargs))
+            else:
+                resp = method(*args, **kwargs)
+        except Exception:  # noqa: BLE001 - tolerant transport
+            logger.debug("microsoft graph %s failed", name, exc_info=True)
+            return []
+        return _graph_rows(resp)
+
+    def calendar_events(self) -> list[dict]:
+        return self._call("list_calendar_events")
+
+    def users(self) -> list[dict]:
+        return self._call("list_users")

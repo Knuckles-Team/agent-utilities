@@ -126,6 +126,14 @@ def resolve_source_client(category: str) -> Any | None:
             if callable(connect):
                 connect()
             return backend
+        if category == "microsoft":
+            from microsoft_agent.auth import get_client
+
+            from .source_adapters import MicrosoftGraphSourceClient, run_sync
+
+            # get_client() is async (msgraph) — bridge to sync, then wrap.
+            api = run_sync(lambda: get_client())
+            return MicrosoftGraphSourceClient(api)
         module = _CLIENT_MODULES.get(category)
         if module:
             mod = __import__(f"{module}.auth", fromlist=["get_client"])
@@ -163,6 +171,7 @@ MATERIALIZE_SOURCES: frozenset[str] = frozenset(
         "wger",
         "mealie",
         "emerald",
+        "microsoft",
     }
 )
 
