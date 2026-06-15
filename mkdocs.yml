@@ -52,6 +52,7 @@ nav:
   - Ecosystem: ecosystem.md
   - The Narrative Journey: journey.md
   - Deployment:
+      - One-link self-deploy: deploy.md
       - Quick Start: guides/quick-start.md
       - Self-Setup (config-complete): guides/self-setup.md
       - Supported Configurations (the ladder): guides/deployment-configurations.md
