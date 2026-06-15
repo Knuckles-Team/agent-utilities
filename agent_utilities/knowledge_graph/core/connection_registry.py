@@ -267,6 +267,25 @@ class ConnectionRegistry:
             conns.append(entry)
         return {"default_target": self._default_target, "connections": conns}
 
+    def spec_summary(self, name: str) -> dict[str, Any]:
+        """Redacted summary of a connection's spec — backend + endpoint, NO secrets.
+
+        Used by the external-graph imprint so the catalog node never persists
+        credentials. A ``user:pass@`` embedded in a URI is masked.
+        """
+        import re as _re
+
+        clean = (name or "").strip()
+        with self._lock:
+            spec = dict(self._specs.get(clean) or {})
+        endpoint = str(spec.get("uri") or spec.get("host") or "")
+        endpoint = _re.sub(r"//[^/@]*@", "//***@", endpoint)
+        return {
+            "backend": spec.get("backend_type") or spec.get("backend"),
+            "endpoint": endpoint,
+            "db_name": spec.get("db_name") or spec.get("database"),
+        }
+
     def close_all(self) -> None:
         """Close every cached named engine's backend (default is left to the
         process lifecycle)."""
