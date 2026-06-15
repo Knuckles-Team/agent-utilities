@@ -1,0 +1,150 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": ".",
+  "concept_id": "",
+  "kg_source_query": null,
+  "results": [
+    {
+      "source": "/home/apps/workspace/.scholarx/papers/2606.14269_scoregate__adaptive_chunk_selection_for_retrieval_augmented.md",
+      "source_type": "filesystem",
+      "concept_id": "",
+      "signals": {
+        "biomimicry_signals": [
+          {
+            "keyword": "neural",
+            "count": 1,
+            "analogy": "adaptive model routing",
+            "target_domain": "model_selection"
+          }
+        ],
+        "tech_signals": [
+          {
+            "keyword": "inference",
+            "count": 18,
+            "analogy": "derived knowledge from explicit assertions",
+            "target_domain": "owl_reasoning"
+          },
+          {
+            "keyword": "owl",
+            "count": 17,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          },
+          {
+            "keyword": "embedding",
+            "count": 15,
+            "analogy": "semantic vector representation",
+            "target_domain": "knowledge_graph"
+          },
+          {
+            "keyword": "join",
+            "count": 7,
+            "analogy": "cross-entity relationship resolution",
+            "target_domain": "entity_linking"
+          },
+          {
+            "keyword": "attention",
+            "count": 4,
+            "analogy": "context-aware retrieval weighting",
+            "target_domain": "hybrid_retriever"
+          },
+          {
+            "keyword": "zero-shot",
+            "count": 4,
+            "analogy": "inductive generalization",
+            "target_domain": "encpi"
+          },
+          {
+            "keyword": "chain-of-thought",
+            "count": 1,
+            "analogy": "rationale persistence",
+            "target_domain": "quiet_star"
+          }
+        ],
+        "innovation_claims": [
+          "On MS MARCO (200 dev queries), ScoreGate achieves MRR@10 = 0.401 with 35% fewer retained chunks than Standard Top-K",
+          "Results on both MS MARCO and real-world production traffic suggest that adaptive retrieval cardinality can improve retrieval efficiency without degrading retrieval quality",
+          "On MS MARCO (200 dev queries), ScoreGate achieves MRR@10 = 0.401 with 35% fewer retained chunks \u02c6 than Standard Top-K",
+          "Results on both MS MARCO and real-world production traffic suggest that adaptive retrieval cardinality can improve retrieval efficiency without degrading retrieval quality",
+          "Existing approaches address retrieval _quality_ but generally do not treat cardinality as a first-class decision",
+          "**Design and contributions.** ScoreGate is a lightweight score-space decision mechanism rather than a new retrieval architecture",
+          "ColBERT [3] achieves a favourable accuracy\u2013efficiency trade-off using token-level late interaction",
+          "Table 2 confirms empirically that per-query min\u2013max scaling outperforms raw logits and sigmoid normalisation on both ARB recall and MS MARCO MRR@10",
+          "Table 2: **Reranker score normalisation ablation.** Per-query min\u2013max scaling outperforms alternatives by producing the strongest B3/B4 score separation",
+          "The threshold derivation procedure is domain-agnostic: re-running the median-similarity and 5%-FPR calibration on a domain-specific query sample produces new _\u03c4s_ , _\u03c4r_ values without any model retraining"
+        ],
+        "concept_id": ""
+      },
+      "synergies": [
+        {
+          "innovation": "adaptive model routing",
+          "source_keyword": "neural",
+          "target_domain": "model_selection",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "derived knowledge from explicit assertions",
+          "source_keyword": "inference",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "semantic vector representation",
+          "source_keyword": "embedding",
+          "target_domain": "knowledge_graph",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "cross-entity relationship resolution",
+          "source_keyword": "join",
+          "target_domain": "entity_linking",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "context-aware retrieval weighting",
+          "source_keyword": "attention",
+          "target_domain": "hybrid_retriever",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "inductive generalization",
+          "source_keyword": "zero-shot",
+          "target_domain": "encpi",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "rationale persistence",
+          "source_keyword": "chain-of-thought",
+          "target_domain": "quiet_star",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 8
+    }
+  ]
+}

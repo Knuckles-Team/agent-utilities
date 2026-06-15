@@ -1,0 +1,107 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": ".",
+  "concept_id": "",
+  "kg_source_query": null,
+  "results": [
+    {
+      "source": "/home/apps/workspace/.scholarx/papers/2606.13814_tasr__training_free_adaptive_stopping_for_iterative_retrieva.md",
+      "source_type": "filesystem",
+      "concept_id": "",
+      "signals": {
+        "biomimicry_signals": [],
+        "tech_signals": [
+          {
+            "keyword": "owl",
+            "count": 3,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          },
+          {
+            "keyword": "embedding",
+            "count": 2,
+            "analogy": "semantic vector representation",
+            "target_domain": "knowledge_graph"
+          },
+          {
+            "keyword": "chain-of-thought",
+            "count": 2,
+            "analogy": "rationale persistence",
+            "target_domain": "quiet_star"
+          },
+          {
+            "keyword": "distillation",
+            "count": 1,
+            "analogy": "knowledge compression",
+            "target_domain": "trace_distillation"
+          },
+          {
+            "keyword": "inference",
+            "count": 1,
+            "analogy": "derived knowledge from explicit assertions",
+            "target_domain": "owl_reasoning"
+          }
+        ],
+        "innovation_claims": [
+          "Existing remedies learn a stopping policy from labeled trajectories, tying the decision to a trained component that requires retraining for each new model or task",
+          "We propose TASR (Training-Free Adaptive Stopping Rule), a one-line predicate that fires when the model repeats its previous-round normalized answer and the isotonically calibrated logit margin exceeds 0.25",
+          "A signal-quality analysis shows that verbalized 1-5 confidence collapses on RLHF-tuned models (96.5% of values equal 5, entropy 0.182 nats), while the logit margin achieves 44x better class-conditional separation, grounding the design in a measurable model pathology",
+          "Existing remedies learn a stopping policy from labeled trajectories, tying the decision to a trained component that requires retraining for each new model or task",
+          "We propose **TASR** (Training-Free Adaptive Stopping Rule), a one-line predicate that fires when the model repeats its previous-round normalized answer _and_ the isotonically calibrated logit margin exceeds 0 _._ 25",
+          "A signal-quality analysis shows that verbalized 1\u20135 confidence collapses on RLHF-tuned models (96 _._ 5% of values equal 5, entropy 0 _._ 182 nats), while the logit margin achieves 44\u00d7 better class-conditional separation, grounding the design in a measurable model pathology",
+          "All three place the stopping decision in a learned component that is less transparent and typically requires retraining for new models or tasks",
+          "## **2 Related Work** \n\n_Iterative retrieval._ IRCoT [21] interleaves chain-of-thought generation with retrieval, using each reasoning step to guide the next query; it improves multi-hop QA on HotpotQA, 2WikiMultiHopQA, MuSiQue, and IIRC, but issues a retrieval call per CoT sentence with no internal stopping criterion",
+          "All three approaches tie the stopping decision to a trained component and require retraining for each new model or task",
+          "The raw signal is answer_token_margin, the top-1 minus top-2 logprob at the first non-whitespace token after the literal string \u201cAnswer:\u201d in the generated response, which is the point at which the model commits to its output"
+        ],
+        "concept_id": ""
+      },
+      "synergies": [
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "semantic vector representation",
+          "source_keyword": "embedding",
+          "target_domain": "knowledge_graph",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "rationale persistence",
+          "source_keyword": "chain-of-thought",
+          "target_domain": "quiet_star",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "knowledge compression",
+          "source_keyword": "distillation",
+          "target_domain": "trace_distillation",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "derived knowledge from explicit assertions",
+          "source_keyword": "inference",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 5
+    }
+  ]
+}

@@ -1,0 +1,206 @@
+{
+  "domain": "CA-010",
+  "domain_name": "Innovation Extraction",
+  "source_count": 1,
+  "target": ".",
+  "concept_id": "",
+  "kg_source_query": null,
+  "results": [
+    {
+      "source": "/home/apps/workspace/.scholarx/papers/2606.06473_mlevolve__a_self_evolving_framework_for_automated_machine_le.md",
+      "source_type": "filesystem",
+      "concept_id": "",
+      "signals": {
+        "biomimicry_signals": [
+          {
+            "keyword": "evolution",
+            "count": 25,
+            "analogy": "genetic algorithm optimization",
+            "target_domain": "prompt_evolution"
+          },
+          {
+            "keyword": "neural",
+            "count": 3,
+            "analogy": "adaptive model routing",
+            "target_domain": "model_selection"
+          }
+        ],
+        "tech_signals": [
+          {
+            "keyword": "owl",
+            "count": 30,
+            "analogy": "web ontology language for semantic reasoning",
+            "target_domain": "owl_bridge"
+          },
+          {
+            "keyword": "hierarchical",
+            "count": 18,
+            "analogy": "multi-level abstraction layering",
+            "target_domain": "hierarchical_planning"
+          },
+          {
+            "keyword": "tree search",
+            "count": 5,
+            "analogy": "MCTS planning fallback",
+            "target_domain": "lats"
+          },
+          {
+            "keyword": "embedding",
+            "count": 2,
+            "analogy": "semantic vector representation",
+            "target_domain": "knowledge_graph"
+          },
+          {
+            "keyword": "distillation",
+            "count": 2,
+            "analogy": "knowledge compression",
+            "target_domain": "trace_distillation"
+          },
+          {
+            "keyword": "credit assignment",
+            "count": 2,
+            "analogy": "multi-step reward attribution",
+            "target_domain": "reward_decomposition"
+          },
+          {
+            "keyword": "transformer",
+            "count": 1,
+            "analogy": "parallel sequence processing",
+            "target_domain": "batch_processing"
+          },
+          {
+            "keyword": "reinforcement",
+            "count": 1,
+            "analogy": "reward-driven routing optimization",
+            "target_domain": "confidence_gating"
+          },
+          {
+            "keyword": "graph database",
+            "count": 1,
+            "analogy": "index-free adjacency storage",
+            "target_domain": "graph_storage"
+          },
+          {
+            "keyword": "inference",
+            "count": 1,
+            "analogy": "derived knowledge from explicit assertions",
+            "target_domain": "owl_reasoning"
+          }
+        ],
+        "innovation_claims": [
+          "By extending tree search to Progressive MCGS, MLEvolve enables cross-branch information flow through graph-based reference edges and gradually shifts the search from broad exploration to focused exploitation with an entropy-inspired progressive schedule",
+          "To allow the agent to evolve with accumulated experience, we introduce Retrospective Memory, which combines a cold-start domain knowledge base with a dynamic global memory for task-specific experience retrieval and reuse",
+          "Evaluation on MLE-Bench shows that MLEvolve achieves state-of-the-art performance across multiple dimensions including average medal rate and valid submission rate under a 12-hour budget (half the standard runtime)",
+          "Moreover, MLEvolve also outperforms specialized algorithm discovery methods including AlphaEvolve on mathematical algorithm optimization tasks, demonstrating strong cross-domain generalization",
+          "By extending tree search to Progressive MCGS, MLEvolve enables cross-branch information flow through graph-based reference edges and gradually shifts the search from broad exploration to focused exploitation with an entropy-inspired progressive schedule",
+          "To allow the agent to evolve with accumulated experience, we introduce Retrospective Memory, which combines a cold-start domain knowledge base with a dynamic global memory for task-specific experience retrieval and reuse",
+          "Evaluation on MLE-Bench shows that MLEvolve achieves state-of-the-art performance across multiple dimensions including average medal rate and valid submission rate under a 12-hour budget (half the standard runtime)",
+          "Moreover, MLEvolve also outperforms specialized algorithm discovery methods including AlphaEvolve on mathematical algorithm optimization tasks, demonstrating strong cross-domain generalization",
+          "Although recent advances in AutoML [8, 9] have achieved significant progress in optimizing discrete stages such as data processing and model selection, they often fall short of covering the entire end-to-end MLE pipeline, _i.e._ , from data preparation to model training and inference",
+          "First, existing search mechanisms are limited by _**information isolation**_ between branches and lack adaptive exploration strategies"
+        ],
+        "concept_id": ""
+      },
+      "synergies": [
+        {
+          "innovation": "genetic algorithm optimization",
+          "source_keyword": "evolution",
+          "target_domain": "prompt_evolution",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "adaptive model routing",
+          "source_keyword": "neural",
+          "target_domain": "model_selection",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "web ontology language for semantic reasoning",
+          "source_keyword": "owl",
+          "target_domain": "owl_bridge",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "multi-level abstraction layering",
+          "source_keyword": "hierarchical",
+          "target_domain": "hierarchical_planning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "MCTS planning fallback",
+          "source_keyword": "tree search",
+          "target_domain": "lats",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "semantic vector representation",
+          "source_keyword": "embedding",
+          "target_domain": "knowledge_graph",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "knowledge compression",
+          "source_keyword": "distillation",
+          "target_domain": "trace_distillation",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "multi-step reward attribution",
+          "source_keyword": "credit assignment",
+          "target_domain": "reward_decomposition",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "parallel sequence processing",
+          "source_keyword": "transformer",
+          "target_domain": "batch_processing",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "reward-driven routing optimization",
+          "source_keyword": "reinforcement",
+          "target_domain": "confidence_gating",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "index-free adjacency storage",
+          "source_keyword": "graph database",
+          "target_domain": "graph_storage",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        },
+        {
+          "innovation": "derived knowledge from explicit assertions",
+          "source_keyword": "inference",
+          "target_domain": "owl_reasoning",
+          "already_in_target": true,
+          "integration_type": "enhancement",
+          "estimated_value": "low"
+        }
+      ],
+      "new_capabilities": 0,
+      "enhancements": 12
+    }
+  ]
+}
