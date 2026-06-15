@@ -620,6 +620,75 @@ async def cancel_session_run(request: Request) -> JSONResponse:
     return JSONResponse({"status": "success", "cancelled": cancelled})
 
 
+def _append_session_turn(
+    session_id: str, iteration_num: int, iteration: GoalIteration, output: str
+) -> None:
+    """Append an iteration as a console turn on the sessions store (best-effort)."""
+    try:
+        conn = _connect_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT turn_count FROM sessions WHERE id = ?", (session_id,))
+        tc_row = cursor.fetchone()
+        turn_num = tc_row[0] if tc_row else 0
+        content_md = (
+            f"### Iteration {iteration_num}\n**Action:** {iteration.action}\n"
+            f"**Result:** {iteration.result}\n"
+        )
+        if output:
+            content_md += f"\n**Validation Output:**\n```\n{output}\n```"
+        cursor.execute(
+            "INSERT INTO turns (id, session_id, turn_number, role, content, "
+            "created_at, status, usage_json, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()),
+                session_id,
+                turn_num + 1,
+                "assistant",
+                content_md,
+                time.time(),
+                "completed",
+                "{}",
+                iteration.duration_ms,
+            ),
+        )
+        cursor.execute(
+            "UPDATE sessions SET turn_count = turn_count + 1, "
+            "last_response_preview = ?, updated_at = ? WHERE id = ?",
+            (
+                f"Iteration {iteration_num} complete. Success: {iteration.is_complete}",
+                time.time(),
+                session_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Error appending turn to sessions store: {e}")
+
+
+def _set_session_status(session_id: str, status: str, *, guard_desired: bool = False) -> None:
+    """Set a session's status (best-effort). ``guard_desired`` won't clobber a
+    pending supervisor pause/kill request (OS-5.18)."""
+    try:
+        conn = _connect_db()
+        cursor = conn.cursor()
+        if guard_desired:
+            cursor.execute(
+                "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ? "
+                "AND status NOT IN ('pause_requested', 'kill_requested')",
+                (status, time.time(), session_id),
+            )
+        else:
+            cursor.execute(
+                "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
+                (status, time.time(), session_id),
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Error setting session status: {e}")
+
+
 async def run_goal_loop(
     session_id: str,
     goal_id: str,
@@ -628,7 +697,16 @@ async def run_goal_loop(
     max_iterations: int,
     constraints: list[str],
 ):
-    """Background asyncio worker loop implementing Concept ORCH-5.0."""
+    """Durable goal execution — a thin adapter onto the unified LoopController.
+
+    The generalized durable run-loop (resume / per-iteration checkpoint / corrigible
+    interruption, CONCEPT:OS-5.16 + SAFE-1.5) lives ONCE in
+    :meth:`LoopController.run_loop` and is shared by every Loop kind
+    (research/develop/skill) — durability is cross-cutting, not goal-specific. This
+    adapter registers the goal as a ``develop`` Loop, wires the goal's observability
+    (the goals table + the session console turns) and the fleet desired-state signal
+    to the controller, and lets it own execution. No separate durable loop remains.
+    """
     active_goals[goal_id] = {
         "goal_id": goal_id,
         "session_id": session_id,
@@ -644,244 +722,88 @@ async def run_goal_loop(
         "error": "",
     }
     _persist_goal(goal_id)
-
-    iterations_run = 0
-    success = False
-
-    # Durable execution (CONCEPT:OS-5.16): each iteration's side effect is
-    # checkpointed under an idempotency key so a crash-and-resume — or a
-    # queue-driven redelivery — never re-runs a validation that already ran.
-    # On restart we resume near the last in-flight checkpoint instead of
-    # replaying every completed iteration's effect from zero.
-    from agent_utilities.orchestration.durable_execution import (
-        DurableExecutionManager,
-    )
-
-    durable = DurableExecutionManager(session_id=session_id)
-    try:
-        pending = durable.resume_session()
-    except Exception as e:  # noqa: BLE001 — recovery is best-effort
-        logger.error(f"Durable resume failed for goal {goal_id}: {e}")
-        pending = None
-    if pending:
-        import json as _json
-
-        try:
-            _pstate = pending.get("state")
-            _pstate = (
-                _json.loads(_pstate) if isinstance(_pstate, str) else (_pstate or {})
-            )
-        except (TypeError, ValueError):
-            _pstate = {}
-        prior_iter = _pstate.get("iteration")
-        if isinstance(prior_iter, int) and prior_iter > 0:
-            # The pending iteration was in flight when we died; re-run it (it
-            # never completed) and skip the ones before it (already applied).
-            iterations_run = prior_iter - 1
-            logger.info(
-                "Goal %s resuming from durable checkpoint at iteration %d",
-                goal_id,
-                prior_iter,
-            )
+    _set_session_status(session_id, "running", guard_desired=True)
 
     try:
-        conn = _connect_db()
-        cursor = conn.cursor()
-        # Never clobber a supervisor's pending desired-state request (OS-5.18):
-        # the loop-top reconciliation below must still observe it.
-        cursor.execute(
-            "UPDATE sessions SET status = 'running', updated_at = ? "
-            "WHERE id = ? AND status NOT IN ('pause_requested', 'kill_requested')",
-            (time.time(), session_id),
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+        from agent_utilities.knowledge_graph.research.loop_controller import (
+            LoopController,
         )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error updating session status: {e}")
+        from agent_utilities.knowledge_graph.research.loops import submit_loop
 
-    while iterations_run < max_iterations and not success:
-        # Honor fleet desired-state requests (CONCEPT:OS-5.18): a supervisor
-        # on any host writes pause_requested/kill_requested into the sessions
-        # store; this owning loop reconciles it here.
-        desired = _desired_session_action(session_id)
-        if desired:
-            # CONCEPT:SAFE-1.5 — corrigible interruption: checkpoint and yield to the
-            # supervisor signal without resisting (the primitive centralizes the
-            # PAUSED/CANCELLED mapping + the no-resistance contract).
-            from agent_utilities.core.corrigibility import corrigibility_decision
-
-            final, summary = corrigibility_decision(desired)
-            active_goals[goal_id]["status"] = final
-            active_goals[goal_id]["summary"] = summary
-            _persist_goal(goal_id)
-            if final is not None:
-                try:
-                    conn = _connect_db()
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
-                        (final.value, time.time(), session_id),
-                    )
-                    conn.commit()
-                    conn.close()
-                except Exception as e:
-                    logger.error(f"Error applying desired state to session: {e}")
-                logger.info(
-                    "Goal %s reconciled to %s by supervisor request",
-                    goal_id,
-                    final.value,
-                )
-            background_goal_runs.pop(goal_id, None)
-            return
-
-        iterations_run += 1
-        iter_start = time.time()
-
-        action_desc = f"Analyzing workspace and executing step {iterations_run} for objective: '{objective}'."
-        if validation_cmd:
-            action_desc += f" Preparing to run validation command `{validation_cmd}`."
-
-        tool_calls_count = 2 if validation_cmd else 1
-
-        # Execute validation command in workspace directory. The whole
-        # "did this iteration succeed" decision is wrapped in a durable action
-        # keyed by iteration so a redelivery/resume returns the recorded result
-        # rather than re-running the (potentially mutating) validation command.
-        async def _run_validation(
-            iterations_run: int = iterations_run,
-        ) -> dict[str, Any]:
-            out = ""
-            ok = False
-            if validation_cmd:
-                try:
-                    proc = await asyncio.create_subprocess_shell(
-                        validation_cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        cwd=str(DEFAULT_AGENT_DIR.resolve()),
-                    )
-                    stdout, stderr = await proc.communicate()
-                    exit_code = proc.returncode
-
-                    output_str = stdout.decode().strip()
-                    err_str = stderr.decode().strip()
-
-                    out = f"Command: `{validation_cmd}`\nExit Code: {exit_code}\n"
-                    if output_str:
-                        out += f"Stdout:\n{output_str}\n"
-                    if err_str:
-                        out += f"Stderr:\n{err_str}\n"
-
-                    if exit_code == 0:
-                        ok = True
-                except Exception as e:
-                    out = f"Failed to execute command: {e}"
-            else:
-                if iterations_run >= 3:
-                    ok = True
-            return {"validation_output": out, "cmd_success": ok}
-
-        try:
-            outcome = await durable.arun_durable_action(
-                node_id=f"{goal_id}:iter:{iterations_run}",
-                action=_run_validation,
-                idempotency_key=f"{goal_id}:{iterations_run}",
-                state={"iteration": iterations_run},
-            )
-        except Exception as e:  # noqa: BLE001 — durable action is best-effort
-            logger.error(f"Durable iteration {iterations_run} failed: {e}")
-            outcome = {
-                "validation_output": f"Durable action error: {e}",
-                "cmd_success": False,
-            }
-        validation_output = outcome.get("validation_output", "")
-        cmd_success = bool(outcome.get("cmd_success"))
-
-        iter_duration = int((time.time() - iter_start) * 1000)
-
-        # Build iteration step record
-        iteration = GoalIteration(
-            iteration=iterations_run,
-            action=action_desc,
-            result=f"Iteration step complete. Command success: {cmd_success}",
-            validation_output=validation_output,
-            is_complete=cmd_success,
-            duration_ms=iter_duration,
-            tool_calls=tool_calls_count,
-            timestamp=time.time(),
+        engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
+        # Register the goal as a first-class develop Loop so it is visible to and
+        # advanced by the one controller (CONCEPT:KG-2.78).
+        submit_loop(
+            engine,
+            objective,
+            kind="develop",
+            validation_cmd=validation_cmd,
+            loop_id=goal_id,
+            max_iterations=max_iterations,
         )
+        loop = {
+            "id": goal_id,
+            "kind": "develop",
+            "objective": objective,
+            "validation_cmd": validation_cmd,
+            "max_iterations": max_iterations,
+            "status": "running",
+        }
 
-        active_goals[goal_id]["iterations"].append(iteration)
-        active_goals[goal_id]["total_iterations"] = iterations_run
-        active_goals[goal_id]["total_duration_ms"] += iter_duration
-        active_goals[goal_id]["total_tool_calls"] += tool_calls_count
-        _persist_goal(goal_id)
-
-        # Synchronize back to the sessions store to show dynamic console progress
-        try:
-            conn = _connect_db()
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT turn_count FROM sessions WHERE id = ?", (session_id,)
-            )
-            tc_row = cursor.fetchone()
-            turn_num = tc_row[0] if tc_row else 0
-
-            turn_id = str(uuid.uuid4())
-            content_md = f"### Iteration {iterations_run}\n**Action:** {iteration.action}\n**Result:** {iteration.result}\n"
-            if validation_output:
-                content_md += f"\n**Validation Output:**\n```\n{validation_output}\n```"
-
-            cursor.execute(
-                "INSERT INTO turns (id, session_id, turn_number, role, content, created_at, status, usage_json, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    turn_id,
-                    session_id,
-                    turn_num + 1,
-                    "assistant",
-                    content_md,
-                    time.time(),
-                    "completed",
-                    "{}",
-                    iter_duration,
+        def _record(iteration_num: int, outcome: dict[str, Any]) -> None:
+            cmd_success = outcome.get("status") == "completed"
+            output = str(outcome.get("output", ""))
+            iteration = GoalIteration(
+                iteration=iteration_num,
+                action=(
+                    f"Executing step {iteration_num} for objective: '{objective}'."
+                    + (f" Validation `{validation_cmd}`." if validation_cmd else "")
                 ),
+                result=f"Iteration step complete. Command success: {cmd_success}",
+                validation_output=output,
+                is_complete=cmd_success,
+                duration_ms=0,
+                tool_calls=2 if validation_cmd else 1,
+                timestamp=time.time(),
             )
+            entry = active_goals.get(goal_id)
+            if entry is not None:
+                entry["iterations"].append(iteration)
+                entry["total_iterations"] = iteration_num
+                entry["total_tool_calls"] += iteration.tool_calls
+                _persist_goal(goal_id)
+            _append_session_turn(session_id, iteration_num, iteration, output)
 
-            preview = f"Iteration {iterations_run} complete. Success: {cmd_success}"
-            cursor.execute(
-                "UPDATE sessions SET turn_count = turn_count + 1, last_response_preview = ?, updated_at = ? WHERE id = ?",
-                (preview, time.time(), session_id),
-            )
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            logger.error(f"Error appending turn to sessions store: {e}")
-
-        if cmd_success:
-            success = True
-            break
-
-        await asyncio.sleep(2)
-
-    final_status = GoalStatus.COMPLETED if success else GoalStatus.FAILED
-    active_goals[goal_id]["status"] = final_status
-    active_goals[goal_id][
-        "summary"
-    ] = f"Goal finished with status: {final_status.value}. Iterations run: {iterations_run}."
-    _persist_goal(goal_id)
-
-    try:
-        conn = _connect_db()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
-            (final_status.value, time.time(), session_id),
+        # The goal's validation runs in the agent workspace; the controller owns the
+        # durable resume/checkpoint and honors the fleet desired-state each iteration.
+        controller = LoopController(engine, codebase_root=str(DEFAULT_AGENT_DIR.resolve()))
+        result = await controller.run_loop(
+            loop,
+            max_iterations=max_iterations,
+            on_iteration=_record,
+            desired_state=lambda: _desired_session_action(session_id),
+            sleep_s=2.0,
         )
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error finalizing session status: {e}")
+    except Exception as e:  # noqa: BLE001 — never let a goal crash the worker
+        logger.error(f"Goal {goal_id} run_loop failed: {e}")
+        result = {"status": "failed", "iterations": 0}
+
+    rstatus = str(result.get("status", "failed"))
+    try:
+        final = GoalStatus(rstatus)
+    except ValueError:
+        final = GoalStatus.COMPLETED if rstatus == "completed" else GoalStatus.FAILED
+    entry = active_goals.get(goal_id)
+    if entry is not None:
+        entry["status"] = final
+        entry["summary"] = (
+            f"Goal finished with status: {final.value}. "
+            f"Iterations run: {result.get('iterations', 0)}."
+        )
+        _persist_goal(goal_id)
+    _set_session_status(session_id, final.value)
+    background_goal_runs.pop(goal_id, None)
 
 
 async def create_goal(request: Request) -> JSONResponse:
