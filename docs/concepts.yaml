@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 260
+total_concepts: 261
 total_pillars: 20
 pillars:
 - AHE-3
@@ -103,6 +103,7 @@ concepts:
   - agent_utilities/graph/workspace_attention.py
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/engineering.py
+  - agent_utilities/harness/self_guided_play.py
   - agent_utilities/harness/variant_pool.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/models/imodel.py
@@ -193,6 +194,7 @@ concepts:
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/provenance_gate.py
   - agent_utilities/harness/quality_gates.py
+  - agent_utilities/harness/self_guided_play.py
   doc: pre-emit quality gate on the live execution path
 - id: AHE-3.14
   name: consider promoting the team
@@ -430,6 +432,15 @@ concepts:
   - agent_utilities/harness/continuous_evaluation_engine.py
   - agent_utilities/harness/research_log.py
   doc: disconfirming-evidence research log, fed each round
+- id: AHE-3.37
+  name: when a task is in scope, run a short self-guided
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/agentic_evolution_engine.py
+  - agent_utilities/harness/self_guided_play.py
+  doc: when a task is in scope, run a short self-guided
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
