@@ -183,9 +183,12 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
         and str(s.get("name") or "").strip()
     ]
     _seen: set[str] = set()
-    targets = [
-        t for t in (targets + role_mirrors) if t and not (t in _seen or _seen.add(t))
-    ]
+    _deduped: list[str] = []
+    for t in targets + role_mirrors:
+        if t and t not in _seen:
+            _seen.add(t)
+            _deduped.append(t)
+    targets = _deduped
     if not targets:
         return {}
     conn_specs: dict[str, dict[str, Any]] = {}
