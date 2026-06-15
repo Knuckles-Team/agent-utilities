@@ -1,0 +1,16 @@
+# Observability / streaming ontology (CONCEPT:KG-2.9).
+# Small additions for the ops/observability plane; Dashboard/Alert/DataSource are
+# already defined (grafana). Adds Topic for Kafka-style streams.
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<http://knuckles.team/kg/observability> a owl:Ontology ;
+    rdfs:label "Observability & Streaming Ontology" ;
+    rdfs:comment "Ops/observability node types (CONCEPT:KG-2.9)." ;
+    owl:imports <http://knuckles.team/kg> .
+
+:Topic a owl:Class ;
+    rdfs:label "Topic" ;
+    rdfs:comment "A message/stream topic (e.g. Kafka) carrying events between services." ;
+    rdfs:subClassOf :DataSource .
