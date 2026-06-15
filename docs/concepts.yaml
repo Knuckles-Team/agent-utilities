@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 256
+total_concepts: 257
 total_pillars: 20
 pillars:
 - AHE-3
@@ -399,12 +399,13 @@ concepts:
   - agent_utilities/rlm/runner.py
   doc: Long-Context RLM Benchmark Harness and Paper-Comparison Scoreboard
 - id: AHE-3.33
-  name: AHE-3.33
+  name: one online exploit/explore bandit router per agent
   pillar: AHE-3
   status: live
   code_paths:
+  - agent_utilities/harness/decentralized_memory.py
   - agent_utilities/harness/explore_exploit_router.py
-  doc: AHE-3.33
+  doc: one online exploit/explore bandit router per agent
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1931,23 +1932,25 @@ concepts:
   - agent_utilities/knowledge_graph/core/tenant_engine_pool.py
   doc: The elastic layer over KG-2.58 shard routing
 - id: KG-2.63
-  name: Multi-Connection Graph Registry. The engine has always been
+  name: Profile / imprint / ontology-map a registered external graph
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/deployment/doctor.py
   - agent_utilities/knowledge_graph/backends/__init__.py
   - agent_utilities/knowledge_graph/backends/age_backend.py
   - agent_utilities/knowledge_graph/backends/base.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+  - agent_utilities/knowledge_graph/core/connection_profiler.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
-  doc: Multi-Connection Graph Registry. The engine has always been
+  doc: Profile / imprint / ontology-map a registered external graph
 - id: KG-2.64
   name: document → atomic-triple fact extraction
   pillar: KG-2
@@ -2140,12 +2143,13 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/finance_objects.py
   doc: Kyle insider/stealth surveillance signal ontology
 - id: KG-2.82
-  name: Decentralized Memory
+  name: / AHE-3.33 — record this base
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/decentralized_memory.py
-  doc: Decentralized Memory
+  doc: / AHE-3.33 — record this base
 - id: KG-2.85
   name: Adaptive Chunk Selection
   pillar: KG-2
@@ -2178,6 +2182,18 @@ concepts:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/iterative_expansion.py
   doc: assimilated from ADORE
+- id: KG-2.89
+  name: Role-aware multi-database registry plus live config mutation
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/deployment/config_generator.py
+  - agent_utilities/knowledge_graph/backends/__init__.py
+  - agent_utilities/knowledge_graph/core/connection_registry.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: Role-aware multi-database registry plus live config mutation
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
