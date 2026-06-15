@@ -52,6 +52,12 @@ def main(argv: list[str] | None = None) -> int:
         "--no-backfill", action="store_true", help="Skip the durable backfill step."
     )
     parser.add_argument(
+        "--no-mirror-data",
+        action="store_true",
+        help="Don't register Stardog as a live data mirror (publish only the "
+        "ontology). Default: mirror instance data for the Stardog target.",
+    )
+    parser.add_argument(
         "--verify",
         action="store_true",
         help="Only probe Postgres for age/vector/pg_search and exit.",
@@ -70,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         sparql_target=args.sparql_target,
         mirror_targets=args.mirror,
         do_backfill=not args.no_backfill,
+        mirror_data_to_stardog=False if args.no_mirror_data else None,
     )
     print(json.dumps(report, indent=2, default=str))
     return 0 if report.get("status") == "success" else 1
