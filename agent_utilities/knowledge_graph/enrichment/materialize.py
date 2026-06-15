@@ -89,6 +89,8 @@ _CLIENT_MODULES: dict[str, str] = {
     "lgtm": "lgtm_mcp",
     "twenty": "twenty_mcp",
     "archimate": "archimate_mcp",
+    "wger": "wger_agent",
+    "mealie": "mealie_mcp",
 }
 
 
@@ -116,6 +118,14 @@ def resolve_source_client(category: str) -> Any | None:
             from .source_adapters import ErpNextSourceClient
 
             return ErpNextSourceClient(get_client())
+        if category == "emerald":
+            from emerald_exchange.backends import TradingMode, create_backend
+
+            backend = create_backend(name="paper", config={}, mode=TradingMode.PAPER)
+            connect = getattr(backend, "connect", None)
+            if callable(connect):
+                connect()
+            return backend
         module = _CLIENT_MODULES.get(category)
         if module:
             mod = __import__(f"{module}.auth", fromlist=["get_client"])
@@ -150,6 +160,9 @@ MATERIALIZE_SOURCES: frozenset[str] = frozenset(
         "lgtm",
         "twenty",
         "archimate",
+        "wger",
+        "mealie",
+        "emerald",
     }
 )
 
