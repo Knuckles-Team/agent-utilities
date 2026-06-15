@@ -6,8 +6,15 @@ Exposes OptimisticStateLocker, BranchMergeStateLocker, ToolContract, and Contrac
 from .adaptation_benchmark import AdaptationBenchmark, BenchmarkEntry
 from .adaptation_speed import AdaptationCurve, CurvePoint, marginal_speed_gain
 from .contract_validator import ContractValidator, ToolContract
+from .baseline_overfit_gate import (
+    GateVerdict,
+    PreRunGate,
+    baseline_gate,
+    overfit_smoke_gate,
+)
 from .decentralized_memory import Contribution, DecentralizedMemory, MemoryPool
 from .distributed_state_manager import BranchMergeStateLocker, OptimisticStateLocker
+from .forecasting import Forecast, ForecastBoard
 from .edit_engine import (
     Edit,
     EditOutcome,
@@ -18,6 +25,7 @@ from .edit_engine import (
 )
 from .evolving_memory import EvolvingMemoryStore, MemoryBank, MemoryRecord
 from .provenance_gate import ProvenanceCriticGate, ProvenanceVerdict
+from .research_log import BeliefEntry, FailureCase, FailureTriage, ResearchLog
 from .red_team import ATTACK_CATALOG, AttackProbe, RedTeamReport, RedTeamRunner
 from .reliability_scorers import (
     BrierSkillScorer,
@@ -55,6 +63,17 @@ __all__ = [
     "DecentralizedMemory",
     "MemoryPool",
     "Contribution",
+    # Research-craft disciplines (CONCEPT:AHE-3.34/3.35/3.36)
+    "Forecast",
+    "ForecastBoard",
+    "GateVerdict",
+    "baseline_gate",
+    "overfit_smoke_gate",
+    "PreRunGate",
+    "FailureCase",
+    "FailureTriage",
+    "BeliefEntry",
+    "ResearchLog",
     # Provenance-completeness critic gate (CONCEPT:AHE-3.13)
     "ProvenanceCriticGate",
     "ProvenanceVerdict",
