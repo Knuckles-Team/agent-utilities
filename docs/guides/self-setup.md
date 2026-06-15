@@ -84,13 +84,25 @@ generates and validates the config *around* that bootstrap; it doesn't reimpleme
 
 ## 8. Verify
 
+Run the holistic doctor — one sweep across config, engine, backend, secrets, auth,
+the MCP fleet, hooks, and observability, each line carrying a remediation + the skill
+that fixes it (brew/flutter-doctor style):
+
 ```bash
-setup-config doctor --profile single-node-prod        # required keys, durability, secret refs
+agent-utilities-doctor                 # human-readable; --json for machines, --fix for safe auto-remediation
+agent-utilities-doctor --live          # also probe MCP endpoints
+```
+
+It composes the focused checks too, which you can still run directly:
+
+```bash
+setup-config doctor --profile single-node-prod        # config: required keys, durability, secret refs
 python scripts/validate_mcp_config.py --live          # MCP reachability (catch 502s)
 ```
 
-`doctor` reuses the production-safety rules (`collect_production_violations`) so a
-config that pins you to a single host or in-memory broker is flagged before you ship.
+The config check reuses the production-safety rules (`collect_production_violations`)
+so a config that pins you to a single host or in-memory broker is flagged before you
+ship. Also reachable as `graph_configure(action="system_doctor")` (MCP/REST).
 A green doctor + a `graph_write`/`graph_query` round-trip = you're up.
 
 ## See also

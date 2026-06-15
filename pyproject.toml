@@ -252,6 +252,9 @@ setup-databases = "agent_utilities.knowledge_graph.setup.cli:main"
 # Generate/validate/document the FULL deployment config (all AgentConfig options);
 # also `python -m agent_utilities.deployment.cli`.
 setup-config = "agent_utilities.deployment.cli:main"
+# Holistic deployment health sweep (brew/flutter-doctor style); also
+# `python -m agent_utilities.deployment.doctor`.
+agent-utilities-doctor = "agent_utilities.deployment.doctor:main"
 # CONCEPT:KG-2.57 — decoupled kg-ingest consumer-group worker (engine client, no
 # KG host role); also `python -m agent_utilities.knowledge_graph.ingest_worker`.
 kg-ingest-worker = "agent_utilities.knowledge_graph.ingest_worker:main"
