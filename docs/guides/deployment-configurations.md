@@ -111,7 +111,7 @@ OPENAI_API_KEY=sk-your-key
 #KG_DEV_MODE=false                 # false = all maintenance daemons on
 #FLEET_RECONCILER=false
 #FLEET_AUTOSCALER=false
-#KG_GOLDEN_LOOP=false
+#KG_LOOP=false
 #KG_FAILURE_EVOLUTION=false
 #ACTION_POLICY_PATH=               # empty = shipped conservative default policy
 ```
@@ -559,12 +559,12 @@ approval-required policy); treat every relaxation as a production change.
 # ---- Everything from rung (d), plus: ----
 
 # -- Golden loop: propose-only self-evolution (intake -> acquire -> distill) --
-KG_GOLDEN_LOOP=true
-#KG_GOLDEN_LOOP_INTERVAL=3600       # default, seconds
-#KG_GOLDEN_LOOP_TOPICS=5            # default: hot topics per tick
-#KG_GOLDEN_DISTILL=false            # default; opt-in distillation stage
-#KG_GOLDEN_BREADTH=false            # default; opt-in breadth scan
-#KG_GOLDEN_STANDARDIZE=false        # default; opt-in standardization stage
+KG_LOOP=true
+#KG_LOOP_INTERVAL=3600       # default, seconds
+#KG_LOOP_TOPICS=5            # default: hot topics per tick
+#KG_LOOP_DISTILL=false            # default; opt-in distillation stage
+#KG_LOOP_BREADTH=false            # default; opt-in breadth scan
+#KG_LOOP_STANDARDIZE=false        # default; opt-in standardization stage
 KG_GOLDEN_AUTO_MERGE=false          # default; keep merges human-gated
 #EVOLUTION_WORKTREE_ROOT=           # default: data_dir()/evolution_worktrees
 

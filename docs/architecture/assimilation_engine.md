@@ -67,7 +67,7 @@ graph_orchestrate(action="assimilate", task="synthesize")   # + propose plans
 ```
 ```
 # autonomous daemon (golden-loop tick) — env-gated
-KG_GOLDEN_LOOP=1 KG_GOLDEN_BREADTH=1 \
+KG_LOOP=1 KG_LOOP_BREADTH=1 \
 KG_BREADTH_LIBRARY_ROOTS=/path/to/open-source-libraries \
 KG_BREADTH_REPO_ROOTS=/path/to/agent-packages
 ```

@@ -54,9 +54,9 @@ def test_kg_loop_flags_default_off():
     # AgentConfig (off bare os.environ) and defaults to the conservative value.
     for k in (
         "KG_LOOP",
-        "KG_GOLDEN_DISTILL",
-        "KG_GOLDEN_BREADTH",
-        "KG_GOLDEN_STANDARDIZE",
+        "KG_LOOP_DISTILL",
+        "KG_LOOP_BREADTH",
+        "KG_LOOP_STANDARDIZE",
         "KG_GOLDEN_AUTO_MERGE",
     ):
         os.environ.pop(k, None)

@@ -57,7 +57,7 @@ WORKSPACE_PATH=/home/apps/workspace KG_FILE_WATCH=0 KG_EMBED_BACKFILL_BATCH=1000
 5. **Enable the autonomous loop** (optional) — restart with the golden-loop + breadth
    envs so the daemon tick runs the assimilation pipeline each cycle:
    ```bash
-   KG_GOLDEN_LOOP=1 KG_GOLDEN_BREADTH=1 \
+   KG_LOOP=1 KG_LOOP_BREADTH=1 \
    KG_BREADTH_LIBRARY_ROOTS=/home/apps/workspace/open-source-libraries \
    KG_BREADTH_REPO_ROOTS=/home/apps/workspace/agent-packages
    ```

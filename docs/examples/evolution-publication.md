@@ -25,10 +25,10 @@ default — the platform is propose-only until you opt in:
 
 ```bash
 # .env
-KG_GOLDEN_LOOP=1                  # 60-min golden-loop daemon tick (KG-2.7)
-KG_GOLDEN_LOOP_INTERVAL=3600
-KG_GOLDEN_LOOP_TOPICS=5
-KG_GOLDEN_DISTILL=1               # distil acquired papers into Insight nodes
+KG_LOOP=1                  # 60-min golden-loop daemon tick (KG-2.7)
+KG_LOOP_INTERVAL=3600
+KG_LOOP_TOPICS=5
+KG_LOOP_DISTILL=1               # distil acquired papers into Insight nodes
 KG_GOLDEN_AUTO_MERGE=1            # AHE-3.14 governed promotion (proposal -> active)
 KG_GOLDEN_MERGE_THRESHOLD=0.85    # conservative default quality bar
 

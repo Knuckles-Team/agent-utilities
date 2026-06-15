@@ -156,8 +156,8 @@ commented blocks in `.env.example` and `docker/mcp.compose.yml`).
 
 | Flag | Default | Effect |
 | --- | --- | --- |
-| `KG_GOLDEN_LOOP` | `false` | Hourly propose-only self-evolution cycle (intake → acquire → resolve → distill/synthesize proposals). |
-| `KG_GOLDEN_LOOP_INTERVAL` / `KG_GOLDEN_LOOP_TOPICS` | `3600` / `5` | Tick cadence and per-cycle topic budget. |
+| `KG_LOOP` | `false` | Hourly propose-only self-evolution cycle (intake → acquire → resolve → distill/synthesize proposals). |
+| `KG_LOOP_INTERVAL` / `KG_LOOP_TOPICS` | `3600` / `5` | Tick cadence and per-cycle topic budget. |
 | `KG_FAILURE_EVOLUTION` | `false` | Pull Langfuse failures → `failure_gap` topics → regression-gated remediation cycle. |
 | `KG_FAILURE_EVOLUTION_INTERVAL` / `KG_FAILURE_EVOLUTION_WINDOW` | `3600` / `86400` | Tick cadence and telemetry look-back. |
 | `KG_ANOMALY_CONSUMER` | `true` | Consume unconsumed `PerformanceAnomaly` nodes into `failure_gap` topics (cheap, LLM-free, propose-only — on by default). |
@@ -170,7 +170,7 @@ commented blocks in `.env.example` and `docker/mcp.compose.yml`).
 
 ## Recommended rollout
 
-1. Enable `KG_GOLDEN_LOOP=true` and `KG_FAILURE_EVOLUTION=true` and watch the
+1. Enable `KG_LOOP=true` and `KG_FAILURE_EVOLUTION=true` and watch the
    proposal stream (`EvolutionCycle` nodes, `failure_gap` Concepts, audit log)
    for a few cycles. Nothing merges.
 2. Point Alertmanager / Uptime Kuma at `POST /api/fleet/events` (set
