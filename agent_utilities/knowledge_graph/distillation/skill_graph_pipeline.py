@@ -396,7 +396,7 @@ class SkillGraphPipeline:
 
         # Hybrid-auto KG enrichment (graceful — never blocks the offline graph).
         do_kg = self.kg_enrich if kg_enrich is None else kg_enrich
-        kg_result = (
+        kg_result: dict[str, Any] = (
             self._maybe_ingest_kg(ref, name) if do_kg else {"kg_ingested": False}
         )
         if kg_query_manifest is not None:
@@ -662,6 +662,112 @@ class SkillGraphPipeline:
             version=version,
         )
 
+    # ── legacy migration ──────────────────────────────────────────────────────
+
+    def classify_legacy(self, skill_dir: str | Path) -> dict[str, Any]:
+        """Classify a (possibly legacy) skill-graph for migration to the contract.
+
+        Modes: ``managed`` (already has sources.json — nothing to do),
+        ``reacquire`` (legacy ``source_url`` in SKILL.md → rebuild from those URLs),
+        ``wrap`` (no source_url but has a ``reference/`` corpus → re-package the
+        existing markdown as a ``dir`` source, preserving content), or ``native``
+        (hand-authored / nested, no corpus → leave alone).
+        """
+        d = Path(skill_dir)
+        skill_md = d / "SKILL.md"
+        fm = (
+            parse_frontmatter(skill_md.read_text(encoding="utf-8"))
+            if skill_md.exists()
+            else {}
+        )
+        ref = d / "reference"
+        md_count = len(list(ref.rglob("*.md"))) if ref.is_dir() else 0
+        source_url = fm.get("source_url")
+        if isinstance(source_url, list):
+            source_url = ", ".join(source_url)
+        if (d / "sources.json").exists():
+            mode = "managed"
+        elif source_url:
+            mode = "reacquire"
+        elif md_count:
+            mode = "wrap"
+        else:
+            mode = "native"
+        return {
+            "name": d.name,
+            "mode": mode,
+            "source_url": source_url or "",
+            "crawl_depth": fm.get("crawl_depth") or "",
+            "file_count": md_count,
+            "description": fm.get("description") or "",
+        }
+
+    @staticmethod
+    def _specs_from_source_url(source_url: str, depth: int) -> list[SourceSpec]:
+        specs: list[SourceSpec] = []
+        for raw in (u.strip() for u in source_url.split(",")):
+            if not raw:
+                continue
+            low = raw.lower().split("?")[0]
+            if raw.startswith("http") and low.endswith(_DOC_EXTS):
+                specs.append(
+                    SourceSpec("pdf" if low.endswith(".pdf") else "office", raw)
+                )
+            elif raw.startswith("http"):
+                specs.append(SourceSpec("web", raw, {"max_depth": depth}))
+            else:
+                specs.append(SourceSpec("dir", raw))
+        return specs
+
+    def migrate_legacy(
+        self,
+        skill_dir: str | Path,
+        *,
+        mode: str = "auto",
+        kg_enrich: bool | None = None,
+    ) -> dict[str, Any]:
+        """Migrate one legacy skill-graph in place to the standardized contract.
+
+        ``mode='auto'`` follows :meth:`classify_legacy`; ``reacquire`` re-crawls the
+        legacy ``source_url``; ``wrap`` re-packages the existing ``reference/`` tree
+        (offline, content-preserving). The first standardized build is versioned
+        ``1.0.0``. Returns the build result (or a ``skipped`` record for native graphs).
+        """
+        d = Path(skill_dir)
+        info = self.classify_legacy(d)
+        chosen = info["mode"] if mode == "auto" else mode
+        if chosen in ("managed", "native"):
+            return {"name": d.name, "skipped": True, "reason": chosen}
+
+        depth = int(info["crawl_depth"] or 2)
+        tmp: Path | None = None
+        if chosen == "reacquire":
+            specs = self._specs_from_source_url(info["source_url"], depth)
+            if not specs:
+                return {
+                    "name": d.name,
+                    "skipped": True,
+                    "reason": "no usable source_url",
+                }
+        else:  # wrap — copy the existing corpus aside so build() can wipe reference/
+            tmp = Path(tempfile.mkdtemp(prefix="sg_wrap_"))
+            shutil.copytree(d / "reference", tmp, dirs_exist_ok=True)
+            specs = [SourceSpec("dir", str(tmp))]
+        try:
+            result = self.build(
+                name=d.name,
+                specs=specs,
+                out_dir=d.parent,
+                description=info["description"] or None,
+                kg_enrich=kg_enrich,
+                version="1.0.0",
+            )
+        finally:
+            if tmp is not None:
+                shutil.rmtree(tmp, ignore_errors=True)
+        result["migrated_mode"] = chosen
+        return result
+
 
 # ── module helpers (pure / optional-dep guarded) ───────────────────────────────
 
@@ -887,6 +993,62 @@ def _cmd_rebuild(args: argparse.Namespace) -> int:
     return 0
 
 
+def _iter_graph_dirs(root: Path):
+    """Yield each skill-graph directory (one per SKILL.md) under ``root``."""
+    for skill_md in sorted(root.rglob("SKILL.md")):
+        yield skill_md.parent
+
+
+def _cmd_plan(args: argparse.Namespace) -> int:
+    """Scan a skill_graphs root and print a migration plan (classification table)."""
+    pipe = SkillGraphPipeline(kg_enrich=False)
+    rows = [pipe.classify_legacy(d) for d in _iter_graph_dirs(Path(args.root))]
+    counts: dict[str, int] = {}
+    for r in rows:
+        counts[r["mode"]] = counts.get(r["mode"], 0) + 1
+    if args.json:
+        print(json.dumps({"counts": counts, "graphs": rows}, indent=2))
+        return 0
+    print(f"Migration plan for {args.root}\n")
+    print(f"{'MODE':<10} {'FILES':>6}  NAME")
+    for r in sorted(rows, key=lambda x: (x["mode"], x["name"])):
+        print(f"{r['mode']:<10} {r['file_count']:>6}  {r['name']}")
+    print("\nTotals: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    print(
+        "\nLegend: reacquire=re-crawl source_url · wrap=re-package existing reference/ "
+        "· managed=already on contract · native=hand-authored, left alone"
+    )
+    return 0
+
+
+def _cmd_migrate(args: argparse.Namespace) -> int:
+    pipe = SkillGraphPipeline(kg_enrich=not args.no_kg)
+    if args.dir:
+        result = pipe.migrate_legacy(args.dir, mode=args.mode)
+        print(json.dumps(result, indent=2))
+        return 0 if not result.get("validation_errors") else 1
+    # Batch over a root.
+    root = Path(args.root)
+    only = {n.strip() for n in (args.only or "").split(",") if n.strip()}
+    targets = [d for d in _iter_graph_dirs(root) if not only or d.name in only]
+    results = []
+    migrated = 0
+    for d in targets:
+        info = pipe.classify_legacy(d)
+        if info["mode"] in ("managed", "native") and args.mode == "auto":
+            continue
+        if not args.apply:
+            results.append({"name": d.name, "would_migrate": info["mode"]})
+            continue
+        res = pipe.migrate_legacy(d, mode=args.mode)
+        results.append(res)
+        migrated += 0 if res.get("skipped") else 1
+        if args.limit and migrated >= args.limit:
+            break
+    print(json.dumps({"applied": args.apply, "results": results}, indent=2))
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Unified skill-graph distillation pipeline."
@@ -921,6 +1083,36 @@ def main() -> None:
     r.add_argument("--dir", required=True)
     r.add_argument("--no-kg", action="store_true")
     r.set_defaults(func=_cmd_rebuild)
+
+    p = sub.add_parser(
+        "plan", help="Classify every skill-graph under a root for migration."
+    )
+    p.add_argument("--root", required=True, help="A skill_graphs/ directory.")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_cmd_plan)
+
+    m = sub.add_parser(
+        "migrate",
+        help="Migrate legacy skill-graph(s) to the standardized contract.",
+    )
+    mg = m.add_mutually_exclusive_group(required=True)
+    mg.add_argument("--dir", help="Migrate a single skill-graph directory.")
+    mg.add_argument("--root", help="Batch over every skill-graph under this root.")
+    m.add_argument(
+        "--mode",
+        choices=["auto", "reacquire", "wrap"],
+        default="auto",
+        help="auto follows classification; reacquire re-crawls; wrap re-packages.",
+    )
+    m.add_argument(
+        "--apply",
+        action="store_true",
+        help="With --root: actually migrate (default is a dry-run preview).",
+    )
+    m.add_argument("--only", default="", help="Comma-separated graph names to migrate.")
+    m.add_argument("--limit", type=int, default=0, help="Max graphs to migrate.")
+    m.add_argument("--no-kg", action="store_true")
+    m.set_defaults(func=_cmd_migrate)
 
     args = parser.parse_args()
     raise SystemExit(args.func(args))
