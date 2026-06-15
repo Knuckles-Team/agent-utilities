@@ -520,6 +520,139 @@ def register_ontology_tools(mcp):
     kg_server.REGISTERED_TOOLS["source_sync"] = source_sync
 
     @mcp.tool(
+        name="graph_etl",
+        description=(
+            "Unified ETL pipeline between systems over the canonical KG hub "
+            "(CONCEPT:KG-2.98). One source→(ontological transform)→sink interface that "
+            "composes the existing ingestion, write-back, and graph-store machinery. "
+            "action='run' (default): pull `source` into the KG (any registered "
+            "ingestion source: leanix/servicenow/egeria/camunda/aris/gitlab/…; mode "
+            "delta|full|reconcile) and/or load `sink` from the KG — `sink` is either a "
+            "write-back system-of-record (leanix/servicenow/egeria/… → dry_run-first + "
+            "approval gate; pass ops_json with inferences/enrichments/creations/"
+            "retirements) OR a graph store (stardog/neo4j/age/jena_fuseki or a "
+            "registered connection name → full data load; SPARQL stores partition into "
+            "urn:source:<system> named graphs; sources_json filters the subset). Omit "
+            "either side for a one-directional run. action='list': available sources, "
+            "write-back sinks, and graph-store backends. action='lineage': recorded "
+            "ETL runs (impact analysis), filterable by source/sink (CONCEPT:KG-2.99)."
+        ),
+        tags=["graph-os", "ingestion", "etl"],
+    )
+    def graph_etl(
+        action: str = Field(default="run", description="'run' | 'list' | 'lineage'."),
+        source: str = Field(
+            default="", description="Ingestion source to pull into the KG (inbound)."
+        ),
+        sink: str = Field(
+            default="",
+            description="Write-back domain or graph-store/connection name (outbound).",
+        ),
+        mode: str = Field(
+            default="delta", description="Inbound sync mode: delta|full|reconcile."
+        ),
+        sources_json: str = Field(
+            default="[]",
+            description="JSON list of source systems to filter a graph-store push.",
+        ),
+        ids_json: str = Field(
+            default="[]",
+            description="JSON list of record ids to narrow the inbound sync.",
+        ),
+        ops_json: str = Field(
+            default="{}",
+            description="JSON write-back payload (inferences/enrichments/creations/…).",
+        ),
+        dry_run: bool = Field(
+            default=True, description="Write-back dry-run (fail-closed default)."
+        ),
+        limit: int = Field(default=200, description="Max rows for action='lineage'."),
+    ) -> str:
+        """Run / inspect a unified ETL flow over the canonical KG hub."""
+        from agent_utilities.knowledge_graph.enrichment.registry import (
+            discover_extractors,
+            list_sources,
+        )
+        from agent_utilities.knowledge_graph.enrichment.writeback.core import (
+            get_sink,
+            list_sinks,
+        )
+
+        try:
+            engine = kg_server._get_engine()
+        except Exception:  # noqa: BLE001
+            engine = None
+
+        try:
+            if action == "list":
+                discover_extractors()
+                names = sorted({s.category for s in list_sources()})
+                reg = kg_server.get_connection_registry()
+                backends = sorted(
+                    set(reg.names())
+                    | {"stardog", "neo4j", "falkordb", "age", "jena_fuseki"}
+                )
+                return json.dumps(
+                    {"sources": names, "sinks": list_sinks(), "backends": backends}
+                )
+
+            if engine is None:
+                return json.dumps({"status": "skipped", "reason": "no active engine"})
+
+            if action == "lineage":
+                from agent_utilities.knowledge_graph.etl import query_lineage
+
+                return json.dumps(
+                    {
+                        "runs": query_lineage(
+                            engine,
+                            source=source or None,
+                            sink=sink or None,
+                            limit=int(limit),
+                        )
+                    },
+                    default=str,
+                )
+
+            # action == "run"
+            from agent_utilities.knowledge_graph.etl import run_etl
+
+            ids = json.loads(ids_json) if ids_json else []
+            srcs = json.loads(sources_json) if sources_json else []
+            ops = json.loads(ops_json) if ops_json else {}
+
+            # Resolve a graph-store sink backend (write-back sinks need none).
+            sink_backend = None
+            if sink and get_sink(sink) is None:
+                reg = kg_server.get_connection_registry()
+                if sink in reg.names():
+                    be = getattr(reg.get_engine(sink), "backend", None)
+                    sink_backend = getattr(be, "_authority", be)
+                else:
+                    from agent_utilities.knowledge_graph.backends import create_backend
+
+                    sink_backend = create_backend(backend_type=sink)
+
+            return json.dumps(
+                run_etl(
+                    engine,
+                    source=source or None,
+                    mode=str(mode),
+                    ids=ids or None,
+                    sink=sink or None,
+                    sink_backend=sink_backend,
+                    sources=srcs or None,
+                    dry_run=bool(dry_run),
+                    ops=ops or None,
+                ),
+                default=str,
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["graph_etl"] = graph_etl
+
+    @mcp.tool(
         name="ontology_function",
         description="Typed, versioned ontology functions: list or invoke through the governed runtime (CONCEPT:KG-2.41).",
         tags=["graph-os", "ontology"],

@@ -544,6 +544,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_writeback": "/graph/writeback",
     "spec_ticket": "/spec/ticket",
     "source_sync": "/source/sync",
+    "graph_etl": "/graph/etl",
     "ontology_property_types": "/ontology/property-types",
     "ontology_value_types": "/ontology/value-types",
     "ontology_interface": "/ontology/interface",
@@ -1906,9 +1907,9 @@ def fanout_execute(entries, fn, *, timeout=None):
         except Exception as e:  # noqa: BLE001 — partial-success contract
             errors[name] = str(e)
     for fut in not_done:
-        errors[futures[fut]] = (
-            f"timed out after {timeout:.0f}s (target slow/unreachable)"
-        )
+        errors[
+            futures[fut]
+        ] = f"timed out after {timeout:.0f}s (target slow/unreachable)"
     # Never block on a hung backend's thread; let it finish in the background.
     ex.shutdown(wait=False, cancel_futures=True)
     return results, errors

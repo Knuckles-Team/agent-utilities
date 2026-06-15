@@ -38,6 +38,7 @@
 - [Agent Dispatch](docs/architecture/agent_dispatch.md): queue-driven agent dispatch — session-keyed agent_turns queue + stateless agent-dispatch-worker fleet (ORCH-1.45).
 - [Fleet Autonomy](docs/architecture/fleet_autonomy.md): fleet event ingress, ActionPolicy decision point, desired-state reconciler, remediation playbooks, health-gated deploy watch, reactive autoscaler (OS-5.15, OS-5.24-5.27, OS-5.29).
 - [Gateway Scaling](docs/architecture/gateway_scaling.md): GATEWAY_WORKERS pre-fork, per-tenant rate limiting, engine circuit breaker, Prometheus /metrics (OS-5.23).
+- [KG as Bidirectional ETL Hub](docs/architecture/kg_etl_hub.md): canonical-hub ETL spine — one source→ontological-transform→sink interface (`graph_etl`), Stardog SPARQL data backend with urn:source named graphs, unified ingestion contract (source_system+domain), and system-to-system data lineage (KG-2.7/2.9/2.98/2.99).
 - [Autonomous Evolution](docs/guides/autonomous-evolution.md): the governed self-evolution chain — propose-only loops, governance validator, regression gate, policy-gated branch publication (AHE-3.18-3.21).
 - [Metrics Reference](docs/reference/metrics.md): catalog of every agent_utilities_* Prometheus series.
 

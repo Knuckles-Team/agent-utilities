@@ -61,7 +61,10 @@ def materialize_source(
     batch = src.extract({"client": client, **(config or {})})
     if backend is None:
         return (0, 0)
-    n, e = write_batch(backend, batch)
+    # Stamp the shared provenance contract (source_system + domain) so materialized
+    # sources are uniform with the hydration path — they route into their own
+    # urn:source:<category> named graph on a SPARQL mirror.
+    n, e = write_batch(backend, batch, source=category)
     logger.info("materialized source %s: %d nodes, %d edges", category, n, e)
     return n, e
 
