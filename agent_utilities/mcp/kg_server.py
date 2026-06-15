@@ -6154,6 +6154,10 @@ def _build_server(bootstrap: bool = True):
             default=False,
             description="If true, collect the KG's reconciled inventory (infra/topology + LeanIX + TRM, deduped via ALIGNED_WITH) and create the items missing from the target CMDB/ERP.",
         ),
+        findings: bool = Field(
+            default=False,
+            description="If true, file the KG's risk findings (TRM TechnologyRisk: EOL/vuln) as issues in the target tracker (gitlab/github/plane). Pass project context via creations_json[0] or the route.",
+        ),
         dry_run: bool = Field(
             default=True,
             description="Preview proposed writes without mutating the system-of-record (default). Set false to apply.",
@@ -6161,6 +6165,7 @@ def _build_server(bootstrap: bool = True):
     ) -> str:
         """Unified fail-closed write-back to any target system (dry-run-first)."""
         from agent_utilities.knowledge_graph.enrichment.writeback import (
+            push_findings,
             push_inventory,
             run_writeback,
         )
@@ -6177,6 +6182,21 @@ def _build_server(bootstrap: bool = True):
                         str(target),
                         backend=backend,
                         engine=engine,
+                        dry_run=bool(dry_run),
+                    )
+                )
+            if bool(findings):
+                project = (
+                    json.loads(creations_json)[0]
+                    if creations_json and creations_json != "[]"
+                    else None
+                )
+                return json.dumps(
+                    push_findings(
+                        str(target),
+                        backend=backend,
+                        engine=engine,
+                        project=project,
                         dry_run=bool(dry_run),
                     )
                 )
