@@ -87,6 +87,7 @@ _CLIENT_MODULES: dict[str, str] = {
     "portainer": "portainer_agent",
     "kafka": "kafka_mcp",
     "lgtm": "lgtm_mcp",
+    "twenty": "twenty_mcp",
 }
 
 
@@ -146,6 +147,7 @@ MATERIALIZE_SOURCES: frozenset[str] = frozenset(
         "portainer",
         "kafka",
         "lgtm",
+        "twenty",
     }
 )
 
