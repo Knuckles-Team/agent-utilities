@@ -527,6 +527,25 @@ def _resolve_agent_from_kg(
 # ---------------------------------------------------------------------------
 
 
+def _spawn_auth_headers() -> dict[str, str]:
+    """Outbound service-account auth for a spawned agent's REMOTE MCP toolsets.
+
+    CONCEPT:ORCH-1.21 / OS-5.32 — a spawned agent that binds a jwt-protected
+    fleet server (``*.arpa``) over SSE/streamable-HTTP must carry the same
+    service-account bearer the multiplexer attaches to its children, or the
+    call is rejected ``401`` (the toolset connected unauthenticated). Reuses the
+    one minting path (``client_credentials.bearer_header``): opt-in via
+    ``MCP_CLIENT_AUTH=oidc-client-credentials``, an inert ``{}`` otherwise, and
+    a mint failure degrades to no header (unchanged behaviour when disabled).
+    """
+    try:
+        from agent_utilities.mcp.client_credentials import bearer_header
+
+        return bearer_header(None)
+    except Exception:  # noqa: BLE001 — auth is best-effort; never block a spawn
+        return {}
+
+
 def _build_execution_config(
     engine: IntelligenceGraphEngine,
     agent_name: str,
@@ -566,9 +585,9 @@ def _build_execution_config(
         recent_mementos = get_recent_mementos(engine, source=agent_name, limit=3)
         if recent_mementos:
             memento_text = "\n\n---\n\n".join(recent_mementos)
-            tag_prompts[
-                "mementos"
-            ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+            tag_prompts["mementos"] = (
+                f"Past Context Mementos (Compressed State):\n{memento_text}"
+            )
     except Exception as e:
         logger.debug("Failed to fetch Mementos for context: %s", e)
 
@@ -683,6 +702,7 @@ def _build_execution_config(
                         http_client=httpx.AsyncClient(
                             verify=DEFAULT_SSL_VERIFY,
                             timeout=60,
+                            headers=_spawn_auth_headers() or None,
                         ),
                     )
                 )
@@ -696,6 +716,7 @@ def _build_execution_config(
                         http_client=httpx.AsyncClient(
                             verify=DEFAULT_SSL_VERIFY,
                             timeout=60,
+                            headers=_spawn_auth_headers() or None,
                         ),
                     )
                 )
