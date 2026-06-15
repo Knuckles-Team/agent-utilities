@@ -9,7 +9,7 @@
 
 Multi-node Docker Swarm with the full integration set and the complete `*-mcp`
 connector fleet. This is the "run the enterprise" tier. It is driven by the
-**`day0_bootstrap_orchestrator`** skill-workflow rather than by hand.
+**`agent-os-genesis` (alias `day0`)** skill-workflow rather than by hand.
 
 ## What runs
 
@@ -24,7 +24,7 @@ connector fleet. This is the "run the enterprise" tier. It is driven by the
 
 ## Deploy (skill-workflow)
 
-The `day0_bootstrap_orchestrator` workflow runs the ordered bootstrap:
+The `agent-os-genesis` (alias `day0`) workflow runs the ordered bootstrap:
 
 1. `ssh-bootstrap` → full-mesh SSH across inventory hosts.
 2. `network-topology-sweep` + `hardware-profile-sweep` → discovery.

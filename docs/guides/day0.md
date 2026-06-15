@@ -92,7 +92,7 @@ and the L2 auto-switches to Postgres — nothing else changes.
 ## Automated day-0 (skill-workflow)
 
 For a one-command bootstrap across a fleet, the universal-skills
-**`day0_bootstrap_orchestrator`** workflow is profile-driven: it asks for a
+**`agent-os-genesis` (alias `day0`)** workflow is profile-driven: it asks for a
 profile + integration toggles, then runs ssh/swarm/vault/dns/caddy/keycloak,
 deploys graph-os + the `*-mcp` fleet from `mcp-fleet.registry.yml`, and wires the
 selected integrations. The **Tiny** profile collapses to `scripts/bootstrap.sh`.
