@@ -500,9 +500,7 @@ class PostgreSQLBackend(GraphBackend):
 
     # ── Cypher Execution (Transpiled to SQL) ─────────────────────────
 
-    def _try_global_edge_count(
-        self, query: str
-    ) -> tuple[bool, list[dict[str, Any]]]:
+    def _try_global_edge_count(self, query: str) -> tuple[bool, list[dict[str, Any]]]:
         """Serve a *fully unanchored* edge count from ``kg_edges``.
 
         Handles ``MATCH ()-[r]->() RETURN count(r)`` and its named-but-label-free
@@ -544,6 +542,33 @@ class PostgreSQLBackend(GraphBackend):
         except Exception as e:  # noqa: BLE001 — degrade to the transpiler path
             logger.debug("global edge count failed, deferring: %s", e)
             return False, []
+
+    @staticmethod
+    def _is_lock_contention(exc: Exception) -> bool:
+        """True only for genuine PostgreSQL lock-contention errors (retryable).
+
+        Detect via SQLSTATE (deadlock / lock-not-available / serialization), with a
+        precise-phrase fallback. This MUST NOT use a bare ``"lock" in str(exc)``
+        substring test: that false-matches table/column identifiers that merely
+        contain "lock" — notably ``idea_block`` — so a schema-drift
+        ``column "label" of relation "idea_block" does not exist`` (SQLSTATE 42703)
+        was misrouted to the lock-retry path and never reached the auto-DDL
+        self-heal, permanently dropping every ``idea_block`` write (CONCEPT:KG-2.7).
+        """
+        sqlstate = getattr(exc, "sqlstate", None)
+        if sqlstate in ("40001", "40P01", "55P03", "55006"):
+            return True
+        msg = str(exc).lower()
+        return any(
+            p in msg
+            for p in (
+                "deadlock detected",
+                "could not obtain lock",
+                "lock not available",
+                "lock timeout",
+                "canceling statement due to lock",
+            )
+        )
 
     def execute(
         self, query: str, params: dict[str, Any] | None = None
@@ -623,8 +648,7 @@ class PostgreSQLBackend(GraphBackend):
 
                         return []
             except Exception as e:
-                msg = str(e).lower()
-                if ("lock" in msg or "deadlock" in msg) and attempts_used < max_retries:
+                if self._is_lock_contention(e) and attempts_used < max_retries:
                     logger.warning("PG locked, retrying (attempt %d)", attempts_used)
                     raise PostgresLockContentionError(str(e)) from e
                 # Auto-DDL self-heal: a write to a not-yet-created type table
