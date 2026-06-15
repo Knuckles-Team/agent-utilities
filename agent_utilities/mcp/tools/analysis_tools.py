@@ -497,6 +497,30 @@ def register_analysis_tools(mcp):
                     query, num_steps=top_k
                 )
                 return json.dumps(result, default=str)
+            elif action == "night_shift":
+                # CONCEPT:KG-2.84 — run one autonomous night-shift cycle over a
+                # local markdown vault: scout→catalog→cartograph→critique→edit
+                # (the second-brain swarm). `target` is the vault root; sources
+                # dropped in <vault>/0-raw|sources are refined into linked atomic
+                # notes with [FRICTION] surfaced + a morning briefing. Schedule it
+                # via cron for the overnight pattern. Propose-only; never deletes.
+                from agent_utilities.knowledge_graph.research.night_shift import (
+                    NightShiftSwarm,
+                )
+
+                if not target:
+                    return "Error: night_shift needs the vault root path in `target`."
+                report = NightShiftSwarm(target).run_shift()
+                return json.dumps(
+                    {
+                        "sources_ingested": report.sources_ingested,
+                        "atoms_created": report.atoms_created,
+                        "links_added": report.links_added,
+                        "frictions": report.frictions,
+                        "briefing_path": report.briefing_path,
+                    },
+                    default=str,
+                )
             elif action == "infer_links":
                 from agent_utilities.knowledge_graph.kb.link_inference import (
                     infer_links,
