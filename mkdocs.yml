@@ -95,6 +95,7 @@ nav:
       - C4 Architecture: pillars/architecture_c4.md
       - Self-Improving Reasoning Substrate: architecture/self_improving_reasoning_substrate.md
       - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
+      - Camunda + ARIS ↔ Knowledge Graph: architecture/camunda_aris_kg_integration.md
       - Company Brain Runtime: architecture/company_brain_runtime.md
       - Global Workspace Attention: architecture/global_workspace_attention.md
       - Multi-Agent Social System: architecture/multi_agent_social_system.md
