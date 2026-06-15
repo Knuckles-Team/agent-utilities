@@ -136,7 +136,9 @@ class LeanixEAClient:
                     headers=headers,
                 )
             if r.status_code != 200:
-                logger.debug("LeanIX REST %s %s -> HTTP %s", method, path, r.status_code)
+                logger.debug(
+                    "LeanIX REST %s %s -> HTTP %s", method, path, r.status_code
+                )
                 return None
             body = r.json() or {}
             # Pathfinder wraps payloads under {"data": ...}; unwrap when present.
@@ -168,7 +170,9 @@ class LeanixEAClient:
         if isinstance(fs, dict):
             return fs
         if isinstance(fs, list):
-            return {t.get("type") or t.get("name"): t for t in fs if isinstance(t, dict)}
+            return {
+                t.get("type") or t.get("name"): t for t in fs if isinstance(t, dict)
+            }
         return {}
 
     def _relation_fields(self, fs_type: str) -> list[str]:
@@ -179,7 +183,9 @@ class LeanixEAClient:
         if isinstance(rels, dict):
             names = list(rels.keys())
         elif isinstance(rels, list):
-            names = [r.get("name") for r in rels if isinstance(r, dict) and r.get("name")]
+            names = [
+                r.get("name") for r in rels if isinstance(r, dict) and r.get("name")
+            ]
         # Tolerant fallback: relation fields conventionally start with "rel".
         return [n for n in names if isinstance(n, str) and n.startswith("rel")]
 
@@ -221,16 +227,14 @@ class LeanixEAClient:
             "edges{node{id name type updatedAt tags{name} "
             "...on " + type + "{" + rel_fragment + " } } } }"
         )
-        filt: dict[str, Any] = {"facetFilters": [
-            {"facetKey": "FactSheetTypes", "keys": [type]}
-        ]}
+        filt: dict[str, Any] = {
+            "facetFilters": [{"facetKey": "FactSheetTypes", "keys": [type]}]
+        }
         results: list[dict[str, Any]] = []
         cursor: str | None = None
         id_set = set(ids) if ids else None
         while True:
-            data = self._gql(
-                query, {"first": 500, "after": cursor, "filter": filt}
-            )
+            data = self._gql(query, {"first": 500, "after": cursor, "filter": filt})
             conn = (data or {}).get("allFactSheets") or {}
             for edge in conn.get("edges") or []:
                 node = edge.get("node") if isinstance(edge, dict) else None

@@ -178,9 +178,7 @@ async def sync_leanix_ontology_route(
     ),
 ) -> OntologyEnvelope:
     """Discover the live LeanIX metamodel and mirror it natively as OWL/RDF."""
-    return OntologyEnvelope(
-        result=await _call("ontology_leanix_sync", dry_run=dry_run)
-    )
+    return OntologyEnvelope(result=await _call("ontology_leanix_sync", dry_run=dry_run))
 
 
 def register_ontology_routes(app, prefix: str = "/api") -> None:

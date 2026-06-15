@@ -55,9 +55,11 @@ class FakeClient:
         return META_MODEL
 
     def factsheets(self, type=None, since=None, ids=None):  # noqa: A002
-        items = self._sheets.get(type, []) if type else [
-            x for v in self._sheets.values() for x in v
-        ]
+        items = (
+            self._sheets.get(type, [])
+            if type
+            else [x for v in self._sheets.values() for x in v]
+        )
         if since:
             items = [x for x in items if str(x.get("updatedAt") or "") > since]
         return items
@@ -72,8 +74,18 @@ def test_delta_advances_watermark():
     client = FakeClient(
         {
             "Application": [
-                {"id": "a1", "name": "A", "type": "Application", "updatedAt": "2026-01-01"},
-                {"id": "a2", "name": "B", "type": "Application", "updatedAt": "2026-06-01"},
+                {
+                    "id": "a1",
+                    "name": "A",
+                    "type": "Application",
+                    "updatedAt": "2026-01-01",
+                },
+                {
+                    "id": "a2",
+                    "name": "B",
+                    "type": "Application",
+                    "updatedAt": "2026-06-01",
+                },
             ]
         }
     )
@@ -92,8 +104,18 @@ def test_delta_second_run_only_fetches_newer():
     client = FakeClient(
         {
             "Application": [
-                {"id": "a1", "name": "A", "type": "Application", "updatedAt": "2026-01-01"},
-                {"id": "a2", "name": "B", "type": "Application", "updatedAt": "2026-06-01"},
+                {
+                    "id": "a1",
+                    "name": "A",
+                    "type": "Application",
+                    "updatedAt": "2026-01-01",
+                },
+                {
+                    "id": "a2",
+                    "name": "B",
+                    "type": "Application",
+                    "updatedAt": "2026-06-01",
+                },
             ]
         }
     )

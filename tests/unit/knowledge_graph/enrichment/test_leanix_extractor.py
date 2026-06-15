@@ -45,7 +45,9 @@ class FakeLeanIXClient:
                     "relApplicationToITComponent": "ic1",
                     # custom relation, LeanIX edges/node/factSheet envelope
                     "relApplicationToDataCenter": {
-                        "edges": [{"node": {"factSheet": {"id": "dc1", "type": "DataCenter"}}}]
+                        "edges": [
+                            {"node": {"factSheet": {"id": "dc1", "type": "DataCenter"}}}
+                        ]
                     },
                 },
                 {
@@ -126,9 +128,17 @@ def test_core_and_custom_relations_become_edges():
     batch = _run()
     triples = {(e.source, e.target, e.rel_type) for e in batch.edges}
 
-    assert ("app:a1", "capability:c1", "REL_APPLICATION_TO_BUSINESS_CAPABILITY") in triples
+    assert (
+        "app:a1",
+        "capability:c1",
+        "REL_APPLICATION_TO_BUSINESS_CAPABILITY",
+    ) in triples
     assert ("app:a1", "itcomponent:ic1", "REL_APPLICATION_TO_IT_COMPONENT") in triples
-    assert ("app:a2", "capability:c1", "REL_APPLICATION_TO_BUSINESS_CAPABILITY") in triples
+    assert (
+        "app:a2",
+        "capability:c1",
+        "REL_APPLICATION_TO_BUSINESS_CAPABILITY",
+    ) in triples
     # Custom relation, target resolved via the embedded factSheet type.
     assert ("app:a1", "datacenter:dc1", "REL_APPLICATION_TO_DATA_CENTER") in triples
 

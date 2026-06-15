@@ -13,7 +13,9 @@ def _client() -> LeanixEAClient:
 
 
 def test_get_leanix_client_unconfigured(monkeypatch):
-    monkeypatch.setattr(ea_clients, "setting", lambda k, d=None, cast=None: "" if d == "" else d)
+    monkeypatch.setattr(
+        ea_clients, "setting", lambda k, d=None, cast=None: "" if d == "" else d
+    )
     assert get_leanix_client() is None
 
 
@@ -33,7 +35,9 @@ def test_relation_fields_from_data_model():
         "factSheets": {
             "Application": {
                 "relations": {
-                    "relApplicationToITComponent": {"targetFactSheetType": "ITComponent"},
+                    "relApplicationToITComponent": {
+                        "targetFactSheetType": "ITComponent"
+                    },
                     "relApplicationToBusinessCapability": {},
                     "lifecycle": {},  # non-rel field must be filtered out
                 }
@@ -55,8 +59,22 @@ def test_factsheets_parses_nodes_and_filters_since(monkeypatch):
             "allFactSheets": {
                 "pageInfo": {"hasNextPage": False, "endCursor": "z"},
                 "edges": [
-                    {"node": {"id": "a", "name": "A", "type": "Application", "updatedAt": "2026-01-01"}},
-                    {"node": {"id": "b", "name": "B", "type": "Application", "updatedAt": "2026-06-01"}},
+                    {
+                        "node": {
+                            "id": "a",
+                            "name": "A",
+                            "type": "Application",
+                            "updatedAt": "2026-01-01",
+                        }
+                    },
+                    {
+                        "node": {
+                            "id": "b",
+                            "name": "B",
+                            "type": "Application",
+                            "updatedAt": "2026-06-01",
+                        }
+                    },
                 ],
             }
         }

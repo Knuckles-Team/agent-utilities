@@ -59,7 +59,11 @@ def test_dry_run_proposes_without_writing(monkeypatch):
         backend=FakeBackend(),
         client=client,
         inferences=[
-            {"source": "app:a1", "rel_type": "REL_APPLICATION_TO_IT_COMPONENT", "target": "itcomponent:ic1"}
+            {
+                "source": "app:a1",
+                "rel_type": "REL_APPLICATION_TO_IT_COMPONENT",
+                "target": "itcomponent:ic1",
+            }
         ],
         dry_run=True,
     )
@@ -80,7 +84,13 @@ def test_live_write_refused_without_enable_flag(monkeypatch):
     out = run_leanix_writeback(
         backend=FakeBackend(),
         client=FakeClient(),
-        inferences=[{"source": "app:a1", "rel_type": "REL_APPLICATION_TO_IT_COMPONENT", "target": "itcomponent:ic1"}],
+        inferences=[
+            {
+                "source": "app:a1",
+                "rel_type": "REL_APPLICATION_TO_IT_COMPONENT",
+                "target": "itcomponent:ic1",
+            }
+        ],
         dry_run=False,
     )
     assert out["status"] == "refused"
@@ -93,7 +103,13 @@ def test_live_write_when_enabled(monkeypatch):
     out = run_leanix_writeback(
         backend=FakeBackend(),
         client=client,
-        inferences=[{"source": "app:a1", "rel_type": "REL_APPLICATION_TO_IT_COMPONENT", "target": "itcomponent:ic1"}],
+        inferences=[
+            {
+                "source": "app:a1",
+                "rel_type": "REL_APPLICATION_TO_IT_COMPONENT",
+                "target": "itcomponent:ic1",
+            }
+        ],
         creations=[{"type": "DataObject", "name": "Ledger"}],
         dry_run=False,
     )
@@ -111,7 +127,13 @@ def test_unresolvable_relation_is_skipped(monkeypatch):
         backend=FakeBackend(),
         client=client,
         # target node not in the resolver → skipped, never written
-        inferences=[{"source": "app:a1", "rel_type": "REL_APPLICATION_TO_IT_COMPONENT", "target": "app:unknown"}],
+        inferences=[
+            {
+                "source": "app:a1",
+                "rel_type": "REL_APPLICATION_TO_IT_COMPONENT",
+                "target": "app:unknown",
+            }
+        ],
         dry_run=False,
     )
     assert out["relations_skipped"] == 1
