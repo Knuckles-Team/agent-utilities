@@ -5490,7 +5490,8 @@ def _build_server(bootstrap: bool = True):
             "(create a Loop: objective + kind [+ validation_cmd/end_state for develop, "
             "skill_ref for skill]), 'list' (active Loops), 'run' (advance all active "
             "Loops one cycle — research acquires/reasons, develop validates, skill "
-            "executes), 'cancel' (terminate a Loop by id)."
+            "executes), 'drive' (run ONE Loop by id to completion, durably — "
+            "resume/checkpoint/corrigible, any kind), 'cancel' (terminate a Loop by id)."
         ),
         tags=["graph-os", "loops"],
     )
@@ -5548,6 +5549,23 @@ def _build_server(bootstrap: bool = True):
             if action == "run":
                 rep = LoopController(engine).run_one_cycle(max_topics=max_topics)
                 return _json.dumps(rep, indent=2, default=str)
+            if action == "drive":
+                # Drive ONE Loop to completion durably (resume/checkpoint/corrigible,
+                # CONCEPT:OS-5.16) — works for any kind (research/develop/skill).
+                if not loop_id:
+                    return _json.dumps({"error": "drive needs a loop_id"})
+                target = next(
+                    (
+                        loop_row
+                        for loop_row in active_loops(engine, max(limit, 50))
+                        if loop_row.get("id") == loop_id
+                    ),
+                    None,
+                )
+                if target is None:
+                    return _json.dumps({"error": f"no active loop {loop_id!r}"})
+                res = await LoopController(engine).run_loop(target, sleep_s=0)
+                return _json.dumps({"action": "drive", "result": res}, default=str)
             if action == "cancel":
                 if not loop_id:
                     return _json.dumps({"error": "cancel needs a loop_id"})
