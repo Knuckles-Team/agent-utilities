@@ -7,8 +7,32 @@ Provides the ``GraphBackend`` ABC that all graph storage backends must implement
 Backends may optionally support SPARQL via ``supports_sparql`` / ``execute_sparql()``.
 """
 
+import json
 from abc import ABC, abstractmethod
 from typing import Any
+
+
+def coerce_cypher_property(value: Any) -> Any:
+    """Coerce a property value to something a Cypher backend (Neo4j/FalkorDB) accepts.
+
+    Cypher property values must be primitives or *arrays of primitives*. A Map (dict),
+    or a list containing non-primitives, raises ``Neo.ClientError.Statement.TypeError``
+    ("Property values can only be of primitive types or arrays thereof") — and on a
+    fan-out *mirror* that error stalls replication permanently (the outbox entry retries
+    forever, dragging the write path). Serialize such values to a JSON string so the
+    write persists losslessly (readers can ``json.loads`` it back); primitives and
+    primitive arrays (e.g. embedding vectors) pass through untouched. (CONCEPT:KG-2.74)
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple)):
+        if all(v is None or isinstance(v, (str, int, float, bool)) for v in value):
+            return list(value)
+        return json.dumps(value, default=str)
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value).decode("utf-8", "replace")
+    # dict (Map), set, or any other non-primitive → lossless JSON string.
+    return json.dumps(value, default=str)
 
 
 class GraphBackend(ABC):
