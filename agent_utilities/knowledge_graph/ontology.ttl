@@ -29,6 +29,7 @@ Modular imports:
   - banking, government, hr, legal, medical: Domain-specific extensions""" ;
     owl:imports <http://knuckles.team/kg/action>,
         <http://knuckles.team/kg/archimate>,
+        <http://knuckles.team/kg/calendar>,
         <http://knuckles.team/kg/capability>,
         <http://knuckles.team/kg/egeria>,
         <http://knuckles.team/kg/energy_geopolitics>,

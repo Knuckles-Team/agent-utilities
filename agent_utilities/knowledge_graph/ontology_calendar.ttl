@@ -1,0 +1,35 @@
+# Calendar / scheduling ontology (CONCEPT:KG-2.9).
+# Temporal plane for cross-domain enrichment — calendar events (Nextcloud, M365,
+# etc.) as first-class KG entities the reasoner can schedule from inferences.
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/calendar> a owl:Ontology ;
+    rdfs:label "Calendar / Scheduling Ontology" ;
+    rdfs:comment "Calendar events as KG entities (CONCEPT:KG-2.9)." ;
+    owl:imports <http://knuckles.team/kg> .
+
+:CalendarEvent a owl:Class ;
+    rdfs:label "Calendar Event" ;
+    rdfs:comment "A scheduled calendar event (meeting, review, change window)." ;
+    rdfs:subClassOf :BusinessEvent .
+
+:scheduledStart a owl:DatatypeProperty ;
+    rdfs:label "scheduled start" ;
+    rdfs:range xsd:dateTime .
+
+:scheduledEnd a owl:DatatypeProperty ;
+    rdfs:label "scheduled end" ;
+    rdfs:range xsd:dateTime .
+
+:eventLocation a owl:DatatypeProperty ;
+    rdfs:label "event location" ;
+    rdfs:range xsd:string .
+
+:attendedBy a owl:ObjectProperty ;
+    rdfs:label "attended by" ;
+    rdfs:domain :CalendarEvent ;
+    rdfs:range :Person ;
+    rdfs:comment "Links a calendar event to a Person attendee." .

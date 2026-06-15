@@ -132,6 +132,25 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
             "text_path": "content",
         },
     },
+    # nextcloud-agent: configurable folder ingest — list a folder's files, then
+    # read each into a Document/Chunk. Opt-in: nothing ingests until a folder is
+    # configured. Extend with the folder(s) to index, e.g.
+    #   {"params": {"path": "/Documents"}}
+    "nextcloud-files": {
+        "server": "nextcloud-agent",
+        "tool": "nextcloud_files",
+        "action": "list_files",
+        "id_field": "path",
+        "title_field": "name",
+        "updated_field": "last_modified",
+        "doc_type": "file",
+        "detail": {
+            "tool": "nextcloud_files",
+            "action": "read_file",
+            "params": {"path": "{path}"},
+            "text_path": "content",
+        },
+    },
     # searxng-mcp: privacy-respecting metasearch — one `web_search` call,
     # each result (url/title/content snippet) becomes a document. Extend with
     #   {"params": {"query": "..."}}  (plus optional categories/engines/
