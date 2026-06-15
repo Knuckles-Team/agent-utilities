@@ -26,6 +26,10 @@ from .execute import (
 )
 from .extractors.document import extract_document
 from .features import cluster_features, make_community_fn, resolve_call_edges
+from .materialize import (
+    materialize_source,
+    resolve_source_client,
+)
 from .models import (
     CodeEntity,
     Concept,
@@ -49,6 +53,11 @@ from .orchestration import (
 )
 from .patterns import detect_patterns
 from .pipeline import EnrichmentPipeline, EnrichmentSummary, make_parse_fn
+from .process_writeback import (
+    ProcessWritebackResult,
+    push_process_intelligence,
+    resolve_process_writeback,
+)
 from .pydantic_graph import (
     discover_pydantic_graph,
     propose_workflow_evolution,
@@ -59,15 +68,6 @@ from .query import (
     how_implemented,
     list_features,
     tests_needing_work,
-)
-from .materialize import (
-    materialize_source,
-    resolve_source_client,
-)
-from .process_writeback import (
-    ProcessWritebackResult,
-    push_process_intelligence,
-    resolve_process_writeback,
 )
 from .registry import (
     discover_extractors,

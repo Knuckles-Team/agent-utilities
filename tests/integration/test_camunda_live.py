@@ -25,13 +25,17 @@ pytestmark = pytest.mark.live
 CAMUNDA_URL = os.getenv("CAMUNDA7_URL")
 
 
-@pytest.mark.skipif(not CAMUNDA_URL, reason="set CAMUNDA7_URL to a live Camunda 7 engine")
+@pytest.mark.skipif(
+    not CAMUNDA_URL, reason="set CAMUNDA7_URL to a live Camunda 7 engine"
+)
 def test_camunda_extractor_lifts_live_bpmn():
     pytest.importorskip("camunda_mcp")
     from camunda_mcp.auth import get_client
 
     from agent_utilities.knowledge_graph.enrichment.extractors.camunda import extract
-    from agent_utilities.knowledge_graph.enrichment.materialize import materialize_source
+    from agent_utilities.knowledge_graph.enrichment.materialize import (
+        materialize_source,
+    )
 
     client = get_client().v7
     # at least one definition must exist on the engine for a meaningful assertion

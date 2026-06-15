@@ -38,7 +38,12 @@ class FakeArisClient:
         return [
             {"id": "f1", "name": "Receive Invoice", "typeName": "OT_FUNC"},
             {"id": "e1", "name": "Invoice Received", "typeName": "OT_EVT"},
-            {"id": "r1", "name": "XOR", "typeName": "OT_RULE", "symbol": "ST_OPR_XOR_1"},
+            {
+                "id": "r1",
+                "name": "XOR",
+                "typeName": "OT_RULE",
+                "symbol": "ST_OPR_XOR_1",
+            },
             {"id": "f2", "name": "Approve", "typeName": "OT_FUNC"},
             {"id": "f3", "name": "Reject", "typeName": "OT_FUNC"},
         ]
@@ -49,8 +54,16 @@ class FakeArisClient:
         return [
             {"sourceObjectId": "f1", "targetObjectId": "e1"},
             {"sourceObjectId": "e1", "targetObjectId": "r1"},
-            {"sourceObjectId": "r1", "targetObjectId": "f2", "condition": "amount<=1000"},
-            {"sourceObjectId": "r1", "targetObjectId": "f3", "condition": "amount>1000"},
+            {
+                "sourceObjectId": "r1",
+                "targetObjectId": "f2",
+                "condition": "amount<=1000",
+            },
+            {
+                "sourceObjectId": "r1",
+                "targetObjectId": "f3",
+                "condition": "amount>1000",
+            },
         ]
 
 

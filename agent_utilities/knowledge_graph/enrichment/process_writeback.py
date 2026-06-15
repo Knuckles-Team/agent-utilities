@@ -157,11 +157,15 @@ def gather_intelligence(reader: Any, process_id: str) -> dict[str, Any]:
         and "task" in _node_type(reader.node_props(src) or {}).lower()
     ]
     for task_id in task_ids:
-        for tgt, ep in (reader.out_edges(task_id) or []):
+        for tgt, ep in reader.out_edges(task_id) or []:
             tprops = reader.node_props(tgt) or {}
             ttype = _node_type(tprops).lower()
             rel = _rel(ep)
-            if "dataobject" in ttype and rel in ("FLOWS_TO", "DERIVESFROM", "DERIVES_FROM"):
+            if "dataobject" in ttype and rel in (
+                "FLOWS_TO",
+                "DERIVESFROM",
+                "DERIVES_FROM",
+            ):
                 data_objects.append(_name(tprops, str(tgt)))
             elif "concept" in ttype and rel in ("MENTIONS", "RELATES_TO"):
                 glossary_terms.append(_name(tprops, str(tgt)))
@@ -222,7 +226,9 @@ def _push_camunda(
     try:
         instances = list_instances({"processDefinitionKey": process_key}) or []
     except Exception as exc:  # noqa: BLE001 - vendor transport
-        logger.debug("camunda list_process_instances failed for %s: %s", process_key, exc)
+        logger.debug(
+            "camunda list_process_instances failed for %s: %s", process_key, exc
+        )
         result.errors += 1
         return
     if isinstance(instances, dict):
@@ -234,7 +240,9 @@ def _push_camunda(
     hashed = _hashed(payload)
     value = json.dumps(hashed, default=str)
     for inst in instances:
-        instance_id = inst.get("id") if isinstance(inst, dict) else getattr(inst, "id", None)
+        instance_id = (
+            inst.get("id") if isinstance(inst, dict) else getattr(inst, "id", None)
+        )
         if not instance_id:
             continue
         if _existing_hash_camunda(client, instance_id) == hashed["_hash"]:
@@ -404,9 +412,10 @@ class GraphComputeReader:
         try:
             for nid, props in self._gc.nodes(data=True):
                 pid = str(nid)
-                if pid.startswith(("bpmn_process:", "aris_model:")) or _node_type(
-                    props
-                ) == "BusinessProcess":
+                if (
+                    pid.startswith(("bpmn_process:", "aris_model:"))
+                    or _node_type(props) == "BusinessProcess"
+                ):
                     out.append((pid, dict(props)))
         except Exception:  # noqa: BLE001
             return []

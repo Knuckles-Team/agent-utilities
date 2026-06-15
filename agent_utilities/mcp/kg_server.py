@@ -3261,9 +3261,7 @@ def _build_server(bootstrap: bool = True):
                     nodes, edges = materialize_source(
                         backend, category, client, config=extractor_config
                     )
-                    harvest = OntologyReasoningDriver(engine).extrapolate(
-                        persist=True
-                    )
+                    harvest = OntologyReasoningDriver(engine).extrapolate(persist=True)
                     return json.dumps(
                         {
                             "status": "materialized",
@@ -3273,9 +3271,7 @@ def _build_server(bootstrap: bool = True):
                             "inferred_edges": len(
                                 getattr(harvest, "inferred_edges", []) or []
                             ),
-                            "new_topics": len(
-                                getattr(harvest, "new_topics", []) or []
-                            ),
+                            "new_topics": len(getattr(harvest, "new_topics", []) or []),
                         },
                         default=str,
                     )
@@ -3816,9 +3812,7 @@ def _build_server(bootstrap: bool = True):
                     else None
                 )
                 aris_client = (
-                    resolve_source_client("aris")
-                    if scope in ("aris", "both")
-                    else None
+                    resolve_source_client("aris") if scope in ("aris", "both") else None
                 )
                 if camunda_client is None and aris_client is None:
                     return _json.dumps(
@@ -5774,16 +5768,15 @@ def _build_server(bootstrap: bool = True):
         tags=["graph-os", "loops"],
     )
     async def graph_loops(
-        action: str = Field(
-            default="list", description="submit|list|run|cancel"
-        ),
+        action: str = Field(default="list", description="submit|list|run|cancel"),
         objective: str = Field(default="", description="Objective text (submit)."),
         kind: str = Field(
             default="research", description="research|develop|skill (submit)."
         ),
         loop_id: str = Field(default="", description="Loop id (submit/cancel)."),
         validation_cmd: str = Field(
-            default="", description="Shell command whose exit-0 completes a develop Loop."
+            default="",
+            description="Shell command whose exit-0 completes a develop Loop.",
         ),
         end_state: str = Field(default="", description="Human end-state (develop)."),
         skill_ref: str = Field(
