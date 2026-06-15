@@ -45,6 +45,13 @@ services:
     container_port: 8000
     host_port: 8202
     profiles: [enterprise]
+  - name: aris-mcp
+    package: aris-mcp
+    console_script: aris-mcp
+    image: knucklessg1/aris-mcp:latest
+    container_port: 8000
+    host_port: 8253
+    profiles: [enterprise]
   - name: arr-mcp
     package: arr-mcp
     console_script: arr-mcp
