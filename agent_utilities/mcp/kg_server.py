@@ -5973,6 +5973,29 @@ def _build_server(bootstrap: bool = True):
     REGISTERED_TOOLS["ontology_interface"] = ontology_interface
 
     @mcp.tool(
+        name="ontology_leanix_sync",
+        description="Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates ontology_leanix.ttl (every fact sheet type, relation, field) and registers the types for OWL promotion (CONCEPT:KG-2.9). dry_run=true previews without writing.",
+        tags=["graph-os", "ontology"],
+    )
+    def ontology_leanix_sync(
+        dry_run: bool = Field(
+            default=True,
+            description="Preview the generated ontology without writing (default). Set false to apply.",
+        ),
+    ) -> str:
+        """Compile the live LeanIX data model into OWL and apply it to both reasoning layers."""
+        from agent_utilities.knowledge_graph.ontology.leanix_metamodel import (
+            sync_leanix_ontology,
+        )
+
+        try:
+            return json.dumps(sync_leanix_ontology(dry_run=bool(dry_run)))
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    REGISTERED_TOOLS["ontology_leanix_sync"] = ontology_leanix_sync
+
+    @mcp.tool(
         name="ontology_function",
         description="Typed, versioned ontology functions: list or invoke through the governed runtime (CONCEPT:KG-2.41).",
         tags=["graph-os", "ontology"],
