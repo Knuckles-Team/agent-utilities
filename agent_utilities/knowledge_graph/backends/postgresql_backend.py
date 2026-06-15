@@ -284,6 +284,28 @@ class PostgreSQLBackend(GraphBackend):
             logger.warning("ensure_column(%s,%s) failed: %s", t, c, e)
             return False
 
+    def _ensure_insert_columns(self, table: str, insert_sql: str) -> bool:
+        """Auto-DDL: ensure ALL columns an ``INSERT INTO "t" (...) VALUES`` references
+        exist on ``table``, in one pass. PostgreSQL reports only the first missing
+        column per attempt, so healing column-by-column can exhaust the retry budget
+        when a node carries several undeclared props; this adds every referenced
+        column at once so the retry succeeds immediately. Returns True if any column
+        was (re)ensured."""
+        import re as _re
+
+        m = _re.search(r'INSERT\s+INTO\s+"[^"]+"\s*\(([^)]*)\)', insert_sql, _re.I)
+        if not m:
+            return False
+        cols = [c.strip().strip('"') for c in m.group(1).split(",")]
+        cols = [c for c in cols if c and c.lower() != "id"]
+        if not cols:
+            return False
+        ok = False
+        for c in cols:
+            if self.ensure_column(table, c):
+                ok = True
+        return ok
+
     def edge_count(self) -> int | None:
         """Durable edge count (``kg_edges``) — for exact drift metrics.
 
@@ -617,7 +639,14 @@ class PostgreSQLBackend(GraphBackend):
                     r'column "([^"]+)" of relation "([^"]+)" does not exist', str(e)
                 )
                 if mc and attempts_used < max_retries:
-                    healed = self.ensure_column(mc.group(2), mc.group(1))
+                    # Heal EVERY column the INSERT references, not just the first one
+                    # PG reported: a node with several undeclared props is missing
+                    # several columns, and one-column-per-retry exhausts max_retries
+                    # before they are all added (the node was then dropped). Adding
+                    # them all here converges in a single retry.
+                    healed = self._ensure_insert_columns(mc.group(2), tq.sql)
+                    if not healed:  # fall back to the single reported column
+                        healed = self.ensure_column(mc.group(2), mc.group(1))
                 else:
                     mt = _re.search(r'relation "([^"]+)" does not exist', str(e))
                     if mt and attempts_used < max_retries:
