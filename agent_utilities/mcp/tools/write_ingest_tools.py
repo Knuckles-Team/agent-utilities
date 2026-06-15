@@ -14,6 +14,20 @@ from pydantic import Field
 from agent_utilities.mcp import kg_server
 
 
+def _parse_source_specs(raw: str, spec_cls: Any) -> list[Any]:
+    """Parse skill-graph source specs from a JSON list or ``kind=uri,...`` shorthand.
+
+    JSON form: ``[{"kind": "web", "uri": "https://x", "options": {"max_depth": 2}}]``.
+    Shorthand: ``web=https://x,pdf=/a.pdf`` (no per-source options).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        return [spec_cls.from_dict(d) for d in json.loads(raw)]
+    return [spec_cls.parse(tok) for tok in raw.split(",") if tok.strip()]
+
+
 def register_write_ingest_tools(mcp):
     """Register the write_ingest_tools group on the given FastMCP server."""
 
@@ -275,7 +289,7 @@ def register_write_ingest_tools(mcp):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegation-router / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
+            description="Action to perform (ingest, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegation-router / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:KG-2.7): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) — always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -731,6 +745,67 @@ def register_write_ingest_tools(mcp):
                     )
                 except Exception as e:
                     return f"Distill error: {e}"
+
+            elif action in (
+                "build_skill_graph",
+                "skill_graph_status",
+                "rebuild_skill_graph",
+            ):
+                # CONCEPT:KG-2.7 — the unified skill-graph pipeline: acquire from any
+                # source kind (web/pdf/office/dir/url_reader/rest/database/mcp_tool/
+                # generated/kg_query) into a standardized skill-graph with a
+                # sources.json provenance/freshness manifest, hybrid-auto KG ingest,
+                # and a staleness/rebuild loop. Heavy/blocking work runs off the event
+                # loop via a worker thread.
+                import asyncio
+
+                from agent_utilities.knowledge_graph.distillation import (
+                    SkillGraphPipeline,
+                    SourceSpec,
+                )
+
+                pipe = SkillGraphPipeline()
+                if action == "build_skill_graph":
+                    if not (corpus_name and target_path):
+                        return json.dumps(
+                            {
+                                "error": "build_skill_graph requires corpus_name (name) "
+                                "and target_path (output parent dir); base_path = JSON "
+                                "list of sources or 'kind=uri,kind=uri' shorthand."
+                            }
+                        )
+                    try:
+                        specs = _parse_source_specs(base_path, SourceSpec)
+                    except ValueError as exc:
+                        return json.dumps({"error": str(exc)})
+                    if not specs:
+                        return json.dumps({"error": "no sources provided in base_path"})
+                    sg_built = await asyncio.to_thread(
+                        lambda: pipe.build(
+                            name=corpus_name,
+                            specs=specs,
+                            out_dir=target_path,
+                            description=description or None,
+                        )
+                    )
+                    return json.dumps(sg_built, default=str)
+                if action == "skill_graph_status":
+                    if not target_path:
+                        return json.dumps(
+                            {"error": "skill_graph_status requires target_path (dir)"}
+                        )
+                    quick = corpus_name.strip().lower() == "quick"
+                    sg_report = await asyncio.to_thread(
+                        lambda: pipe.status(target_path, quick=quick)
+                    )
+                    return json.dumps(sg_report, default=str)
+                # rebuild_skill_graph
+                if not target_path:
+                    return json.dumps(
+                        {"error": "rebuild_skill_graph requires target_path (dir)"}
+                    )
+                sg_rebuilt = await asyncio.to_thread(lambda: pipe.rebuild(target_path))
+                return json.dumps(sg_rebuilt, default=str)
 
             elif action == "agent_toolkit":
                 sources = (
