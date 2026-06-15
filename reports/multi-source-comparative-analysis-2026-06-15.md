@@ -198,8 +198,22 @@ LLM-based Generative Recommendation"** — NOT yet assimilated (a candidate foll
 **Concept renumbers (concurrent-session collisions):** MLEvolve KG-2.89→**KG-2.92** (sibling took 2.89
 for a role-aware registry; 2.90/2.91 also taken by a connector-skill distiller).
 
+## Round 4 — 5th paper assimilated + deferred items implemented
+
+| Item | Status | Evidence |
+|---|---|---|
+| **2606.14142 PauseRec** generative recommender | ✅ shipped | **KG-2.93** `retrieval/generative_recommender.py` — implicit-reasoning (latent budget + text↔SID bridge, no brittle CoT) over KG-2.86 semantic IDs; `graph_analyze action='recommend'` |
+| Real **LLM coder** for MLEvolve | ✅ shipped | KG-2.92 `evolve_code` action injects an `RLM` coder (worker-thread; deterministic offline fallback) |
+| **FST weight trainer** (was deferred) | ✅ shipped | **ORCH-1.57** `harness/substrate_trainer.py` — builds a GRPO corpus + emits a DSM training-job spec; wired as `FastSlowController`'s trainer (the gradient step stays in DSM, GPU-gated; jobs are *recorded* when no substrate) |
+| **Night-shift LLM Cataloger** (was deferred) | ✅ shipped | KG-2.84 `night_shift` action injects an `RLM` atom-extractor (deterministic splitter fallback) |
+| **Neural cross-encoder reranker** (was deferred) | ✅ shipped | KG-2.85 `retrieval/neural_reranker.py` — pluggable `NeuralCrossEncoderReranker` + auto-detect factory; `ReasoningAwareReranker` default-uses it when installed+loadable (probed, fail-safe to lexical) |
+
+All merged to main locally (AU merge `e04b621`); ~190+39 tests green; both guardrail gates green on main.
+The only remaining deferral is the **actual GPU gradient run** of the FST job (correctly DSM's, blocked by
+the GB10 hardware fault) and **fine-tuning** a cross-encoder — both inherently GPU/training-time, not code.
+
 ## Deferred / out of scope (honest)
-- Actual **weight trainer** for the FST slow loop (controller + GRPO data spine built; the training
-  run needs a GPU — currently blocked by the GB10 power fault).
-- Neural cross-encoder **model training** (we wire a pluggable distilled reranker; fine-tuning later).
+- The **GPU gradient run** of the FST training-job spec — built + dispatched from agent-utilities, but the
+  gradient step lives in data-science-mcp and needs a GPU (GB10 power fault). Jobs are recorded/queued.
+- **Fine-tuning** a bespoke cross-encoder (we wire a pluggable pretrained one + auto-detect; training later).
 - Pushing to remotes (merge to main **locally only**, per ecosystem norm).
