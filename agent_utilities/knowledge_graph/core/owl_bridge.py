@@ -66,6 +66,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "asset",
     "warehouse",
     "calendarevent",
+    "topic",
     "identityuser",
     "identitygroup",
     "identityrole",

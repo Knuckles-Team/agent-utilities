@@ -15,6 +15,7 @@ Public surface:
 
 from __future__ import annotations
 
+from .approval import ProposalQueue, approve_proposal
 from .core import (
     WritebackResult,
     list_sinks,
@@ -33,6 +34,7 @@ from .sinks import identity as _identity  # noqa: F401
 from .sinks import issue_tracker as _issue_tracker  # noqa: F401
 from .sinks import leanix as _leanix  # noqa: F401
 from .sinks import nextcloud as _nextcloud  # noqa: F401
+from .sinks import ops as _ops  # noqa: F401
 from .sinks import process as _process  # noqa: F401
 from .sinks import salesforce as _salesforce  # noqa: F401
 from .sinks import servicenow as _servicenow  # noqa: F401
@@ -48,4 +50,6 @@ __all__ = [
     "collect_inventory_creations",
     "push_findings",
     "collect_risk_findings",
+    "ProposalQueue",
+    "approve_proposal",
 ]
