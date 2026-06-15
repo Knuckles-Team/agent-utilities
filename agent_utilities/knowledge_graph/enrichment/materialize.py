@@ -70,6 +70,26 @@ def materialize_source(
 # the matching extractor consumes. Kept as a small table (not env-driven) so a
 # new connector is one line; each ``get_client`` reads its own package's
 # environment in its own repo (Configuration discipline lives there, not here).
+# category → connector package whose ``auth.get_client()`` yields the vendor client.
+# Adding a new in-process source is one line here (plus an extractor + sink).
+_CLIENT_MODULES: dict[str, str] = {
+    "aris": "aris_mcp",
+    "egeria": "egeria_mcp",
+    "nextcloud": "nextcloud_agent",
+    "okta": "okta_agent",
+    "keycloak": "keycloak_agent",
+    "salesforce": "salesforce_agent",
+    "ansible": "ansible_tower_mcp",
+    "homeassistant": "home_assistant_agent",
+    "technitium_dns": "technitium_dns_mcp",
+    "caddy": "caddy_mcp",
+    "uptime_kuma": "uptime_kuma_agent",
+    "portainer": "portainer_agent",
+    "kafka": "kafka_mcp",
+    "lgtm": "lgtm_mcp",
+}
+
+
 def resolve_source_client(category: str) -> Any | None:
     """Best-effort: build the vendor client for ``category`` in-process, or ``None``.
 
@@ -82,14 +102,6 @@ def resolve_source_client(category: str) -> Any | None:
             from camunda_mcp.auth import get_client
 
             return get_client().v7
-        if category == "aris":
-            from aris_mcp.auth import get_client
-
-            return get_client()
-        if category == "egeria":
-            from egeria_mcp.auth import get_client
-
-            return get_client()
         if category == "servicenow":
             from servicenow_api.auth import get_client
 
@@ -102,30 +114,10 @@ def resolve_source_client(category: str) -> Any | None:
             from .source_adapters import ErpNextSourceClient
 
             return ErpNextSourceClient(get_client())
-        if category == "nextcloud":
-            from nextcloud_agent.auth import get_client
-
-            return get_client()
-        if category == "okta":
-            from okta_agent.auth import get_client
-
-            return get_client()
-        if category == "keycloak":
-            from keycloak_agent.auth import get_client
-
-            return get_client()
-        if category == "salesforce":
-            from salesforce_agent.auth import get_client
-
-            return get_client()
-        if category == "ansible":
-            from ansible_tower_mcp.auth import get_client
-
-            return get_client()
-        if category == "homeassistant":
-            from home_assistant_agent.auth import get_client
-
-            return get_client()
+        module = _CLIENT_MODULES.get(category)
+        if module:
+            mod = __import__(f"{module}.auth", fromlist=["get_client"])
+            return mod.get_client()
     except Exception as exc:  # noqa: BLE001 - missing/unconfigured connector → no client
         logger.debug("no source client for %s: %s", category, exc)
         return None
@@ -148,6 +140,12 @@ MATERIALIZE_SOURCES: frozenset[str] = frozenset(
         "salesforce",
         "ansible",
         "homeassistant",
+        "technitium_dns",
+        "caddy",
+        "uptime_kuma",
+        "portainer",
+        "kafka",
+        "lgtm",
     }
 )
 

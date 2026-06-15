@@ -31,6 +31,7 @@ Modular imports:
         <http://knuckles.team/kg/archimate>,
         <http://knuckles.team/kg/calendar>,
         <http://knuckles.team/kg/capability>,
+        <http://knuckles.team/kg/observability>,
         <http://knuckles.team/kg/egeria>,
         <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,

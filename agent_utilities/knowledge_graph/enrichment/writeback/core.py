@@ -71,6 +71,9 @@ class WritebackSink(Protocol):
 
     domain: str
     enable_flag: str
+    #: "standard" (live once enable_flag set) or "high_stakes" (never auto-execute —
+    #: queued for approval even when enabled). Sinks omitting it default to standard.
+    risk_tier: str
 
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
@@ -154,6 +157,31 @@ def run_writeback(
             "hint": "run with dry_run=true to preview the proposed writes",
         }
     ctx = WritebackContext(backend=backend, engine=engine)
+
+    # High-stakes sinks NEVER auto-execute: a live request (enabled, not dry-run,
+    # not carrying an approval token) is previewed and queued for approval instead.
+    risk_tier = getattr(sink, "risk_tier", "standard")
+    if risk_tier == "high_stakes" and not dry_run and not ops.get("_approved"):
+        try:
+            preview = sink.run(ctx, ops, dry_run=True)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("writeback sink %s preview failed", target, exc_info=True)
+            return {"status": "error", "target": target, "error": str(e)}
+        from .approval import ProposalQueue
+
+        pid = ProposalQueue().enqueue(target, ops, preview.proposals)
+        out = preview.as_dict()
+        out.update(
+            {
+                "status": "queued",
+                "target": target,
+                "risk_tier": risk_tier,
+                "proposal_id": pid,
+                "hint": "high-stakes write queued; approve via graph_writeback action=approve",
+            }
+        )
+        return out
+
     try:
         result = sink.run(ctx, ops, dry_run=dry_run)
     except Exception as e:  # noqa: BLE001 - never let one sink crash the surface
@@ -164,4 +192,5 @@ def run_writeback(
     out["target"] = target
     out["dry_run"] = dry_run
     out["write_enabled"] = write_enabled
+    out["risk_tier"] = risk_tier
     return out
