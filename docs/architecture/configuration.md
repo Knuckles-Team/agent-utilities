@@ -204,7 +204,18 @@ opt-in, all off by default, single typed source of truth.
 
 | Family | Count | Notes |
 |---|---|---|
-| `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_BRAIN_ENFORCE`, `KG_RESEARCH_EXTERNAL` | 4 | remaining experiment gates — graduate (always-on) or delete |
+| `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_BRAIN_ENFORCE`, `KG_RESEARCH_EXTERNAL`, `KG_PROCESS_WRITEBACK` | 5 | remaining experiment gates — graduate (always-on) or delete |
+
+**`KG_PROCESS_WRITEBACK` — outbound process-intelligence writeback (`CONCEPT:KG-2.8`,
+default off).** Opt-in because it performs *outbound* mutating calls into external
+systems (Camunda process-instance variables, ARIS model attributes) — exactly the
+"expensive / side-effecting on every run" case the opt-in tier is reserved for. When
+set, `resolve_process_writeback` pushes the KG's per-process intelligence (capability/
+code lineage, OWL inferences, operational signals, glossary/data lineage) back onto the
+live process world via the `graph_analyze action=process_writeback` surface. The
+connector connection/credentials themselves are **not** agent-utilities config — they
+live in the `camunda-mcp` / `aris-mcp` packages' own environment
+(`CAMUNDA7_*`/`CAMUNDA8_*`, `ARIS_*`), read by each connector's `auth.get_client()`.
 
 **`EVOLUTION_WORKTREE_ROOT` — evolution→branch bridge (`CONCEPT:AHE-3.21`), typed on
 `AgentConfig` (`evolution_worktree_root`).** Root directory the `LocalBranchPublisher`
