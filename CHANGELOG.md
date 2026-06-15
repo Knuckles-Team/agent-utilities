@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Dependency floors refreshed to current PyPI latest.** Raised the declared
+  minimum versions across `pyproject.toml` and `requirements.txt` to the latest
+  compatible releases (e.g. `pydantic[email]>=2.13.4`, `urllib3>=2.7.0`,
+  `dspy-ai>=3.2.1`, `platformdirs>=4.10.0`, `filelock>=3.29.4`, `fastapi>=0.137.0`).
+  The resolved `uv.lock` is unchanged — the lock already used versions at or above
+  the new floors — so this is declaration hygiene with no runtime change. Five
+  constraints are held below latest because workspace siblings cap them:
+  `pydantic-ai-slim`/`pydantic-graph` at `1.106.0` (pinned exactly by
+  `pydantic-acp 0.9.6`), `pandas<3` (`llama-index-readers-file`), `packaging<26`
+  and `cryptography<49` (both capped by `mlflow` via `data-science-mcp[tracking]`).
+
 ### Added
 - **Concurrent N-way mirrored writes (CONCEPT:KG-2.74).** `GRAPH_BACKEND=fanout`
   turns mirroring into the default for every write: one configurable **authority**

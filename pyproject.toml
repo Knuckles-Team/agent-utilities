@@ -15,31 +15,31 @@ classifiers = [
     "Programming Language :: Python :: 3"]
 requires-python = ">=3.11,<3.15"
 dependencies = [
-    "tree-sitter>=0.23.0",
-    "requests>=2.34.0",
-    "urllib3>=2.3.0",
-    "pydantic[email]>=2.10.0",
-    "pydantic-settings>=2.14.0",
-    "PyYAML>=6.0.0",
-    "python-dotenv>=1.2.1",
-    "ladybug>=0.16.0",
+    "tree-sitter>=0.25.2",
+    "requests>=2.34.2",
+    "urllib3>=2.7.0",
+    "pydantic[email]>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "PyYAML>=6.0.3",
+    "python-dotenv>=1.2.2",
+    "ladybug>=0.17.1",
     "epistemic-graph>=0.29.0",
-    "cryptography>=48.0.0",
-    "pathspec",
-    "platformdirs>=4.0.0",
-    "packaging>=24.2",
-    "psutil>=7.2.0",
-    "tree-sitter-python>=0.23.0",
-    "tree-sitter-javascript>=0.23.0",
-    "tree-sitter-typescript>=0.23.0",
-    "filelock>=3.0.0",
-    "dspy-ai>=2.5.0",
-    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.90.0,<2.0.0",
-    "confluent-kafka>=2.14.0",
-    "llama-index-core>=0.14.21",
+    "cryptography>=48.0.0,<49",
+    "pathspec>=1.1.1",
+    "platformdirs>=4.10.0",
+    "packaging>=24.2,<26",
+    "psutil>=7.2.2",
+    "tree-sitter-python>=0.25.0",
+    "tree-sitter-javascript>=0.25.0",
+    "tree-sitter-typescript>=0.23.2",
+    "filelock>=3.29.4",
+    "dspy-ai>=3.2.1",
+    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.106.0,<2.0.0",
+    "confluent-kafka>=2.14.2",
+    "llama-index-core>=0.14.22",
     "llama-index-llms-openai>=0.7.9",
     "llama-index-embeddings-openai>=0.6.0",
-    "pydantic-acp>=0.1.0",
+    "pydantic-acp>=0.9.6",
     "defusedxml>=0.7.1",
     # CONCEPT:ORCH-1.38 — monty is the default fast/isolated RLM sandbox tier. Small pure-Rust
     # wheel, no transitive deps; the backend import is guarded so absence degrades to the local
@@ -58,131 +58,131 @@ text = "MIT"
 # CONCEPT:ORCH-1.38 — heavier sandbox tiers. monty (core dep) needs nothing here; the
 # CPython-WASI/wasm tier needs wasmtime, kept optional so the base install stays light.
 sandbox = [
-    "wasmtime>=21.0.0"
+    "wasmtime>=45.0.0"
 ]
 kafka = [
-    "aiokafka>=0.10.0"
+    "aiokafka>=0.14.0"
 ]
 # CONCEPT:OS-5.23 — Python-tier gateway Prometheus metrics. Optional so the
 # base install stays light; without it every gateway metric degrades to a
 # no-op and GET /metrics returns a placeholder.
 metrics = [
-    "prometheus-client>=0.20.0"
+    "prometheus-client>=0.25.0"
 ]
 nats = [
-    "nats-py>=2.6.0"
+    "nats-py>=2.15.0"
 ]
 mcp = [
-    "fastmcp>=3.3.0",
+    "fastmcp>=3.4.2",
     "eunomia-mcp>=0.3.10",
-    "fastapi>=0.136.0",
+    "fastapi>=0.137.0",
     "httpx>=0.28.1"
 ]
 agent = [
     "agent-utilities[mcp,ag-ui,terminal]>=0.49.0",
-    "universal-skills>=0.35.0",
-    "skill-graphs>=0.29.0",
-    "pydantic-ai-skills>=0.10.0",
-    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.90.0,<2.0.0",
-    "pydantic-graph>=1.0.0"
+    "universal-skills>=0.45.0",
+    "skill-graphs>=0.38.0",
+    "pydantic-ai-skills>=0.11.0",
+    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.106.0,<2.0.0",
+    "pydantic-graph>=1.106.0"
 ]
 agent-google = [
-    "pydantic-ai-slim[google]>=1.90.0,<2.0.0"
+    "pydantic-ai-slim[google]>=1.106.0,<2.0.0"
 ]
 agent-groq = [
-    "pydantic-ai-slim[groq]>=1.90.0,<2.0.0"
+    "pydantic-ai-slim[groq]>=1.106.0,<2.0.0"
 ]
 agent-mistral = [
-    "pydantic-ai-slim[mistral]>=1.90.0,<2.0.0"
+    "pydantic-ai-slim[mistral]>=1.106.0,<2.0.0"
 ]
 agent-anthropic = [
-    "pydantic-ai-slim[anthropic]>=1.90.0,<2.0.0"
+    "pydantic-ai-slim[anthropic]>=1.106.0,<2.0.0"
 ]
 agent-huggingface = [
-    "pydantic-ai-slim[huggingface]>=1.90.0,<2.0.0"
+    "pydantic-ai-slim[huggingface]>=1.106.0,<2.0.0"
 ]
 ag-ui = [
-    "agent-webui>=0.27.0"]
+    "agent-webui>=0.41.0"]
 terminal = [
-    "agent-terminal-ui>=0.12.0"]
+    "agent-terminal-ui>=0.14.0"]
 browser = [
-    "playwright>=1.49.1"]
+    "playwright>=1.60.0"]
 acp = [
-    "pydantic-acp>=0.1.0",
-    "acpkit[pydantic]>=0.1.0"
+    "pydantic-acp>=0.9.6",
+    "acpkit[pydantic]>=0.9.6"
 ]
 documents = [
-    "llama-index-core>=0.14.15",
-    "llama-index-readers-file>=0.4.1",
+    "llama-index-core>=0.14.22",
+    "llama-index-readers-file>=0.6.0",
     # PyMuPDF (fitz): GIL-releasing C PDF parser used as the primary PDF reader
     # (PyMuPDFReader). ~0.2s vs pypdf's multi-minute stall that wedges the host
     # task queue on pathological PDFs. See engine_tasks._pdf_file_extractor.
-    "pymupdf>=1.24"
+    "pymupdf>=1.27.2.3"
 ]
 embeddings = [
-    "llama-index-core>=0.14.15"]
+    "llama-index-core>=0.14.22"]
 embeddings-openai = [
     "agent-utilities[embeddings]>=0.49.0",
-    "llama-index-embeddings-openai>=0.5.1"]
+    "llama-index-embeddings-openai>=0.6.0"]
 embeddings-huggingface = [
     "agent-utilities[embeddings]>=0.49.0",
     "llama-index-embeddings-huggingface>=0.7.0"]
 embeddings-ollama = [
     "agent-utilities[embeddings]>=0.49.0",
-    "llama-index-embeddings-ollama>=0.8.6"]
+    "llama-index-embeddings-ollama>=0.9.0"]
 logfire = [
     "agent-utilities[agent]>=0.49.0",
-    "pydantic-ai-slim[logfire]>=1.90.0,<2.0.0"
+    "pydantic-ai-slim[logfire]>=1.106.0,<2.0.0"
 ]
 graph = [
-    "ladybug>=0.15.3"
+    "ladybug>=0.17.1"
 ]
 ann = [
     "hnswlib>=0.8.0"
 ]
 neo4j = [
-    "neo4j>=6.1.0"
+    "neo4j>=6.2.0"
 ]
 falkordb = [
-    "falkordb>=1.0.1"
+    "falkordb>=1.6.1"
 ]
 owl = [
-    "owlready2>=0.46",
-    "rdflib>=7.0.0",
-    "pyshacl>=0.29.0"
+    "owlready2>=0.50",
+    "rdflib>=7.6.0",
+    "pyshacl>=0.31.0"
 ]
 stardog = [
     "agent-utilities[owl]",
     "pystardog>=0.20.0"
 ]
 fuseki = [
-    "httpx>=0.28.0",
-    "rdflib>=7.0.0"
+    "httpx>=0.28.1",
+    "rdflib>=7.6.0"
 ]
 event-kafka = [
-    "confluent-kafka>=2.0"
+    "confluent-kafka>=2.14.2"
 ]
 vault = [
-    "hvac>=2.3.0"
+    "hvac>=2.4.0"
 ]
 auth = [
-    "authlib>=1.4.0",
-    "joserfc>=1.0.0"
+    "authlib>=1.7.2",
+    "joserfc>=1.7.1"
 ]
 finance = [
-    "torch>=2.0.0",
-    "statsmodels>=0.14.0",
-    "yfinance>=0.2.0",
-    "scikit-learn>=1.3.0",
-    "pandas>=2.0.0",
-    "httpx>=0.28.0",
-    "websockets>=13.0",
-    "hmmlearn>=0.3.0"
+    "torch>=2.12.0",
+    "statsmodels>=0.14.6",
+    "yfinance>=1.4.1",
+    "scikit-learn>=1.9.0",
+    "pandas>=2.0.0,<3",
+    "httpx>=0.28.1",
+    "websockets>=16.0",
+    "hmmlearn>=0.3.3"
 ]
 finance-kronos = [
     "agent-utilities[finance]",
-    "transformers>=4.40.0",
-    "safetensors>=0.4.0"
+    "transformers>=5.12.0",
+    "safetensors>=0.8.0"
 ]
 hr = []
 medical = []
@@ -190,41 +190,41 @@ science = []
 law = []
 government = []
 postgresql = [
-    "psycopg[binary]>=3.2.0",
-    "psycopg-pool>=3.2.0",
-    "pgvector>=0.3.0"
+    "psycopg[binary]>=3.3.4",
+    "psycopg-pool>=3.3.1",
+    "pgvector>=0.4.2"
 ]
 # Native Messaging Backend Abstraction (CONCEPT:ECO-4.5)
-messaging-discord = ["discord.py>=2.0"]
-messaging-slack = ["slack-bolt>=1.18"]
-messaging-telegram = ["python-telegram-bot>=21.0"]
-messaging-whatsapp = ["neonize>=0.3", "httpx>=0.28"]
-messaging-teams = ["botbuilder-core>=4.14"]
-messaging-googlechat = ["google-api-python-client>=2.0", "google-auth>=2.0"]
-messaging-googlemeet = ["google-api-python-client>=2.0", "google-auth>=2.0"]
-messaging-mattermost = ["mattermostdriver>=7.0"]
-messaging-matrix = ["matrix-nio>=0.24"]
-messaging-irc = ["irc>=20.0"]
+messaging-discord = ["discord.py>=2.7.1"]
+messaging-slack = ["slack-bolt>=1.28.0"]
+messaging-telegram = ["python-telegram-bot>=22.8"]
+messaging-whatsapp = ["neonize>=0.3.18.post0", "httpx>=0.28.1"]
+messaging-teams = ["botbuilder-core>=4.17.1"]
+messaging-googlechat = ["google-api-python-client>=2.197.0", "google-auth>=2.54.0"]
+messaging-googlemeet = ["google-api-python-client>=2.197.0", "google-auth>=2.54.0"]
+messaging-mattermost = ["mattermostdriver>=7.3.2"]
+messaging-matrix = ["matrix-nio>=0.25.2"]
+messaging-irc = ["irc>=20.5.0"]
 messaging-signal = []
 messaging-imessage = []  # macOS-only, AppleScript bridge
-messaging-line = ["line-bot-sdk>=3.0"]
-messaging-twitch = ["twitchio>=2.0"]
-messaging-synology = ["httpx>=0.28"]
-messaging-voicecall = ["twilio>=9.0"]
-messaging-nextcloud = ["httpx>=0.28"]
+messaging-line = ["line-bot-sdk>=3.23.0"]
+messaging-twitch = ["twitchio>=3.2.2"]
+messaging-synology = ["httpx>=0.28.1"]
+messaging-voicecall = ["twilio>=9.10.9"]
+messaging-nextcloud = ["httpx>=0.28.1"]
 messaging = [
     "agent-utilities[messaging-discord,messaging-slack,messaging-telegram,messaging-whatsapp,messaging-teams,messaging-googlechat,messaging-googlemeet,messaging-mattermost,messaging-matrix,messaging-irc,messaging-signal,messaging-line,messaging-twitch,messaging-synology,messaging-voicecall,messaging-nextcloud]"
 ]
 test = [
-    "pytest-xdist>=3.6.0",
-    "hypothesis>=6.152.1",
-    "pytest-cov",
-    "mypy",
-    "ruff",
-    "mutmut",
-    "pytest-asyncio", "pytest-cov",
-    "pytest-env",
-    "pytest-timeout",
+    "pytest-xdist>=3.8.0",
+    "hypothesis>=6.155.2",
+    "pytest-cov>=7.1.0",
+    "mypy>=2.1.0",
+    "ruff>=0.15.17",
+    "mutmut>=3.6.0",
+    "pytest-asyncio>=1.4.0", "pytest-cov>=7.1.0",
+    "pytest-env>=1.6.0",
+    "pytest-timeout>=2.4.0",
     "opentelemetry-instrumentation-starlette",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-instrumentation-asgi",
@@ -235,7 +235,7 @@ test = [
 # `pytest -m live` can stand up throwaway pg-age/Neo4j/FalkorDB/Fuseki/Kafka.
 test-backends = [
     "agent-utilities[test,neo4j,falkordb,postgresql,kafka,owl,fuseki]",
-    "testcontainers>=4.0.0"
+    "testcontainers>=4.14.2"
 ]
 all = [
     "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,ann,browser,test,owl,stardog,vault,auth,finance,messaging]>=0.49.0"]
