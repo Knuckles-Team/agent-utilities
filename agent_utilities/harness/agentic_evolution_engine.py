@@ -64,6 +64,7 @@ class AgenticEvolutionEngine:
         self._memory_store: Any = None
         self._decentralized_memory: Any = None
         self._self_play: Any = None
+        self._fast_slow: Any = None
         self._replay_buffer: Any = None
         self._gap_threshold = gap_threshold
         self._merge_threshold = merge_threshold
@@ -141,6 +142,21 @@ class AgenticEvolutionEngine:
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("SelfGuidedSelfPlay not available: %s", e)
             self._self_play = None
+
+        # Fast-Slow learning controller (CONCEPT:ORCH-1.56, FST arXiv:2605.12484):
+        # each cycle's outcome is a trace; the FAST loop updates the harness now and
+        # the SLOW loop absorbs what RECURS across bases (real weight training is
+        # deferred — the GRPO advantage spine runs, the trainer is a no-op default).
+        try:
+            from .fast_slow_controller import FastSlowController
+
+            def _harness_update(traces: Any) -> str:
+                return f"harness:{len(traces)}"
+
+            self._fast_slow = FastSlowController(_harness_update)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("FastSlowController not available: %s", e)
+            self._fast_slow = None
 
         # Skill evolution (ECO-4.1)
         try:
@@ -393,6 +409,21 @@ class AgenticEvolutionEngine:
                 "rounds": len(play.rounds),
             }
 
+        # CONCEPT:ORCH-1.56 — feed the cycle outcome to the Fast-Slow controller:
+        # observe it as a trace (keyed by base so recurrence is detectable), run the
+        # FAST harness update now, then a SLOW step that absorbs recurring bases (the
+        # GRPO advantage spine runs; real weight training is the deferred trainer).
+        if self._fast_slow is not None and self._variant_pool:
+            from .fast_slow_controller import Trace
+
+            self._fast_slow.observe(
+                Trace(task_key=base_id, reward=float(health.get("spread", 0.0) or 0.0))
+            )
+            report["fast_harness_id"] = self._fast_slow.fast_step()
+            slow = self._fast_slow.slow_step()
+            if slow:
+                report["slow_updates"] = [u.task_key for u in slow]
+
         # Skill gap detection
         if task_text and self._skill_detector:
             gap = self.detect_skill_gap(task_text)
@@ -405,6 +436,38 @@ class AgenticEvolutionEngine:
                 }
 
         return report
+
+    def evolve_via_graph_search(
+        self, task_text: str, *, num_branches: int = 3, num_steps: int = 10
+    ) -> dict[str, Any]:
+        """Evolve a solution by Monte-Carlo GRAPH search (CONCEPT:KG-2.92, MLEvolve).
+
+        Unlike tournament evolution, this searches a GRAPH of candidate solutions
+        with cross-branch fusion edges + a global code memory. The default coder /
+        evaluator are deterministic (zero-infra); inject an LLM coder + a real
+        executor for production code evolution. Returns the best node found.
+        """
+        from .graph_search_evolution import GraphSearchEvolver
+
+        def _coder(plan: str, prior_code: str | None) -> tuple[str, str]:
+            base = prior_code or ""
+            return (plan, f"{base}\n# step for: {plan}".strip())
+
+        def _evaluate(code: str) -> tuple[float, bool]:
+            # Deterministic proxy: more refinement steps => marginally better metric.
+            return (float(code.count("# step")), False)
+
+        evolver = GraphSearchEvolver(
+            _coder, _evaluate, num_branches=num_branches, num_steps=num_steps
+        )
+        best = evolver.run(task_text)
+        return {
+            "best_metric": best.metric,
+            "stage": str(best.stage),
+            "branch_id": best.branch_id,
+            "reference_ids": best.reference_ids,
+            "plan": best.plan,
+        }
 
     def sample_replay(self, n: int = 1, *, seed: int | None = None) -> list[Any]:
         """Sample decisive past cycles to re-evaluate (CONCEPT:AHE-3.0, b4-03 F4).
