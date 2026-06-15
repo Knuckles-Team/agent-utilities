@@ -108,6 +108,36 @@ def _is_secret(env_key: str) -> bool:
     return any(up.endswith(suffix) for suffix in _SECRET_SUFFIXES)
 
 
+#: Settings that only take effect on an engine/daemon rebuild — a live `set_config`
+#: persists + updates the value but cannot apply it to the running process; callers
+#: should restart the daemon (CONCEPT:KG-2.89).
+_RESTART_REQUIRED: frozenset[str] = frozenset(
+    {
+        "GRAPH_BACKEND",
+        "GRAPH_BACKEND_L1",
+        "GRAPH_BACKEND_L2",
+        "GRAPH_DB_URI",
+        "STATE_DB_URI",
+        "GRAPH_AUTHORITY",
+        "GRAPH_SERVICE_ENDPOINTS",
+        "GRAPH_SERVICE_AUTH_SECRET",
+        "KG_DAEMON_ROLE",
+        "TASK_QUEUE_BACKEND",
+        "AGENT_UTILITIES_CONFIG_DIR",
+    }
+)
+
+
+def is_restart_required(env_key: str) -> bool:
+    """True if changing ``env_key`` needs a daemon restart to take effect.
+
+    Engine/daemon-rebuild settings (backend, durable DSN, auth secret, sharding,
+    queue backend) are wired at startup; everything else is read live via
+    ``config.setting`` / re-parsed fields (CONCEPT:KG-2.89)."""
+    up = (env_key or "").upper()
+    return up in _RESTART_REQUIRED or up.startswith(("AUTH_", "GRAPH_SERVICE_"))
+
+
 def _base_dump() -> dict[str, Any]:
     """All AgentConfig fields at their defaults, keyed by env-var alias."""
     from agent_utilities.core.config import AgentConfig

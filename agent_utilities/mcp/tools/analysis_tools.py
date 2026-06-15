@@ -1563,7 +1563,7 @@ def register_analysis_tools(mcp):
     def graph_configure(
         action: str = Field(
             default="register_mcp",
-            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health; 'set_default_connection' (config_key=name) repoints the default target. 'profile_connection' (config_key=name) read-only-introspects a registered external graph's schema (labels, relationship types, property keys, per-label counts + sample property shapes); 'imprint_connection' profiles it, maps each external label onto our ontology (interfaces + our node types; unmatched flagged 'novel'), and writes a self-describing ExternalGraphReference catalog node (no credentials) into the authority KG so the foreign graph becomes discoverable+usable. CONCEPT:KG-2.74 — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass. 'setup_databases' provisions the Stardog + pg-age environment end-to-end (config_key=profile 'dev'|'prod', config_value=JSON options e.g. {\"postgres_mode\":\"managed_image\",\"dsn\":\"postgresql://...\",\"sparql_target\":\"builtin\"}); 'verify_databases' probes a Postgres for the age/vector/pg_search extensions (config_key or config_value.dsn = DSN). 'generate_config' writes a COMPLETE profile-seeded config.json covering every option (config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"out\":path,\"redact_secrets\":true}); 'config_doctor' validates a deployment's config completeness/health (config_key=profile, config_value optional {\"config\":path}); 'config_reference' returns every option grouped by subsystem. 'system_doctor' runs a holistic deployment health sweep (brew/flutter-doctor style) across config/engine/backend/secrets/auth/mcp-fleet/hooks/observability, each with a remediation + skill (config_value optional {\"only\":[...],\"fix\":true,\"live\":true}). 'preflight' checks whether THIS HOST has the runtimes/tools to deploy a profile BEFORE installing (Python 3.11-<3.15, uv/pip, the epistemic-graph engine binary — Rust only as a fallback, Docker when not the tiny profile, and per-component deps): config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"components\":[\"agent-webui\",\"geniusbot\",\"agent-terminal-ui\"]}.",
+            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher; CONCEPT:KG-2.89 — spec may set role 'read'(default, query-only data source)|'read_write'|'mirror', and password/user/uri may be a vault://path or env://VAR ref; the connection is persisted to config.json so it survives restart); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health + role; 'set_default_connection' (config_key=name) repoints the default target. 'profile_connection' (config_key=name) read-only-introspects a registered external graph's schema (labels, relationship types, property keys, per-label counts + sample property shapes); 'imprint_connection' profiles it, maps each external label onto our ontology (interfaces + our node types; unmatched flagged 'novel'), and writes a self-describing ExternalGraphReference catalog node (no credentials) into the authority KG so the foreign graph becomes discoverable+usable. CONCEPT:KG-2.74 — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass. 'setup_databases' provisions the Stardog + pg-age environment end-to-end (config_key=profile 'dev'|'prod', config_value=JSON options e.g. {\"postgres_mode\":\"managed_image\",\"dsn\":\"postgresql://...\",\"sparql_target\":\"builtin\"}); 'verify_databases' probes a Postgres for the age/vector/pg_search extensions (config_key or config_value.dsn = DSN). 'generate_config' writes a COMPLETE profile-seeded config.json covering every option (config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"out\":path,\"redact_secrets\":true}); 'config_doctor' validates a deployment's config completeness/health (config_key=profile, config_value optional {\"config\":path}); 'config_reference' returns every option grouped by subsystem. CONCEPT:KG-2.89 — 'get_config' (config_key=env name) returns a live value; 'set_config' (config_key=env name, config_value=scalar or JSON) validates against config_reference, persists to config.json + applies live, and flags 'restart_required' for engine-rebuild settings; 'list_config' returns every current value (secrets redacted). 'system_doctor' runs a holistic deployment health sweep (brew/flutter-doctor style) across config/engine/backend/secrets/auth/mcp-fleet/hooks/observability, each with a remediation + skill (config_value optional {\"only\":[...],\"fix\":true,\"live\":true}). 'preflight' checks whether THIS HOST has the runtimes/tools to deploy a profile BEFORE installing (Python 3.11-<3.15, uv/pip, the epistemic-graph engine binary — Rust only as a fallback, Docker when not the tiny profile, and per-component deps): config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"components\":[\"agent-webui\",\"geniusbot\",\"agent-terminal-ui\"]}.",
         ),
         config_key: str = Field(
             default="",
@@ -1647,16 +1647,32 @@ def register_analysis_tools(mcp):
                         name = registry.register(config_key, spec)
                     except Exception as e:
                         return json.dumps({"error": str(e)})
+                    # CONCEPT:KG-2.89 — persist the connection list to config.json so
+                    # it survives restart (re-seeded from config.kg_connections).
+                    from agent_utilities.core.config import save_config_item
+
+                    save_config_item("kg_connections", registry.export_specs())
                     return json.dumps(
-                        {"status": "success", "action": action, "connection": name}
+                        {
+                            "status": "success",
+                            "action": action,
+                            "connection": name,
+                            "role": registry.role(name),
+                            "persisted": True,
+                        }
                     )
                 if action == "remove_connection":
                     removed = registry.remove(config_key)
+                    if removed:
+                        from agent_utilities.core.config import save_config_item
+
+                        save_config_item("kg_connections", registry.export_specs())
                     return json.dumps(
                         {
                             "status": "success" if removed else "not_found",
                             "action": action,
                             "connection": config_key,
+                            "persisted": bool(removed),
                         }
                     )
                 # set_default_connection
@@ -1796,6 +1812,68 @@ def register_analysis_tools(mcp):
                 # config_doctor
                 return json.dumps(
                     config_doctor(profile, opts.get("config")), default=str
+                )
+            # ── CONCEPT:KG-2.89: generic live config get / set / list ──
+            if action in ("get_config", "set_config", "list_config"):
+                from agent_utilities.deployment import (
+                    config_reference,
+                    is_restart_required,
+                )
+
+                known: dict[str, dict] = {}
+                for section in config_reference():
+                    for f in section.get("fields", []):
+                        known[str(f.get("env") or "").upper()] = f
+
+                if action == "list_config":
+                    out = {}
+                    for env_key, meta in known.items():
+                        val = os.environ.get(env_key)
+                        out[env_key] = "***" if (meta.get("secret") and val) else val
+                    return json.dumps({"config": out, "count": len(out)}, default=str)
+
+                if not config_key:
+                    return json.dumps(
+                        {"error": f"config_key (env name) required for {action}"}
+                    )
+                env_key = config_key.upper()
+                if env_key not in known:
+                    return json.dumps(
+                        {
+                            "error": f"Unknown config key {config_key!r} (see config_reference)"
+                        }
+                    )
+                if action == "get_config":
+                    val = os.environ.get(env_key)
+                    if known[env_key].get("secret") and val:
+                        val = "***"
+                    return json.dumps(
+                        {
+                            "key": env_key,
+                            "value": val,
+                            "restart_required": is_restart_required(env_key),
+                        },
+                        default=str,
+                    )
+                # set_config — persist to config.json + apply live (or flag restart).
+                parsed = config_value
+                if config_value and config_value.strip()[:1] in '[{"':
+                    try:
+                        parsed = json.loads(config_value)
+                    except Exception:
+                        parsed = config_value
+                from agent_utilities.core.config import save_config_item
+
+                save_config_item(env_key, parsed)
+                restart = is_restart_required(env_key)
+                return json.dumps(
+                    {
+                        "status": "success",
+                        "key": env_key,
+                        "applied_live": not restart,
+                        "restart_required": restart,
+                    },
+                    default=str,
                 )
             # ── Holistic deployment health sweep (brew/flutter-doctor style) ──
             if action == "system_doctor":

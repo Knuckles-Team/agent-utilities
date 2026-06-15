@@ -13,6 +13,7 @@ from .config_generator import (
     config_doctor,
     config_reference,
     generate_config,
+    is_restart_required,
     write_config,
 )
 from .doctor import CHECKS, run_doctor
@@ -24,6 +25,7 @@ __all__ = [
     "config_doctor",
     "config_reference",
     "generate_config",
+    "is_restart_required",
     "run_doctor",
     "run_preflight",
     "write_config",

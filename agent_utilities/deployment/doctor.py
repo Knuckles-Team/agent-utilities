@@ -293,12 +293,65 @@ def _check_observability() -> dict[str, Any]:
     )
 
 
+def _check_graph_connections() -> dict[str, Any]:
+    """Health-check the named graph-connection registry (CONCEPT:KG-2.63/2.89).
+
+    Reports the registered external connections + their roles, and flags any
+    stalled fan-out mirror (the actionable replication-health signal)."""
+    try:
+        from agent_utilities.mcp.kg_server import get_connection_registry
+
+        status = get_connection_registry().status()
+        conns = [c for c in status.get("connections", []) if c.get("name") != "default"]
+    except Exception as exc:  # noqa: BLE001
+        return _result("graph_connections", "skip", f"registry unavailable: {exc}")
+
+    stalled: list[str] = []
+    try:
+        from agent_utilities.knowledge_graph.backends import get_active_backend
+        from agent_utilities.knowledge_graph.backends.fanout_backend import (
+            FanOutBackend,
+        )
+
+        backend = get_active_backend()
+        cand = getattr(backend, "inner", backend)
+        fan = cand if isinstance(cand, FanOutBackend) else getattr(cand, "l3", None)
+        if isinstance(fan, FanOutBackend):
+            mirrors = fan.durability_stats().get("mirrors") or {}
+            stalled = [m for m, s in mirrors.items() if s.get("stalled")]
+    except Exception:  # noqa: BLE001 — mirror stats are best-effort
+        pass
+
+    if stalled:
+        return _result(
+            "graph_connections",
+            "warn",
+            f"{len(conns)} connection(s); STALLED mirror(s): {', '.join(stalled)}",
+            remediation="`graph_configure action=reconcile` and check the mirror backend",
+            skill="database-environment-setup",
+            data={"connections": conns, "stalled_mirrors": stalled},
+        )
+    by_role: dict[str, int] = {}
+    for c in conns:
+        r = str(c.get("role") or "read")
+        by_role[r] = by_role.get(r, 0) + 1
+    detail = (
+        f"{len(conns)} external connection(s) ("
+        + ", ".join(f"{k}={v}" for k, v in sorted(by_role.items()))
+        + ")"
+        if conns
+        else "no external connections registered"
+    )
+    return _result("graph_connections", "ok", detail, data={"connections": conns})
+
+
 # Registry: name -> callable. Order is the report order.
 CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
     "config": _check_config,
     "engine": _check_engine,
     "graph_backend": _check_graph_backend,
+    "graph_connections": _check_graph_connections,
     "secrets": _check_secrets,
     "auth": _check_auth,
     "mcp_fleet": _check_mcp_fleet,
