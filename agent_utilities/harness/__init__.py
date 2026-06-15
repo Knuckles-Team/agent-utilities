@@ -5,16 +5,15 @@ Exposes OptimisticStateLocker, BranchMergeStateLocker, ToolContract, and Contrac
 
 from .adaptation_benchmark import AdaptationBenchmark, BenchmarkEntry
 from .adaptation_speed import AdaptationCurve, CurvePoint, marginal_speed_gain
-from .contract_validator import ContractValidator, ToolContract
 from .baseline_overfit_gate import (
     GateVerdict,
     PreRunGate,
     baseline_gate,
     overfit_smoke_gate,
 )
+from .contract_validator import ContractValidator, ToolContract
 from .decentralized_memory import Contribution, DecentralizedMemory, MemoryPool
 from .distributed_state_manager import BranchMergeStateLocker, OptimisticStateLocker
-from .forecasting import Forecast, ForecastBoard
 from .edit_engine import (
     Edit,
     EditOutcome,
@@ -24,8 +23,14 @@ from .edit_engine import (
     parse_edits,
 )
 from .evolving_memory import EvolvingMemoryStore, MemoryBank, MemoryRecord
+from .fast_slow_controller import FastSlowController, SlowUpdate, Trace
+from .forecasting import Forecast, ForecastBoard
+from .graph_search_evolution import (
+    GlobalCodeMemory,
+    GraphSearchEvolver,
+    SearchNode,
+)
 from .provenance_gate import ProvenanceCriticGate, ProvenanceVerdict
-from .research_log import BeliefEntry, FailureCase, FailureTriage, ResearchLog
 from .red_team import ATTACK_CATALOG, AttackProbe, RedTeamReport, RedTeamRunner
 from .reliability_scorers import (
     BrierSkillScorer,
@@ -39,20 +44,8 @@ from .reliability_scorers import (
     TrapInjectionScorer,
     build_reliability_suite,
 )
-from .fast_slow_controller import FastSlowController, SlowUpdate, Trace
-from .graph_search_evolution import (
-    GlobalCodeMemory,
-    GraphSearchEvolver,
-    SearchNode,
-)
+from .research_log import BeliefEntry, FailureCase, FailureTriage, ResearchLog
 from .sai_task import SpecializationTask, Verifier, VerifierResult
-from .self_guided_play import (
-    Guide,
-    GuideScore,
-    PlayReport,
-    PlayRound,
-    SelfGuidedSelfPlay,
-)
 from .selection_operators import (
     bradley_terry_scores,
     conservative_rating,
@@ -60,6 +53,14 @@ from .selection_operators import (
     rank_from_comparisons,
     select_top_k,
 )
+from .self_guided_play import (
+    Guide,
+    GuideScore,
+    PlayReport,
+    PlayRound,
+    SelfGuidedSelfPlay,
+)
+from .substrate_trainer import GrpoSample, SubstrateTrainer, TrainingJobSpec
 from .superhuman_gate import CertificationResult, SuperhumanCertifier
 from .world_model_task import WorldModelVerifier, build_world_model_task
 
@@ -100,6 +101,9 @@ __all__ = [
     "FastSlowController",
     "Trace",
     "SlowUpdate",
+    "SubstrateTrainer",
+    "TrainingJobSpec",
+    "GrpoSample",
     # Provenance-completeness critic gate (CONCEPT:AHE-3.13)
     "ProvenanceCriticGate",
     "ProvenanceVerdict",
