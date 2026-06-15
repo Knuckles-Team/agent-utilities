@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 278
+total_concepts: 279
 total_pillars: 20
 pillars:
 - AHE-3
@@ -452,6 +452,15 @@ concepts:
   - agent_utilities/models/model_registry.py
   doc: Evolvable sampling profiles via parametric variant mutation scored by the capability-reward EMA
     and tournament-promoted per task-class into the live model registry
+- id: AHE-3.39
+  name: empirical parity evidence for the assimilation program
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/assimilation_benchmark.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: empirical parity evidence for the assimilation program
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -2305,7 +2314,9 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/harness/assimilation_benchmark.py
   - agent_utilities/knowledge_graph/retrieval/generative_recommender.py
+  - agent_utilities/knowledge_graph/retrieval/pause_token_trainer.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: PauseRec implicit-reasoning generative recommender
 - id: KG-2.94
