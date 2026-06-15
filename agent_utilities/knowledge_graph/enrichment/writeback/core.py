@@ -71,9 +71,10 @@ class WritebackSink(Protocol):
 
     domain: str
     enable_flag: str
-    #: "standard" (live once enable_flag set) or "high_stakes" (never auto-execute —
-    #: queued for approval even when enabled). Sinks omitting it default to standard.
-    risk_tier: str
+    # NOTE: an optional ``risk_tier`` attribute ("standard" default, or "high_stakes"
+    # — never auto-execute, queued for approval) is read defensively via
+    # ``getattr(sink, "risk_tier", "standard")`` below, so it is intentionally NOT a
+    # required Protocol member (most sinks omit it).
 
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
