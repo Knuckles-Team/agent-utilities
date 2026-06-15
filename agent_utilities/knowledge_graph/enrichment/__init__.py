@@ -64,6 +64,11 @@ from .materialize import (
     materialize_source,
     resolve_source_client,
 )
+from .process_writeback import (
+    ProcessWritebackResult,
+    push_process_intelligence,
+    resolve_process_writeback,
+)
 from .registry import (
     discover_extractors,
     list_sources,
@@ -113,6 +118,9 @@ __all__ = [
     "make_capability_search",
     "materialize_source",
     "persist_as_runnable",
+    "ProcessWritebackResult",
+    "push_process_intelligence",
+    "resolve_process_writeback",
     "resolve_source_client",
     "list_sources",
     "persist_synthesis",

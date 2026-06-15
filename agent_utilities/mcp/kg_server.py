@@ -1186,6 +1186,29 @@ async def graph_analyze_synthesize_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_analyze_process_writeback_endpoint(request: Request) -> JSONResponse:
+    """Push KG process intelligence INTO Camunda instances / ARIS models.
+
+    Body: ``{"target": "both|camunda|aris", "query": "id1,id2"}`` —
+    ``target`` is the writeback scope (default ``both``); ``query`` is an
+    optional comma-separated list of BusinessProcess node ids to limit to.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_analyze",
+            action="process_writeback",
+            target=body.get("target", "both"),
+            query=body.get("query", ""),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_analyze_deep_extract_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -3701,7 +3724,7 @@ def _build_server(bootstrap: bool = True):
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -3770,6 +3793,54 @@ def _build_server(bootstrap: bool = True):
                 return _json.dumps(
                     enrichment_coverage(backend, graph_name=gname), indent=2
                 )
+            # ── KG-2.8: Outbound process-intelligence writeback ──
+            elif action == "process_writeback":
+                # Push KG-derived intelligence (capability/code lineage, OWL
+                # inferences, operational signals, glossary/data lineage) back
+                # INTO Camunda instances + ARIS models. target=camunda|aris|both
+                # (default both); query=optional comma-separated process ids.
+                import json as _json
+
+                from agent_utilities.knowledge_graph.enrichment.materialize import (
+                    resolve_source_client,
+                )
+                from agent_utilities.knowledge_graph.enrichment.process_writeback import (
+                    GraphComputeReader,
+                    push_process_intelligence,
+                )
+
+                scope = (target or "both").strip().lower()
+                camunda_client = (
+                    resolve_source_client("camunda")
+                    if scope in ("camunda", "both")
+                    else None
+                )
+                aris_client = (
+                    resolve_source_client("aris")
+                    if scope in ("aris", "both")
+                    else None
+                )
+                if camunda_client is None and aris_client is None:
+                    return _json.dumps(
+                        {
+                            "error": "no Camunda/ARIS client for scope "
+                            f"{scope!r} — connector package absent or "
+                            "credentials unset (see the connector's "
+                            "auth.get_client environment)."
+                        }
+                    )
+                process_ids = (
+                    [p.strip() for p in query.split(",") if p.strip()]
+                    if query
+                    else None
+                )
+                res = push_process_intelligence(
+                    GraphComputeReader(engine),
+                    camunda_client=camunda_client,
+                    aris_client=aris_client,
+                    process_ids=process_ids,
+                )
+                return _json.dumps({"status": "written", **res.as_dict()})
             # ── KG-2.7: Startup Context Generation ──
             elif action == "context":
                 try:
@@ -7022,6 +7093,11 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
 
     # ── Granular analyze ──
     route("/graph/analyze/synthesize", graph_analyze_synthesize_endpoint, ["POST"])
+    route(
+        "/graph/analyze/process-writeback",
+        graph_analyze_process_writeback_endpoint,
+        ["POST"],
+    )
     route("/graph/analyze/deep-extract", graph_analyze_deep_extract_endpoint, ["POST"])
     route(
         "/graph/analyze/background-research",
