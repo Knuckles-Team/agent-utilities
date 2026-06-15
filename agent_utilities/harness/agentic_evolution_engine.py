@@ -62,6 +62,7 @@ class AgenticEvolutionEngine:
         self._skill_factory: Any = None
         self._skill_merger: Any = None
         self._memory_store: Any = None
+        self._decentralized_memory: Any = None
         self._replay_buffer: Any = None
         self._gap_threshold = gap_threshold
         self._merge_threshold = merge_threshold
@@ -90,6 +91,18 @@ class AgenticEvolutionEngine:
         except Exception as e:  # pragma: no cover - defensive
             logger.debug("EvolvingMemoryStore not available: %s", e)
             self._memory_store = None
+
+        # Decentralized per-agent memory + exploit/explore bandit (KG-2.82 /
+        # AHE-3.33): each evolving component keeps its OWN exploit (proven winners)
+        # and explore (fresh variants) pools, and a per-agent bandit converges its
+        # exploit/explore balance from cycle outcomes (DecentMem, arXiv:2605.22721).
+        try:
+            from .decentralized_memory import DecentralizedMemory
+
+            self._decentralized_memory = DecentralizedMemory(engine=self._engine)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("DecentralizedMemory not available: %s", e)
+            self._decentralized_memory = None
 
         # Prioritized replay buffer (AHE-3.0, b4-03 F4) — decisive cycles resurface.
         try:
@@ -301,6 +314,28 @@ class AgenticEvolutionEngine:
                 generalized = self._memory_store.reconcile_similar(MemoryBank.INSIGHT)
                 if generalized:
                     report["insights_generalized"] = generalized
+
+            # CONCEPT:KG-2.82 / AHE-3.33 — record this base's winners as reusable
+            # trajectories in ITS OWN exploitation pool, and feed the cycle outcome
+            # back to its bandit: a healthy spread rewards exploitation, a collapse
+            # rewards exploration so the next cycle diversifies (DecentMem routing).
+            if self._decentralized_memory is not None and winners:
+                from .decentralized_memory import MemoryPool
+
+                collapsed = bool(health.get("collapsed"))
+                for winner in winners[:top_k]:
+                    self._decentralized_memory.record_trajectory(
+                        base_id,
+                        f"Promoted variant {winner} for {base_id}",
+                        metadata={"cycle_base": base_id, "variant": winner},
+                    )
+                if collapsed:
+                    self._decentralized_memory.reward(base_id, MemoryPool.EXPLORE, 1.0)
+                else:
+                    self._decentralized_memory.reward(base_id, MemoryPool.EXPLOIT, 1.0)
+                report[
+                    "decentralized_router"
+                ] = self._decentralized_memory.router_stats(base_id)
 
             # b4-03 F4: push the cycle as a replay state, keyed by base_id so rare
             # (decisive) bases resurface preferentially for re-evaluation.
