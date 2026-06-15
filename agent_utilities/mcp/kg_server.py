@@ -5129,7 +5129,7 @@ def _build_server(bootstrap: bool = True):
     def graph_configure(
         action: str = Field(
             default="register_mcp",
-            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health; 'set_default_connection' (config_key=name) repoints the default target. CONCEPT:KG-2.74 — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass. 'setup_databases' provisions the Stardog + pg-age environment end-to-end (config_key=profile 'dev'|'prod', config_value=JSON options e.g. {\"postgres_mode\":\"managed_image\",\"dsn\":\"postgresql://...\",\"sparql_target\":\"builtin\"}); 'verify_databases' probes a Postgres for the age/vector/pg_search extensions (config_key or config_value.dsn = DSN). 'generate_config' writes a COMPLETE profile-seeded config.json covering every option (config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"out\":path,\"redact_secrets\":true}); 'config_doctor' validates a deployment's config completeness/health (config_key=profile, config_value optional {\"config\":path}); 'config_reference' returns every option grouped by subsystem. 'system_doctor' runs a holistic deployment health sweep (brew/flutter-doctor style) across config/engine/backend/secrets/auth/mcp-fleet/hooks/observability, each with a remediation + skill (config_value optional {\"only\":[...],\"fix\":true,\"live\":true}).",
+            description="Operation ('set_secret', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:KG-2.35). CONCEPT:KG-2.63 — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health; 'set_default_connection' (config_key=name) repoints the default target. CONCEPT:KG-2.74 — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass. 'setup_databases' provisions the Stardog + pg-age environment end-to-end (config_key=profile 'dev'|'prod', config_value=JSON options e.g. {\"postgres_mode\":\"managed_image\",\"dsn\":\"postgresql://...\",\"sparql_target\":\"builtin\"}); 'verify_databases' probes a Postgres for the age/vector/pg_search extensions (config_key or config_value.dsn = DSN). 'generate_config' writes a COMPLETE profile-seeded config.json covering every option (config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"out\":path,\"redact_secrets\":true}); 'config_doctor' validates a deployment's config completeness/health (config_key=profile, config_value optional {\"config\":path}); 'config_reference' returns every option grouped by subsystem. 'system_doctor' runs a holistic deployment health sweep (brew/flutter-doctor style) across config/engine/backend/secrets/auth/mcp-fleet/hooks/observability, each with a remediation + skill (config_value optional {\"only\":[...],\"fix\":true,\"live\":true}). 'preflight' checks whether THIS HOST has the runtimes/tools to deploy a profile BEFORE installing (Python 3.11-<3.15, uv/pip, the epistemic-graph engine binary — Rust only as a fallback, Docker when not the tiny profile, and per-component deps): config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"components\":[\"agent-webui\",\"geniusbot\",\"agent-terminal-ui\"]}.",
         ),
         config_key: str = Field(
             default="",
@@ -5348,6 +5348,20 @@ def _build_server(bootstrap: bool = True):
                         fix=opts.get("fix", False),
                         live=opts.get("live", False),
                     ),
+                    default=str,
+                )
+            if action == "preflight":
+                from agent_utilities.deployment.preflight import run_preflight
+
+                profile = config_key or "tiny"
+                try:
+                    opts = json.loads(config_value) if config_value else {}
+                except Exception as e:
+                    return json.dumps({"error": f"Invalid config_value JSON: {e}"})
+                if not isinstance(opts, dict):
+                    return json.dumps({"error": "config_value must be a JSON object"})
+                return json.dumps(
+                    run_preflight(profile, opts.get("components")),
                     default=str,
                 )
             # ── KG-2.7 / ECO-4.6: Memory Hook Management ──
