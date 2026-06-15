@@ -111,6 +111,23 @@ _SEQUENTIAL_KEYWORDS = [
     "using the results",
 ]
 
+# Sentinel: the per-compiler embedding fn has not been built yet (distinct from
+# ``None``, which means "built and unavailable").
+_UNSET: Any = object()
+
+# Node types a workflow step may resolve to during semantic agent matching.
+_AGENT_MATCH_TYPES = frozenset(
+    {
+        "AGENT_SKILL",
+        "Server",
+        "MCP_TOOL",
+        "Agent",
+        "Tool",
+        "Skill",
+        "CallableResource",
+    }
+)
+
 
 class WorkflowCompiler:
     """Compiles natural language descriptions into GraphPlan flows.
@@ -129,11 +146,11 @@ class WorkflowCompiler:
     def __init__(self, engine: IntelligenceGraphEngine) -> None:
         self.engine = engine
         self._store: Any = None
-        # Cached, once-per-compile embedder-health verdict. ``None`` = not yet
-        # probed. The semantic fallback in ``_match_agent`` consults this so a
-        # dead embedding endpoint degrades compilation in seconds (one bounded
-        # probe) instead of stalling on per-step client-side retries.
-        self._embed_available: bool | None = None
+        # Per-compiler embedding fn, built once on first semantic match and reused
+        # across steps. ``_UNSET`` = not built; ``None`` = embeddings unavailable;
+        # callable = ready. The fn is bounded per-call (``_embed``) so a slow/down
+        # endpoint degrades agent matching in seconds instead of stalling.
+        self._embed_fn: Any = _UNSET
 
     @property
     def store(self) -> Any:
@@ -352,33 +369,31 @@ class WorkflowCompiler:
     # Internal: Agent Matching
     # -----------------------------------------------------------------------
 
-    def _embeddings_available(self) -> bool:
-        """Return whether the embedding endpoint is reachable (cached per compile).
+    def _embed(self, text: str) -> list[float] | None:
+        """Bounded embedding of ``text`` for semantic agent matching.
 
-        The semantic agent-matching fallback embeds the step text; when the
-        embedding endpoint is down (e.g. the GB10/vLLM power fault) an unbounded
-        embed call would stall every step. One bounded probe — reusing the same
-        ``bounded_embed`` helper the Loop engine uses — decides it once for the
-        whole compilation and degrades to the structural match + generic
-        executor in seconds instead of hanging.
+        Builds the embedding fn once per compiler (reused across steps) and bounds
+        each embed via the same ``bounded_embed`` helper the Loop engine uses, so a
+        slow/down endpoint (e.g. the GB10/vLLM power fault) degrades matching in
+        seconds rather than stalling. Returns the vector, or ``None`` when
+        embeddings are unavailable (caller falls back to the generic executor).
         """
-        if self._embed_available is not None:
-            return self._embed_available
-        try:
-            from .enrichment.semantic import make_embed_fn
-            from .research.search import _ACQUIRE_TIMEOUT_S, bounded_embed
+        if self._embed_fn is _UNSET:
+            try:
+                from .enrichment.semantic import make_embed_fn
 
-            self._embed_available = (
-                bounded_embed(make_embed_fn(), "ping", _ACQUIRE_TIMEOUT_S) is not None
-            )
-        except Exception:  # noqa: BLE001 — any import/probe failure ⇒ treat as down
-            self._embed_available = False
-        if not self._embed_available:
-            logger.info(
-                "[ORCH-1.23] embedding endpoint unavailable — workflow compilation "
-                "falls back to structural agent matching only"
-            )
-        return self._embed_available
+                self._embed_fn = make_embed_fn()
+            except Exception:  # noqa: BLE001 — embedder unavailable ⇒ structural only
+                self._embed_fn = None
+                logger.info(
+                    "[ORCH-1.23] embedding endpoint unavailable — workflow "
+                    "compilation falls back to structural agent matching only"
+                )
+        if not self._embed_fn:
+            return None
+        from .research.search import _ACQUIRE_TIMEOUT_S, bounded_embed
+
+        return bounded_embed(self._embed_fn, text, _ACQUIRE_TIMEOUT_S)
 
     def _match_agent(
         self,
@@ -416,20 +431,35 @@ class WorkflowCompiler:
             except Exception:
                 pass  # nosec B110 — tool matching is best-effort
 
-            # Fallback to hybrid (embedding-backed) search — but only when the
-            # embedding endpoint is actually reachable. A single bounded probe
-            # (cached for the whole compile) means a dead embedder degrades to
-            # the generic executor in seconds rather than hanging the compile on
-            # per-step client-side retries (the GB10/vLLM-down failure mode).
-            if self._embeddings_available():
-                try:
-                    search_results = self.engine.search_hybrid(step_text, top_k=3)
-                    for r in search_results:
-                        rtype = r.get("resource_type", r.get("type", ""))
-                        if rtype in ("AGENT_SKILL", "Server", "MCP_TOOL"):
-                            return r.get("name", "executor"), []
-                except Exception:
-                    pass  # nosec B110 — best-effort KG search; falls through to generic executor
+            # Bounded semantic fallback: rank candidate agent/tool nodes via the
+            # engine's vector index (HNSW top-k + k property reads) instead of
+            # ``search_hybrid``. The hybrid retriever materializes the WHOLE graph
+            # (a per-label full-node scan, once per search table) which is O(graph)
+            # and OOM-crashes the process on a large KG — pathological for
+            # resolving a single step to an agent. ``backend.semantic_search`` is
+            # bounded, and a bounded embed means a down embedder degrades in
+            # seconds. (Fixes the compile_workflow child-crash root cause.)
+            vec = self._embed(step_text)
+            if vec is not None:
+                search = getattr(self.engine.backend, "semantic_search", None)
+                if callable(search):
+                    try:
+                        for r in search(vec, 5) or []:
+                            if not isinstance(r, dict):
+                                continue
+                            rtype = str(
+                                r.get("type")
+                                or r.get("node_type")
+                                or r.get("resource_type")
+                                or r.get("_table_label")
+                                or ""
+                            )
+                            if rtype in _AGENT_MATCH_TYPES:
+                                name = r.get("name") or r.get("id")
+                                if name:
+                                    return str(name), []
+                    except Exception:
+                        pass  # nosec B110 — best-effort; falls through to generic executor
 
         # Last resort: use a generic executor
         return "executor", []
