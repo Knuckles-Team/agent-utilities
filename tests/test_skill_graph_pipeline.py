@@ -160,18 +160,56 @@ def test_build_generated_via_injected_generator(tmp_path):
     assert res["file_count"] == 1
 
 
-def test_multi_source_merge_dedupes_paths(src_dir, tmp_path):
-    # Two dir sources that both yield widget.md/auth.md → names disambiguated.
+def test_multi_source_merge_dedupes_identical_content(src_dir, tmp_path):
+    # Two dir sources yielding the SAME widget.md/auth.md → content optimization drops
+    # the exact-duplicate pages, so the corpus is 2 files (not 4) across 2 sources.
     res = _pipe().build(
         name="merged-docs",
         specs=[SourceSpec("dir", str(src_dir)), SourceSpec("dir", str(src_dir))],
         out_dir=tmp_path / "out",
     )
-    assert res["file_count"] == 4
+    assert res["file_count"] == 2
     assert res["source_count"] == 2
 
 
 # ── freshness + rebuild ───────────────────────────────────────────────────────
+
+
+def test_index_json_and_polished_skill_md(src_dir, tmp_path):
+    _pipe().build(
+        name="widget-docs",
+        specs=[SourceSpec("dir", str(src_dir))],
+        out_dir=tmp_path / "out",
+    )
+    graph = tmp_path / "out" / "widget-docs"
+    idx = json.loads((graph / "index.json").read_text())
+    assert idx["schema"] == "skill-graph-index/v1"
+    assert idx["file_count"] == 2
+    assert {s["path"] for s in idx["sections"]} == {
+        "reference/auth.md",
+        "reference/widget.md",
+    }
+    assert any(s["headings"] for s in idx["sections"])  # headings extracted
+    skill_md = (graph / "SKILL.md").read_text()
+    assert "## 🧭 How to use this skill-graph" in skill_md
+    assert "index: index.json" in skill_md
+    assert "| **Files** |" in skill_md  # badge table
+
+
+def test_restyle_rerenders_without_recrawl(src_dir, tmp_path):
+    pipe = _pipe()
+    pipe.build(
+        name="widget-docs",
+        specs=[SourceSpec("dir", str(src_dir))],
+        out_dir=tmp_path / "out",
+    )
+    graph = tmp_path / "out" / "widget-docs"
+    (graph / "SKILL.md").write_text("---\nname: widget-docs\n---\nstale\n")  # clobber
+    (graph / "index.json").unlink()
+    res = pipe.restyle_one(graph)
+    assert res["status"] == "restyled" and res["file_count"] == 2
+    assert (graph / "index.json").exists()
+    assert "## 🧭 How to use this skill-graph" in (graph / "SKILL.md").read_text()
 
 
 def test_status_fresh_then_stale_then_rebuild(src_dir, tmp_path):
