@@ -609,8 +609,36 @@ class SkillGraphPipeline:
             "generated": self._acquire_generated,
             "kg_query": self._acquire_kg,
             "llms": self._acquire_llms,
+            "archivebox": self._acquire_archivebox,
         }[spec.kind]
         return route(spec)
+
+    def _acquire_archivebox(self, spec: SourceSpec) -> AcquiredBundle:
+        """Build a corpus from preserved ArchiveBox snapshots (CONCEPT:KG-2.7).
+
+        ``uri`` is an optional tag (or blank for everything archived); ``options``
+        may carry connector ``params`` (e.g. a ``url`` prefix). Drains the
+        ``archivebox`` mcp_tool source preset — so a skill-graph can be built from
+        what we've already archived instead of a live re-crawl.
+        """
+        from agent_utilities.protocols.source_connectors.base import PollConnector
+        from agent_utilities.protocols.source_connectors.registry import (
+            build_connector,
+        )
+
+        params = dict(spec.options.get("params") or {})
+        if spec.uri:
+            params.setdefault("tag", spec.uri)
+        config: dict[str, Any] = {"preset": "archivebox"}
+        if params:
+            config["params"] = params
+        conn = build_connector("mcp_tool", config)
+        if isinstance(conn, PollConnector):
+            raw = list(conn.poll_all())
+        else:  # pragma: no cover — mcp_tool is a PollConnector
+            raw = list(conn.load())  # type: ignore[attr-defined]
+        docs = [self._doc_from_source(d, subdir="archivebox") for d in raw]
+        return AcquiredBundle(spec, docs, extractor="archivebox")
 
     def _acquire_llms(self, spec: SourceSpec) -> AcquiredBundle:
         """Acquire from the llms.txt / llms-full.txt standard — clean, complete docs.

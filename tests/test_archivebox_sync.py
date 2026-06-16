@@ -76,3 +76,48 @@ def test_sync_archivebox_skips_when_unconfigured(monkeypatch):
     monkeypatch.delenv("ARCHIVEBOX_URL", raising=False)
     res = ss.sync_source(MagicMock(), "archivebox", mode="delta")
     assert res["status"] == "skipped"
+
+
+def test_skill_graph_acquire_archivebox(monkeypatch):
+    """A skill-graph can be built from preserved snapshots under a tag."""
+    from agent_utilities.knowledge_graph.distillation.skill_graph_pipeline import (
+        SkillGraphPipeline,
+        SourceSpec,
+    )
+    from agent_utilities.protocols.source_connectors.base import (
+        CheckpointedBatch,
+        ConnectorCheckpoint,
+        PollConnector,
+        SourceDocument,
+    )
+
+    seen_cfg = {}
+
+    class FakeConn(PollConnector):
+        def configure(self, **cfg):  # pragma: no cover - trivial
+            pass
+
+        def poll(self, checkpoint=None):
+            doc = SourceDocument(
+                id="s1", source_uri="https://a.io", title="A", text="body A"
+            )
+            return CheckpointedBatch(
+                documents=[doc], checkpoint=ConnectorCheckpoint(has_more=False)
+            )
+
+    def fake_build(kind, config=None):
+        seen_cfg["kind"] = kind
+        seen_cfg["config"] = config
+        return FakeConn()
+
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.registry.build_connector",
+        fake_build,
+    )
+    pipe = SkillGraphPipeline(kg_enrich=False)
+    bundle = pipe.acquire(SourceSpec("archivebox", "research"))
+    assert seen_cfg["kind"] == "mcp_tool"
+    assert seen_cfg["config"]["preset"] == "archivebox"
+    assert seen_cfg["config"]["params"]["tag"] == "research"
+    assert bundle.extractor == "archivebox"
+    assert len(bundle.docs) == 1 and "body A" in bundle.docs[0].text
