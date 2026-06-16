@@ -1,13 +1,13 @@
 """Insider / stealth-trading equilibrium under dynamic legal risk — CONCEPT:KG-2.6.
 
 Closed-form analytic layer that *deepens* the snapshot Kyle surveillance gate
-(``surveillance_risk`` engine kernel, emerald-exchange CONCEPT:EE-042/EE-043) into
+(``surveillance_risk`` engine kernel, emerald-exchange concepts EE-042/EE-043) into
 the full strategic model of **Qiao & Xia, "Insider and stealth trading with
 dynamic legal risk"** (arXiv:2605.27684). Where the engine kernel answers *"how
 toxic is the current flow?"*, this module answers *"how would a rational insider
 trade against an endogenous, time-varying prosecution hazard, and which penalty
 levers actually constrain them?"* — and is the model backing emerald's
-``emerald_signals(action="insider_equilibrium")`` (CONCEPT:EE-044).
+``emerald_signals(action="insider_equilibrium")`` (emerald concept EE-044).
 
 The math is a tractable, dependency-free reduction of the paper's continuous-time
 game to linear insider strategies and a quadratic price-impact / detection cost,
