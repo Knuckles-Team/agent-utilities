@@ -96,6 +96,8 @@ class IndexSummary:
     files_indexed: int = 0
     symbols: int = 0
     calls_resolved: int = 0
+    inherits_resolved: int = 0
+    realizes_resolved: int = 0
     imports_resolved: int = 0
     nodes_written: int = 0
     edges_written: int = 0
@@ -110,6 +112,8 @@ class IndexSummary:
             "files_indexed": self.files_indexed,
             "symbols": self.symbols,
             "calls_resolved": self.calls_resolved,
+            "inherits_resolved": self.inherits_resolved,
+            "realizes_resolved": self.realizes_resolved,
             "imports_resolved": self.imports_resolved,
             "nodes_written": self.nodes_written,
             "edges_written": self.edges_written,
@@ -192,6 +196,8 @@ def index_instance(
         summary.files_indexed += len(files)
         summary.symbols += int(result.get("symbols_extracted", 0) or 0)
         summary.calls_resolved += int(result.get("calls_resolved", 0) or 0)
+        summary.inherits_resolved += int(result.get("inherits_edges", 0) or 0)
+        summary.realizes_resolved += int(result.get("realizes_edges", 0) or 0)
         summary.imports_resolved += int(result.get("imports_resolved", 0) or 0)
         summary.nodes_written += len(entities)
         summary.edges_written += len(relationships)
@@ -307,6 +313,17 @@ def map_index_result(
                     "source": nid(src),
                     "target": nid(tgt),
                     "type": "calls",
+                    **_edge_props(edge),
+                }
+            )
+        elif etype in ("inherits", "realizes"):
+            # Class→class structural edges (CONCEPT:KG-2.100); both endpoints are
+            # SYMBOL ids, namespaced like calls.
+            relationships.append(
+                {
+                    "source": nid(src),
+                    "target": nid(tgt),
+                    "type": etype,
                     **_edge_props(edge),
                 }
             )

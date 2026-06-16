@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 297
+total_concepts: 300
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1468,6 +1468,15 @@ concepts:
   - agent_utilities/sdd/watcher.py
   - agent_utilities/server/routers/commands.py
   doc: / OS-5.9 — the KG runs exactly ONE consolidated background daemon
+- id: KG-2.8r
+  name: to turn each project
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/gitlab_indexer.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  doc: to turn each project
 - id: KG-2.9
   name: which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle
   pillar: KG-2
@@ -1544,6 +1553,17 @@ concepts:
   - agent_utilities/protocols/universal_connector.py
   - agent_utilities/tools/db_tools.py
   doc: which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle
+- id: KG-2.9g
+  name: code-symbol navigation over the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/gitlab_indexer.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+  doc: code-symbol navigation over the
 - id: KG-2.10
   name: S4c
   pillar: KG-2
@@ -1605,7 +1625,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
   doc: social-closer / triviality gate
 - id: KG-2.16
-  name: else the per-file path. Both yield the
+  name: KG-2.16
   pillar: KG-2
   status: live
   code_paths:
@@ -1615,7 +1635,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
-  doc: else the per-file path. Both yield the
+  doc: KG-2.16
 - id: KG-2.17
   name: decay scanner + semantic merge
   pillar: KG-2
@@ -2502,6 +2522,19 @@ concepts:
   - agent_utilities/knowledge_graph/etl/lineage.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: KG-2.99
+- id: KG-2.100
+  name: the type/scope-resolved call/inheritance graph
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/gitlab_indexer.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: the type/scope-resolved call/inheritance graph
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -3540,6 +3573,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_mcp_discovery.py
+  - agent_utilities/mcp/child_resilience.py
   - agent_utilities/mcp/client_credentials.py
   - agent_utilities/mcp/multiplexer.py
   doc: so jwt-protected children are reachable, then

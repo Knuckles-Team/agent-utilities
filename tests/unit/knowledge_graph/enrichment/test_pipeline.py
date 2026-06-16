@@ -320,3 +320,105 @@ def test_pipeline_is_hash_incremental(tmp_path):
     f.write_text("def test_x():\n    assert True\n")
     third = pipe.enrich(tmp_path)
     assert third.files_parsed == 1
+
+
+# ── CONCEPT:KG-2.100 — single-round-trip Rust resolver path ──────────────────
+
+
+class PropBackend:
+    """Like FakeBackend but keeps full edge props (strategy/confidence)."""
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict] = {}
+        self.edges: list[tuple] = []
+
+    def add_node(self, node_id, **props):
+        self.nodes[node_id] = props
+
+    def add_edge(self, source, target, **props):
+        rel = props.pop("rel_type", None)
+        self.edges.append((source, target, rel, props))
+
+
+def _sym(node_id, name, file_path, sym_type="Function"):
+    return {
+        "node_id": node_id,
+        "node_type": "SYMBOL",
+        "properties": {
+            "symbol_type": sym_type,
+            "name": name,
+            "line": "1",
+            "ast_hash": node_id,
+            "file_path": file_path,
+            "is_test": "false",
+        },
+    }
+
+
+def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path):
+    """When the engine advertises IndexRepository, the pipeline uses ONE resolver
+    round-trip: symbols + already-bound CALLS/INHERITS edges (with strategy/
+    confidence), bypassing the Python name-only resolver."""
+    (tmp_path / "app.py").write_text("def caller():\n    return helper()\n\ndef helper():\n    return 1\n")
+    (tmp_path / "model.py").write_text("class Base:\n    pass\n\nclass Child(Base):\n    pass\n")
+    app = str(tmp_path / "app.py")
+    model = str(tmp_path / "model.py")
+
+    def index_fn(_files):
+        return {
+            "nodes": [
+                _sym("symbol:caller", "caller", app),
+                _sym("symbol:helper", "helper", app),
+                _sym("symbol:Base", "Base", model, sym_type="Class"),
+                _sym("symbol:Child", "Child", model, sym_type="Class"),
+            ],
+            "edges": [
+                {
+                    "source": "symbol:caller",
+                    "target": "symbol:helper",
+                    "edge_type": "calls",
+                    "properties": {
+                        "name": "helper",
+                        "strategy": "same_file",
+                        "confidence": "0.90",
+                    },
+                },
+                {
+                    "source": "symbol:Child",
+                    "target": "symbol:Base",
+                    "edge_type": "inherits",
+                    "properties": {"name": "Base"},
+                },
+            ],
+            "calls_resolved": 1,
+            "inherits_edges": 1,
+        }
+
+    backend = PropBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.code == 4  # caller, helper, Base, Child
+    assert summary.calls_edges == 1
+    assert summary.inherits_edges == 1
+    calls = [e for e in backend.edges if e[2] == "CALLS"]
+    # Resolved (not name-only): the strategy/confidence props are persisted.
+    assert calls and calls[0][3].get("strategy") == "same_file"
+    assert calls[0][3].get("confidence") == "0.90"
+    assert any(e[2] == "INHERITS" for e in backend.edges)
+
+
+def test_pipeline_falls_back_to_name_resolution_when_index_fn_errors(tmp_path):
+    """An index_fn that fails must degrade to the parse + name-only path."""
+    (tmp_path / "app.py").write_text("def compute():\n    return 1\n")
+    (tmp_path / "test_x.py").write_text("def test_x():\n    pass\n")
+
+    def boom(_files):
+        raise RuntimeError("engine without resolver")
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=boom)
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.code == 1 and summary.tests == 1
+    assert summary.covers_edges == 1  # name-only COVERS still resolved

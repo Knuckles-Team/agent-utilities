@@ -290,3 +290,48 @@ def test_instances_fall_back_to_single_host():
 
 def test_instances_empty_without_token():
     assert instances_from_config(_FakeConfig(gitlab_instances=None, env={})) == []
+
+
+def test_map_index_result_maps_inherits_and_realizes():
+    """Class→class structural edges pass through namespaced, with their props
+    (CONCEPT:KG-2.100)."""
+
+    def _csym(node_id, name):
+        return {
+            "node_id": node_id,
+            "node_type": "SYMBOL",
+            "properties": {"name": name, "symbol_type": "Class", "file_path": "m.py"},
+        }
+
+    index = {
+        "symbols_extracted": 3,
+        "inherits_edges": 1,
+        "realizes_edges": 1,
+        "nodes": [
+            _csym("symbol:base", "Base"),
+            _csym("symbol:child", "Child"),
+            _csym("symbol:iface", "Runnable"),
+        ],
+        "edges": [
+            {
+                "source": "symbol:child",
+                "target": "symbol:base",
+                "edge_type": "inherits",
+                "properties": {"name": "Base"},
+            },
+            {
+                "source": "symbol:child",
+                "target": "symbol:iface",
+                "edge_type": "realizes",
+                "properties": {"name": "Runnable"},
+            },
+        ],
+    }
+    entities, rels = map_index_result(index, project=_proj("9"), instance="acme")
+    ids = {e["id"] for e in entities}
+    by_type = {r["type"]: r for r in rels}
+    assert "inherits" in by_type and "realizes" in by_type
+    for r in rels:
+        assert r["source"] in ids and r["target"] in ids  # namespaced, no dangling
+    assert by_type["inherits"]["name"] == "Base"
+    assert by_type["realizes"]["name"] == "Runnable"
