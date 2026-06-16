@@ -148,6 +148,7 @@ class LoopController:
         discover: bool | None = None,
         papers: list[dict[str, Any]] | None = None,
         reason: bool = True,
+        focus_query: str = "",
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -258,6 +259,16 @@ class LoopController:
             topics = (
                 _stage("intake", lambda: active_loops(self.engine, max_topics)) or []
             )
+        # Focus-query biasing: a caller-supplied query becomes a prioritized research
+        # topic for this cycle so acquire/resolve converges on it first (CONCEPT:KG-2.77).
+        fq = (focus_query or "").strip()
+        if fq:
+            topics = [
+                {"id": f"focus:{fq}", "name": fq, "kind": "research"},
+                *topics,
+            ]
+            if max_topics:
+                topics = topics[:max_topics]
         report["topics_intake"] = len(topics)
 
         # 1b. EXECUTE — advance develop/skill Loops one step through the SAME hot

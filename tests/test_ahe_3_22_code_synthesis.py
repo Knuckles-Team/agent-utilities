@@ -174,7 +174,7 @@ def target_repo(tmp_path: Path) -> Path:
 
 class TestGovernedPublishLivePath:
     def test_governed_publish_emits_generated_code(self, monkeypatch, target_repo, tmp_path):
-        # Stub the generator so the live path does not need an LLM or the real repo.
+        # Fake the generator so the live path does not need an LLM or the real repo.
         monkeypatch.setattr(
             code_synthesis,
             "synthesize_code",

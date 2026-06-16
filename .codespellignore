@@ -2,7 +2,20 @@
 # Each must correspond to a real false-positive in the tree (verify with:
 # `codespell` run against an empty list). Matching is case-insensitive.
 accreting
+arent
 brin
+cant
+ded
+didnt
+doesnt
+dont
 hastable
+isnt
 maka
+opps
+sie
 unparseable
+unstalled
+wasnt
+werent
+wont

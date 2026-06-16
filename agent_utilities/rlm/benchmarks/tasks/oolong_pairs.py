@@ -31,7 +31,7 @@ class OolongPairsTask(LongContextTask):
                 **{k: real[k] for k in ("context", "question", "answer")},
             )
 
-        rng = random.Random(seed)
+        rng = random.Random(seed)  # nosec B311 — deterministic synthetic benchmark data, not crypto
         records: list[str] = []
         cats: list[str] = []
         i = 0
