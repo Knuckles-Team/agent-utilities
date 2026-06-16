@@ -92,6 +92,12 @@ def __getattr__(name: str):
 
         return getattr(dispatch_mod, name)
 
+    # Concurrency (offload blocking sync work off the event loop)
+    if name == "run_blocking":
+        import agent_utilities.mcp.concurrency as concurrency_mod
+
+        return concurrency_mod.run_blocking
+
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -130,4 +136,6 @@ __all__ = [
     "unknown_action_error",
     "resolve_action",
     "dispatch",
+    # concurrency
+    "run_blocking",
 ]

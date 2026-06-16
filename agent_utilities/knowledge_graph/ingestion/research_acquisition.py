@@ -95,7 +95,9 @@ def _scholarx_download_url(ids: list[str], timeout: float) -> list[Path]:
     return out
 
 
-def _download_pdf_url(url: str, timeout: float, *, name: str | None = None) -> Path | None:
+def _download_pdf_url(
+    url: str, timeout: float, *, name: str | None = None
+) -> Path | None:
     """Fetch a single PDF into the scholarx store (idempotent on filename)."""
     import re
 
@@ -108,9 +110,8 @@ def _download_pdf_url(url: str, timeout: float, *, name: str | None = None) -> P
     try:
         import requests
 
-        resp = requests.get(
-            url, timeout=min(timeout, 120.0), headers={"User-Agent": "agent-utilities"}
-        )
+        to = min(timeout, 120.0)
+        resp = requests.get(url, timeout=to, headers={"User-Agent": "agent-utilities"})
         resp.raise_for_status()
         if not resp.content:
             return None
