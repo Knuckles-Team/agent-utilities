@@ -260,14 +260,15 @@ def test_status_unknown_without_manifest(tmp_path):
 # ── hybrid-auto KG: graceful degrade ───────────────────────────────────────────
 
 
-def test_kg_enrichment_degrades_when_daemon_unreachable(src_dir, tmp_path, monkeypatch):
+def test_kg_enrichment_degrades_when_ingest_fails(src_dir, tmp_path, monkeypatch):
     """kg_enrich=True but the ingest subprocess fails → kg_ingested False, graph still built."""
     import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
 
-    def boom(*a, **k):
-        raise FileNotFoundError("no interpreter")
-
-    monkeypatch.setattr(mod.subprocess, "run", boom)
+    # Embedder probe says "unknown" (proceed), then the bounded ingest run fails.
+    monkeypatch.setattr(mod, "_embedder_responsive", lambda *a, **k: None)
+    monkeypatch.setattr(
+        mod, "_run_bounded", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError())
+    )
     pipe = SkillGraphPipeline(kg_enrich=True)
     res = pipe.build(
         name="widget-docs",
@@ -277,6 +278,44 @@ def test_kg_enrichment_degrades_when_daemon_unreachable(src_dir, tmp_path, monke
     assert res["kg_ingested"] is False
     assert res["file_count"] == 2
     assert res["validation_errors"] == []
+
+
+def test_kg_health_gate_skips_fast_when_embedder_down(src_dir, tmp_path, monkeypatch):
+    """A definitively-down embedder is skipped without ever shelling out to ingest."""
+    import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
+
+    monkeypatch.setattr(mod, "_embedder_responsive", lambda *a, **k: False)
+
+    def fail_run(*a, **k):  # must NOT be reached
+        raise AssertionError("ingest subprocess should not run when embedder is down")
+
+    monkeypatch.setattr(mod, "_run_bounded", fail_run)
+    pipe = SkillGraphPipeline(kg_enrich=True)
+    res = pipe.build(
+        name="widget-docs",
+        specs=[SourceSpec("dir", str(src_dir))],
+        out_dir=tmp_path / "out",
+    )
+    assert res["kg_ingested"] is False
+
+
+def test_run_bounded_returns_and_kills_on_timeout():
+    import time as _t
+
+    from agent_utilities.knowledge_graph.distillation.skill_graph_pipeline import (
+        _run_bounded,
+    )
+
+    rc, out, _err = _run_bounded(["printf", "hello"], timeout=10)
+    assert rc == 0 and out == "hello"
+
+    # A sleep that exceeds the timeout is killed (process group) and raises.
+    import subprocess
+
+    start = _t.time()
+    with pytest.raises(subprocess.TimeoutExpired):
+        _run_bounded(["sleep", "30"], timeout=1)
+    assert _t.time() - start < 10  # returned promptly, did not wait out the sleep
 
 
 # ── ontology synergy ──────────────────────────────────────────────────────────

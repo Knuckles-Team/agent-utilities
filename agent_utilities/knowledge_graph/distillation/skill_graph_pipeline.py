@@ -35,6 +35,7 @@ CLI::
 """
 
 import argparse
+import concurrent.futures
 import json
 import logging
 import os
@@ -97,6 +98,67 @@ def _bump_patch(version: str) -> str:
     if not m:
         return "0.1.0"
     return f"{m.group(1)}.{m.group(2)}.{int(m.group(3)) + 1}"
+
+
+def _run_bounded(cmd: list[str], timeout: float) -> tuple[int, str, str]:
+    """Run a subprocess in its own process group, killing the WHOLE group on timeout.
+
+    Plain ``subprocess.run(timeout=…)`` kills only the direct child, orphaning any
+    grandchildren (crawl.py spawns a worker + Chromium; the ingest CLI spawns helpers)
+    — they linger and pile up. Here a timeout SIGTERMs then SIGKILLs the group so a
+    stalled crawl/ingest leaves nothing behind. Returns ``(returncode, stdout, stderr)``.
+    """
+    import signal
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        return proc.returncode, out or "", err or ""
+    except subprocess.TimeoutExpired:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(os.getpgid(proc.pid), sig)
+                proc.wait(timeout=5)
+                break
+            except (ProcessLookupError, PermissionError, subprocess.TimeoutExpired):
+                continue
+        raise
+
+
+@lru_cache(maxsize=1)
+def _embed_probe_model() -> Any:
+    from agent_utilities.core.embedding_utilities import create_embedding_model
+
+    return create_embedding_model()
+
+
+def _embedder_responsive(timeout: float = 6.0) -> bool | None:
+    """Real bounded probe of the embedder. True=up, False=definitively down, None=unknown.
+
+    A ``/health`` 200 from the serving proxy does NOT mean the GPU behind it can answer
+    (it power-cycles); only a real, time-bounded embed call tells the truth. ``None``
+    (can't construct a probe) means "don't block" — let the bounded ingest try.
+    """
+    try:
+        model = _embed_probe_model()
+    except Exception:  # noqa: BLE001 — no embedder configured → don't block
+        return None
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        ex.submit(lambda: model.get_text_embedding("ping")).result(timeout=timeout)
+        return True
+    except concurrent.futures.TimeoutError:
+        return False
+    except Exception:  # noqa: BLE001 — transient error → unknown, let ingest try
+        return None
+    finally:
+        ex.shutdown(wait=False)
 
 
 def _ref_bytes(reference_dir: Path) -> int:
@@ -208,12 +270,11 @@ def _crawl_via_script(
             or os.environ.get("SKILL_GRAPH_CRAWL_TIMEOUT")
             or 900
         )
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"crawl failed for {spec.uri}: "
-                f"{(proc.stderr or proc.stdout or '')[-400:]}"
-            )
+        # Bounded + process-group kill: a stalled crawl (e.g. a JS-heavy site) must not
+        # orphan its Chromium/worker children when it times out.
+        returncode, _out, err = _run_bounded(cmd, timeout=timeout)
+        if returncode != 0:
+            raise RuntimeError(f"crawl failed for {spec.uri}: {err[-400:]}")
         return [
             AcquiredDoc(
                 rel_path=p.relative_to(tmp).as_posix(),
@@ -306,7 +367,7 @@ class SkillGraphPipeline:
         generator_fn: GeneratorFn | None = None,
         distiller_fn: DistillerFn | None = None,
         kg_enrich: bool = True,
-        kg_timeout: float = 1800.0,
+        kg_timeout: float = 300.0,
     ) -> None:
         self.crawler_fn = crawler_fn
         self.generator_fn = generator_fn
@@ -684,6 +745,12 @@ class SkillGraphPipeline:
         timeout. Any failure (no daemon, embedder 502, timeout) degrades to
         ``kg_ingested: false`` — the offline graph is already on disk.
         """
+        # Fast health-gate: a real bounded embed probe. If the embedder is
+        # definitively down (the GPU power-cycled), skip in ~6s instead of waiting out
+        # the full ingest timeout — the offline graph is already on disk.
+        if _embedder_responsive() is False:
+            logger.info("KG enrichment skipped for %s: embedder unresponsive", name)
+            return {"kg_ingested": False, "reason": "embedder_unhealthy"}
         cmd = [
             sys.executable,
             "-m",
@@ -693,22 +760,20 @@ class SkillGraphPipeline:
             "document",
         ]
         try:
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=self.kg_timeout
-            )
+            returncode, stdout, stderr = _run_bounded(cmd, timeout=self.kg_timeout)
         except Exception as exc:  # noqa: BLE001 — FileNotFound, timeout, etc.
             logger.info("KG enrichment skipped for %s: %s", name, exc)
             return {"kg_ingested": False, "reason": str(exc)}
-        if proc.returncode != 0:
+        if returncode != 0:
             logger.info(
                 "KG enrichment failed for %s (daemon down?): %s",
                 name,
-                (proc.stderr or proc.stdout or "").strip()[:300],
+                (stderr or stdout or "").strip()[:300],
             )
             return {"kg_ingested": False, "reason": "ingest_failed"}
         nodes = edges = 0
         try:
-            payload = json.loads(proc.stdout or "{}")
+            payload = json.loads(stdout or "{}")
             for r in payload.get("results", []):
                 nodes += int(r.get("nodes_created") or 0)
                 edges += int(r.get("edges_created") or 0)
