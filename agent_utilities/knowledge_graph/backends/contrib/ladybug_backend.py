@@ -1083,6 +1083,18 @@ class LadybugBackend(GraphBackend):
             except Exception as e:
                 if "already exists" not in str(e).lower():
                     logger.warning(f"Node table creation issue ({node.name}): {e}")
+            # Best-effort migration: add any newly-declared columns to a
+            # pre-existing node table (CREATE..IF NOT EXISTS won't alter it). The
+            # PK and embedding can't be added post-hoc; skip them. Mirrors the rel
+            # ``properties`` ALTER below so an existing DB gains new columns (e.g.
+            # the KG-2.9g code-symbol columns) instead of erroring on projection.
+            for cname, ctype in node.columns.items():
+                if "PRIMARY KEY" in ctype.upper() or cname == "embedding":
+                    continue
+                try:
+                    self.conn.execute(f"ALTER TABLE {node.name} ADD `{cname}` {ctype};")
+                except Exception:  # noqa: BLE001 — already present / unsupported → ignore
+                    pass
 
         # 2. Create Rel Tables. Every rel table carries a single JSON ``properties``
         # column so edges persist their properties (confidence/source/bitemporal

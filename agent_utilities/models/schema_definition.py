@@ -332,6 +332,17 @@ SCHEMA = GraphSchemaDefinition(
                 "type": "STRING",
                 "name": "STRING",
                 "file_path": "STRING",
+                # Code-symbol attributes the code-nav surface projects/queries
+                # (CONCEPT:KG-2.9g). Declared columns so schema-backed Kuzu can
+                # return them — otherwise they fold into ``metadata`` JSON and a
+                # ``RETURN c.line`` errors the whole query on Ladybug.
+                "line": "STRING",
+                "language": "STRING",
+                "kind_detail": "STRING",
+                "symbol_type": "STRING",
+                # Multi-tenant provenance (the GitLab indexer + ingest stamp these).
+                "source_system": "STRING",
+                "instance": "STRING",
                 "embedding": EMBEDDING_TYPE,
                 "importance_score": "FLOAT",
                 "timestamp": "STRING",
