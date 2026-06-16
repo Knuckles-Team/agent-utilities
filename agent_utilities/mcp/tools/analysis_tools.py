@@ -28,7 +28,7 @@ def register_analysis_tools(mcp):
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100). 'similar_code' = model-free similar-code lookup for a symbol (node_id=symbol id): its MinHash/LSH near-clone neighbours with scores, working with the embedder OFFLINE (CONCEPT:KG-2.101).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100). 'similar_code' = model-free similar-code lookup for a symbol (node_id=symbol id): its MinHash/LSH near-clone neighbours with scores, working with the embedder OFFLINE (CONCEPT:KG-2.101). 'routes' = the HTTP route graph: each Route (method+path), its handler Code symbol, and the deployed Service that serves it — Code serves Route servedBy Service (CONCEPT:KG-2.102).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -1144,6 +1144,43 @@ def register_analysis_tools(mcp):
                         "node_id": node_id,
                         "embedder_free": True,
                         "similar": neighbours[: top_k if top_k else 10],
+                    },
+                    default=str,
+                )
+            elif action == "routes":
+                # CONCEPT:KG-2.102 — the HTTP route graph: each Route (method+path),
+                # its handler Code symbol, and the deployed Service that serves it
+                # (Code –serves→ Route –servedBy→ Service). Reads run in the engine.
+                import json as _json
+
+                backend = getattr(engine, "backend", None)
+                if backend is None:
+                    return "Error: no graph backend available."
+                query = (
+                    "MATCH (h)-[r2]->(rt:Route) "
+                    "WHERE type(r2) IN ['SERVES', 'serves'] "
+                    "OPTIONAL MATCH (rt)-[r3]->(svc) "
+                    "WHERE type(r3) IN ['SERVED_BY', 'served_by'] "
+                    "RETURN rt.id AS route, rt.method AS method, rt.path AS path, "
+                    "h.id AS handler, svc.id AS service"
+                )
+                try:
+                    rows = backend.execute(query, {})
+                except Exception as e:
+                    return _json.dumps({"status": "error", "message": str(e)})
+                return _json.dumps(
+                    {
+                        "status": "ok",
+                        "routes": [
+                            {
+                                "route": r.get("route"),
+                                "method": r.get("method"),
+                                "path": r.get("path"),
+                                "handler": r.get("handler"),
+                                "service": r.get("service"),
+                            }
+                            for r in (rows or [])
+                        ],
                     },
                     default=str,
                 )

@@ -95,6 +95,16 @@ round-trip:
 
 This is the near-clone signal B4 reuses for `CodeClone`.
 
-These are the first increments of the code-intelligence cluster; later increments
-add code-to-service linking, IaC/clone/git-coupling passes, and broader grammar
-coverage.
+## Code ↔ service linking (CONCEPT:KG-2.102)
+
+Routes are the seam between a service's code and the live ecosystem. From the route
+decorators the parser captured, the `routes` pass emits `Route` nodes (method+path)
+and `serves` edges (handler `Code` → `Route`); a best-effort name match links each
+`Route` to a deployed ecosystem `Service` (`servedBy`). The OWL surpass: reasoning
+chains **Code –serves→ Route –servedBy→ Service –deployedOn→ Node** — a fact a
+siloed per-repo code tool can't produce because it never sees the topology. Query
+it: `graph_analyze(action="routes")` / `GET /graph/analyze/routes`. (gRPC/GraphQL
+detection and event channels are later increments.)
+
+These are the early increments of the code-intelligence cluster; later increments
+add IaC/clone/git-coupling passes and broader grammar coverage.

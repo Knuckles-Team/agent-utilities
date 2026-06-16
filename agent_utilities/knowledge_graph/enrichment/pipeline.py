@@ -40,6 +40,7 @@ from .features import CommunityFn, cluster_features, resolve_call_edges
 from .models import Concept, EnrichmentEdge, ExtractionResult, GraphNode
 from .patterns import detect_patterns
 from .realizes import EmbedFn, resolve_realizes
+from .routes import extract_routes, link_routes_to_service, resolve_service_id
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,9 @@ class EnrichmentSummary(BaseModel):
     inherits_edges: int = 0
     realizes_struct_edges: int = 0
     similar_edges: int = 0
+    routes: int = 0
+    serves_edges: int = 0
+    served_by_edges: int = 0
     tests_needing_work: int = 0
     patterns_tagged: int = 0
     features: int = 0
@@ -278,9 +282,13 @@ class EnrichmentPipeline:
 
     def enrich(self, target_path: str | Path) -> EnrichmentSummary:
         files = discover_source_files(target_path)
-        return self.enrich_files(files)
+        # The ingest root's name is the best-effort hint for the deployed service a
+        # route is servedBy (CONCEPT:KG-2.102).
+        return self.enrich_files(files, service_hint=Path(target_path).name)
 
-    def enrich_files(self, files: Iterable[Path]) -> EnrichmentSummary:
+    def enrich_files(
+        self, files: Iterable[Path], service_hint: str = ""
+    ) -> EnrichmentSummary:
         summary = EnrichmentSummary()
 
         # Phase 1 — pre-hash filter (CONCEPT:KG-2.8): hash the raw bytes BEFORE
@@ -409,6 +417,23 @@ class EnrichmentPipeline:
                 for mid in f.member_ids:
                     self._write_edge(mid, f.id, "PART_OF_FEATURE")
                 summary.features += 1
+
+            # CONCEPT:KG-2.102 — HTTP routes from handler decorators: Route nodes +
+            # SERVES (handler→route), and the code↔ecosystem SERVED_BY link to the
+            # deployed Service (best-effort name match), so OWL reasoning can chain
+            # Code –serves→ Route –servedBy→ Service –deployedOn→ Node.
+            route_nodes, serves_edges = extract_routes(all_code)
+            for rn in route_nodes:
+                self.backend.add_node(rn.id, type="Route", **rn.props)
+                summary.routes += 1
+            for e in serves_edges:
+                self._write_edge(e.source, e.target, e.rel_type)
+                summary.serves_edges += 1
+            if route_nodes and service_hint:
+                service_id = resolve_service_id(service_hint, self._ecosystem_service_ids())
+                for e in link_routes_to_service(route_nodes, service_id):
+                    self._write_edge(e.source, e.target, e.rel_type)
+                    summary.served_by_edges += 1
 
             # Code → capability: match features to BusinessCapability nodes
             # (LeanIX/Archi), mint provisional ones bottom-up, emit REALIZES edges,
@@ -603,6 +628,19 @@ class EnrichmentPipeline:
         add_edge = getattr(self.backend, "add_edge", None)
         if callable(add_edge):
             add_edge(source, target, rel_type=rel_type, **(props or {}))
+
+    def _ecosystem_service_ids(self) -> set[str]:
+        """Deployed ecosystem ``Service`` node ids, for code↔service `servedBy`
+        linking (CONCEPT:KG-2.102). Best-effort: empty when the backend has no
+        query path or no services — we never invent a topology link."""
+        execute = getattr(self.backend, "execute", None)
+        if not callable(execute):
+            return set()
+        try:
+            rows = execute("MATCH (s:Service) RETURN s.id AS id", {})
+        except Exception:  # noqa: BLE001 — best-effort; no services -> no servedBy
+            return set()
+        return {str(r["id"]) for r in (rows or []) if r.get("id")}
 
 
 def _writeback_count(result: Any) -> int:
