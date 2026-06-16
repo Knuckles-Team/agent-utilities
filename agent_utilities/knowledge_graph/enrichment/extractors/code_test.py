@@ -24,8 +24,13 @@ BatchParseFn = Callable[[list[tuple[str, bytes]]], list[dict[str, Any]]]
 # (parse + cross-file type/scope resolution in a SINGLE round-trip). (CONCEPT:KG-2.100)
 IndexFn = Callable[[list[tuple[str, bytes]]], dict[str, Any]]
 
-# Engine ``calls``/``inherits``/``realizes`` edge types → enrichment rel types.
-_RESOLVED_EDGE_RELS = {"calls": "CALLS", "inherits": "INHERITS", "realizes": "REALIZES"}
+# Engine resolved edge types → enrichment rel types (CONCEPT:KG-2.100/2.101).
+_RESOLVED_EDGE_RELS = {
+    "calls": "CALLS",
+    "inherits": "INHERITS",
+    "realizes": "REALIZES",
+    "similar_to": "SIMILAR_TO",
+}
 
 
 def _is_test_file(file_path: str) -> bool:
@@ -50,6 +55,15 @@ def _int(props: dict[str, Any], key: str) -> int:
 
 def _bool(props: dict[str, Any], key: str) -> bool:
     return str(props.get(key, "")).lower() == "true"
+
+
+def _split_decorators(raw: str) -> list[str]:
+    """Split the parser's ``decorators`` property. Function route decorators embed
+    commas (``app.route("/x", methods=[...])``) so they are US-separated (\\x1f);
+    class decorators are comma-joined. Detect which (CONCEPT:KG-2.102)."""
+    raw = raw or ""
+    sep = "\x1f" if "\x1f" in raw else ","
+    return [d for d in raw.split(sep) if d]
 
 
 def entities_from_parse_result(
@@ -117,9 +131,7 @@ def entities_from_parse_result(
                     methods=[
                         m for m in (props.get("methods", "") or "").split(",") if m
                     ],
-                    decorators=[
-                        d for d in (props.get("decorators", "") or "").split(",") if d
-                    ],
+                    decorators=_split_decorators(props.get("decorators", "")),
                     is_abstract=_bool(props, "is_abstract"),
                 )
             )
@@ -196,7 +208,7 @@ def entities_from_index_result(
         props = {
             k: v
             for k, v in (edge.get("properties") or {}).items()
-            if k in ("strategy", "confidence")
+            if k in ("strategy", "confidence", "score")
         }
         edges.append(EnrichmentEdge(source=src, target=tgt, rel_type=rel, props=props))
     return results, edges

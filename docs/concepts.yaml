@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 300
+total_concepts: 306
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1559,6 +1559,8 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/core/gitlab_indexer.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/mcp/tools/query_tools.py
@@ -2527,7 +2529,6 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/core/gitlab_indexer.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
@@ -2535,6 +2536,61 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: the type/scope-resolved call/inheritance graph
+- id: KG-2.101
+  name: model-free similar-code lookup. Returns the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: model-free similar-code lookup. Returns the
+- id: KG-2.102
+  name: HTTP routes from handler decorators
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  - agent_utilities/knowledge_graph/enrichment/routes.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: HTTP routes from handler decorators
+- id: KG-2.103
+  name: read them here so the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/enrichment/iac.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  doc: read them here so the
+- id: KG-2.104
+  name: mine git history for files that change together
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/git_coupling.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: mine git history for files that change together
+- id: KG-2.105
+  name: Architecture Decision Record CRUD
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: Architecture Decision Record CRUD
+- id: KG-2.106
+  name: engine built with ast-extended
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/gitlab_indexer.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  doc: engine built with ast-extended
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
