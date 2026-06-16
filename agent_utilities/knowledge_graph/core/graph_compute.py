@@ -555,6 +555,14 @@ class GraphComputeEngine:
         """Native HNSW vector search via the engine — returns (node_id, score)."""
         return self._client.graph.semantic_search(query_embedding, n_results) or []
 
+    def get_nodes_by_label(
+        self, label: str, limit: int = 0
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Engine-side labeled fetch (CONCEPT:KG-2.51) — at most ``limit`` nodes of
+        ``label`` (``limit=0`` ⇒ no cap), bounding the wire payload so a
+        ``MATCH (n:Label) … LIMIT k`` never materializes the whole graph."""
+        return self._client.nodes.list_by_label(label, limit) or []
+
     def get_shortest_path(self, source_id: str, target_id: str) -> list[str] | None:
         """Get the shortest path between source and target nodes."""
         return self._client.graph.shortest_path(source_id, target_id)
