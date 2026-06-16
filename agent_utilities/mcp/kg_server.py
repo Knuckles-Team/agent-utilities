@@ -1288,6 +1288,25 @@ async def graph_analyze_inspect_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_analyze_call_graph_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=call_graph (CONCEPT:KG-2.100): the
+    type/scope-resolved call/inheritance graph for a symbol. ``id`` = symbol id;
+    ``direction`` = callees | callers | inherits."""
+    try:
+        node_id = request.query_params.get("id") or request.query_params.get(
+            "node_id", ""
+        )
+        direction = request.query_params.get("direction") or request.query_params.get(
+            "target", "callees"
+        )
+        res = await _execute_tool(
+            "graph_analyze", action="call_graph", node_id=node_id, target=direction
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -1907,9 +1926,9 @@ def fanout_execute(entries, fn, *, timeout=None):
         except Exception as e:  # noqa: BLE001 — partial-success contract
             errors[name] = str(e)
     for fut in not_done:
-        errors[
-            futures[fut]
-        ] = f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        errors[futures[fut]] = (
+            f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        )
     # Never block on a hung backend's thread; let it finish in the background.
     ex.shutdown(wait=False, cancel_futures=True)
     return results, errors
@@ -2559,6 +2578,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     )
     route("/graph/analyze/blast-radius", graph_analyze_blast_radius_endpoint, ["GET"])
     route("/graph/analyze/inspect", graph_analyze_inspect_endpoint, ["GET"])
+    route("/graph/analyze/call-graph", graph_analyze_call_graph_endpoint, ["GET"])
     route("/graph/analyze/context", graph_analyze_context_endpoint, ["POST"])
     route(
         "/graph/analyze/evaluate-alpha", graph_analyze_evaluate_alpha_endpoint, ["POST"]

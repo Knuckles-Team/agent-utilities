@@ -28,7 +28,7 @@ def register_analysis_tools(mcp):
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -1054,6 +1054,63 @@ def register_analysis_tools(mcp):
                     engine, limit=top_k * 200 if top_k != 10 else 2000
                 )
                 return json.dumps(summary, default=str)
+            elif action == "call_graph":
+                # CONCEPT:KG-2.100 — the type/scope-resolved call/inheritance graph
+                # for a symbol. Returns the resolved edges (with their strategy +
+                # confidence) the Rust resolver bound and the OWL layer reasons over.
+                # `node_id` = the symbol id; `target` = direction
+                # (callees | callers | inherits). Reads run in the engine backend.
+                import json as _json
+
+                if not node_id:
+                    return "Error: call_graph needs a symbol id in `node_id`."
+                backend = getattr(engine, "backend", None)
+                if backend is None:
+                    return "Error: no graph backend available."
+                direction = (target or "callees").strip().lower()
+                if direction == "callers":
+                    query = (
+                        "MATCH (t)-[r]->(s {id: $id}) "
+                        "WHERE type(r) IN ['calls', 'CALLS'] "
+                        "RETURN t.id AS node, type(r) AS rel, "
+                        "r.strategy AS strategy, r.confidence AS confidence"
+                    )
+                elif direction == "inherits":
+                    query = (
+                        "MATCH (s {id: $id})-[r]->(t) "
+                        "WHERE type(r) IN ['inherits', 'INHERITS', 'realizes', 'REALIZES'] "
+                        "RETURN t.id AS node, type(r) AS rel, "
+                        "r.strategy AS strategy, r.confidence AS confidence"
+                    )
+                else:  # callees (default)
+                    direction = "callees"
+                    query = (
+                        "MATCH (s {id: $id})-[r]->(t) "
+                        "WHERE type(r) IN ['calls', 'CALLS'] "
+                        "RETURN t.id AS node, type(r) AS rel, "
+                        "r.strategy AS strategy, r.confidence AS confidence"
+                    )
+                try:
+                    rows = backend.execute(query, {"id": node_id})
+                except Exception as e:
+                    return _json.dumps({"status": "error", "message": str(e)})
+                return _json.dumps(
+                    {
+                        "status": "ok",
+                        "node_id": node_id,
+                        "direction": direction,
+                        "edges": [
+                            {
+                                "node": r.get("node"),
+                                "rel": r.get("rel"),
+                                "strategy": r.get("strategy"),
+                                "confidence": r.get("confidence"),
+                            }
+                            for r in (rows or [])
+                        ],
+                    },
+                    default=str,
+                )
             else:
                 return f"Error: Unknown analyze action '{action}'"
         except Exception as e:
