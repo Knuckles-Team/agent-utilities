@@ -1324,6 +1324,16 @@ async def graph_analyze_similar_code_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_analyze_routes_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=routes (CONCEPT:KG-2.102): the HTTP route
+    graph — each Route, its handler, and the Service that serves it."""
+    try:
+        res = await _execute_tool("graph_analyze", action="routes")
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -2597,6 +2607,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/analyze/inspect", graph_analyze_inspect_endpoint, ["GET"])
     route("/graph/analyze/call-graph", graph_analyze_call_graph_endpoint, ["GET"])
     route("/graph/analyze/similar-code", graph_analyze_similar_code_endpoint, ["GET"])
+    route("/graph/analyze/routes", graph_analyze_routes_endpoint, ["GET"])
     route("/graph/analyze/context", graph_analyze_context_endpoint, ["POST"])
     route(
         "/graph/analyze/evaluate-alpha", graph_analyze_evaluate_alpha_endpoint, ["POST"]

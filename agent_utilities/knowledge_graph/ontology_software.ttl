@@ -86,6 +86,17 @@
     rdfs:comment "A WorkspaceAction sequence resolved a recorded failure/unresolved SWE-bench instance (AHE-3.23)." ;
     rdfs:domain :WorkspaceAction .
 
+:serves a owl:ObjectProperty ;
+    rdfs:label "serves" ;
+    rdfs:comment "A Code handler symbol serves an HTTP Route (CONCEPT:KG-2.102)." ;
+    rdfs:domain :Code ;
+    rdfs:range :Route .
+
+:servedBy a owl:ObjectProperty ;
+    rdfs:label "served by" ;
+    rdfs:comment "A Route is served by a deployed Service — the code↔ecosystem bridge OWL reasoning chains through (CONCEPT:KG-2.102)." ;
+    rdfs:domain :Route .
+
 :similarTo a owl:ObjectProperty,
         owl:SymmetricProperty ;
     rdfs:label "similar to" ;
@@ -105,6 +116,10 @@
 :Pattern a owl:Class ;
     rdfs:label "Design Pattern" ;
     rdfs:comment "A design-pattern / implementation-style tag." .
+
+:Route a owl:Class ;
+    rdfs:label "HTTP Route" ;
+    rdfs:comment "An HTTP route (method + path) a Code handler serves (CONCEPT:KG-2.102)." .
 
 :WorkspaceObservation a owl:Class ;
     rdfs:label "Workspace Observation" ;

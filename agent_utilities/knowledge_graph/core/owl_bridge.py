@@ -44,6 +44,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "test",
     "feature",
     "pattern",
+    "route",  # HTTP route a Code handler serves (CONCEPT:KG-2.102)
     "concept",
     "document",
     # Enterprise OS entities (CONCEPT:KG-2.9)
@@ -304,6 +305,8 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "implements_pattern",
     "realizes",
     "inherits",
+    "serves",  # Code handler → HTTP Route (CONCEPT:KG-2.102)
+    "served_by",  # Route → deployed Service (CONCEPT:KG-2.102)
     "implemented_by",
     "similar_to",
     "mentions",

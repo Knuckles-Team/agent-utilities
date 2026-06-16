@@ -57,6 +57,15 @@ def _bool(props: dict[str, Any], key: str) -> bool:
     return str(props.get(key, "")).lower() == "true"
 
 
+def _split_decorators(raw: str) -> list[str]:
+    """Split the parser's ``decorators`` property. Function route decorators embed
+    commas (``app.route("/x", methods=[...])``) so they are US-separated (\\x1f);
+    class decorators are comma-joined. Detect which (CONCEPT:KG-2.102)."""
+    raw = raw or ""
+    sep = "\x1f" if "\x1f" in raw else ","
+    return [d for d in raw.split(sep) if d]
+
+
 def entities_from_parse_result(
     file_path: str, content_hash: str, parsed: dict[str, Any]
 ) -> ExtractionResult:
@@ -122,9 +131,7 @@ def entities_from_parse_result(
                     methods=[
                         m for m in (props.get("methods", "") or "").split(",") if m
                     ],
-                    decorators=[
-                        d for d in (props.get("decorators", "") or "").split(",") if d
-                    ],
+                    decorators=_split_decorators(props.get("decorators", "")),
                     is_abstract=_bool(props, "is_abstract"),
                 )
             )
