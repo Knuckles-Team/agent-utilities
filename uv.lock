@@ -86,7 +86,7 @@ wheels = [
 
 [[package]]
 name = "agent-utilities"
-version = "0.49.0"
+version = "0.50.0"
 source = { editable = "." }
 dependencies = [
     { name = "confluent-kafka" },
@@ -493,14 +493,14 @@ vault = [
 requires-dist = [
     { name = "acpkit", extras = ["pydantic"], marker = "extra == 'acp'", specifier = ">=0.9.6" },
     { name = "agent-terminal-ui", marker = "extra == 'terminal'", specifier = ">=0.14.0" },
-    { name = "agent-utilities", extras = ["agent"], marker = "extra == 'logfire'", specifier = ">=0.49.0" },
+    { name = "agent-utilities", extras = ["agent"], marker = "extra == 'logfire'", specifier = ">=0.50.0" },
     { name = "agent-utilities", extras = ["agent", "graph", "acp", "owl", "finance", "event-kafka"], marker = "extra == 'test'" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.49.0" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.49.0" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.49.0" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.50.0" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.50.0" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.50.0" },
     { name = "agent-utilities", extras = ["finance"], marker = "extra == 'finance-kronos'" },
-    { name = "agent-utilities", extras = ["mcp", "ag-ui", "terminal"], marker = "extra == 'agent'", specifier = ">=0.49.0" },
-    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "documents", "graph", "ann", "browser", "test", "owl", "stardog", "vault", "auth", "finance", "messaging"], marker = "extra == 'all'", specifier = ">=0.49.0" },
+    { name = "agent-utilities", extras = ["mcp", "ag-ui", "terminal"], marker = "extra == 'agent'", specifier = ">=0.50.0" },
+    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "documents", "graph", "ann", "browser", "test", "owl", "stardog", "vault", "auth", "finance", "messaging"], marker = "extra == 'all'", specifier = ">=0.50.0" },
     { name = "agent-utilities", extras = ["messaging-discord", "messaging-slack", "messaging-telegram", "messaging-whatsapp", "messaging-teams", "messaging-googlechat", "messaging-googlemeet", "messaging-mattermost", "messaging-matrix", "messaging-irc", "messaging-signal", "messaging-line", "messaging-twitch", "messaging-synology", "messaging-voicecall", "messaging-nextcloud"], marker = "extra == 'messaging'" },
     { name = "agent-utilities", extras = ["owl"], marker = "extra == 'stardog'" },
     { name = "agent-utilities", extras = ["test", "neo4j", "falkordb", "postgresql", "kafka", "owl", "fuseki"], marker = "extra == 'test-backends'" },
@@ -514,7 +514,7 @@ requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "discord-py", marker = "extra == 'messaging-discord'", specifier = ">=2.7.1" },
     { name = "dspy-ai", specifier = ">=3.2.1" },
-    { name = "epistemic-graph", specifier = ">=0.29.0" },
+    { name = "epistemic-graph", specifier = ">=0.30.0" },
     { name = "eunomia-mcp", marker = "extra == 'mcp'", specifier = ">=0.3.10" },
     { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.6.1" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.137.0" },
@@ -1954,17 +1954,17 @@ wheels = [
 
 [[package]]
 name = "epistemic-graph"
-version = "0.29.0"
+version = "0.30.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "msgpack" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/14/2d/9fddab0e788844061773a0ff5e1b2dada36065c9ac8033b2d46ea7605edf/epistemic_graph-0.29.0.tar.gz", hash = "sha256:d3b9af3acae38688a759c93d5eedcc8548e8e0aea876cd1dfa545ff4eb8c5d45", size = 349286, upload-time = "2026-06-13T17:48:51.421Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/90/dbb4b5f1a6440c0777750bef95fc0a9487c3528e4fcccd5774dfeffa852a/epistemic_graph-0.30.0.tar.gz", hash = "sha256:6e10db26242f607f4b18f99c7f1b2d89d4e8fa26932326a75d4d25b3b26c5426", size = 358840, upload-time = "2026-06-16T15:30:28.35Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7a/e8/c41c3ae50f1041aa56519e2a2703dd289c074a7828efd5b470923e3cfc71/epistemic_graph-0.29.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:b2291138fcf290fda8b60d32da68ae81aa4e1a6ef4359a8ba1e068bfae75cf02", size = 1664608, upload-time = "2026-06-13T17:48:45.563Z" },
-    { url = "https://files.pythonhosted.org/packages/c0/40/0355e847b092ba46844e2ee1f4946d0ed0e95b4c17fe554d279597244975/epistemic_graph-0.29.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:40159a29d50d0019c8c5968f75c66658a8db4a34a1bd2a2d67ed18411a4c2479", size = 1867519, upload-time = "2026-06-13T17:48:47.326Z" },
-    { url = "https://files.pythonhosted.org/packages/35/a6/9550e7989485168557975e0ff04c68bdba986b8ba2a1482ef84037a06afc/epistemic_graph-0.29.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:a7c5199be23b83b544a6579d5b32b740dd105619d84921ccc20749ba6ae18db1", size = 2058402, upload-time = "2026-06-13T17:48:49.018Z" },
-    { url = "https://files.pythonhosted.org/packages/ec/71/dcd86c8ec1c58898f07a5fe5be0193d38c6d6df2360f3bb68b0c274c7d11/epistemic_graph-0.29.0-py3-none-win_amd64.whl", hash = "sha256:fce6593cd2312c260cdd0ac7e7a7d12362433c2c4f5b213b03280d3a9441cfb5", size = 1888542, upload-time = "2026-06-13T17:48:50.314Z" },
+    { url = "https://files.pythonhosted.org/packages/84/30/bf97e5f544451c7531daa63ec3e0bce5f737419347edb09938c6ccf6bdc9/epistemic_graph-0.30.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:8cff892012089b3812d0d89347d6041160dbe5002e7a22883876e4970a06bbc4", size = 1680647, upload-time = "2026-06-16T15:30:23.248Z" },
+    { url = "https://files.pythonhosted.org/packages/a5/b4/62278ed770c782953a9fa270e4de42d0856d365833a4bbad8aef19476c78/epistemic_graph-0.30.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:07032292d9f18d7d62460842a9e0ee39f755995d08a534ca6cb229312aff6b99", size = 1884253, upload-time = "2026-06-16T15:30:24.612Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/41/102ca4c3b93bb8f6a87d8f978a63ef57d0d2c55c54bff889245c35d29529/epistemic_graph-0.30.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:b8c5f2e71ddf0550c78cefecce52681f2e71d60333b09a73e4fb7c5ac30d5ce9", size = 2078191, upload-time = "2026-06-16T15:30:25.97Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/b3/f63a5389581a5e694656b133a20e4fee723967378f4822b2d37e25e325fb/epistemic_graph-0.30.0-py3-none-win_amd64.whl", hash = "sha256:4e06568ff77e8673f66db2ea3c69a01daef386aaacd5bfb66b544d23f89a333e", size = 1909764, upload-time = "2026-06-16T15:30:27.193Z" },
 ]
 
 [[package]]
