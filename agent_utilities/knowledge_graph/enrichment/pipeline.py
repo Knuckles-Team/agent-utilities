@@ -37,6 +37,7 @@ from .extractors.document import (
     read_document_text,
 )
 from .features import CommunityFn, cluster_features, resolve_call_edges
+from .iac import discover_iac_files, extract_iac, link_resources_to_service
 from .models import Concept, EnrichmentEdge, ExtractionResult, GraphNode
 from .patterns import detect_patterns
 from .realizes import EmbedFn, resolve_realizes
@@ -112,6 +113,8 @@ class EnrichmentSummary(BaseModel):
     routes: int = 0
     serves_edges: int = 0
     served_by_edges: int = 0
+    resources: int = 0
+    provisions_edges: int = 0
     tests_needing_work: int = 0
     patterns_tagged: int = 0
     features: int = 0
@@ -282,12 +285,25 @@ class EnrichmentPipeline:
 
     def enrich(self, target_path: str | Path) -> EnrichmentSummary:
         files = discover_source_files(target_path)
+        # IaC files alongside the code (CONCEPT:KG-2.103): read them here so the
+        # pipeline writes Resource nodes in the same batched pass.
+        iac: list[tuple[str, str]] = []
+        for p in discover_iac_files(target_path):
+            try:
+                iac.append((str(p), p.read_text(encoding="utf-8", errors="ignore")))
+            except OSError:
+                continue
         # The ingest root's name is the best-effort hint for the deployed service a
         # route is servedBy (CONCEPT:KG-2.102).
-        return self.enrich_files(files, service_hint=Path(target_path).name)
+        return self.enrich_files(
+            files, service_hint=Path(target_path).name, iac_files=iac
+        )
 
     def enrich_files(
-        self, files: Iterable[Path], service_hint: str = ""
+        self,
+        files: Iterable[Path],
+        service_hint: str = "",
+        iac_files: list[tuple[str, str]] | None = None,
     ) -> EnrichmentSummary:
         summary = EnrichmentSummary()
 
@@ -429,11 +445,27 @@ class EnrichmentPipeline:
             for e in serves_edges:
                 self._write_edge(e.source, e.target, e.rel_type)
                 summary.serves_edges += 1
-            if route_nodes and service_hint:
-                service_id = resolve_service_id(service_hint, self._ecosystem_service_ids())
+            service_id = (
+                resolve_service_id(service_hint, self._ecosystem_service_ids())
+                if service_hint
+                else ""
+            )
+            if route_nodes and service_id:
                 for e in link_routes_to_service(route_nodes, service_id):
                     self._write_edge(e.source, e.target, e.rel_type)
                     summary.served_by_edges += 1
+
+            # CONCEPT:KG-2.103 — IaC Resources (Dockerfile/K8s/Terraform) + the
+            # PROVISIONS link to the deployed Service, spanning code → infra.
+            if iac_files:
+                resource_nodes, _ = extract_iac(iac_files)
+                for rn in resource_nodes:
+                    self.backend.add_node(rn.id, type="Resource", **rn.props)
+                    summary.resources += 1
+                if service_id:
+                    for e in link_resources_to_service(resource_nodes, service_id):
+                        self._write_edge(e.source, e.target, e.rel_type)
+                        summary.provisions_edges += 1
 
             # Code → capability: match features to BusinessCapability nodes
             # (LeanIX/Archi), mint provisional ones bottom-up, emit REALIZES edges,

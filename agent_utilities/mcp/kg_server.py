@@ -1334,6 +1334,45 @@ async def graph_analyze_routes_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_analyze_change_coupling_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=change_coupling (CONCEPT:KG-2.104): mine a
+    repo's git history into FILE_CHANGES_WITH edges. Body: ``{repo, min_support?}``."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_analyze",
+            action="change_coupling",
+            target=body.get("repo", ""),
+            depth=int(body.get("min_support", 3)),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+async def graph_analyze_adr_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=adr (CONCEPT:KG-2.105): ADR CRUD. Body:
+    ``{title?, status?, decision?}`` — title creates, empty lists."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_analyze",
+            action="adr",
+            query=body.get("title", ""),
+            target=body.get("status", ""),
+            node_id=body.get("decision", ""),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -2608,6 +2647,12 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/analyze/call-graph", graph_analyze_call_graph_endpoint, ["GET"])
     route("/graph/analyze/similar-code", graph_analyze_similar_code_endpoint, ["GET"])
     route("/graph/analyze/routes", graph_analyze_routes_endpoint, ["GET"])
+    route(
+        "/graph/analyze/change-coupling",
+        graph_analyze_change_coupling_endpoint,
+        ["POST"],
+    )
+    route("/graph/analyze/adr", graph_analyze_adr_endpoint, ["POST"])
     route("/graph/analyze/context", graph_analyze_context_endpoint, ["POST"])
     route(
         "/graph/analyze/evaluate-alpha", graph_analyze_evaluate_alpha_endpoint, ["POST"]

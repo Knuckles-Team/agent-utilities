@@ -45,6 +45,7 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "feature",
     "pattern",
     "route",  # HTTP route a Code handler serves (CONCEPT:KG-2.102)
+    "resource",  # IaC resource (Dockerfile/K8s/Terraform) (CONCEPT:KG-2.103)
     "concept",
     "document",
     # Enterprise OS entities (CONCEPT:KG-2.9)
@@ -307,6 +308,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "inherits",
     "serves",  # Code handler → HTTP Route (CONCEPT:KG-2.102)
     "served_by",  # Route → deployed Service (CONCEPT:KG-2.102)
+    "provisions",  # IaC Resource → deployed Service (CONCEPT:KG-2.103)
     "implemented_by",
     "similar_to",
     "mentions",

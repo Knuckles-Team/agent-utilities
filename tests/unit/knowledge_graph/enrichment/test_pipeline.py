@@ -460,6 +460,21 @@ def test_pipeline_extracts_routes_from_decorators(tmp_path):
     assert any(e[2] == "SERVES" and e[1] == "route:GET:/users" for e in backend.edges)
 
 
+def test_pipeline_extracts_iac_resources(tmp_path):
+    """A Dockerfile alongside the code yields a Resource node (CONCEPT:KG-2.103)."""
+    (tmp_path / "app.py").write_text("def compute():\n    return 1\n")
+    (tmp_path / "Dockerfile").write_text("FROM python:3.12-slim\nEXPOSE 8080\n")
+
+    backend = PropBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory())
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.resources == 1
+    res = next(n for n in backend.nodes.values() if n.get("type") == "Resource")
+    assert res["kind"] == "container_image"
+    assert res["base_image"] == "python:3.12-slim"
+
+
 def test_pipeline_falls_back_to_name_resolution_when_index_fn_errors(tmp_path):
     """An index_fn that fails must degrade to the parse + name-only path."""
     (tmp_path / "app.py").write_text("def compute():\n    return 1\n")
