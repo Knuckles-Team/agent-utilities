@@ -45,6 +45,14 @@ logger = get_logger(name="MultiplexerClientAuth")
 # Refresh this many seconds before the token actually expires.
 _EXPIRY_SKEW_S = 30.0
 
+# Floor for the derived child-session lifetime — never recycle a child more
+# aggressively than this even if the IdP hands out a pathologically short TTL.
+_MIN_SESSION_MAX_AGE = 20.0
+
+# Fallback access-token lifetime (s) assumed before the first mint reveals the
+# IdP's real ``expires_in`` — a conservative middle value.
+_DEFAULT_TOKEN_TTL_S = 300.0
+
 
 def _enabled() -> bool:
     return setting("MCP_CLIENT_AUTH", "none").strip().lower() == (
@@ -85,6 +93,16 @@ class ClientCredentialsTokenProvider:
         self._lock = threading.Lock()
         self._token: str | None = None
         self._expires_at = 0.0
+        self._ttl_seconds = 0.0  # last observed access-token lifetime (expires_in)
+
+    @property
+    def access_token_ttl(self) -> float:
+        """Last observed access-token lifetime in seconds (``expires_in``).
+
+        Returns a conservative default until the first successful mint reveals
+        the IdP's real value — drives how often child sessions must be recycled
+        so they never outlive their bearer."""
+        return self._ttl_seconds if self._ttl_seconds > 0 else _DEFAULT_TOKEN_TTL_S
 
     def get_token(self, *, force: bool = False) -> str:
         """Return a cached access token, refreshing it if missing or near expiry.
@@ -111,7 +129,8 @@ class ClientCredentialsTokenProvider:
             resp.raise_for_status()
             payload = resp.json()
             self._token = payload["access_token"]
-            self._expires_at = now + float(payload.get("expires_in", 300))
+            self._ttl_seconds = float(payload.get("expires_in", 300))
+            self._expires_at = now + self._ttl_seconds
             logger.info(
                 "Minted multiplexer service token (audience=%s, ttl=%ss)",
                 self.audience,
@@ -257,3 +276,26 @@ def bearer_auth(existing: dict | None) -> ClientCredentialsAuth | None:
     if provider is None:
         return None
     return ClientCredentialsAuth(provider)
+
+
+def service_session_max_age(existing: dict | None) -> float | None:
+    """Seconds a child session may live before it must be recycled, or ``None``.
+
+    A streamable-http/SSE child session is authenticated once at connect time and
+    its result stream stays open for the session's whole life; once the bearer
+    expires the child stops serving that stream and in-flight calls wedge. So a
+    service-authenticated child must reconnect (re-mint) before its token's
+    lifetime elapses. Returns that safe lifetime (token TTL minus the refresh
+    skew and a small buffer, floored), or ``None`` when the child carries its own
+    ``Authorization`` (we don't manage its token) or the service identity is
+    disabled. Primes the provider once so the IdP's real TTL is known."""
+    if existing and any(k.lower() == "authorization" for k in existing):
+        return None
+    provider = get_provider()
+    if provider is None:
+        return None
+    try:
+        provider.get_token()  # prime (cached) so access_token_ttl is real
+    except Exception:  # pragma: no cover - mint failure; fall back to default TTL
+        pass
+    return max(_MIN_SESSION_MAX_AGE, provider.access_token_ttl - _EXPIRY_SKEW_S - 5.0)
