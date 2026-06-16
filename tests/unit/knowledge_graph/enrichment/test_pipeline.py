@@ -359,8 +359,12 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
     """When the engine advertises IndexRepository, the pipeline uses ONE resolver
     round-trip: symbols + already-bound CALLS/INHERITS edges (with strategy/
     confidence), bypassing the Python name-only resolver."""
-    (tmp_path / "app.py").write_text("def caller():\n    return helper()\n\ndef helper():\n    return 1\n")
-    (tmp_path / "model.py").write_text("class Base:\n    pass\n\nclass Child(Base):\n    pass\n")
+    (tmp_path / "app.py").write_text(
+        "def caller():\n    return helper()\n\ndef helper():\n    return 1\n"
+    )
+    (tmp_path / "model.py").write_text(
+        "class Base:\n    pass\n\nclass Child(Base):\n    pass\n"
+    )
     app = str(tmp_path / "app.py")
     model = str(tmp_path / "model.py")
 
@@ -389,9 +393,16 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
                     "edge_type": "inherits",
                     "properties": {"name": "Base"},
                 },
+                {
+                    "source": "symbol:caller",
+                    "target": "symbol:helper",
+                    "edge_type": "similar_to",
+                    "properties": {"score": "0.75"},
+                },
             ],
             "calls_resolved": 1,
             "inherits_edges": 1,
+            "similar_edges": 1,
         }
 
     backend = PropBackend()
@@ -401,11 +412,67 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
     assert summary.code == 4  # caller, helper, Base, Child
     assert summary.calls_edges == 1
     assert summary.inherits_edges == 1
+    assert summary.similar_edges == 1
     calls = [e for e in backend.edges if e[2] == "CALLS"]
     # Resolved (not name-only): the strategy/confidence props are persisted.
     assert calls and calls[0][3].get("strategy") == "same_file"
     assert calls[0][3].get("confidence") == "0.90"
     assert any(e[2] == "INHERITS" for e in backend.edges)
+    # Model-free similarity edge persisted with its score (CONCEPT:KG-2.101).
+    sim = [e for e in backend.edges if e[2] == "SIMILAR_TO"]
+    assert sim and sim[0][3].get("score") == "0.75"
+
+
+def test_pipeline_extracts_routes_from_decorators(tmp_path):
+    """A handler with a route decorator yields a Route node + SERVES edge
+    (CONCEPT:KG-2.102)."""
+    (tmp_path / "app.py").write_text("def list_users():\n    return []\n")
+
+    def parse_fn(file_path, source):
+        return {
+            "nodes": [
+                {
+                    "node_id": "symbol:list_users",
+                    "node_type": "SYMBOL",
+                    "properties": {
+                        "symbol_type": "Function",
+                        "name": "list_users",
+                        "line": "1",
+                        "ast_hash": "h",
+                        "file_path": file_path,
+                        "is_test": "false",
+                        "decorators": 'app.route("/users", methods=["GET"])',
+                    },
+                }
+            ]
+        }
+
+    backend = PropBackend()
+    pipe = EnrichmentPipeline(backend, parse_fn)
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.routes == 1
+    assert summary.serves_edges == 1
+    assert any(
+        n.get("type") == "Route" and n.get("path") == "/users"
+        for n in backend.nodes.values()
+    )
+    assert any(e[2] == "SERVES" and e[1] == "route:GET:/users" for e in backend.edges)
+
+
+def test_pipeline_extracts_iac_resources(tmp_path):
+    """A Dockerfile alongside the code yields a Resource node (CONCEPT:KG-2.103)."""
+    (tmp_path / "app.py").write_text("def compute():\n    return 1\n")
+    (tmp_path / "Dockerfile").write_text("FROM python:3.12-slim\nEXPOSE 8080\n")
+
+    backend = PropBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory())
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.resources == 1
+    res = next(n for n in backend.nodes.values() if n.get("type") == "Resource")
+    assert res["kind"] == "container_image"
+    assert res["base_image"] == "python:3.12-slim"
 
 
 def test_pipeline_falls_back_to_name_resolution_when_index_fn_errors(tmp_path):

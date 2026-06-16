@@ -37,9 +37,11 @@ from .extractors.document import (
     read_document_text,
 )
 from .features import CommunityFn, cluster_features, resolve_call_edges
+from .iac import discover_iac_files, extract_iac, link_resources_to_service
 from .models import Concept, EnrichmentEdge, ExtractionResult, GraphNode
 from .patterns import detect_patterns
 from .realizes import EmbedFn, resolve_realizes
+from .routes import extract_routes, link_routes_to_service, resolve_service_id
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,14 @@ SOURCE_EXTENSIONS: frozenset[str] = frozenset(
         ".hxx",
         ".hh",
         ".cs",
+        # Extended-language tier (CONCEPT:KG-2.106; engine built with ast-extended).
+        ".rb",
+        ".php",
+        ".sh",
+        ".bash",
+        ".scala",
+        ".sc",
+        ".lua",
     }
 )
 
@@ -107,6 +117,12 @@ class EnrichmentSummary(BaseModel):
     calls_edges: int = 0
     inherits_edges: int = 0
     realizes_struct_edges: int = 0
+    similar_edges: int = 0
+    routes: int = 0
+    serves_edges: int = 0
+    served_by_edges: int = 0
+    resources: int = 0
+    provisions_edges: int = 0
     tests_needing_work: int = 0
     patterns_tagged: int = 0
     features: int = 0
@@ -277,9 +293,26 @@ class EnrichmentPipeline:
 
     def enrich(self, target_path: str | Path) -> EnrichmentSummary:
         files = discover_source_files(target_path)
-        return self.enrich_files(files)
+        # IaC files alongside the code (CONCEPT:KG-2.103): read them here so the
+        # pipeline writes Resource nodes in the same batched pass.
+        iac: list[tuple[str, str]] = []
+        for p in discover_iac_files(target_path):
+            try:
+                iac.append((str(p), p.read_text(encoding="utf-8", errors="ignore")))
+            except OSError:
+                continue
+        # The ingest root's name is the best-effort hint for the deployed service a
+        # route is servedBy (CONCEPT:KG-2.102).
+        return self.enrich_files(
+            files, service_hint=Path(target_path).name, iac_files=iac
+        )
 
-    def enrich_files(self, files: Iterable[Path]) -> EnrichmentSummary:
+    def enrich_files(
+        self,
+        files: Iterable[Path],
+        service_hint: str = "",
+        iac_files: list[tuple[str, str]] | None = None,
+    ) -> EnrichmentSummary:
         summary = EnrichmentSummary()
 
         # Phase 1 — pre-hash filter (CONCEPT:KG-2.8): hash the raw bytes BEFORE
@@ -392,19 +425,55 @@ class EnrichmentPipeline:
             for e in call_edges:
                 self._write_edge(e.source, e.target, e.rel_type, e.props)
                 summary.calls_edges += 1
-            # Structural class edges (INHERITS/REALIZES) from the Rust resolver.
+            # Structural + similarity edges (INHERITS/REALIZES/SIMILAR_TO) from the
+            # Rust resolver (CONCEPT:KG-2.100/2.101).
             for e in struct_edges:
                 self._write_edge(e.source, e.target, e.rel_type, e.props)
                 if e.rel_type == "INHERITS":
                     summary.inherits_edges += 1
-                else:
+                elif e.rel_type == "REALIZES":
                     summary.realizes_struct_edges += 1
+                elif e.rel_type == "SIMILAR_TO":
+                    summary.similar_edges += 1
 
             for f in features:
                 self._write_feature(f)
                 for mid in f.member_ids:
                     self._write_edge(mid, f.id, "PART_OF_FEATURE")
                 summary.features += 1
+
+            # CONCEPT:KG-2.102 — HTTP routes from handler decorators: Route nodes +
+            # SERVES (handler→route), and the code↔ecosystem SERVED_BY link to the
+            # deployed Service (best-effort name match), so OWL reasoning can chain
+            # Code –serves→ Route –servedBy→ Service –deployedOn→ Node.
+            route_nodes, serves_edges = extract_routes(all_code)
+            for rn in route_nodes:
+                self.backend.add_node(rn.id, type="Route", **rn.props)
+                summary.routes += 1
+            for e in serves_edges:
+                self._write_edge(e.source, e.target, e.rel_type)
+                summary.serves_edges += 1
+            service_id = (
+                resolve_service_id(service_hint, self._ecosystem_service_ids())
+                if service_hint
+                else ""
+            )
+            if route_nodes and service_id:
+                for e in link_routes_to_service(route_nodes, service_id):
+                    self._write_edge(e.source, e.target, e.rel_type)
+                    summary.served_by_edges += 1
+
+            # CONCEPT:KG-2.103 — IaC Resources (Dockerfile/K8s/Terraform) + the
+            # PROVISIONS link to the deployed Service, spanning code → infra.
+            if iac_files:
+                resource_nodes, _ = extract_iac(iac_files)
+                for rn in resource_nodes:
+                    self.backend.add_node(rn.id, type="Resource", **rn.props)
+                    summary.resources += 1
+                if service_id:
+                    for e in link_resources_to_service(resource_nodes, service_id):
+                        self._write_edge(e.source, e.target, e.rel_type)
+                        summary.provisions_edges += 1
 
             # Code → capability: match features to BusinessCapability nodes
             # (LeanIX/Archi), mint provisional ones bottom-up, emit REALIZES edges,
@@ -599,6 +668,19 @@ class EnrichmentPipeline:
         add_edge = getattr(self.backend, "add_edge", None)
         if callable(add_edge):
             add_edge(source, target, rel_type=rel_type, **(props or {}))
+
+    def _ecosystem_service_ids(self) -> set[str]:
+        """Deployed ecosystem ``Service`` node ids, for code↔service `servedBy`
+        linking (CONCEPT:KG-2.102). Best-effort: empty when the backend has no
+        query path or no services — we never invent a topology link."""
+        execute = getattr(self.backend, "execute", None)
+        if not callable(execute):
+            return set()
+        try:
+            rows = execute("MATCH (s:Service) RETURN s.id AS id", {})
+        except Exception:  # noqa: BLE001 — best-effort; no services -> no servedBy
+            return set()
+        return {str(r["id"]) for r in (rows or []) if r.get("id")}
 
 
 def _writeback_count(result: Any) -> int:

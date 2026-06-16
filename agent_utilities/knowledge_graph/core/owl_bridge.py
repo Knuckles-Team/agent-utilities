@@ -44,6 +44,8 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "test",
     "feature",
     "pattern",
+    "route",  # HTTP route a Code handler serves (CONCEPT:KG-2.102)
+    "resource",  # IaC resource (Dockerfile/K8s/Terraform) (CONCEPT:KG-2.103)
     "concept",
     "document",
     # Enterprise OS entities (CONCEPT:KG-2.9)
@@ -304,6 +306,9 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "implements_pattern",
     "realizes",
     "inherits",
+    "serves",  # Code handler → HTTP Route (CONCEPT:KG-2.102)
+    "served_by",  # Route → deployed Service (CONCEPT:KG-2.102)
+    "provisions",  # IaC Resource → deployed Service (CONCEPT:KG-2.103)
     "implemented_by",
     "similar_to",
     "mentions",
@@ -715,6 +720,7 @@ class OWLBridge:
             "exact_match",
             "close_match",
             "broad_match",
+            "similar_to",  # model-free code similarity (CONCEPT:KG-2.101)
         ]
         # Union pack-declared object-property characteristics so the compiled Datalog
         # closure also covers the active domain's edges (CONCEPT:KG-2.36).
@@ -803,6 +809,7 @@ class OWLBridge:
             "exact_match",
             "close_match",
             "broad_match",
+            "similar_to",  # model-free code similarity (CONCEPT:KG-2.101)
         }
         # Union pack-declared object-property characteristics (CONCEPT:KG-2.36).
         transitive_props |= self._pack_transitive

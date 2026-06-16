@@ -75,5 +75,57 @@ flowchart LR
 | Reasoning | `agent_utilities/knowledge_graph/core/owl_bridge.py` |
 | Surfaces | `agent_utilities/mcp/tools/analysis_tools.py`, `agent_utilities/mcp/kg_server.py` |
 
-This is the first increment of the code-intelligence cluster; later increments add
-model-free similarity, code-to-service linking, and IaC/clone/git-coupling passes.
+## Model-free similarity (CONCEPT:KG-2.101)
+
+Code search and clone detection must keep working when the embedder is offline (the
+recurring GB10 502s). So similarity is **model-free**, computed in the same Rust
+round-trip:
+
+- Each symbol gets a **MinHash signature** over its normalized AST-leaf trigrams —
+  identifiers/strings/numbers/types are abstracted to class tokens (so a
+  renamed-variable clone still matches) while keywords/operators/punctuation are
+  kept verbatim (so structure is preserved).
+- The resolver **LSH-bands** the signatures: symbols colliding in any band are
+  candidate pairs, linked with a symmetric scored `similar_to` edge when their
+  estimated Jaccard ≥ 0.5 (capped per node; mega-buckets skipped). The signature is
+  a compute-only input and is stripped from the graph nodes.
+- `:similarTo` is a **symmetric** OWL property; the reasoner closes it both ways.
+- Query it embedder-free: `graph_analyze(action="similar_code", node_id=…)` /
+  `GET /graph/analyze/similar-code?id=…`.
+
+This is the near-clone signal B4 reuses for `CodeClone`.
+
+## Code ↔ service linking (CONCEPT:KG-2.102)
+
+Routes are the seam between a service's code and the live ecosystem. From the route
+decorators the parser captured, the `routes` pass emits `Route` nodes (method+path)
+and `serves` edges (handler `Code` → `Route`); a best-effort name match links each
+`Route` to a deployed ecosystem `Service` (`servedBy`). The OWL surpass: reasoning
+chains **Code –serves→ Route –servedBy→ Service –deployedOn→ Node** — a fact a
+siloed per-repo code tool can't produce because it never sees the topology. Query
+it: `graph_analyze(action="routes")` / `GET /graph/analyze/routes`. (gRPC/GraphQL
+detection and event channels are later increments.)
+
+## Infra, coupling, clones, decisions (CONCEPT:KG-2.103–2.105)
+
+The graph spans past the code itself:
+
+- **IaC → Resource (KG-2.103).** Dockerfiles, K8s/Kustomize manifests, and
+  Terraform are parsed into `Resource` nodes (image/kind/name) and linked to the
+  deployed `Service` they `provision` — so code → infra → topology is one graph.
+- **Git change-coupling → FILE_CHANGES_WITH (KG-2.104).** Files that keep changing
+  together get a symmetric weighted edge — the hidden blast radius the AST can't
+  see. `graph_analyze(action="change_coupling", target=<repo>)`.
+- **Near-clones** are the `similar_to` edges from KG-2.101 (MinHash) — no separate
+  pass needed.
+- **ADRs (KG-2.105).** `graph_analyze(action="adr")` creates/lists
+  `ArchitectureDecisionRecord` nodes so design decisions live in the same KG.
+
+## Grammar coverage (CONCEPT:KG-2.106)
+
+The core `ast` tier parses 9 languages (Python/JS/TS/Go/Rust/Java/C/C++/C#). The
+feature-gated `ast-extended` tier (folded into the engine's `full` build) adds
+Ruby, PHP, Bash, Scala, and Lua — so a slim build stays lean while the deployed
+engine spans the common ecosystem languages. New grammars wire in by adding the
+crate to the gate, an extension→grammar arm, and any new node-kind mappings; the
+resolver/similarity/route passes are language-agnostic and benefit for free.
