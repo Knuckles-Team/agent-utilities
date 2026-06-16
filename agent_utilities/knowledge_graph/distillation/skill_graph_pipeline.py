@@ -289,6 +289,8 @@ class AcquiredBundle:
 
 CrawlerFn = Callable[[SourceSpec], list[AcquiredDoc]]
 GeneratorFn = Callable[[SourceSpec], list[AcquiredDoc]]
+# (graph_name, corpus_digest) -> distilled OVERVIEW.md markdown
+DistillerFn = Callable[[str, str], str]
 
 
 # ── pipeline ────────────────────────────────────────────────────────────────
@@ -302,11 +304,13 @@ class SkillGraphPipeline:
         *,
         crawler_fn: CrawlerFn | None = None,
         generator_fn: GeneratorFn | None = None,
+        distiller_fn: DistillerFn | None = None,
         kg_enrich: bool = True,
         kg_timeout: float = 1800.0,
     ) -> None:
         self.crawler_fn = crawler_fn
         self.generator_fn = generator_fn
+        self.distiller_fn = distiller_fn
         self.kg_enrich = kg_enrich
         self.kg_timeout = kg_timeout
 
@@ -806,6 +810,8 @@ class SkillGraphPipeline:
         lines.append(f"file_count: {len(md_files)}")
         lines.append(f"kg_ingested: {str(kg_on).lower()}")
         lines.append("index: index.json")
+        if (skill_dir / "OVERVIEW.md").exists():
+            lines.append("overview: OVERVIEW.md")
         if kg_result.get("kg_manifest"):
             lines.append(f"kg_manifest: {kg_result['kg_manifest']}")
         if kg_result.get("kg_ontology"):
@@ -845,6 +851,11 @@ class SkillGraphPipeline:
             "disposal. Treat it as ground truth: quote it, don't paraphrase from memory."
         )
         lines.append("")
+        if (skill_dir / "OVERVIEW.md").exists():
+            lines.append(
+                "- **Start here:** read **[OVERVIEW.md](OVERVIEW.md)** — the distilled "
+                "essence + cheatsheet of this corpus — then drill into `reference/` for detail."
+            )
         lines.append(
             "- **Look something up:** scan the Table of Contents (or `index.json` for a "
             "machine-readable map), open the specific `reference/…` file, quote it + link it."
@@ -1247,6 +1258,64 @@ class SkillGraphPipeline:
             "results": results,
         }
 
+    # ── distilled-knowledge layer (the 'distilled knowledge' tier) ────────────
+
+    def distill_one(self, skill_dir: str | Path) -> dict[str, Any]:
+        """LLM-distill the corpus into an OVERVIEW.md (essence + cheatsheet), then
+        re-render so SKILL.md surfaces it.
+
+        Three tiers result: SKILL.md (map) → OVERVIEW.md (distilled essence) →
+        reference/ (the full manual). The agent reads the overview first for instant
+        grounding and drills into reference only when it needs detail. Needs an LLM;
+        injectable via ``distiller_fn`` for offline use.
+        """
+        d = Path(skill_dir)
+        ref = d / "reference"
+        if not ref.is_dir() or not any(ref.rglob("*.md")):
+            return {
+                "name": d.name,
+                "status": "skipped",
+                "reason": "no reference content",
+            }
+        digest = _corpus_digest(ref)
+        try:
+            overview = (
+                self.distiller_fn(d.name, digest)
+                if self.distiller_fn is not None
+                else _default_distill(d.name, digest)
+            )
+        except Exception as exc:  # noqa: BLE001 — LLM/model unavailable
+            return {"name": d.name, "status": "failed", "reason": str(exc)[:200]}
+        if not overview.strip():
+            return {"name": d.name, "status": "failed", "reason": "empty overview"}
+        (d / "OVERVIEW.md").write_text(_optimize_markdown(overview), encoding="utf-8")
+        mpath = d / "sources.json"
+        if mpath.exists():
+            data = json.loads(mpath.read_text(encoding="utf-8"))
+            data["distilled"] = True
+            mpath.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        self.restyle_one(d)  # re-render to link the new overview
+        return {
+            "name": d.name,
+            "status": "distilled",
+            "overview_chars": len(overview),
+        }
+
+    def distill_all(self, root: str | Path, *, limit: int = 0) -> dict[str, Any]:
+        """Distill every managed graph under ``root`` (LLM; bounded by ``limit``)."""
+        results: list[dict[str, Any]] = []
+        done = 0
+        for d in _iter_graph_dirs(Path(root)):
+            if not (d / "sources.json").exists():
+                continue
+            res = self.distill_one(d)
+            results.append(res)
+            if res.get("status") == "distilled":
+                done += 1
+                if limit and done >= limit:
+                    break
+        return {"distilled": done, "results": results}
+
 
 # ── module helpers (pure / optional-dep guarded) ───────────────────────────────
 
@@ -1282,6 +1351,52 @@ def _convert_document(path: str) -> str:
             "Document conversion needs 'markitdown' or 'pymupdf4llm'. "
             "Install with: pip install 'universal-skills[skill-graph-builder]'"
         ) from exc
+
+
+def _corpus_digest(ref: Path, max_chars: int = 24000, per_file: int = 900) -> str:
+    """A bounded digest of the corpus (path + head of each file) to feed a distiller."""
+    parts: list[str] = []
+    total = 0
+    for p in sorted(ref.rglob("*.md")):
+        try:
+            head = p.read_text(encoding="utf-8", errors="replace").strip()[:per_file]
+        except OSError:
+            continue
+        block = f"## FILE: {p.relative_to(ref).as_posix()}\n{head}\n"
+        if total + len(block) > max_chars:
+            break
+        parts.append(block)
+        total += len(block)
+    return "\n".join(parts)
+
+
+def _default_distill(name: str, digest: str) -> str:
+    """Distill a corpus digest into an OVERVIEW.md via the role-resolved chat model."""
+    from pydantic_ai import Agent
+
+    from agent_utilities.core.model_factory import create_model
+
+    title = name.replace("-", " ").replace("docs", "").strip().title()
+    agent = Agent(
+        create_model(role="generator"),
+        system_prompt=(
+            "You distill a documentation corpus into a concise, high-signal OVERVIEW "
+            "for an AI agent. Output Markdown only; be dense and accurate; never invent."
+        ),
+    )
+    prompt = (
+        f"Excerpts from the '{title}' reference corpus follow. Produce OVERVIEW.md with:\n"
+        f"# {title} — Distilled Overview\n"
+        "## What it is (2-3 sentences)\n"
+        "## Core concepts (bulleted, one line each)\n"
+        "## Quick reference / cheatsheet (most-used APIs, commands, patterns)\n"
+        "## Common tasks (task -> terse how-to)\n"
+        "## Gotchas & pitfalls\n"
+        "## Where to look (which reference/ files cover what)\n\n"
+        "Corpus excerpts:\n\n" + digest
+    )
+    result = agent.run_sync(prompt)
+    return str(getattr(result, "output", None) or getattr(result, "data", "") or "")
 
 
 def _default_generate(spec: SourceSpec) -> list[AcquiredDoc]:
@@ -1631,6 +1746,15 @@ def _cmd_restyle(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_distill(args: argparse.Namespace) -> int:
+    pipe = SkillGraphPipeline(kg_enrich=False)
+    if args.dir:
+        print(json.dumps(pipe.distill_one(args.dir), indent=2))
+    else:
+        print(json.dumps(pipe.distill_all(args.root, limit=args.limit), indent=2))
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Unified skill-graph distillation pipeline."
@@ -1735,6 +1859,16 @@ def main() -> None:
     rsg.add_argument("--dir", help="Restyle a single managed skill-graph directory.")
     rsg.add_argument("--root", help="Restyle every managed graph under this root.")
     rs.set_defaults(func=_cmd_restyle)
+
+    ds = sub.add_parser(
+        "distill",
+        help="LLM-distill graph(s) into an OVERVIEW.md (essence + cheatsheet tier).",
+    )
+    dsg = ds.add_mutually_exclusive_group(required=True)
+    dsg.add_argument("--dir", help="Distill a single managed skill-graph directory.")
+    dsg.add_argument("--root", help="Distill every managed graph under this root.")
+    ds.add_argument("--limit", type=int, default=0, help="Max graphs to distill.")
+    ds.set_defaults(func=_cmd_distill)
 
     args = parser.parse_args()
     raise SystemExit(args.func(args))

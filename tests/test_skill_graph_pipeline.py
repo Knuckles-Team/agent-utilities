@@ -196,6 +196,27 @@ def test_index_json_and_polished_skill_md(src_dir, tmp_path):
     assert "| **Files** |" in skill_md  # badge table
 
 
+def test_distill_writes_overview_and_links_it(src_dir, tmp_path):
+    def distiller_fn(name, digest):
+        assert "FILE:" in digest  # corpus digest fed to the distiller
+        return f"# {name} — Distilled Overview\n\n## What it is\nA test corpus.\n"
+
+    pipe = SkillGraphPipeline(distiller_fn=distiller_fn, kg_enrich=False)
+    pipe.build(
+        name="widget-docs",
+        specs=[SourceSpec("dir", str(src_dir))],
+        out_dir=tmp_path / "out",
+    )
+    graph = tmp_path / "out" / "widget-docs"
+    res = pipe.distill_one(graph)
+    assert res["status"] == "distilled"
+    assert (graph / "OVERVIEW.md").exists()
+    skill_md = (graph / "SKILL.md").read_text()
+    assert "overview: OVERVIEW.md" in skill_md
+    assert "[OVERVIEW.md](OVERVIEW.md)" in skill_md
+    assert json.loads((graph / "sources.json").read_text())["distilled"] is True
+
+
 def test_restyle_rerenders_without_recrawl(src_dir, tmp_path):
     pipe = _pipe()
     pipe.build(
