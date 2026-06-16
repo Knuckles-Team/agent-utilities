@@ -148,6 +148,7 @@ class LoopController:
         discover: bool | None = None,
         papers: list[dict[str, Any]] | None = None,
         reason: bool = True,
+        tri_evolution: bool = False,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -187,6 +188,7 @@ class LoopController:
             "spec_drafts": [],
             "team": None,
             "search_tasks": None,
+            "tri_evolution": None,
             "errors": [],
             "metrics": {"stage_ms": {}},
         }
@@ -322,8 +324,33 @@ class LoopController:
                 "synthesize_search", self._synthesize_search_tasks
             )
 
+        # 7. HYBRID TRI-EVOLUTION (CONCEPT:AHE-3.50) — co-evolve the research
+        # proposer/solver/judge and report the ablation that proves co-evolution
+        # beats solo (HOTE arXiv:2606.13710). Opt-in (off by default): the CPU
+        # ablation harness runs without LLMs; the LLM-backed integration of the
+        # real OntologyReasoningDriver/ARA/ConceptMatcher is the production path.
+        if tri_evolution:
+            report["tri_evolution"] = _stage(
+                "tri_evolution", self._run_tri_evolution
+            )
+
         self._finalize_metrics(report, cycle_start)
         return report
+
+    # ------------------------------------------------------------------
+    def _run_tri_evolution(self, *, rounds: int = 20) -> dict[str, Any]:
+        """Run the HOTE co-evolution ablation harness (CONCEPT:AHE-3.50).
+
+        Returns the joint-vs-solo final skills, the indispensability verdict, and
+        the marginal adaptation-speed gain of joint co-evolution. CPU-only and
+        deterministic; the real LLM-backed proposer/solver/judge plug into
+        ``HybridTriEvolutionController`` via its injectable hooks.
+        """
+        from agent_utilities.harness.hote_tri_evolution import (
+            HybridTriEvolutionController,
+        )
+
+        return HybridTriEvolutionController().run_ablation(rounds=rounds)
 
     # ------------------------------------------------------------------
     def _cheap_input_count(self) -> int | None:
