@@ -1971,14 +1971,60 @@ class IngestionEngine:
         except Exception as e:
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
 
+    def _materialize_body_chunks(
+        self,
+        node_id: str,
+        text: str,
+        *,
+        title: str,
+        doc_type: str,
+        source: str = "",
+    ) -> tuple[int, int]:
+        """Chunk + embed a prose body and link Chunk objects to ``node_id`` (KG-2.48).
+
+        The shared enrichment substrate that gives EVERY skill-type object — atomic
+        Skill, SkillGraph reference docs, WorkflowDefinition — the same semantic-search
+        + provenance layer documents/books get: ``HAS_CHUNK`` Chunk objects with bounded
+        embeddings. Returns ``(chunks_created, chunk_edges)``; never raises (enrichment
+        must never block ingestion).
+        """
+        if not (text or "").strip():
+            return 0, 0
+        try:
+            from ..ontology.document_processing import ChunkingConfig, DocumentProcessor
+
+            # Chunk under a distinct body-doc id so we never CLOBBER the parent
+            # Skill/SkillGraph/WorkflowDefinition node (process() writes a Document at
+            # its document_id); link the body-doc back to the parent with HAS_BODY.
+            body_id = f"{node_id}::body"
+            processor = DocumentProcessor(self.backend, chunking=ChunkingConfig())
+            processed = processor.process(
+                text,
+                document_id=body_id,
+                title=title,
+                doc_type=doc_type,
+                source=source,
+            )
+            if self.backend is not None and hasattr(self.backend, "add_edge"):
+                try:
+                    self.backend.add_edge(node_id, body_id, "HAS_BODY")
+                except Exception:  # noqa: BLE001 — linking is best-effort
+                    pass
+            return processed.chunk_count, len(processed.edges)
+        except Exception as e:  # noqa: BLE001 — opt-in enrichment never blocks ingest
+            logger.warning("[KG-2.48] body chunking failed for %s: %s", node_id, e)
+            return 0, 0
+
     @adaptor(ContentType.SKILL)
     async def _ingest_skill(self, manifest: IngestionManifest) -> IngestionResult:
-        """Ingest an agent skill directory into the graph.
+        """Ingest an agent skill directory into the graph (full enrichment).
 
-        CONCEPT:KG-2.7
-
-        Parses YAML frontmatter from ``SKILL.md`` and creates a skill node
-        in the KG. ``source_uri`` should be the directory containing ``SKILL.md``.
+        CONCEPT:KG-2.7 — standardized so an atomic skill gets the SAME enrichment level
+        as documents/books and skill-graphs: a Skill node carrying its skill-type-unique
+        attributes (``skill_type``/triggers/tags/``has_scripts``), the instruction body
+        chunked + embedded into ``Chunk`` objects (semantic search), and concepts + facts
+        extracted via the central seam (the ``enrichable`` payload). ``source_uri`` is
+        the directory containing ``SKILL.md``.
         """
         try:
             skill_path = Path(manifest.source_uri)
@@ -1995,6 +2041,11 @@ class IngestionEngine:
             frontmatter = self._parse_skill_frontmatter(content)
             if not frontmatter.get("name"):
                 frontmatter["name"] = skill_path.name
+            # Skill-type-unique attributes so the skill family is queryable + each
+            # type is distinguishable (atomic skill vs graph vs workflow).
+            frontmatter.setdefault("skill_type", "atomic")
+            frontmatter.setdefault("has_scripts", (skill_path / "scripts").is_dir())
+            body = self._strip_frontmatter(content)
 
             skill_id = ""
             if hasattr(self.kg, "ingest_agent_skill"):
@@ -2007,15 +2058,30 @@ class IngestionEngine:
                     or ""
                 )
             skill_id = skill_id or f"skill:{frontmatter.get('name', skill_path.name)}"
+
+            # Same enrichment level as documents/books: chunk + embed the instructions
+            # (semantic search), then concepts + facts via the central seam (enrichable).
+            chunks, chunk_edges = self._materialize_body_chunks(
+                skill_id,
+                body,
+                title=str(frontmatter.get("name", "")),
+                doc_type="skill",
+                source=str(skill_md),
+            )
             return IngestionResult(
                 manifest=manifest,
                 status="success",
-                nodes_created=1,
-                details={"skill_name": frontmatter.get("name", "")},
+                nodes_created=1 + chunks,
+                edges_created=chunk_edges,
+                details={
+                    "skill_name": frontmatter.get("name", ""),
+                    "skill_type": frontmatter.get("skill_type"),
+                    "chunks": chunks,
+                },
                 enrichable=[
                     {
                         "source_id": skill_id,
-                        "text": content,
+                        "text": body or content,
                         "source_type": "skill",
                         "title": frontmatter.get("name", ""),
                     }
@@ -2443,3 +2509,11 @@ class IngestionEngine:
                 if key:
                     frontmatter[key] = value
         return frontmatter
+
+    @staticmethod
+    def _strip_frontmatter(content: str) -> str:
+        """Return a SKILL.md body with its leading YAML frontmatter removed."""
+        import re
+
+        m = re.match(r"^---\s*\n.*?\n---\s*\n?", content, re.DOTALL)
+        return content[m.end() :] if m else content
