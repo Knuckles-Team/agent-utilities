@@ -77,7 +77,9 @@ class Recommendation:
     score: float
 
 
-def _reconstruct(encoder: TemporalSemanticIdEncoder, codes: Sequence[int]) -> np.ndarray:
+def _reconstruct(
+    encoder: TemporalSemanticIdEncoder, codes: Sequence[int]
+) -> np.ndarray:
     """Map a content code tuple back to its continuous residual reconstruction.
 
     The reconstruction is the sum of the chosen centroid at each residual level
@@ -216,9 +218,7 @@ class ImplicitReasoningRecommender:
                 # Compute the full temporal SID so the recency token is exercised;
                 # the leading time bucket is dropped for the content-space index.
                 assert now_epoch is not None  # guarded above
-                self._encoder.encode(
-                    vec, event_times.get(item_id), now_epoch=now_epoch
-                )
+                self._encoder.encode(vec, event_times.get(item_id), now_epoch=now_epoch)
             content_sids.append(content)
 
         self._item_ids = ids
@@ -325,7 +325,9 @@ class ImplicitReasoningRecommender:
         """Reconstruct continuous vectors for the user's history SIDs."""
         if not history_sids:
             return np.empty((0, self._item_vectors.shape[1]), dtype=np.float64)
-        return np.vstack([_l2(_reconstruct(self._encoder, sid)) for sid in history_sids])
+        return np.vstack(
+            [_l2(_reconstruct(self._encoder, sid)) for sid in history_sids]
+        )
 
     def _rank(self, refined: np.ndarray, refined_sid: tuple[int, ...]) -> np.ndarray:
         """Score every catalog item against the refined latent target.

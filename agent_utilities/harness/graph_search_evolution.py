@@ -194,7 +194,9 @@ class GlobalCodeMemory:
     be injected to replace it.
     """
 
-    def __init__(self, *, similarity_fn: Callable[[str, str], float] | None = None) -> None:
+    def __init__(
+        self, *, similarity_fn: Callable[[str, str], float] | None = None
+    ) -> None:
         self._similarity = similarity_fn or _jaccard
         self._records: dict[str, MemRecord] = {}
 
@@ -450,7 +452,9 @@ class GraphSearchEvolver:
 
     def _selectable(self) -> list[SearchNode]:
         """Non-buggy nodes eligible to be expanded (the tree backbone)."""
-        return [n for n in self.nodes.values() if not n.is_buggy and n.stage != Stage.ROOT]
+        return [
+            n for n in self.nodes.values() if not n.is_buggy and n.stage != Stage.ROOT
+        ]
 
     def _select(self, step: int) -> SearchNode:
         """UCT-select an expandable node under the progressive ``c`` schedule."""
@@ -615,7 +619,9 @@ class GraphSearchEvolver:
         return self._best_node()
 
     def _best_node(self) -> SearchNode:
-        valid = [n for n in self.nodes.values() if not n.is_buggy and n.metric is not None]
+        valid = [
+            n for n in self.nodes.values() if not n.is_buggy and n.metric is not None
+        ]
         if not valid:
             # Fall back to the root when nothing evaluated cleanly.
             return next(n for n in self.nodes.values() if n.stage == Stage.ROOT)

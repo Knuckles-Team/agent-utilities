@@ -207,7 +207,9 @@ class FailureTriage:
                 passed = _read_attr(entry, "passed")
             if passed:
                 continue
-            task_id = _read_attr(entry, "task_id") or _read_attr(entry, "id") or "unknown"
+            task_id = (
+                _read_attr(entry, "task_id") or _read_attr(entry, "id") or "unknown"
+            )
             root_cause = _read_attr(entry, "root_cause") or "unknown"
             self.add_failure(
                 case_id=str(task_id),

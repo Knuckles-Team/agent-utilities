@@ -211,9 +211,7 @@ class PauseTokenRecommender:
         hist = self._encode_history(history).unsqueeze(0)  # (1, dim)
         return self._logits_from_hist(hist, use_pause=use_pause).squeeze(0)
 
-    def _logits_from_hist(
-        self, hist: torch.Tensor, *, use_pause: bool
-    ) -> torch.Tensor:
+    def _logits_from_hist(self, hist: torch.Tensor, *, use_pause: bool) -> torch.Tensor:
         """Batched next-item logits from a ``(batch, dim)`` history matrix.
 
         Vectorises the two-path readout over a whole batch so a full-batch epoch

@@ -186,7 +186,9 @@ class LeanixEAClient:
             names = list(rels.keys())
         elif isinstance(rels, list):
             names = [
-                str(r.get("name")) for r in rels if isinstance(r, dict) and r.get("name")
+                str(r.get("name"))
+                for r in rels
+                if isinstance(r, dict) and r.get("name")
             ]
         # Tolerant fallback: relation fields conventionally start with "rel".
         return [n for n in names if isinstance(n, str) and n.startswith("rel")]

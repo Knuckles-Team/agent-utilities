@@ -612,7 +612,9 @@ def bench_sgs(*, seed: int = 0) -> BenchmarkResult:
     def _accepted_quality_fraction(use_guide: bool) -> tuple[float, int]:
         conjecture_fn.calls = 0  # type: ignore[attr-defined]
         if use_guide:
-            play = SelfGuidedSelfPlay(conjecture_fn, solve_fn, guide=Guide(threshold=0.5))
+            play = SelfGuidedSelfPlay(
+                conjecture_fn, solve_fn, guide=Guide(threshold=0.5)
+            )
         else:
             # No-gate baseline: a permissive Guide that accepts everything.
             play = SelfGuidedSelfPlay(
@@ -623,7 +625,9 @@ def bench_sgs(*, seed: int = 0) -> BenchmarkResult:
         if not accepted:
             return (0.0, 0)
         high = sum(
-            1 for r in accepted if quality_guide.evaluate(target, r.generated_task).overall >= 0.5
+            1
+            for r in accepted
+            if quality_guide.evaluate(target, r.generated_task).overall >= 0.5
         )
         return (high / len(accepted), len(accepted))
 
@@ -662,9 +666,7 @@ def bench_pauserec_trained(*, seed: int = 0) -> BenchmarkResult | None:
     # Toy task where next-item is a nonlinear interaction of the history (see the trainer).
     rng = np.random.default_rng(seed)
     n_items = 12
-    sequences = [
-        [int(rng.integers(0, n_items)) for _ in range(3)] for _ in range(64)
-    ]
+    sequences = [[int(rng.integers(0, n_items)) for _ in range(3)] for _ in range(64)]
     model = ptt.PauseTokenRecommender(
         n_items=n_items, dim=6, n_pause_tokens=4, seed=seed
     )
@@ -716,5 +718,7 @@ def to_markdown(results: list[BenchmarkResult]) -> str:
         for r in results
     ]
     reproduced = sum(1 for r in results if r.claim_reproduced)
-    footer = f"\n\n**{reproduced}/{len(results)} claims reproduced** under the fixed seed."
+    footer = (
+        f"\n\n**{reproduced}/{len(results)} claims reproduced** under the fixed seed."
+    )
     return "\n".join([header, *rows]) + footer
