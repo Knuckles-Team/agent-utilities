@@ -283,6 +283,64 @@ def test_migrate_reacquire_uses_source_url(tmp_path):
     assert fm["source_types"] == ["web"]
 
 
+def test_refresh_skips_unchanged_and_rebuilds_changed(tmp_path):
+    # A controllable crawler whose output we can flip to simulate upstream change.
+    state = {"text": "# Home\n\nv1\n", "calls": 0}
+
+    def crawler_fn(spec):
+        state["calls"] += 1
+        return [AcquiredDoc(rel_path="index.md", text=state["text"], source_uri=spec.uri)]
+
+    pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
+    pipe.build(name="site-docs", specs=[SourceSpec("web", "https://x")],
+               out_dir=tmp_path / "out")
+    graph = tmp_path / "out" / "site-docs"
+
+    # Unchanged upstream → refresh is a no-op (fresh), no version bump.
+    r1 = pipe.refresh_one(graph)
+    assert r1["status"] == "fresh"
+
+    # Upstream changes → refresh rewrites + bumps version.
+    state["text"] = "# Home\n\nv2 CHANGED\n"
+    r2 = pipe.refresh_one(graph)
+    assert r2["status"] == "refreshed"
+    assert r2["version"] == "0.1.1"
+    assert "v2 CHANGED" in (graph / "reference" / "index.md").read_text()
+
+    # Now unchanged again.
+    assert pipe.refresh_one(graph)["status"] == "fresh"
+
+
+def test_refresh_force_rewrites_unchanged(tmp_path):
+    def crawler_fn(spec):
+        return [AcquiredDoc(rel_path="index.md", text="# Home\n\nsame\n",
+                            source_uri=spec.uri)]
+
+    pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
+    pipe.build(name="site-docs", specs=[SourceSpec("web", "https://x")],
+               out_dir=tmp_path / "out")
+    graph = tmp_path / "out" / "site-docs"
+    assert pipe.refresh_one(graph, force=True)["status"] == "refreshed"
+
+
+def test_refresh_one_unmanaged_is_skipped(tmp_path):
+    (tmp_path / "g").mkdir()
+    assert _pipe().refresh_one(tmp_path / "g")["status"] == "skipped"
+
+
+def test_refresh_all_reports_per_graph(tmp_path):
+    def crawler_fn(spec):
+        return [AcquiredDoc(rel_path="i.md", text="# x\n", source_uri=spec.uri)]
+
+    pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
+    root = tmp_path / "root"
+    for n in ("a-docs", "b-docs"):
+        pipe.build(name=n, specs=[SourceSpec("web", f"https://{n}")], out_dir=root)
+    report = pipe.refresh_all(root)
+    assert {r["name"] for r in report["results"]} == {"a-docs", "b-docs"}
+    assert all(r["status"] == "fresh" for r in report["results"])
+
+
 def test_migrate_skips_native(tmp_path):
     native = tmp_path / "c"
     native.mkdir()
