@@ -13,6 +13,90 @@ from pydantic import Field
 
 from agent_utilities.mcp import kg_server
 
+#: Code-symbol nav actions over the resolved graph (CONCEPT:KG-2.9g).
+CODE_NAV_ACTIONS = frozenset(
+    {"find_definition", "find_references", "trace_call_graph", "impact_of_change"}
+)
+
+# Columns returned for a :Code node (kept identical across actions for a stable shape).
+_CODE_COLS = (
+    "{var}.id AS id, {var}.name AS name, {var}.file_path AS file_path, "
+    "{var}.line AS line, {var}.language AS language, {var}.kind_detail AS kind, "
+    "{var}.instance AS instance, {var}.source_system AS source_system"
+)
+
+
+def build_code_nav_query(
+    *,
+    action: str,
+    symbol: str = "",
+    node_id: str = "",
+    source_system: str = "",
+    depth: int = 3,
+    limit: int = 200,
+) -> tuple[str, dict[str, Any]]:
+    """Build the (read-only) Cypher + params for a ``graph_code_nav`` action.
+
+    Pure and side-effect-free so the templates are unit-tested without an engine.
+    Operates on the resolved code graph: ``:Code`` symbols joined by ``calls``
+    (symbol→symbol) edges. ``depth`` is validated and inlined (Cypher forbids a
+    parameterized variable-length bound); everything else is parameterized.
+    """
+    if action not in CODE_NAV_ACTIONS:
+        raise ValueError(
+            f"unknown action '{action}'; expected one of {sorted(CODE_NAV_ACTIONS)}"
+        )
+    if not symbol and not node_id:
+        raise ValueError("provide 'symbol' or 'node_id'")
+    try:
+        depth = max(1, min(10, int(depth)))
+        limit = max(1, min(5000, int(limit)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("depth/limit must be integers") from exc
+
+    params: dict[str, Any] = {}
+    # Match clause for the anchor :Code node (id wins over name), plus an optional
+    # source_system scope, built as a WHERE so it composes across actions.
+    conds: list[str] = []
+    if node_id:
+        conds.append("{var}.id = $node_id")
+        params["node_id"] = node_id
+    else:
+        conds.append("{var}.name = $symbol")
+        params["symbol"] = symbol
+    if source_system:
+        conds.append("{var}.source_system = $src")
+        params["src"] = source_system
+
+    def where_for(var: str) -> str:
+        return " AND ".join(c.format(var=var) for c in conds)
+
+    cols = _CODE_COLS
+
+    if action == "find_definition":
+        cypher = (
+            f"MATCH (c:Code) WHERE {where_for('c')} "
+            f"RETURN {cols.format(var='c')} LIMIT {limit}"
+        )
+    elif action == "find_references":
+        # Callers: incoming `calls` edges to the anchor symbol.
+        cypher = (
+            f"MATCH (caller:Code)-[:calls]->(def:Code) WHERE {where_for('def')} "
+            f"RETURN DISTINCT {cols.format(var='caller')} LIMIT {limit}"
+        )
+    elif action == "trace_call_graph":
+        # Transitive callees reachable from the anchor (downstream).
+        cypher = (
+            f"MATCH (s:Code)-[:calls*1..{depth}]->(callee:Code) WHERE {where_for('s')} "
+            f"RETURN DISTINCT {cols.format(var='callee')} LIMIT {limit}"
+        )
+    else:  # impact_of_change — transitive callers (upstream blast radius).
+        cypher = (
+            f"MATCH (caller:Code)-[:calls*1..{depth}]->(t:Code) WHERE {where_for('t')} "
+            f"RETURN DISTINCT {cols.format(var='caller')} LIMIT {limit}"
+        )
+    return cypher, params
+
 
 def register_query_tools(mcp):
     """Register the query_tools group on the given FastMCP server."""
@@ -591,3 +675,65 @@ def register_query_tools(mcp):
         return _json.dumps(task.to_dict())
 
     kg_server.REGISTERED_TOOLS["graph_search_synthesis"] = graph_search_synthesis
+
+    # ══════════════════════════════════════════════════════════════════
+    # graph_code_nav — CONCEPT:KG-2.9g code-symbol navigation over the
+    # RESOLVED graph (`:Code` + `calls`/`depends_on`/`IMPLEMENTS`). Templated
+    # so agents (and Duo-style flows) get gkg's find-def / find-refs / trace /
+    # impact as first-class tools instead of hand-written Cypher.
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_code_nav",
+        description=(
+            "Navigate the resolved code graph (CONCEPT:KG-2.9g). action: "
+            "'find_definition' (locate a symbol's :Code node), 'find_references' "
+            "(callers of a symbol), 'trace_call_graph' (transitive callees), "
+            "'impact_of_change' (transitive callers = blast radius). Start from a "
+            "symbol name or an exact node_id; optionally scope to a source_system "
+            "(e.g. 'gitlab:gitlab.com')."
+        ),
+        tags=["graph-os", "query", "code"],
+    )
+    def graph_code_nav(
+        action: str = Field(
+            description="find_definition | find_references | trace_call_graph | impact_of_change"
+        ),
+        symbol: str = Field(
+            default="", description="Symbol name to start from (function/class/method)."
+        ),
+        node_id: str = Field(
+            default="", description="Exact :Code node id (overrides 'symbol' when set)."
+        ),
+        source_system: str = Field(
+            default="",
+            description="Optional source_system filter, e.g. 'gitlab:gitlab.com'.",
+        ),
+        depth: int = Field(
+            default=3,
+            description="Max hops for trace_call_graph / impact_of_change (1-10).",
+        ),
+        limit: int = Field(default=200, description="Max rows to return."),
+    ) -> str:
+        """Templated code-symbol navigation over the resolved KG code graph."""
+        try:
+            cypher, qparams = build_code_nav_query(
+                action=action,
+                symbol=symbol,
+                node_id=node_id,
+                source_system=source_system,
+                depth=depth,
+                limit=limit,
+            )
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+
+        engine = kg_server._get_engine()
+        if not engine:
+            return json.dumps({"error": "IntelligenceGraphEngine not active"})
+        try:
+            rows = engine.query_cypher(cypher, qparams)
+            return json.dumps({"action": action, "results": rows}, default=str)
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["graph_code_nav"] = graph_code_nav

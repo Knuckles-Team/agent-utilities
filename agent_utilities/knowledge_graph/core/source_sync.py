@@ -218,11 +218,81 @@ def _sync_archivebox(
     }
 
 
+def _sync_gitlab(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Index whole GitLab instances as a resolved code graph (CONCEPT:KG-2.9g).
+
+    For every configured instance (``GITLAB_INSTANCES`` JSON, else single
+    ``GITLAB_URL``/``GITLAB_TOKEN``) this enumerates projects → default-branch code
+    files and ships each project to the engine's ``index_repository`` resolver
+    (CONCEPT:KG-2.8r), writing ``:Code`` symbols + resolved ``calls``/``depends_on``
+    + ``Repository``/``File`` structure under ``source_system = gitlab:<instance>``.
+    ``mode='full'`` re-indexes all; delta uses a per-instance ``last_activity_at``
+    watermark; ``ids`` narrows to specific projects (webhook delta).
+    """
+    from ...core.config import setting
+    from .gitlab_indexer import (
+        GitLabRestSource,
+        GitLabSource,
+        index_instance,
+        instances_from_config,
+    )
+
+    graph_compute = getattr(engine, "graph_compute", None)
+    if graph_compute is None or not getattr(
+        graph_compute, "supports_index_repository", False
+    ):
+        return {
+            "status": "skipped",
+            "reason": "engine does not advertise IndexRepository (rebuild with the resolver)",
+        }
+
+    instances = instances_from_config(setting)
+    if client is not None:  # test/override seam: a pre-built GitLabSource
+        instances = instances or [None]  # type: ignore[list-item]
+    if not instances:
+        return {"status": "skipped", "reason": "no GitLab instance configured"}
+
+    backend = getattr(engine, "backend", None)
+    project_ids = {str(i) for i in ids} if ids else None
+
+    results: list[dict[str, Any]] = []
+    for inst in instances:
+        name = inst.name if inst is not None else "gitlab"
+        wm_key = f"gitlab:{name}"
+        since = None if mode == "full" else _read_watermark(backend, wm_key)
+        source: GitLabSource = client if client is not None else GitLabRestSource(inst)
+        summary = index_instance(
+            instance=name,
+            source=source,
+            index_fn=graph_compute.index_repository,
+            ingest=engine.ingest_external_batch,
+            project_ids=project_ids,
+            since=since,
+        )
+        if summary.watermark and (since is None or summary.watermark > since):
+            _write_watermark(backend, wm_key, summary.watermark)
+        results.append(summary.as_dict())
+
+    return {
+        "status": "ok",
+        "source": "gitlab",
+        "mode": mode,
+        "delta_capable": True,
+        "instances": results,
+        "projects_indexed": sum(r["projects_indexed"] for r in results),
+        "symbols": sum(r["symbols"] for r in results),
+        "calls_resolved": sum(r["calls_resolved"] for r in results),
+    }
+
+
 # Sources with a native delta (watermark/reconcile) handler. Add an entry here to
 # make another source incremental (e.g. Camunda once its extractor takes `since`).
 _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "leanix": _sync_leanix,
     "archivebox": _sync_archivebox,
+    "gitlab": _sync_gitlab,
 }
 
 

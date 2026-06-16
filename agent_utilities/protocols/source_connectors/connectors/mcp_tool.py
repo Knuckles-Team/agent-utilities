@@ -252,6 +252,34 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "updated_field": "updated_at",
         "doc_type": "repository",
     },
+    # GitLab API-OBJECT ingestion (issues / MRs as documents) — the metadata side
+    # of "assimilate all of GitLab" (CONCEPT:KG-2.9g). The resolved CODE graph comes
+    # from the dedicated `gitlab` source-sync handler + `index_repository`, not from
+    # this preset. `{project_id}` is bound by the caller's params.
+    "gitlab-issues": {
+        "server": "gitlab-api",
+        "tool": "mcp_issues",
+        "action": "list",
+        "params": {"project_id": "{project_id}"},
+        "records_path": "data",
+        "id_field": "id",
+        "title_field": "title",
+        "text_field": "description",
+        "updated_field": "updated_at",
+        "doc_type": "ticket",
+    },
+    "gitlab-merge-requests": {
+        "server": "gitlab-api",
+        "tool": "mcp_merge_requests",
+        "action": "list",
+        "params": {"project_id": "{project_id}"},
+        "records_path": "data",
+        "id_field": "id",
+        "title_field": "title",
+        "text_field": "description",
+        "updated_field": "updated_at",
+        "doc_type": "merge_request",
+    },
     # okta-mcp: list users (identities) as Document records. ``okta_users`` with
     # action="list" returns the API-client envelope ``{"data": [user...],
     # "count", "truncated", "next_cursor"}`` (okta_agent/api/api_client_base.py

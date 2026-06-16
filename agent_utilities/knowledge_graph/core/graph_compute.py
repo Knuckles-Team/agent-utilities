@@ -646,6 +646,35 @@ class GraphComputeEngine:
             self._supports_batch_parse = cached
         return cached
 
+    def index_repository(self, files: list[tuple[str, bytes]]) -> dict[str, Any]:
+        """Parse a batch AND resolve cross-file edges in ONE round-trip (CONCEPT:KG-2.8r).
+
+        Treats ``files`` as one resolution scope (a repository, or a delta set):
+        unlike :meth:`parse_files` (one raw result per file), this returns a SINGLE
+        merged ``IndexResult`` dict whose ``calls`` (symbol→symbol) and
+        ``depends_on`` (file→file) edges point at real node ids — the cross-file
+        binding the GitLab code graph and impact analysis are built on. Requires an
+        engine that advertises ``IndexRepository`` — gate on
+        :attr:`supports_index_repository`.
+        """
+        return self._client.graph.index_repository(files)
+
+    @property
+    def supports_index_repository(self) -> bool:
+        """Whether the connected engine supports the resolved ``IndexRepository`` op.
+
+        Cached. Lets callers fall back to ``parse_files`` (raw, unresolved) against
+        an engine built before ``IndexRepository`` existed.
+        """
+        cached = getattr(self, "_supports_index_repository", None)
+        if cached is None:
+            try:
+                cached = bool(self._client.supports("IndexRepository"))
+            except Exception:
+                cached = False
+            self._supports_index_repository = cached
+        return cached
+
     def vf2_subgraph_match(self, pattern: "GraphComputeEngine") -> list[dict[str, str]]:
         """Find all subgraph isomorphism matches from pattern to target graph."""
         from agent_utilities.knowledge_graph.core.engine_breaker import unwrap_client
