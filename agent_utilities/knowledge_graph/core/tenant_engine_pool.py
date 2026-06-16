@@ -111,9 +111,7 @@ class TenantEnginePool:
         return tenant_graph_name(t, base=base)
 
     # -- core --------------------------------------------------------------
-    def acquire(
-        self, tenant: str | None = None, graph_name: str | None = None
-    ) -> Any:
+    def acquire(self, tenant: str | None = None, graph_name: str | None = None) -> Any:
         """Return a warm engine for the tenant's graph, hydrating on a miss.
 
         Passthrough (capacity <= 0) builds and returns a fresh engine without
@@ -230,9 +228,7 @@ def get_engine_pool() -> TenantEnginePool:
     return _POOL
 
 
-def acquire_engine(
-    tenant: str | None = None, graph_name: str | None = None
-) -> Any:
+def acquire_engine(tenant: str | None = None, graph_name: str | None = None) -> Any:
     """Convenience: acquire a (possibly warm) engine from the process pool."""
     return get_engine_pool().acquire(tenant=tenant, graph_name=graph_name)
 

@@ -93,7 +93,7 @@ def _resolve(secrets: SecretsClient | None, ref: str | None) -> str | None:
 
 
 class SourceCredential(abc.ABC):
-    """Base class for a typed, applyable, refreshable source credential.
+    """Base class for a typed, applicable, refreshable source credential.
 
     Subclasses set :attr:`type_name` (the registry key) and implement
     :meth:`materialize`, :meth:`is_present`, and :meth:`from_descriptor`.
