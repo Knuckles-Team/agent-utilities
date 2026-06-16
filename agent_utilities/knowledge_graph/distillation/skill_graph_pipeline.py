@@ -317,6 +317,26 @@ def _site_root(url: str) -> str:
     return f"{p.scheme or 'https'}://{p.netloc}"
 
 
+def _llms_scopes(url: str) -> list[str]:
+    """Ordered base prefixes to probe for llms.txt — docs-path scope before root.
+
+    Many sites publish a curated *docs* corpus at ``/docs/llms-full.txt`` while the
+    domain root's ``/llms.txt`` is a marketing-site index (e.g. mariadb.com). Probing
+    the URL's own path directory first picks the real docs corpus.
+    """
+    from urllib.parse import urlparse
+
+    p = urlparse(url if "://" in url else f"https://{url}")
+    root = f"{p.scheme or 'https'}://{p.netloc}"
+    scopes: list[str] = []
+    segs = [s for s in p.path.split("/") if s]
+    if segs:
+        scopes.append(root + "/" + "/".join(segs))  # deepest path dir
+    scopes.append(root)
+    seen: set[str] = set()
+    return [s for s in scopes if not (s in seen or seen.add(s))]
+
+
 # Above this many heading sections an llms-full split is *over-fragmented*
 # (e.g. langchain's 2548 per-API-method H1s). Past the cap we coalesce adjacent
 # sections into size-bounded files so the reference/ tree stays navigable.
@@ -374,7 +394,12 @@ def _section_doc(sec: str, src: str, idx: int | None = None) -> AcquiredDoc:
 
 
 def _fetch_llms_index(idx: str, base: str, max_pages: int) -> list[AcquiredDoc]:
-    """Fetch each page linked from an llms.txt index (.md raw, else strip-to-text)."""
+    """Fetch each page linked from an llms.txt index.
+
+    The llms.txt standard says links *should* serve markdown, but many sites link to
+    plain HTML pages (e.g. mariadb.com). A raw-HTML body would poison the corpus, so
+    any body that looks like HTML is stripped to markdown/text before storing.
+    """
     from urllib.parse import urljoin
 
     seen: set[str] = set()
@@ -389,6 +414,10 @@ def _fetch_llms_index(idx: str, base: str, max_pages: int) -> list[AcquiredDoc]:
         body = _http_get(url)
         if not body or not body.strip():
             continue
+        if _looks_like_html(body):
+            body = _html_to_markdown(body)
+            if not body or not body.strip():
+                continue
         rel = re.sub(r"[^a-zA-Z0-9._/-]+", "-", url.split("://", 1)[-1]).strip("-/")
         rel = (rel or _slug(name)) + ("" if rel.endswith(".md") else ".md")
         docs.append(
@@ -397,15 +426,47 @@ def _fetch_llms_index(idx: str, base: str, max_pages: int) -> list[AcquiredDoc]:
     return docs
 
 
+def _looks_like_html(text: str) -> bool:
+    """True if a fetched body is an HTML page rather than markdown/plain text."""
+    head = text.lstrip()[:400].lower()
+    return head.startswith(("<!doctype", "<html")) or (
+        "<head" in head or "<body" in head or "<div" in head
+    )
+
+
+def _html_to_markdown(html: str) -> str:
+    """Strip an HTML page to readable markdown (trafilatura soft-dep, else tag-strip).
+
+    Mirrors :func:`source_connectors.connectors.reader._local_read` so the llms.txt
+    index path yields the same clean text the url_reader path would.
+    """
+    try:
+        import trafilatura
+
+        extracted = trafilatura.extract(
+            html, output_format="markdown", include_links=False
+        )
+        if extracted:
+            return str(extracted)
+    except Exception:  # noqa: BLE001 — degrade to a light tag strip
+        pass
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n\s*\n+", "\n\n", text)).strip()
+
+
 def _fetch_llms_docs(url: str, *, max_pages: int = 1000) -> list[AcquiredDoc]:
-    """Acquire a site's docs via the llms.txt standard; [] if not published."""
-    base = _site_root(url)
-    full = _http_get(f"{base}/llms-full.txt")
-    if full and len(full) > 2000:
-        return _split_llms_full(full, base)
-    idx = _http_get(f"{base}/llms.txt")
-    if idx and "](" in idx:
-        return _fetch_llms_index(idx, base, max_pages)
+    """Acquire a site's docs via the llms.txt standard; [] if not published.
+
+    Probes docs-path scope before the domain root (see :func:`_llms_scopes`).
+    """
+    for base in _llms_scopes(url):
+        full = _http_get(f"{base}/llms-full.txt")
+        if full and len(full) > 2000:
+            return _split_llms_full(full, base)
+        idx = _http_get(f"{base}/llms.txt")
+        if idx and "](" in idx:
+            return _fetch_llms_index(idx, base, max_pages)
     return []
 
 
@@ -425,15 +486,15 @@ def detect_scrape_strategy(url: str) -> tuple[SourceSpec, dict[str, Any]]:
     """
     base = _site_root(url)
     profile: dict[str, Any] = {"url": url, "root": base}
-    if _http_get(f"{base}/llms-full.txt", max_bytes=4096) is not None:
-        profile["strategy"] = "llms"
-        profile["signal"] = "llms-full.txt"
-        return SourceSpec("llms", base), profile
-    idx = _http_get(f"{base}/llms.txt")
-    if idx and "](" in idx:
-        profile["strategy"] = "llms"
-        profile["signal"] = "llms.txt"
-        return SourceSpec("llms", base), profile
+    # Prefer a docs-path-scoped llms over the domain-root one (root may be marketing).
+    for scope in _llms_scopes(url):
+        if _http_get(f"{scope}/llms-full.txt", max_bytes=4096) is not None:
+            profile.update(strategy="llms", signal="llms-full.txt", scope=scope)
+            return SourceSpec("llms", scope), profile
+        idx = _http_get(f"{scope}/llms.txt", max_bytes=4096)
+        if idx and "](" in idx:
+            profile.update(strategy="llms", signal="llms.txt", scope=scope)
+            return SourceSpec("llms", scope), profile
     if _has_sitemap(base):
         profile["strategy"] = "web+sitemap"
         profile["signal"] = "sitemap.xml"
