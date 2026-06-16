@@ -348,9 +348,7 @@ class LoopController:
         # ablation harness runs without LLMs; the LLM-backed integration of the
         # real OntologyReasoningDriver/ARA/ConceptMatcher is the production path.
         if tri_evolution:
-            report["tri_evolution"] = _stage(
-                "tri_evolution", self._run_tri_evolution
-            )
+            report["tri_evolution"] = _stage("tri_evolution", self._run_tri_evolution)
 
         self._finalize_metrics(report, cycle_start)
         return report
