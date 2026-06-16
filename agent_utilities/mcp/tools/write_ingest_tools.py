@@ -415,36 +415,28 @@ def register_write_ingest_tools(mcp):
                 # unified resolver (ArchiveBox→crawl4ai→requests) → Document, and —
                 # for a research roundup (auto-detected, or forced via
                 # description='extract_papers') — download the papers it cites and
-                # ingest them too. Runs inline through _ingest_document.
-                from agent_utilities.knowledge_graph.ingestion.engine import (
-                    ContentType,
-                    IngestionEngine,
-                    IngestionManifest,
-                )
-
+                # ingest them too. Runs as a BACKGROUND job (fetch + paper downloads
+                # can exceed the call ceiling): returns a job_id; poll with
+                # action=job_status. The gateway host daemon's task workers process
+                # it through the unified _ingest_document path.
                 if not target_path:
                     return "Error: target_path (a URL) required for ingest_url"
-                meta: dict[str, Any] = {"agent_id": agent_id}
+                url = target_path.strip()
+                prov: dict[str, Any] = {"agent_id": agent_id, "source_url": url}
                 flag = (description or "").strip().lower()
                 if flag in ("extract_papers", "papers", "extract_papers=true", "true"):
-                    meta["extract_papers"] = True
+                    prov["extract_papers"] = True
                 elif flag in ("no_papers", "extract_papers=false", "false"):
-                    meta["extract_papers"] = False
-                res = await IngestionEngine(kg_engine=engine).ingest(
-                    IngestionManifest(
-                        content_type=ContentType.DOCUMENT,
-                        source_uri=target_path.strip(),
-                        metadata=meta,
-                    )
+                    prov["extract_papers"] = False
+                jid = engine.submit_task(
+                    target_path=url,
+                    is_codebase=False,
+                    provenance=prov,
+                    task_type="content_url",
                 )
-                return json.dumps(
-                    {
-                        "status": res.status,
-                        "nodes": res.nodes_created,
-                        "edges": res.edges_created,
-                        "details": res.details,
-                        "error": res.error,
-                    }
+                return (
+                    f"Submitted content-aware URL ingest job {jid} for {url} "
+                    f"(poll: action=job_status job_id={jid})."
                 )
 
             elif action == "archivebox_sync":
