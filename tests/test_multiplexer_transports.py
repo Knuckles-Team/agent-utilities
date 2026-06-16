@@ -8,6 +8,7 @@ same ``mcp_config.json`` transparently.
 from __future__ import annotations
 
 import contextlib
+import importlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -103,9 +104,15 @@ async def test_header_var_expansion(transports, tmp_path, monkeypatch):
     mux = MCPMultiplexer(tmp_path / "c.json")
     await mux._start_child(
         "auth-mcp",
-        {"url": "http://auth.arpa/mcp", "headers": {"Authorization": "Bearer ${MY_TOKEN}"}},
+        {
+            "url": "http://auth.arpa/mcp",
+            "headers": {"Authorization": "Bearer ${MY_TOKEN}"},
+        },
     )
-    assert transports["http"][0]["kwargs"]["headers"]["Authorization"] == "Bearer secret123"
+    assert (
+        transports["http"][0]["kwargs"]["headers"]["Authorization"]
+        == "Bearer secret123"
+    )
 
 
 @pytest.mark.asyncio
@@ -114,3 +121,49 @@ async def test_no_command_no_url_is_skipped(transports, tmp_path):
     res = await mux._start_child("bad", {})
     assert res is None
     assert not transports["stdio"] and not transports["http"] and not transports["sse"]
+
+
+def _enable_service_auth(monkeypatch):
+    monkeypatch.setenv("MCP_CLIENT_AUTH", "oidc-client-credentials")
+    monkeypatch.setenv("OIDC_CLIENT_ID", "mcp-multiplexer")
+    monkeypatch.setenv("OIDC_CLIENT_SECRET", "s3cr3t")
+    monkeypatch.setenv("OIDC_TOKEN_URL", "http://kc/token")
+    import agent_utilities.mcp.client_credentials as cc
+
+    importlib.reload(cc)  # reset provider cache under the new env
+    return cc
+
+
+@pytest.mark.asyncio
+async def test_remote_child_gets_per_request_service_auth(
+    transports, tmp_path, monkeypatch
+):
+    """A jwt child is authenticated via a per-request httpx.Auth, not a frozen
+    Authorization header — so the pooled session survives token expiry."""
+    cc = _enable_service_auth(monkeypatch)
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    await mux._start_child("egeria-mcp", {"url": "http://egeria-mcp.arpa/mcp"})
+    kwargs = transports["http"][0]["kwargs"]
+    assert isinstance(kwargs["auth"], cc.ClientCredentialsAuth)
+    # No baked-in (freezable) bearer in the session headers.
+    assert "Authorization" not in (kwargs.get("headers") or {})
+
+
+@pytest.mark.asyncio
+async def test_child_own_authorization_not_overridden(
+    transports, tmp_path, monkeypatch
+):
+    """A child that declares its own Authorization keeps it; the service auth
+    flow is not attached (auth=None)."""
+    _enable_service_auth(monkeypatch)
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    await mux._start_child(
+        "auth-mcp",
+        {
+            "url": "http://auth.arpa/mcp",
+            "headers": {"Authorization": "Bearer child-own"},
+        },
+    )
+    kwargs = transports["http"][0]["kwargs"]
+    assert kwargs["auth"] is None
+    assert kwargs["headers"]["Authorization"] == "Bearer child-own"
