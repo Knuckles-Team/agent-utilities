@@ -766,6 +766,23 @@ class LadybugBackend(GraphBackend):
             )
             return []
 
+    @staticmethod
+    def _unwind_to_per_row(query: str) -> str:
+        """Strip an ``UNWIND $batch AS row`` header and rewrite ``row.<k>`` /
+        ``row.`<k>``` references to ``$<k>`` so each row runs as a normal
+        parameterized statement (Kuzu has no UNWIND-over-param-list here). A
+        non-UNWIND query is returned unchanged. (CONCEPT:KG-2.9g)"""
+        import re
+
+        q = (query or "").strip()
+        m = re.match(r"(?is)^UNWIND\s+\$batch\s+AS\s+row\b(.*)$", q)
+        if not m:
+            return query
+        body = m.group(1).strip()
+        body = re.sub(r"row\.`([^`]+)`", r"$\1", body)
+        body = re.sub(r"row\.(\w+)", r"$\1", body)
+        return body
+
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]], chunk_size: int = 500
     ) -> list[dict[str, Any]]:
@@ -777,6 +794,15 @@ class LadybugBackend(GraphBackend):
 
         import secrets
         import time
+
+        # Bulk-writers emit ``UNWIND $batch AS row MERGE (n:L {id: row.id}) SET
+        # n.`k` = row.`k` …``. Kuzu has no UNWIND-over-a-param-list here and the
+        # per-row ``conn.execute`` below never bound ``$batch`` ("Parameter batch
+        # not found"), so the whole batch no-op'd. Translate to the per-row
+        # ``$param`` shape and run it per row — and ensure the node/rel tables for
+        # the labels exist first (the raw ``conn.execute`` path skipped the schema
+        # auto-create that ``execute`` does). (CONCEPT:KG-2.9g)
+        query = self._unwind_to_per_row(query)
 
         results: list[dict[str, Any]] = []
         max_retries = self.max_retries
@@ -792,6 +818,7 @@ class LadybugBackend(GraphBackend):
                                 "LadybugBackend.execute_batch: connection could not be opened."
                             )
                             break
+                        self._ensure_schema_for_query(query)
                         for params in chunk:
                             res = self.conn.execute(query, params or {})
                             # ladybug return format: list of QueryResult objects

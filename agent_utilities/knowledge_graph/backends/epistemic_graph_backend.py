@@ -148,6 +148,11 @@ class EpistemicGraphBackend(GraphBackend):
             handled, result = self._exec_rel_aggregate(q, params)
             if handled:
                 return result
+            # LABEL+WHERE-anchored traversal (the graph_code_nav shapes): resolve
+            # the anchor by scan, then walk. (CONCEPT:KG-2.9g)
+            handled, result = self._exec_where_anchored_traversal(q, params)
+            if handled:
+                return result
             logger.debug(
                 "epistemic_graph backend: unhandled relationship read; "
                 "returning [] (no full-graph fallback): %s",
@@ -374,6 +379,125 @@ class EpistemicGraphBackend(GraphBackend):
                 return True, [{r_var: ep} for ep in matches]
         return False, []
 
+    def _exec_where_anchored_traversal(
+        self, q: str, params: dict[str, Any]
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        """Interpret a LABEL+WHERE-anchored traversal (not id-anchored):
+
+          MATCH (l:La)-[:REL]->(r:Lb)        WHERE <anchor>.<p> = $x  RETURN <free>…
+          MATCH (l:La)-[:REL*lo..hi]->(r:Lb) WHERE <anchor>.<p> = $x  RETURN <free>…
+
+        This is the shape ``graph_code_nav`` emits (find_references / trace_call_graph
+        / impact_of_change): the *anchor* node is pinned by a WHERE property (e.g.
+        ``def.name = $symbol``), and the *free* node is projected. We resolve the
+        anchor ids via a label+WHERE scan (the engine's labeled fetch), then walk
+        ``calls`` edges in the direction implied by which side is anchored —
+        single-hop (rel-type filtered) or bounded k-hop. (CONCEPT:KG-2.9g)
+        """
+        import re
+
+        if re.search(r"\bSET\b|\bDETACH\b|\bDELETE\b|\bMERGE\b", q, re.I):
+            return False, []
+        node = r"\(\s*(\w+)\s*(?::(\w+))?\s*\)"
+        rel = (
+            r"\s*(<-|-)\s*\[\s*\w*\s*:?\s*(\w+)?\s*"
+            r"(\*\s*(\d*)\s*\.\.?\s*(\d*))?\s*[^\]]*\]\s*(->|-)\s*"
+        )
+        m = re.search(node + rel + node, q, re.I)
+        if not m:
+            return False, []
+        (
+            lvar,
+            llabel,
+            larrow,
+            rel_type,
+            varlen,
+            lo_s,
+            hi_s,
+            rarrow,
+            rvar,
+            rlabel,
+        ) = m.groups()
+
+        mw = re.search(r"\bWHERE\b(.+?)(?:\bRETURN\b|$)", q, re.I | re.S)
+        if not mw:
+            return False, []
+        # Anchor = the node carrying the WHERE condition; free = the other.
+        if re.search(rf"\b{lvar}\.\w", mw.group(1)):
+            anchor_var, free_var = lvar, rvar
+            anchor_label, free_label = llabel, rlabel
+        elif re.search(rf"\b{rvar}\.\w", mw.group(1)):
+            anchor_var, free_var = rvar, lvar
+            anchor_label, free_label = rlabel, llabel
+        else:
+            return False, []
+
+        groups = self._parse_where_or(mw.group(1), anchor_var, params)
+        if not groups:
+            return False, []
+
+        # Resolve anchor node ids: labeled fetch + WHERE filter.
+        anchor_ids: list[str] = []
+        try:
+            rows = self._graph.get_nodes_by_label(anchor_label or "", 0)
+        except Exception:  # noqa: BLE001
+            rows = self._graph._get_all_nodes_with_properties()
+        for nid, data in rows or []:
+            data = data or {}
+            if anchor_label and not self._label_match(data, anchor_label):
+                continue
+            if self._eval_groups(nid, data, groups):
+                anchor_ids.append(nid)
+
+        # Direction from the anchor's perspective. Pattern is ``(l)-[…]->(r)``
+        # (left→right) when ``rarrow == '->'``. Anchored-on-source ⇒ walk out
+        # (its callees); anchored-on-target ⇒ walk in (its callers).
+        ltr = rarrow == "->" and larrow != "<-"
+        if anchor_var == lvar:
+            direction = "out" if ltr else "in"
+        else:
+            direction = "in" if ltr else "out"
+
+        lo = int(lo_s) if lo_s else 1
+        hi = int(hi_s) if hi_s else (5 if varlen else 1)
+        if not varlen:
+            lo = hi = 1
+        rel_upper = rel_type.upper() if rel_type else None
+
+        matched: list[tuple[str, dict[str, Any]]] = []
+        seen: set[str] = set()
+        for aid in anchor_ids:
+            if varlen:
+                hops = self._khop(aid, lo, hi, direction)
+            else:
+                step = (
+                    self._graph.get_successors
+                    if direction == "out"
+                    else self._graph.get_predecessors
+                )
+                hops = []
+                for nb in step(aid):
+                    if rel_upper:
+                        ep = (
+                            self._graph._get_edge_properties(aid, nb)
+                            if direction == "out"
+                            else self._graph._get_edge_properties(nb, aid)
+                        ) or {}
+                        er = str(ep.get("rel_type") or ep.get("type") or "").upper()
+                        if er != rel_upper:
+                            continue
+                    hops.append(nb)
+            for nid in hops:
+                if nid in seen:
+                    continue
+                seen.add(nid)
+                data = self._graph._get_node_properties(nid) or {}
+                if free_label and not self._label_match(data, free_label):
+                    continue
+                matched.append((nid, data))
+
+        return True, self._project(q, free_var, matched, params)
+
     def _exec_var_length_match(
         self, q: str, params: dict[str, Any]
     ) -> tuple[bool, list[dict[str, Any]]]:
@@ -420,8 +544,10 @@ class EpistemicGraphBackend(GraphBackend):
             anchor_id, anchor_on_left = right_id, False
             free_var, free_label = lvar, llabel
         else:
-            # Anchor missing or unknown → no rows (but handled — never all-nodes).
-            return True, []
+            # No inline-id anchor → defer so a WHERE/label-anchored traversal
+            # (``…-[:calls*1..n]->(t) WHERE t.name=$s``) can resolve the anchor by
+            # scan instead of being swallowed as "no rows". (CONCEPT:KG-2.9g)
+            return False, []
 
         lo = int(lo_s) if lo_s else 1
         if hi_s:
@@ -552,6 +678,10 @@ class EpistemicGraphBackend(GraphBackend):
         )
         merged = dict(existing or {})
         merged["node_type"] = label
+        # The engine's label index (``get_nodes_by_label``) keys off ``label`` /
+        # ``type`` / ``labels`` — NOT ``node_type``. Stamp the MERGE label so a
+        # later ``MATCH (n:Label) WHERE …`` scan finds the node. (CONCEPT:KG-2.9g)
+        merged["label"] = label
 
         ms = re.search(r"\bSET\b(.+?)$", q, re.I | re.S)
         if ms:
@@ -561,6 +691,9 @@ class EpistemicGraphBackend(GraphBackend):
                 lhs, rhs = frag.split("=", 1)
                 prop = lhs.strip()
                 prop = prop[len(var) + 1 :] if prop.startswith(var + ".") else prop
+                # Bulk-write templates backtick-quote keys (``n.`name` = $name``);
+                # strip them so the stored property is ``name``, not `` `name` ``.
+                prop = prop.strip().strip("`")
                 merged[prop] = self._coerce_literal(rhs, params)
 
         self._graph.add_node(nid, merged)
@@ -1124,11 +1257,38 @@ class EpistemicGraphBackend(GraphBackend):
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Execute batch operations."""
+        """Execute batch operations.
+
+        The bulk-write callers (``ingest_external_batch``, ``write_batch``) emit the
+        Neo4j/AGE idiom ``UNWIND $batch AS row MERGE (n:Label {id: row.id}) SET
+        n.`k` = row.`k` …``. This adapter has no UNWIND engine, so translate the
+        template ONCE into the per-row ``$param`` shape the MERGE-node/MERGE-rel
+        interpreters already handle (``row.`k```/``row.k`` → ``$k``) and run it per
+        row. Without this the whole batch silently no-ops (the raw ``row.id``
+        template matches no interpreter) — ingested code/entities never land.
+        (CONCEPT:KG-2.9g)
+        """
+        per_row = self._unwind_to_per_row(query)
         results = []
         for params in batch:
-            results.extend(self.execute(query, params))
+            results.extend(self.execute(per_row, params))
         return results
+
+    @staticmethod
+    def _unwind_to_per_row(query: str) -> str:
+        """Strip an ``UNWIND $batch AS row`` header and rewrite ``row.<k>`` /
+        ``row.`<k>``` references to ``$<k>`` so each row runs as a normal
+        parameterized statement. A non-UNWIND query is returned unchanged."""
+        import re
+
+        q = (query or "").strip()
+        m = re.match(r"(?is)^UNWIND\s+\$batch\s+AS\s+row\b(.*)$", q)
+        if not m:
+            return query
+        body = m.group(1).strip()
+        body = re.sub(r"row\.`([^`]+)`", r"$\1", body)
+        body = re.sub(r"row\.(\w+)", r"$\1", body)
+        return body
 
     def create_schema(self) -> None:
         """Initialize schema metadata representation."""

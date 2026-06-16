@@ -153,7 +153,18 @@ def index_instance(
     domain = f"gitlab:{instance}"
     watermark = since
 
-    for project in source.list_projects():
+    # Iterate defensively: project enumeration is paginated, so a transient blip
+    # (after _get's own retries) must end this instance with partial results +
+    # a recorded error, never abort the whole sweep mid-flight. (CONCEPT:KG-2.9g)
+    project_iter = iter(source.list_projects())
+    while True:
+        try:
+            project = next(project_iter)
+        except StopIteration:
+            break
+        except Exception as exc:  # noqa: BLE001 - enumeration blip → stop, keep partial
+            summary.errors.append(f"project enumeration stopped early: {exc}")
+            break
         pid = str(project.id)
         if project_ids is not None and pid not in project_ids:
             continue
@@ -373,10 +384,12 @@ class GitLabRestSource:
         *,
         timeout: float = 30.0,
         per_page: int = 100,
+        max_retries: int = 3,
     ):
         self.config = config
         self.timeout = timeout
         self.per_page = per_page
+        self.max_retries = max_retries
 
     @property
     def _base(self) -> str:
@@ -391,17 +404,36 @@ class GitLabRestSource:
         s.verify = self.config.verify_ssl
         return s
 
+    def _get(self, session: Any, url: str, params: dict[str, Any]) -> Any:
+        """GET with bounded retry on TRANSIENT failures (connection refused,
+        timeout, 429/5xx). A full-instance sweep is thousands of requests over
+        minutes; without this a single blip aborts the whole index. Permanent
+        errors (4xx other than 429) raise immediately."""
+        import time as _time
+
+        import requests
+
+        last: Exception | None = None
+        for attempt in range(self.max_retries):
+            try:
+                resp = session.get(url, params=params, timeout=self.timeout)
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    last = RuntimeError(f"HTTP {resp.status_code}")
+                else:
+                    return resp
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last = exc
+            if attempt < self.max_retries - 1:
+                _time.sleep(0.5 * (2**attempt))  # 0.5s, 1s, 2s …
+        raise last or RuntimeError(f"GET failed: {url}")
+
     def _paginate(
         self, session: Any, path: str, params: dict[str, Any]
     ) -> Iterable[dict[str, Any]]:
         page = 1
         params = {**params, "per_page": self.per_page}
         while page and page <= 10_000:  # hard safety cap
-            resp = session.get(
-                f"{self._base}{path}",
-                params={**params, "page": page},
-                timeout=self.timeout,
-            )
+            resp = self._get(session, f"{self._base}{path}", {**params, "page": page})
             resp.raise_for_status()
             rows = resp.json()
             if not rows:
@@ -440,10 +472,10 @@ class GitLabRestSource:
 
         session = self._session()
         encoded = quote(path, safe="")
-        resp = session.get(
+        resp = self._get(
+            session,
             f"{self._base}/projects/{project.id}/repository/files/{encoded}/raw",
-            params={"ref": project.default_branch},
-            timeout=self.timeout,
+            {"ref": project.default_branch},
         )
         if resp.status_code != 200:
             return None
