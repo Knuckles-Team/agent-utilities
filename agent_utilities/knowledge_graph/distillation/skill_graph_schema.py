@@ -43,6 +43,7 @@ SOURCE_KINDS: tuple[str, ...] = (
     "mcp_tool",  # documents fetched from an MCP tool
     "generated",  # LLM-authored corpus ("generate our own")
     "kg_query",  # distilled from a Knowledge-Graph subgraph
+    "llms",  # llms.txt / llms-full.txt (the LLM-docs standard — clean, complete)
 )
 
 # Frontmatter keys a standardized skill-graph SKILL.md carries. ``description`` and
