@@ -137,6 +137,22 @@ def test_no_dangling_edge_endpoints_and_namespacing():
     assert call["name"] == "shared"
 
 
+def test_index_instance_survives_enumeration_blip():
+    # A transient pagination failure mid-enumeration must end the instance with
+    # PARTIAL results + a recorded error — never crash the whole sweep.
+    class _FlakySource(FakeSource):
+        def list_projects(self):
+            yield _proj("1", last_activity_at="2026-06-01")
+            raise ConnectionError("page 2 refused")
+
+    src = _FlakySource([], {"1": ["a.py"]}, {("1", "a.py"): b"def x():\n    return 1\n"})
+    summary = index_instance(
+        instance="t", source=src, index_fn=lambda f: INDEX_RESULT, ingest=lambda *a: None
+    )
+    assert summary.projects_indexed == 1  # the good project still indexed
+    assert any("enumeration stopped early" in e for e in summary.errors)
+
+
 def test_project_ids_scoping_skips_others():
     summary = index_instance(
         instance="test",
