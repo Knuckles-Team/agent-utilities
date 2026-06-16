@@ -46,6 +46,13 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "pattern",
     "route",  # HTTP route a Code handler serves (CONCEPT:KG-2.102)
     "resource",  # IaC resource (Dockerfile/K8s/Terraform) (CONCEPT:KG-2.103)
+    # Harness foundry: evolvable harness as reasoned-over ontology (CONCEPT:KG-2.107)
+    "harness",
+    "processor",
+    "harness_dimension",
+    "harness_edit",
+    "harness_variant",
+    "harness_pathology",
     "concept",
     "document",
     # Enterprise OS entities (CONCEPT:KG-2.9)
@@ -309,6 +316,16 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "serves",  # Code handler → HTTP Route (CONCEPT:KG-2.102)
     "served_by",  # Route → deployed Service (CONCEPT:KG-2.102)
     "provisions",  # IaC Resource → deployed Service (CONCEPT:KG-2.103)
+    # Harness foundry edges (CONCEPT:KG-2.107)
+    "targets_dimension",  # HarnessEdit → HarnessDimension (formal edit scope)
+    "has_variant",  # Harness → HarnessVariant (inverse variant_of)
+    "variant_of",
+    "applies_edit",  # HarnessVariant → HarnessEdit
+    "exhibits_pathology",  # Harness/Variant → HarnessPathology
+    "mitigates_pathology",  # HarnessEdit → HarnessPathology (inverse mitigated_by)
+    "mitigated_by",
+    "causes_regression",  # HarnessEdit → task (formal seesaw signal)
+    "confirms_fix",  # HarnessEdit → predicted fix
     "implemented_by",
     "similar_to",
     "mentions",
@@ -423,7 +440,6 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     # Risk Scoring Ontology (CONCEPT:KG-2.6)
     "assessed_risk",
     "has_risk_factor",
-    "mitigated_by",
     "propagates_risk_to",
     # Backtest Evaluation Harness (CONCEPT:AHE-3.4)
     "evaluated_strategy",
@@ -559,6 +575,14 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
 ARA_TRANSITIVE_EDGES: frozenset[str] = frozenset({"grounded_in"})
 ARA_INVERSE_EDGES: dict[str, str] = {"grounded_in": "supports"}
 
+# Harness-foundry OWL object-property characteristics, always on (CONCEPT:KG-2.107).
+# Reasoning materialises the variant↔base and edit↔pathology inverses so the SHACL
+# concentration/no-regression/pathology gate (AHE-3.53) can query a complete graph.
+HARNESS_INVERSE_EDGES: dict[str, str] = {
+    "has_variant": "variant_of",
+    "mitigates_pathology": "mitigated_by",
+}
+
 
 class OWLBridge:
     """Orchestrates LPG ↔ OWL data flow.
@@ -618,7 +642,7 @@ class OWLBridge:
         # then union any pack-declared object-properties on top.
         self._pack_transitive = set(ARA_TRANSITIVE_EDGES)
         self._pack_symmetric = set()
-        self._pack_inverse = dict(ARA_INVERSE_EDGES)
+        self._pack_inverse = {**ARA_INVERSE_EDGES, **HARNESS_INVERSE_EDGES}
         if schema_pack is not None and getattr(
             schema_pack, "owl_object_properties", None
         ):
