@@ -28,7 +28,7 @@ def register_analysis_tools(mcp):
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100). 'similar_code' = model-free similar-code lookup for a symbol (node_id=symbol id): its MinHash/LSH near-clone neighbours with scores, working with the embedder OFFLINE (CONCEPT:KG-2.101). 'routes' = the HTTP route graph: each Route (method+path), its handler Code symbol, and the deployed Service that serves it — Code serves Route servedBy Service (CONCEPT:KG-2.102). 'change_coupling' = mine a repo's git history (target=repo path) for files that change together and persist FILE_CHANGES_WITH edges (CONCEPT:KG-2.104). 'adr' = Architecture Decision Record CRUD: query=title creates (target=status, node_id=decision text), empty query lists (CONCEPT:KG-2.105).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100). 'similar_code' = model-free similar-code lookup for a symbol (node_id=symbol id): its MinHash/LSH near-clone neighbours with scores, working with the embedder OFFLINE (CONCEPT:KG-2.101). 'routes' = the HTTP route graph: each Route (method+path), its handler Code symbol, and the deployed Service that serves it — Code serves Route servedBy Service (CONCEPT:KG-2.102). 'change_coupling' = mine a repo's git history (target=repo path) for files that change together and persist FILE_CHANGES_WITH edges (CONCEPT:KG-2.104). 'adr' = Architecture Decision Record CRUD: query=title creates (target=status, node_id=decision text), empty query lists (CONCEPT:KG-2.105). 'harness_gate' = the formal harness-evolution gate (query=JSON {edits,variants?,pathologies?}): validates a candidate harness-evolution state against the concentration/no-regression/pathology SHACL shapes — the seesaw HarnessX (arXiv:2606.14249) lacks (CONCEPT:AHE-3.53).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -1257,6 +1257,122 @@ def register_analysis_tools(mcp):
                             }
                             for r in (rows or [])
                         ],
+                    },
+                    default=str,
+                )
+            elif action == "harness_gate":
+                # CONCEPT:AHE-3.53 — the formal harness-evolution gate (the seesaw
+                # HarnessX lacks): validate a candidate harness-evolution state
+                # against the concentration / no-regression / pathology SHACL shapes.
+                # `query` = JSON {edits:[{id,dimension,round,status?,regresses?}],
+                # variants?:[{id,status,applies}], pathologies?:[{id,kind,exhibited_by}]}.
+                import json as _json
+
+                from agent_utilities.harness.harness_gate import HarnessGate
+
+                try:
+                    facts = _json.loads(query) if query else {}
+                except Exception:
+                    return "Error: harness_gate needs JSON harness-evolution facts in `query`."
+                verdict = HarnessGate().check_facts(
+                    facts.get("edits", []) or [],
+                    variants=facts.get("variants"),
+                    pathologies=facts.get("pathologies"),
+                )
+                return _json.dumps(
+                    {
+                        "status": "ok",
+                        "ships": verdict.passed,
+                        "reasons": verdict.reasons,
+                    }
+                )
+            elif action == "harness_evolve":
+                # CONCEPT:AHE-3.52 — run the AEGIS loop over a provided edit sequence
+                # (offline, no LLM): the gate fires across rounds so concentration is
+                # blocked BEFORE the tipping point. `query` = JSON {edits:[{dimension,...}]}.
+                import json as _json
+
+                from agent_utilities.harness.aegis_loop import AegisLoop
+
+                try:
+                    seq = (_json.loads(query) or {}).get("edits", []) if query else []
+                except Exception:
+                    return "Error: harness_evolve needs JSON {edits:[…]} in `query`."
+                pending = list(seq)
+
+                def _replay_evolver(_landscape, _q=pending):
+                    return dict(_q.pop(0)) if _q else {"id": "noop", "dimension": "D0"}
+
+                loop = AegisLoop(_replay_evolver)
+                decisions = loop.run(rounds=len(seq) or 1)
+                return _json.dumps(
+                    {
+                        "status": "ok",
+                        "decisions": [
+                            {"round": d.round, "ships": d.shipped, "reasons": d.reasons}
+                            for d in decisions
+                        ],
+                        "shipped": sum(1 for d in decisions if d.shipped),
+                    }
+                )
+            elif action == "harness_certify":
+                # CONCEPT:AHE-3.56/KG-2.108 — held-out certification + ARA-Seal of a
+                # promoted variant. `query` = JSON {held_out_rewards:[…], human_baseline,
+                # variant_id?}.
+                import json as _json
+
+                from agent_utilities.harness.co_evolution import CrossHarnessCoEvolution
+                from agent_utilities.harness.harness_grounding import seal_variant
+
+                try:
+                    payload = _json.loads(query) if query else {}
+                except Exception:
+                    return "Error: harness_certify needs JSON in `query`."
+                cert = CrossHarnessCoEvolution().certify_promotion(
+                    [float(x) for x in payload.get("held_out_rewards", [])],
+                    payload.get("human_baseline"),
+                )
+                _, _, level = seal_variant(
+                    payload.get("variant_id", "harness_variant:adhoc"), cert
+                )
+                return _json.dumps(
+                    {
+                        "status": "ok",
+                        "certified": cert.certified,
+                        "seal_level": level,
+                        "ci_lower": cert.ci_lower,
+                        "mean_reward": cert.mean_reward,
+                    },
+                    default=str,
+                )
+            elif action == "harness_benchmark":
+                # CONCEPT:AHE-3.53 — the parity-and-surpass scoreboard vs HarnessX.
+                import json as _json
+
+                from agent_utilities.harness.harness_foundry_benchmark import (
+                    run_all as _hf_run,
+                )
+                from agent_utilities.harness.harness_foundry_benchmark import (
+                    to_markdown as _hf_md,
+                )
+
+                results = _hf_run()
+                return _json.dumps(
+                    {
+                        "status": "ok",
+                        "reproduced": sum(1 for r in results if r.claim_reproduced),
+                        "total": len(results),
+                        "results": [
+                            {
+                                "name": r.name,
+                                "baseline": r.baseline,
+                                "ours": r.ours,
+                                "lift": r.lift,
+                                "claim_reproduced": r.claim_reproduced,
+                            }
+                            for r in results
+                        ],
+                        "markdown": _hf_md(results),
                     },
                     default=str,
                 )
