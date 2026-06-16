@@ -540,6 +540,21 @@ class GraphComputeEngine:
         """Detect and return any cycles found within the graph."""
         return self._client.graph.find_cycle()
 
+    def add_embedding(self, node_id: str, embedding: list[float]) -> None:
+        """Index an embedding in the engine's native HNSW (CONCEPT:KG-2.0).
+
+        Distinct from storing an ``embedding`` node property: this registers the
+        vector in the engine's SemanticStore so ``semantic_search`` is O(log N),
+        instead of an O(N) cosine scan in Python.
+        """
+        self._client.graph.add_embedding(node_id, embedding)
+
+    def semantic_search(
+        self, query_embedding: list[float], n_results: int = 5
+    ) -> list[tuple[str, float]]:
+        """Native HNSW vector search via the engine — returns (node_id, score)."""
+        return self._client.graph.semantic_search(query_embedding, n_results) or []
+
     def get_shortest_path(self, source_id: str, target_id: str) -> list[str] | None:
         """Get the shortest path between source and target nodes."""
         return self._client.graph.shortest_path(source_id, target_id)
