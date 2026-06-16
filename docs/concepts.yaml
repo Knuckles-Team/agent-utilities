@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 305
+total_concepts: 306
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2581,6 +2581,14 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: Architecture Decision Record CRUD
+- id: KG-2.106
+  name: engine built with ast-extended
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/gitlab_indexer.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  doc: engine built with ast-extended
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

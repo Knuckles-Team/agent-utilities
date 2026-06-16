@@ -95,6 +95,14 @@ SOURCE_EXTENSIONS: frozenset[str] = frozenset(
         ".hxx",
         ".hh",
         ".cs",
+        # Extended-language tier (CONCEPT:KG-2.106; engine built with ast-extended).
+        ".rb",
+        ".php",
+        ".sh",
+        ".bash",
+        ".scala",
+        ".sc",
+        ".lua",
     }
 )
 

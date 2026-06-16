@@ -121,4 +121,11 @@ The graph spans past the code itself:
 - **ADRs (KG-2.105).** `graph_analyze(action="adr")` creates/lists
   `ArchitectureDecisionRecord` nodes so design decisions live in the same KG.
 
-Broader grammar coverage is the remaining increment.
+## Grammar coverage (CONCEPT:KG-2.106)
+
+The core `ast` tier parses 9 languages (Python/JS/TS/Go/Rust/Java/C/C++/C#). The
+feature-gated `ast-extended` tier (folded into the engine's `full` build) adds
+Ruby, PHP, Bash, Scala, and Lua — so a slim build stays lean while the deployed
+engine spans the common ecosystem languages. New grammars wire in by adding the
+crate to the gate, an extension→grammar arm, and any new node-kind mappings; the
+resolver/similarity/route passes are language-agnostic and benefit for free.
