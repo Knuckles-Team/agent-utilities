@@ -95,6 +95,24 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "action": "execute",
         "doc_type": "record",
     },
+    # Harness-run traces from any fleet evolution/governance server (CONCEPT:KG-2.108).
+    # Grounds harness evolution in the WHOLE connector fleet, not a single benchmark
+    # verifier — the cross-team evidence substrate HarnessX (arXiv:2606.14249) lacks.
+    # Extend with {"server": "<your-mcp>", "params": {"status": "completed"}}.
+    "harness-runs": {
+        "server": "governance-api",
+        "tool": "harness_runs",
+        "action": "list",
+        "records_path": "runs",
+        "id_field": "run_id",
+        "title_field": "harness_id",
+        "updated_field": "completed_at",
+        "pagination": "cursor",
+        "cursor_param": "after_id",
+        "cursor_path": "next_cursor",
+        "more_path": "has_more",
+        "doc_type": "harness_run",
+    },
     # sql-mcp: hand-written SELECT with keyset pagination. Extend with
     #   {"params": {"sql": "SELECT id, title, body FROM t WHERE id > :after
     #                       ORDER BY id", "params": {"after": 0},
@@ -994,9 +1012,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         closed before returning (CONCEPT:KG-2.59 session lifecycle).
         """
 
-        async def run() -> (
-            tuple[list[SourceDocument], dict[str, Any], bool, str | None]
-        ):
+        async def run() -> tuple[
+            list[SourceDocument], dict[str, Any], bool, str | None
+        ]:
             docs: list[SourceDocument] = []
             new_state = dict(state)
             exhausted = False
