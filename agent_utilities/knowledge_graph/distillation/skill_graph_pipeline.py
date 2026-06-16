@@ -618,29 +618,7 @@ class SkillGraphPipeline:
 
         if ref.exists():
             shutil.rmtree(ref)
-        ref.mkdir(parents=True, exist_ok=True)
-
-        # Write the merged tree, optimizing content: normalize whitespace and drop
-        # exact-duplicate pages (crawls routinely emit the same page under many URLs)
-        # and empty shells — denser signal per file, fewer tokens wasted.
-        used: set[str] = set()
-        seen_hashes: set[str] = set()
-        for bundle in bundles:
-            for doc in bundle.docs:
-                text = _optimize_markdown(doc.text)
-                if not text.strip():
-                    continue
-                h = sha256_text(text)
-                if h in seen_hashes:
-                    continue
-                seen_hashes.add(h)
-                rel = _unique_rel(doc.rel_path, used)
-                target = ref / rel
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(text, encoding="utf-8")
-
-        if max_file_kb > 0:
-            _split_oversized(ref, max_file_kb)
+        _write_reference_tree(ref, bundles, max_file_kb)
 
         # Ship the KG-distiller provenance manifest (round-trip) if a kg_query ran.
         kg_query_manifest = next(
@@ -654,7 +632,7 @@ class SkillGraphPipeline:
         # Hybrid-auto KG enrichment (graceful — never blocks the offline graph).
         do_kg = self.kg_enrich if kg_enrich is None else kg_enrich
         kg_result: dict[str, Any] = (
-            self._maybe_ingest_kg(ref, name) if do_kg else {"kg_ingested": False}
+            self._maybe_ingest_kg([str(ref)], name) if do_kg else {"kg_ingested": False}
         )
         if kg_query_manifest is not None:
             kg_result.setdefault("kg_manifest", "kg_manifest.json")
@@ -737,8 +715,9 @@ class SkillGraphPipeline:
             "validation_errors": errors,
         }
 
-    def _maybe_ingest_kg(self, ref: Path, name: str) -> dict[str, Any]:
-        """Best-effort, bounded ingest of the reference tree into the live KG.
+    def _maybe_ingest_kg(self, targets: list[str], name: str) -> dict[str, Any]:
+        """Best-effort, bounded ingest of ``targets`` (the reference dir, or — for a
+        delta refresh — just the changed/added files) into the live KG.
 
         Decoupled process-boundary shell-out (mirrors the builder's prior pattern):
         sidesteps event-loop reentrancy and naturally bounds via the subprocess
@@ -751,11 +730,13 @@ class SkillGraphPipeline:
         if _embedder_responsive() is False:
             logger.info("KG enrichment skipped for %s: embedder unresponsive", name)
             return {"kg_ingested": False, "reason": "embedder_unhealthy"}
+        if not targets:
+            return {"kg_ingested": False, "reason": "no_targets"}
         cmd = [
             sys.executable,
             "-m",
             "agent_utilities.knowledge_graph.ingestion",
-            str(ref),
+            *targets,
             "--content-type",
             "document",
         ]
@@ -1215,18 +1196,130 @@ class SkillGraphPipeline:
             }
         fm = parse_frontmatter((d / "SKILL.md").read_text(encoding="utf-8"))
         version = _bump_patch(data.get("skill_graph_version") or "0.1.0")
-        res = self._build_from_bundles(
-            name=data.get("name", d.name),
-            bundles=bundles,
-            out_dir=d.parent,
+        # Delta update: write only the changed/added files, delete removed ones, leave
+        # unchanged files (and their bytes/embeddings) untouched, and re-ingest ONLY the
+        # changed files into the KG — instead of rewriting + re-embedding the whole tree.
+        return self._apply_delta(
+            d,
+            bundles,
+            data=data,
             description=fm.get("description"),
-            max_file_kb=50,
-            kg_enrich=kg_enrich,
             version=version,
-            record_specs=None,
+            kg_enrich=kg_enrich,
+            force=force,
         )
-        res["status"] = "refreshed"
-        return res
+
+    def _apply_delta(
+        self,
+        skill_dir: Path,
+        bundles: list[AcquiredBundle],
+        *,
+        data: dict[str, Any],
+        description: str | None,
+        version: str,
+        kg_enrich: bool | None,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Apply only the file-level delta of a re-acquisition to a managed graph.
+
+        Builds the candidate tree in a temp dir, diffs it (by path + sha256) against the
+        live ``reference/``, and writes only added/changed files, deletes removed ones,
+        and leaves unchanged files in place — then re-ingests ONLY the changed/added
+        files (KG-2.8 also content-hash-skips). Avoids rewriting + re-embedding an entire
+        corpus when one page moved.
+        """
+        d = Path(skill_dir)
+        ref = d / "reference"
+        tmp = Path(tempfile.mkdtemp(prefix="sg_delta_"))
+        tmp_ref = tmp / "reference"
+        try:
+            _write_reference_tree(tmp_ref, bundles, 50)
+            new = {
+                p.relative_to(tmp_ref).as_posix(): sha256_bytes(p.read_bytes())
+                for p in tmp_ref.rglob("*.md")
+            }
+            old = (
+                {
+                    p.relative_to(ref).as_posix(): sha256_bytes(p.read_bytes())
+                    for p in ref.rglob("*.md")
+                }
+                if ref.is_dir()
+                else {}
+            )
+            added = sorted(p for p in new if p not in old)
+            removed = sorted(p for p in old if p not in new)
+            changed = sorted(p for p in new if p in old and new[p] != old[p])
+            unchanged = [p for p in new if p in old and new[p] == old[p]]
+
+            if not force and not (added or removed or changed):
+                return {
+                    "name": d.name,
+                    "status": "fresh",
+                    "version": data.get("skill_graph_version"),
+                    "delta": {
+                        "added": 0,
+                        "changed": 0,
+                        "removed": 0,
+                        "unchanged": len(unchanged),
+                    },
+                }
+
+            ref.mkdir(parents=True, exist_ok=True)
+            for rel in (*added, *changed):
+                dst = ref / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(tmp_ref / rel, dst)
+            for rel in removed:
+                (ref / rel).unlink(missing_ok=True)
+
+            do_kg = self.kg_enrich if kg_enrich is None else kg_enrich
+            # Re-ingest only the changed/added files; --force re-ingests the whole tree.
+            ingest_rels = sorted(new) if force else [*added, *changed]
+            changed_files = [str(ref / rel) for rel in ingest_rels]
+            if do_kg and changed_files:
+                kg_result = self._maybe_ingest_kg(changed_files, d.name)
+            else:
+                kg_result = {
+                    "kg_ingested": bool(data.get("kg_ingested")),
+                    "kg_ontology": data.get("kg_ontology"),
+                    "concepts": data.get("concepts") or [],
+                    "domain": f"skillgraph:{d.name}",
+                }
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+        md_files = sorted(ref.rglob("*.md"))
+        source_url = ", ".join(
+            b.spec.uri for b in bundles if b.spec.uri.startswith("http")
+        )
+        self._write_sources_manifest(
+            d, d.name, version, bundles, md_files, ref, kg_result
+        )
+        _write_index_json(d, ref, d.name, version, source_url, kg_result)
+        self._render_skill_md(
+            d,
+            d.name,
+            description or _default_description(d.name),
+            version,
+            bundles,
+            md_files,
+            ref,
+            kg_result,
+            source_url=source_url,
+        )
+        return {
+            "name": d.name,
+            "status": "refreshed",
+            "version": version,
+            "file_count": len(md_files),
+            "kg_ingested": bool(kg_result.get("kg_ingested")),
+            "delta": {
+                "added": len(added),
+                "changed": len(changed),
+                "removed": len(removed),
+                "unchanged": len(unchanged),
+            },
+        }
 
     def refresh_all(
         self,
@@ -1383,6 +1476,35 @@ class SkillGraphPipeline:
 
 
 # ── module helpers (pure / optional-dep guarded) ───────────────────────────────
+
+
+def _write_reference_tree(
+    ref: Path, bundles: list[AcquiredBundle], max_file_kb: int
+) -> None:
+    """Write the merged + content-optimized reference tree, then split oversized files.
+
+    Shared by the full rebuild and the delta path (which writes into a temp tree to
+    diff against the live one). Normalizes whitespace and drops exact-duplicate pages
+    (crawls emit the same page under many URLs) and empty shells.
+    """
+    ref.mkdir(parents=True, exist_ok=True)
+    used: set[str] = set()
+    seen_hashes: set[str] = set()
+    for bundle in bundles:
+        for doc in bundle.docs:
+            text = _optimize_markdown(doc.text)
+            if not text.strip():
+                continue
+            h = sha256_text(text)
+            if h in seen_hashes:
+                continue
+            seen_hashes.add(h)
+            rel = _unique_rel(doc.rel_path, used)
+            target = ref / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+    if max_file_kb > 0:
+        _split_oversized(ref, max_file_kb)
 
 
 def _unique_rel(rel: str, used: set[str]) -> str:
