@@ -211,9 +211,13 @@ class AGEBackend(PostgreSQLBackend):
                     cur.execute(
                         "SELECT ag_catalog.create_graph(%s)", (self._graph_name,)
                     )
+                # Embedding dim from the unified XDG config (kg_embedding_dim).
+                from agent_utilities.core.config import config
+
+                dim = int(config.kg_embedding_dim or "768")
                 cur.execute(
                     "CREATE TABLE IF NOT EXISTS kg_embeddings "
-                    "(node_id TEXT PRIMARY KEY, embedding vector(768))"
+                    f"(node_id TEXT PRIMARY KEY, embedding vector({dim}))"
                 )
             conn.commit()
 

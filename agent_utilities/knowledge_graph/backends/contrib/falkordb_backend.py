@@ -97,9 +97,13 @@ class FalkorDBBackend(GraphBackend):
         # `db.idx.vector.create` procedure is not registered. Index a shared
         # `:Embeddable` label (add_embedding tags nodes with it); FalkorDB
         # backfills existing matching nodes when the index is created.
+        # Dim from the unified XDG config (config.kg_embedding_dim), never hardcoded.
+        from agent_utilities.core.config import config
+
+        dim = int(config.kg_embedding_dim or "768")
         query = (
             "CREATE VECTOR INDEX FOR (n:Embeddable) ON (n.embedding) "
-            "OPTIONS {dimension: 768, similarityFunction: 'cosine'}"
+            f"OPTIONS {{dimension: {dim}, similarityFunction: 'cosine'}}"
         )
         try:
             self.execute(query)
