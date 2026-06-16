@@ -2525,6 +2525,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         _HEAVY_TASK_TYPES = {
             "codebase",
             "document",
+            "content_url",
             "deep_analysis",
             "synthesize",
             "deep_extract",
@@ -2593,6 +2594,54 @@ class TaskManagerMixin(GraphEngineProtocol):
                         "total_messages": result.get("total_messages", 0),
                         "target": target_str,
                         "type": "conversation",
+                    },
+                )
+
+            elif task_type == "content_url":
+                # Content-aware URL ingest OFF the request path (CONCEPT:KG-2.7):
+                # route through the unified IngestionEngine DOCUMENT path so the page
+                # is fetched via the resolver (ArchiveBox→crawl4ai→requests) and a
+                # research roundup auto-acquires the papers it cites. The real URL
+                # rides on the Task node's ``source_url`` prop because the claim path
+                # wraps ``target`` in Path() (which would collapse ``https://``).
+                from agent_utilities.knowledge_graph.ingestion.engine import (
+                    ContentType,
+                    IngestionEngine,
+                    IngestionManifest,
+                )
+
+                trow = self.query_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
+                )
+                tprops = trow[0]["t"] if trow else {}
+                url = str(tprops.get("source_url") or "").strip()
+                if not url:
+                    # Fallback: repair the Path()-mangled scheme separator.
+                    url = re.sub(r"^(https?):/(?!/)", r"\1://", str(target))
+                meta: dict[str, Any] = {}
+                ep = tprops.get("extract_papers")
+                if ep is not None:
+                    meta["extract_papers"] = (
+                        ep if isinstance(ep, bool) else str(ep).lower() == "true"
+                    )
+                ing = IngestionEngine(kg_engine=self)
+                r = await ing.ingest(
+                    IngestionManifest(
+                        content_type=ContentType.DOCUMENT,
+                        source_uri=url,
+                        metadata=meta,
+                    )
+                )
+                self._update_task_status(
+                    job_id,
+                    "completed" if r.status == "success" else "failed",
+                    {
+                        "target": url,
+                        "type": task_type,
+                        "status": r.status,
+                        "nodes": r.nodes_created,
+                        "details": r.details,
+                        "error": r.error,
                     },
                 )
 

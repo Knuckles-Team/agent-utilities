@@ -180,6 +180,7 @@ class LoopController:
             "sources_linked": 0,
             "intake_papers": None,
             "breadth": None,
+            "archivebox": None,
             "assimilate": None,
             "reason": None,
             "standardize": None,
@@ -220,6 +221,14 @@ class LoopController:
         # -1. BREADTH — ingest the OSS/repos/docs corpus (idempotent; opt-in).
         if breadth:
             report["breadth"] = _stage("breadth", self._run_breadth)
+
+        # -0.5 ARCHIVEBOX — pull preserved snapshots (delta) when an ArchiveBox
+        # instance is wired. Default ON when configured (Native by default); the
+        # URL's presence is the on-signal, the watermark keeps it idempotent.
+        if (setting("ARCHIVEBOX_URL", default="") or "").strip():
+            report["archivebox"] = _stage(
+                "archivebox", self._run_archivebox_intake
+            )
 
         # 0. ASSIMILATE — graph-compute middle (dedup/gap/synergy/rank), idempotent.
         if assimilate:
@@ -779,6 +788,18 @@ class LoopController:
         from ..standardization import run_standardization_pass
 
         return run_standardization_pass(self.engine)
+
+    def _run_archivebox_intake(self) -> dict[str, Any]:
+        """Pull new preserved ArchiveBox snapshots into the KG (delta, idempotent).
+
+        Delegates to the unified ``sync_source`` entrypoint (``_sync_archivebox``):
+        enumerate snapshots past the watermark, ingest each archived URL through the
+        DOCUMENT path (ArchiveBox-preferred fetch + research-paper extraction).
+        (CONCEPT:KG-2.7)
+        """
+        from ..core.source_sync import sync_source
+
+        return sync_source(self.engine, "archivebox", mode="delta")
 
     def _run_breadth(self) -> dict[str, Any]:
         """Ingest the OSS/repos/docs corpus (idempotent).
