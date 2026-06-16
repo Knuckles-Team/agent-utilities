@@ -187,7 +187,13 @@ def _crawl_via_script(
             "--max-depth",
             str(int(spec.options.get("max_depth", 2))),
             "--max-pages",
-            str(int(spec.options.get("max_pages", 1000))),
+            str(
+                int(
+                    spec.options.get("max_pages")
+                    or os.environ.get("SKILL_GRAPH_MAX_PAGES")
+                    or 1000
+                )
+            ),
         ]
         if spec.options.get("disable_magic_js"):
             cmd.append("--disable-magic-js")
