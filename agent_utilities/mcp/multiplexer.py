@@ -318,27 +318,28 @@ class MCPMultiplexer:
             headers = cfg.get("headers")
             if headers:
                 headers = {k: os.path.expandvars(str(v)) for k, v in headers.items()}
-            # A0 (CONCEPT:OS-5.32): attach the multiplexer's service-account bearer
-            # so jwt-protected children are reachable. Opt-in via
+            # A0 (CONCEPT:OS-5.32): authenticate jwt-protected children with the
+            # multiplexer's service-account bearer. Opt-in via
             # MCP_CLIENT_AUTH=oidc-client-credentials; never overrides a child's
-            # own Authorization header; a mint failure degrades to no header.
-            from agent_utilities.mcp.client_credentials import bearer_header
+            # own Authorization header; a mint failure degrades to no auth.
+            # Use a per-request httpx.Auth (not a frozen header): the child's
+            # pooled session is long-lived, so a baked-in short-lived token would
+            # expire mid-session and wedge calls on a 401 (CONCEPT:OS-5.32).
+            from agent_utilities.mcp.client_credentials import bearer_auth
 
-            _svc_auth = bearer_header(headers)
-            if _svc_auth:
-                headers = {**(headers or {}), **_svc_auth}
+            _svc_auth = bearer_auth(headers)
             use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
             if use_sse:
                 if sse_client is None:
                     raise RuntimeError("mcp SDK has no sse_client for SSE transport")
-                transport = sse_client(url, headers=headers)
+                transport = sse_client(url, headers=headers, auth=_svc_auth)
             else:
                 if streamablehttp_client is None:
                     raise RuntimeError(
                         "mcp SDK has no streamablehttp_client for "
                         "streamable-http transport"
                     )
-                transport = streamablehttp_client(url, headers=headers)
+                transport = streamablehttp_client(url, headers=headers, auth=_svc_auth)
             # streamable-http yields (read, write, get_session_id); sse yields
             # (read, write). Take the first two streams either way.
             streams = await stack.enter_async_context(transport)
