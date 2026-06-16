@@ -46,7 +46,7 @@ def seal_variant(
     level): a seal_certificate node grounded in the variant + the certificationLevel."""
     level = seal_level_for(cert)
     seal_id = f"seal_certificate:{variant_id}:{level}"
-    nodes = [
+    nodes: list[dict[str, Any]] = [
         {
             "id": seal_id,
             "type": "seal_certificate",
