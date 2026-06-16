@@ -303,6 +303,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "part_of_feature",
     "implements_pattern",
     "realizes",
+    "inherits",
     "implemented_by",
     "similar_to",
     "mentions",
@@ -706,6 +707,7 @@ class OWLBridge:
             "broader",
             "narrower",
             "inherits_from",
+            "inherits",  # class inheritance chains (CONCEPT:KG-2.100)
         ]
         # Symmetric properties
         symmetric_props = [
@@ -794,6 +796,7 @@ class OWLBridge:
             "broader",
             "narrower",
             "inherits_from",
+            "inherits",  # class inheritance chains (CONCEPT:KG-2.100)
         }
         symmetric_props = {
             "related_concept",
