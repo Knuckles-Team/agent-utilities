@@ -149,10 +149,80 @@ def _sync_leanix(
     }
 
 
+def _sync_archivebox(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest preserved ArchiveBox snapshots into the KG (CONCEPT:KG-2.7).
+
+    Enumerates snapshots via the ``archivebox`` mcp_tool source preset (delta =
+    ``created_at__gte`` watermark; "pull all" = ``mode='full'``; ``ids`` selects
+    specific snapshots), then ingests each archived URL through the unified
+    ``DOCUMENT`` path — so the body is retrieved robustly via
+    ``web_fetch.resolve_web_fetch`` (ArchiveBox-preferred when configured) and a
+    research-roundup snapshot also auto-acquires the papers it cites (Phase 2).
+    """
+    from ...core.config import setting
+
+    if not (setting("ARCHIVEBOX_URL", default="") or "").strip():
+        return {"status": "skipped", "reason": "ARCHIVEBOX_URL not configured"}
+
+    backend = getattr(engine, "backend", None)
+    since = None if mode == "full" else _read_watermark(backend, "archivebox")
+
+    from ...protocols.source_connectors.connectors.mcp_package import _run_async
+    from ...protocols.source_connectors.registry import build_connector
+    from ..ingestion.engine import ContentType, IngestionEngine, IngestionManifest
+
+    params: dict[str, Any] = {}
+    if since:
+        params["created_at__gte"] = since
+    if ids:
+        params["id"] = ",".join(ids)
+    config: dict[str, Any] = {"preset": "archivebox"}
+    if params:
+        config["params"] = params
+    conn = build_connector("mcp_tool", config)
+    docs = list(conn.poll_all()) if hasattr(conn, "poll_all") else list(conn.load())  # type: ignore[attr-defined]
+
+    urls = [
+        u for d in docs if (u := (d.metadata or {}).get("url") or "").startswith("http")
+    ]
+    manifests = [
+        IngestionManifest(
+            content_type=ContentType.DOCUMENT,
+            source_uri=u,
+            metadata={"source_system": "archivebox"},
+        )
+        for u in urls
+    ]
+    ingested = 0
+    if manifests:
+        engine_ie = IngestionEngine(kg_engine=engine)
+        results = _run_async(engine_ie.ingest_batch(manifests))
+        ingested = sum(1 for r in results if r and r.status == "success")
+
+    seen = [d.updated_at for d in docs if d.updated_at]
+    new_watermark = max(seen) if seen else None
+    if new_watermark and (since is None or new_watermark > since):
+        _write_watermark(backend, "archivebox", new_watermark)
+
+    return {
+        "status": "ok",
+        "source": "archivebox",
+        "mode": mode,
+        "delta_capable": True,
+        "snapshots_seen": len(docs),
+        "documents_ingested": ingested,
+        "since": since,
+        "watermark": new_watermark or since,
+    }
+
+
 # Sources with a native delta (watermark/reconcile) handler. Add an entry here to
 # make another source incremental (e.g. Camunda once its extractor takes `since`).
 _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "leanix": _sync_leanix,
+    "archivebox": _sync_archivebox,
 }
 
 
