@@ -333,6 +333,66 @@ def test_skillgraph_ontology_interface_registered_and_owl():
     assert "SkillGraph" in DEFAULT_INTERFACE_REGISTRY.to_owl()
 
 
+def test_refresh_writes_only_the_delta(tmp_path):
+    # A multi-file web graph; refresh must touch ONLY the changed files (not rewrite
+    # the whole tree), preserving unchanged files' bytes/mtime.
+    files = {
+        "a.md": "# A\n\nalpha\n",
+        "b.md": "# B\n\nbeta\n",
+        "c.md": "# C\n\ngamma\n",
+    }
+
+    def crawler_fn(spec):
+        return [
+            AcquiredDoc(rel_path=k, text=v, source_uri=spec.uri)
+            for k, v in files.items()
+        ]
+
+    pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
+    pipe.build(
+        name="site-docs",
+        specs=[SourceSpec("web", "https://x")],
+        out_dir=tmp_path / "out",
+    )
+    graph = tmp_path / "out" / "site-docs"
+    ref = graph / "reference"
+    mtimes = {p.name: p.stat().st_mtime_ns for p in ref.glob("*.md")}
+
+    # change b.md, add d.md, remove c.md
+    files["b.md"] = "# B\n\nBETA CHANGED\n"
+    files["d.md"] = "# D\n\ndelta\n"
+    del files["c.md"]
+    res = pipe.refresh_one(graph)
+
+    assert res["status"] == "refreshed"
+    assert res["delta"] == {"added": 1, "changed": 1, "removed": 1, "unchanged": 1}
+    after = {p.name: p.stat().st_mtime_ns for p in ref.glob("*.md")}
+    assert after["a.md"] == mtimes["a.md"]  # unchanged → not rewritten
+    assert after["b.md"] != mtimes["b.md"]  # changed → rewritten
+    assert not (ref / "c.md").exists()  # removed
+    assert (ref / "d.md").exists()  # added
+    assert "BETA CHANGED" in (ref / "b.md").read_text()
+
+
+def test_refresh_no_file_delta_is_fresh(tmp_path):
+    # Source bytes differ (trailing whitespace) but the optimized files are identical
+    # → no file delta → fresh, no version bump.
+    state = {"text": "# A\n\nbody\n"}
+
+    def crawler_fn(spec):
+        return [AcquiredDoc(rel_path="a.md", text=state["text"], source_uri=spec.uri)]
+
+    pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
+    pipe.build(
+        name="s-docs", specs=[SourceSpec("web", "https://x")], out_dir=tmp_path / "out"
+    )
+    graph = tmp_path / "out" / "s-docs"
+    state["text"] = "# A\n\nbody\n\n\n   "  # only trailing whitespace differs
+    res = pipe.refresh_one(graph)
+    assert res["status"] == "fresh"
+    assert res["delta"]["changed"] == 0
+
+
 # ── legacy migration ──────────────────────────────────────────────────────────
 
 
