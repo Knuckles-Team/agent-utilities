@@ -18,6 +18,7 @@ Run:  python scripts/build_concepts_yaml.py
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 import yaml
@@ -26,11 +27,11 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "agent_utilities"
 OUT_PATH = ROOT / "docs" / "concepts.yaml"
 
-# Matches CONCEPT:PILLAR-N or CONCEPT:PILLAR-N.M and captures any trailing
-# descriptive text on the same line up to a closing bracket / quote / newline.
-# The sub-index after the dot is normally numeric, but a handful of markers use
-# a placeholder letter (e.g. AHE-3.x); accept both so the YAML matches code 1:1.
-MARKER_RE = re.compile(r"CONCEPT:(?P<id>[A-Z]+-\d+(?:\.[0-9A-Za-z]+)?)(?P<rest>[^\n]*)")
+# Import the canonical marker grammar from the governance package so the
+# generator, the validator (check_concepts.py), and the allocator never drift.
+# Adding ROOT lets this resolve to the local source even without an install.
+sys.path.insert(0, str(ROOT))
+from agent_utilities.governance.concept_allocator import MARKER_RE  # noqa: E402
 
 # Pillar is the leading "<LETTERS>-<digits>" segment of the id.
 PILLAR_RE = re.compile(r"^([A-Z]+-\d+)")
@@ -67,7 +68,10 @@ def collect() -> dict[str, dict]:
         rel = path.relative_to(ROOT).as_posix()
         for m in MARKER_RE.finditer(content):
             cid = m.group("id")
-            doc = _clean_doc(m.group("rest"))
+            # The shared marker regex captures only the id; the trailing
+            # descriptive text is the remainder of the same line.
+            rest = content[m.end() :].split("\n", 1)[0]
+            doc = _clean_doc(rest)
             pillar_match = PILLAR_RE.match(cid)
             pillar = pillar_match.group(1) if pillar_match else cid
             entry = concepts.setdefault(
@@ -135,6 +139,20 @@ def main() -> None:
         f"Wrote {OUT_PATH.relative_to(ROOT)}: "
         f"{data['total_concepts']} concepts across {data['total_pillars']} pillars."
     )
+    # Self-clean the reservation ledger: any reserved id whose marker now appears
+    # in code becomes 'landed', and stale (TTL-expired) reservations are freed.
+    # Best-effort — never let ledger reconciliation break doc generation.
+    try:
+        from agent_utilities.governance.concept_allocator import reconcile
+
+        result = reconcile(repo_root=ROOT)
+        if result["landed"] or result["expired"]:
+            print(
+                f"Reconciled reservations: {len(result['landed'])} landed, "
+                f"{len(result['expired'])} expired."
+            )
+    except Exception as exc:  # noqa: BLE001 - reconciliation is advisory
+        print(f"(skipped reservation reconcile: {exc})")
 
 
 if __name__ == "__main__":
