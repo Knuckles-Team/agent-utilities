@@ -158,6 +158,7 @@ def parse_workflow_skill(skill_md: Path) -> dict[str, Any] | None:
         "tool_assignments": team_config.get("tool_assignments") or {},
         "concept": frontmatter.get("concept"),
         "steps": steps,
+        "body": body,
     }
 
 
@@ -236,6 +237,35 @@ def _content_hash(parsed: dict[str, Any]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _chunk_workflow_body(
+    engine: IntelligenceGraphEngine, wf_id: str, body: str, title: str
+) -> None:
+    """Chunk + embed a workflow body into Chunk objects linked to ``wf_id`` (KG-2.48).
+
+    The shared semantic-search substrate every skill-type object shares (atomic Skill /
+    SkillGraph docs / WorkflowDefinition). Best-effort — never raises (enrichment must
+    not block workflow registration); embeds are bounded so a flaky GPU can't hang it.
+    """
+    if not body.strip():
+        return
+    try:
+        from ..ontology.document_processing import ChunkingConfig, DocumentProcessor
+
+        # Chunk under a distinct body-doc id so the WorkflowDefinition node is NOT
+        # clobbered (process() writes a Document at its document_id); link it back.
+        body_id = f"{wf_id}::body"
+        backend = getattr(engine, "backend", None) or engine
+        DocumentProcessor(backend, chunking=ChunkingConfig()).process(
+            body, document_id=body_id, title=title, doc_type="skill_workflow"
+        )
+        try:
+            engine.link_nodes(wf_id, body_id, "HAS_BODY", properties={})
+        except Exception:  # noqa: BLE001 — linking is best-effort
+            pass
+    except Exception as exc:  # noqa: BLE001 — enrichment must not block ingest
+        logger.debug("[KG-2.97] workflow body chunking skipped for %s: %s", wf_id, exc)
+
+
 def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
     """Upsert a single parsed workflow into the KG as a WorkflowDefinition DAG.
 
@@ -280,10 +310,18 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
         "last_used": ts,
         "use_count": 0,
         "version": 1,
+        # Skill-type-unique marker so the skill family (atomic|graph|workflow) is
+        # queryable as one set while each keeps its own structure (here: the step DAG).
+        "skill_type": "workflow",
     }
     if parsed.get("concept"):
         props["concept"] = str(parsed["concept"])
     engine.add_node(wf_id, "WorkflowDefinition", properties=props)
+
+    # Same enrichment substrate as skills/skill-graphs/documents: chunk + embed the
+    # workflow's prose body into Chunk objects linked to the WorkflowDefinition, so the
+    # workflow corpus is semantically searchable (not just dispatchable). Best-effort.
+    _chunk_workflow_body(engine, wf_id, str(parsed.get("body") or ""), name)
 
     for s in steps:
         step_id = num_to_stepid[s["step"]]

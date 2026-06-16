@@ -26,6 +26,17 @@ from .lsh_index import LSHIndex
 from .physical_distiller import PhysicalDistillationEngine
 from .skill_graph_distiller import SkillGraphDistiller
 from .skill_graph_importer import import_skill_graph_pack
+from .skill_graph_pipeline import (
+    AcquiredBundle,
+    AcquiredDoc,
+    SkillGraphPipeline,
+    SourceSpec,
+)
+from .skill_graph_schema import (
+    SOURCE_KINDS,
+    SOURCES_SCHEMA,
+    validate_skill_graph,
+)
 from .skill_synthesizer import (
     ConnectorSkillDistiller,
     DistillReport,
@@ -38,6 +49,10 @@ from .trading_curator import (
 )
 
 __all__ = [
+    "SOURCES_SCHEMA",
+    "SOURCE_KINDS",
+    "AcquiredBundle",
+    "AcquiredDoc",
     "ConnectorSkillDistiller",
     "DistillReport",
     "DistillationEngine",
@@ -46,8 +61,11 @@ __all__ = [
     "PhysicalDistillationEngine",
     "SkillCandidate",
     "SkillGraphDistiller",
+    "SkillGraphPipeline",
+    "SourceSpec",
     "build_knowledge_nodes",
     "classify_trading_concept",
     "import_skill_graph_pack",
     "organize_trading_knowledge",
+    "validate_skill_graph",
 ]
