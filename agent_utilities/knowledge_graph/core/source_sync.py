@@ -231,7 +231,6 @@ def _sync_gitlab(
     ``mode='full'`` re-indexes all; delta uses a per-instance ``last_activity_at``
     watermark; ``ids`` narrows to specific projects (webhook delta).
     """
-    from ...core.config import setting
     from .gitlab_indexer import (
         GitLabRestSource,
         GitLabSource,
@@ -248,9 +247,9 @@ def _sync_gitlab(
             "reason": "engine does not advertise IndexRepository (rebuild with the resolver)",
         }
 
-    instances = instances_from_config(setting)
-    if client is not None:  # test/override seam: a pre-built GitLabSource
-        instances = instances or [None]  # type: ignore[list-item]
+    # An injected `client` is an explicit single-source override (tests / a caller
+    # supplying its own GitLabSource): use one sentinel instance, ignore config.
+    instances = [None] if client is not None else instances_from_config()  # type: ignore[list-item]
     if not instances:
         return {"status": "skipped", "reason": "no GitLab instance configured"}
 
@@ -262,7 +261,13 @@ def _sync_gitlab(
         name = inst.name if inst is not None else "gitlab"
         wm_key = f"gitlab:{name}"
         since = None if mode == "full" else _read_watermark(backend, wm_key)
-        source: GitLabSource = client if client is not None else GitLabRestSource(inst)
+        # `inst is None` only occurs on the injected-client override path (above),
+        # so a real instance always pairs with the REST source.
+        if client is not None:
+            source: GitLabSource = client
+        else:
+            assert inst is not None
+            source = GitLabRestSource(inst)
         summary = index_instance(
             instance=name,
             source=source,

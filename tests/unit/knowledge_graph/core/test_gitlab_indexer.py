@@ -10,6 +10,7 @@ from __future__ import annotations
 from agent_utilities.knowledge_graph.core.gitlab_indexer import (
     GitLabProject,
     index_instance,
+    instances_from_config,
     map_index_result,
 )
 from agent_utilities.knowledge_graph.core.source_sync import sync_source
@@ -248,3 +249,44 @@ def test_handle_ignores_non_code_events():
         object(), {"object_kind": "issue", "project": {"id": 1}}, sync=lambda *a, **k: {}
     )
     assert res["status"] == "ignored"
+
+
+# ── XDG config-driven multi-instance ─────────────────────────────────────────
+
+
+class _FakeConfig:
+    """Stand-in for the AgentConfig singleton: typed gitlab_instances + setting()."""
+
+    def __init__(self, gitlab_instances=None, env=None):
+        self.gitlab_instances = gitlab_instances
+        self._env = env or {}
+
+    def setting(self, key, default=None, cast=None):
+        return self._env.get(key, default)
+
+
+def test_instances_from_structured_xdg_config():
+    cfg = _FakeConfig(
+        gitlab_instances=[
+            {"name": "prod", "url": "https://gl.acme.io", "token": "t1"},
+            {"url": "https://gitlab.com", "token": "t2"},  # name → host slug
+            {"name": "bad"},  # no url → skipped
+        ]
+    )
+    insts = instances_from_config(cfg)
+    assert [i.name for i in insts] == ["prod", "gitlab.com"]
+    assert insts[0].url == "https://gl.acme.io" and insts[0].token == "t1"
+
+
+def test_instances_fall_back_to_single_host():
+    cfg = _FakeConfig(
+        gitlab_instances=None,
+        env={"GITLAB_URL": "https://gl.x", "GITLAB_TOKEN": "tok"},
+    )
+    insts = instances_from_config(cfg)
+    assert len(insts) == 1
+    assert insts[0].name == "gl.x" and insts[0].token == "tok"
+
+
+def test_instances_empty_without_token():
+    assert instances_from_config(_FakeConfig(gitlab_instances=None, env={})) == []

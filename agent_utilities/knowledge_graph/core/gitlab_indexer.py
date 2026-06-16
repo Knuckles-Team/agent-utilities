@@ -433,38 +433,50 @@ class GitLabRestSource:
         return resp.content
 
 
-def instances_from_config(setting: Callable[..., Any]) -> list[GitLabInstanceConfig]:
-    """Resolve the configured GitLab instances (multi-instance first).
+def instance_config_from_dict(item: dict[str, Any]) -> GitLabInstanceConfig | None:
+    """Map one ``{name,url,token,verify_ssl}`` entry to a config, or ``None`` if
+    it has no url. The single parsing rule shared by the indexer and the
+    ``gitlab-api`` instance registry, so the XDG ``gitlab_instances`` schema means
+    the same thing on both sides."""
+    url = str(item.get("url", "")).strip()
+    if not url:
+        return None
+    return GitLabInstanceConfig(
+        name=str(item.get("name") or _host_slug(url)),
+        url=url,
+        token=str(item.get("token", "")),
+        verify_ssl=bool(item.get("verify_ssl", True)),
+    )
 
-    ``GITLAB_INSTANCES`` (JSON list of ``{name,url,token,verify_ssl}``) is the
-    enterprise multi-instance form; it falls back to the single-host
-    ``GITLAB_URL``/``GITLAB_TOKEN`` env the rest of the fleet already uses.
+
+def instances_from_config(config: Any = None) -> list[GitLabInstanceConfig]:
+    """Resolve the configured GitLab instances from the agent-utilities XDG config.
+
+    The structured ``gitlab_instances`` list in
+    ``~/.config/agent-utilities/config.json`` (a typed ``AgentConfig`` field) is
+    the multi-tenant source of truth; it falls back to the single-host
+    ``GITLAB_URL``/``GITLAB_TOKEN`` settings when no instances are configured.
+    ``config`` defaults to the live ``AgentConfig`` singleton (injectable for tests).
     """
-    import json
+    if config is None:
+        from agent_utilities.core.config import config as config_singleton
 
-    raw = (setting("GITLAB_INSTANCES", default="") or "").strip()
+        config = config_singleton
+
     out: list[GitLabInstanceConfig] = []
-    if raw:
-        try:
-            for item in json.loads(raw):
-                url = str(item.get("url", "")).strip()
-                if not url:
-                    continue
-                out.append(
-                    GitLabInstanceConfig(
-                        name=str(item.get("name") or _host_slug(url)),
-                        url=url,
-                        token=str(item.get("token", "")),
-                        verify_ssl=bool(item.get("verify_ssl", True)),
-                    )
-                )
-        except (ValueError, TypeError):
-            logger.warning("GITLAB_INSTANCES is not valid JSON; ignoring")
+    for item in getattr(config, "gitlab_instances", None) or []:
+        if (
+            isinstance(item, dict)
+            and (cfg := instance_config_from_dict(item)) is not None
+        ):
+            out.append(cfg)
+
     if not out:
         url = (
-            setting("GITLAB_URL", default="https://gitlab.com") or "https://gitlab.com"
+            config.setting("GITLAB_URL", default="https://gitlab.com")
+            or "https://gitlab.com"
         ).strip()
-        token = (setting("GITLAB_TOKEN", default="") or "").strip()
+        token = (config.setting("GITLAB_TOKEN", default="") or "").strip()
         if token:
             out.append(GitLabInstanceConfig(name=_host_slug(url), url=url, token=token))
     return out
