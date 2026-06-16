@@ -309,10 +309,36 @@ def _default_concept_ingest(engine: Any, concepts: list[dict[str, Any]]) -> int:
 
 
 def _default_codebase_ingest(engine: Any, manifest: ProjectManifest) -> bool:
-    """Submit a codebase ingest via the live engine (content-addressed skip)."""
+    """Submit a codebase ingest via the live engine (content-addressed skip).
+
+    Git-SHA pre-skip (CONCEPT:KG-2.8): an always-on breadth loop re-runs every few
+    minutes, but a clean git work-tree still at the HEAD we last ingested has nothing
+    new. Mirror the engine's ``codebase_git`` delta watermark *exactly* (same
+    ``_git_head_sha`` / ``_git_worktree_clean`` helpers + manifest key) so we skip the
+    task enqueue — and the whole-tree stat-walk the engine's seen-check would do —
+    only when the engine would have skipped anyway. Non-git, dirty, or first-ingest
+    repos fall through to submit; the engine then runs its git-diff + per-file delta.
+    Returns True if a task was submitted (likely-changed), False if skipped.
+    """
     submit = getattr(engine, "submit_task", None)
     if not callable(submit):
         return False
+    try:
+        from pathlib import Path
+
+        from ..ingestion.engine import _git_head_sha, _git_worktree_clean
+        from ..ingestion.manifest import DeltaManifest
+
+        head = _git_head_sha(manifest.path)
+        if head and _git_worktree_clean(manifest.path):
+            gc = getattr(engine, "graph_compute", None)
+            gname = getattr(gc, "graph_name", None) or "__commons__"
+            repo_key = str(Path(manifest.path).resolve())
+            dm = DeltaManifest(backend=getattr(engine, "backend", None))
+            if dm.get(gname, "codebase_git", repo_key) == head:
+                return False  # unchanged HEAD + clean tree → no task churn this tick
+    except Exception:  # noqa: BLE001 — best-effort; fall through to submit
+        pass
     submit(
         target_path=manifest.path,
         is_codebase=True,
