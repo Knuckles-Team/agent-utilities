@@ -1270,7 +1270,82 @@ class IngestionEngine:
             except Exception as e:  # noqa: BLE001 — curation is best-effort
                 logger.warning("Opt-in curation enrichment failed: %s", e)
 
+        # Content-aware research acquisition (CONCEPT:KG-2.7) — a web page that
+        # points at many papers (a "latest research" roundup) auto-downloads them
+        # and ingests each, linking the page to the papers it cites. Default ON for
+        # detected roundups; ``metadata["extract_papers"]`` forces on/off.
+        if (
+            source.startswith(("http://", "https://"))
+            and result.status == "success"
+            and manifest.metadata.get("extract_papers") is not False
+        ):
+            page_text = next(
+                (e.get("text", "") for e in result.enrichable if e.get("text")), ""
+            )
+            if page_text:
+                try:
+                    await self._acquire_referenced_papers(
+                        result,
+                        page_text,
+                        source,
+                        force=bool(manifest.metadata.get("extract_papers")),
+                    )
+                except Exception as e:  # noqa: BLE001 — acquisition is best-effort
+                    logger.warning("Research-paper acquisition failed: %s", e)
+
         return result
+
+    async def _acquire_referenced_papers(
+        self,
+        page_result: IngestionResult,
+        page_text: str,
+        page_url: str,
+        *,
+        force: bool,
+    ) -> None:
+        """Extract paper links from a page, download + ingest them, link the page.
+
+        Downloaded PDFs ingest as ordinary ``DOCUMENT`` units (so they become
+        ``Document`` + ``Concept`` nodes and get ConceptMatcher cross-links for
+        free); a ``MENTIONS`` edge records that the page cited each paper.
+        """
+        from .paper_links import extract_paper_links, is_research_roundup
+        from .research_acquisition import acquire_papers
+
+        refs = extract_paper_links(page_text)
+        if not refs or (not force and not is_research_roundup(refs)):
+            return
+        pdf_paths = acquire_papers(refs)
+        if not pdf_paths:
+            return
+
+        sub = [
+            IngestionManifest(
+                content_type=ContentType.DOCUMENT,
+                source_uri=str(p),
+                metadata={"source_kind": "research_paper", "referenced_by": page_url},
+            )
+            for p in pdf_paths
+        ]
+        results = await self.ingest_batch(sub)
+
+        # Link the roundup page → each ingested paper (MENTIONS).
+        page_id = (page_result.details or {}).get("doc_id")
+        add_edge = getattr(self.backend, "add_edge", None)
+        if page_id and callable(add_edge):
+            for r in results:
+                paper_id = (r.details or {}).get("doc_id") if r else None
+                if paper_id:
+                    try:
+                        add_edge(page_id, paper_id, rel_type="MENTIONS")
+                    except Exception:  # noqa: BLE001 — link is best-effort
+                        pass
+
+        if page_result.details is not None:
+            page_result.details["papers_acquired"] = len(pdf_paths)
+            page_result.details["papers_ingested"] = sum(
+                1 for r in results if r and r.status == "success"
+            )
 
     # Document file extensions the standardized unit can read verbatim. Covers the
     # text/doc family plus every modality the reader registry handles (KG-2.66), so
