@@ -54,8 +54,10 @@ Reuses the existing fabric — nothing reinvented:
     integrator can promote the Chunk object type's ``embedding`` property to it.
 """
 
+import concurrent.futures
 import hashlib
 import logging
+import os
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -651,13 +653,29 @@ class DocumentProcessor:
             self._embed_fn = fn
         if fn is None:
             return [None] * len(texts)
+        # Bounded call: an embedder that hangs (e.g. the serving GPU power-cycles
+        # mid-request — its /health proxy still returns 200) must NOT block ingestion.
+        # On timeout the worker thread is abandoned (finishes/dies in the background)
+        # and we materialize without vectors so the graph stays usable. Tunable via
+        # KG_EMBED_TIMEOUT (seconds).
+        timeout_s = float(os.environ.get("KG_EMBED_TIMEOUT") or 30)
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            vectors = fn(texts)
+            vectors = ex.submit(fn, texts).result(timeout=timeout_s)
+        except concurrent.futures.TimeoutError:
+            logger.warning(
+                "[KG-2.48] embedding did not respond within %.0fs (embedder slow/down)"
+                " — materializing without vectors",
+                timeout_s,
+            )
+            return [None] * len(texts)
         except Exception as exc:  # noqa: BLE001 — never let embedding break ingest
             logger.warning(
                 "[KG-2.48] embedding failed, materializing without vectors: %s", exc
             )
             return [None] * len(texts)
+        finally:
+            ex.shutdown(wait=False)
         out: list[list[float] | None] = []
         for v in vectors:
             out.append([float(x) for x in v] if v else None)
@@ -809,7 +827,9 @@ class DocumentProcessor:
         if batched.bulk_available:
             for node in (document_node, *chunk_nodes):
                 props = {k: v for k, v in node.items() if k not in ("id", "type")}
-                batched.add_node(node["id"], label=node["type"], type=node["type"], **props)
+                batched.add_node(
+                    node["id"], label=node["type"], type=node["type"], **props
+                )
             for e in edges:
                 props = {
                     k: v for k, v in e.items() if k not in ("source", "target", "type")
