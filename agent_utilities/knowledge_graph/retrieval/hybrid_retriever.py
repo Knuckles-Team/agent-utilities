@@ -126,9 +126,42 @@ class HybridRetriever:
     def _vector_search_native(
         self, query_emb: list[float], top_k: int, target_paths: list[str] | None = None
     ) -> list[dict[str, Any]] | None:
-        """Use LadybugDB's native HNSW vector index for O(log N) search."""
+        """Native HNSW vector search, O(log N) — backend-agnostic.
+
+        Prefers the backend's own ``semantic_search`` (the engine's HNSW; works on
+        epistemic_graph / fanout / pgvector / etc.), then LadybugDB's
+        ``QUERY_VECTOR_INDEX`` procedure, then returns ``None`` so the caller's
+        brute-force fallback runs. Before this, only the Ladybug procedure was
+        tried, so on the epistemic_graph backend the native path always missed and
+        every semantic search degraded to an O(N) full-graph scan
+        (``_get_all_nodes_with_properties``), 8× per query in ``retrieve_hybrid``.
+        """
         if not self.engine.backend:
             return None
+
+        # Fast path: the backend's native vector index (HNSW), backend-agnostic.
+        search = getattr(self.engine.backend, "semantic_search", None)
+        if callable(search):
+            try:
+                rows = search(query_emb, max(top_k * 3, 10)) or []
+                results: list[dict[str, Any]] = []
+                for data in rows:
+                    if not isinstance(data, dict):
+                        continue
+                    if target_paths:
+                        path = data.get("target_path", "")
+                        if not path or not any(tp in path for tp in target_paths):
+                            continue
+                    data["id"] = data.get("id", "")
+                    data["_score"] = float(
+                        data.get("_similarity", data.get("_score", 0.0)) or 0.0
+                    )
+                    results.append(data)
+                if results:
+                    results.sort(key=lambda x: x["_score"], reverse=True)
+                    return results[:top_k]
+            except Exception as e:  # noqa: BLE001 — fall through to other paths
+                logger.debug("backend.semantic_search fast path failed: %s", e)
 
         # Dynamically derive tables from schema — matches build_vector_indices()
         from agent_utilities.models.schema_definition import SCHEMA
