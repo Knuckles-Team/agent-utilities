@@ -420,7 +420,17 @@ class MCPMultiplexer:
             tools_result = await sessions[0].list_tools()
             return sessions, tools_result.tools
 
-        runtime = ChildRuntime(server_name, cfg, connect=_connect)
+        # Service-authenticated remote children must recycle their session before
+        # the bearer's TTL elapses (the result stream is authed once at connect
+        # and then wedges on expiry); derive that lifetime from the token TTL.
+        session_max_age: float | None = None
+        if is_remote:
+            from agent_utilities.mcp.client_credentials import service_session_max_age
+
+            session_max_age = service_session_max_age(cfg.get("headers"))
+        runtime = ChildRuntime(
+            server_name, cfg, connect=_connect, session_max_age=session_max_age
+        )
         try:
             tools = await runtime.start()
         except TimeoutError:

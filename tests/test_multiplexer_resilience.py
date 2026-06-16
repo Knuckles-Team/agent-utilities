@@ -684,6 +684,53 @@ async def test_metrics_are_noop_safe_without_prometheus():
         assert value >= 1.0
 
 
+# ---------------------------------------------------------------------------
+# Session recycle before token expiry (CONCEPT:OS-5.32)
+# ---------------------------------------------------------------------------
+
+
+async def test_session_recycled_before_token_ttl_not_counted_as_restart():
+    """A service-authenticated child whose session outlives its bearer reconnects
+    BEFORE the next call (so the call never lands on a dead-token session), and
+    the planned recycle is NOT charged to the crash-restart budget."""
+    connector = GenerationConnector([EchoSession("gen1"), EchoSession("gen2")])
+    runtime = ChildRuntime(
+        "expiring",
+        {"max_concurrency": 2, "queue_timeout": 0.5},
+        connect=connector,
+        session_max_age=0.05,
+        restart_backoff_base=0.01,
+        restart_backoff_cap=0.02,
+    )
+    await runtime.start()
+    assert connector.connects == 1 and runtime.state == "up"
+
+    await asyncio.sleep(0.08)  # outlive the (tiny) token window
+    result = await runtime.call_tool("foo", {})
+    assert "gen2:foo" in result.content[0].text  # served by the FRESH generation
+    assert connector.connects == 2  # recycled exactly once, lazily, on the call
+    assert runtime.restart_count == 0  # planned recycle, not a crash
+
+    # A prompt follow-up reuses the fresh generation (still inside its window).
+    result2 = await runtime.call_tool("bar", {})
+    assert "gen2:bar" in result2.content[0].text
+    assert connector.connects == 2
+
+    await runtime.aclose()
+
+
+async def test_no_recycle_without_session_max_age():
+    """Children with no token to manage (session_max_age=None) never recycle."""
+    connector = GenerationConnector([EchoSession("only"), EchoSession("unused")])
+    runtime = ChildRuntime("static", {}, connect=connector)
+    await runtime.start()
+    await asyncio.sleep(0.05)
+    await runtime.call_tool("foo", {})
+    assert connector.connects == 1  # never recycled
+
+    await runtime.aclose()
+
+
 async def test_runtime_status_reports_limits_and_load():
     session = GatedSession()
     runtime = ChildRuntime("statusy", {"max_concurrency": 2})

@@ -248,6 +248,7 @@ class ChildRuntime:
         queue_timeout: float | None = None,
         restart_backoff_base: float = RESTART_BACKOFF_BASE,
         restart_backoff_cap: float = RESTART_BACKOFF_CAP,
+        session_max_age: float | None = None,
     ) -> None:
         from agent_utilities.core.config import config
 
@@ -320,6 +321,16 @@ class ChildRuntime:
         self._stop_generation: asyncio.Event | None = None
         self._supervisor: asyncio.Task | None = None
         self._closed = False
+        # Recycle this generation before its bearer expires (None = never): a
+        # service-authenticated child session is authed once at connect and its
+        # result stream then stays open, so it must reconnect before the token
+        # TTL elapses or in-flight calls wedge (CONCEPT:OS-5.32).
+        self.session_max_age = session_max_age
+        self._generation_started_at = 0.0
+        # Set when a generation is torn down for a PLANNED token recycle (not a
+        # crash): the supervisor then reconnects immediately without counting it
+        # toward the restart budget or applying crash backoff.
+        self._recycle_requested = False
 
     # ------------------------------------------------------------------
     # Session binding
@@ -398,6 +409,7 @@ class ChildRuntime:
                         self._connect(stack), timeout=self.connect_timeout
                     )
                     self._sessions = list(sessions)
+                    self._generation_started_at = time.monotonic()
                     self._set_state("up")
                     backoff = self.restart_backoff_base
                     # A fresh generation proves the child reachable again, so
@@ -436,6 +448,13 @@ class ChildRuntime:
                 self._sessions = []
             if self._closed:
                 return
+
+            # Planned token recycle: reconnect immediately, NOT a crash — it does
+            # not count toward the restart budget and skips crash backoff.
+            if self._recycle_requested:
+                self._recycle_requested = False
+                self._set_state("restarting")
+                continue
 
             # Restart bookkeeping: sliding window of recent restarts.
             now = time.monotonic()
@@ -492,6 +511,24 @@ class ChildRuntime:
             self.name,
             f" ({reason})" if reason else "",
         )
+        self._set_state("restarting")
+        self._ready.clear()
+        if self._stop_generation is not None:
+            self._stop_generation.set()
+
+    def request_recycle(self) -> None:
+        """Tear down + reconnect for a PLANNED token refresh (supervised only).
+
+        Unlike :meth:`request_restart`, this is not a crash: the supervisor
+        reconnects immediately without counting it toward the restart budget or
+        applying backoff, so a child can recycle every token window indefinitely
+        without being parked as ``failed``."""
+        if self._closed or self._supervisor is None or self.state != "up":
+            return
+        logger.info(
+            "Child server '%s' recycling session before token expiry", self.name
+        )
+        self._recycle_requested = True
         self._set_state("restarting")
         self._ready.clear()
         if self._stop_generation is not None:
@@ -621,6 +658,29 @@ class ChildRuntime:
                 type(exc).__name__,
             )
 
+    async def _recycle_if_stale(self) -> None:
+        """Reconnect before the current generation's bearer token expires.
+
+        A no-op unless this child has a ``session_max_age`` (set only for
+        service-authenticated remote children) and a live, supervised generation
+        that has outlived it. Lazy (checked on the call path, not a background
+        timer) so idle children cost nothing and only an actively-used child
+        reconnects, exactly once per token window, just before a call."""
+        if (
+            self.session_max_age is None
+            or self._supervisor is None
+            or self.state != "up"
+            or self._generation_started_at <= 0.0
+        ):
+            return
+        if (time.monotonic() - self._generation_started_at) < self.session_max_age:
+            return
+        self.request_recycle()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(
+                self._ready.wait(), timeout=min(self.connect_timeout, _RECOVERY_WAIT)
+            )
+
     async def call_tool(self, original_name: str, arguments: dict[str, Any]) -> Any:
         """Forward one tool call to the child under the per-server limits.
 
@@ -633,6 +693,10 @@ class ChildRuntime:
         redeployed), the failed attempt triggers a reconnect and the call is
         retried ONCE on the fresh generation — so a redeploy is invisible to
         the caller instead of stranding it on "Session terminated"."""
+        # Recycle a service-authenticated session before its bearer expires, so
+        # the call never lands on a session whose auth context has died (which
+        # would wedge it until call_timeout instead of erroring).
+        await self._recycle_if_stale()
         for attempt in range(2):
             try:
                 return await self._call_once(original_name, arguments)
