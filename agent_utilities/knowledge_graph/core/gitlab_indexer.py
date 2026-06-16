@@ -51,6 +51,14 @@ CODE_EXTENSIONS: frozenset[str] = frozenset(
         "hxx",
         "hh",
         "cs",
+        # Extended-language tier (CONCEPT:KG-2.106).
+        "rb",
+        "php",
+        "sh",
+        "bash",
+        "scala",
+        "sc",
+        "lua",
     }
 )
 
