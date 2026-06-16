@@ -452,7 +452,10 @@ def register_write_ingest_tools(mcp):
                 if base_path.strip().startswith("["):
                     ids = [str(x) for x in json.loads(base_path)]
                 res_d = sync_source(
-                    engine, "archivebox", mode="full" if mode == "full" else mode, ids=ids
+                    engine,
+                    "archivebox",
+                    mode="full" if mode == "full" else mode,
+                    ids=ids,
                 )
                 return json.dumps(res_d)
 

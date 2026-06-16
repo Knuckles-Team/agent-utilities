@@ -77,7 +77,9 @@ class UsageRecorder:
             self.backend.write_bundle(bundle)
             return True
         except Exception as exc:  # noqa: BLE001
-            logger.warning("usage record_bundle failed for %s: %s", bundle.session.id, exc)
+            logger.warning(
+                "usage record_bundle failed for %s: %s", bundle.session.id, exc
+            )
             return False
 
     # ── plane B: our own runtime ────────────────────────────────────────
@@ -101,7 +103,9 @@ class UsageRecorder:
             tu = token_usage or {}
             inp = int(tu.get("input_tokens") or tu.get("request_tokens") or 0)
             out = int(tu.get("output_tokens") or tu.get("response_tokens") or 0)
-            reasoning = int(tu.get("reasoning_tokens") or tu.get("thoughts_tokens") or 0)
+            reasoning = int(
+                tu.get("reasoning_tokens") or tu.get("thoughts_tokens") or 0
+            )
             cache_read = int(tu.get("cache_read_input_tokens") or 0)
             cache_creation = int(tu.get("cache_creation_input_tokens") or 0)
             session = UsageSession(

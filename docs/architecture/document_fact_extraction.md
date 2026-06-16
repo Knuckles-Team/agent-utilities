@@ -29,26 +29,26 @@ flowchart TD
         U[URL]
         F[Local file]
     end
-    U -->|readability| R[ReaderConnector<br/>KG-2.66<br/>Jina / trafilatura / strip]
+    U -->|readability| R["ReaderConnector<br/>KG-2.66<br/>Jina / trafilatura / strip"]
     T --> X
     F --> X
     R --> X
 
     subgraph Core["fact_extractor — KG-2.64"]
-        X[extract_facts] --> P[make_streaming_extract_fn<br/>vLLM, JSON-schema, sampling profile]
-        P -->|token deltas| I[parse_facts_incremental<br/>brace-match partial stream]
-        I --> D{FactDeduper<br/>vectorized cosine<br/>shared embedder}
+        X[extract_facts] --> P["make_streaming_extract_fn<br/>vLLM, JSON-schema, sampling profile"]
+        P -->|token deltas| I["parse_facts_incremental<br/>brace-match partial stream"]
+        I --> D{"FactDeduper<br/>vectorized cosine<br/>shared embedder"}
         D -->|unique| K[(kept facts)]
         D -->|duplicate| DUP[mark is_duplicate]
     end
 
-    K --> PERSIST[persist_facts → engine edges<br/>confidence/evidence/tags/source<br/>variant node-keys merged]
-    PERSIST --> EG[(epistemic-graph<br/>durable backends)]
+    K --> PERSIST["persist_facts → engine edges<br/>confidence/evidence/tags/source<br/>variant node-keys merged"]
+    PERSIST --> EG[("epistemic-graph<br/>durable backends")]
 
-    X -. events .-> SSE[/api/enhanced/extract/stream<br/>round_start·fact·metrics·round_end·done·job_done/]
-    SSE --> WEB[agent-webui<br/>Sigma.js graph]
-    SSE --> TUI[agent-terminal-ui<br/>fact rows]
-    SSE --> GB[geniusbot<br/>QGraphicsView force graph]
+    X -. events .-> SSE["/api/enhanced/extract/stream<br/>round_start·fact·metrics·round_end·done·job_done/"]
+    SSE --> WEB["agent-webui<br/>Sigma.js graph"]
+    SSE --> TUI["agent-terminal-ui<br/>fact rows"]
+    SSE --> GB["geniusbot<br/>QGraphicsView force graph"]
     K --> JSONL[/extract/jsonl → facts.jsonl/]
 ```
 
@@ -140,21 +140,21 @@ One gateway contract, three native renderings:
 
 ```mermaid
 flowchart LR
-    GW[(Gateway<br/>/api/enhanced/extract/*)]
+    GW[("Gateway<br/>/api/enhanced/extract/*")]
     GW --- WEB
     GW --- TUI
     GW --- GB
     subgraph WEB[agent-webui · React]
         W1[ExtractionView]
-        W2[Sigma.js + ForceAtlas2<br/>edge-fact hover cards<br/>longest-path · JSONL]
+        W2["Sigma.js + ForceAtlas2<br/>edge-fact hover cards<br/>longest-path · JSONL"]
     end
     subgraph TUI[agent-terminal-ui · Textual]
         T1[/ingest command/]
-        T2[live colorized fact rows<br/>JSONL export]
+        T2["live colorized fact rows<br/>JSONL export"]
     end
     subgraph GB[geniusbot · Qt]
         G1[ExtractionCockpitPanel]
-        G2[native QGraphicsView force graph<br/>relax_layout · edge cards · JSONL]
+        G2["native QGraphicsView force graph<br/>relax_layout · edge cards · JSONL"]
     end
 ```
 

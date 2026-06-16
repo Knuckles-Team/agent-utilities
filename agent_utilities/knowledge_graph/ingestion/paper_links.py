@@ -58,7 +58,11 @@ def extract_paper_links(text: str) -> list[PaperRef]:
     for m in _ARXIV_BARE.finditer(text):
         add(PaperRef("arxiv", m.group(1), url=f"https://arxiv.org/abs/{m.group(1)}"))
     for m in _DOI.finditer(text):
-        add(PaperRef("doi", m.group(1).rstrip(".,);"), url=f"https://doi.org/{m.group(1)}"))
+        add(
+            PaperRef(
+                "doi", m.group(1).rstrip(".,);"), url=f"https://doi.org/{m.group(1)}"
+            )
+        )
     for m in _PDF_URL.finditer(text):
         url = m.group(0)
         if "arxiv.org" in url.lower():
@@ -67,7 +71,9 @@ def extract_paper_links(text: str) -> list[PaperRef]:
     return refs
 
 
-def is_research_roundup(refs: list[PaperRef], *, min_papers: int = ROUNDUP_MIN_PAPERS) -> bool:
+def is_research_roundup(
+    refs: list[PaperRef], *, min_papers: int = ROUNDUP_MIN_PAPERS
+) -> bool:
     """True when a page points at enough distinct scholarly papers to auto-acquire.
 
     Only arXiv/DOI references count toward the threshold — a page with a couple of

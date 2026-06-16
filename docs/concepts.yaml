@@ -593,6 +593,7 @@ concepts:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/mcp/__init__.py
   - agent_utilities/mcp/action_dispatch.py
+  - agent_utilities/mcp/concurrency.py
   - agent_utilities/mcp/context_helpers.py
   - agent_utilities/mcp/delegated_auth.py
   - agent_utilities/mcp/kg_server.py

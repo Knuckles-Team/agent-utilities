@@ -62,8 +62,12 @@ class PostgresUsageBackend(SqlUsageBackend):
             rows = cur.fetchall()
         return [
             SearchHit(
-                session_id=r[0], ordinal=int(r[1]), role=r[2], snippet=r[3] or "",
-                project=r[4] or "", agent=r[5] or "claude",
+                session_id=r[0],
+                ordinal=int(r[1]),
+                role=r[2],
+                snippet=r[3] or "",
+                project=r[4] or "",
+                agent=r[5] or "claude",
             )
             for r in rows
         ]
