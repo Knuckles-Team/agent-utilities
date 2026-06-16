@@ -202,6 +202,41 @@ package.** Keep it that way; the only sanctioned reads are a typed `AgentConfig`
 field or `config.setting(...)`. (`setting()` lives in the dependency-free
 `core/_env.py` so it stays importable while `config` itself is initializing.)
 
+## Secrets & credential retrieval — where they live, how to get them (READ before any auth/secret task)
+
+Secrets are **never stored in the repo** (`.env` holds non-secret defaults + the
+*names* of vars; the `.claude/` deny-rules block reading `.env`/secret files). When
+you need a real credential — to run, to debug an auth path, to reach a
+jwt-protected fleet server — retrieve it from its store; do not grep it out of
+another process's memory.
+
+**Source of truth = OpenBao (Vault).** Runtime/fleet secrets live in **OpenBao at
+`openbao.arpa`** (`OPENBAO_URL` + `OPENBAO_TOKEN`). Retrieve via, in order of
+preference: the **`openbao-mcp`** MCP tools, the **`secret-vault-manager`** skill,
+or `bao kv get secret/<path>`. Deployed stacks inject these into each service's
+env from OpenBao at deploy time (the `agents/*` connectors read their creds from
+env — e.g. `GITLAB_TOKEN`, `OPENBAO_TOKEN`, provider keys — never from a file).
+
+**MCP service-account auth (spawned-agent / multiplexer → jwt-protected fleet).**
+A server that calls a `*.arpa` fleet MCP (or a `graph_orchestrate execute_agent`
+spawn that binds one) must present a Keycloak client-credentials bearer. The
+controlling vars are `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID`,
+`OIDC_CLIENT_SECRET`, `OIDC_AUDIENCE`, `OIDC_TOKEN_URL` (`keycloak.arpa/.../token`).
+They are **injected into each MCP server's `env`**, not committed:
+- **Deployed fleet:** the stack env, sourced from OpenBao.
+- **Local Claude Code sessions:** the MCP server `env` block in `~/.claude.json`
+  (e.g. `mcpServers.mcp-multiplexer.env`). The mint path is
+  `mcp/client_credentials.py` (`bearer_header`/`get_token`); the multiplexer
+  attaches it to children and spawned agents inherit it
+  (`orchestration/agent_runner._spawn_auth_headers`, CONCEPT:ORCH-1.21/OS-5.32).
+
+**To run/debug an authenticated path** (e.g. `execute_agent` against a `*.arpa`
+server): the creds must be present in the debug process's env — export them from
+OpenBao (`bao kv get`) or reuse the session MCP config — and set
+`MCP_CLIENT_AUTH=oidc-client-credentials`. A standalone debug `graph-os` also
+needs `KG_SERVED_PROFILE=0` to accept local unauthenticated inbound calls. Never
+echo a secret value into logs, command output, or a committed file.
+
 ## Reward / preference / RL-method primitives (AHE-3.x) — conventions
 
 When adding reward, advantage, preference, or RL-method code (the AHE-3.1 spine and the
