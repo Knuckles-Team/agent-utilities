@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 
@@ -16,7 +17,8 @@ def cc(monkeypatch):
     monkeypatch.setenv("OIDC_CLIENT_SECRET", "s3cr3t")
     monkeypatch.setenv("OIDC_AUDIENCE", "agent-services")
     monkeypatch.setenv(
-        "OIDC_TOKEN_URL", "http://keycloak.arpa/realms/master/protocol/openid-connect/token"
+        "OIDC_TOKEN_URL",
+        "http://keycloak.arpa/realms/master/protocol/openid-connect/token",
     )
     import agent_utilities.mcp.client_credentials as module
 
@@ -79,3 +81,68 @@ def test_missing_secret_disables(monkeypatch):
 
     importlib.reload(module)
     assert module.get_provider() is None
+
+
+# ── Per-request auth (the long-lived-session fix) ──────────────────────────
+
+
+def test_get_token_force_bypasses_cache(cc):
+    with patch.object(
+        cc.requests, "post", side_effect=[_resp("tok-1"), _resp("tok-2")]
+    ) as post:
+        provider = cc.get_provider()
+        assert provider.get_token() == "tok-1"
+        assert provider.get_token() == "tok-1"  # cached
+        assert provider.get_token(force=True) == "tok-2"  # cache bypassed
+    assert post.call_count == 2
+
+
+def test_bearer_auth_returns_auth_when_enabled(cc):
+    with patch.object(cc.requests, "post", return_value=_resp("tok")):
+        auth = cc.bearer_auth(None)
+    assert isinstance(auth, cc.ClientCredentialsAuth)
+
+
+def test_bearer_auth_none_when_disabled(monkeypatch):
+    monkeypatch.setenv("MCP_CLIENT_AUTH", "none")
+    import agent_utilities.mcp.client_credentials as module
+
+    importlib.reload(module)
+    assert module.bearer_auth(None) is None
+
+
+def test_bearer_auth_respects_explicit_authorization(cc):
+    with patch.object(cc.requests, "post", return_value=_resp("tok")) as post:
+        assert cc.bearer_auth({"Authorization": "Bearer child-own"}) is None
+    post.assert_not_called()
+
+
+def test_auth_flow_injects_bearer_and_remints_on_401(cc):
+    """The per-request flow keeps a long-lived session authenticated: it mints
+    on every request and re-mints once when the child answers 401 (expired/
+    rotated token) — the exact wedge a frozen session header caused."""
+    with patch.object(
+        cc.requests, "post", side_effect=[_resp("tok-1"), _resp("tok-2")]
+    ):
+        auth = cc.bearer_auth(None)
+        request = httpx.Request("POST", "http://child.arpa/mcp")
+        flow = auth.auth_flow(request)
+        first = next(flow)
+        assert first.headers["Authorization"] == "Bearer tok-1"
+        # Child rejects the (now-expired) token: flow re-mints and retries once.
+        retried = flow.send(httpx.Response(401, request=first))
+        assert retried.headers["Authorization"] == "Bearer tok-2"
+        with pytest.raises(StopIteration):
+            flow.send(httpx.Response(200, request=retried))
+
+
+def test_auth_flow_no_retry_on_success(cc):
+    with patch.object(cc.requests, "post", side_effect=[_resp("tok-1")]) as post:
+        auth = cc.bearer_auth(None)
+        request = httpx.Request("POST", "http://child.arpa/mcp")
+        flow = auth.auth_flow(request)
+        sent = next(flow)
+        assert sent.headers["Authorization"] == "Bearer tok-1"
+        with pytest.raises(StopIteration):
+            flow.send(httpx.Response(200, request=sent))
+    post.assert_called_once()  # no re-mint on a non-401 response
