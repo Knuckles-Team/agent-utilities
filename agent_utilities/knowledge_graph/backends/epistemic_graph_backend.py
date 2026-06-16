@@ -1103,13 +1103,51 @@ class EpistemicGraphBackend(GraphBackend):
         self._schema_created = True
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        """Store an embedding vector for a node."""
-        self._embeddings[node_id] = embedding
+        """Store an embedding for a node — in the engine HNSW AND the local cache.
+
+        The engine index (CONCEPT:KG-2.0) is what makes ``semantic_search`` O(log N)
+        and survives across processes; before this, embeddings only lived in the
+        per-process ``_embeddings`` dict, so on the served/restarted graph the
+        index was empty and retrieval fell back to an O(N) full-graph scan.
+        """
+        self._embeddings[node_id] = embedding  # write-through cache (single-proc/tests)
+        try:
+            self._graph.add_embedding(node_id, embedding)
+        except Exception as e:  # noqa: BLE001 — engine index is best-effort
+            logger.debug(
+                "engine add_embedding failed for %s (cache kept): %s", node_id, e
+            )
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5
     ) -> list[dict[str, Any]]:
-        """Cosine similarity search over stored embeddings."""
+        """Vector search — engine HNSW first (O(log N)), local cosine as fallback."""
+        # Preferred: the engine's native HNSW. Scales and works after a restart.
+        try:
+            hits = self._graph.semantic_search(query_embedding, n_results)
+            results: list[dict[str, Any]] = []
+            for item in hits or []:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    node_id, score = str(item[0]), float(item[1])
+                elif isinstance(item, dict):
+                    node_id, score = (
+                        str(item.get("id", "")),
+                        float(item.get("_similarity", item.get("score", 0.0)) or 0.0),
+                    )
+                else:
+                    continue
+                if not node_id:
+                    continue
+                data = self._graph._get_node_properties(node_id) or {}
+                data["id"] = node_id
+                data["_similarity"] = score
+                results.append(data)
+            if results:
+                return results
+        except Exception as e:  # noqa: BLE001 — fall back to local cosine
+            logger.debug("engine semantic_search failed, using local cache: %s", e)
+
+        # Fallback: in-process cosine over the local cache (single-proc / tests).
         if not self._embeddings:
             return []
 
@@ -1140,6 +1178,28 @@ class EpistemicGraphBackend(GraphBackend):
                 results.append(data)
 
         return results
+
+    def hydrate_engine_embeddings(self, batch_log_every: int = 5000) -> int:
+        """One-time backfill: index existing node ``embedding`` properties into the
+        engine HNSW. Embeddings have long been stored as node properties but never
+        registered in the index, so legacy graphs need a single pass to make
+        ``semantic_search`` fast. Reads from the graph (no re-embedding); a single
+        full scan is acceptable for a one-shot migration. Returns the count indexed.
+        """
+        count = 0
+        for nid, props in self._graph._get_all_nodes_with_properties():
+            emb = (props or {}).get("embedding")
+            if not emb:
+                continue
+            try:
+                self._graph.add_embedding(nid, list(emb))
+                count += 1
+                if count % batch_log_every == 0:
+                    logger.info("hydrate_engine_embeddings: indexed %d so far", count)
+            except Exception as e:  # noqa: BLE001 — best-effort per node
+                logger.debug("hydrate add_embedding failed for %s: %s", nid, e)
+        logger.info("hydrate_engine_embeddings: indexed %d embeddings into HNSW", count)
+        return count
 
     def prune(self, criteria: dict[str, Any]) -> None:
         """Prune nodes matching criteria."""
