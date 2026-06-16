@@ -750,11 +750,44 @@ class EpistemicGraphBackend(GraphBackend):
                 ):
                     matched.append((id_val, data))
         else:
-            # Full-graph scan: fetch all nodes WITH their properties in a single
-            # round-trip. Issuing one ``_get_node_properties`` call per node is an
-            # N+1 that cost ~45s on a 40K-node graph (and held the GIL, starving
-            # foreground ingestion). (CONCEPT:KG-2.8 ingestion throughput)
-            for nid, data in self._graph._get_all_nodes_with_properties():
+            # Engine-side labeled fetch (CONCEPT:KG-2.51): a label-scoped MATCH
+            # fetches only that label's nodes — never the whole graph — and pushes
+            # the LIMIT down for a pure read (no WHERE/SET/DELETE could drop a
+            # match and under-return). A bare (label-less) MATCH still does the
+            # single-round-trip full scan (guarded elsewhere). Before this, every
+            # label scan materialized all ~80K nodes' properties over the wire.
+            rows: Any
+            if label:
+                lim_m = re.search(r"\bLIMIT\s+(\$?\w+)", q, re.I)
+                limit_n = 0
+                if lim_m:
+                    tok = lim_m.group(1)
+                    try:
+                        limit_n = (
+                            int(params.get(tok[1:], 0))
+                            if tok.startswith("$")
+                            else int(tok)
+                        )
+                    except (TypeError, ValueError):
+                        limit_n = 0
+                pure_read = (
+                    limit_n > 0
+                    and not any(where_groups)
+                    and not _has_kw(qu, "SET")
+                    and not _has_kw(qu, "DELETE")
+                )
+                try:
+                    rows = self._graph.get_nodes_by_label(
+                        label, limit_n if pure_read else 0
+                    )
+                except Exception:  # noqa: BLE001 — fall back to the legacy full scan
+                    rows = self._graph._get_all_nodes_with_properties()
+            else:
+                # Full-graph scan: fetch all nodes WITH their properties in a single
+                # round-trip (one ``_get_node_properties`` per node is an N+1 that
+                # cost ~45s on a 40K-node graph). (CONCEPT:KG-2.8)
+                rows = self._graph._get_all_nodes_with_properties()
+            for nid, data in rows:
                 data = data or {}
                 if label and not self._label_match(data, label):
                     continue
