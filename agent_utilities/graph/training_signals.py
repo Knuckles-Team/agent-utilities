@@ -42,6 +42,7 @@ Concept: training-signals
 
 import statistics
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import Any
 
 
@@ -203,6 +204,70 @@ def composite_reward(
         if conditions.get(name, True):
             total += weights.get(name, 0.0) * value
     return round(total, 6)
+
+
+# ── Cached-rollout reward shaping (CONCEPT:AHE-3.49) ──────────────────────────
+# The reward-side half of CacheRL (arXiv:2606.14179): when multi-turn tool-calling
+# rollouts are served from a fuzzy cache (see data-science-mcp ``cache_agent_loop``),
+# two corrections keep the gradient honest — (1) token-level masking so injected
+# tool observations earn no gradient (only the model's own thoughts/actions do),
+# and (2) cache-tier-aware reward so a failure caused by a stale/approximate cache
+# tier is not charged to the model as if it were a genuine performance failure.
+# Pure, model-free; opt-in consumers (the trainers) only.
+
+# Default reliability per cache tier: an EXACT hit or a LIVE execution is fully
+# trustworthy (a failure under them is genuinely the model's); FUZZY/SEMANTIC hits
+# may have returned an approximate observation, so a failure under them is partly
+# the cache's fault and is discounted.
+CACHE_TIER_RELIABILITY: dict[str, float] = {
+    "exact": 1.0,
+    "live": 1.0,
+    "fuzzy": 0.85,
+    "semantic": 0.7,
+}
+
+# Segment sources whose tokens the model is trained to produce.
+_TRAINABLE_SOURCES = frozenset({"model", "action"})
+
+
+def token_cache_mask(
+    sources: list[str],
+    *,
+    trainable: Iterable[str] = _TRAINABLE_SOURCES,
+) -> list[float]:
+    """Per-token loss mask: ``1.0`` for model-generated tokens, ``0.0`` for injected.
+
+    ``sources`` is the per-token (or per-segment) provenance label produced by the
+    hybrid-thinking augmenter — ``"model"`` (reasoning), ``"action"`` (the tool
+    call the model emits), or ``"observation"`` (a tool result, cached or live).
+    Only ``trainable`` sources contribute to the RL/SFT loss; masking observations
+    is what lets cached rollouts preserve trajectory quality (CacheRL token-level
+    masking). Length-preserving so it can multiply a per-token loss directly.
+    """
+    keep = set(trainable)
+    return [1.0 if s in keep else 0.0 for s in sources]
+
+
+def cache_tier_aware_reward(
+    outcome_reward: float,
+    tiers_used: list[str],
+    *,
+    tier_reliability: dict[str, float] | None = None,
+) -> float:
+    """Discount a *negative* reward by the weakest cache tier the trajectory used.
+
+    CacheRL's cache-tier-aware reward: a rollout that relied on a low-reliability
+    cache tier (``fuzzy``/``semantic``) and then *failed* should not be penalized as
+    harshly as a rollout that failed on real (``live``/``exact``) observations — the
+    failure may be the cache's fault. Successes (``reward ≥ 0``) pass through
+    unchanged (we never inflate a win for using the cache). The penalty is scaled
+    by the minimum tier reliability across ``tiers_used`` (the weakest link).
+    """
+    if outcome_reward >= 0 or not tiers_used:
+        return round(outcome_reward, 6)
+    table = tier_reliability or CACHE_TIER_RELIABILITY
+    reliability = min(table.get(t, 1.0) for t in tiers_used)
+    return round(outcome_reward * reliability, 6)
 
 
 def difficulty_floor_filter(
