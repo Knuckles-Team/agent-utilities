@@ -20,6 +20,12 @@ ParseFn = Callable[[str, bytes], dict[str, Any]]
 # A batched parse function: [(file_path, source_bytes), ...] -> [ParseResult dict, ...]
 # (one result per input file, in input order). (CONCEPT:KG-2.16)
 BatchParseFn = Callable[[list[tuple[str, bytes]]], list[dict[str, Any]]]
+# An index function: [(file_path, source_bytes), ...] -> one merged IndexResult dict
+# (parse + cross-file type/scope resolution in a SINGLE round-trip). (CONCEPT:KG-2.100)
+IndexFn = Callable[[list[tuple[str, bytes]]], dict[str, Any]]
+
+# Engine ``calls``/``inherits``/``realizes`` edge types → enrichment rel types.
+_RESOLVED_EDGE_RELS = {"calls": "CALLS", "inherits": "INHERITS", "realizes": "REALIZES"}
 
 
 def _is_test_file(file_path: str) -> bool:
@@ -118,6 +124,82 @@ def entities_from_parse_result(
                 )
             )
     return result
+
+
+def _entity_id_for(props: dict[str, Any], file_path: str) -> tuple[str, str] | None:
+    """The (entity_id, kind) a parsed SYMBOL maps to, mirroring
+    :func:`entities_from_parse_result`. ``kind`` is ``"code"`` or ``"test"``;
+    ``None`` for a node that yields no entity."""
+    sym_type = props.get("symbol_type")
+    name = props.get("name", "")
+    if sym_type == "Function" and _bool(props, "is_test") and _is_test_file(file_path):
+        return f"test:{file_path}::{name}", "test"
+    if sym_type in ("Function", "Class"):
+        return f"code:{file_path}::{name}", "code"
+    return None
+
+
+def entities_from_index_result(
+    index: dict[str, Any], content_hashes: dict[str, str]
+) -> tuple[list[ExtractionResult], list[EnrichmentEdge]]:
+    """Map one engine ``IndexResult`` into per-file entities AND already-resolved
+    ``CALLS``/``INHERITS``/``REALIZES`` edges (CONCEPT:KG-2.100).
+
+    A single ``IndexRepository`` round-trip both parses every file and resolves
+    cross-file calls type/scope-aware in Rust, so the symbols come from the merged
+    ``nodes`` (grouped by file) and the call graph from the merged ``edges`` —
+    bound to definitions, not name-matched in Python. ``CALLS`` stays code→code
+    (test coverage is the separate name-resolved ``COVERS`` edge); resolved-edge
+    properties (``strategy``/``confidence``) ride on each edge.
+    """
+    nodes = index.get("nodes", []) or []
+    by_file: dict[str, list[dict[str, Any]]] = {}
+    engine_to_entity: dict[str, str] = {}
+    entity_kind: dict[str, str] = {}
+    for node in nodes:
+        if node.get("node_type") != "SYMBOL":
+            continue
+        props = node.get("properties", {}) or {}
+        fp = props.get("file_path", "")
+        by_file.setdefault(fp, []).append(node)
+        mapped = _entity_id_for(props, fp)
+        if mapped is not None:
+            eid, kind = mapped
+            engine_to_entity[str(node.get("node_id", ""))] = eid
+            entity_kind[eid] = kind
+
+    results = [
+        entities_from_parse_result(
+            fp, content_hashes.get(fp, ""), {"nodes": file_nodes}
+        )
+        for fp, file_nodes in by_file.items()
+    ]
+
+    edges: list[EnrichmentEdge] = []
+    seen: set[tuple[str, str, str]] = set()
+    for edge in index.get("edges", []) or []:
+        rel = _RESOLVED_EDGE_RELS.get(edge.get("edge_type", ""))
+        if rel is None:
+            continue
+        src = engine_to_entity.get(str(edge.get("source", "")))
+        tgt = engine_to_entity.get(str(edge.get("target", "")))
+        if not src or not tgt or src == tgt:
+            continue
+        if rel == "CALLS" and (
+            entity_kind.get(src) != "code" or entity_kind.get(tgt) != "code"
+        ):
+            continue
+        key = (src, tgt, rel)
+        if key in seen:
+            continue
+        seen.add(key)
+        props = {
+            k: v
+            for k, v in (edge.get("properties") or {}).items()
+            if k in ("strategy", "confidence")
+        }
+        edges.append(EnrichmentEdge(source=src, target=tgt, rel_type=rel, props=props))
+    return results, edges
 
 
 def extract_source(file_path: str, source: str, parse_fn: ParseFn) -> ExtractionResult:

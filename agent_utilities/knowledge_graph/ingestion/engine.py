@@ -1002,6 +1002,7 @@ class IngestionEngine:
         from ..enrichment.pipeline import (
             EnrichmentPipeline,
             make_batch_parse_fn,
+            make_index_fn,
             make_parse_fn,
         )
 
@@ -1089,6 +1090,9 @@ class IngestionEngine:
             # Batched parse (one RPC for N files) when the engine advertises it;
             # falls back to per-file parse otherwise. (CONCEPT:KG-2.16)
             batch_parse_fn=make_batch_parse_fn(parse_gc),
+            # Cross-file type/scope resolver (one RPC = parse + resolution) when the
+            # engine advertises IndexRepository; the PRIMARY code path. (CONCEPT:KG-2.100)
+            index_fn=make_index_fn(parse_gc),
         )
 
         # Git-aware delta (CONCEPT:KG-2.8): when the source is a git work-tree we
