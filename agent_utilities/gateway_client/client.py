@@ -163,9 +163,7 @@ class GatewayClient:
 
     async def usage_by_project(self, **filters: Any) -> list[dict[str, Any]]:
         body = self._body(
-            await self._api.get(
-                "/api/observability/by-project", params=filters or None
-            )
+            await self._api.get("/api/observability/by-project", params=filters or None)
         )
         return body if isinstance(body, list) else []
 

@@ -226,9 +226,7 @@ class LoopController:
         # instance is wired. Default ON when configured (Native by default); the
         # URL's presence is the on-signal, the watermark keeps it idempotent.
         if (setting("ARCHIVEBOX_URL", default="") or "").strip():
-            report["archivebox"] = _stage(
-                "archivebox", self._run_archivebox_intake
-            )
+            report["archivebox"] = _stage("archivebox", self._run_archivebox_intake)
 
         # 0. ASSIMILATE — graph-compute middle (dedup/gap/synergy/rank), idempotent.
         if assimilate:

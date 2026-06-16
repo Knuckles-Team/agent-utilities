@@ -337,9 +337,9 @@ async def router_step(
                         ctx.state.output_data, dict
                     ):
                         ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
-                        ctx.state.output_data["kg_specialist_configs"] = (
-                            kg_result.specialist_configs
-                        )
+                        ctx.state.output_data[
+                            "kg_specialist_configs"
+                        ] = kg_result.specialist_configs
 
                     emit_graph_event(
                         deps.event_queue,
