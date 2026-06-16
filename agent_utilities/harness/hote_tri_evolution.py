@@ -158,7 +158,9 @@ class HybridTriEvolutionController:
             solver_skill=round(pol.solver_skill, 6),
         )
 
-    def _advance(self, pol: TriModulePolicies, rec: RoundRecord, evolve: set[str]) -> None:
+    def _advance(
+        self, pol: TriModulePolicies, rec: RoundRecord, evolve: set[str]
+    ) -> None:
         """Mutate the policies in ``evolve`` using this round's interdependent signals."""
         if "judge" in evolve:
             # Calibrate toward 0.5 (the unbiased point).
