@@ -476,3 +476,90 @@ def _host_slug(url: str) -> str:
 
     host = urlparse(url).netloc or url
     return host.lower()
+
+
+# ── Incremental: GitLab webhook → scoped re-index (CONCEPT:KG-2.9g) ────────────
+
+
+@dataclass
+class WebhookEvent:
+    """A parsed GitLab webhook reduced to what drives an incremental re-index."""
+
+    project_id: str
+    kind: str  # push | tag_push | merge_request | …
+    changed_code_files: list[str] = field(default_factory=list)
+
+
+def parse_gitlab_webhook(payload: dict[str, Any]) -> WebhookEvent | None:
+    """Reduce a GitLab webhook payload to a :class:`WebhookEvent`, or ``None``.
+
+    Handles the events that change code: ``push``/``tag_push`` (commits carry
+    added/modified/removed paths) and ``merge_request``. The project id is taken
+    from ``project.id`` (falling back to ``project_id``). Only code-extension
+    paths are surfaced in ``changed_code_files`` — the file-level delta hint a
+    future engine ast_hash diff can use; today it scopes the re-index to the
+    project.
+    """
+    if not isinstance(payload, dict):
+        return None
+    kind = str(payload.get("object_kind") or payload.get("event_type") or "").strip()
+    project = payload.get("project") or {}
+    pid = project.get("id") if isinstance(project, dict) else None
+    pid = pid if pid is not None else payload.get("project_id")
+    if pid is None:
+        return None
+
+    changed: set[str] = set()
+    for commit in payload.get("commits") or []:
+        if not isinstance(commit, dict):
+            continue
+        for key in ("added", "modified", "removed"):
+            for path in commit.get(key) or []:
+                if isinstance(path, str) and _is_code_file(path):
+                    changed.add(path)
+
+    return WebhookEvent(
+        project_id=str(pid),
+        kind=kind or "unknown",
+        changed_code_files=sorted(changed),
+    )
+
+
+def handle_gitlab_webhook(
+    engine: Any,
+    payload: dict[str, Any],
+    *,
+    sync: Callable[..., dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Drive an incremental re-index from a GitLab webhook (near-real-time).
+
+    Parses the payload and triggers a **project-scoped delta** sync — only the
+    project that changed is re-enumerated (the push advances its
+    ``last_activity_at`` past the watermark, so the delta naturally re-includes
+    it). ``sync`` is injectable for tests; in production it defaults to the shared
+    :func:`source_sync.sync_source` entrypoint, so the webhook reuses the exact
+    same resolve-and-write path as a full sync.
+    """
+    event = parse_gitlab_webhook(payload)
+    if event is None:
+        return {"status": "ignored", "reason": "unparseable or non-project webhook"}
+    if event.kind not in {"push", "tag_push", "merge_request"}:
+        return {
+            "status": "ignored",
+            "reason": f"event '{event.kind}' does not change code",
+        }
+
+    runner = sync
+    if runner is None:
+        from .source_sync import sync_source
+
+        runner = sync_source
+
+    result = runner(engine, "gitlab", mode="delta", ids=[event.project_id])
+    return {
+        "status": "ok",
+        "kind": event.kind,
+        "project_id": event.project_id,
+        "changed_code_files": event.changed_code_files,
+        "sync": result,
+    }

@@ -459,6 +459,41 @@ def register_write_ingest_tools(mcp):
                 )
                 return json.dumps(res_d)
 
+            elif action == "gitlab_sync":
+                # Index whole GitLab instance(s) as a resolved code graph (KG-2.9g).
+                # corpus_name = mode ('full' = re-index all, else delta);
+                # base_path = JSON list of project ids to narrow to.
+                from agent_utilities.knowledge_graph.core.source_sync import (
+                    sync_source,
+                )
+
+                mode = (corpus_name or "delta").strip().lower()
+                ids = None
+                if base_path.strip().startswith("["):
+                    ids = [str(x) for x in json.loads(base_path)]
+                res_d = sync_source(
+                    engine,
+                    "gitlab",
+                    mode="full" if mode == "full" else mode,
+                    ids=ids,
+                )
+                return json.dumps(res_d)
+
+            elif action == "gitlab_webhook":
+                # Near-real-time incremental re-index from a GitLab push/MR webhook
+                # (KG-2.9g): description = the raw webhook JSON payload.
+                from agent_utilities.knowledge_graph.core.gitlab_indexer import (
+                    handle_gitlab_webhook,
+                )
+
+                try:
+                    payload = json.loads(description) if description else {}
+                except (ValueError, TypeError):
+                    return json.dumps(
+                        {"status": "ignored", "reason": "invalid payload JSON"}
+                    )
+                return json.dumps(handle_gitlab_webhook(engine, payload))
+
             elif action == "corpus":
                 if not corpus_name:
                     return "Error: corpus_name required"
