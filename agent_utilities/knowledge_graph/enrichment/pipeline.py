@@ -107,6 +107,7 @@ class EnrichmentSummary(BaseModel):
     calls_edges: int = 0
     inherits_edges: int = 0
     realizes_struct_edges: int = 0
+    similar_edges: int = 0
     tests_needing_work: int = 0
     patterns_tagged: int = 0
     features: int = 0
@@ -392,13 +393,16 @@ class EnrichmentPipeline:
             for e in call_edges:
                 self._write_edge(e.source, e.target, e.rel_type, e.props)
                 summary.calls_edges += 1
-            # Structural class edges (INHERITS/REALIZES) from the Rust resolver.
+            # Structural + similarity edges (INHERITS/REALIZES/SIMILAR_TO) from the
+            # Rust resolver (CONCEPT:KG-2.100/2.101).
             for e in struct_edges:
                 self._write_edge(e.source, e.target, e.rel_type, e.props)
                 if e.rel_type == "INHERITS":
                     summary.inherits_edges += 1
-                else:
+                elif e.rel_type == "REALIZES":
                     summary.realizes_struct_edges += 1
+                elif e.rel_type == "SIMILAR_TO":
+                    summary.similar_edges += 1
 
             for f in features:
                 self._write_feature(f)

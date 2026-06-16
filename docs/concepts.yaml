@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 300
+total_concepts: 301
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2527,7 +2527,6 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/core/gitlab_indexer.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
@@ -2535,6 +2534,15 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: the type/scope-resolved call/inheritance graph
+- id: KG-2.101
+  name: model-free similar-code lookup. Returns the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: model-free similar-code lookup. Returns the
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

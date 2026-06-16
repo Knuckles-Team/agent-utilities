@@ -28,7 +28,7 @@ def register_analysis_tools(mcp):
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100). 'similar_code' = model-free similar-code lookup for a symbol (node_id=symbol id): its MinHash/LSH near-clone neighbours with scores, working with the embedder OFFLINE (CONCEPT:KG-2.101).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -1108,6 +1108,42 @@ def register_analysis_tools(mcp):
                             }
                             for r in (rows or [])
                         ],
+                    },
+                    default=str,
+                )
+            elif action == "similar_code":
+                # CONCEPT:KG-2.101 — model-free similar-code lookup. Returns the
+                # symbol's `similar_to` neighbours (MinHash/LSH near-clones) with
+                # their score — works with the embedder OFFLINE (no GB10 needed).
+                # `node_id` = the symbol id.
+                import json as _json
+
+                if not node_id:
+                    return "Error: similar_code needs a symbol id in `node_id`."
+                backend = getattr(engine, "backend", None)
+                if backend is None:
+                    return "Error: no graph backend available."
+                # similar_to is symmetric, so match it in either direction.
+                query = (
+                    "MATCH (s {id: $id})-[r]-(t) "
+                    "WHERE type(r) IN ['similar_to', 'SIMILAR_TO'] "
+                    "RETURN t.id AS node, r.score AS score"
+                )
+                try:
+                    rows = backend.execute(query, {"id": node_id})
+                except Exception as e:
+                    return _json.dumps({"status": "error", "message": str(e)})
+                neighbours = [
+                    {"node": r.get("node"), "score": r.get("score")}
+                    for r in (rows or [])
+                ]
+                neighbours.sort(key=lambda n: float(n["score"] or 0), reverse=True)
+                return _json.dumps(
+                    {
+                        "status": "ok",
+                        "node_id": node_id,
+                        "embedder_free": True,
+                        "similar": neighbours[: top_k if top_k else 10],
                     },
                     default=str,
                 )

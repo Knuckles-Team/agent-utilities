@@ -75,5 +75,26 @@ flowchart LR
 | Reasoning | `agent_utilities/knowledge_graph/core/owl_bridge.py` |
 | Surfaces | `agent_utilities/mcp/tools/analysis_tools.py`, `agent_utilities/mcp/kg_server.py` |
 
-This is the first increment of the code-intelligence cluster; later increments add
-model-free similarity, code-to-service linking, and IaC/clone/git-coupling passes.
+## Model-free similarity (CONCEPT:KG-2.101)
+
+Code search and clone detection must keep working when the embedder is offline (the
+recurring GB10 502s). So similarity is **model-free**, computed in the same Rust
+round-trip:
+
+- Each symbol gets a **MinHash signature** over its normalized AST-leaf trigrams —
+  identifiers/strings/numbers/types are abstracted to class tokens (so a
+  renamed-variable clone still matches) while keywords/operators/punctuation are
+  kept verbatim (so structure is preserved).
+- The resolver **LSH-bands** the signatures: symbols colliding in any band are
+  candidate pairs, linked with a symmetric scored `similar_to` edge when their
+  estimated Jaccard ≥ 0.5 (capped per node; mega-buckets skipped). The signature is
+  a compute-only input and is stripped from the graph nodes.
+- `:similarTo` is a **symmetric** OWL property; the reasoner closes it both ways.
+- Query it embedder-free: `graph_analyze(action="similar_code", node_id=…)` /
+  `GET /graph/analyze/similar-code?id=…`.
+
+This is the near-clone signal B4 reuses for `CodeClone`.
+
+These are the first increments of the code-intelligence cluster; later increments
+add code-to-service linking, IaC/clone/git-coupling passes, and broader grammar
+coverage.
