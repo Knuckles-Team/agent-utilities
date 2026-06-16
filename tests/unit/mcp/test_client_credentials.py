@@ -146,3 +146,33 @@ def test_auth_flow_no_retry_on_success(cc):
         with pytest.raises(StopIteration):
             flow.send(httpx.Response(200, request=sent))
     post.assert_called_once()  # no re-mint on a non-401 response
+
+
+# ── Session-max-age (recycle-before-expiry) derivation ─────────────────────
+
+
+def test_service_session_max_age_from_token_ttl(cc):
+    with patch.object(cc.requests, "post", return_value=_resp("tok", ttl=60)):
+        age = cc.service_session_max_age(None)
+    # 60s TTL - 30s skew - 5s buffer = 25s
+    assert age == 25.0
+
+
+def test_service_session_max_age_floored(cc):
+    with patch.object(cc.requests, "post", return_value=_resp("tok", ttl=10)):
+        age = cc.service_session_max_age(None)
+    assert age == cc._MIN_SESSION_MAX_AGE  # never thrash on a tiny TTL
+
+
+def test_service_session_max_age_none_for_own_auth(cc):
+    with patch.object(cc.requests, "post", return_value=_resp("tok")) as post:
+        assert cc.service_session_max_age({"Authorization": "Bearer own"}) is None
+    post.assert_not_called()
+
+
+def test_service_session_max_age_none_when_disabled(monkeypatch):
+    monkeypatch.setenv("MCP_CLIENT_AUTH", "none")
+    import agent_utilities.mcp.client_credentials as module
+
+    importlib.reload(module)
+    assert module.service_session_max_age(None) is None
