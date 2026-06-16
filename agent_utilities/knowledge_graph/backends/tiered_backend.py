@@ -61,16 +61,34 @@ def _is_traversal(query: str) -> bool:
     return bool(_TRAVERSAL_RE.search(query or ""))
 
 
+# A WHERE/label-anchored traversal — the graph_code_nav shapes
+# (``MATCH (a:La)-[:REL]->(b:Lb) WHERE b.prop = $x``). L1 resolves these by
+# scanning the labeled anchor for the property match, then walking — so they too
+# belong on L1 (where the resolved code graph is authoritative), NOT L3.
+# (CONCEPT:KG-2.9g)
+_LABELED_NODE_RE = re.compile(r"\(\s*\w+\s*:\s*`?\w+", re.IGNORECASE)
+_WHERE_PROP_ANCHOR_RE = re.compile(r"\bWHERE\b[^;]*?\b\w+\.\w+\s*=", re.IGNORECASE)
+
+
 def _l1_can_traverse(query: str) -> bool:
     """True if the L1 epistemic engine can resolve this traversal natively.
 
-    L1 handles **id-anchored** traversals — single-hop (``->``/``<-``) and bounded
-    variable-length (``[*lo..hi]``) — by walking the engine's neighbour/BFS ops
-    from the anchor. Without an ``{id: ...}`` anchor there is no entry point, so
-    those defer to L3's relational ``kg_edges`` JOINs.
+    L1 handles two anchored shapes by walking the engine's neighbour/BFS ops:
+      * **id-anchored** — single-hop (``->``/``<-``) or bounded ``[*lo..hi]`` from
+        an ``{id: ...}`` entry point; and
+      * **label+WHERE-anchored** (CONCEPT:KG-2.9g) — a labeled pattern with a
+        ``WHERE <var>.<prop> = …`` anchor (the code-nav find_references /
+        trace_call_graph / impact_of_change shapes), resolved by scanning the
+        labeled anchor then walking.
+    Both are served from L1 (authoritative for the resolved graph). Only
+    genuinely unanchored traversals defer to L3's relational ``kg_edges`` JOINs.
     """
     q = query or ""
-    return bool(_ID_ANCHOR_RE.search(q)) and _is_traversal(q)
+    if not _is_traversal(q):
+        return False
+    if _ID_ANCHOR_RE.search(q):
+        return True
+    return bool(_LABELED_NODE_RE.search(q)) and bool(_WHERE_PROP_ANCHOR_RE.search(q))
 
 
 def _sanitize_label(label: str) -> str:
