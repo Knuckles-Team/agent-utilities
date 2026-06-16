@@ -8,6 +8,7 @@ keeping observable query-shape parity.
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from collections.abc import Iterable
 from datetime import UTC, datetime
 
@@ -48,20 +49,25 @@ class SqlUsageBackend(UsageBackend):
     placeholder = "?"
 
     # ── hooks subclasses must provide ───────────────────────────────────
+    @abstractmethod
     def _connect(self):  # returns a DB-API-ish connection (context manager)
-        raise NotImplementedError  # ABSTRACT-OK
+        """Open a DB-API-style connection usable as a context manager."""
 
+    @abstractmethod
     def _ensure_search(self, conn) -> None:
         """Create the search structure (FTS5 table / tsvector index)."""
 
+    @abstractmethod
     def _index_messages(self, conn, session_id: str, msgs: list[UsageMessage]) -> None:
         """Index a session's messages for search after they are written."""
 
+    @abstractmethod
     def _clear_search(self, conn, session_id: str) -> None:
         """Remove a session's search rows before re-indexing."""
 
-    def search(self, query, *, limit=50, **filters):  # pragma: no cover - override
-        raise NotImplementedError  # ABSTRACT-OK
+    @abstractmethod
+    def search(self, query, *, limit=50, **filters):
+        """Full-text search session messages (dialect-specific implementation)."""
 
     # ── helpers ─────────────────────────────────────────────────────────
     def _ph(self) -> str:

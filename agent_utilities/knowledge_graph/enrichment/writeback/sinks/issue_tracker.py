@@ -9,6 +9,7 @@ dry-run-first. ``creations`` items: ``{name/title, body, project_id|owner+repo}`
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from typing import Any
 
 from ..core import WritebackContext, WritebackResult, register_sink
@@ -32,7 +33,7 @@ def _title(c: dict[str, Any]) -> str | None:
     return c.get("title") or c.get("name")
 
 
-class _IssueSinkBase:
+class _IssueSinkBase(ABC):
     domain = ""
     enable_flag = ""
     module = ""
@@ -40,8 +41,9 @@ class _IssueSinkBase:
     def _client(self, ops: dict[str, Any]) -> Any | None:
         return _resolve_client(ops, self.module)
 
+    @abstractmethod
     def _create(self, client: Any, title: str, body: str, c: dict[str, Any]) -> None:
-        raise NotImplementedError  # ABSTRACT-OK
+        """File one issue/ticket on the tracker via the resolved client."""
 
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool

@@ -357,7 +357,7 @@ class GraphSearchEvolver:
         self._num_branches = max(1, num_branches)
         self._num_steps = max(0, num_steps)
         self._seed = seed
-        self._rng = Random(seed)
+        self._rng = Random(seed)  # nosec B311 — reproducible search exploration, not crypto
         self.memory = memory if memory is not None else GlobalCodeMemory()
         self.coldstart = coldstart if coldstart is not None else ColdStartKB()
         self._stagnation_patience = max(1, stagnation_patience)

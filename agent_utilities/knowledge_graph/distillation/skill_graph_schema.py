@@ -44,6 +44,7 @@ SOURCE_KINDS: tuple[str, ...] = (
     "generated",  # LLM-authored corpus ("generate our own")
     "kg_query",  # distilled from a Knowledge-Graph subgraph
     "llms",  # llms.txt / llms-full.txt (the LLM-docs standard — clean, complete)
+    "archivebox",  # preserved snapshots from a deployed ArchiveBox (by tag/url)
 )
 
 # Frontmatter keys a standardized skill-graph SKILL.md carries. ``description`` and

@@ -89,7 +89,7 @@ class ForecastBoard:
         """Record a forecast *before* the run and return it.
 
         ``confidence`` is clamped to ``[0, 1]``; ``predicted`` is stored as given
-        (point metrics may legitimately fall outside the unit interval). Re-using
+        (point metrics may legitimately fall outside the unit interval). Reusing
         an ``experiment_id`` replaces the earlier open forecast for that id.
         """
         forecast = Forecast(

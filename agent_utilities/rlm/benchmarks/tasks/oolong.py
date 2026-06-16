@@ -30,7 +30,7 @@ class OolongTask(LongContextTask):
                 **{k: real[k] for k in ("context", "question", "answer")},
             )
 
-        rng = random.Random(seed)
+        rng = random.Random(seed)  # nosec B311 — deterministic synthetic benchmark data, not crypto
         target = rng.choice(_CATEGORIES)
         records: list[str] = []
         count = 0

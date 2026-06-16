@@ -592,6 +592,7 @@ concepts:
   - agent_utilities/knowledge_graph/memory/cli.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/mcp/__init__.py
+  - agent_utilities/mcp/action_dispatch.py
   - agent_utilities/mcp/context_helpers.py
   - agent_utilities/mcp/delegated_auth.py
   - agent_utilities/mcp/kg_server.py
@@ -1387,6 +1388,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/kafka_graph_sync.py
   - agent_utilities/knowledge_graph/core/kg_versioning.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/core/subgraph_checkout.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_pipeline.py
@@ -1396,6 +1398,9 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/__init__.py
   - agent_utilities/knowledge_graph/ingestion/__main__.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/ingestion/paper_links.py
+  - agent_utilities/knowledge_graph/ingestion/research_acquisition.py
+  - agent_utilities/knowledge_graph/ingestion/web_fetch.py
   - agent_utilities/knowledge_graph/integrations/stardog_sync.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
   - agent_utilities/knowledge_graph/ontology/interfaces.py

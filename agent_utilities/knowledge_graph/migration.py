@@ -165,7 +165,7 @@ def _iter_source_embeddings(source: Any) -> Iterator[tuple[str, list[float]]]:
     for nid in graph._get_all_nodes():
         try:
             props = graph._get_node_properties(nid) or {}
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 # nosec B112 — skip nodes whose props can't be read
             continue
         emb = props.get("embedding")
         if isinstance(emb, list) and emb:

@@ -33,7 +33,7 @@ class BrowseCompPlusTask(LongContextTask):
                 **{k: real[k] for k in ("context", "question", "answer")},
             )
 
-        rng = random.Random(seed)
+        rng = random.Random(seed)  # nosec B311 — deterministic synthetic benchmark data, not crypto
         person = rng.choice(_NAMES)
         company = rng.choice(_COMPANIES)
         city = rng.choice(_CITIES)
