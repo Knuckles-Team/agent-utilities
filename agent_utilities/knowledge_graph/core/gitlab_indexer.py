@@ -475,6 +475,10 @@ def instances_from_config(config: Any = None) -> list[GitLabInstanceConfig]:
     ``GITLAB_URL``/``GITLAB_TOKEN`` settings when no instances are configured.
     ``config`` defaults to the live ``AgentConfig`` singleton (injectable for tests).
     """
+    # `setting` is the module-level live env accessor (NOT a method on the
+    # AgentConfig instance); `config.gitlab_instances` is the typed structured field.
+    from agent_utilities.core.config import setting
+
     if config is None:
         from agent_utilities.core.config import config as config_singleton
 
@@ -490,10 +494,9 @@ def instances_from_config(config: Any = None) -> list[GitLabInstanceConfig]:
 
     if not out:
         url = (
-            config.setting("GITLAB_URL", default="https://gitlab.com")
-            or "https://gitlab.com"
+            setting("GITLAB_URL", default="https://gitlab.com") or "https://gitlab.com"
         ).strip()
-        token = (config.setting("GITLAB_TOKEN", default="") or "").strip()
+        token = (setting("GITLAB_TOKEN", default="") or "").strip()
         if token:
             out.append(GitLabInstanceConfig(name=_host_slug(url), url=url, token=token))
     return out

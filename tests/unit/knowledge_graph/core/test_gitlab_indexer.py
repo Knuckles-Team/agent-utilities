@@ -255,14 +255,11 @@ def test_handle_ignores_non_code_events():
 
 
 class _FakeConfig:
-    """Stand-in for the AgentConfig singleton: typed gitlab_instances + setting()."""
+    """Stand-in for the AgentConfig singleton: only the typed gitlab_instances field
+    (the single-host fallback reads env via the module-level `setting`, not here)."""
 
-    def __init__(self, gitlab_instances=None, env=None):
+    def __init__(self, gitlab_instances=None):
         self.gitlab_instances = gitlab_instances
-        self._env = env or {}
-
-    def setting(self, key, default=None, cast=None):
-        return self._env.get(key, default)
 
 
 def test_instances_from_structured_xdg_config():
@@ -278,18 +275,19 @@ def test_instances_from_structured_xdg_config():
     assert insts[0].url == "https://gl.acme.io" and insts[0].token == "t1"
 
 
-def test_instances_fall_back_to_single_host():
-    cfg = _FakeConfig(
-        gitlab_instances=None,
-        env={"GITLAB_URL": "https://gl.x", "GITLAB_TOKEN": "tok"},
-    )
-    insts = instances_from_config(cfg)
+def test_instances_fall_back_to_single_host(monkeypatch):
+    # No structured instances → single-host env via the module-level `setting`.
+    monkeypatch.setenv("GITLAB_URL", "https://gl.x")
+    monkeypatch.setenv("GITLAB_TOKEN", "tok")
+    insts = instances_from_config(_FakeConfig(gitlab_instances=None))
     assert len(insts) == 1
     assert insts[0].name == "gl.x" and insts[0].token == "tok"
 
 
-def test_instances_empty_without_token():
-    assert instances_from_config(_FakeConfig(gitlab_instances=None, env={})) == []
+def test_instances_empty_without_token(monkeypatch):
+    monkeypatch.delenv("GITLAB_TOKEN", raising=False)
+    monkeypatch.delenv("GITLAB_URL", raising=False)
+    assert instances_from_config(_FakeConfig(gitlab_instances=None)) == []
 
 
 def test_map_index_result_maps_inherits_and_realizes():
