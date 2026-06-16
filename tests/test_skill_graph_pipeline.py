@@ -393,6 +393,54 @@ def test_refresh_no_file_delta_is_fresh(tmp_path):
     assert res["delta"]["changed"] == 0
 
 
+# ── site profiler / llms.txt acquisition ───────────────────────────────────────
+
+
+def test_llms_full_detection_and_split(monkeypatch):
+    import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
+
+    body = "# Intro\n\n" + ("hello " * 300) + "\n\n# API\n\n" + ("world " * 300) + "\n"
+    pages = {"https://x.io/llms-full.txt": body}  # > 2000 chars (real-size guard)
+    monkeypatch.setattr(mod, "_http_get", lambda url, **k: pages.get(url))
+    spec, profile = mod.detect_scrape_strategy("https://x.io/docs/guide")
+    assert spec.kind == "llms" and profile["signal"] == "llms-full.txt"
+    assert spec.uri == "https://x.io"  # normalized to site root
+    docs = mod._fetch_llms_docs("https://x.io/docs")
+    assert {d.title for d in docs} == {"Intro", "API"}  # split by H1
+
+
+def test_llms_index_fetches_linked_pages(monkeypatch):
+    import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
+
+    pages = {
+        "https://y.io/llms-full.txt": None,
+        "https://y.io/llms.txt": "# Y\n\n- [Guide](https://y.io/guide.md)\n- [API](https://y.io/api.md)\n",
+        "https://y.io/guide.md": "# Guide\n\ng\n",
+        "https://y.io/api.md": "# API\n\na\n",
+    }
+    monkeypatch.setattr(mod, "_http_get", lambda url, **k: pages.get(url))
+    spec, profile = mod.detect_scrape_strategy("https://y.io")
+    assert spec.kind == "llms" and profile["signal"] == "llms.txt"
+    docs = mod._fetch_llms_docs("https://y.io")
+    assert len(docs) == 2 and {d.title for d in docs} == {"Guide", "API"}
+
+
+def test_detect_falls_back_to_sitemap_then_render(monkeypatch):
+    import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
+
+    monkeypatch.setattr(
+        mod,
+        "_http_get",
+        lambda url, **k: "<urlset/>" if url.endswith("/sitemap.xml") else None,
+    )
+    spec, profile = mod.detect_scrape_strategy("https://s.io/docs")
+    assert spec.kind == "web" and profile["strategy"] == "web+sitemap"
+
+    monkeypatch.setattr(mod, "_http_get", lambda url, **k: None)
+    spec2, profile2 = mod.detect_scrape_strategy("https://spa.io/docs")
+    assert spec2.kind == "web" and profile2["strategy"] == "web+render"
+
+
 # ── legacy migration ──────────────────────────────────────────────────────────
 
 

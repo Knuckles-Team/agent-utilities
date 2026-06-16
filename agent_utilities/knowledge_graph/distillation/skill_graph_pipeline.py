@@ -287,6 +287,162 @@ def _crawl_via_script(
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ── llms.txt / llms-full.txt acquisition + per-site strategy detection ──────────
+# The robustness layer: modern doc platforms publish the llms.txt standard — a clean,
+# complete, LLM-optimized rendering of their docs. Preferring it sidesteps JS rendering,
+# bot-blocking, sparse SPAs, and incomplete recursive crawls entirely.
+
+
+def _http_get(
+    url: str, *, timeout: float = 25.0, max_bytes: int = 25_000_000
+) -> str | None:
+    """Plain bounded HTTP GET → text, or None on any non-200/error. No deps."""
+    import urllib.error
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "skill-graph-builder"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 — http(s) only
+            if getattr(r, "status", 200) != 200:
+                return None
+            return r.read(max_bytes).decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 — unreachable/404/timeout → caller falls back
+        return None
+
+
+def _site_root(url: str) -> str:
+    from urllib.parse import urlparse
+
+    p = urlparse(url if "://" in url else f"https://{url}")
+    return f"{p.scheme or 'https'}://{p.netloc}"
+
+
+# Above this many heading sections an llms-full split is *over-fragmented*
+# (e.g. langchain's 2548 per-API-method H1s). Past the cap we coalesce adjacent
+# sections into size-bounded files so the reference/ tree stays navigable.
+_MAX_LLMS_SECTIONS = 400
+_LLMS_COALESCE_BYTES = 48_000
+
+
+def _split_llms_full(text: str, base: str) -> list[AcquiredDoc]:
+    """Split an llms-full.txt corpus into per-section reference docs (by top headings).
+
+    Splits on H1 (then H2). If that yields more sections than
+    :data:`_MAX_LLMS_SECTIONS`, adjacent sections are packed into ~48 KB files —
+    preserving heading boundaries while keeping the file count sane. A corpus with
+    no usable headings becomes a single doc (``split_oversized`` chunks it by size).
+    """
+    text = text.replace("\r\n", "\n")
+    src = f"{base}/llms-full.txt"
+    for level in ("# ", "## "):
+        parts = re.split(rf"(?m)^(?={re.escape(level)})", text)
+        sections = [p.strip() for p in parts if p.strip()]
+        if len(sections) < 2:
+            continue
+        if len(sections) <= _MAX_LLMS_SECTIONS:
+            return [_section_doc(sec, src) for sec in sections]
+        # Over-fragmented: pack adjacent sections into size-bounded files.
+        docs: list[AcquiredDoc] = []
+        buf: list[str] = []
+        size = 0
+        for sec in sections:
+            if buf and size + len(sec) > _LLMS_COALESCE_BYTES:
+                docs.append(_section_doc("\n\n".join(buf), src, idx=len(docs)))
+                buf, size = [], 0
+            buf.append(sec)
+            size += len(sec)
+        if buf:
+            docs.append(_section_doc("\n\n".join(buf), src, idx=len(docs)))
+        return docs
+    return [
+        AcquiredDoc(
+            rel_path="llms-full.md",
+            text=text.strip() + "\n",
+            title="Full documentation",
+            source_uri=src,
+        )
+    ]
+
+
+def _section_doc(sec: str, src: str, idx: int | None = None) -> AcquiredDoc:
+    """Build one reference doc from a markdown section (title from its first heading)."""
+    m = re.match(r"^#{1,6}\s+(.+)", sec)
+    title = (m.group(1).strip() if m else "section")[:80]
+    slug = _slug(title)
+    rel = f"{idx:04d}-{slug}.md" if idx is not None else f"{slug}.md"
+    return AcquiredDoc(rel_path=rel, text=sec.strip() + "\n", title=title, source_uri=src)
+
+
+def _fetch_llms_index(idx: str, base: str, max_pages: int) -> list[AcquiredDoc]:
+    """Fetch each page linked from an llms.txt index (.md raw, else strip-to-text)."""
+    from urllib.parse import urljoin
+
+    seen: set[str] = set()
+    docs: list[AcquiredDoc] = []
+    for m in re.finditer(r"\[([^\]]+)\]\(([^)]+)\)", idx):
+        if len(docs) >= max_pages:
+            break
+        name, url = m.group(1).strip(), urljoin(base + "/", m.group(2).strip())
+        if not url.startswith("http") or url in seen:
+            continue
+        seen.add(url)
+        body = _http_get(url)
+        if not body or not body.strip():
+            continue
+        rel = re.sub(r"[^a-zA-Z0-9._/-]+", "-", url.split("://", 1)[-1]).strip("-/")
+        rel = (rel or _slug(name)) + ("" if rel.endswith(".md") else ".md")
+        docs.append(
+            AcquiredDoc(rel_path=rel, text=body, title=name[:80], source_uri=url)
+        )
+    return docs
+
+
+def _fetch_llms_docs(url: str, *, max_pages: int = 1000) -> list[AcquiredDoc]:
+    """Acquire a site's docs via the llms.txt standard; [] if not published."""
+    base = _site_root(url)
+    full = _http_get(f"{base}/llms-full.txt")
+    if full and len(full) > 2000:
+        return _split_llms_full(full, base)
+    idx = _http_get(f"{base}/llms.txt")
+    if idx and "](" in idx:
+        return _fetch_llms_index(idx, base, max_pages)
+    return []
+
+
+def _has_sitemap(base: str) -> bool:
+    if _http_get(f"{base}/sitemap.xml") is not None:
+        return True
+    robots = _http_get(f"{base}/robots.txt") or ""
+    return "sitemap:" in robots.lower()
+
+
+def detect_scrape_strategy(url: str) -> tuple[SourceSpec, dict[str, Any]]:
+    """Probe a site and pick the best acquisition strategy (the SiteProfiler).
+
+    Priority: llms.txt/llms-full.txt → sitemap crawl → recursive render. Returns the
+    chosen ``SourceSpec`` plus a ``scrape_profile`` dict (what was detected + why) for
+    the robustness ledger recorded in sources.json.
+    """
+    base = _site_root(url)
+    profile: dict[str, Any] = {"url": url, "root": base}
+    if _http_get(f"{base}/llms-full.txt", max_bytes=4096) is not None:
+        profile["strategy"] = "llms"
+        profile["signal"] = "llms-full.txt"
+        return SourceSpec("llms", base), profile
+    idx = _http_get(f"{base}/llms.txt")
+    if idx and "](" in idx:
+        profile["strategy"] = "llms"
+        profile["signal"] = "llms.txt"
+        return SourceSpec("llms", base), profile
+    if _has_sitemap(base):
+        profile["strategy"] = "web+sitemap"
+        profile["signal"] = "sitemap.xml"
+        return SourceSpec("web", url, {"no_sitemap": False}), profile
+    profile["strategy"] = "web+render"
+    profile["signal"] = "recursive crawl4ai (no llms.txt/sitemap)"
+    return SourceSpec("web", url), profile
+
+
 # ── data model ────────────────────────────────────────────────────────────────
 
 
@@ -389,8 +545,22 @@ class SkillGraphPipeline:
             "mcp_tool": self._acquire_connector,
             "generated": self._acquire_generated,
             "kg_query": self._acquire_kg,
+            "llms": self._acquire_llms,
         }[spec.kind]
         return route(spec)
+
+    def _acquire_llms(self, spec: SourceSpec) -> AcquiredBundle:
+        """Acquire from the llms.txt / llms-full.txt standard — clean, complete docs.
+
+        ``uri`` is the site root (or any page on it). Prefers ``llms-full.txt`` (the
+        whole corpus in one fetch — no JS, no bot-blocking, no shrink), else parses
+        ``llms.txt`` (a curated index of ``[name](url.md)`` links) and fetches each.
+        Returns an empty bundle if neither is present so the caller can fall back.
+        """
+        docs = _fetch_llms_docs(
+            spec.uri, max_pages=int(spec.options.get("max_pages", 1000))
+        )
+        return AcquiredBundle(spec, docs, extractor="llms.txt")
 
     def _acquire_web(self, spec: SourceSpec) -> AcquiredBundle:
         if self.crawler_fn is not None:
@@ -1076,6 +1246,7 @@ class SkillGraphPipeline:
         mode: str = "auto",
         kg_enrich: bool | None = None,
         shrink_guard: bool = True,
+        detect: bool = True,
     ) -> dict[str, Any]:
         """Migrate one legacy skill-graph in place to the standardized contract.
 
@@ -1093,6 +1264,7 @@ class SkillGraphPipeline:
             return {"name": d.name, "skipped": True, "reason": chosen}
 
         depth = int(info["crawl_depth"] or 2)
+        scrape_profile: dict[str, Any] = {}
         if chosen == "reacquire":
             specs = self._specs_from_source_url(info["source_url"], depth)
             if not specs:
@@ -1101,10 +1273,25 @@ class SkillGraphPipeline:
                     "skipped": True,
                     "reason": "no usable source_url",
                 }
+            # SiteProfiler: probe the primary URL and prefer the best strategy
+            # (llms.txt/llms-full.txt → sitemap → recursive render) over a blind crawl.
+            if detect:
+                primary = next(
+                    (s.uri for s in specs if s.uri.startswith("http")), specs[0].uri
+                )
+                best, scrape_profile = detect_scrape_strategy(primary)
+                if best.kind == "web":
+                    best.options.setdefault("max_depth", depth)
+                specs = [best]
             try:
                 bundles = [self.acquire(s) for s in specs]
             except Exception as exc:  # noqa: BLE001 — crawl failed → keep content
-                return {"name": d.name, "status": "failed", "reason": str(exc)[:200]}
+                return {
+                    "name": d.name,
+                    "status": "failed",
+                    "reason": str(exc)[:200],
+                    "scrape_profile": scrape_profile,
+                }
             if shrink_guard and _is_shrink(
                 _ref_bytes(d / "reference"), _bundle_bytes(bundles)
             ):
@@ -1114,6 +1301,7 @@ class SkillGraphPipeline:
                     "existing_bytes": _ref_bytes(d / "reference"),
                     "new_bytes": _bundle_bytes(bundles),
                     "reason": "re-crawl far smaller than existing — source_url likely moved",
+                    "scrape_profile": scrape_profile,
                 }
             result = self._build_from_bundles(
                 name=d.name,
@@ -1125,6 +1313,14 @@ class SkillGraphPipeline:
                 version="1.0.0",
                 record_specs=None,
             )
+            # Stamp the chosen strategy into the manifest (the per-graph ledger entry).
+            if scrape_profile:
+                mpath = d / "sources.json"
+                if mpath.exists():
+                    data = json.loads(mpath.read_text(encoding="utf-8"))
+                    data["scrape_profile"] = scrape_profile
+                    mpath.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                result["scrape_profile"] = scrape_profile
         else:  # wrap — adopt the existing corpus in place. build() acquires into memory
             # BEFORE wiping reference/, so the graph's own reference/ is a safe dir
             # source (no temp copy). Record the upstream web sources (not the local
