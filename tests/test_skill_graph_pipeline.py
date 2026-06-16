@@ -441,6 +441,42 @@ def test_detect_falls_back_to_sitemap_then_render(monkeypatch):
     assert spec2.kind == "web" and profile2["strategy"] == "web+render"
 
 
+def test_docs_path_scope_preferred_over_marketing_root(monkeypatch):
+    """A docs-path llms-full beats a root one (mariadb: root=marketing, /docs=real)."""
+    import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
+
+    big = "# Real Docs\n\n" + ("doc " * 600) + "\n"
+    pages = {
+        "https://m.com/llms-full.txt": "# Marketing\n\n" + ("buy " * 600),  # root
+        "https://m.com/docs/llms-full.txt": big,  # docs scope (preferred)
+    }
+    monkeypatch.setattr(mod, "_http_get", lambda url, **k: pages.get(url))
+    spec, profile = mod.detect_scrape_strategy("https://m.com/docs/")
+    assert spec.kind == "llms" and profile["scope"] == "https://m.com/docs"
+    docs = mod._fetch_llms_docs(spec.uri)
+    text = "\n".join(d.text for d in docs)
+    assert "Real Docs" in text and "Marketing" not in text  # docs scope, not root
+
+
+def test_llms_index_strips_raw_html(monkeypatch):
+    """An llms.txt link that serves HTML (not markdown) is stripped, not stored raw."""
+    import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
+
+    html = "<!doctype html><html><head><title>P</title></head><body>" + (
+        "<p>real content here</p>" * 50
+    ) + "</body></html>"
+    pages = {
+        "https://h.io/llms-full.txt": None,
+        "https://h.io/llms.txt": "# H\n\n- [Page](https://h.io/page)\n",
+        "https://h.io/page": html,
+    }
+    monkeypatch.setattr(mod, "_http_get", lambda url, **k: pages.get(url))
+    docs = mod._fetch_llms_docs("https://h.io")
+    assert len(docs) == 1
+    assert not mod._looks_like_html(docs[0].text)  # HTML stripped to text
+    assert "real content here" in docs[0].text
+
+
 # ── legacy migration ──────────────────────────────────────────────────────────
 
 
