@@ -26,6 +26,12 @@ from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
+# Browser-like UA — the bare ``python-requests`` agent is 403'd by many sites.
+_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+)
+
 
 @dataclass
 class FetchedPage:
@@ -219,7 +225,10 @@ def _fetch_via_requests(url: str, timeout: float) -> FetchedPage | None:
 
     import requests
 
-    resp = requests.get(url, timeout=min(timeout, 60.0))
+    # A browser-like UA: many sites (e.g. turingpost) 403 the default
+    # ``python-requests`` agent. crawl4ai/ArchiveBox sidestep this when present;
+    # the floor must too.
+    resp = requests.get(url, timeout=min(timeout, 60.0), headers={"User-Agent": _UA})
     resp.raise_for_status()
     raw = resp.text
 
