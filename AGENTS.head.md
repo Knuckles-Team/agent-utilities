@@ -237,6 +237,16 @@ OpenBao (`bao kv get`) or reuse the session MCP config — and set
 needs `KG_SERVED_PROFILE=0` to accept local unauthenticated inbound calls. Never
 echo a secret value into logs, command output, or a committed file.
 
+A reusable harness for this lives at **`scripts/dev_execute_agent.py`** — it runs
+one `execute_agent` against a named fleet server through a throwaway `graph-os`
+and prints the result + masked server stderr. It reads creds from
+``/tmp/oidc.env`` (or the env), which you populate from the store above; it holds
+no credential-store path itself. **Credential access stays human-gated by
+design**: in auto-accept mode the agent cannot read a secret or grant itself that
+access, so a human performs the one-time cred load (or pre-authorizes the
+specific command in their own `.claude/settings.local.json`). This boundary is
+intentional and is not something to engineer around.
+
 ## Reward / preference / RL-method primitives (AHE-3.x) — conventions
 
 When adding reward, advantage, preference, or RL-method code (the AHE-3.1 spine and the
