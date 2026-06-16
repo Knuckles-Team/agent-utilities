@@ -1,13 +1,14 @@
 #!/usr/bin/python
 """Phase 13: Knowledge Base Sync.
 
-Runs after Phase 12 (Sync) and auto-ingests the packaged knowledge — ALL
-skill-graphs and the universal-skills workflow corpus — into the KG so it is
-queryable out of the box. Delta-skipped (only the first run is heavy). Controlled
-by PipelineConfig (all default-on; disable via KG_AUTO_INGEST_SKILLS=false):
+Runs after Phase 12 (Sync) and natively auto-ingests ALL packaged knowledge into
+the KG so it is queryable out of the box — all three skill types at document-grade
+enrichment: skill-graphs, atomic skills, and workflow DAGs. Delta-skipped (only the
+first run is heavy). Controlled by PipelineConfig (all default-on; disable via
+KG_AUTO_INGEST_SKILLS=false):
   - enable_knowledge_base: bool (default True)
-  - kb_auto_ingest_skill_graphs: bool (default True — ALL graphs)
-  - kb_auto_ingest_universal_skills: bool (default True — workflow corpus)
+  - kb_auto_ingest_skill_graphs: bool (default True — ALL graphs, document-grade)
+  - kb_auto_ingest_universal_skills: bool (default True — atomic skills + workflows)
 """
 
 import logging
@@ -87,16 +88,58 @@ async def execute_knowledge_base(
                         {"path": str(graph_path), "status": "error", "error": str(e)}
                     )
 
-    # Auto-ingest the universal-skills workflow corpus (default-on, best-effort) so the
-    # dispatchable WorkflowDefinition DAGs are discoverable by graph-os out of the box.
+    # Auto-ingest the universal-skills corpus (default-on, best-effort): the ATOMIC
+    # SKILLS (full enrichment, same as documents — chunk+embed+concept+fact + skill_type)
+    # AND the workflow DAGs. So all three skill types — atomic skill / skill-graph /
+    # workflow — land in the KG natively, cross-linked by concept.
     if ctx.config.kb_auto_ingest_universal_skills:
+        from ...core.engine import IntelligenceGraphEngine
+
+        us_engine = IntelligenceGraphEngine.get_active()
+
+        # (a) atomic skills — every SKILL.md that is NOT a workflow.
         try:
-            from ...core.engine import IntelligenceGraphEngine
+            from universal_skills.skill_utilities import get_universal_skills_path
+
+            atomic = [
+                p for p in get_universal_skills_path() if "/workflows/" not in str(p)
+            ]
+        except ImportError:
+            atomic = []
+        if atomic and us_engine is not None:
+            from ...ingestion.engine import (
+                ContentType,
+                IngestionEngine,
+                IngestionManifest,
+            )
+
+            sie = IngestionEngine(kg_engine=us_engine)
+            ingested = 0
+            for sd in atomic:
+                try:
+                    res = await sie.ingest(
+                        IngestionManifest(
+                            content_type=ContentType.SKILL, source_uri=str(sd)
+                        )
+                    )
+                    ingested += res.status == "success"
+                except Exception as e:  # noqa: BLE001 — one bad skill must not abort
+                    logger.debug("atomic skill ingest failed for %s: %s", sd, e)
+            kb_results.append(
+                {
+                    "name": "universal-skills/atomic",
+                    "status": "complete",
+                    "skills": ingested,
+                    "scanned": len(atomic),
+                }
+            )
+
+        # (b) workflow DAGs.
+        try:
             from ...ingestion.skill_workflow_ingest import ingest_skill_workflows
 
-            wf_engine = IntelligenceGraphEngine.get_active()
-            if wf_engine is not None:
-                wf = ingest_skill_workflows(wf_engine)
+            if us_engine is not None:
+                wf = ingest_skill_workflows(us_engine)
                 kb_results.append(
                     {"name": "universal-skills/workflows", "status": "complete", **wf}
                 )
