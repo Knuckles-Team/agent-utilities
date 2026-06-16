@@ -78,6 +78,20 @@ def __getattr__(name: str):
             return factory_mod.mcp_auth_config
         return getattr(factory_mod, name)
 
+    # Action dispatch (standardized list_actions / aliases / did-you-mean)
+    if name in (
+        "DISCOVERY_ACTIONS",
+        "public_actions",
+        "suggest",
+        "canonicalize",
+        "unknown_action_error",
+        "resolve_action",
+        "dispatch",
+    ):
+        import agent_utilities.mcp.action_dispatch as dispatch_mod
+
+        return getattr(dispatch_mod, name)
+
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -108,4 +122,12 @@ __all__ = [
     "get_3lo_authorization_url",
     "exchange_authorization_code",
     "refresh_access_token",
+    # action dispatch
+    "DISCOVERY_ACTIONS",
+    "public_actions",
+    "suggest",
+    "canonicalize",
+    "unknown_action_error",
+    "resolve_action",
+    "dispatch",
 ]
