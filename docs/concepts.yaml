@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 306
+total_concepts: 314
 total_pillars: 20
 pillars:
 - AHE-3
@@ -548,6 +548,53 @@ concepts:
   - agent_utilities/harness/hote_tri_evolution.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: co-evolve the research
+- id: AHE-3.51
+  name: reasoning materialises the variant↔base and edit↔pathology
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  doc: reasoning materialises the variant↔base and edit↔pathology
+- id: AHE-3.52
+  name: run the AEGIS loop over a provided edit sequence
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/aegis_loop.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: run the AEGIS loop over a provided edit sequence
+- id: AHE-3.53
+  name: the parity-and-surpass scoreboard vs HarnessX
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/harness_foundry_benchmark.py
+  - agent_utilities/harness/harness_gate.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: the parity-and-surpass scoreboard vs HarnessX
+- id: AHE-3.54
+  name: the no-regression seesaw is scoped
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/aegis_loop.py
+  doc: the no-regression seesaw is scoped
+- id: AHE-3.55
+  name: AHE-3.56
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/co_evolution.py
+  doc: AHE-3.56
+- id: AHE-3.56
+  name: /KG-2.108 — held-out certification + ARA-Seal of a
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/harness_grounding.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: /KG-2.108 — held-out certification + ARA-Seal of a
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1423,6 +1470,7 @@ concepts:
   - agent_utilities/gateway/api.py
   - agent_utilities/gateway/daemon.py
   - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py
   - agent_utilities/knowledge_graph/backends/__init__.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
@@ -1554,18 +1602,20 @@ concepts:
   - agent_utilities/tools/db_tools.py
   doc: which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle
 - id: KG-2.9g
-  name: code-symbol navigation over the
+  name: Declared columns so schema-backed Kuzu can
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/backends/tiered_backend.py
   - agent_utilities/knowledge_graph/core/gitlab_indexer.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/models/schema_definition.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
-  doc: code-symbol navigation over the
+  doc: Declared columns so schema-backed Kuzu can
 - id: KG-2.10
   name: S4c
   pillar: KG-2
@@ -2272,6 +2322,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/outbox.py
   - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
+  - agent_utilities/knowledge_graph/core/engine_ingestion.py
   - agent_utilities/knowledge_graph/extraction/ontology_grounding.py
   - agent_utilities/knowledge_graph/extraction/readers_media.py
   - agent_utilities/knowledge_graph/extraction/structure_router.py
@@ -2591,6 +2642,21 @@ concepts:
   - agent_utilities/knowledge_graph/core/gitlab_indexer.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   doc: engine built with ast-extended
+- id: KG-2.107
+  name: KG-2.107
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  doc: KG-2.107
+- id: KG-2.108
+  name: KG-2.108
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/harness/harness_grounding.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+  doc: KG-2.108
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

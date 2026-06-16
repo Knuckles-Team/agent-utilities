@@ -1,0 +1,29 @@
+"""Harness-foundry benchmark (CONCEPT:AHE-3.53) — all surpass claims reproduce."""
+
+from __future__ import annotations
+
+import pytest
+
+pytest.importorskip("pyshacl")
+
+from agent_utilities.harness.harness_foundry_benchmark import run_all, to_markdown
+
+
+def test_all_surpass_claims_reproduce():
+    results = run_all()
+    assert len(results) == 3
+    by_name = {r.name: r for r in results}
+    # Headline: we block the τ³ concentration coupling HarnessX ships into.
+    conc = by_name["concentration_tau3"]
+    assert conc.claim_reproduced and conc.ours < conc.baseline
+    # Held-out gate rejects the overfit variant their gate accepts.
+    assert by_name["held_out_overfit_guard"].claim_reproduced
+    # Cross-harness grouping recovers the cross-scaffold contrast.
+    assert by_name["cross_harness_grouping"].claim_reproduced
+    assert all(r.claim_reproduced for r in results)
+
+
+def test_markdown_renders():
+    md = to_markdown(run_all())
+    assert "3/3 surpass claims reproduced" in md
+    assert "concentration_tau3" in md
