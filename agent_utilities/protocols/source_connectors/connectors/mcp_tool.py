@@ -151,6 +151,33 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
             "text_path": "content",
         },
     },
+    # archivebox-api: every preserved web snapshot enumerated as a record. ArchiveBox
+    # is the fast ingestion source for pages we've archived (no live re-crawl). List
+    # via ``archivebox_core get_snapshots`` (DRF ``{"results": [...]}`` with
+    # limit/offset paging); the snapshot ``url`` rides in metadata. ``extracted_text``
+    # is used as the body when ArchiveBox inlines it (``with_archiveresults``); when
+    # it doesn't, the snapshot's preserved body is retrieved robustly by
+    # ``web_fetch.resolve_web_fetch(url, prefer="archivebox")`` in the sync path
+    # (``_sync_archivebox``), which also fires research-paper extraction for archived
+    # roundups. Delta = ``created_at__gte``; "pull all" is a full drain; restrict with
+    # {"params": {"tag": "research"}}.
+    "archivebox": {
+        "server": "archivebox-api",
+        "tool": "archivebox_core",
+        "action": "get_snapshots",
+        "params": {"with_archiveresults": True},
+        "records_path": "results",
+        "id_field": "abid",
+        "title_field": "title",
+        "text_field": "extracted_text",
+        "updated_field": "modified_at",
+        "pagination": "page",
+        "page_kind": "offset",
+        "page_param": "offset",
+        "page_size_param": "limit",
+        "page_size": 100,
+        "doc_type": "webpage",
+    },
     # mealie-mcp: recipes as documents. ``mealie_recipes`` is an action-routed
     # tool (action + params_json envelope), so the fleet-default params_style
     # "json" drives it directly. get_recipes returns Mealie's ``{"items": [...],
