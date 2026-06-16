@@ -194,3 +194,13 @@ Procfile          text
 
 # Ignore files (like .npmignore or .gitignore)
 *.*ignore         text
+
+# Concept governance (CONCEPT:OS-5.42) — see docs/concept_coordination.md.
+# The reservation ledger is one-line-per-record; union-merge so two worktrees
+# that each claim a concept id both survive instead of conflicting.
+docs/concept_reservations.yaml  merge=union
+# concepts.yaml is generated from CONCEPT: markers — regenerate on merge rather
+# than hand-merging. The concepts-regen driver (registered by scripts/install.sh)
+# re-derives it from the merged code tree; if the driver is not installed, git
+# falls back to a normal merge and CI's check_concepts.py backstops staleness.
+docs/concepts.yaml              merge=concepts-regen linguist-generated=true

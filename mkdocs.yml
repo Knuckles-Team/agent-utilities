@@ -132,3 +132,4 @@ nav:
   - Concept Registry:
       - Canonical Concept Map: concept_map.md
       - Concept Overview: overview.md
+      - Multi-Session Coordination: concept_coordination.md
