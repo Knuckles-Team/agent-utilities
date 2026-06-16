@@ -986,6 +986,36 @@ class AgentConfig(BaseSettings):
     connection exists. For Postgres, use ``"backend": "age"`` for native
     openCypher portability."""
 
+    gitlab_instances: list[dict[str, Any]] | None = Field(
+        default=None, alias="GITLAB_INSTANCES"
+    )
+    """GitLab instances to index into the KG (CONCEPT:KG-2.9g). A JSON list of
+    ``{"name": <str>, "url": <str>, "token": <str>, "verify_ssl": <bool>}`` — the
+    single source of truth shared by the agent-utilities GitLab indexer
+    (``knowledge_graph/core/gitlab_indexer``) and the ``gitlab-api`` connector's
+    instance registry, so one config drives multi-tenant indexing and API access.
+    Unset → falls back to the single-host ``GITLAB_URL``/``GITLAB_TOKEN`` env."""
+
+    @field_validator("gitlab_instances", mode="before")
+    @classmethod
+    def _coerce_gitlab_instances(cls, v: Any) -> Any:
+        """Accept a JSON-encoded string or an already-parsed list for
+        GITLAB_INSTANCES (CONCEPT:KG-2.9g)."""
+        if v is None or isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            import json
+
+            s = v.strip()
+            if not s:
+                return None
+            try:
+                parsed = json.loads(s)
+            except Exception:
+                return None
+            return parsed if isinstance(parsed, list) else None
+        return None
+
     @field_validator("graph_mirror_targets", mode="before")
     @classmethod
     def _coerce_graph_mirror_targets(cls, v: Any) -> Any:
