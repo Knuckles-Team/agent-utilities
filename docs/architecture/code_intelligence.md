@@ -106,5 +106,19 @@ siloed per-repo code tool can't produce because it never sees the topology. Quer
 it: `graph_analyze(action="routes")` / `GET /graph/analyze/routes`. (gRPC/GraphQL
 detection and event channels are later increments.)
 
-These are the early increments of the code-intelligence cluster; later increments
-add IaC/clone/git-coupling passes and broader grammar coverage.
+## Infra, coupling, clones, decisions (CONCEPT:KG-2.103–2.105)
+
+The graph spans past the code itself:
+
+- **IaC → Resource (KG-2.103).** Dockerfiles, K8s/Kustomize manifests, and
+  Terraform are parsed into `Resource` nodes (image/kind/name) and linked to the
+  deployed `Service` they `provision` — so code → infra → topology is one graph.
+- **Git change-coupling → FILE_CHANGES_WITH (KG-2.104).** Files that keep changing
+  together get a symmetric weighted edge — the hidden blast radius the AST can't
+  see. `graph_analyze(action="change_coupling", target=<repo>)`.
+- **Near-clones** are the `similar_to` edges from KG-2.101 (MinHash) — no separate
+  pass needed.
+- **ADRs (KG-2.105).** `graph_analyze(action="adr")` creates/lists
+  `ArchitectureDecisionRecord` nodes so design decisions live in the same KG.
+
+Broader grammar coverage is the remaining increment.

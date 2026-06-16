@@ -81,6 +81,11 @@
     rdfs:domain :Code ;
     rdfs:range :Code .
 
+:provisions a owl:ObjectProperty ;
+    rdfs:label "provisions" ;
+    rdfs:comment "An IaC Resource provisions a deployed Service (CONCEPT:KG-2.103)." ;
+    rdfs:domain :Resource .
+
 :resolvesFailure a owl:ObjectProperty ;
     rdfs:label "resolves failure" ;
     rdfs:comment "A WorkspaceAction sequence resolved a recorded failure/unresolved SWE-bench instance (AHE-3.23)." ;
@@ -116,6 +121,10 @@
 :Pattern a owl:Class ;
     rdfs:label "Design Pattern" ;
     rdfs:comment "A design-pattern / implementation-style tag." .
+
+:Resource a owl:Class ;
+    rdfs:label "IaC Resource" ;
+    rdfs:comment "An infrastructure resource declared in IaC (container image, K8s manifest, Terraform resource) (CONCEPT:KG-2.103)." .
 
 :Route a owl:Class ;
     rdfs:label "HTTP Route" ;

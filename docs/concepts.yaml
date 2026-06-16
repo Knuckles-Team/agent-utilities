@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 302
+total_concepts: 305
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2555,6 +2555,32 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: HTTP routes from handler decorators
+- id: KG-2.103
+  name: read them here so the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/enrichment/iac.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  doc: read them here so the
+- id: KG-2.104
+  name: mine git history for files that change together
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/git_coupling.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: mine git history for files that change together
+- id: KG-2.105
+  name: Architecture Decision Record CRUD
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: Architecture Decision Record CRUD
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

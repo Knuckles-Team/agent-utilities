@@ -28,7 +28,7 @@ def register_analysis_tools(mcp):
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100). 'similar_code' = model-free similar-code lookup for a symbol (node_id=symbol id): its MinHash/LSH near-clone neighbours with scores, working with the embedder OFFLINE (CONCEPT:KG-2.101). 'routes' = the HTTP route graph: each Route (method+path), its handler Code symbol, and the deployed Service that serves it — Code serves Route servedBy Service (CONCEPT:KG-2.102).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100). 'similar_code' = model-free similar-code lookup for a symbol (node_id=symbol id): its MinHash/LSH near-clone neighbours with scores, working with the embedder OFFLINE (CONCEPT:KG-2.101). 'routes' = the HTTP route graph: each Route (method+path), its handler Code symbol, and the deployed Service that serves it — Code serves Route servedBy Service (CONCEPT:KG-2.102). 'change_coupling' = mine a repo's git history (target=repo path) for files that change together and persist FILE_CHANGES_WITH edges (CONCEPT:KG-2.104). 'adr' = Architecture Decision Record CRUD: query=title creates (target=status, node_id=decision text), empty query lists (CONCEPT:KG-2.105).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -1178,6 +1178,77 @@ def register_analysis_tools(mcp):
                                 "path": r.get("path"),
                                 "handler": r.get("handler"),
                                 "service": r.get("service"),
+                            }
+                            for r in (rows or [])
+                        ],
+                    },
+                    default=str,
+                )
+            elif action == "change_coupling":
+                # CONCEPT:KG-2.104 — mine git history for files that change together
+                # (hidden coupling the AST can't see) and persist symmetric
+                # FILE_CHANGES_WITH edges. `target`/`query` = the repo work-tree path.
+                import json as _json
+
+                from agent_utilities.knowledge_graph.enrichment.git_coupling import (
+                    change_coupling_for_repo,
+                )
+
+                repo = (target or query or "").strip()
+                if not repo:
+                    return "Error: change_coupling needs a repo path in `target`."
+                edges = change_coupling_for_repo(
+                    repo, min_support=depth if depth > 1 else 3
+                )
+                add_edge = getattr(getattr(engine, "backend", None), "add_edge", None)
+                written = 0
+                if callable(add_edge):
+                    for e in edges:
+                        add_edge(e.source, e.target, rel_type=e.rel_type, **e.props)
+                        written += 1
+                return _json.dumps(
+                    {"status": "ok", "repo": repo, "coupled_pairs": written}
+                )
+            elif action == "adr":
+                # CONCEPT:KG-2.105 — Architecture Decision Record CRUD. `query` = the
+                # decision title (create); empty = list. `target` = status; `node_id`
+                # = the decision text.
+                import json as _json
+                import re as _re
+
+                backend = getattr(engine, "backend", None)
+                if backend is None:
+                    return "Error: no graph backend available."
+                if query:
+                    slug = _re.sub(r"[^a-z0-9]+", "-", query.lower()).strip("-")
+                    adr_id = f"adr:{slug}"
+                    add_node = getattr(backend, "add_node", None)
+                    if not callable(add_node):
+                        return "Error: backend has no add_node."
+                    add_node(
+                        adr_id,
+                        type="ArchitectureDecisionRecord",
+                        title=query,
+                        status=target or "proposed",
+                        decision=node_id or "",
+                    )
+                    return _json.dumps({"status": "ok", "adr_id": adr_id})
+                try:
+                    rows = backend.execute(
+                        "MATCH (a:ArchitectureDecisionRecord) "
+                        "RETURN a.id AS id, a.title AS title, a.status AS status",
+                        {},
+                    )
+                except Exception as e:
+                    return _json.dumps({"status": "error", "message": str(e)})
+                return _json.dumps(
+                    {
+                        "status": "ok",
+                        "adrs": [
+                            {
+                                "id": r.get("id"),
+                                "title": r.get("title"),
+                                "status": r.get("status"),
                             }
                             for r in (rows or [])
                         ],
