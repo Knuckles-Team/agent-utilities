@@ -106,6 +106,7 @@ nav:
       - Content-Aware Ingestion (ArchiveBox/crawl4ai/scholarx): architecture/content-aware-ingestion.md
       - Document → KG Fact Extraction: architecture/document_fact_extraction.md
       - Code Intelligence (type/scope-resolved calls): architecture/code_intelligence.md
+      - Harness Foundry (surpass HarnessX): architecture/harness_foundry.md
       - Graph-Native Assimilation Engine: architecture/assimilation_engine.md
       - Multi-Source Assimilation Program: architecture/multi_source_assimilation.md
       - Knowledge Distillation → Skill-Graphs: architecture/knowledge_distillation_skill_graphs.md
