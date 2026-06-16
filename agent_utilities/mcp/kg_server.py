@@ -1373,6 +1373,25 @@ async def graph_analyze_adr_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_analyze_harness_gate_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=harness_gate (CONCEPT:AHE-3.53): validate a
+    candidate harness-evolution state against the concentration/no-regression/pathology
+    SHACL gate. Body: ``{edits:[…], variants?:[…], pathologies?:[…]}``."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        import json as _json
+
+        res = await _execute_tool(
+            "graph_analyze", action="harness_gate", query=_json.dumps(body)
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -2653,6 +2672,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         ["POST"],
     )
     route("/graph/analyze/adr", graph_analyze_adr_endpoint, ["POST"])
+    route("/graph/analyze/harness-gate", graph_analyze_harness_gate_endpoint, ["POST"])
     route("/graph/analyze/context", graph_analyze_context_endpoint, ["POST"])
     route(
         "/graph/analyze/evaluate-alpha", graph_analyze_evaluate_alpha_endpoint, ["POST"]

@@ -88,6 +88,10 @@ class AegisLoop:
 
         # Critic stage 2 — SHACL gate over accumulated + candidate (the formal
         # seesaw + concentration gate; rejects BEFORE the coupling tipping point).
+        # Variant isolation (CONCEPT:AHE-3.54): the no-regression seesaw is scoped
+        # per-variant via variantStatus, so an edit improving one variant's task
+        # cluster cannot regress another — ensemble routing over the formal
+        # targetsDimension scope, cleaner than the paper's type-system isolation.
         trial = [*self.shipped, candidate]
         verdict: GateVerdict = self._gate.check_facts(trial)
         if not verdict.passed:

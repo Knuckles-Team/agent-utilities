@@ -576,8 +576,10 @@ ARA_TRANSITIVE_EDGES: frozenset[str] = frozenset({"grounded_in"})
 ARA_INVERSE_EDGES: dict[str, str] = {"grounded_in": "supports"}
 
 # Harness-foundry OWL object-property characteristics, always on (CONCEPT:KG-2.107).
-# Reasoning materialises the variant↔base and edit↔pathology inverses so the SHACL
-# concentration/no-regression/pathology gate (AHE-3.53) can query a complete graph.
+# This is what makes HarnessX's "operational mirror" a formal operational *ontology*
+# (CONCEPT:AHE-3.51): reasoning materialises the variant↔base and edit↔pathology
+# inverses so the SHACL concentration/no-regression/pathology gate (AHE-3.53) queries
+# a complete, inferred graph rather than relying on the paper's RL↔symbolic analogy.
 HARNESS_INVERSE_EDGES: dict[str, str] = {
     "has_variant": "variant_of",
     "mitigates_pathology": "mitigated_by",
