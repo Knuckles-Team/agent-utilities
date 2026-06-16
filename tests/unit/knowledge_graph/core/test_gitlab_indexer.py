@@ -192,3 +192,59 @@ def test_sync_source_skips_when_engine_lacks_index_repository():
     engine.graph_compute.supports_index_repository = False
     res = sync_source(engine, "gitlab", mode="full", client=_source())
     assert res["status"] == "skipped"
+
+
+# ── webhook intake (Phase 4) ──────────────────────────────────────────────────
+
+from agent_utilities.knowledge_graph.core.gitlab_indexer import (  # noqa: E402
+    handle_gitlab_webhook,
+    parse_gitlab_webhook,
+)
+
+_PUSH = {
+    "object_kind": "push",
+    "project": {"id": 42, "path_with_namespace": "grp/app"},
+    "commits": [
+        {"added": ["pkg/new.py"], "modified": ["pkg/app.py", "README.md"], "removed": []},
+        {"added": [], "modified": ["pkg/util.go"], "removed": ["old.txt"]},
+    ],
+}
+
+
+def test_parse_push_extracts_project_and_code_files():
+    ev = parse_gitlab_webhook(_PUSH)
+    assert ev is not None
+    assert ev.project_id == "42"
+    assert ev.kind == "push"
+    # Only code files surface; README.md / old.txt are dropped.
+    assert ev.changed_code_files == ["pkg/app.py", "pkg/new.py", "pkg/util.go"]
+
+
+def test_parse_falls_back_to_project_id_field():
+    ev = parse_gitlab_webhook({"object_kind": "merge_request", "project_id": 7})
+    assert ev is not None and ev.project_id == "7" and ev.kind == "merge_request"
+
+
+def test_parse_rejects_non_project_payload():
+    assert parse_gitlab_webhook({"object_kind": "push"}) is None
+    assert parse_gitlab_webhook("nope") is None  # type: ignore[arg-type]
+
+
+def test_handle_push_triggers_scoped_delta_sync():
+    calls = []
+
+    def fake_sync(engine, source, *, mode, ids=None, client=None):
+        calls.append((source, mode, ids))
+        return {"status": "ok", "projects_indexed": 1}
+
+    res = handle_gitlab_webhook(object(), _PUSH, sync=fake_sync)
+    assert res["status"] == "ok"
+    assert res["project_id"] == "42"
+    assert calls == [("gitlab", "delta", ["42"])]
+
+
+def test_handle_ignores_non_code_events():
+    res = handle_gitlab_webhook(
+        object(), {"object_kind": "issue", "project": {"id": 1}}, sync=lambda *a, **k: {}
+    )
+    assert res["status"] == "ignored"
