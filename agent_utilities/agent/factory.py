@@ -515,6 +515,19 @@ def create_agent(
                 skill_dirs.append(str(custom_skills_directory))
                 logger.info(f"Loaded Custom Skills at {custom_skills_directory}")
 
+        # Always load the XDG skills drop-in (~/.local/share/agent-utilities/skills,
+        # or AGENT_UTILITIES_SKILLS_DIR) — where skill-installer puts user skills — so
+        # dropping a SKILL.md there gives the agent that skill with no extra config.
+        try:
+            from agent_utilities.core.paths import skills_dir
+
+            xdg_skills = str(skills_dir())
+            if os.path.isdir(xdg_skills) and xdg_skills not in skill_dirs:
+                skill_dirs.append(xdg_skills)
+                logger.info(f"Loaded XDG skills drop-in at {xdg_skills}")
+        except Exception as exc:  # noqa: BLE001 — best-effort, never block agent creation
+            logger.debug(f"XDG skills dir unavailable: {exc}")
+
         skills = SkillsToolset(directories=skill_dirs)
         agent_toolsets.append(skills)
         logger.info(f"Loaded {len(skill_dirs)} Skills")

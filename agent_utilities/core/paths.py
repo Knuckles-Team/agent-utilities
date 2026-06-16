@@ -98,6 +98,25 @@ def cache_dir() -> Path:
     return Path(platformdirs.user_cache_path(APP_NAME, APP_AUTHOR))
 
 
+def skills_dir() -> Path:
+    """Return the XDG data directory for custom/user-installed agent skills.
+
+    Default: ``~/.local/share/agent-utilities/skills/``
+
+    Override via ``AGENT_UTILITIES_SKILLS_DIR`` environment variable.
+
+    This is the standard drop-in location for skills the agent should have at its
+    disposal beyond the packaged ``universal-skills`` / ``skill-graphs``: the
+    ``skill-installer`` installs here, and the agent factory loads every ``SKILL.md``
+    directory found here (in addition to the discovered packages). Set
+    ``custom_skills_directory`` / ``CUSTOM_SKILLS_DIRECTORY`` to point elsewhere.
+    """
+    override = os.environ.get("AGENT_UTILITIES_SKILLS_DIR")
+    if override:
+        return Path(override).expanduser()
+    return data_dir() / "skills"
+
+
 def kg_db_path(workspace: Path | str | None = None) -> Path:
     """Resolve the Knowledge Graph database path with priority chain.
 
@@ -297,6 +316,7 @@ def ensure_dirs() -> None:
         messaging_sessions_dir(),
         messaging_sessions_dir() / "sessions",
         messaging_sessions_dir() / "history",
+        skills_dir(),
         log_dir(),
     ]
     for d in dirs:
