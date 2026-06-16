@@ -65,12 +65,15 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from agent_utilities.core._env import setting
+from agent_utilities.core.config import config
 
 logger = logging.getLogger(__name__)
 
-# Default per-chunk embedding dimensionality — ties to create_embedding_model()'s
-# 768 default and the ontology ``embedding`` PropertyType (CONCEPT:KG-2.48).
-DEFAULT_EMBEDDING_DIM = 768
+# Default per-chunk embedding dimensionality — driven by the unified XDG config
+# (config.kg_embedding_dim) so it tracks the configured embedding model; ties to
+# create_embedding_model() and the ontology ``embedding`` PropertyType
+# (CONCEPT:KG-2.48). 768 is only a last-resort fallback.
+DEFAULT_EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
 
 # Ontology object/link type names. ``Document`` already exists as a first-class
 # node label in the ingestion fabric; ``Chunk`` is the per-chunk object this
