@@ -40,6 +40,13 @@
     rdfs:domain :Code ;
     rdfs:range :Pattern .
 
+:inherits a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "inherits" ;
+    rdfs:comment "A class symbol inherits from a base class; transitive over the inheritance chain (CONCEPT:KG-2.100)." ;
+    rdfs:domain :Code ;
+    rdfs:range :Code .
+
 :mockCount a owl:DatatypeProperty ;
     rdfs:domain :Test ;
     rdfs:range xsd:integer .
@@ -67,6 +74,12 @@
     rdfs:comment "A WorkspaceAction produced a WorkspaceObservation." ;
     rdfs:domain :WorkspaceAction ;
     rdfs:range :WorkspaceObservation .
+
+:realizes a owl:ObjectProperty ;
+    rdfs:label "realizes" ;
+    rdfs:comment "A class symbol realizes (implements) an interface/trait (CONCEPT:KG-2.100)." ;
+    rdfs:domain :Code ;
+    rdfs:range :Code .
 
 :resolvesFailure a owl:ObjectProperty ;
     rdfs:label "resolves failure" ;

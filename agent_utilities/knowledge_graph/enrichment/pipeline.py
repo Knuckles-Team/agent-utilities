@@ -24,7 +24,9 @@ from .cards import CapabilityCard, LLMFn, generate_symbol_cards
 from .classify import TestThresholds, classify_test
 from .extractors.code_test import (
     BatchParseFn,
+    IndexFn,
     ParseFn,
+    entities_from_index_result,
     extract_source,
     extract_source_files,
     resolve_covers,
@@ -35,7 +37,7 @@ from .extractors.document import (
     read_document_text,
 )
 from .features import CommunityFn, cluster_features, resolve_call_edges
-from .models import Concept, EnrichmentEdge, GraphNode
+from .models import Concept, EnrichmentEdge, ExtractionResult, GraphNode
 from .patterns import detect_patterns
 from .realizes import EmbedFn, resolve_realizes
 
@@ -103,6 +105,8 @@ class EnrichmentSummary(BaseModel):
     code: int = 0
     covers_edges: int = 0
     calls_edges: int = 0
+    inherits_edges: int = 0
+    realizes_struct_edges: int = 0
     tests_needing_work: int = 0
     patterns_tagged: int = 0
     features: int = 0
@@ -246,12 +250,18 @@ class EnrichmentPipeline:
         realizes_embed_fn: EmbedFn | None = None,
         writeback_fn: Callable[[list[GraphNode]], Any] | None = None,
         batch_parse_fn: BatchParseFn | None = None,
+        index_fn: IndexFn | None = None,
     ) -> None:
         self.backend = backend
         self.parse_fn = parse_fn
         # Optional batched parse (one RPC for N files). When set, changed files
         # are parsed in a single round-trip instead of per-file. (CONCEPT:KG-2.16)
         self.batch_parse_fn = batch_parse_fn
+        # Optional cross-file resolver (one RPC = parse + type/scope resolution).
+        # When set, it is the PRIMARY code path: symbols and already-resolved
+        # CALLS/INHERITS/REALIZES come from one engine round-trip, replacing the
+        # per-file parse + Python name-only call resolution. (CONCEPT:KG-2.100)
+        self.index_fn = index_fn
         self.thresholds = thresholds or TestThresholds()
         self._hash_seen = hash_seen if hash_seen is not None else {}
         self.llm_fn = llm_fn
@@ -277,6 +287,7 @@ class EnrichmentPipeline:
         # parse round-trip. The hash is byte-identical to ``ExtractionResult.
         # content_hash`` (same ``surrogatepass`` encoding), so the skip is exact.
         pending: list[tuple[str, str]] = []  # (file_path, source_text)
+        pending_hashes: dict[str, str] = {}  # file_path -> content_hash
         for fp in files:
             summary.files_seen += 1
             try:
@@ -290,16 +301,37 @@ class EnrichmentPipeline:
                 summary.files_skipped_unchanged += 1
                 continue
             pending.append((str(fp), source))
+            pending_hashes[str(fp)] = content_hash
 
-        # Phase 2 — parse the changed files. One batched RPC when the engine
-        # supports it (CONCEPT:KG-2.16), else the per-file path. Both yield the
-        # same per-file ``ExtractionResult`` list.
-        if self.batch_parse_fn is not None and pending:
-            results = extract_source_files(pending, self.batch_parse_fn)
-        else:
-            results = [
-                extract_source(fp, source, self.parse_fn) for fp, source in pending
-            ]
+        # Phase 2 — parse + resolve the changed files. PRIMARY path (CONCEPT:KG-2.100):
+        # one ``index_repository`` round-trip both parses every file and resolves
+        # cross-file calls type/scope-aware in Rust, yielding the symbols AND the
+        # already-bound CALLS/INHERITS/REALIZES edges. Fallback (engine without the
+        # resolver): per-file parse + Python name-only call resolution.
+        struct_edges: list[EnrichmentEdge] = []
+        call_edges: list[EnrichmentEdge] | None = None
+        results: list[ExtractionResult] = []
+        if self.index_fn is not None and pending:
+            try:
+                raw = [
+                    (fp, src.encode("utf-8", "surrogatepass")) for fp, src in pending
+                ]
+                index = self.index_fn(raw)
+                results, resolved = entities_from_index_result(index, pending_hashes)
+                call_edges = [e for e in resolved if e.rel_type == "CALLS"]
+                struct_edges = [e for e in resolved if e.rel_type != "CALLS"]
+            except Exception as exc:  # noqa: BLE001 — degrade to the parse path
+                logger.debug(
+                    "index_repository resolve failed (%s); parse fallback", exc
+                )
+                results = []
+        if not results:
+            if self.batch_parse_fn is not None and pending:
+                results = extract_source_files(pending, self.batch_parse_fn)
+            else:
+                results = [
+                    extract_source(fp, source, self.parse_fn) for fp, source in pending
+                ]
         for res in results:
             self._hash_seen[res.file_path] = res.content_hash
             summary.files_parsed += 1
@@ -314,10 +346,10 @@ class EnrichmentPipeline:
                 summary.patterns_tagged += 1
 
         # Resolve the code→code CALLS edges ONCE: community detection clusters on
-        # them and the write section below persists the same set. Resolving twice
-        # over a big repo is pure waste (~5s on egeria), so compute here and pass
-        # through to both consumers.
-        call_edges = resolve_call_edges(all_code)
+        # them and the write section below persists the same set. The resolver path
+        # already produced them in Rust; only the fallback resolves names here.
+        if call_edges is None:
+            call_edges = resolve_call_edges(all_code)
 
         # Features: cluster the call graph via the engine's community detection.
         features = []
@@ -358,8 +390,15 @@ class EnrichmentPipeline:
                 self._write_edge(e.source, e.target, e.rel_type)
                 summary.covers_edges += 1
             for e in call_edges:
-                self._write_edge(e.source, e.target, e.rel_type)
+                self._write_edge(e.source, e.target, e.rel_type, e.props)
                 summary.calls_edges += 1
+            # Structural class edges (INHERITS/REALIZES) from the Rust resolver.
+            for e in struct_edges:
+                self._write_edge(e.source, e.target, e.rel_type, e.props)
+                if e.rel_type == "INHERITS":
+                    summary.inherits_edges += 1
+                else:
+                    summary.realizes_struct_edges += 1
 
             for f in features:
                 self._write_feature(f)
@@ -550,10 +589,16 @@ class EnrichmentPipeline:
         )
         return needs_work
 
-    def _write_edge(self, source: str, target: str, rel_type: str) -> None:
+    def _write_edge(
+        self,
+        source: str,
+        target: str,
+        rel_type: str,
+        props: dict[str, Any] | None = None,
+    ) -> None:
         add_edge = getattr(self.backend, "add_edge", None)
         if callable(add_edge):
-            add_edge(source, target, rel_type=rel_type)
+            add_edge(source, target, rel_type=rel_type, **(props or {}))
 
 
 def _writeback_count(result: Any) -> int:
@@ -597,3 +642,20 @@ def make_batch_parse_fn(graph_compute: Any) -> BatchParseFn | None:
         return out
 
     return _fn
+
+
+def make_index_fn(graph_compute: Any) -> IndexFn | None:
+    """Adapt a GraphComputeEngine into the cross-file resolver entry point — or
+    ``None`` if the engine doesn't advertise ``IndexRepository`` (caller falls
+    back to parse + Python name-only call resolution).
+
+    The whole batch is one resolution scope, so it ships in a SINGLE round-trip:
+    the engine parses (rayon) and resolves cross-file calls type/scope-aware over
+    the whole set, returning one merged ``IndexResult``. (CONCEPT:KG-2.100)
+    """
+    try:
+        if not getattr(graph_compute, "supports_index_repository", False):
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    return lambda files: graph_compute.index_repository(files)
