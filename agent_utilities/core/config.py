@@ -344,6 +344,15 @@ class AgentConfig(BaseSettings):
     deepseek_api_key: str | None = Field(default=None, alias="DEEPSEEK_API_KEY")
     deepseek_base_url: str | None = Field(default=None, alias="DEEPSEEK_BASE_URL")
 
+    # --- Ingestion sources (CONCEPT:KG-2.7 web-fetch) ---
+    # When set, ArchiveBox (a deployed web-archiving instance reached via the
+    # archivebox-api MCP server) is preferred over a live crawl: the unified
+    # web-fetch resolver serves the preserved snapshot (fast, no re-crawl,
+    # archive-on-miss). Unset → crawl4ai (if installed) → requests+markitdown.
+    # The presence of a URL is the on-signal; the credential lives with the MCP
+    # server, so only this toggle is needed here.
+    archivebox_url: str | None = Field(default=None, alias="ARCHIVEBOX_URL")
+
     # --- Graph / KG tuning knobs ---
     # Whole-workflow orchestration budget (ms). Lowered 20min→10min: engine RPC
     # hangs are now caught in seconds by the client's per-RPC timeout, so this is a

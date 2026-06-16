@@ -1359,51 +1359,38 @@ class IngestionEngine:
     async def _ingest_document_url(
         self, manifest: IngestionManifest, url: str
     ) -> IngestionResult:
-        """Fetch a URL, convert to text, and ingest it as one canonical document.
+        """Fetch a URL as markdown and ingest it as one canonical document.
 
-        Best-effort HTML→markdown via ``markitdown`` (soft dep); falls back to a
-        light tag strip. For bulk web ingestion, prefer crawling to markdown
-        files first and ingesting the directory.
+        Fetching goes through the unified resolver (CONCEPT:KG-2.7,
+        ``ingestion/web_fetch.py``): ArchiveBox's preserved snapshot when
+        configured, else crawl4ai, else requests+markitdown. For bulk web
+        ingestion, prefer crawling to markdown files first and ingesting the dir.
         """
-        import re
         import tempfile
 
-        try:
-            import requests
+        from .web_fetch import resolve_web_fetch
 
-            resp = requests.get(url, timeout=60)
-            resp.raise_for_status()
-            raw = resp.text
-        except Exception as e:  # noqa: BLE001
+        page = resolve_web_fetch(url)
+        if page is None:
             return IngestionResult(
-                manifest=manifest, status="failed", error=f"fetch failed: {e}"
+                manifest=manifest, status="failed", error=f"fetch failed: {url}"
             )
-
-        text = raw
-        try:
-            from markitdown import MarkItDown
-
-            with tempfile.NamedTemporaryFile(
-                "w", suffix=".html", delete=False, encoding="utf-8"
-            ) as tmp:
-                tmp.write(raw)
-                tmp_path = tmp.name
-            text = MarkItDown().convert(tmp_path).text_content
-            os.unlink(tmp_path)
-        except Exception:  # noqa: BLE001 — fall back to a light tag strip
-            text = re.sub(r"<[^>]+>", " ", raw)
 
         # Write the materialized text to a temp file so the canonical unit (which
         # reads from a path) can ingest it, recording the real URL as source.
         with tempfile.NamedTemporaryFile(
             "w", suffix=".md", delete=False, encoding="utf-8"
         ) as tmp:
-            tmp.write(text)
+            tmp.write(page.markdown)
             doc_path = Path(tmp.name)
         sub = IngestionManifest(
             content_type=manifest.content_type,
             source_uri=str(doc_path),
-            metadata={**manifest.metadata, "source_url": url},
+            metadata={
+                **manifest.metadata,
+                "source_url": url,
+                "fetch_backend": page.backend,
+            },
             force=manifest.force,
         )
         try:
