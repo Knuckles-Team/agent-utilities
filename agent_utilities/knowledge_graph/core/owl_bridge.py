@@ -715,6 +715,7 @@ class OWLBridge:
             "exact_match",
             "close_match",
             "broad_match",
+            "similar_to",  # model-free code similarity (CONCEPT:KG-2.101)
         ]
         # Union pack-declared object-property characteristics so the compiled Datalog
         # closure also covers the active domain's edges (CONCEPT:KG-2.36).
@@ -803,6 +804,7 @@ class OWLBridge:
             "exact_match",
             "close_match",
             "broad_match",
+            "similar_to",  # model-free code similarity (CONCEPT:KG-2.101)
         }
         # Union pack-declared object-property characteristics (CONCEPT:KG-2.36).
         transitive_props |= self._pack_transitive

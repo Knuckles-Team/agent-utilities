@@ -389,9 +389,16 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
                     "edge_type": "inherits",
                     "properties": {"name": "Base"},
                 },
+                {
+                    "source": "symbol:caller",
+                    "target": "symbol:helper",
+                    "edge_type": "similar_to",
+                    "properties": {"score": "0.75"},
+                },
             ],
             "calls_resolved": 1,
             "inherits_edges": 1,
+            "similar_edges": 1,
         }
 
     backend = PropBackend()
@@ -401,11 +408,15 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
     assert summary.code == 4  # caller, helper, Base, Child
     assert summary.calls_edges == 1
     assert summary.inherits_edges == 1
+    assert summary.similar_edges == 1
     calls = [e for e in backend.edges if e[2] == "CALLS"]
     # Resolved (not name-only): the strategy/confidence props are persisted.
     assert calls and calls[0][3].get("strategy") == "same_file"
     assert calls[0][3].get("confidence") == "0.90"
     assert any(e[2] == "INHERITS" for e in backend.edges)
+    # Model-free similarity edge persisted with its score (CONCEPT:KG-2.101).
+    sim = [e for e in backend.edges if e[2] == "SIMILAR_TO"]
+    assert sim and sim[0][3].get("score") == "0.75"
 
 
 def test_pipeline_falls_back_to_name_resolution_when_index_fn_errors(tmp_path):
