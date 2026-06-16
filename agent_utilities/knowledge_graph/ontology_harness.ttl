@@ -157,9 +157,14 @@ Aligned to ArchiMate 3.2 layers.""" ;
 
 :exhibitsPathology a owl:ObjectProperty ;
     rdfs:label "exhibits pathology" ;
-    rdfs:comment "A Harness/Variant exhibits a detected RL pathology." ;
-    rdfs:domain :Harness ;
+    rdfs:comment "A Harness/Variant/Edit exhibits a detected RL pathology (domain left open so edits and harnesses can both exhibit one)." ;
     rdfs:range :HarnessPathology .
+
+:pathologyKind a owl:DatatypeProperty ;
+    rdfs:label "pathology kind" ;
+    rdfs:comment "The RL pathology class (reward_hacking|catastrophic_forgetting|under_exploration)." ;
+    rdfs:domain :HarnessPathology ;
+    rdfs:range xsd:string .
 
 :mitigatesPathology a owl:ObjectProperty ;
     rdfs:label "mitigates pathology" ;
@@ -195,6 +200,12 @@ Aligned to ArchiMate 3.2 layers.""" ;
     rdfs:comment "The evolution round in which a HarnessEdit shipped." ;
     rdfs:domain :HarnessEdit ;
     rdfs:range xsd:integer .
+
+:editStatus a owl:DatatypeProperty ;
+    rdfs:label "edit status" ;
+    rdfs:comment "Lifecycle status of a HarnessEdit (proposed|shipped|rejected) — 'shipped' edits are what the concentration gate counts per dimension." ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range xsd:string .
 
 :variantStatus a owl:DatatypeProperty ;
     rdfs:label "variant status" ;
