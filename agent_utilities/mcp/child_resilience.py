@@ -110,6 +110,38 @@ def is_session_dead(exc: BaseException) -> bool:
     )
 
 
+def _exc_leaves(exc: BaseException) -> list[BaseException]:
+    """Flatten a (possibly nested) ``BaseExceptionGroup`` to its leaf exceptions.
+
+    A child that crashes mid-call surfaces through anyio as a
+    ``BaseExceptionGroup`` whose own ``str()`` is empty/opaque, hiding the real
+    transport error inside — so callers must inspect the leaves.
+    """
+    if isinstance(exc, BaseExceptionGroup):
+        out: list[BaseException] = []
+        for sub in exc.exceptions:
+            out.extend(_exc_leaves(sub))
+        return out
+    return [exc]
+
+
+def is_transient_child_death(exc: BaseException) -> bool:
+    """Whether ``exc`` is a *retryable* child death — the child process crashed/
+    exited mid-call, the pipe closed, or the session was terminated (redeploy).
+
+    Unlike an application tool error (a live child answering with an error), this
+    means the connection must be rebuilt and the call re-issued on a fresh
+    generation. Covers ``is_session_dead`` plus any ``TRANSPORT_EXCEPTIONS`` leaf
+    (including ones wrapped in a ``BaseExceptionGroup`` from the anyio task group)
+    — exactly the mid-call-crash case that previously surfaced as an empty
+    ``Error executing tool:`` instead of self-healing.
+    """
+    return any(
+        is_session_dead(e) or isinstance(e, TRANSPORT_EXCEPTIONS)
+        for e in _exc_leaves(exc)
+    )
+
+
 # Reconnect backoff defaults (overridable per-runtime for tests): exponential
 # growth from BASE up to CAP, multiplied by uniform jitter so a fleet of
 # children never thunders back in lockstep.
@@ -120,6 +152,11 @@ _JITTER_RANGE = (0.5, 1.5)
 # How long a call will wait for a restarting child to come back before it
 # fails fast (bounded further by the child's queue timeout).
 _READY_WAIT_CEILING = 5.0
+
+# After a child died mid-call, how long the single in-call retry waits for the
+# respawned generation to come back (a cold child rebuilds its engine, which
+# takes longer than the fast-fail ceiling). Bounded so a caller is never stuck.
+_RECOVERY_WAIT = 45.0
 
 #: ``connect`` contract: open all transports/sessions on the given stack and
 #: return ``(sessions, tools)``. The stack is owned (entered AND exited) by
@@ -600,11 +637,21 @@ class ChildRuntime:
             try:
                 return await self._call_once(original_name, arguments)
             except BaseException as exc:
-                if attempt == 0 and is_session_dead(exc):
-                    # _finish_call already asked the supervisor to reconnect;
-                    # make it deterministic, then the retry's _await_ready waits
-                    # for the fresh session before re-issuing the call.
-                    self.request_restart(reason="session_terminated")
+                # Retry ONCE on a transient child death — a terminated session
+                # (redeploy) OR the child process crashing mid-call (the
+                # post-restart warm-up race that otherwise surfaced as an empty
+                # "Error executing tool:"). _finish_call already asked the
+                # supervisor to reconnect; make it deterministic and then wait
+                # for the respawned generation (which rebuilds its engine, longer
+                # than the fast-fail ceiling) before re-issuing on the fresh
+                # session.
+                if attempt == 0 and is_transient_child_death(exc):
+                    self.request_restart(reason="transient_child_death")
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(
+                            self._ready.wait(),
+                            timeout=min(self.connect_timeout, _RECOVERY_WAIT),
+                        )
                     continue
                 raise
         raise AssertionError("unreachable")  # pragma: no cover
