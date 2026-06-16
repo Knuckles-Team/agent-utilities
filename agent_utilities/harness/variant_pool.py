@@ -447,7 +447,7 @@ class VariantPool:
             sampling_profile_violations,
         )
 
-        r = rng or random.Random()
+        r = rng or random.Random()  # nosec B311 — mutation jitter for variants, not crypto
         out: list[Any] = []
         for _ in range(count):
             data = base.model_dump()
@@ -470,7 +470,7 @@ class VariantPool:
                 )
             try:
                 child = type(base).model_validate(data)
-            except Exception:  # noqa: BLE001 - skip out-of-range mutations
+            except Exception:  # noqa: BLE001 # nosec B112 — skip out-of-range mutations
                 continue
             if sampling_profile_violations(child.model_dump()):
                 continue

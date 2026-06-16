@@ -103,6 +103,7 @@ nav:
       - Multi-Agent Social System: architecture/multi_agent_social_system.md
       - In-House Training Substrate: architecture/in_house_training_substrate.md
       - Latent-Native Memory: architecture/latent_native_memory.md
+      - Content-Aware Ingestion (ArchiveBox/crawl4ai/scholarx): architecture/content-aware-ingestion.md
       - Document → KG Fact Extraction: architecture/document_fact_extraction.md
       - Graph-Native Assimilation Engine: architecture/assimilation_engine.md
       - Multi-Source Assimilation Program: architecture/multi_source_assimilation.md

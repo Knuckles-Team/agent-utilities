@@ -1270,7 +1270,84 @@ class IngestionEngine:
             except Exception as e:  # noqa: BLE001 — curation is best-effort
                 logger.warning("Opt-in curation enrichment failed: %s", e)
 
+        # Content-aware research acquisition (CONCEPT:KG-2.7) — a web page that
+        # points at many papers (a "latest research" roundup) auto-downloads them
+        # and ingests each, linking the page to the papers it cites. Default ON for
+        # detected roundups; ``metadata["extract_papers"]`` forces on/off.
+        if (
+            source.startswith(("http://", "https://"))
+            and result.status == "success"
+            and manifest.metadata.get("extract_papers") is not False
+        ):
+            page_text = next(
+                (e.get("text", "") for e in result.enrichable if e.get("text")), ""
+            )
+            if page_text:
+                try:
+                    await self._acquire_referenced_papers(
+                        result,
+                        page_text,
+                        source,
+                        force=bool(manifest.metadata.get("extract_papers")),
+                    )
+                except Exception as e:  # noqa: BLE001 — acquisition is best-effort
+                    logger.warning("Research-paper acquisition failed: %s", e)
+
         return result
+
+    async def _acquire_referenced_papers(
+        self,
+        page_result: IngestionResult,
+        page_text: str,
+        page_url: str,
+        *,
+        force: bool,
+    ) -> None:
+        """Extract paper links from a page, download + ingest them, link the page.
+
+        Downloaded PDFs ingest as ordinary ``DOCUMENT`` units (so they become
+        ``Document`` + ``Concept`` nodes and get ConceptMatcher cross-links for
+        free); a ``MENTIONS`` edge records that the page cited each paper.
+        """
+        from .paper_links import extract_paper_links, is_research_roundup
+        from .research_acquisition import acquire_papers
+
+        refs = extract_paper_links(page_text)
+        if not refs or (not force and not is_research_roundup(refs)):
+            return
+        pdf_paths = acquire_papers(refs)
+        if not pdf_paths:
+            return
+
+        sub = [
+            IngestionManifest(
+                content_type=ContentType.DOCUMENT,
+                source_uri=str(p),
+                metadata={"source_kind": "research_paper", "referenced_by": page_url},
+            )
+            for p in pdf_paths
+        ]
+        results = await self.ingest_batch(sub)
+
+        # Link the roundup page → each ingested paper (MENTIONS).
+        page_id = (page_result.details or {}).get("doc_id")
+        add_edge = getattr(self.backend, "add_edge", None)
+        if page_id and callable(add_edge):
+            for r in results:
+                paper_id = (r.details or {}).get("doc_id") if r else None
+                if paper_id:
+                    try:
+                        add_edge(page_id, paper_id, rel_type="MENTIONS")
+                    except Exception:  # noqa: BLE001 — link is best-effort
+                        pass
+
+        ingested = 0
+        for r in results:
+            if r is not None and r.status == "success":
+                ingested += 1
+        if page_result.details is not None:
+            page_result.details["papers_acquired"] = len(pdf_paths)
+            page_result.details["papers_ingested"] = ingested
 
     # Document file extensions the standardized unit can read verbatim. Covers the
     # text/doc family plus every modality the reader registry handles (KG-2.66), so
@@ -1359,51 +1436,75 @@ class IngestionEngine:
     async def _ingest_document_url(
         self, manifest: IngestionManifest, url: str
     ) -> IngestionResult:
-        """Fetch a URL, convert to text, and ingest it as one canonical document.
+        """Fetch a URL as markdown and ingest it as one canonical document.
 
-        Best-effort HTML→markdown via ``markitdown`` (soft dep); falls back to a
-        light tag strip. For bulk web ingestion, prefer crawling to markdown
-        files first and ingesting the directory.
+        Fetching goes through the unified resolver (CONCEPT:KG-2.7,
+        ``ingestion/web_fetch.py``): ArchiveBox's preserved snapshot when
+        configured, else crawl4ai, else requests+markitdown. For bulk web
+        ingestion, prefer crawling to markdown files first and ingesting the dir.
+
+        A binary-document URL (``.pdf``/``.docx``/``.pptx``/``.xlsx`` — e.g. the
+        ServiceNow release-notes PDF) is downloaded as bytes and read by the
+        verbatim reader stack (``read_any``/PyMuPDF), not coerced through the
+        text/markdown fetch path.
         """
-        import re
         import tempfile
 
-        try:
-            import requests
+        from .web_fetch import _UA, resolve_web_fetch
 
-            resp = requests.get(url, timeout=60)
-            resp.raise_for_status()
-            raw = resp.text
-        except Exception as e:  # noqa: BLE001
-            return IngestionResult(
-                manifest=manifest, status="failed", error=f"fetch failed: {e}"
+        # Binary document URLs: download bytes → temp file with the right suffix →
+        # the canonical unit reads them with the modality reader (CONCEPT:KG-2.66).
+        suffix = Path(url.split("?", 1)[0]).suffix.lower()
+        if suffix in {".pdf", ".docx", ".doc", ".pptx", ".xlsx", ".epub"}:
+            try:
+                import requests
+
+                resp = requests.get(url, timeout=180, headers={"User-Agent": _UA})
+                resp.raise_for_status()
+                with tempfile.NamedTemporaryFile(
+                    "wb", suffix=suffix, delete=False
+                ) as tmp:
+                    tmp.write(resp.content)
+                    bin_path = Path(tmp.name)
+            except Exception as e:  # noqa: BLE001
+                return IngestionResult(
+                    manifest=manifest, status="failed", error=f"fetch failed: {e}"
+                )
+            sub = IngestionManifest(
+                content_type=manifest.content_type,
+                source_uri=str(bin_path),
+                metadata={**manifest.metadata, "source_url": url, "fetch_backend": "requests"},
+                force=manifest.force,
             )
+            try:
+                return self._ingest_document_file(sub, bin_path)
+            finally:
+                try:
+                    bin_path.unlink()
+                except OSError:
+                    pass
 
-        text = raw
-        try:
-            from markitdown import MarkItDown
-
-            with tempfile.NamedTemporaryFile(
-                "w", suffix=".html", delete=False, encoding="utf-8"
-            ) as tmp:
-                tmp.write(raw)
-                tmp_path = tmp.name
-            text = MarkItDown().convert(tmp_path).text_content
-            os.unlink(tmp_path)
-        except Exception:  # noqa: BLE001 — fall back to a light tag strip
-            text = re.sub(r"<[^>]+>", " ", raw)
+        page = resolve_web_fetch(url)
+        if page is None:
+            return IngestionResult(
+                manifest=manifest, status="failed", error=f"fetch failed: {url}"
+            )
 
         # Write the materialized text to a temp file so the canonical unit (which
         # reads from a path) can ingest it, recording the real URL as source.
         with tempfile.NamedTemporaryFile(
             "w", suffix=".md", delete=False, encoding="utf-8"
         ) as tmp:
-            tmp.write(text)
+            tmp.write(page.markdown)
             doc_path = Path(tmp.name)
         sub = IngestionManifest(
             content_type=manifest.content_type,
             source_uri=str(doc_path),
-            metadata={**manifest.metadata, "source_url": url},
+            metadata={
+                **manifest.metadata,
+                "source_url": url,
+                "fetch_backend": page.backend,
+            },
             force=manifest.force,
         )
         try:

@@ -15,7 +15,7 @@ from agent_utilities.rlm.eval_set_optimizer import (
 )
 
 
-# ── deterministic stub judge ────────────────────────────────────────────────
+# ── deterministic fake judge ────────────────────────────────────────────────
 
 
 def substring_judge(system_output: str, case: EvalCase) -> EvalResult:

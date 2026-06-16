@@ -31,7 +31,7 @@ class SNiahTask(LongContextTask):
     real_dataset = False
 
     def build(self, scale: int, *, seed: int = 0) -> TaskCase:
-        rng = random.Random(seed)
+        rng = random.Random(seed)  # nosec B311 — deterministic synthetic benchmark data, not crypto
         tag = f"depot-{rng.randint(1000, 9999)}"
         code = f"{rng.randint(0, 9999999):07d}"
         needle = f"\nIMPORTANT RECORD: The secret passphrase for {tag} is {code}.\n"

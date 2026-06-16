@@ -33,7 +33,7 @@ class LongBenchCodeQaTask(LongContextTask):
                 **{k: real[k] for k in ("context", "question", "answer")},
             )
 
-        rng = random.Random(seed)
+        rng = random.Random(seed)  # nosec B311 — deterministic synthetic benchmark data, not crypto
         names = [_fn_name(rng) for _ in range(8)]
         target = names[0]
         callee = names[1]

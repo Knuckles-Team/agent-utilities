@@ -13,7 +13,7 @@ from agent_utilities.harness.research_log import (
 
 
 # ---------------------------------------------------------------------------
-# Stub corpus shapes (no LLM / network)
+# Fake corpus shapes (no LLM / network)
 # ---------------------------------------------------------------------------
 
 

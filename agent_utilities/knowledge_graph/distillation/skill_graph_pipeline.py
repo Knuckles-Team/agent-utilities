@@ -51,6 +51,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core._env import setting
+
 from .skill_graph_schema import (
     SOURCE_KINDS,
     SOURCES_SCHEMA,
@@ -190,7 +192,7 @@ def _is_shrink(existing_bytes: int, new_bytes: int) -> bool:
 
 
 def _discover_crawl_script() -> Path | None:
-    env = os.environ.get("SKILL_GRAPH_CRAWLER", "").strip()
+    env = setting("SKILL_GRAPH_CRAWLER", "").strip()
     if env:
         p = Path(env)
         return p if p.exists() else None
@@ -213,9 +215,7 @@ def _resolve_crawler() -> tuple[str, str] | None:
     script = _discover_crawl_script()
     if script is None:
         return None
-    crawler_py = (
-        os.environ.get("SKILL_GRAPH_CRAWLER_PYTHON", "").strip() or sys.executable
-    )
+    crawler_py = setting("SKILL_GRAPH_CRAWLER_PYTHON", "").strip() or sys.executable
     try:
         probe = subprocess.run(
             [crawler_py, "-c", "import crawl4ai"], capture_output=True, timeout=60
@@ -252,7 +252,7 @@ def _crawl_via_script(
             str(
                 int(
                     spec.options.get("max_pages")
-                    or os.environ.get("SKILL_GRAPH_MAX_PAGES")
+                    or setting("SKILL_GRAPH_MAX_PAGES")
                     or 1000
                 )
             ),
@@ -267,7 +267,7 @@ def _crawl_via_script(
         # (env-overridable; option wins). Timeout → RuntimeError → existing content kept.
         timeout = float(
             spec.options.get("crawl_timeout")
-            or os.environ.get("SKILL_GRAPH_CRAWL_TIMEOUT")
+            or setting("SKILL_GRAPH_CRAWL_TIMEOUT")
             or 900
         )
         # Bounded + process-group kill: a stalled crawl (e.g. a JS-heavy site) must not
@@ -299,10 +299,17 @@ def _http_get(
     """Plain bounded HTTP GET → text, or None on any non-200/error. No deps."""
     import urllib.error
     import urllib.request
+    from urllib.parse import urlparse
 
+    # Enforce http(s) only — reject file:/ftp:/custom schemes so a crafted source
+    # spec can't make us read local files via urlopen (the B310 concern).
+    if urlparse(url).scheme not in ("http", "https"):
+        return None
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "skill-graph-builder"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 — http(s) only
+        with urllib.request.urlopen(  # noqa: S310 # nosec B310 — scheme guarded to http(s) above
+            req, timeout=timeout
+        ) as r:
             if getattr(r, "status", 200) != 200:
                 return None
             return r.read(max_bytes).decode("utf-8", "replace")
@@ -334,7 +341,12 @@ def _llms_scopes(url: str) -> list[str]:
         scopes.append(root + "/" + "/".join(segs))  # deepest path dir
     scopes.append(root)
     seen: set[str] = set()
-    return [s for s in scopes if not (s in seen or seen.add(s))]
+    out: list[str] = []
+    for s in scopes:
+        if s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
 
 
 # Above this many heading sections an llms-full split is *over-fragmented*
@@ -609,8 +621,36 @@ class SkillGraphPipeline:
             "generated": self._acquire_generated,
             "kg_query": self._acquire_kg,
             "llms": self._acquire_llms,
+            "archivebox": self._acquire_archivebox,
         }[spec.kind]
         return route(spec)
+
+    def _acquire_archivebox(self, spec: SourceSpec) -> AcquiredBundle:
+        """Build a corpus from preserved ArchiveBox snapshots (CONCEPT:KG-2.7).
+
+        ``uri`` is an optional tag (or blank for everything archived); ``options``
+        may carry connector ``params`` (e.g. a ``url`` prefix). Drains the
+        ``archivebox`` mcp_tool source preset — so a skill-graph can be built from
+        what we've already archived instead of a live re-crawl.
+        """
+        from agent_utilities.protocols.source_connectors.base import PollConnector
+        from agent_utilities.protocols.source_connectors.registry import (
+            build_connector,
+        )
+
+        params = dict(spec.options.get("params") or {})
+        if spec.uri:
+            params.setdefault("tag", spec.uri)
+        config: dict[str, Any] = {"preset": "archivebox"}
+        if params:
+            config["params"] = params
+        conn = build_connector("mcp_tool", config)
+        if isinstance(conn, PollConnector):
+            raw = list(conn.poll_all())
+        else:  # pragma: no cover — mcp_tool is a PollConnector
+            raw = list(conn.load())  # type: ignore[attr-defined]
+        docs = [self._doc_from_source(d, subdir="archivebox") for d in raw]
+        return AcquiredBundle(spec, docs, extractor="archivebox")
 
     def _acquire_llms(self, spec: SourceSpec) -> AcquiredBundle:
         """Acquire from the llms.txt / llms-full.txt standard — clean, complete docs.

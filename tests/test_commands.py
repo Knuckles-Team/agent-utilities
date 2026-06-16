@@ -48,8 +48,8 @@ def test_autocomplete_filter(client):
 
 
 # ---------------------------------------------------------------------------
-# De-stub regression guards: the /graph, /kb, /sdd, /resources subcommands must
-# never emit the old fabricated placeholder data. With no live engine in the
+# Real-output regression guards: the /graph, /kb, /sdd, /resources subcommands
+# must never emit the old fabricated placeholder data. With no live engine in the
 # test process they must return an HONEST "not active" message instead.
 # ---------------------------------------------------------------------------
 
