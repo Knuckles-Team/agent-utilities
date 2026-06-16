@@ -54,6 +54,10 @@
     "kg_ingest_profile": null,
     "jena_fuseki_url": null,
     "sparql_endpoints": ["https://query.wikidata.org/sparql"],
+    "gitlab_instances": [
+        {"name": "internal", "url": "https://gitlab.arpa", "token": "glpat-xxxxxxxx", "verify_ssl": false},
+        {"name": "public", "url": "https://gitlab.com", "token": "glpat-yyyyyyyy", "verify_ssl": true}
+    ],
     "enable_llm_validation": false,
     "graph_router_timeout": 300.0,
     "graph_verifier_timeout": 300.0,
