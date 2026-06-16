@@ -66,6 +66,13 @@ _LOCAL_KINDS = frozenset({"dir", "pdf", "office", "generated"})
 # Document file extensions converted to markdown via markitdown/pymupdf4llm.
 _DOC_EXTS = (".pdf", ".docx", ".pptx", ".xlsx", ".csv")
 
+# Shrink guard (re-fetch): a re-crawl that returns far less content than the graph
+# already has usually means the source_url moved (a docs site restructured to a landing
+# page). Rather than overwrite rich content with a sparse crawl, the guard keeps the
+# existing graph and flags it for a URL fix. Size-based so it is robust to file-splitting.
+_SHRINK_RATIO = 0.5
+_SHRINK_MIN_BYTES = 10_000
+
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -90,6 +97,26 @@ def _bump_patch(version: str) -> str:
     if not m:
         return "0.1.0"
     return f"{m.group(1)}.{m.group(2)}.{int(m.group(3)) + 1}"
+
+
+def _ref_bytes(reference_dir: Path) -> int:
+    """Total markdown bytes currently in a graph's ``reference/`` tree."""
+    if not reference_dir.is_dir():
+        return 0
+    return sum(p.stat().st_size for p in reference_dir.rglob("*.md"))
+
+
+def _bundle_bytes(bundles: list[AcquiredBundle]) -> int:
+    """Total markdown bytes a fresh acquisition produced (pre-split)."""
+    return sum(len(d.text.encode("utf-8")) for b in bundles for d in b.docs)
+
+
+def _is_shrink(existing_bytes: int, new_bytes: int) -> bool:
+    """True when a re-fetch is suspiciously smaller than the existing corpus."""
+    return (
+        existing_bytes >= _SHRINK_MIN_BYTES
+        and new_bytes < _SHRINK_RATIO * existing_bytes
+    )
 
 
 # ── crawl4ai web crawler discovery ─────────────────────────────────────────────
@@ -941,13 +968,16 @@ class SkillGraphPipeline:
         *,
         mode: str = "auto",
         kg_enrich: bool | None = None,
+        shrink_guard: bool = True,
     ) -> dict[str, Any]:
         """Migrate one legacy skill-graph in place to the standardized contract.
 
         ``mode='auto'`` follows :meth:`classify_legacy`; ``reacquire`` re-crawls the
         legacy ``source_url``; ``wrap`` re-packages the existing ``reference/`` tree
         (offline, content-preserving). The first standardized build is versioned
-        ``1.0.0``. Returns the build result (or a ``skipped`` record for native graphs).
+        ``1.0.0``. With ``shrink_guard`` a reacquire that crawls far less than the
+        existing corpus (a moved source_url) keeps the old content and reports
+        ``stale_url``. Returns the build result (or a ``skipped`` record for natives).
         """
         d = Path(skill_dir)
         info = self.classify_legacy(d)
@@ -956,7 +986,6 @@ class SkillGraphPipeline:
             return {"name": d.name, "skipped": True, "reason": chosen}
 
         depth = int(info["crawl_depth"] or 2)
-        record_specs: list[SourceSpec] | None = None
         if chosen == "reacquire":
             specs = self._specs_from_source_url(info["source_url"], depth)
             if not specs:
@@ -965,6 +994,30 @@ class SkillGraphPipeline:
                     "skipped": True,
                     "reason": "no usable source_url",
                 }
+            try:
+                bundles = [self.acquire(s) for s in specs]
+            except Exception as exc:  # noqa: BLE001 — crawl failed → keep content
+                return {"name": d.name, "status": "failed", "reason": str(exc)[:200]}
+            if shrink_guard and _is_shrink(
+                _ref_bytes(d / "reference"), _bundle_bytes(bundles)
+            ):
+                return {
+                    "name": d.name,
+                    "status": "stale_url",
+                    "existing_bytes": _ref_bytes(d / "reference"),
+                    "new_bytes": _bundle_bytes(bundles),
+                    "reason": "re-crawl far smaller than existing — source_url likely moved",
+                }
+            result = self._build_from_bundles(
+                name=d.name,
+                bundles=bundles,
+                out_dir=d.parent,
+                description=info["description"] or None,
+                max_file_kb=50,
+                kg_enrich=kg_enrich,
+                version="1.0.0",
+                record_specs=None,
+            )
         else:  # wrap — adopt the existing corpus in place. build() acquires into memory
             # BEFORE wiping reference/, so the graph's own reference/ is a safe dir
             # source (no temp copy). Record the upstream web sources (not the local
@@ -973,15 +1026,15 @@ class SkillGraphPipeline:
             record_specs = (
                 self._specs_from_source_url(info["source_url"], depth) or None
             )
-        result = self.build(
-            name=d.name,
-            specs=specs,
-            out_dir=d.parent,
-            description=info["description"] or None,
-            kg_enrich=kg_enrich,
-            version="1.0.0",
-            record_specs=record_specs,
-        )
+            result = self.build(
+                name=d.name,
+                specs=specs,
+                out_dir=d.parent,
+                description=info["description"] or None,
+                kg_enrich=kg_enrich,
+                version="1.0.0",
+                record_specs=record_specs,
+            )
         result["migrated_mode"] = chosen
         return result
 
@@ -993,6 +1046,7 @@ class SkillGraphPipeline:
         *,
         force: bool = False,
         kg_enrich: bool | None = None,
+        shrink_guard: bool = True,
     ) -> dict[str, Any]:
         """Re-acquire a managed graph's recorded sources; rewrite + re-ingest if changed.
 
@@ -1000,7 +1054,9 @@ class SkillGraphPipeline:
         the rewrite + KG re-ingest when nothing changed — so periodic refreshes are
         cheap and only genuinely-changed corpora bump their version and re-embed (the
         KG ingest itself is content-hash delta-skipped, KG-2.8). A crawl failure leaves
-        the existing graph untouched (acquire-before-wipe).
+        the existing graph untouched (acquire-before-wipe). When ``shrink_guard`` and the
+        re-crawl is far smaller than the current corpus (a moved source_url), the existing
+        content is kept and the graph reported ``stale_url`` instead of being overwritten.
         """
         d = Path(skill_dir)
         mpath = d / "sources.json"
@@ -1020,6 +1076,16 @@ class SkillGraphPipeline:
                 "name": d.name,
                 "status": "fresh",
                 "version": data.get("skill_graph_version"),
+            }
+        existing_bytes = _ref_bytes(d / "reference")
+        new_bytes = _bundle_bytes(bundles)
+        if shrink_guard and _is_shrink(existing_bytes, new_bytes):
+            return {
+                "name": d.name,
+                "status": "stale_url",
+                "existing_bytes": existing_bytes,
+                "new_bytes": new_bytes,
+                "reason": "re-crawl far smaller than existing — source_url likely moved",
             }
         fm = parse_frontmatter((d / "SKILL.md").read_text(encoding="utf-8"))
         version = _bump_patch(data.get("skill_graph_version") or "0.1.0")
@@ -1044,6 +1110,7 @@ class SkillGraphPipeline:
         kg_enrich: bool | None = None,
         only: str = "",
         limit: int = 0,
+        shrink_guard: bool = True,
     ) -> dict[str, Any]:
         """Refresh every managed (sources.json) graph under ``root``; report per-graph."""
         names = {n.strip() for n in only.split(",") if n.strip()}
@@ -1054,7 +1121,9 @@ class SkillGraphPipeline:
                 continue
             if names and d.name not in names:
                 continue
-            res = self.refresh_one(d, force=force, kg_enrich=kg_enrich)
+            res = self.refresh_one(
+                d, force=force, kg_enrich=kg_enrich, shrink_guard=shrink_guard
+            )
             results.append(res)
             if res.get("status") == "refreshed":
                 refreshed += 1
@@ -1317,8 +1386,9 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 
 def _cmd_migrate(args: argparse.Namespace) -> int:
     pipe = SkillGraphPipeline(kg_enrich=not args.no_kg)
+    guard = not args.no_shrink_guard
     if args.dir:
-        result = pipe.migrate_legacy(args.dir, mode=args.mode)
+        result = pipe.migrate_legacy(args.dir, mode=args.mode, shrink_guard=guard)
         print(json.dumps(result, indent=2))
         return 0 if not result.get("validation_errors") else 1
     # Batch over a root.
@@ -1334,7 +1404,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         if not args.apply:
             results.append({"name": d.name, "would_migrate": info["mode"]})
             continue
-        res = pipe.migrate_legacy(d, mode=args.mode)
+        res = pipe.migrate_legacy(d, mode=args.mode, shrink_guard=guard)
         results.append(res)
         migrated += 0 if res.get("skipped") else 1
         if args.limit and migrated >= args.limit:
@@ -1345,11 +1415,21 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
 
 def _cmd_refresh(args: argparse.Namespace) -> int:
     pipe = SkillGraphPipeline(kg_enrich=not args.no_kg)
+    guard = not args.no_shrink_guard
     if args.dir:
-        print(json.dumps(pipe.refresh_one(args.dir, force=args.force), indent=2))
+        print(
+            json.dumps(
+                pipe.refresh_one(args.dir, force=args.force, shrink_guard=guard),
+                indent=2,
+            )
+        )
         return 0
     report = pipe.refresh_all(
-        args.root, force=args.force, only=args.only, limit=args.limit
+        args.root,
+        force=args.force,
+        only=args.only,
+        limit=args.limit,
+        shrink_guard=guard,
     )
     print(json.dumps(report, indent=2))
     return 0
@@ -1418,6 +1498,11 @@ def main() -> None:
     m.add_argument("--only", default="", help="Comma-separated graph names to migrate.")
     m.add_argument("--limit", type=int, default=0, help="Max graphs to migrate.")
     m.add_argument("--no-kg", action="store_true")
+    m.add_argument(
+        "--no-shrink-guard",
+        action="store_true",
+        help="Overwrite even when a reacquire crawls far less than the existing corpus.",
+    )
     m.set_defaults(func=_cmd_migrate)
 
     rf = sub.add_parser(
@@ -1439,6 +1524,11 @@ def main() -> None:
         "--limit", type=int, default=0, help="Max graphs to refresh (changed ones)."
     )
     rf.add_argument("--no-kg", action="store_true")
+    rf.add_argument(
+        "--no-shrink-guard",
+        action="store_true",
+        help="Overwrite even when a re-crawl is far smaller than the existing corpus.",
+    )
     rf.set_defaults(func=_cmd_refresh)
 
     args = parser.parse_args()

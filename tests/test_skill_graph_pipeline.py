@@ -58,8 +58,11 @@ def test_parse_frontmatter_scalars_lists_bools():
 
 
 def test_validate_clean_graph(src_dir, tmp_path):
-    res = _pipe().build(name="widget-docs", specs=[SourceSpec("dir", str(src_dir))],
-                        out_dir=tmp_path / "out")
+    res = _pipe().build(
+        name="widget-docs",
+        specs=[SourceSpec("dir", str(src_dir))],
+        out_dir=tmp_path / "out",
+    )
     assert res["validation_errors"] == []
     assert validate_skill_graph(tmp_path / "out" / "widget-docs") == []
 
@@ -71,8 +74,11 @@ def test_validate_missing_skill_md(tmp_path):
 
 
 def test_validate_name_mismatch(src_dir, tmp_path):
-    _pipe().build(name="widget-docs", specs=[SourceSpec("dir", str(src_dir))],
-                  out_dir=tmp_path / "out")
+    _pipe().build(
+        name="widget-docs",
+        specs=[SourceSpec("dir", str(src_dir))],
+        out_dir=tmp_path / "out",
+    )
     graph = tmp_path / "out" / "widget-docs"
     renamed = graph.parent / "other-docs"
     graph.rename(renamed)
@@ -81,8 +87,11 @@ def test_validate_name_mismatch(src_dir, tmp_path):
 
 
 def test_validate_flags_missing_manifest(src_dir, tmp_path):
-    _pipe().build(name="widget-docs", specs=[SourceSpec("dir", str(src_dir))],
-                  out_dir=tmp_path / "out")
+    _pipe().build(
+        name="widget-docs",
+        specs=[SourceSpec("dir", str(src_dir))],
+        out_dir=tmp_path / "out",
+    )
     graph = tmp_path / "out" / "widget-docs"
     (graph / "sources.json").unlink()
     errors = validate_skill_graph(graph)
@@ -98,8 +107,11 @@ def test_unknown_kind_rejected():
 
 
 def test_build_dir_source(src_dir, tmp_path):
-    res = _pipe().build(name="widget-docs", specs=[SourceSpec("dir", str(src_dir))],
-                        out_dir=tmp_path / "out")
+    res = _pipe().build(
+        name="widget-docs",
+        specs=[SourceSpec("dir", str(src_dir))],
+        out_dir=tmp_path / "out",
+    )
     assert res["file_count"] == 2
     assert res["kg_ingested"] is False
     manifest = json.loads(
@@ -114,12 +126,16 @@ def test_build_dir_source(src_dir, tmp_path):
 def test_build_web_via_injected_crawler(tmp_path):
     def crawler_fn(spec):
         assert spec.kind == "web"
-        return [AcquiredDoc(rel_path="index.md", text="# Home\n\nhi\n",
-                            source_uri=spec.uri)]
+        return [
+            AcquiredDoc(rel_path="index.md", text="# Home\n\nhi\n", source_uri=spec.uri)
+        ]
 
     pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
-    res = pipe.build(name="site-docs", specs=[SourceSpec("web", "https://x")],
-                     out_dir=tmp_path / "out")
+    res = pipe.build(
+        name="site-docs",
+        specs=[SourceSpec("web", "https://x")],
+        out_dir=tmp_path / "out",
+    )
     assert res["file_count"] == 1
     fm = parse_frontmatter((tmp_path / "out" / "site-docs" / "SKILL.md").read_text())
     assert fm["source_types"] == ["web"]
@@ -127,13 +143,20 @@ def test_build_web_via_injected_crawler(tmp_path):
 
 def test_build_generated_via_injected_generator(tmp_path):
     def generator_fn(spec):
-        return [AcquiredDoc(rel_path="topic.md", text=f"# {spec.uri}\n\ngenerated\n",
-                            source_uri="generated://topic")]
+        return [
+            AcquiredDoc(
+                rel_path="topic.md",
+                text=f"# {spec.uri}\n\ngenerated\n",
+                source_uri="generated://topic",
+            )
+        ]
 
     pipe = SkillGraphPipeline(generator_fn=generator_fn, kg_enrich=False)
-    res = pipe.build(name="topic-docs",
-                     specs=[SourceSpec("generated", "Kubernetes networking")],
-                     out_dir=tmp_path / "out")
+    res = pipe.build(
+        name="topic-docs",
+        specs=[SourceSpec("generated", "Kubernetes networking")],
+        out_dir=tmp_path / "out",
+    )
     assert res["file_count"] == 1
 
 
@@ -153,8 +176,11 @@ def test_multi_source_merge_dedupes_paths(src_dir, tmp_path):
 
 def test_status_fresh_then_stale_then_rebuild(src_dir, tmp_path):
     pipe = _pipe()
-    pipe.build(name="widget-docs", specs=[SourceSpec("dir", str(src_dir))],
-               out_dir=tmp_path / "out")
+    pipe.build(
+        name="widget-docs",
+        specs=[SourceSpec("dir", str(src_dir))],
+        out_dir=tmp_path / "out",
+    )
     graph = tmp_path / "out" / "widget-docs"
 
     assert pipe.status(graph, quick=True)["status"] == "fresh"
@@ -184,8 +210,11 @@ def test_kg_enrichment_degrades_when_daemon_unreachable(src_dir, tmp_path, monke
 
     monkeypatch.setattr(mod.subprocess, "run", boom)
     pipe = SkillGraphPipeline(kg_enrich=True)
-    res = pipe.build(name="widget-docs", specs=[SourceSpec("dir", str(src_dir))],
-                     out_dir=tmp_path / "out")
+    res = pipe.build(
+        name="widget-docs",
+        specs=[SourceSpec("dir", str(src_dir))],
+        out_dir=tmp_path / "out",
+    )
     assert res["kg_ingested"] is False
     assert res["file_count"] == 2
     assert res["validation_errors"] == []
@@ -214,7 +243,9 @@ def _legacy_graph(root: Path, name: str, *, source_url: str | None, files: int) 
     d = root / name
     (d / "reference").mkdir(parents=True)
     for i in range(files):
-        (d / "reference" / f"f{i}.md").write_text(f"# F{i}\n\nbody {i}\n", encoding="utf-8")
+        (d / "reference" / f"f{i}.md").write_text(
+            f"# F{i}\n\nbody {i}\n", encoding="utf-8"
+        )
     fm = [f"name: {name}", "description: Legacy docs.", "crawl_depth: 3"]
     if source_url:
         fm.append(f"source_url: {source_url}")
@@ -271,8 +302,11 @@ def test_migrate_reacquire_uses_source_url(tmp_path):
 
     def crawler_fn(spec):
         seen["uri"] = spec.uri
-        return [AcquiredDoc(rel_path="page.md", text="# Fresh\n\nnew\n",
-                            source_uri=spec.uri)]
+        return [
+            AcquiredDoc(
+                rel_path="page.md", text="# Fresh\n\nnew\n", source_uri=spec.uri
+            )
+        ]
 
     pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
     g = _legacy_graph(tmp_path, "a-docs", source_url="https://x/docs", files=2)
@@ -289,11 +323,16 @@ def test_refresh_skips_unchanged_and_rebuilds_changed(tmp_path):
 
     def crawler_fn(spec):
         state["calls"] += 1
-        return [AcquiredDoc(rel_path="index.md", text=state["text"], source_uri=spec.uri)]
+        return [
+            AcquiredDoc(rel_path="index.md", text=state["text"], source_uri=spec.uri)
+        ]
 
     pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
-    pipe.build(name="site-docs", specs=[SourceSpec("web", "https://x")],
-               out_dir=tmp_path / "out")
+    pipe.build(
+        name="site-docs",
+        specs=[SourceSpec("web", "https://x")],
+        out_dir=tmp_path / "out",
+    )
     graph = tmp_path / "out" / "site-docs"
 
     # Unchanged upstream → refresh is a no-op (fresh), no version bump.
@@ -313,14 +352,53 @@ def test_refresh_skips_unchanged_and_rebuilds_changed(tmp_path):
 
 def test_refresh_force_rewrites_unchanged(tmp_path):
     def crawler_fn(spec):
-        return [AcquiredDoc(rel_path="index.md", text="# Home\n\nsame\n",
-                            source_uri=spec.uri)]
+        return [
+            AcquiredDoc(
+                rel_path="index.md", text="# Home\n\nsame\n", source_uri=spec.uri
+            )
+        ]
 
     pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
-    pipe.build(name="site-docs", specs=[SourceSpec("web", "https://x")],
-               out_dir=tmp_path / "out")
+    pipe.build(
+        name="site-docs",
+        specs=[SourceSpec("web", "https://x")],
+        out_dir=tmp_path / "out",
+    )
     graph = tmp_path / "out" / "site-docs"
     assert pipe.refresh_one(graph, force=True)["status"] == "refreshed"
+
+
+def test_refresh_shrink_guard_keeps_content_on_moved_url(tmp_path):
+    # Build a content-rich graph, then simulate the source_url having moved (re-crawl
+    # returns a tiny landing page). The guard keeps the rich content + flags stale_url.
+    big = "# Docs\n\n" + ("lorem ipsum dolor sit amet " * 1000) + "\n"
+    state = {"text": big}
+
+    def crawler_fn(spec):
+        return [
+            AcquiredDoc(rel_path="index.md", text=state["text"], source_uri=spec.uri)
+        ]
+
+    pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
+    pipe.build(
+        name="site-docs",
+        specs=[SourceSpec("web", "https://x")],
+        out_dir=tmp_path / "out",
+    )
+    graph = tmp_path / "out" / "site-docs"
+    before = (graph / "reference").rglob("*.md")
+    before_bytes = sum(p.stat().st_size for p in before)
+
+    state["text"] = "# Moved\n\nThis page has relocated.\n"  # tiny re-crawl
+    res = pipe.refresh_one(graph, force=True)
+    assert res["status"] == "stale_url"
+    # Existing rich content is untouched.
+    kept = sum(p.stat().st_size for p in (graph / "reference").rglob("*.md"))
+    assert kept == before_bytes
+
+    # With the guard disabled, it overwrites.
+    res2 = pipe.refresh_one(graph, force=True, shrink_guard=False)
+    assert res2["status"] == "refreshed"
 
 
 def test_refresh_one_unmanaged_is_skipped(tmp_path):
