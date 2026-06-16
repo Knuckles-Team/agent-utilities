@@ -1440,10 +1440,47 @@ class IngestionEngine:
         ``ingestion/web_fetch.py``): ArchiveBox's preserved snapshot when
         configured, else crawl4ai, else requests+markitdown. For bulk web
         ingestion, prefer crawling to markdown files first and ingesting the dir.
+
+        A binary-document URL (``.pdf``/``.docx``/``.pptx``/``.xlsx`` — e.g. the
+        ServiceNow release-notes PDF) is downloaded as bytes and read by the
+        verbatim reader stack (``read_any``/PyMuPDF), not coerced through the
+        text/markdown fetch path.
         """
         import tempfile
 
-        from .web_fetch import resolve_web_fetch
+        from .web_fetch import _UA, resolve_web_fetch
+
+        # Binary document URLs: download bytes → temp file with the right suffix →
+        # the canonical unit reads them with the modality reader (CONCEPT:KG-2.66).
+        suffix = Path(url.split("?", 1)[0]).suffix.lower()
+        if suffix in {".pdf", ".docx", ".doc", ".pptx", ".xlsx", ".epub"}:
+            try:
+                import requests
+
+                resp = requests.get(url, timeout=180, headers={"User-Agent": _UA})
+                resp.raise_for_status()
+                with tempfile.NamedTemporaryFile(
+                    "wb", suffix=suffix, delete=False
+                ) as tmp:
+                    tmp.write(resp.content)
+                    bin_path = Path(tmp.name)
+            except Exception as e:  # noqa: BLE001
+                return IngestionResult(
+                    manifest=manifest, status="failed", error=f"fetch failed: {e}"
+                )
+            sub = IngestionManifest(
+                content_type=manifest.content_type,
+                source_uri=str(bin_path),
+                metadata={**manifest.metadata, "source_url": url, "fetch_backend": "requests"},
+                force=manifest.force,
+            )
+            try:
+                return self._ingest_document_file(sub, bin_path)
+            finally:
+                try:
+                    bin_path.unlink()
+                except OSError:
+                    pass
 
         page = resolve_web_fetch(url)
         if page is None:
