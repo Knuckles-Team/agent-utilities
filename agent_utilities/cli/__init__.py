@@ -96,6 +96,27 @@ def build_parser() -> argparse.ArgumentParser:
     sr.add_argument("--max-topics", type=int, default=5)
     sr.add_argument("--workspace", default=None)
     sr.add_argument("--no-commit", action="store_true")
+
+    # CONCEPT:OS-5.42 — atomic concept-ID reservation (offline/worktree entry point).
+    cp = sub.add_parser("concept", help="reserve/list/release/reconcile concept ids")
+    cp.add_argument(
+        "concept_action", choices=["reserve", "release", "list", "reconcile"]
+    )
+    cp.add_argument(
+        "--ns", default="", help="pillar (e.g. KG-2) or package prefix (e.g. KEY)"
+    )
+    cp.add_argument(
+        "--session", default="", help="claiming session id (default host:pid)"
+    )
+    cp.add_argument("--design-doc", default="", help="design-doc path to record")
+    cp.add_argument(
+        "--id", dest="concept_id", default="", help="concept id for release"
+    )
+    cp.add_argument(
+        "--status", default="", help="filter for list (reserved/landed/expired)"
+    )
+    cp.add_argument("--ttl", type=int, default=86_400, help="reservation TTL seconds")
+    cp.add_argument("--repo", default="", help="repo root (default agent-utilities)")
     return p
 
 
@@ -127,6 +148,39 @@ def _sleep_run(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def _concept(args: argparse.Namespace) -> dict[str, Any]:
+    """Concept-ID reservation — runs against the file ledger directly (no gateway)."""
+    import socket
+
+    from agent_utilities.governance import concept_allocator as ca
+
+    repo_root = Path(args.repo).expanduser().resolve() if args.repo else ca.REPO_ROOT
+    action = args.concept_action
+    if action == "list":
+        return {
+            "reservations": ca.list_reservations(
+                repo_root=repo_root, status=args.status or None
+            )
+        }
+    if action == "reconcile":
+        return ca.reconcile(repo_root=repo_root)
+    if action == "release":
+        if not args.concept_id:
+            return {"error": "release requires --id"}
+        return {"released": ca.release_concept_id(args.concept_id, repo_root=repo_root)}
+    # reserve
+    if not args.ns:
+        return {"error": "reserve requires --ns (e.g. KG-2 or KEY)"}
+    sid = args.session or f"{socket.gethostname()}:{os.getpid()}"
+    return ca.reserve_concept_id(
+        args.ns,
+        session_id=sid,
+        design_doc=args.design_doc or None,
+        ttl_seconds=int(args.ttl),
+        repo_root=repo_root,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "harness-gate":
@@ -141,6 +195,8 @@ def main(argv: list[str] | None = None) -> int:
         out = _harness_fence(args)
     elif args.command == "sleep-run":
         out = _sleep_run(args)
+    elif args.command == "concept":
+        out = _concept(args)
     else:
         # start/stop/logs/inspect orchestrate the existing console-scripts; report intent + namespace.
         out = {

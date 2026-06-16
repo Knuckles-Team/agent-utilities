@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 306
+total_concepts: 307
 total_pillars: 20
 pillars:
 - AHE-3
@@ -51,6 +51,7 @@ concepts:
   - agent_utilities/harness/verifier.py
   - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/kb/x_workflows.py
   - agent_utilities/knowledge_graph/orchestration/engine_ahe.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_definition.py
@@ -113,6 +114,7 @@ concepts:
   - agent_utilities/patterns/exploration.py
   - agent_utilities/patterns/first_run_tests.py
   - agent_utilities/tools/self_improvement_tools.py
+  - agent_utilities/workflows/distillation_hook.py
   doc: Optional convergence monitor for multi-loop tasks
 - id: AHE-3.3
   name: Check for matching TeamConfig before LLM planning
@@ -133,6 +135,7 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/security/execution_stability_engine.py
   - agent_utilities/tools/team_tools.py
+  - agent_utilities/workflows/distillation_hook.py
   doc: Check for matching TeamConfig before LLM planning
 - id: AHE-3.4
   name: Detected mathematical/quantitative topology. Escalate to reasoning model
@@ -676,6 +679,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/models/company.py
+  - agent_utilities/models/knowledge_graph.py
   doc: Infrastructure Blueprint Library
 - id: ECO-4.05
   name: Pluggable Event Queue Backend
@@ -1204,6 +1208,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py
   - agent_utilities/knowledge_graph/security/cognitive_trap_defense.py
   - agent_utilities/knowledge_graph/security/graph_validator.py
+  - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/messaging/kg_ingest.py
   - agent_utilities/models/knowledge_graph.py
   doc: Lazy embedding model — defer HTTP connection to first use
@@ -1250,6 +1255,7 @@ concepts:
   code_paths:
   - agent_utilities/automation/__init__.py
   - agent_utilities/automation/research_pipeline.py
+  - agent_utilities/core/checkpoint/manager.py
   - agent_utilities/domains/__init__.py
   - agent_utilities/domains/finance/alpha_factors.py
   - agent_utilities/domains/finance/banking.py
@@ -1423,6 +1429,7 @@ concepts:
   - agent_utilities/gateway/api.py
   - agent_utilities/gateway/daemon.py
   - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py
   - agent_utilities/knowledge_graph/backends/__init__.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
@@ -1554,7 +1561,7 @@ concepts:
   - agent_utilities/tools/db_tools.py
   doc: which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle
 - id: KG-2.9g
-  name: code-symbol navigation over the
+  name: Declared columns so schema-backed Kuzu can
   pillar: KG-2
   status: live
   code_paths:
@@ -1564,8 +1571,9 @@ concepts:
   - agent_utilities/knowledge_graph/core/gitlab_indexer.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/models/schema_definition.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
-  doc: code-symbol navigation over the
+  doc: Declared columns so schema-backed Kuzu can
 - id: KG-2.10
   name: S4c
   pillar: KG-2
@@ -1818,6 +1826,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/models/schema_pack_audit.py
   - agent_utilities/models/schema_pack_loader.py
   doc: Schema-Pack Lifecycle and Audit
@@ -2060,6 +2069,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/shard_topology.py
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/orchestration/agent_dispatch.py
+  - agent_utilities/orchestration/scaling_signals.py
   doc: Fail-loud selectable ingest task-queue backend with explicit kafka and postgres and auto sqlite
     modes
 - id: KG-2.56
@@ -2272,6 +2282,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/outbox.py
   - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
+  - agent_utilities/knowledge_graph/core/engine_ingestion.py
   - agent_utilities/knowledge_graph/extraction/ontology_grounding.py
   - agent_utilities/knowledge_graph/extraction/readers_media.py
   - agent_utilities/knowledge_graph/extraction/structure_router.py
@@ -2314,6 +2325,7 @@ concepts:
   - agent_utilities/core/sessions.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/research/loops.py
+  - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   doc: These properties carry the
@@ -2399,6 +2411,7 @@ concepts:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/generative_recommender.py
   - agent_utilities/knowledge_graph/retrieval/temporal_semantic_id.py
+  - agent_utilities/mcp/tools/query_tools.py
   doc: ChronoID. Fits a residual-quantization codebook on the
 - id: KG-2.87
   name: Adaptive Stopping for Iterative Retrieval
@@ -2415,6 +2428,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/iterative_expansion.py
+  - agent_utilities/mcp/tools/query_tools.py
   doc: assimilated from ADORE
 - id: KG-2.89
   name: Role-aware multi-database registry plus live config mutation
@@ -2476,6 +2490,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/agent/sampling_profile.py
   - agent_utilities/knowledge_graph/ontology/value_types.py
   doc: LLM inference sampling knobs temperature top_p top_k min_p repetition_penalty max_tokens and penalties
     as SHACL-bounded ontology value types plus the two-surface sampling-profile tool
@@ -2701,6 +2716,7 @@ concepts:
   code_paths:
   - agent_utilities/base_utilities.py
   - agent_utilities/capabilities/checkpointing.py
+  - agent_utilities/core/checkpoint/manager.py
   - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/coordination.py
   - agent_utilities/graph/executor.py
@@ -3697,6 +3713,7 @@ concepts:
   pillar: OS-5
   status: live
   code_paths:
+  - agent_utilities/security/__init__.py
   - agent_utilities/security/source_credentials.py
   doc: Typed Source-Credential Registry
 - id: OS-5.40
@@ -3721,6 +3738,15 @@ concepts:
   - agent_utilities/ecosystem/hook_installer.py
   - agent_utilities/orchestration/action_policy.py
   doc: Dynamic two-layer fail-closed PreToolUse ActionPolicy permission gate
+- id: OS-5.42
+  name: Multi-session concept-ID allocation & coordination protocol
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/cli/__init__.py
+  - agent_utilities/governance/concept_allocator.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: Multi-session concept-ID allocation & coordination protocol
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
