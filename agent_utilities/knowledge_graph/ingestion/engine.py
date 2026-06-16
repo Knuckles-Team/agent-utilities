@@ -1341,11 +1341,13 @@ class IngestionEngine:
                     except Exception:  # noqa: BLE001 — link is best-effort
                         pass
 
+        ingested = 0
+        for r in results:
+            if r is not None and r.status == "success":
+                ingested += 1
         if page_result.details is not None:
             page_result.details["papers_acquired"] = len(pdf_paths)
-            page_result.details["papers_ingested"] = sum(
-                1 for r in results if r and r.status == "success"
-            )
+            page_result.details["papers_ingested"] = ingested
 
     # Document file extensions the standardized unit can read verbatim. Covers the
     # text/doc family plus every modality the reader registry handles (KG-2.66), so
