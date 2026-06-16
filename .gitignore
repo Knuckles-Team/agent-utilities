@@ -43,6 +43,12 @@ agent/chats/
 pip-log.txt
 pip-delete-this-directory.txt
 
+# Repo-hygiene policy (AGENTS.md "Keep the Repository Root Pristine"): analysis
+# reports belong in ~/workspace/reports, never in the repo; and block stray
+# `=<version>` files left by an unquoted `pip/uv install pkg>=x` redirect.
+/reports/
+=*
+
 # Unit test / coverage reports
 htmlcov/
 .tox/

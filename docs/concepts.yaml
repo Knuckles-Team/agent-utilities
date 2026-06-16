@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 295
+total_concepts: 297
 total_pillars: 20
 pillars:
 - AHE-3
@@ -338,6 +338,7 @@ concepts:
   code_paths:
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/adaptation_speed.py
+  - agent_utilities/harness/hote_tri_evolution.py
   doc: per-task adaptation-speed instrumentation
 - id: AHE-3.28
   name: the
@@ -532,6 +533,21 @@ concepts:
   - agent_utilities/harness/latent_efficiency_benchmark.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: empirical evidence that the latent-native enhancements move
+- id: AHE-3.49
+  name: ──────────────────────────
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/graph/training_signals.py
+  doc: ──────────────────────────
+- id: AHE-3.50
+  name: co-evolve the research
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/hote_tri_evolution.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  doc: co-evolve the research
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1247,6 +1263,7 @@ concepts:
   - agent_utilities/domains/finance/exchange_bridge.py
   - agent_utilities/domains/finance/filing_diff.py
   - agent_utilities/domains/finance/forensic_screener.py
+  - agent_utilities/domains/finance/insider_equilibrium.py
   - agent_utilities/domains/finance/investor_debate.py
   - agent_utilities/domains/finance/kronos_forecaster.py
   - agent_utilities/domains/finance/market_data.py
