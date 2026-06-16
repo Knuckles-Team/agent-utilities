@@ -29,9 +29,12 @@ Configuration (env):
 
 from __future__ import annotations
 
+import functools
 import threading
 import time
 
+import anyio
+import httpx
 import requests
 from fastmcp.utilities.logging import get_logger
 
@@ -83,11 +86,15 @@ class ClientCredentialsTokenProvider:
         self._token: str | None = None
         self._expires_at = 0.0
 
-    def get_token(self) -> str:
-        """Return a cached access token, refreshing it if missing or near expiry."""
+    def get_token(self, *, force: bool = False) -> str:
+        """Return a cached access token, refreshing it if missing or near expiry.
+
+        ``force=True`` bypasses the cache and mints a fresh token — used when a
+        child returns 401 (the cached token rotated/expired between the skew
+        check and the request reaching the child)."""
         with self._lock:
             now = time.monotonic()
-            if self._token and now < self._expires_at - _EXPIRY_SKEW_S:
+            if not force and self._token and now < self._expires_at - _EXPIRY_SKEW_S:
                 return self._token
             data = {"grant_type": "client_credentials"}
             if self.audience:
@@ -172,3 +179,81 @@ def bearer_header(existing: dict | None) -> dict:
     except Exception as exc:  # pragma: no cover - network/permission failure
         logger.warning("Could not mint multiplexer service token: %s", exc)
         return {}
+
+
+class ClientCredentialsAuth(httpx.Auth):
+    """Per-request service-bearer injection for a long-lived child transport.
+
+    The multiplexer holds ONE pooled streamable-http/SSE session per child for
+    the child's whole life. Baking a static bearer into the session headers
+    (:func:`bearer_header`) freezes a short-lived Keycloak access token: once it
+    expires the child returns 401, and because a streamable-http tool result is
+    delivered asynchronously over the SSE stream, the in-flight call never
+    receives its result — it hangs to the call-timeout instead of erroring,
+    which surfaces as "flaky" child calls. Pulling the token from the
+    self-refreshing provider on *every* request keeps the session authenticated
+    for its whole life; a 401 forces a one-shot re-mint + retry for the rare
+    case the token rotates mid-flight. Never raises: a mint failure degrades to
+    an unauthenticated request (the child then 401s, visible in logs/metrics).
+    """
+
+    def __init__(self, provider: ClientCredentialsTokenProvider) -> None:
+        self._provider = provider
+
+    def _flow(self, request: httpx.Request, token: str | None):
+        if token is not None:
+            request.headers["Authorization"] = f"Bearer {token}"
+        response = yield request
+        if token is not None and response.status_code == 401:
+            try:
+                fresh = self._provider.get_token(force=True)
+            except Exception:  # pragma: no cover - degrade to the 401
+                return
+            request.headers["Authorization"] = f"Bearer {fresh}"
+            yield request
+
+    def auth_flow(self, request: httpx.Request):
+        try:
+            token: str | None = self._provider.get_token()
+        except Exception as exc:  # pragma: no cover - degrade to no header
+            logger.warning("Could not mint multiplexer service token: %s", exc)
+            token = None
+        yield from self._flow(request, token)
+
+    async def async_auth_flow(self, request: httpx.Request):
+        # The mint does blocking I/O (``requests.post``); offload it so a
+        # token refresh never stalls the multiplexer's event loop.
+        try:
+            token: str | None = await anyio.to_thread.run_sync(self._provider.get_token)
+        except Exception as exc:  # pragma: no cover - degrade to no header
+            logger.warning("Could not mint multiplexer service token: %s", exc)
+            token = None
+        if token is not None:
+            request.headers["Authorization"] = f"Bearer {token}"
+        response = yield request
+        if token is not None and response.status_code == 401:
+            try:
+                fresh = await anyio.to_thread.run_sync(
+                    functools.partial(self._provider.get_token, force=True)
+                )
+            except Exception:  # pragma: no cover - degrade to the 401
+                return
+            request.headers["Authorization"] = f"Bearer {fresh}"
+            yield request
+
+
+def bearer_auth(existing: dict | None) -> ClientCredentialsAuth | None:
+    """An :class:`httpx.Auth` that authenticates a remote child per request.
+
+    Preferred over :func:`bearer_header` for the multiplexer's long-lived child
+    transports: a per-request token never goes stale, so a pooled session keeps
+    working across token expiry instead of wedging on a 401. Never overrides a
+    child's explicit ``Authorization`` header; returns ``None`` when the service
+    identity is disabled/misconfigured (the child stays unauthenticated, exactly
+    as with ``bearer_header``)."""
+    if existing and any(k.lower() == "authorization" for k in existing):
+        return None
+    provider = get_provider()
+    if provider is None:
+        return None
+    return ClientCredentialsAuth(provider)
