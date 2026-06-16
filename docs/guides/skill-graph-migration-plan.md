@@ -14,17 +14,49 @@ onto that contract, in waves, smallest-first.
 
 | Mode | Count | Action |
 |------|-------|--------|
-| `managed` | 5 | ✅ done (framer, minio, pytorch, reactrouter, redis) |
+| `managed` | 6 | ✅ done (framer, minio, pytorch, reactrouter, redis, quant-career) |
 | `reacquire` | 56 | re-crawl `source_url` → standardized + KG-ingested |
-| `wrap` | 1 | `quant-career-docs` — re-package existing corpus (offline) |
 | `native` | 12 | hand-authored (`agent-utilities/*`, `trading-systems/*`, …) — **leave alone** |
+
+## Leveraging the full KG — split format from processing, process as you ingest
+
+The migration has two costs with very different speeds, so **separate them**:
+
+1. **Format migration (fast, seconds/graph)** — `migrate … --no-kg` writes the
+   standardized `SKILL.md` + `index.json` + `sources.json` and content-optimizes the
+   corpus. Roll this across the **whole** library first so every graph is on the
+   contract immediately.
+2. **KG processing (slow, LLM-bound)** — chunk → embed → **Concept + Fact extraction**
+   into the KG. This is where the *leverage* is: every graph's concepts are
+   deduped by `ConceptMatcher` (KG-2.75) onto the **same Concept nodes** that
+   documents, papers, code and the other skill types point to — so a freshly-ingested
+   `fastapi-docs` instantly links to existing `Concept:dependency-injection`,
+   `Concept:asgi`, etc., and to any Code/Spec that realizes them. Each graph is also a
+   `SkillGraph` ontology object (`CONTAINS` Documents / `RELATES_TO` Concepts /
+   `DERIVED_FROM` source), so coverage and overlap are queryable.
+
+**Process as you ingest** — the document-grade ingest *is* the processing (it runs
+concept/fact extraction inline), so KG-processing a graph and ingesting it are the same
+step. Drive it incrementally so each graph is queryable the moment it lands:
+
+```bash
+# 1) fast format pass over everything (no KG) — every graph on the contract
+python -m ...skill_graph_pipeline migrate --root <skill_graphs> --apply --no-kg
+
+# 2) KG-process them — either let the default knowledge_base auto-ingest phase do it
+#    (document-grade, delta-skipped, runs in the daemon pipeline), or a bounded refresh
+python -m ...skill_graph_pipeline refresh --root <skill_graphs> --limit 8   # delta, KG on
+```
+
+After each graph lands, leverage it: `graph_search(query="…", mode="hybrid")` scoped to
+its `skillgraph:<name>` domain, or `ontology_interface(action='implementers',
+name='SkillGraph')` to see the whole skill-graph set and what concepts they share.
 
 ## Waves (use `migrate --root … --apply --only …` per batch; commit per batch)
 
-**Wave 1 — smallest reacquire (≤10 files) + the wrap graph (~13).** Fast, validates the
-pipeline live. Includes the 1 wrap graph.
-`redis*`, `radix-ui-docs`, `redux-docs`, `temporal-docs`, `testing-library-docs`,
-`uptime-kuma-docs`, `vitejs-docs`, … + `quant-career-docs` (wrap).
+**Wave 1 — smallest reacquire (≤10 files), ~12.** Fast, validates the pipeline live.
+`radix-ui-docs`, `redux-docs`, `temporal-docs`, `testing-library-docs`,
+`uptime-kuma-docs`, `vitejs-docs`, `framer-motion`, `reactrouter`, …
 
 **Wave 2 — medium (11–100 files), ~24, in batches of ~8.** Review diffs + `status`
 between batches. e.g. `react-docs`(71), `scipy-docs`(70), `shadcn-docs`(86),
