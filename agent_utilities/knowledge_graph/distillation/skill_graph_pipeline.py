@@ -555,14 +555,24 @@ class SkillGraphPipeline:
             shutil.rmtree(ref)
         ref.mkdir(parents=True, exist_ok=True)
 
-        # Write the merged, de-duplicated reference tree.
+        # Write the merged tree, optimizing content: normalize whitespace and drop
+        # exact-duplicate pages (crawls routinely emit the same page under many URLs)
+        # and empty shells — denser signal per file, fewer tokens wasted.
         used: set[str] = set()
+        seen_hashes: set[str] = set()
         for bundle in bundles:
             for doc in bundle.docs:
+                text = _optimize_markdown(doc.text)
+                if not text.strip():
+                    continue
+                h = sha256_text(text)
+                if h in seen_hashes:
+                    continue
+                seen_hashes.add(h)
                 rel = _unique_rel(doc.rel_path, used)
                 target = ref / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(doc.text, encoding="utf-8")
+                target.write_text(text, encoding="utf-8")
 
         if max_file_kb > 0:
             _split_oversized(ref, max_file_kb)
@@ -635,6 +645,7 @@ class SkillGraphPipeline:
             kg_result,
             recorded=recorded,
         )
+        _write_index_json(skill_dir, ref, name, version, source_url, kg_result)
         self._render_skill_md(
             skill_dir,
             name,
@@ -779,7 +790,12 @@ class SkillGraphPipeline:
         concepts = kg_result.get("concepts") or []
         toc = _render_toc(_build_doc_tree(ref))
         title = name.replace("-", " ").replace("docs", "").strip().title()
+        kg_on = bool(kg_result.get("kg_ingested"))
+        domain = kg_result.get("domain") or f"skillgraph:{name}"
+        urls = [u.strip() for u in source_url.split(",") if u.strip()]
+        total_kb = sum(p.stat().st_size for p in md_files) // 1024
 
+        # ── frontmatter ──
         lines = ["---", f"name: {name}", f"description: {description}"]
         lines.append(f"skill_graph_version: {version}")
         lines.append(f"source_types: [{', '.join(source_types)}]")
@@ -788,7 +804,8 @@ class SkillGraphPipeline:
         lines.append(f"built_at: {_now_iso()}")
         lines.append(f"builder_version: {_pkg_version()}")
         lines.append(f"file_count: {len(md_files)}")
-        lines.append(f"kg_ingested: {str(bool(kg_result.get('kg_ingested'))).lower()}")
+        lines.append(f"kg_ingested: {str(kg_on).lower()}")
+        lines.append("index: index.json")
         if kg_result.get("kg_manifest"):
             lines.append(f"kg_manifest: {kg_result['kg_manifest']}")
         if kg_result.get("kg_ontology"):
@@ -798,50 +815,77 @@ class SkillGraphPipeline:
         lines.append("categories: [Documentation, Knowledge Base, Reference]")
         lines.append(f"tags: [docs, reference, {name}, knowledge-base]")
         lines.append("---")
+
+        # ── header + badge table ──
+        _nodes = int(kg_result.get("nodes") or 0)
+        kg_cell = (
+            f"✅ ingested ({f'{_nodes} nodes, ' if _nodes else ''}domain `{domain}`)"
+            if kg_on
+            else "— (offline corpus)"
+        )
+        lines += ["", f"# {title} — Reference Skill-Graph", "", f"> {description}", ""]
+        lines += [
+            "| | |",
+            "|---|---|",
+            f"| **Version** | {version} |",
+            f"| **Files** | {len(md_files)} ({total_kb} KB) |",
+            f"| **Source types** | {', '.join(source_types)} |",
+            f"| **Knowledge Graph** | {kg_cell} |",
+            f"| **Built** | {time.strftime('%B %d, %Y', time.gmtime())} |",
+        ]
+        if urls:
+            lines.append("")
+            lines.append("**Sources:** " + ", ".join(f"[{u}]({u})" for u in urls))
         lines.append("")
-        lines.append(f"# {title} Documentation")
-        lines.append("")
-        lines.append(description)
-        lines.append("")
-        # Body source list: prefer the recorded upstream URLs (wrap-migration), else
-        # the acquisition bundles.
-        if source_url:
-            urls = [u.strip() for u in source_url.split(",") if u.strip()]
-            lines.append(f"**Sources** ({len(urls)}):")
-            for u in urls:
-                lines.append(f"- {u}")
-        else:
-            lines.append(f"**Sources** ({len(bundles)}):")
-            for b in bundles:
-                lines.append(f"- `{b.spec.kind}` — {b.spec.uri or b.spec.kind}")
+
+        # ── agent usage guidance (the leverage layer) ──
+        lines += ["## 🧭 How to use this skill-graph", ""]
+        lines.append(
+            f"This is a **full reference corpus for {title}** — a manual at your "
+            "disposal. Treat it as ground truth: quote it, don't paraphrase from memory."
+        )
         lines.append("")
         lines.append(
-            f"**Contains**: {len(md_files)} markdown files. "
-            f"*Built {time.strftime('%B %d, %Y', time.gmtime())}.*"
+            "- **Look something up:** scan the Table of Contents (or `index.json` for a "
+            "machine-readable map), open the specific `reference/…` file, quote it + link it."
         )
-        if kg_result.get("kg_ingested"):
+        if kg_on:
             lines.append(
-                f"\n*Ingested into the Knowledge Graph "
-                f"({kg_result.get('nodes', 0)} nodes) — query it via `graph_search`.*"
+                "- **Cross-cutting question:** this corpus is in the Knowledge Graph — "
+                f'`graph_search(query="…", mode="hybrid")` retrieves the right passages '
+                f"across all files at once (domain `{domain}`). Prefer it for synthesis."
             )
+        lines.append(
+            "- **Stay grounded:** never invent APIs/flags — verify against the reference "
+            "and cite the file. `sources.json` tracks provenance + freshness."
+        )
         lines.append("")
-        lines.append("## 📚 Table of Contents")
-        lines.append("")
+
+        # ── table of contents ──
+        lines += ["## 📚 Table of Contents", ""]
         lines.append("\n".join(toc) if toc else "*No markdown files found.*")
         lines.append("")
-        lines.append("## 🤖 Agent Usage Guide")
-        lines.append("")
-        lines.append(
-            f"- When asked about **{title}**, consult the reference files above."
+
+        # ── knowledge-graph / ontology cross-links ──
+        if kg_on:
+            lines += ["## 🔗 Knowledge Graph & Ontology", ""]
+            lines.append(
+                f"Ingested as a `SkillGraph` ontology object over domain `{domain}`: it "
+                "`CONTAINS` its Documents, `RELATES_TO` the Concepts it covers, and is "
+                "`DERIVED_FROM` its sources. Discover overlap/related graphs via "
+                "`ontology_interface(action='implementers', name='SkillGraph')` or "
+                "`graph_search`."
+            )
+            if concepts:
+                lines.append("")
+                lines.append(
+                    "**Covers concepts:** " + ", ".join(f"`{c}`" for c in concepts)
+                )
+            lines.append("")
+
+        (skill_dir / "SKILL.md").write_text(
+            "\n".join(lines).rstrip() + "\n", encoding="utf-8"
         )
-        lines.append(
-            "- Prefer exact quotes and direct links to the relevant file/section."
-        )
-        lines.append(
-            "- `sources.json` records provenance + freshness; rebuild when stale."
-        )
-        lines.append("")
-        (skill_dir / "SKILL.md").write_text("\n".join(lines), encoding="utf-8")
 
     # ── freshness + rebuild ───────────────────────────────────────────────────
 
@@ -1137,6 +1181,72 @@ class SkillGraphPipeline:
                     break
         return {"refreshed": refreshed, "results": results}
 
+    # ── restyle (re-render presentation only) ─────────────────────────────────
+
+    def restyle_one(self, skill_dir: str | Path) -> dict[str, Any]:
+        """Re-render SKILL.md + index.json from existing content — no re-crawl/re-ingest.
+
+        Applies the current polished presentation (badges, usage guidance, KG-query
+        hints, machine-readable index) to a managed graph using the state already in
+        ``sources.json``. Cheap and offline — the way to roll a renderer upgrade across
+        every graph without touching content.
+        """
+        d = Path(skill_dir)
+        mpath = d / "sources.json"
+        if not mpath.exists():
+            return {"name": d.name, "status": "skipped", "reason": "not managed"}
+        data = json.loads(mpath.read_text(encoding="utf-8"))
+        ref = d / "reference"
+        md_files = sorted(ref.rglob("*.md"))
+        fm = (
+            parse_frontmatter((d / "SKILL.md").read_text(encoding="utf-8"))
+            if (d / "SKILL.md").exists()
+            else {}
+        )
+        name = data.get("name", d.name)
+        version = data.get("skill_graph_version") or "0.1.0"
+        kg_result = {
+            "kg_ingested": data.get("kg_ingested"),
+            "kg_ontology": data.get("kg_ontology"),
+            "kg_manifest": data.get("kg_manifest"),
+            "concepts": data.get("concepts") or [],
+            "domain": f"skillgraph:{name}",
+        }
+        source_kinds = sorted(
+            {s["kind"] for s in data.get("sources", []) if s.get("kind")}
+        )
+        source_url = ", ".join(
+            s.get("uri", "")
+            for s in data.get("sources", [])
+            if str(s.get("uri", "")).startswith("http")
+        )
+        _write_index_json(d, ref, name, version, source_url, kg_result)
+        self._render_skill_md(
+            d,
+            name,
+            fm.get("description") or _default_description(name),
+            version,
+            [],
+            md_files,
+            ref,
+            kg_result,
+            source_types_override=source_kinds,
+            source_url=source_url,
+        )
+        return {"name": name, "status": "restyled", "file_count": len(md_files)}
+
+    def restyle_all(self, root: str | Path) -> dict[str, Any]:
+        """Restyle every managed graph under ``root`` (presentation refresh, offline)."""
+        results = [
+            self.restyle_one(d)
+            for d in _iter_graph_dirs(Path(root))
+            if (d / "sources.json").exists()
+        ]
+        return {
+            "restyled": sum(r["status"] == "restyled" for r in results),
+            "results": results,
+        }
+
 
 # ── module helpers (pure / optional-dep guarded) ───────────────────────────────
 
@@ -1247,17 +1357,88 @@ def _build_doc_tree(reference_dir: Path) -> dict[str, Any]:
     return tree
 
 
+def _count_leaves(tree: dict[str, Any]) -> int:
+    return sum(_count_leaves(v) if isinstance(v, dict) else 1 for v in tree.values())
+
+
 def _render_toc(tree: dict[str, Any], indent: int = 0) -> list[str]:
     lines: list[str] = []
     dirs = sorted(k for k in tree if isinstance(tree[k], dict))
     files = sorted(k for k in tree if not isinstance(tree[k], dict))
     for key in dirs:
-        lines.append("  " * indent + f"- 📁 **{key}/**")
+        lines.append("  " * indent + f"- 📁 **{key}/** ({_count_leaves(tree[key])})")
         lines.extend(_render_toc(tree[key], indent + 1))
     for key in files:
         title, link = tree[key]
         lines.append("  " * indent + f"- [{title}]({link})")
     return lines
+
+
+def _optimize_markdown(text: str) -> str:
+    """Normalize markdown for denser signal: strip trailing spaces, collapse blank runs."""
+    t = text.replace("\r\n", "\n")
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip() + "\n"
+
+
+def _section_headings(path: Path, limit: int = 12) -> list[str]:
+    """The first few H1-H3 headings of a markdown file (a lightweight symbol index)."""
+    out: list[str] = []
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r"^#{1,3}\s+(.+)", line)
+            if m:
+                out.append(m.group(1).strip())
+                if len(out) >= limit:
+                    break
+    except OSError:
+        pass
+    return out
+
+
+def _write_index_json(
+    skill_dir: Path,
+    ref: Path,
+    name: str,
+    version: str,
+    source_url: str,
+    kg_result: dict[str, Any],
+) -> None:
+    """Emit ``index.json`` — a machine-readable navigation map over the corpus.
+
+    Schema ``skill-graph-index/v1``: per-file path/title/group/bytes/headings + group
+    counts, so an agent can jump straight to the right file/section programmatically
+    instead of scanning the markdown TOC.
+    """
+    md_files = sorted(ref.rglob("*.md"))
+    groups: dict[str, int] = {}
+    sections: list[dict[str, Any]] = []
+    for p in md_files:
+        group = p.parent.relative_to(ref).as_posix() or "."
+        groups[group] = groups.get(group, 0) + 1
+        sections.append(
+            {
+                "path": p.relative_to(skill_dir).as_posix(),
+                "title": _extract_title(p),
+                "group": group,
+                "bytes": p.stat().st_size,
+                "headings": _section_headings(p),
+            }
+        )
+    index = {
+        "schema": "skill-graph-index/v1",
+        "name": name,
+        "skill_graph_version": version,
+        "kg_ingested": bool(kg_result.get("kg_ingested")),
+        "kg_domain": kg_result.get("domain") or f"skillgraph:{name}",
+        "concepts": kg_result.get("concepts") or [],
+        "source_url": source_url,
+        "file_count": len(md_files),
+        "groups": dict(sorted(groups.items())),
+        "sections": sections,
+    }
+    (skill_dir / "index.json").write_text(json.dumps(index, indent=2), encoding="utf-8")
 
 
 def _split_oversized(reference_dir: Path, max_file_kb: int) -> None:
@@ -1441,6 +1622,15 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_restyle(args: argparse.Namespace) -> int:
+    pipe = SkillGraphPipeline(kg_enrich=False)
+    if args.dir:
+        print(json.dumps(pipe.restyle_one(args.dir), indent=2))
+    else:
+        print(json.dumps(pipe.restyle_all(args.root), indent=2))
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Unified skill-graph distillation pipeline."
@@ -1536,6 +1726,15 @@ def main() -> None:
         help="Overwrite even when a re-crawl is far smaller than the existing corpus.",
     )
     rf.set_defaults(func=_cmd_refresh)
+
+    rs = sub.add_parser(
+        "restyle",
+        help="Re-render SKILL.md + index.json from existing content (no re-crawl).",
+    )
+    rsg = rs.add_mutually_exclusive_group(required=True)
+    rsg.add_argument("--dir", help="Restyle a single managed skill-graph directory.")
+    rsg.add_argument("--root", help="Restyle every managed graph under this root.")
+    rs.set_defaults(func=_cmd_restyle)
 
     args = parser.parse_args()
     raise SystemExit(args.func(args))
