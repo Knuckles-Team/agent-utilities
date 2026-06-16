@@ -1473,7 +1473,11 @@ class IngestionEngine:
             sub = IngestionManifest(
                 content_type=manifest.content_type,
                 source_uri=str(bin_path),
-                metadata={**manifest.metadata, "source_url": url, "fetch_backend": "requests"},
+                metadata={
+                    **manifest.metadata,
+                    "source_url": url,
+                    "fetch_backend": "requests",
+                },
                 force=manifest.force,
             )
             try:

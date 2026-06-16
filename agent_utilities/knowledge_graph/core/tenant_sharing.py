@@ -105,7 +105,9 @@ def org_graph_name(actor: ActorContext | None = None, config: Any = None) -> str
     return tenant_graph_name(actor.tenant_id, base=base)
 
 
-def accessible_graphs(actor: ActorContext | None = None, config: Any = None) -> list[str]:
+def accessible_graphs(
+    actor: ActorContext | None = None, config: Any = None
+) -> list[str]:
     """Ordered, de-duplicated graphs an actor may read: org (+ancestors) then commons.
 
     The org graph comes first (most-specific, where the actor's writes land);
@@ -150,7 +152,9 @@ def _ancestor_tenants(tenant_id: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def stamp_ownership(properties: dict[str, Any], actor: ActorContext | None = None) -> None:
+def stamp_ownership(
+    properties: dict[str, Any], actor: ActorContext | None = None
+) -> None:
     """Stamp ``tenant_id``/``_owner_id``/``_shared_scope`` onto node props in place.
 
     Two layers:
@@ -182,7 +186,9 @@ def stamp_ownership(properties: dict[str, Any], actor: ActorContext | None = Non
 # ---------------------------------------------------------------------------
 
 
-def visibility_predicate(actor: ActorContext | None = None, var: str = "n") -> str | None:
+def visibility_predicate(
+    actor: ActorContext | None = None, var: str = "n"
+) -> str | None:
     """A Cypher boolean fragment gating owner/scope, or ``None`` for full access.
 
     Returns ``None`` for privileged actors (no restriction). Otherwise returns
@@ -339,12 +345,16 @@ def _set_scope(node_id: str, scope: str, store: Any, owner: str | None = None) -
     store.execute(f"MATCH (n {{id: $id}}) SET {', '.join(sets)}", params)
 
 
-def share_with_org(node_id: str, store: Any = None, actor: ActorContext | None = None) -> None:
+def share_with_org(
+    node_id: str, store: Any = None, actor: ActorContext | None = None
+) -> None:
     """Make ``node_id`` visible to everyone in the owner's org (in-place flip)."""
     _set_scope(node_id, SCOPE_ORG, _store(store))
 
 
-def make_private(node_id: str, store: Any = None, actor: ActorContext | None = None) -> None:
+def make_private(
+    node_id: str, store: Any = None, actor: ActorContext | None = None
+) -> None:
     """Restrict ``node_id`` back to its owner (defaults the owner to the caller)."""
     actor = actor or current_actor()
     _set_scope(node_id, SCOPE_PRIVATE, _store(store), owner=actor.actor_id or None)

@@ -90,12 +90,8 @@ def comparison(
     agent: str | None = None,
 ) -> dict:
     svc = get_usage_service()
-    cur = svc.summary(
-        **_filters(from_date, to_date, project, agent, None, None, None)
-    )
-    prev = svc.summary(
-        **_filters(prev_from, prev_to, project, agent, None, None, None)
-    )
+    cur = svc.summary(**_filters(from_date, to_date, project, agent, None, None, None))
+    prev = svc.summary(**_filters(prev_from, prev_to, project, agent, None, None, None))
     delta = cur.totals.cost_usd - prev.totals.cost_usd
     return {
         "current": cur.model_dump(),
