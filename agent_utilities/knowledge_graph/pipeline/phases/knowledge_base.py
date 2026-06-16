@@ -30,9 +30,16 @@ async def execute_knowledge_base(
     kb_results = []
 
     # Auto-ingest ALL discovered skill-graphs (default-on). default_enabled=True so the
-    # whole packaged library is ingested, not only env-enabled graphs. ingest is
-    # delta-skipped (force=False) so only the first run is heavy.
+    # whole packaged library is ingested, not only env-enabled graphs. We ingest each
+    # graph's reference/ corpus through the **document** content type — the SAME
+    # full-enrichment path documents/books take (chunk → embed → Document/Chunk objects
+    # + concept + fact extraction), not the lossy curated-Article KB path — so skills
+    # become semantically searchable and concept-linked. Delta-skipped (force=False),
+    # so only the first run is heavy; embedder calls are now bounded (KG-2.48) so a
+    # flaky GPU degrades to no-vectors instead of hanging.
     if ctx.config.kb_auto_ingest_skill_graphs:
+        from pathlib import Path as _Path
+
         try:
             from skill_graphs import get_skill_graphs_path
 
@@ -41,24 +48,37 @@ async def execute_knowledge_base(
             logger.debug("skill_graphs package not available, skipping auto-ingest")
             enabled_paths = []
 
-        if enabled_paths:
-            from ...kb.ingestion import KBIngestionEngine
+        from ...core.engine import IntelligenceGraphEngine
 
-            engine = KBIngestionEngine(
-                graph=ctx.graph,
-                backend=ctx.backend,
-                chunk_size=ctx.config.kb_chunk_size,
+        kg_engine = IntelligenceGraphEngine.get_active()
+        if enabled_paths and kg_engine is not None:
+            from ...ingestion.engine import (
+                ContentType,
+                IngestionEngine,
+                IngestionManifest,
             )
+
+            ie = IngestionEngine(kg_engine=kg_engine)
             for graph_path in enabled_paths:
+                ref = _Path(graph_path) / "reference"
+                target = ref if ref.is_dir() else _Path(graph_path)
                 try:
-                    logger.info(f"Auto-ingesting skill-graph: {graph_path}")
-                    meta = await engine.ingest_skill_graph(graph_path, force=False)
+                    logger.info(
+                        f"Auto-ingesting skill-graph (document-grade): {graph_path}"
+                    )
+                    res = await ie.ingest(
+                        IngestionManifest(
+                            content_type=ContentType.DOCUMENT,
+                            source_uri=str(target),
+                            metadata={"chunk_objects": True},
+                        )
+                    )
                     kb_results.append(
                         {
-                            "name": meta.name,
-                            "articles": meta.article_count,
-                            "sources": meta.source_count,
-                            "status": meta.status,
+                            "name": _Path(graph_path).name,
+                            "status": res.status,
+                            "nodes": res.nodes_created,
+                            "edges": res.edges_created,
                         }
                     )
                 except Exception as e:
@@ -71,16 +91,23 @@ async def execute_knowledge_base(
     # dispatchable WorkflowDefinition DAGs are discoverable by graph-os out of the box.
     if ctx.config.kb_auto_ingest_universal_skills:
         try:
+            from ...core.engine import IntelligenceGraphEngine
             from ...ingestion.skill_workflow_ingest import ingest_skill_workflows
 
-            wf = ingest_skill_workflows(ctx.graph)
-            kb_results.append(
-                {"name": "universal-skills/workflows", "status": "complete", **wf}
-            )
+            wf_engine = IntelligenceGraphEngine.get_active()
+            if wf_engine is not None:
+                wf = ingest_skill_workflows(wf_engine)
+                kb_results.append(
+                    {"name": "universal-skills/workflows", "status": "complete", **wf}
+                )
         except Exception as e:
             logger.warning(f"universal-skills workflow auto-ingest failed: {e}")
             kb_results.append(
-                {"name": "universal-skills/workflows", "status": "error", "error": str(e)}
+                {
+                    "name": "universal-skills/workflows",
+                    "status": "error",
+                    "error": str(e),
+                }
             )
 
     duration = (time.time() - start) * 1000
