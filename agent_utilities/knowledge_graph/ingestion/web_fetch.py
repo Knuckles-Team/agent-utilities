@@ -157,8 +157,10 @@ def _archivebox_text(call: Any, snap: dict[str, Any], url: str) -> tuple[str, st
             for row in _records(res):
                 for key in ("output", "text", "content", "markdown"):
                     val = row.get(key)
-                    if isinstance(val, str) and val.strip() and not _looks_like_path(
-                        val
+                    if (
+                        isinstance(val, str)
+                        and val.strip()
+                        and not _looks_like_path(val)
                     ):
                         return val, title
     return "", title
@@ -167,9 +169,11 @@ def _archivebox_text(call: Any, snap: dict[str, Any], url: str) -> tuple[str, st
 def _looks_like_path(val: str) -> bool:
     """An archiveresult ``output`` is often a filename, not the content itself."""
     v = val.strip()
-    return ("\n" not in v and len(v) < 256 and ("/" in v or v.endswith(
-        (".txt", ".md", ".html", ".pdf", ".json")
-    )))
+    return (
+        "\n" not in v
+        and len(v) < 256
+        and ("/" in v or v.endswith((".txt", ".md", ".html", ".pdf", ".json")))
+    )
 
 
 def _records(result: Any) -> list[dict[str, Any]]:
@@ -228,7 +232,8 @@ def _fetch_via_requests(url: str, timeout: float) -> FetchedPage | None:
     # A browser-like UA: many sites (e.g. turingpost) 403 the default
     # ``python-requests`` agent. crawl4ai/ArchiveBox sidestep this when present;
     # the floor must too.
-    resp = requests.get(url, timeout=min(timeout, 60.0), headers={"User-Agent": _UA})
+    to = min(timeout, 60.0)
+    resp = requests.get(url, timeout=to, headers={"User-Agent": _UA})
     resp.raise_for_status()
     raw = resp.text
 
