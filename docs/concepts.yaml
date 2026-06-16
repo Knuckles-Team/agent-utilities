@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 294
+total_concepts: 297
 total_pillars: 20
 pillars:
 - AHE-3
@@ -338,6 +338,7 @@ concepts:
   code_paths:
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/adaptation_speed.py
+  - agent_utilities/harness/hote_tri_evolution.py
   doc: per-task adaptation-speed instrumentation
 - id: AHE-3.28
   name: the
@@ -532,6 +533,21 @@ concepts:
   - agent_utilities/harness/latent_efficiency_benchmark.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: empirical evidence that the latent-native enhancements move
+- id: AHE-3.49
+  name: ──────────────────────────
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/graph/training_signals.py
+  doc: ──────────────────────────
+- id: AHE-3.50
+  name: co-evolve the research
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/hote_tri_evolution.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  doc: co-evolve the research
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1054,6 +1070,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/codemaps.py
   - agent_utilities/knowledge_graph/core/context_builder.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/kg_versioning.py
   - agent_utilities/knowledge_graph/core/maintainer.py
   - agent_utilities/knowledge_graph/core/ogm.py
@@ -1244,6 +1261,7 @@ concepts:
   - agent_utilities/domains/finance/exchange_bridge.py
   - agent_utilities/domains/finance/filing_diff.py
   - agent_utilities/domains/finance/forensic_screener.py
+  - agent_utilities/domains/finance/insider_equilibrium.py
   - agent_utilities/domains/finance/investor_debate.py
   - agent_utilities/domains/finance/kronos_forecaster.py
   - agent_utilities/domains/finance/market_data.py
@@ -1371,6 +1389,8 @@ concepts:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/core/subgraph_checkout.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
+  - agent_utilities/knowledge_graph/distillation/skill_graph_pipeline.py
+  - agent_utilities/knowledge_graph/distillation/skill_graph_schema.py
   - agent_utilities/knowledge_graph/enrichment/execute.py
   - agent_utilities/knowledge_graph/enrichment/models.py
   - agent_utilities/knowledge_graph/ingestion/__init__.py
@@ -1378,6 +1398,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/integrations/stardog_sync.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
+  - agent_utilities/knowledge_graph/ontology/interfaces.py
   - agent_utilities/knowledge_graph/pipeline/__init__.py
   - agent_utilities/knowledge_graph/pipeline/phases/__init__.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
@@ -1958,6 +1979,14 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: situate each chunk within the document and embed context+chunk for better recall
+- id: KG-2.51
+  name: a label-scoped MATCH
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  doc: a label-scoped MATCH
 - id: KG-2.52
   name: the authoritative TBox the platform ships
   pillar: KG-2

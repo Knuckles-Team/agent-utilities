@@ -244,6 +244,8 @@ graph TD
 | AHE-3.28 | Specialization Task + Verifier Contract | The `(task, verifier, target, human-baseline)` contract + machine-verifiable `Verifier` protocol every specialization track shares (`harness/sai_task.py`) |
 | AHE-3.29 | SAI Factory Controller | Closed scaffolding+weights specialization loop steered by adaptation speed, ratchet-gated promotion (`research/sai_factory.py`) |
 | AHE-3.30 | Realized Search-Difficulty Signatures | Trajectory signatures — solving cost, answer hit time, prior-shortcut rate — that diagnose whether a deep-search task forced real search and gate task acceptance (`graph/training_signals.py`; distills FORT-Searcher arXiv:2606.12087) |
+| AHE-3.49 | Cache-Tier-Aware Reward Shaping | Reward half of CacheRL — `token_cache_mask` masks injected tool observations from the loss (only model thoughts/actions train) and `cache_tier_aware_reward` discounts failures caused by low-reliability fuzzy/semantic cache tiers (`graph/training_signals.py`; distills arXiv:2606.14179) |
+| AHE-3.50 | Hybrid Tri-Evolution Controller | Co-evolves the research proposer/solver/judge with interdependent rewards and proves co-evolution is indispensable via a joint-vs-solo ablation (`harness/hote_tri_evolution.py`; distills HOTE arXiv:2606.13710) |
 
 ### Pillar 4: Ecosystem & Peripherals (ECO-4.0 – 4.34)
 
