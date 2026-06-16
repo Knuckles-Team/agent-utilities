@@ -37,6 +37,7 @@ CLI::
 import argparse
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -45,6 +46,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +90,107 @@ def _bump_patch(version: str) -> str:
     if not m:
         return "0.1.0"
     return f"{m.group(1)}.{m.group(2)}.{int(m.group(3)) + 1}"
+
+
+# ── crawl4ai web crawler discovery ─────────────────────────────────────────────
+# Real (JS-rendering) web acquisition reuses the universal-skills ``web-crawler``
+# (crawl4ai) instead of duplicating it. The crawler runs in its own interpreter
+# (``SKILL_GRAPH_CRAWLER_PYTHON``) so crawl4ai/Playwright can live in a dedicated
+# venv; ``SKILL_GRAPH_CRAWLER`` overrides the script path. When unavailable, the
+# pipeline falls back to the in-tree basic web connector.
+
+
+def _discover_crawl_script() -> Path | None:
+    env = os.environ.get("SKILL_GRAPH_CRAWLER", "").strip()
+    if env:
+        p = Path(env)
+        return p if p.exists() else None
+    try:
+        import importlib.util
+
+        spec = importlib.util.find_spec("universal_skills")
+    except Exception:  # noqa: BLE001 — package layout probing is best-effort
+        spec = None
+    for base in list(getattr(spec, "submodule_search_locations", []) or []):
+        cand = Path(base) / "research" / "web-crawler" / "scripts" / "crawl.py"
+        if cand.exists():
+            return cand
+    return None
+
+
+@lru_cache(maxsize=1)
+def _resolve_crawler() -> tuple[str, str] | None:
+    """Return ``(crawler_python, crawl_script)`` if a crawl4ai crawler is usable."""
+    script = _discover_crawl_script()
+    if script is None:
+        return None
+    crawler_py = (
+        os.environ.get("SKILL_GRAPH_CRAWLER_PYTHON", "").strip() or sys.executable
+    )
+    try:
+        probe = subprocess.run(
+            [crawler_py, "-c", "import crawl4ai"], capture_output=True, timeout=60
+        )
+    except Exception:  # noqa: BLE001 — interpreter missing / probe failed
+        return None
+    if probe.returncode != 0:
+        return None
+    return crawler_py, str(script)
+
+
+def _crawl_via_script(
+    spec: SourceSpec, crawler_py: str, script: str
+) -> list[AcquiredDoc]:
+    """Crawl ``spec.uri`` with the crawl4ai web-crawler subprocess → markdown docs.
+
+    Raises ``RuntimeError`` on crawl failure so callers preserve existing content
+    (``build`` acquires before wiping) rather than silently degrading to a sparse crawl.
+    """
+    tmp = Path(tempfile.mkdtemp(prefix="sg_crawl_"))
+    try:
+        cmd = [
+            crawler_py,
+            script,
+            "--urls",
+            spec.uri,
+            "--strategy",
+            "recursive",
+            "--output-dir",
+            str(tmp),
+            "--max-depth",
+            str(int(spec.options.get("max_depth", 2))),
+            "--max-pages",
+            str(int(spec.options.get("max_pages", 1000))),
+        ]
+        if spec.options.get("disable_magic_js"):
+            cmd.append("--disable-magic-js")
+        if spec.options.get("no_sitemap"):
+            cmd.append("--no-sitemap")
+        if spec.options.get("wait_for"):
+            cmd.extend(["--wait-for", str(spec.options["wait_for"])])
+        # Per-crawl wall-clock bound so one slow/looping site can't stall a batch
+        # (env-overridable; option wins). Timeout → RuntimeError → existing content kept.
+        timeout = float(
+            spec.options.get("crawl_timeout")
+            or os.environ.get("SKILL_GRAPH_CRAWL_TIMEOUT")
+            or 900
+        )
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"crawl failed for {spec.uri}: "
+                f"{(proc.stderr or proc.stdout or '')[-400:]}"
+            )
+        return [
+            AcquiredDoc(
+                rel_path=p.relative_to(tmp).as_posix(),
+                text=p.read_text(encoding="utf-8", errors="replace"),
+                source_uri=spec.uri,
+            )
+            for p in sorted(tmp.rglob("*.md"))
+        ]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ── data model ────────────────────────────────────────────────────────────────
@@ -195,6 +298,13 @@ class SkillGraphPipeline:
         if self.crawler_fn is not None:
             docs = self.crawler_fn(spec)
             return AcquiredBundle(spec, docs, extractor="crawler_fn")
+        # Prefer the real (JS-rendering) crawl4ai web-crawler when available so a
+        # re-fetch reproduces the original crawl fidelity.
+        crawler = _resolve_crawler()
+        if crawler is not None:
+            crawler_py, script = crawler
+            docs = _crawl_via_script(spec, crawler_py, script)
+            return AcquiredBundle(spec, docs, extractor="crawl4ai")
         # Self-contained fallback: the in-tree recursive web connector (ECO-4.25).
         from agent_utilities.protocols.source_connectors.registry import (
             build_connector,
@@ -372,13 +482,41 @@ class SkillGraphPipeline:
         used by wrap-migration to adopt existing content (``specs=[dir]``) yet record
         the durable upstream web sources so the graph stays re-crawlable.
         """
-        skill_dir = Path(out_dir) / name
-        ref = skill_dir / "reference"
-
         # Acquire FIRST (into memory), THEN wipe + rewrite — so a slow/failed crawl
         # never destroys the existing corpus (acquisition touches its own temp dirs
-        # only, never ``ref``). Critical for safe in-place migration/rebuild.
+        # only, never ``ref``). Critical for safe in-place migration/rebuild/refresh.
         bundles = [self.acquire(s) for s in specs]
+        return self._build_from_bundles(
+            name=name,
+            bundles=bundles,
+            out_dir=out_dir,
+            description=description,
+            max_file_kb=max_file_kb,
+            kg_enrich=kg_enrich,
+            version=version,
+            record_specs=record_specs,
+        )
+
+    def _build_from_bundles(
+        self,
+        *,
+        name: str,
+        bundles: list[AcquiredBundle],
+        out_dir: str | Path,
+        description: str | None,
+        max_file_kb: int,
+        kg_enrich: bool | None,
+        version: str | None,
+        record_specs: list[SourceSpec] | None,
+    ) -> dict[str, Any]:
+        """Finalize from already-acquired bundles: wipe → write → split → KG → render.
+
+        Split out of :meth:`build` so callers that need the acquired content *before*
+        committing (e.g. :meth:`refresh_one`, to compare hashes and skip unchanged
+        graphs) can acquire once and reuse it.
+        """
+        skill_dir = Path(out_dir) / name
+        ref = skill_dir / "reference"
 
         if ref.exists():
             shutil.rmtree(ref)
@@ -485,7 +623,7 @@ class SkillGraphPipeline:
             "name": name,
             "version": version,
             "file_count": len(md_files),
-            "source_count": len(specs),
+            "source_count": len(bundles),
             "kg_ingested": bool(kg_result.get("kg_ingested")),
             "validation_errors": errors,
         }
@@ -847,6 +985,83 @@ class SkillGraphPipeline:
         result["migrated_mode"] = chosen
         return result
 
+    # ── periodic refresh (re-download + delta re-ingest) ──────────────────────
+
+    def refresh_one(
+        self,
+        skill_dir: str | Path,
+        *,
+        force: bool = False,
+        kg_enrich: bool | None = None,
+    ) -> dict[str, Any]:
+        """Re-acquire a managed graph's recorded sources; rewrite + re-ingest if changed.
+
+        Crawls once, compares each source's content hash to ``sources.json``, and skips
+        the rewrite + KG re-ingest when nothing changed — so periodic refreshes are
+        cheap and only genuinely-changed corpora bump their version and re-embed (the
+        KG ingest itself is content-hash delta-skipped, KG-2.8). A crawl failure leaves
+        the existing graph untouched (acquire-before-wipe).
+        """
+        d = Path(skill_dir)
+        mpath = d / "sources.json"
+        if not mpath.exists():
+            return {"name": d.name, "status": "skipped", "reason": "not managed"}
+        data = json.loads(mpath.read_text(encoding="utf-8"))
+        src_dicts = data.get("sources", [])
+        specs = [SourceSpec.from_dict(s) for s in src_dicts]
+        try:
+            bundles = [self.acquire(s) for s in specs]
+        except Exception as exc:  # noqa: BLE001 — source unreachable / crawl failed
+            return {"name": d.name, "status": "failed", "reason": str(exc)[:200]}
+        new_hashes = [b.content_hash for b in bundles]
+        old_hashes = [s.get("content_hash") for s in src_dicts]
+        if not force and new_hashes == old_hashes:
+            return {
+                "name": d.name,
+                "status": "fresh",
+                "version": data.get("skill_graph_version"),
+            }
+        fm = parse_frontmatter((d / "SKILL.md").read_text(encoding="utf-8"))
+        version = _bump_patch(data.get("skill_graph_version") or "0.1.0")
+        res = self._build_from_bundles(
+            name=data.get("name", d.name),
+            bundles=bundles,
+            out_dir=d.parent,
+            description=fm.get("description"),
+            max_file_kb=50,
+            kg_enrich=kg_enrich,
+            version=version,
+            record_specs=None,
+        )
+        res["status"] = "refreshed"
+        return res
+
+    def refresh_all(
+        self,
+        root: str | Path,
+        *,
+        force: bool = False,
+        kg_enrich: bool | None = None,
+        only: str = "",
+        limit: int = 0,
+    ) -> dict[str, Any]:
+        """Refresh every managed (sources.json) graph under ``root``; report per-graph."""
+        names = {n.strip() for n in only.split(",") if n.strip()}
+        results: list[dict[str, Any]] = []
+        refreshed = 0
+        for d in _iter_graph_dirs(Path(root)):
+            if not (d / "sources.json").exists():
+                continue
+            if names and d.name not in names:
+                continue
+            res = self.refresh_one(d, force=force, kg_enrich=kg_enrich)
+            results.append(res)
+            if res.get("status") == "refreshed":
+                refreshed += 1
+                if limit and refreshed >= limit:
+                    break
+        return {"refreshed": refreshed, "results": results}
+
 
 # ── module helpers (pure / optional-dep guarded) ───────────────────────────────
 
@@ -1128,6 +1343,18 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_refresh(args: argparse.Namespace) -> int:
+    pipe = SkillGraphPipeline(kg_enrich=not args.no_kg)
+    if args.dir:
+        print(json.dumps(pipe.refresh_one(args.dir, force=args.force), indent=2))
+        return 0
+    report = pipe.refresh_all(
+        args.root, force=args.force, only=args.only, limit=args.limit
+    )
+    print(json.dumps(report, indent=2))
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Unified skill-graph distillation pipeline."
@@ -1192,6 +1419,27 @@ def main() -> None:
     m.add_argument("--limit", type=int, default=0, help="Max graphs to migrate.")
     m.add_argument("--no-kg", action="store_true")
     m.set_defaults(func=_cmd_migrate)
+
+    rf = sub.add_parser(
+        "refresh",
+        help="Re-download managed graph(s) and re-ingest only the changed corpora.",
+    )
+    rfg = rf.add_mutually_exclusive_group(required=True)
+    rfg.add_argument("--dir", help="Refresh a single managed skill-graph directory.")
+    rfg.add_argument("--root", help="Refresh every managed graph under this root.")
+    rf.add_argument(
+        "--force",
+        action="store_true",
+        help="Rewrite + re-ingest even when the re-crawled content is unchanged.",
+    )
+    rf.add_argument(
+        "--only", default="", help="Comma-separated graph names to refresh."
+    )
+    rf.add_argument(
+        "--limit", type=int, default=0, help="Max graphs to refresh (changed ones)."
+    )
+    rf.add_argument("--no-kg", action="store_true")
+    rf.set_defaults(func=_cmd_refresh)
 
     args = parser.parse_args()
     raise SystemExit(args.func(args))

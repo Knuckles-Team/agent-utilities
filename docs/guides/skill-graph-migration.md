@@ -53,17 +53,34 @@ re-crawls; `wrap` re-packages the existing `reference/`. Hybrid-auto KG ingestio
 when the graph daemon is reachable and degrades cleanly to offline-only otherwise — so
 migration is safe to run even while the KG engine is down.
 
-### Crawl quality
+### Crawl engine (crawl4ai) setup
 
-The core CLI's `reacquire` uses the in-tree recursive web connector (self-contained).
-For JS-heavy sites that need the richer crawl4ai renderer, drive the migration through
-the `skill-graph-builder` skill instead (it injects crawl4ai as the pipeline's
-`crawler_fn`):
+`reacquire`/`refresh` re-crawl with the real JS-rendering **crawl4ai** web-crawler
+when it is available, falling back to the in-tree basic web connector otherwise. The
+pipeline runs the crawler in a **separate interpreter** so crawl4ai/Playwright can
+live in a dedicated venv, pointed at via two env vars:
 
 ```bash
-python <universal-skills>/.../skill-graph-builder/scripts/generate_skill.py \
-    "" fastapi --from-kg ""   # or pass the source_url(s) directly as the source arg
+# one-time: dedicated venv with crawl4ai (Playwright needs a browser)
+uv venv --python 3.12 /home/apps/.venvs/skillgraph-crawler
+uv pip install --python /home/apps/.venvs/skillgraph-crawler/bin/python crawl4ai
+
+# Playwright has no bundled Chromium for some new OSes (e.g. Ubuntu 26.04); use system
+# Google Chrome by symlinking it into the path Playwright expects:
+sudo apt-get install -y ./google-chrome-stable_current_amd64.deb   # from dl.google.com
+PWDIR=~/.cache/ms-playwright/chromium-1223/chrome-linux64
+mkdir -p "$PWDIR" && ln -sf /usr/bin/google-chrome "$PWDIR/chrome"
+
+# then tell the pipeline which interpreter + crawler script to use:
+export SKILL_GRAPH_CRAWLER_PYTHON=/home/apps/.venvs/skillgraph-crawler/bin/python
+export SKILL_GRAPH_CRAWLER=<universal-skills>/research/web-crawler/scripts/crawl.py
+export SKILL_GRAPH_CRAWL_TIMEOUT=900   # per-site wall-clock bound (default 900s)
 ```
+
+With those set, `migrate --mode reacquire` and `refresh` re-crawl with crawl4ai. A
+crawl that fails or times out raises, and because `build()` acquires *before* wiping
+`reference/`, the existing content is preserved (the graph is reported `failed`, not
+emptied).
 
 ## 3. Recommended rollout order
 
@@ -77,7 +94,37 @@ python <universal-skills>/.../skill-graph-builder/scripts/generate_skill.py \
 5. **Leave `native` graphs alone** unless you want to stamp them — they have no
    re-acquirable source.
 
-## 4. Verify each migration
+## 4. Keep updated — periodic re-download + delta re-ingest
+
+Once graphs are on the contract, `refresh` re-downloads them and **re-ingests only the
+deltas**: it re-crawls each managed graph's recorded sources, compares each source's
+content hash to `sources.json`, and skips the rewrite + KG re-ingest for anything
+unchanged (and the KG ingest itself is content-hash delta-skipped, KG-2.8). Only
+genuinely-changed corpora bump their `skill_graph_version` and re-embed.
+
+```bash
+# refresh one graph / all managed graphs under a root
+python -m ...skill_graph_pipeline refresh --dir <graph>
+python -m ...skill_graph_pipeline refresh --root <skill_graphs> --limit 10
+python -m ...skill_graph_pipeline refresh --root <skill_graphs> --only fastapi-docs,redis-docs
+python -m ...skill_graph_pipeline refresh --root <skill_graphs> --force   # rebuild even if unchanged
+```
+
+Schedule it (daily, off-peak) with cron or a systemd timer — set the crawler env vars
+in the job's environment:
+
+```cron
+# /etc/cron.d/skill-graph-refresh — re-download + delta re-ingest nightly at 03:30
+30 3 * * *  apps  SKILL_GRAPH_CRAWLER_PYTHON=/home/apps/.venvs/skillgraph-crawler/bin/python \
+  SKILL_GRAPH_CRAWLER=/path/to/web-crawler/scripts/crawl.py SKILL_GRAPH_CRAWL_TIMEOUT=900 \
+  /usr/bin/python3 -m agent_utilities.knowledge_graph.distillation.skill_graph_pipeline \
+  refresh --root /path/to/skill-graphs/skill_graphs >> /var/log/skill-graph-refresh.log 2>&1
+```
+
+Each run reports per-graph `fresh` / `refreshed` / `failed`; commit the changed graphs
+(SKILL.md + sources.json + reference/) after a refresh pass.
+
+## 5. Verify each migration
 
 ```bash
 # contract gate (run from the skill-graphs repo root)
