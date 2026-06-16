@@ -57,13 +57,14 @@ Reuses the existing fabric — nothing reinvented:
 import concurrent.futures
 import hashlib
 import logging
-import os
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+
+from agent_utilities.core._env import setting
 
 logger = logging.getLogger(__name__)
 
@@ -658,7 +659,7 @@ class DocumentProcessor:
         # On timeout the worker thread is abandoned (finishes/dies in the background)
         # and we materialize without vectors so the graph stays usable. Tunable via
         # KG_EMBED_TIMEOUT (seconds).
-        timeout_s = float(os.environ.get("KG_EMBED_TIMEOUT") or 30)
+        timeout_s = setting("KG_EMBED_TIMEOUT", 30.0, cast=float)
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
             vectors = ex.submit(fn, texts).result(timeout=timeout_s)

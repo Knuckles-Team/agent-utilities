@@ -203,7 +203,11 @@ class ResearchIntelligenceEngine:
     # --- Orchestration API (KG-2.39) ---
 
     async def _run_unified_cycle(
-        self, papers: list[dict[str, Any]] | None, *, synthesize: bool
+        self,
+        papers: list[dict[str, Any]] | None,
+        *,
+        synthesize: bool,
+        focus_query: str = "",
     ) -> dict[str, Any]:
         """Run the single canonical research-intelligence cycle (CONCEPT:KG-2.77).
 
@@ -212,32 +216,38 @@ class ResearchIntelligenceEngine:
         against the ecosystem via the ConceptMatcher. This facade no longer owns a
         parallel cycle — it delegates here so the daemon, MCP, and this facade all
         run ONE cycle (No-Legacy). ``run_one_cycle`` is sync; off-thread it so an
-        async caller's loop is never blocked.
+        async caller's loop is never blocked. A non-empty ``focus_query`` is passed
+        through so it becomes a prioritized research topic for this cycle.
         """
         import asyncio
+        from functools import partial
 
         from .loop_controller import LoopController
 
         if self._engine is None:
             return {"intake_papers": None, "errors": ["no engine"], "skipped": True}
         return await asyncio.to_thread(
-            LoopController(self._engine).run_one_cycle,
-            discover=(papers is None),
-            papers=papers,
-            breadth=False,
-            synthesize=synthesize,
+            partial(
+                LoopController(self._engine).run_one_cycle,
+                discover=(papers is None),
+                papers=papers,
+                breadth=False,
+                synthesize=synthesize,
+                focus_query=focus_query,
+            )
         )
 
     async def run_research_cycle(
         self,
-        query: str = "",  # noqa: ARG002 — focus-query biasing of intake is a TODO
+        query: str = "",
         papers: list[dict[str, Any]] | None = None,
     ) -> Any:
         """Execute the unified research-to-KG cycle (intake → match → synthesize).
 
-        Delegates to the single canonical cycle (CONCEPT:KG-2.77).
+        A non-empty ``query`` biases intake toward that focus topic. Delegates to
+        the single canonical cycle (CONCEPT:KG-2.77).
         """
-        return await self._run_unified_cycle(papers, synthesize=True)
+        return await self._run_unified_cycle(papers, synthesize=True, focus_query=query)
 
     async def run_daily_pipeline(
         self,

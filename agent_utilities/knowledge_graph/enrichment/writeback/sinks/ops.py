@@ -9,6 +9,7 @@ All dry-run-first; tolerant of each connector's method surface.
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from typing import Any
 
 from ..core import WritebackContext, WritebackResult, register_sink
@@ -28,15 +29,16 @@ def _resolve_client(ops: dict[str, Any], module: str) -> Any | None:
         return None
 
 
-class _OpsSink:
+class _OpsSink(ABC):
     domain = ""
     enable_flag = ""
     risk_tier = "standard"
     module = ""
     op_name = "create"
 
+    @abstractmethod
     def _apply(self, client: Any, c: dict[str, Any]) -> None:
-        raise NotImplementedError  # ABSTRACT-OK
+        """Perform the per-creation write against the resolved connector client."""
 
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool

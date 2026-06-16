@@ -330,7 +330,7 @@ def bench_tasr(*, seed: int = 0) -> BenchmarkResult:
         "paris is the capital of france",
         "paris is the capital of france",
     ]
-    # Evidence keeps trickling so coverage-saturation never pre-empts the answer
+    # Evidence keeps trickling so coverage-saturation never preempts the answer
     # rule; the answer-repeat rule is what we are measuring.
     evidence = [[f"doc-{r}-{j}" for j in range(2)] for r in range(max_rounds)]
 

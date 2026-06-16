@@ -24,7 +24,7 @@ from agent_utilities.harness.graph_search_evolution import (
 pytestmark = pytest.mark.concept("KG-2.92")
 
 
-# ── deterministic stub generation / evaluation ──────────────────────────────
+# ── deterministic fake generation / evaluation ──────────────────────────────
 
 
 def make_stubs():
