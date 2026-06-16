@@ -390,7 +390,9 @@ def _section_doc(sec: str, src: str, idx: int | None = None) -> AcquiredDoc:
     title = (m.group(1).strip() if m else "section")[:80]
     slug = _slug(title)
     rel = f"{idx:04d}-{slug}.md" if idx is not None else f"{slug}.md"
-    return AcquiredDoc(rel_path=rel, text=sec.strip() + "\n", title=title, source_uri=src)
+    return AcquiredDoc(
+        rel_path=rel, text=sec.strip() + "\n", title=title, source_uri=src
+    )
 
 
 def _fetch_llms_index(idx: str, base: str, max_pages: int) -> list[AcquiredDoc]:

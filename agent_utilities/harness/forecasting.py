@@ -122,7 +122,9 @@ class ForecastBoard:
         return list(self._forecasts.values())
 
     def _resolved(self) -> list[Forecast]:
-        return [f for f in self._forecasts.values() if f.resolved and f.actual is not None]
+        return [
+            f for f in self._forecasts.values() if f.resolved and f.actual is not None
+        ]
 
     # -- proper score ----------------------------------------------------------
 
@@ -155,7 +157,11 @@ class ForecastBoard:
         resolved = self._resolved()
         if not resolved:
             return None
-        hits = sum(1 for f in resolved if abs(f.predicted - float(f.actual or 0.0)) <= tolerance)
+        hits = sum(
+            1
+            for f in resolved
+            if abs(f.predicted - float(f.actual or 0.0)) <= tolerance
+        )
         return hits / len(resolved)
 
     # -- calibration -----------------------------------------------------------
@@ -194,7 +200,9 @@ class ForecastBoard:
                 continue
             mean_conf = sum(_clamp01(f.confidence) for f in bucket) / len(bucket)
             hits = sum(
-                1 for f in bucket if abs(f.predicted - float(f.actual or 0.0)) <= tolerance
+                1
+                for f in bucket
+                if abs(f.predicted - float(f.actual or 0.0)) <= tolerance
             )
             curve.append((mean_conf, hits / len(bucket), len(bucket)))
         return curve

@@ -616,9 +616,11 @@ class OWLBridge:
         if schema_pack is not None and getattr(
             schema_pack, "owl_object_properties", None
         ):
-            pack_transitive, pack_symmetric, pack_inverse = (
-                schema_pack.get_owl_closure_sets()
-            )
+            (
+                pack_transitive,
+                pack_symmetric,
+                pack_inverse,
+            ) = schema_pack.get_owl_closure_sets()
             self._pack_transitive |= pack_transitive
             self._pack_symmetric |= pack_symmetric
             self._pack_inverse.update(pack_inverse)

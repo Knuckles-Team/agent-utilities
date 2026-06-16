@@ -136,9 +136,7 @@ class EvalSetOptimizer:
 
     # ── seeding ───────────────────────────────────────────────────────────────
 
-    def seed_from_annotations(
-        self, annotations: list[tuple[str, str, str]]
-    ) -> int:
+    def seed_from_annotations(self, annotations: list[tuple[str, str, str]]) -> int:
         """Turn expert ``(case_id, input, expected)`` annotations into seed eval cases.
 
         This is the small, expensive, human-authored kernel the article starts from.
@@ -166,9 +164,7 @@ class EvalSetOptimizer:
         passed = result.passed or result.score >= self.pass_threshold
         return EvalResult(case_id=result.case_id, score=result.score, passed=passed)
 
-    def score_system(
-        self, system_fn: Callable[[str], str]
-    ) -> dict[str, Any]:
+    def score_system(self, system_fn: Callable[[str], str]) -> dict[str, Any]:
         """Run ``system_fn`` over every case and judge each output.
 
         Returns a report with weight-aware ``pass_rate`` and ``mean_score`` plus the
@@ -226,9 +222,7 @@ class EvalSetOptimizer:
         self.eval_set.add(harvested)
         return harvested
 
-    def optimize_round(
-        self, system_fn: Callable[[str], str]
-    ) -> dict[str, Any]:
+    def optimize_round(self, system_fn: Callable[[str], str]) -> dict[str, Any]:
         """Run ONE compounding round against ``system_fn``.
 
         Scores the system, then harvests every failure into a new eval case — so the

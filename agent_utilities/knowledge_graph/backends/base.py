@@ -23,13 +23,13 @@ def coerce_cypher_property(value: Any) -> Any:
     write persists losslessly (readers can ``json.loads`` it back); primitives and
     primitive arrays (e.g. embedding vectors) pass through untouched. (CONCEPT:KG-2.74)
     """
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, str | int | float | bool):
         return value
-    if isinstance(value, (list, tuple)):
-        if all(v is None or isinstance(v, (str, int, float, bool)) for v in value):
+    if isinstance(value, list | tuple):
+        if all(v is None or isinstance(v, str | int | float | bool) for v in value):
             return list(value)
         return json.dumps(value, default=str)
-    if isinstance(value, (bytes, bytearray)):
+    if isinstance(value, bytes | bytearray):
         return bytes(value).decode("utf-8", "replace")
     # dict (Map), set, or any other non-primitive → lossless JSON string.
     return json.dumps(value, default=str)

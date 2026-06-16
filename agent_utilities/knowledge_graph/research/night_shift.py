@@ -387,7 +387,9 @@ class NightShiftSwarm:
         for atom in atoms:
             if atom.retired:
                 continue
-            findings = self._critic.check(Claim(atom.atom_id, atom.claim), belief_claims)
+            findings = self._critic.check(
+                Claim(atom.atom_id, atom.claim), belief_claims
+            )
             for f in findings:
                 note = (
                     f"[FRICTION] atom '{atom.atom_id}' contradicts '{f.conflict_id}' "
@@ -513,9 +515,7 @@ class NightShiftSwarm:
         return True
 
     # -- full pipeline ----------------------------------------------------- #
-    def run_shift(
-        self, items: list[tuple[str, str]] | None = None
-    ) -> ShiftReport:
+    def run_shift(self, items: list[tuple[str, str]] | None = None) -> ShiftReport:
         """Run the full night shift scout→catalog→cartograph→critique→edit.
 
         Honors immutability throughout: it writes ONLY to ``2-atoms/``,

@@ -677,7 +677,9 @@ def _append_session_turn(
         logger.error(f"Error appending turn to sessions store: {e}")
 
 
-def _set_session_status(session_id: str, status: str, *, guard_desired: bool = False) -> None:
+def _set_session_status(
+    session_id: str, status: str, *, guard_desired: bool = False
+) -> None:
     """Set a session's status (best-effort). ``guard_desired`` won't clobber a
     pending supervisor pause/kill request (OS-5.18)."""
     try:
@@ -788,7 +790,9 @@ async def run_goal_loop(
 
         # The goal's validation runs in the agent workspace; the controller owns the
         # durable resume/checkpoint and honors the fleet desired-state each iteration.
-        controller = LoopController(engine, codebase_root=str(DEFAULT_AGENT_DIR.resolve()))
+        controller = LoopController(
+            engine, codebase_root=str(DEFAULT_AGENT_DIR.resolve())
+        )
         result = await controller.run_loop(
             loop,
             max_iterations=max_iterations,

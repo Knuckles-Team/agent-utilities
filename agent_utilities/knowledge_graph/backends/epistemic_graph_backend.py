@@ -1160,7 +1160,7 @@ class EpistemicGraphBackend(GraphBackend):
             hits = self._graph.semantic_search(query_embedding, n_results)
             results: list[dict[str, Any]] = []
             for item in hits or []:
-                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                if isinstance(item, list | tuple) and len(item) >= 2:
                     node_id, score = str(item[0]), float(item[1])
                 elif isinstance(item, dict):
                     node_id, score = (

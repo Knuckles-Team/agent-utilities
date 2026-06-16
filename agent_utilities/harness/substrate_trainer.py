@@ -164,9 +164,7 @@ class SubstrateTrainer:
                 reward=reward,
                 advantage=advantage,
             )
-            for t, reward, advantage in zip(
-                traces, rewards, advantages, strict=True
-            )
+            for t, reward, advantage in zip(traces, rewards, advantages, strict=True)
         ]
 
     def _job_id(self, task_key: str, n: int) -> str:
