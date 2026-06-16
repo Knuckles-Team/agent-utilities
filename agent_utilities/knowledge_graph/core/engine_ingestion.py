@@ -351,12 +351,16 @@ class IngestionMixin(_Base):
 
             if relationships:
                 for row in relationships:
+                    # Use the REAL rel type so Kuzu builds a typed ``:calls`` /
+                    # ``:depends_on`` table (not a generic ``EXTERNAL_LINK`` that
+                    # collapses every edge). The backend resolves the endpoints'
+                    # node tables by id and binds the rel-pair. (CONCEPT:KG-2.74)
+                    rtype = self._safe_label(row.get("type") or "RELATED")
                     set_clause = self._get_set_clause(row, "r")
-                    q_rel = f"""
-                    MATCH (s {{id: $source}})
-                    MATCH (t {{id: $target}})
-                    MERGE (s)-[r:EXTERNAL_LINK {{type: $type}}]->(t){set_clause}
-                    """
+                    q_rel = (
+                        f"MATCH (s {{id: $source}}) MATCH (t {{id: $target}}) "
+                        f"MERGE (s)-[r:{rtype}]->(t){set_clause}"
+                    )
                     self.backend.execute(q_rel, row)
         else:
             # Use Neo4j/FalkorDB/AGE/epistemic high-throughput UNWIND batching.

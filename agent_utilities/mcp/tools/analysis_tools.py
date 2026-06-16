@@ -1203,8 +1203,13 @@ def register_analysis_tools(mcp):
                 add_edge = getattr(getattr(engine, "backend", None), "add_edge", None)
                 written = 0
                 if callable(add_edge):
-                    for e in edges:
-                        add_edge(e.source, e.target, rel_type=e.rel_type, **e.props)
+                    for edge in edges:
+                        add_edge(
+                            edge.source,
+                            edge.target,
+                            rel_type=edge.rel_type,
+                            **edge.props,
+                        )
                         written += 1
                 return _json.dumps(
                     {"status": "ok", "repo": repo, "coupled_pairs": written}

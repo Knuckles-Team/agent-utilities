@@ -242,6 +242,11 @@ class LadybugBackend(GraphBackend):
         self._known_node_tables: set[str] = set()
         self._known_rel_pairs: set[tuple[str, str, str]] = set()
         self._schema_cache_seeded = False
+        # id → node-table label, learned on node writes (CONCEPT:KG-2.74). Kuzu rel
+        # creation must bind to specific node tables, but edge writes arrive
+        # label-less (``MATCH (s {id:$x})…MERGE (s)-[:REL]->(t)``); this lets us
+        # resolve each endpoint's table so the rel-pair table + bound MERGE work.
+        self._node_labels: dict[str, str] = {}
         abs_db_path = (
             os.path.abspath(self.db_path) if self.db_path != ":memory:" else ":memory:"
         )
@@ -669,9 +674,13 @@ class LadybugBackend(GraphBackend):
                             "LadybugBackend.execute: connection could not be opened."
                         )
                         return []
-                    # Auto-create tables for arbitrary labels/rels before writing.
-                    self._ensure_schema_for_query(query)
-                    res = self.conn.execute(query, params or {})
+                    # Learn the node's table (for later edge binding), bind a
+                    # label-less edge write to typed Kuzu endpoints, and auto-create
+                    # any node table / rel pair the (bound) query needs. (KG-2.74)
+                    self._cache_node_label(query, params)
+                    q = self._bind_edge_query(query, params)
+                    self._ensure_schema_for_query(q)
+                    res = self.conn.execute(q, params or {})
                     if isinstance(res, list):
                         if not res:
                             ret_rows = []
@@ -820,7 +829,14 @@ class LadybugBackend(GraphBackend):
                             break
                         self._ensure_schema_for_query(query)
                         for params in chunk:
-                            res = self.conn.execute(query, params or {})
+                            # Per row: learn node labels, then bind a label-less
+                            # edge write to typed Kuzu endpoints (the (src→dst) pair
+                            # can differ per row within one rel-type batch). (KG-2.74)
+                            self._cache_node_label(query, params)
+                            q = self._bind_edge_query(query, params)
+                            if q is not query:
+                                self._ensure_schema_for_query(q)
+                            res = self.conn.execute(q, params or {})
                             # ladybug return format: list of QueryResult objects
                             if res and hasattr(res, "get_as_df"):
                                 df = res.get_as_df()
@@ -961,6 +977,95 @@ class LadybugBackend(GraphBackend):
         if m and len(node_labels) >= 2:
             # The edge query lists (s:Src {..}), (t:Dst {..}) in order.
             self._ensure_rel_pair_unlocked(m.group(1), node_labels[0], node_labels[1])
+
+    def _cache_node_label(self, query: str, params: dict[str, Any] | None) -> None:
+        """Learn ``id → node-table`` from a node MERGE so a later label-less edge
+        write can bind its endpoints. Cheap regex; no-op for non-node-MERGE."""
+        m = re.search(
+            r"MERGE\s*\(\s*\w+\s*:\s*`?(\w+)`?\s*\{\s*id\s*:\s*\$(\w+)\s*\}",
+            query,
+            re.I,
+        )
+        if not m:
+            return
+        nid = (params or {}).get(m.group(2))
+        if nid is not None:
+            self._node_labels[str(nid)] = m.group(1)
+
+    def _resolve_node_label(self, node_id: Any) -> str | None:
+        """Resolve a node's Kuzu table by id — cache first, else scan the known
+        node tables (bounded; result cached). ``None`` if the node isn't present."""
+        if node_id is None or self.conn is None:
+            return None
+        nid = str(node_id)
+        cached = self._node_labels.get(nid)
+        if cached:
+            return cached
+        if not self._schema_cache_seeded:
+            self._seed_schema_cache()
+        for label in list(self._known_node_tables):
+            try:
+                res = self.conn.execute(
+                    f"MATCH (n:{label} {{id: $id}}) RETURN n.id LIMIT 1", {"id": nid}
+                )
+            except Exception:  # noqa: BLE001 — table may not exist / transient
+                continue
+            rows = (
+                res.get_as_df().to_dict("records")
+                if (res is not None and hasattr(res, "get_as_df"))
+                else []
+            )
+            if rows:
+                self._node_labels[nid] = label
+                return label
+        return None
+
+    def _bind_edge_query(self, query: str, params: dict[str, Any] | None) -> str:
+        """Bind a label-less edge write to typed Kuzu endpoints (CONCEPT:KG-2.74).
+
+        Ingest emits ``MATCH (s {id:$source}) MATCH (t {id:$target}) MERGE
+        (s)-[r:REL]->(t)`` — but Kuzu cannot create a rel without knowing the
+        endpoints' node tables ("Create rel bound by multiple node labels is not
+        supported"). Resolve each endpoint's label by id, ensure the rel carries
+        that ``(src→dst)`` pair, and inject the labels into the two MATCH clauses.
+        Returns the query unchanged when it is not a label-less two-endpoint edge
+        write, or when an endpoint can't be resolved (so the normal path surfaces
+        a clear error instead of a silent mis-bind)."""
+        up = query.upper()
+        if "->" not in query or ("MERGE" not in up and "CREATE" not in up):
+            return query
+        m = re.search(
+            r"MATCH\s*\(\s*(\w+)\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)\s*"
+            r"MATCH\s*\(\s*(\w+)\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)",
+            query,
+            re.I,
+        )
+        if not m:
+            return query
+        svar, sidp, tvar, tidp = m.groups()
+        rel_m = re.search(r"-\s*\[\s*\w*\s*:\s*`?(\w+)`?[^\]]*\]\s*->", query, re.I)
+        if not rel_m:
+            return query
+        src_label = self._resolve_node_label((params or {}).get(sidp))
+        dst_label = self._resolve_node_label((params or {}).get(tidp))
+        if not src_label or not dst_label:
+            return query
+        self._ensure_rel_pair_unlocked(rel_m.group(1), src_label, dst_label)
+        bound = re.sub(
+            rf"MATCH\s*\(\s*{svar}\s*\{{",
+            f"MATCH ({svar}:{src_label} {{",
+            query,
+            count=1,
+            flags=re.I,
+        )
+        bound = re.sub(
+            rf"MATCH\s*\(\s*{tvar}\s*\{{",
+            f"MATCH ({tvar}:{dst_label} {{",
+            bound,
+            count=1,
+            flags=re.I,
+        )
+        return bound
 
     def _create_schema_unlocked(self) -> None:
         """Internal method to synchronize schema without acquiring the connection lock."""
