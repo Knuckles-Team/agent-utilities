@@ -1171,7 +1171,22 @@ class PipelineConfig(BaseModel):
             in ("true", "1", "yes")
         )
     )
-    kb_auto_ingest_skill_graphs: bool = False  # On-demand by default
+    # Default-on: when the KG is reachable, auto-ingest ALL discovered skill-graphs and
+    # universal-skills so the corpus is queryable out of the box (delta-skipped, so
+    # re-runs are cheap; the first run is the only heavy one). Disable on constrained
+    # installs via KG_AUTO_INGEST_SKILLS=false.
+    kb_auto_ingest_skill_graphs: bool = Field(
+        default_factory=lambda: (
+            __import__("os").getenv("KG_AUTO_INGEST_SKILLS", "true").lower()
+            in ("true", "1", "yes")
+        )
+    )
+    kb_auto_ingest_universal_skills: bool = Field(
+        default_factory=lambda: (
+            __import__("os").getenv("KG_AUTO_INGEST_SKILLS", "true").lower()
+            in ("true", "1", "yes")
+        )
+    )
     kb_chunk_size: int = 1024
     kb_extraction_model: str | None = None  # None = use default provider model
     kb_archive_age_days: int = 180

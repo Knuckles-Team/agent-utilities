@@ -1,10 +1,13 @@
 #!/usr/bin/python
 """Phase 13: Knowledge Base Sync.
 
-Runs after Phase 12 (Sync) and handles automatic ingestion of enabled
-skill-graphs and any KB updates. Controlled by PipelineConfig:
+Runs after Phase 12 (Sync) and auto-ingests the packaged knowledge — ALL
+skill-graphs and the universal-skills workflow corpus — into the KG so it is
+queryable out of the box. Delta-skipped (only the first run is heavy). Controlled
+by PipelineConfig (all default-on; disable via KG_AUTO_INGEST_SKILLS=false):
   - enable_knowledge_base: bool (default True)
-  - kb_auto_ingest_skill_graphs: bool (default False — on-demand only)
+  - kb_auto_ingest_skill_graphs: bool (default True — ALL graphs)
+  - kb_auto_ingest_universal_skills: bool (default True — workflow corpus)
 """
 
 import logging
@@ -26,47 +29,59 @@ async def execute_knowledge_base(
     start = time.time()
     kb_results = []
 
-    # Auto-ingest enabled skill-graphs (if configured)
+    # Auto-ingest ALL discovered skill-graphs (default-on). default_enabled=True so the
+    # whole packaged library is ingested, not only env-enabled graphs. ingest is
+    # delta-skipped (force=False) so only the first run is heavy.
     if ctx.config.kb_auto_ingest_skill_graphs:
         try:
             from skill_graphs import get_skill_graphs_path
+
+            enabled_paths = get_skill_graphs_path(default_enabled=True)
         except ImportError:
             logger.debug("skill_graphs package not available, skipping auto-ingest")
-            return {"status": "skipped", "reason": "skill_graphs not installed"}
+            enabled_paths = []
 
-        enabled_paths = get_skill_graphs_path()
-        if not enabled_paths:
-            return {
-                "status": "skipped",
-                "reason": "no enabled skill-graphs found",
-                "kb_count": 0,
-            }
+        if enabled_paths:
+            from ...kb.ingestion import KBIngestionEngine
 
-        from ...kb.ingestion import KBIngestionEngine
+            engine = KBIngestionEngine(
+                graph=ctx.graph,
+                backend=ctx.backend,
+                chunk_size=ctx.config.kb_chunk_size,
+            )
+            for graph_path in enabled_paths:
+                try:
+                    logger.info(f"Auto-ingesting skill-graph: {graph_path}")
+                    meta = await engine.ingest_skill_graph(graph_path, force=False)
+                    kb_results.append(
+                        {
+                            "name": meta.name,
+                            "articles": meta.article_count,
+                            "sources": meta.source_count,
+                            "status": meta.status,
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to ingest skill-graph {graph_path}: {e}")
+                    kb_results.append(
+                        {"path": str(graph_path), "status": "error", "error": str(e)}
+                    )
 
-        engine = KBIngestionEngine(
-            graph=ctx.graph,
-            backend=ctx.backend,
-            chunk_size=ctx.config.kb_chunk_size,
-        )
+    # Auto-ingest the universal-skills workflow corpus (default-on, best-effort) so the
+    # dispatchable WorkflowDefinition DAGs are discoverable by graph-os out of the box.
+    if ctx.config.kb_auto_ingest_universal_skills:
+        try:
+            from ...ingestion.skill_workflow_ingest import ingest_skill_workflows
 
-        for graph_path in enabled_paths:
-            try:
-                logger.info(f"Auto-ingesting skill-graph: {graph_path}")
-                meta = await engine.ingest_skill_graph(graph_path, force=False)
-                kb_results.append(
-                    {
-                        "name": meta.name,
-                        "articles": meta.article_count,
-                        "sources": meta.source_count,
-                        "status": meta.status,
-                    }
-                )
-            except Exception as e:
-                logger.warning(f"Failed to ingest skill-graph {graph_path}: {e}")
-                kb_results.append(
-                    {"path": str(graph_path), "status": "error", "error": str(e)}
-                )
+            wf = ingest_skill_workflows(ctx.graph)
+            kb_results.append(
+                {"name": "universal-skills/workflows", "status": "complete", **wf}
+            )
+        except Exception as e:
+            logger.warning(f"universal-skills workflow auto-ingest failed: {e}")
+            kb_results.append(
+                {"name": "universal-skills/workflows", "status": "error", "error": str(e)}
+            )
 
     duration = (time.time() - start) * 1000
     return {
