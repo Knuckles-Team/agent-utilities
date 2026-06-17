@@ -302,26 +302,24 @@ def register_state_tools(mcp):
 
     @mcp.tool(
         name="graph_hydrate",
-        description="Trigger instant hydration of the Knowledge Graph from configured external data sources.",
+        description="Hydrate the Knowledge Graph from configured external sources. ALIAS of `source_sync` (mode='full') kept for back-compat — `source_sync` is the canonical tool (it adds delta/reconcile modes and the same source='all' fleet sweep). source=<connector> hydrates one; source='all' sweeps every configured connector.",
         tags=["graph-os", "hydration"],
     )
     async def graph_hydrate(
         source: str = Field(
             default="all",
-            description="The source connector to hydrate (any key from the CAPABILITY_REGISTRY), or 'all' to run all configured sources sequentially.",
+            description="The source connector to hydrate (any registered source), or 'all' to sweep every configured source.",
         ),
     ) -> str:
-        """Trigger instant hydration of the Knowledge Graph from external data sources."""
+        """Hydrate the KG from external sources (thin alias of source_sync, mode=full)."""
 
-        from agent_utilities.knowledge_graph.core.hydration import HydrationManager
+        from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
         try:
             engine = kg_server._get_engine()
-            manager = HydrationManager()
-            if source == "all":
-                res = manager.hydrate_all(engine)
-            else:
-                res = manager.hydrate_source(engine, source)
+            # Delegate to the one unified core so there is no divergent hydration
+            # logic; 'all' fans out to the fleet sweep (CONCEPT:KG-2.9).
+            res = sync_source(engine, source, mode="full")
             return json.dumps(res, default=str)
         except Exception as e:
             return json.dumps({"status": "error", "error": str(e)})

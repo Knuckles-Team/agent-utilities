@@ -483,7 +483,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="source_sync",
-        description="Sync an external source's mirror into the KG (CONCEPT:KG-2.9). source='leanix'|'camunda'|'servicenow'|… (any registered hydration source). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream). Delta-capable sources do incremental sync; others fall back to a full hydrate. ids=[...] narrows to specific records (webhook-driven).",
+        description="THE canonical connector→KG ingestion tool (CONCEPT:KG-2.9) — one entrypoint for every external source. source='leanix'|'camunda'|'servicenow'|'gitlab'|… (any registered hydration/materialize source), OR source='all' to sweep EVERY configured connector in one pass (the fleet-wide background-ingest sweep). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream). Delta-capable sources do incremental sync; all others fall back to a full hydrate, and a generic write-layer content-hash delta means unchanged entities are skipped (no re-write, no re-reason) for ALL sources even on a full fetch. ids=[...] narrows to specific records (webhook-driven). (graph_hydrate is a thin alias of this tool; graph_ingest covers path/URL/document content.)",
         tags=["graph-os", "ingestion"],
     )
     def source_sync(

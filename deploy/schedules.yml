@@ -19,6 +19,24 @@
 # enhancement / fix-proposal is left to a reviewed on-demand agent run.
 
 schedules:
+  # Fleet-wide background ingestion (CONCEPT:KG-2.9): one entry sweeps EVERY
+  # configured connector. `ref: all` routes through the generic source-sync
+  # dispatch → source_sync(engine, "all", mode="delta") → sweep_all_sources,
+  # which fans out over the delta handlers + configured capability sources +
+  # materialize extractors. mode=delta + the write-layer content-hash delta keep
+  # each run proportional to what changed. This supersedes hand-writing a per-
+  # source entry for every connector — keep the individual entries below only
+  # where a source needs its OWN cadence (e.g. LeanIX bite-sized 30-min deltas,
+  # or a nightly reconcile that the delta sweep does not do).
+  - name: all-sources-delta-sweep
+    description: Delta-ingest every configured connector into the KG (KG-2.9 fleet sweep).
+    cron: "*/20 * * * *" # every 20 minutes — bite-sized, content-hash deduped
+    kind: skill
+    ref: all
+    action: delta
+    dispatch: deterministic
+    enabled: true
+
   - name: code-health-sweep
     description: Run the code-enhancer liveness analyzer across all workspace repos (CE-038).
     cron: "0 */4 * * *" # every 4 hours, on the hour

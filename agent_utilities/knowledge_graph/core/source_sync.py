@@ -316,6 +316,12 @@ def sync_source(
     full hydrate via the capability registry.
     """
     source = (source or "").lower().strip()
+
+    # "all"/"*"/"sweep" → fan out across every configured connector in one pass
+    # so the one entrypoint also covers "ingest everything" (CONCEPT:KG-2.9).
+    if source in {"all", "*", "sweep"}:
+        return sweep_all_sources(engine, mode=mode if mode in SYNC_ACTIONS else "delta")
+
     handler = _DELTA_HANDLERS.get(source)
     if handler is not None:
         return handler(engine, mode=mode, ids=ids, client=client)
@@ -345,3 +351,92 @@ def sync_source(
         res.setdefault("mode", "full")
         res.setdefault("delta_capable", False)
     return res
+
+
+def sweep_all_sources(
+    engine: Any, *, mode: str = "delta", include_materialize: bool = True
+) -> dict[str, Any]:
+    """Ingest every *configured* connector in one background sweep (CONCEPT:KG-2.9).
+
+    The fleet-wide counterpart to :func:`sync_source` — it enumerates the union of
+
+    * the delta-capable handlers (:data:`_DELTA_HANDLERS`),
+    * the capability-registry sources that env-detect as *configured*, and
+    * (optionally) the materialize extractor sources,
+
+    and dispatches each through :func:`sync_source` so they share the one
+    watermark/delta/full machinery. ``mode`` defaults to ``"delta"`` so a
+    scheduled sweep only pulls (and, via the write-layer content-hash delta, only
+    writes) what changed. Per-source failures are isolated and recorded — a
+    background sweep never aborts on one bad connector, and unconfigured sources
+    are reported as *skipped*, not *errored*.
+    """
+    candidates: set[str] = set(_DELTA_HANDLERS)
+
+    from .hydration import HydrationManager
+
+    try:
+        for src, conf in HydrationManager().get_status().items():
+            if isinstance(conf, dict) and conf.get("configured"):
+                candidates.add(src)
+    except Exception:  # noqa: BLE001 — status probe is best-effort
+        logger.debug("capability status probe failed", exc_info=True)
+
+    if include_materialize:
+        try:
+            from ..enrichment.materialize import MATERIALIZE_SOURCES
+
+            candidates |= set(MATERIALIZE_SOURCES)
+        except Exception:  # noqa: BLE001
+            logger.debug("materialize source list unavailable", exc_info=True)
+
+    synced: dict[str, Any] = {}
+    skipped: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    _UNCONFIGURED = (
+        "not configured",
+        "no client",
+        "missing",
+        "unconfigured",
+        "credential",
+    )
+
+    for src in sorted(candidates):
+        try:
+            res = sync_source(engine, src, mode=mode)
+            status = res.get("status") if isinstance(res, dict) else "ok"
+            if status in {"skipped", "noop"}:
+                reason = res.get("reason") if isinstance(res, dict) else None
+                skipped[src] = str(reason or "skipped")
+            elif status in {"error", "failed"}:
+                errors[src] = str(
+                    (isinstance(res, dict) and (res.get("error") or res.get("reason")))
+                    or "error"
+                )
+            else:
+                synced[src] = {
+                    k: res[k]
+                    for k in ("nodes", "edges", "ingested", "skipped_unchanged")
+                    if isinstance(res, dict) and k in res
+                } or status
+        except Exception as e:  # noqa: BLE001 — isolate one bad connector
+            msg = str(e)
+            if any(t in msg.lower() for t in _UNCONFIGURED):
+                skipped[src] = f"unconfigured: {msg[:120]}"
+            else:
+                errors[src] = msg[:200]
+                logger.warning("sweep: source '%s' failed: %s", src, e)
+
+    return {
+        "status": "ok",
+        "mode": mode,
+        "swept": len(candidates),
+        "synced": synced,
+        "skipped": skipped,
+        "errors": errors,
+        "counts": {
+            "synced": len(synced),
+            "skipped": len(skipped),
+            "errors": len(errors),
+        },
+    }

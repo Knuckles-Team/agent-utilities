@@ -193,3 +193,62 @@ def test_materialize_source_routes_through_shared_core(monkeypatch):
     assert out["source"] == "camunda"
     assert out["delta_capable"] is False
     assert calls and calls[0][0] == "camunda"
+
+
+# ── Fleet sweep: source="all" + sweep_all_sources (KG-2.9) ───────────────────
+
+
+def test_sync_source_all_fans_out_to_sweep(monkeypatch):
+    """source='all' routes through the one entrypoint to the fleet sweep."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    seen = {}
+
+    def fake_sweep(engine, *, mode="delta", include_materialize=True):
+        seen["mode"] = mode
+        return {"status": "ok", "swept": 7}
+
+    monkeypatch.setattr(ss, "sweep_all_sources", fake_sweep)
+    for alias in ("all", "*", "sweep"):
+        res = ss.sync_source(object(), alias, mode="delta")
+        assert res["swept"] == 7
+    assert seen["mode"] == "delta"
+
+
+def test_sweep_all_sources_classifies_results(monkeypatch):
+    """The sweep isolates each connector and buckets synced/skipped/errors."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+    from agent_utilities.knowledge_graph.core.hydration import HydrationManager
+
+    # Only servicenow env-detects as configured among capability sources.
+    monkeypatch.setattr(
+        HydrationManager,
+        "get_status",
+        lambda self: {
+            "servicenow": {"configured": True},
+            "jira": {"configured": False},
+        },
+    )
+
+    results = {
+        "leanix": {"status": "completed", "nodes": 5},
+        "archivebox": {"status": "skipped", "reason": "no new snapshots"},
+        "gitlab": {"status": "completed"},
+        "servicenow": {"status": "error", "error": "boom"},
+    }
+
+    def fake_sync(engine, source, *, mode="delta", ids=None, client=None):
+        if source not in results:
+            raise RuntimeError(f"{source} not configured")
+        return results[source]
+
+    monkeypatch.setattr(ss, "sync_source", fake_sync)
+
+    out = ss.sweep_all_sources(object(), mode="delta", include_materialize=False)
+    assert out["status"] == "ok" and out["mode"] == "delta"
+    # delta handlers (leanix/archivebox/gitlab) + configured capability (servicenow)
+    assert set(out["synced"]) == {"leanix", "gitlab"}
+    assert "archivebox" in out["skipped"]
+    assert "servicenow" in out["errors"]
+    assert "jira" not in out["synced"] and "jira" not in out["errors"]
+    assert out["counts"] == {"synced": 2, "skipped": 1, "errors": 1}
