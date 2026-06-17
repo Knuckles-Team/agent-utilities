@@ -23,8 +23,8 @@ is enforced on every layer the platform already runs:
 1.  a **runtime validator** — :meth:`ValueType.validate` / :meth:`ValueType.coerce`
     first coerce through the base ``PropertyType`` (so an ``ISOCurrencyCode`` is
     a real string, a ``Percentage`` a real float) and then apply the constraints;
-2.  a **SHACL property shape** — :meth:`ValueType.to_shacl` emits an
-    ``sh:PropertyShape`` turtle fragment (``sh:pattern``, ``sh:minInclusive`` /
+2.  a **SHACL shape** — :meth:`ValueType.to_shacl` emits a reusable
+    ``sh:NodeShape`` turtle fragment (``sh:pattern``, ``sh:minInclusive`` /
     ``sh:maxInclusive``, ``sh:minLength`` / ``sh:maxLength``, ``sh:in``) so the
     existing SHACL gate
     (:class:`agent_utilities.knowledge_graph.core.shacl_validator.SHACLValidator`,
@@ -337,12 +337,14 @@ class ValueType(BaseModel):
     ) -> str:
         """Emit a SHACL turtle fragment enforcing this value type.
 
-        CONCEPT:KG-2.39 — by default emits a reusable ``sh:PropertyShape``
-        (``:<Name>ValueShape``) carrying the constraints; callers attach it to a
-        property via ``sh:property`` or reuse it with ``sh:node``. When ``path``
-        (and optionally ``target_class``) is given it emits a node shape that
-        binds the constraints to that property path — the form the SHACL gate
-        validates directly.
+        CONCEPT:KG-2.39 — by default emits a reusable ``sh:NodeShape``
+        (``:<Name>ValueShape``) carrying the constraints; callers reuse it with
+        ``sh:node`` on a property shape. (A reusable shape must be a NodeShape,
+        not a PropertyShape — a path-less ``sh:PropertyShape`` is invalid SHACL
+        and pyshacl rejects it at shape-load time.) When ``path`` (and optionally
+        ``target_class``) is given it emits a node shape that binds the
+        constraints to that property path — the form the SHACL gate validates
+        directly.
 
         The emitted turtle uses the same prefixes bound in
         ``shapes/governance.shapes.ttl`` (``:`` → ``http://knuckles.team/kg#``,
@@ -353,10 +355,12 @@ class ValueType(BaseModel):
         # Constraint lines at 4-space indent for top-level predicates.
         body = self._shacl_property_lines(indent="    ")
         if path is None:
-            # Reusable property-constraint shape (no sh:path). The trailing ' ;'
-            # of the last constraint line is replaced by ' .' to close the shape.
+            # Reusable constraint shape (no sh:path). A path-less shape must be a
+            # sh:NodeShape — pyshacl rejects a sh:PropertyShape without an sh:path.
+            # The trailing ' ;' of the last constraint line is replaced by ' .' to
+            # close the shape.
             head = (
-                f"{shape_iri} a sh:PropertyShape ;\n"
+                f"{shape_iri} a sh:NodeShape ;\n"
                 f'    sh:name "{self.name}" ;\n'
                 f'    sh:description "{desc}" ;\n'
             )
@@ -723,7 +727,7 @@ def value_types_shapes_ttl(
 ) -> str:
     """Render the registry as one SHACL shapes turtle document.
 
-    CONCEPT:KG-2.39 — concatenates the reusable ``sh:PropertyShape`` fragment for
+    CONCEPT:KG-2.39 — concatenates the reusable ``sh:NodeShape`` fragment for
     every value type under the shared prefix header, producing a turtle file the
     SHACL gate (``SHACLValidator``) loads exactly like ``governance.shapes.ttl``.
     """
