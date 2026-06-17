@@ -13,18 +13,7 @@ from agent_utilities.knowledge_graph.enrichment.orchestration import (
     workflow_to_batch,
 )
 from agent_utilities.knowledge_graph.enrichment.registry import write_batch
-
-
-class FakeBackend:
-    def __init__(self):
-        self.nodes = {}
-        self.edges = []
-
-    def add_node(self, node_id, **props):
-        self.nodes[node_id] = props
-
-    def add_edge(self, s, t, **props):
-        self.edges.append((s, t, props.get("rel_type")))
+from tests.kg_recording_backend import RecordingGraphBackend as FakeBackend
 
 
 def test_agent_spec_to_graph():

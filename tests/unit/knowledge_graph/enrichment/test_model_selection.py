@@ -32,15 +32,7 @@ _MODELS = [
 ]
 
 
-class FakeBackend:
-    def __init__(self):
-        self.nodes, self.edges = {}, []
-
-    def add_node(self, nid, **p):
-        self.nodes[nid] = p
-
-    def add_edge(self, s, t, **p):
-        self.edges.append((s, t, p.get("rel_type")))
+from tests.kg_recording_backend import RecordingGraphBackend as FakeBackend
 
 
 def test_config_models_extractor_to_kg():

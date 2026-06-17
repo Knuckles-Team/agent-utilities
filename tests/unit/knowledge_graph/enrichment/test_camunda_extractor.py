@@ -13,20 +13,9 @@ from agent_utilities.knowledge_graph.enrichment.registry import (
     get_source,
     write_batch,
 )
+from tests.kg_recording_backend import RecordingGraphBackend as FakeBackend
 
 from .bpmn_fixtures import XmlCapableClient
-
-
-class FakeBackend:
-    def __init__(self):
-        self.nodes = {}
-        self.edges = []
-
-    def add_node(self, node_id, **props):
-        self.nodes[node_id] = props
-
-    def add_edge(self, s, t, **props):
-        self.edges.append((s, t, props.get("rel_type")))
 
 
 class FakeCamundaClient:
@@ -142,12 +131,8 @@ def test_write_batch_persists():
 
 
 def _lifted(batch):
-    tasks = {
-        n.props["element_id"]: n for n in batch.nodes if n.type == "BusinessTask"
-    }
-    flows = {
-        (e.source, e.target): e for e in batch.edges if e.rel_type == "FLOWS_TO"
-    }
+    tasks = {n.props["element_id"]: n for n in batch.nodes if n.type == "BusinessTask"}
+    flows = {(e.source, e.target): e for e in batch.edges if e.rel_type == "FLOWS_TO"}
     return tasks, flows
 
 
@@ -166,9 +151,7 @@ def test_bpmn_xml_lifts_tasks_and_gateways_as_business_tasks():
     assert tasks["decide"].props["is_gateway"] is True
     assert tasks["review"].props["is_gateway"] is False
     # Every lifted element is PART_OF its process.
-    part_of = {
-        (e.source, e.target) for e in batch.edges if e.rel_type == "PART_OF"
-    }
+    part_of = {(e.source, e.target) for e in batch.edges if e.rel_type == "PART_OF"}
     for el in ("review", "decide", "archive", "rework"):
         assert (
             f"bpmn_task:invoice:1:abc:{el}",

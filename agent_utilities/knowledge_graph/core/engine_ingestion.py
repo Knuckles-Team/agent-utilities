@@ -303,53 +303,18 @@ class IngestionMixin(_Base):
         entities: list[dict[str, Any]],
         relationships: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Ingest a batch of standardized entities and relationships from a peripheral agent.
+        """Ingest a batch of standardized entity/relationship dicts (hub-and-spoke
+        model: directory services, ITSM connectors, …).
 
-        This is the primary ingestion API for the hub-and-spoke model (e.g., directory services, ITSM connectors).
-        Entities are expected to be pre-mapped to the BFO/PROV-O ontology.
+        Thin dict-shaped facade over the ONE writer
+        (:func:`knowledge_graph.core.materialization.write_entities`); the typed
+        ``ExtractionBatch`` fleet reaches the same writer via
+        ``enrichment.registry.write_batch``. A backend is guaranteed — the engine
+        constructor raises if none is available — so there is no memory-only branch.
         """
-        # Delegate to the ONE materialization core (CONCEPT:KG-2.9) — the same
-        # writer the materialize/write_batch path uses, so provenance stamping,
-        # the content-hash write-delta, typed-label UNWIND batching, and the
-        # Ladybug fallback are implemented once. We inject the engine's own
-        # schema-aware helpers so this path stays byte-identical.
         from .materialization import write_entities
 
-        if not self.backend:
-            logger.warning(
-                "Backend not available for batch ingestion. Falling back to slow graph compute loop."
-            )
-            from ..enrichment.provenance import stamp_source
-
-            for _row in entities:
-                stamp_source(_row, domain)
-            for _row in relationships or []:
-                stamp_source(_row, domain)
-            for e in entities:
-                eid = e.get("id")
-                if eid:
-                    self.add_node(str(eid), str(e.get("type", "Entity")), e)
-            if relationships:
-                for r in relationships:
-                    src = r.get("source")
-                    tgt = r.get("target")
-                    rtype = r.get("type")
-                    if src and tgt and rtype:
-                        self.link_nodes(str(src), str(tgt), str(rtype), r)
-            return {"status": "success", "nodes": len(entities), "backend": False}
-
-        # The schema-aware helpers live on the composed engine, not this mixin's
-        # base — resolve them dynamically (as the old _safe_label did) so the
-        # engine path stays byte-identical while write_entities falls back to its
-        # faithful free defaults if a bare mixin is ever used.
-        return write_entities(
-            self.backend,
-            domain,
-            entities,
-            relationships,
-            set_clause_fn=getattr(self, "_get_set_clause", None),
-            normalize_fn=getattr(self, "_normalize_label", None),
-        )
+        return write_entities(self.backend, domain, entities, relationships)
 
     def re_embed_node(self, node_id: str) -> bool:
         """Dynamically re-calculate and store the context-aware embedding for a node.
