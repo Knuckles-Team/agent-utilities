@@ -29,6 +29,7 @@ from .inventory import collect_inventory_creations, push_inventory
 from .sinks import ansible as _ansible  # noqa: F401
 from .sinks import archimate as _archimate  # noqa: F401
 from .sinks import capability as _capability  # noqa: F401
+from .sinks import ciso_assistant as _ciso_assistant  # noqa: F401
 from .sinks import egeria as _egeria  # noqa: F401
 from .sinks import emerald as _emerald  # noqa: F401
 from .sinks import erpnext as _erpnext  # noqa: F401
