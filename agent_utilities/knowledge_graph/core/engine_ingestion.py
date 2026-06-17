@@ -461,7 +461,7 @@ class IngestionMixin(_Base):
         hash is unchanged (generic write-layer delta). Best-effort: any backend
         that can't answer the batched prefetch yields a full write (correct, just
         not deduped)."""
-        if not entities:
+        if not entities or self.backend is None:
             return entities, 0
         for row in entities:
             if row.get("id") is not None:
