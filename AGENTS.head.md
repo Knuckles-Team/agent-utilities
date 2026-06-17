@@ -211,11 +211,32 @@ jwt-protected fleet server — retrieve it from its store; do not grep it out of
 another process's memory.
 
 **Source of truth = OpenBao (Vault).** Runtime/fleet secrets live in **OpenBao at
-`openbao.arpa`** (`OPENBAO_URL` + `OPENBAO_TOKEN`). Retrieve via, in order of
-preference: the **`openbao-mcp`** MCP tools, the **`secret-vault-manager`** skill,
-or `bao kv get secret/<path>`. Deployed stacks inject these into each service's
-env from OpenBao at deploy time (the `agents/*` connectors read their creds from
-env — e.g. `GITLAB_TOKEN`, `OPENBAO_TOKEN`, provider keys — never from a file).
+`openbao.arpa`** (`OPENBAO_URL=http://openbao.arpa` + `OPENBAO_TOKEN`). Retrieve via,
+in order of preference: the **`openbao-mcp`** MCP tools, the **`secret-vault-manager`**
+skill, or the raw API / `bao` CLI. Deployed stacks inject these into each service's env
+from OpenBao at deploy time (the `agents/*` connectors read their creds from env — e.g.
+`GITLAB_TOKEN`, `OPENBAO_TOKEN`, provider keys — never from a file).
+
+**Standardized KV layout (where every secret lives — READ THIS to find one fast).**
+App/service secrets are a **KV v2 engine mounted at `apps/`**, one path per service:
+
+> `apps/<service>` — e.g. `apps/ciso-assistant`, `apps/keycloak-mcp`,
+> `apps/agent-utilities/*`, `apps/mcp-multiplexer/*`, `apps/homelab/*`.
+
+- **API paths (KV v2):** read/write data at `apps/data/<service>`, metadata/list at
+  `apps/metadata/<service>`. CLI: `bao kv get apps/<service>` / `bao kv put apps/<service> KEY=VAL …`.
+  Raw: `curl -H "X-Vault-Token: $OPENBAO_TOKEN" $OPENBAO_URL/v1/apps/data/<service>`
+  (POST `{"data":{…}}` to write). List services: `LIST apps/metadata`.
+- **Policy / token:** the `OPENBAO_TOKEN` injected into each `*-mcp`/service stack
+  carries the **`agent-apps-rw`** policy = `create/read/update/delete` on `apps/data/*`
+  (+ list `apps/metadata/*`). It is scoped to `apps/` only — it **cannot** read
+  `sys/mounts`, other mounts (`secret/`), or its own policy doc, so a `403` there is
+  expected, not a misconfig. The token value lives in each deployed service's stack env
+  (e.g. the `openbao-mcp` service env), sourced from OpenBao at deploy.
+- **Convention for new services:** store secrets at `apps/<service>` with the same key
+  names used in the service's `.env`; the `.env` (homelab `services/*` plaintext
+  convention) and OpenBao are mirrors. A service's bootstrap/genesis step writes both
+  (see e.g. `services/ciso-assistant/bootstrap.sh`, genesis Step 14c).
 
 **MCP service-account auth (spawned-agent / multiplexer → jwt-protected fleet).**
 A server that calls a `*.arpa` fleet MCP (or a `graph_orchestrate execute_agent`
