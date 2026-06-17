@@ -54,6 +54,42 @@ class ManifestVerifier:
         # Plan b7-04 F7: fix-precision must beat random by this factor to be "reliable".
         self.reliability_multiple = reliability_multiple
 
+    @staticmethod
+    def _signature_fired(
+        signature: dict[str, Any], new_evidence: EvidenceCorpus
+    ) -> bool:
+        """Did the edit's declared trace feature actually appear (CONCEPT:AHE-3.58)?
+
+        The ``attribution_signature`` names a feature/value pair (e.g.
+        ``{"tool_call": "WikiTextFetch", "min_count": 1}``). We scan the new
+        evidence entries' content/tags/metadata for the named value and require it
+        to appear at least ``min_count`` times. An empty signature trivially fires
+        (back-compat for edits that declare none).
+        """
+        if not signature:
+            return True
+        min_count = int(signature.get("min_count", 1) or 1)
+        # The named feature is any non-control value in the signature.
+        needles = [
+            str(v)
+            for k, v in signature.items()
+            if k != "min_count" and v not in (None, "")
+        ]
+        if not needles:
+            return True
+        count = 0
+        for entry in new_evidence.entries:
+            hay = " ".join(
+                [
+                    entry.content or "",
+                    " ".join(entry.tags or []),
+                    " ".join(f"{k}={v}" for k, v in (entry.metadata or {}).items()),
+                ]
+            )
+            if all(n in hay for n in needles):
+                count += 1
+        return count >= min_count
+
     async def verify(
         self,
         manifest: ChangeManifest,
@@ -128,15 +164,31 @@ class ManifestVerifier:
         # Calculate overall score delta
         overall_delta = new_evidence.benchmark_score - baseline_evidence.benchmark_score
 
+        # Signature attribution (CONCEPT:AHE-3.58): an edit that declared an
+        # ``attribution_signature`` must have actually FIRED in the new trace — else
+        # any apparent fix is unattributed (coincidence / reward-hacking) and the
+        # edit cannot be credited. HarnessX never checks this; we make every edit
+        # falsifiable.
+        unattributed_edits = [
+            edit.id
+            for edit in manifest.edits
+            if edit.attribution_signature
+            and not self._signature_fired(edit.attribution_signature, new_evidence)
+        ]
+
         # Determine recommendation
         if unexpected_regressions:
             recommendation = "partial_revert"
         elif overall_delta < 0:
             recommendation = "full_revert"
+        elif unattributed_edits:
+            # Apparent gain with no evidence the edit fired → do not confirm.
+            recommendation = "partial_revert"
         else:
             recommendation = "confirm"
 
         result = VerificationResult(
+            unattributed_edits=sorted(unattributed_edits),
             fix_precision=fix_precision,
             fix_recall=fix_recall,
             regression_precision=regression_precision,
