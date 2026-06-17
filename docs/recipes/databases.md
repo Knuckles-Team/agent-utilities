@@ -234,3 +234,4 @@ SELECT * FROM cypher('agent_graph', $$ MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 5 $
 - OWL/RDF + SPARQL: [docs/architecture/owl_rdf_layer.md](../architecture/owl_rdf_layer.md)
 - KG-as-ETL hub (Stardog data backend, `graph_etl`, lineage): [docs/architecture/kg_etl_hub.md](../architecture/kg_etl_hub.md)
 - Other recipes: [tiny](tiny.md) · [single-node-prod](single-node-prod.md) · [enterprise](enterprise.md)
+- **Next:** [Delta-based ingestion via the backends](delta-ingestion.md) — turn the backend you just wired into an incremental, content-hash-deduped, background-swept ingestion store.
