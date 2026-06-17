@@ -205,7 +205,7 @@ See also: [KG as Bidirectional ETL Hub](kg_etl_hub.md),
 
 _Auto-generated — do not edit by hand. Run `python scripts/generate_connector_map.py`._
 
-**50 distinct connectors** across the ingestion/enrichment paths: 3 delta handlers · 34 capability-hydrate · 23 materialize extractors · 28 writeback sinks · 27 document-ingest presets.
+**51 distinct connectors** across the ingestion/enrichment paths: 3 delta handlers · 34 capability-hydrate · 24 materialize extractors · 29 writeback sinks · 27 document-ingest presets.
 
 ### Connector × path matrix
 
@@ -220,6 +220,7 @@ _Auto-generated — do not edit by hand. Run `python scripts/generate_connector_
 | `caddy` | — | ✅ | ✅ | ✅ |
 | `camunda` | — | — | ✅ | — |
 | `capability` | — | — | — | ✅ |
+| `ciso_assistant` | — | — | ✅ | ✅ |
 | `databases` | — | ✅ | — | — |
 | `egeria` | — | — | ✅ | ✅ |
 | `emerald` | — | — | ✅ | ✅ |
