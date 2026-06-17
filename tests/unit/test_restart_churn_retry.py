@@ -39,6 +39,9 @@ def _runtime() -> ChildRuntime:
     rt._ready = asyncio.Event()
     rt._ready.set()  # respawned generation is already ready in the test
     rt.connect_timeout = 1.0
+    # call_tool consults the lazy session-recycle guard first; with no
+    # service-auth session window this is a no-op (None ⇒ early return).
+    rt.session_max_age = None
     return rt
 
 

@@ -126,12 +126,45 @@ def concepts_section() -> str:
     return "\n".join(lines)
 
 
+# Marker-delimited so it can be regenerated in place without disturbing the rest
+# of the file. The SAME block (modulo path) is injected into every per-package
+# AGENTS.md by agent-packages/scripts/generate_ecosystem_docs.py.
+CONCEPT_POINTER_BEGIN = "<!-- BEGIN concept-coordination (generated) -->"
+CONCEPT_POINTER_END = "<!-- END concept-coordination (generated) -->"
+
+
+def concept_protocol_section(doc_path: str = "docs/concept_coordination.md") -> str:
+    """A short pointer to the one canonical multi-session coordination protocol."""
+    return "\n".join(
+        [
+            CONCEPT_POINTER_BEGIN,
+            "## Concept-ID Coordination (multi-session)",
+            "",
+            "Working in parallel with other sessions/worktrees? **Reserve a concept id "
+            "before you write its `CONCEPT:` marker** so two sessions never collide:",
+            "",
+            "```bash",
+            "agent-utilities --json concept reserve --ns KG-2   # or a package prefix, e.g. KEY",
+            "```",
+            "",
+            f"Full protocol (ledger, merge=union, reconcile, MCP/REST): [`{doc_path}`]"
+            f"(../agent-utilities/{doc_path}).",
+            CONCEPT_POINTER_END,
+        ]
+    )
+
+
 def build() -> str:
     head = HEAD_PATH.read_text(encoding="utf-8").rstrip()
     parts = [
         head,
         "",
         project_tree_section().rstrip(),
+        "",
+        # The canonical doc lives in this very repo, so link to it relatively.
+        concept_protocol_section()
+        .replace("../agent-utilities/docs/", "docs/")
+        .rstrip(),
         "",
         concepts_section().rstrip(),
         "",
