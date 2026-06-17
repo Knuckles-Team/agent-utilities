@@ -1034,6 +1034,44 @@ def register_analysis_tools(mcp):
                 detector = RegimeDetector(engine)
                 regime = detector.detect_regime(df, ticker=query)
                 return regime
+            elif action == "quant_insider":
+                # CONCEPT:KG-2.6 — Kyle insider-trading equilibrium + enforcement
+                # policy analysis. `query` = optional JSON of InsiderEquilibriumInputs
+                # overrides (sigma_v, enforcement, criminal_penalty, …).
+                import json as _json
+
+                from agent_utilities.domains.finance.insider_equilibrium import (
+                    InsiderEquilibriumInputs,
+                    penalty_policy_analysis,
+                    solve_equilibrium,
+                )
+
+                try:
+                    overrides = _json.loads(query) if query else {}
+                except Exception:
+                    overrides = {}
+                inputs = InsiderEquilibriumInputs(
+                    **{
+                        k: v
+                        for k, v in overrides.items()
+                        if k in InsiderEquilibriumInputs.__dataclass_fields__
+                    }
+                )
+                import dataclasses as _dc
+
+                def _ser(o):
+                    return (
+                        _dc.asdict(o)
+                        if _dc.is_dataclass(o) and not isinstance(o, type)
+                        else o
+                    )
+
+                eq = solve_equilibrium(inputs)
+                policy = penalty_policy_analysis(inputs)
+                return _json.dumps(
+                    {"status": "ok", "equilibrium": _ser(eq), "policy": _ser(policy)},
+                    default=str,
+                )
             elif action == "workforce_plan":
                 from agent_utilities.domains.hr.workforce_manager import (
                     WorkforceManager,

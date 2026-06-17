@@ -400,22 +400,28 @@ async def test_knowledge_base_enabled_no_auto_ingest() -> None:
 async def test_knowledge_base_skill_graphs_import_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Missing skill_graphs package -> skipped with reason."""
+    """Missing skill_graphs package -> phase degrades gracefully (not a crash).
+
+    The KB phase auto-ingests skill-graphs *best-effort*: a missing optional
+    ``skill_graphs`` package is caught (enabled_paths=[]) and the phase still
+    completes (it also handles universal-skills). It only reports ``skipped``
+    when the knowledge base is disabled outright.
+    """
+    import importlib.abc
     import sys
 
     # Remove skill_graphs if present
     orig = sys.modules.pop("skill_graphs", None)
 
-    # Shim to raise on import
-    class _BadLoader:
-        def find_module(self, name: str, path: Any = None) -> Any:
+    # Modern meta-path finder (find_module/load_module were removed in 3.12) that
+    # forces ``import skill_graphs`` to raise, exercising the ImportError path.
+    class _BadFinder(importlib.abc.MetaPathFinder):
+        def find_spec(self, name: str, path: Any = None, target: Any = None) -> Any:
             if name == "skill_graphs":
-                return self
+                raise ImportError("skill_graphs unavailable")
+            return None
 
-        def load_module(self, name: str) -> None:
-            raise ImportError("skill_graphs unavailable")
-
-    sys.meta_path.insert(0, _BadLoader())  # type: ignore[arg-type]
+    sys.meta_path.insert(0, _BadFinder())
     try:
         from agent_utilities.knowledge_graph.pipeline.phases.knowledge_base import (
             execute_knowledge_base,
@@ -426,9 +432,16 @@ async def test_knowledge_base_skill_graphs_import_error(
             kb_auto_ingest_skill_graphs=True,
         )
         result = await execute_knowledge_base(ctx, {})
-        assert result["status"] == "skipped"
+        # Graceful degradation: the missing package was handled, the phase
+        # completed, and no skill-graph was ingested.
+        assert result["status"] == "complete"
+        assert not any(
+            "skill" in str(r.get("name", "")).lower()
+            and "universal" not in str(r.get("name", "")).lower()
+            for r in result.get("kb_results", [])
+        )
     finally:
-        sys.meta_path = [m for m in sys.meta_path if not isinstance(m, _BadLoader)]
+        sys.meta_path = [m for m in sys.meta_path if not isinstance(m, _BadFinder)]
         if orig is not None:
             sys.modules["skill_graphs"] = orig
 
