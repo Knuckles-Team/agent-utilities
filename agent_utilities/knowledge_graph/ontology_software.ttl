@@ -75,32 +75,32 @@
     rdfs:domain :WorkspaceAction ;
     rdfs:range :WorkspaceObservation .
 
+:provisions a owl:ObjectProperty ;
+    rdfs:label "provisions" ;
+    rdfs:comment "An IaC Resource provisions a deployed Service (CONCEPT:KG-2.103)." ;
+    rdfs:domain :Resource .
+
 :realizes a owl:ObjectProperty ;
     rdfs:label "realizes" ;
     rdfs:comment "A class symbol realizes (implements) an interface/trait (CONCEPT:KG-2.100)." ;
     rdfs:domain :Code ;
     rdfs:range :Code .
 
-:provisions a owl:ObjectProperty ;
-    rdfs:label "provisions" ;
-    rdfs:comment "An IaC Resource provisions a deployed Service (CONCEPT:KG-2.103)." ;
-    rdfs:domain :Resource .
-
 :resolvesFailure a owl:ObjectProperty ;
     rdfs:label "resolves failure" ;
     rdfs:comment "A WorkspaceAction sequence resolved a recorded failure/unresolved SWE-bench instance (AHE-3.23)." ;
     rdfs:domain :WorkspaceAction .
+
+:servedBy a owl:ObjectProperty ;
+    rdfs:label "served by" ;
+    rdfs:comment "A Route is served by a deployed Service — the code↔ecosystem bridge OWL reasoning chains through (CONCEPT:KG-2.102)." ;
+    rdfs:domain :Route .
 
 :serves a owl:ObjectProperty ;
     rdfs:label "serves" ;
     rdfs:comment "A Code handler symbol serves an HTTP Route (CONCEPT:KG-2.102)." ;
     rdfs:domain :Code ;
     rdfs:range :Route .
-
-:servedBy a owl:ObjectProperty ;
-    rdfs:label "served by" ;
-    rdfs:comment "A Route is served by a deployed Service — the code↔ecosystem bridge OWL reasoning chains through (CONCEPT:KG-2.102)." ;
-    rdfs:domain :Route .
 
 :similarTo a owl:ObjectProperty,
         owl:SymmetricProperty ;
@@ -126,13 +126,13 @@
     rdfs:label "IaC Resource" ;
     rdfs:comment "An infrastructure resource declared in IaC (container image, K8s manifest, Terraform resource) (CONCEPT:KG-2.103)." .
 
-:Route a owl:Class ;
-    rdfs:label "HTTP Route" ;
-    rdfs:comment "An HTTP route (method + path) a Code handler serves (CONCEPT:KG-2.102)." .
-
 :WorkspaceObservation a owl:Class ;
     rdfs:label "Workspace Observation" ;
     rdfs:comment "The typed result a WorkspaceAction produced (command output, file content, test result)." .
+
+:Route a owl:Class ;
+    rdfs:label "HTTP Route" ;
+    rdfs:comment "An HTTP route (method + path) a Code handler serves (CONCEPT:KG-2.102)." .
 
 :WorkspaceAction a owl:Class ;
     rdfs:label "Workspace Action" ;
