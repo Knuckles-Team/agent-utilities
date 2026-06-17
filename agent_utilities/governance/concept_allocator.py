@@ -126,7 +126,11 @@ def _lock_path(repo_root: Path = REPO_ROOT) -> Path:
 
     lock_dir = Path(platformdirs.user_runtime_dir("agent-utilities"))
     lock_dir.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha1(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:12]
+    # Not a security hash — just a short, stable filename token for the per-repo
+    # lock path. usedforsecurity=False keeps it FIPS-safe and silences B324.
+    digest = hashlib.sha1(
+        str(repo_root.resolve()).encode("utf-8"), usedforsecurity=False
+    ).hexdigest()[:12]
     return lock_dir / f"concept_ledger.{digest}.lock"
 
 
