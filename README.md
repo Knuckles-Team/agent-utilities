@@ -262,15 +262,16 @@ Shipped but lightly documented (real code, importable today):
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **183 canonical concepts** across **18 pillars**.
+Synthesized from concept markers in the codebase into **319 canonical concepts** across **20 pillars**.
 
 > This count and the table below are generated from `docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand.
 
 | Pillar | ID Range | Count | Focus |
 |:------|:---------|:---:|:------|
-| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.21 | 18 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, Adversarial verification passed — no issues found, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
+| **AHE-3** Agentic Harness Engineering | AHE-3.x – AHE-3.60 | 56 | Telemetry-Driven Optimization, Agentic Harness Engineering / Evolution, / AHE-3.40 — generalized from the original system-prompt-only, Optional convergence monitor for multi-loop tasks, Check for matching TeamConfig before LLM planning, Detected mathematical/quantitative topology. Escalate to reasoning model, Distills updated tool description back into Python function docstring, GitOps Git Commit Automation |
+| **CE-038** CE-038 | CE-038 | 1 | periodic code-health |
 | **CTX-1** Context Management | CTX-1.0 | 1 | Nested Subfolder Instructions |
-| **ECO-4** Ecosystem & Peripherals | ECO-4.0 – ECO-4.37 | 27 | Register PlannerGraphSkill when graph_bundle is available, Live MCP server connection for tool metadata caching, Company Infrastructure Orchestration, Infrastructure Blueprint Library, Pluggable Event Queue Backend, Team-Specific Startup Context, Deterministic Lint Enforcement Hook, Plugin Bundle Distribution System |
+| **ECO-4** Ecosystem & Peripherals | ECO-4.0 – ECO-4.47 | 37 | Register PlannerGraphSkill when graph_bundle is available, Live MCP server connection for tool metadata caching, Company Infrastructure Orchestration, Infrastructure Blueprint Library, Pluggable Event Queue Backend, Team-Specific Startup Context, Deterministic Lint Enforcement Hook, Plugin Bundle Distribution System |
 | **EE-033** EE-033 | EE-033 | 1 | closes the priors→weights loop |
 | **EE-034** EE-034 | EE-034 | 1 | the expert agent writes one per decision; a nightly distill |
 | **EE-036** EE-036 | EE-036 | 1 | concrete subclasses |
@@ -278,13 +279,14 @@ Synthesized from concept markers in the codebase into **183 canonical concepts**
 | **EE-039** EE-039 | EE-039 | 1 | EE-039 |
 | **EG-009** EG-009 | EG-009 | 1 | then by its node |
 | **KG-1** Knowledge Graph Core | KG-1.0 | 1 | Centralized KG Coordination Protocol |
-| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.62 | 63 | Provides git-like transactional mutation for KG evolution, routes skill evolution through the single graph-native, the self-bootstrapping ontology agent applied to ingest, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Generates actionable LLM artifacts from KG-ingested research, / KG-2.10 — research assimilation + orchestration synthesis |
+| **KG-2** Epistemic Knowledge Graph | KG-2.0 – KG-2.109 | 115 | Provides git-like transactional mutation for KG evolution, routes skill evolution through the single graph-native, the self-bootstrapping ontology agent applied to ingest, Lazy embedding model — defer HTTP connection to first use, Compute positional interaction encoding for structural generalization, /2.15/2.34/2.35 — Topological Analysis Engine, Generates actionable LLM artifacts from KG-ingested research, / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis |
 | **LGC-1** Logic & Governance Core | LGC-1.0 | 1 | Logic & Governance Core |
-| **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.45 | 37 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Visibility allow-list of upstream step ids whose results, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
+| **ML-011** ML-011 | ML-011 | 1 | join inference |
+| **ORCH-1** Graph Orchestration | ORCH-1.0 – ORCH-1.58 | 50 | Inject signal board observations from prior adaptive_agent_router, Current nesting depth for recursive graph orchestration, Invalidate hot cache so routing reflects new self-knowledge, Visibility allow-list of upstream step ids whose results, Session ID of the parent graph if this state was forked, Dependency cycle detected — falling back, Autonomous Department Orchestration, Graph-Native Reactive Event Sourcing and OS Guardrails |
 | **ORCH-2** Orchestration Extensions | ORCH-2.0 | 1 | Orchestration Engine |
 | **ORCH-5** Orchestration Runtime | ORCH-5.0 | 1 | Durable session and autonomous goal persistence with iterative background goal loops |
-| **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.29 | 25 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
-| **SAFE-1** Safety & Guardrails | SAFE-1.0 | 1 | Tool-Agnostic File Safety Hooks |
+| **OS-5** Agent OS Infrastructure | OS-5.0 – OS-5.42 | 38 | FileWatcher — watchdog-triggered graph execution, refactoring. This module re-exports it to avoid breaking, MaintenanceCron — scheduled autonomous maintenance, Reactive Multi-Axis Budget Guardrails, WASM Micro-Agent Sandbox & Runner, Distributed Coordinator with Semantic Sharding, Deterministic Replay Engine, Epistemic dynamic priority & quota scaling based on KG Centrality |
+| **SAFE-1** Safety & Guardrails | SAFE-1.0 – SAFE-1.8 | 9 | Tool-Agnostic File Safety Hooks, non-saturating superhuman progress tracking via relative scorers and a saturation detector that keep producing signal past the human or known-answer ceiling so a genuine capability jump is distinguishable from metric saturation, a multi-agent scaling-law harness that sweeps collective size over a fixed task and fits capability ~ N^alpha so the platform can measure whether adding agents helps super- or sub-linearly instead of assuming it does, recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags a non-positive derivative as a research-gets-harder signal, a model-collapse guard for the self-generated training corpus that rejects near-duplicate or distributionally-narrowing rows and caps the synthetic-to-human fraction so recursive distillation cannot quietly degenerate, objective-level safety primitives for rising autonomy, Unattended-session stop-on-ask containment |
 | **UTIL-1** Shared Utilities | UTIL-1.0 | 1 | Data Type Conversion |
 
 <!-- END GENERATED: concepts -->
