@@ -11,7 +11,7 @@ from agent_utilities.harness.harness_foundry_benchmark import run_all, to_markdo
 
 def test_all_surpass_claims_reproduce():
     results = run_all()
-    assert len(results) == 3
+    assert len(results) == 5
     by_name = {r.name: r for r in results}
     # Headline: we block the τ³ concentration coupling HarnessX ships into.
     conc = by_name["concentration_tau3"]
@@ -20,10 +20,15 @@ def test_all_surpass_claims_reproduce():
     assert by_name["held_out_overfit_guard"].claim_reproduced
     # Cross-harness grouping recovers the cross-scaffold contrast.
     assert by_name["cross_harness_grouping"].claim_reproduced
+    # Variant isolation ships a heterogeneous mixed edit the single-harness
+    # seesaw rejects (CONCEPT:AHE-3.59).
+    assert by_name["variant_isolation"].claim_reproduced
+    # Signature-attribution refuses to credit an unattributed edit (CONCEPT:AHE-3.58).
+    assert by_name["attribution_falsifiability"].claim_reproduced
     assert all(r.claim_reproduced for r in results)
 
 
 def test_markdown_renders():
     md = to_markdown(run_all())
-    assert "3/3 surpass claims reproduced" in md
+    assert "5/5 surpass claims reproduced" in md
     assert "concentration_tau3" in md

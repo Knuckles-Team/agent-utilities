@@ -76,6 +76,19 @@ class ComponentEdit(BaseModel):
         default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     )
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Falsifiability at proposal time (CONCEPT:AHE-3.58) — surpasses HarnessX's
+    # post-hoc reward-hacking detection. ``attribution_signature`` names a trace
+    # feature that MUST appear next round if this edit actually fired (e.g.
+    # ``{"tool_call": "WikiTextFetch", "min_count": 1}``); the ManifestVerifier
+    # rejects an edit whose signature never fires — it "passed" only by coincidence.
+    attribution_signature: dict[str, Any] = Field(default_factory=dict)
+    # Level-2 round-trip capability claims (CONCEPT:AHE-3.58): each asserts a
+    # capability the edit unlocks AND that its output survives provider
+    # serialization to the model (``{"capability": "...", "level": 2}``).
+    capability_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    # Deterministic-gate smoke result (CONCEPT:AHE-3.60): does the edited
+    # processor/tool actually instantiate and run? Set by the gate's smoke step.
+    smoke_passed: bool | None = None
 
 
 class VerificationResult(BaseModel):
@@ -107,6 +120,11 @@ class VerificationResult(BaseModel):
     random_baseline_precision: float = 0.0
     attribution_lift: float = 0.0
     attribution_reliable: bool = False
+    # Signature-attribution falsifiability (CONCEPT:AHE-3.58): edit ids whose
+    # declared ``attribution_signature`` did NOT fire in the new trace — the edit
+    # "passed" only by coincidence and must not be credited (potential
+    # reward-hacking). Surpasses HarnessX, which never checks the edit fired.
+    unattributed_edits: list[str] = Field(default_factory=list)
 
 
 class ChangeManifest(BaseModel):
