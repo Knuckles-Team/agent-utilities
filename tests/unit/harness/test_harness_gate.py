@@ -69,3 +69,78 @@ def test_reward_hacking_pathology_blocks():
     verdict = HarnessGate().check_facts(edits, pathologies=pathologies)
     assert not verdict.passed
     assert any("reward-hacking" in r.lower() for r in verdict.reasons), verdict.reasons
+
+
+# ── Substitution-algebra type safety (CONCEPT:KG-2.109) ──────────────────────
+def test_hook_contract_blocks_modifying_read_only_hook():
+    # An edit that modifies a field at a read-only hook (task_end) violates the
+    # hook contract the paper enforces at runtime — here a reasoned SHACL check.
+    edits = [
+        {
+            "id": "edit:bad",
+            "dimension": "D8_obs",
+            "round": 2,
+            "status": "shipped",
+            "at_hook": "task_end",
+            "modifies_field": "final_answer",
+            "operation": "replace",
+        }
+    ]
+    verdict = HarnessGate().check_facts(edits)
+    assert not verdict.passed
+    assert any("hook contract" in r.lower() for r in verdict.reasons), verdict.reasons
+
+
+def test_edit_at_writable_hook_passes():
+    edits = [
+        {
+            "id": "edit:ok",
+            "dimension": "D2_context",
+            "round": 2,
+            "status": "shipped",
+            "at_hook": "task_start",
+            "modifies_field": "system_prompt",
+            "operation": "replace",
+        }
+    ]
+    assert HarnessGate().check_facts(edits).passed
+
+
+def test_singleton_exclusion_blocks_two_processors_same_group_and_hook():
+    edits = [{"id": "edit:p", "dimension": "D4_tools", "round": 2, "status": "shipped"}]
+    processors = [
+        {
+            "id": "proc:a",
+            "hook": "before_tool",
+            "singleton_group": "approval",
+            "status": "accepted",
+        },
+        {
+            "id": "proc:b",
+            "hook": "before_tool",
+            "singleton_group": "approval",
+            "status": "accepted",
+        },
+    ]
+    verdict = HarnessGate().check_facts(edits, processors=processors)
+    assert not verdict.passed
+    assert any("singleton" in r.lower() for r in verdict.reasons), verdict.reasons
+
+
+def test_singleton_distinct_groups_pass():
+    edits = [{"id": "edit:p", "dimension": "D4_tools", "round": 2, "status": "shipped"}]
+    processors = [
+        {
+            "id": "proc:a",
+            "hook": "before_tool",
+            "singleton_group": "approval",
+            "status": "accepted",
+        },
+        {
+            "id": "proc:b",
+            "hook": "before_tool",
+            "singleton_group": "rate_limit",
+            "status": "accepted",
+        },
+    ]
+    assert HarnessGate().check_facts(edits, processors=processors).passed

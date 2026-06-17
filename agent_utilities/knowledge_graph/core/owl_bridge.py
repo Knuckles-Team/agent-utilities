@@ -53,6 +53,8 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "harness_edit",
     "harness_variant",
     "harness_pathology",
+    # Substitution-algebra hook contract (CONCEPT:KG-2.109)
+    "harness_hook",
     "concept",
     "document",
     # Enterprise OS entities (CONCEPT:KG-2.9)
@@ -326,6 +328,8 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "mitigated_by",
     "causes_regression",  # HarnessEdit → task (formal seesaw signal)
     "confirms_fix",  # HarnessEdit → predicted fix
+    "at_hook",  # HarnessEdit → HarnessHook (substitution algebra, CONCEPT:KG-2.109)
+    "attached_to_hook",  # Processor → HarnessHook (CONCEPT:KG-2.109)
     "implemented_by",
     "similar_to",
     "mentions",

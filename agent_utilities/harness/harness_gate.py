@@ -40,16 +40,25 @@ class GateVerdict:
         return [str(v.get("message", "")).strip() for v in self.violations]
 
 
+# The two read-only lifecycle hooks (HarnessX Table 1): an edit may not modify a
+# field here. Stamped into the data graph so the hook-contract shape is
+# self-contained (CONCEPT:KG-2.109).
+_READ_ONLY_HOOKS = {"step_end", "task_end"}
+
+
 def build_evolution_graph(
     edits: list[dict[str, Any]],
     variants: list[dict[str, Any]] | None = None,
     pathologies: list[dict[str, Any]] | None = None,
+    processors: list[dict[str, Any]] | None = None,
 ) -> rdflib.Graph:
     """Build a harness-evolution RDF graph from plain dicts (CONCEPT:AHE-3.53).
 
-    ``edits``: ``{id, dimension, round, status?, regresses?:[task_ids]}``.
+    ``edits``: ``{id, dimension, round, status?, regresses?:[task_ids],
+        at_hook?, modifies_field?, operation?}``.
     ``variants``: ``{id, status, applies:[edit_ids]}``.
     ``pathologies``: ``{id, kind, exhibited_by?:node_id}``.
+    ``processors``: ``{id, hook, singleton_group, status?}`` (CONCEPT:KG-2.109).
     """
     g = rdflib.Graph()
     g.bind("kg", _KG)
@@ -63,6 +72,30 @@ def build_evolution_graph(
         g.add((eid, _KG.editRound, rdflib.Literal(int(e.get("round", 0)))))
         for t in e.get("regresses", []) or []:
             g.add((eid, _KG.causesRegression, _KG[t]))
+        # Substitution-algebra facts (CONCEPT:KG-2.109).
+        if e.get("operation"):
+            g.add((eid, _KG.editOperation, rdflib.Literal(e["operation"])))
+        if e.get("at_hook"):
+            hook = _KG[e["at_hook"]]
+            g.add((eid, _KG.atHook, hook))
+            g.add((hook, rdflib.RDF.type, _KG.HarnessHook))
+            g.add(
+                (
+                    hook,
+                    _KG.hookReadOnly,
+                    rdflib.Literal(e["at_hook"] in _READ_ONLY_HOOKS),
+                )
+            )
+        if e.get("modifies_field"):
+            g.add((eid, _KG.modifiesField, rdflib.Literal(e["modifies_field"])))
+    for proc in processors or []:
+        pid = _KG[proc["id"]]
+        g.add((pid, rdflib.RDF.type, _KG.Processor))
+        g.add((pid, _KG.variantStatus, rdflib.Literal(proc.get("status", "accepted"))))
+        if proc.get("hook"):
+            g.add((pid, _KG.attachedToHook, _KG[proc["hook"]]))
+        if proc.get("singleton_group"):
+            g.add((pid, _KG.singletonGroup, rdflib.Literal(proc["singleton_group"])))
     for v in variants or []:
         vid = _KG[v["id"]]
         g.add((vid, rdflib.RDF.type, _KG.HarnessVariant))
@@ -98,6 +131,9 @@ class HarnessGate:
         edits: list[dict[str, Any]],
         variants: list[dict[str, Any]] | None = None,
         pathologies: list[dict[str, Any]] | None = None,
+        processors: list[dict[str, Any]] | None = None,
     ) -> GateVerdict:
         """Convenience: build the graph from dicts and check it."""
-        return self.check(build_evolution_graph(edits, variants, pathologies))
+        return self.check(
+            build_evolution_graph(edits, variants, pathologies, processors)
+        )

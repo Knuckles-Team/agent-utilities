@@ -71,3 +71,104 @@ def test_manifest_verifier_rejects_before_gate():
     d = loop.run_round(1)
     assert not d.shipped and "manifest verify failed" in d.reasons
     assert loop.shipped == []
+
+
+# ── Variant isolation / ensemble routing (CONCEPT:AHE-3.59) ──────────────────
+def test_variant_isolation_forks_mixed_edit_instead_of_rejecting():
+    """A mixed edit (fixes one cluster, regresses another) is rejected by the
+    single-harness seesaw but SHIPS as a forked variant under isolation."""
+
+    def evolver(_l):
+        return {
+            "id": "edit:mixed",
+            "dimension": "D4_tools",
+            "fixes": ["taskA"],
+            "regresses": ["taskB"],
+        }
+
+    # Variant isolation ON: forks a variant scoped to {taskA}; taskB is out of
+    # scope so the per-variant seesaw passes → ships.
+    iso = AegisLoop(evolver, variant_capacity=2)
+    d = iso.run_round(1)
+    assert d.shipped and d.forked and d.variant_id
+    # The forked variant's scoped regression set is empty (taskB routes elsewhere).
+    assert iso.shipped[0]["regresses"] == []
+
+
+def test_single_harness_seesaw_rejects_in_scope_regression():
+    """With isolation OFF the mixed edit is not forked; an explicit base variant
+    covering taskB makes the regression in-scope → the SHACL seesaw rejects."""
+    from agent_utilities.harness.harness_gate import HarnessGate
+
+    gate = HarnessGate()
+    verdict = gate.check_facts(
+        edits=[{"id": "e1", "dimension": "D4_tools", "regresses": ["taskB"]}],
+        variants=[{"id": "base", "status": "accepted", "applies": ["e1"]}],
+    )
+    assert not verdict.passed
+    assert any(
+        "no-regression" in r.lower() or "seesaw" in r.lower() for r in verdict.reasons
+    )
+
+
+# ── Selective invocation + patience (CONCEPT:AHE-3.57) ───────────────────────
+def test_empty_landscape_short_circuits_as_idle():
+    def evolver(_l):
+        return {}  # nothing actionable
+
+    loop = AegisLoop(evolver)
+    d = loop.run_round(1)
+    assert not d.shipped and "no actionable candidate" in d.reasons
+
+
+def test_patience_early_stops_on_consecutive_idle():
+    def evolver(_l):
+        return None  # always idle
+
+    loop = AegisLoop(evolver, patience=2)
+    decisions = loop.run(rounds=10)
+    # Stops after `patience` consecutive idle rounds rather than running all 10.
+    assert len(decisions) == 2
+
+
+# ── Reputation audit / declining-yield diversion (CONCEPT:AHE-3.57) ──────────
+def test_reputation_audit_discourages_declining_dimension():
+    # An evolver that keeps shipping into D4 but a verifier that fails it every time
+    # builds a low hit-rate ledger for D4 → it becomes discouraged with a concern.
+    def evolver(_l):
+        return {"id": "e", "dimension": "D4_tools"}
+
+    def verifier(_e):
+        return False, []  # manifest verify always fails → ledger records misses
+
+    loop = AegisLoop(evolver, verifier_fn=verifier, hit_rate_floor=0.5)
+    loop.run(rounds=3)
+    land = loop.adaptation_landscape()
+    assert "D4_tools" in land["discouraged_dimensions"]
+    assert any("strategy_concern" in c for c in land["strategy_concerns"])
+
+
+# ── Deterministic gate sequence: smoke + normalize (CONCEPT:AHE-3.60) ────────
+def test_smoke_test_blocks_uninstantiable_edit():
+    def evolver(_l):
+        return {"id": "e:bad", "dimension": "D4_tools"}
+
+    loop = AegisLoop(evolver, smoke_fn=lambda _e: False)
+    d = loop.run_round(1)
+    assert not d.shipped and "smoke test failed" in d.reasons
+
+
+def test_config_normalization_dedups_identical_edit():
+    calls = {"n": 0}
+
+    def evolver(_l):
+        calls["n"] += 1
+        # Always the same canonical edit (different id, same content).
+        return {"id": f"e:{calls['n']}", "dimension": "D4_tools", "body": "X"}
+
+    loop = AegisLoop(evolver, normalize_fn=lambda e: f"{e['dimension']}:{e['body']}")
+    decisions = loop.run(rounds=3)
+    shipped = [d for d in decisions if d.shipped]
+    # First ships; the identical re-proposals are deduped, not counted as progress.
+    assert len(shipped) == 1
+    assert any("duplicate" in r for d in decisions for r in d.reasons)
