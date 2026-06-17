@@ -16,13 +16,37 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Derive valid pillars from registry
+        run: |
+          # The set of valid pillar prefixes is self-maintaining: it is derived
+          # from docs/concepts.yaml so it can never drift behind the registry
+          # again (it previously hardcoded ORCH|KG|AHE|ECO|OS and rejected
+          # SAFE/EE/ML even though those were already registered).
+          pip install pyyaml >/dev/null 2>&1 || true
+          VALID=$(python -c "import yaml; d=yaml.safe_load(open('docs/concepts.yaml')) or {}; print(' '.join(sorted({p.split('-')[0] for p in d.get('pillars', [])})))")
+          if [ -z "$VALID" ]; then
+            # Fallback to the documented 5 pillars + known stragglers if the
+            # registry could not be read for any reason.
+            VALID="ORCH KG AHE ECO OS SAFE EE ML"
+          fi
+          echo "VALID_PILLARS=$VALID" >> "$GITHUB_ENV"
+          echo "Valid pillar prefixes: $VALID"
+
       - name: Check for new CONCEPT tags
         run: |
           echo "🔍 Scanning for new CONCEPT: tags in this PR..."
 
-          # Get the list of new CONCEPT: tags added in this PR
+          # Get the list of new CONCEPT: tags added in this PR. The id grammar
+          # must match the canonical marker regex used by the generators
+          # (scripts/build_concepts_yaml.py): a dotless id (SAFE-1), a dotted id
+          # (KG-2.101), or a letter-suffix id (KG-2.20g) are all valid.
           NEW_CONCEPTS=$(git diff origin/main...HEAD --unified=0 | \
-            grep -oP '(?<=CONCEPT:)[A-Z]+-\d+\.\d+' | \
+            grep -oP '(?<=CONCEPT:)[A-Z]+-\d+(?:\.[0-9A-Za-z]+)?' | \
             sort -u || true)
 
           if [ -z "$NEW_CONCEPTS" ]; then
@@ -37,7 +61,7 @@ jobs:
           # Check each new concept has a design document
           VIOLATIONS=""
           for concept in $NEW_CONCEPTS; do
-            # Extract pillar prefix (e.g., ORCH, KG, AHE, ECO, OS)
+            # Extract pillar prefix (e.g., ORCH, KG, AHE, ECO, OS, SAFE, EE, ML)
             PILLAR=$(echo "$concept" | grep -oP '^[A-Z]+')
 
             # Check for corresponding design document
@@ -46,15 +70,12 @@ jobs:
               VIOLATIONS="$VIOLATIONS\n  ❌ $concept — No design document references this concept"
             fi
 
-            # Check that concept references a valid pillar
-            case $PILLAR in
-              ORCH|KG|AHE|ECO|OS)
-                echo "  ✅ $concept — Valid pillar: $PILLAR"
-                ;;
-              *)
-                VIOLATIONS="$VIOLATIONS\n  ❌ $concept — Invalid pillar prefix: $PILLAR (must be ORCH/KG/AHE/ECO/OS)"
-                ;;
-            esac
+            # Check that concept references a valid pillar (derived from registry)
+            if echo "$VALID_PILLARS" | tr ' ' '\n' | grep -qx "$PILLAR"; then
+              echo "  ✅ $concept — Valid pillar: $PILLAR"
+            else
+              VIOLATIONS="$VIOLATIONS\n  ❌ $concept — Invalid pillar prefix: $PILLAR (must be one of: $VALID_PILLARS)"
+            fi
           done
 
           if [ -n "$VIOLATIONS" ]; then
