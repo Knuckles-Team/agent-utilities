@@ -213,3 +213,76 @@ Aligned to ArchiMate 3.2 layers.""" ;
     rdfs:comment "A typed evolution edit to a harness (the action in the operational mirror), targeting one HarnessDimension, with a change manifest and verifier evidence." ;
     rdfs:subClassOf :ApplicationLayer .
 
+
+# ── Substitution algebra + lifecycle-hook contract (CONCEPT:KG-2.109) ─────────
+# HarnessX's typed hook points + processor metadata + insert/remove/replace
+# algebra (Section 3.1-3.2), modelled so the type-safety the paper enforces with a
+# runtime type system becomes a *reasoned* SHACL check over our KG.
+
+:HarnessHook a owl:Class ;
+    rdfs:label "Harness Hook" ;
+    rdfs:comment "One of the eight lifecycle hook points a processor attaches to (task_start, step_start, before_model, after_model, before_tool, after_tool, step_end, task_end). Distinct from the dev-CLI :Hook (CONCEPT:KG-2.109)." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:atHook a owl:ObjectProperty ;
+    rdfs:label "at hook" ;
+    rdfs:comment "The lifecycle hook a HarnessEdit/Processor operates at (CONCEPT:KG-2.109)." ;
+    rdfs:range :HarnessHook .
+
+:attachedToHook a owl:ObjectProperty ;
+    rdfs:label "attached to hook" ;
+    rdfs:comment "A Processor is attached to a HarnessHook (CONCEPT:KG-2.109)." ;
+    rdfs:domain :Processor ;
+    rdfs:range :HarnessHook .
+
+:hookEventType a owl:DatatypeProperty ;
+    rdfs:label "hook event type" ;
+    rdfs:comment "The event type a hook emits (e.g. TaskStartEvent) (CONCEPT:KG-2.109)." ;
+    rdfs:domain :HarnessHook ;
+    rdfs:range xsd:string .
+
+:hookReadOnly a owl:DatatypeProperty ;
+    rdfs:label "hook read only" ;
+    rdfs:comment "True if the hook permits no modifications (step_end, task_end) — an edit that modifies a field here violates the hook contract (CONCEPT:KG-2.109)." ;
+    rdfs:domain :HarnessHook ;
+    rdfs:range xsd:boolean .
+
+:permittedModification a owl:DatatypeProperty ;
+    rdfs:label "permitted modification" ;
+    rdfs:comment "The field(s) a processor may modify at this hook per HarnessX Table 1 (CONCEPT:KG-2.109)." ;
+    rdfs:domain :HarnessHook ;
+    rdfs:range xsd:string .
+
+:editOperation a owl:DatatypeProperty ;
+    rdfs:label "edit operation" ;
+    rdfs:comment "The substitution-algebra operation of a HarnessEdit: insert | remove | replace (CONCEPT:KG-2.109)." ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range xsd:string .
+
+:modifiesField a owl:DatatypeProperty ;
+    rdfs:label "modifies field" ;
+    rdfs:comment "A field a HarnessEdit modifies at its hook — checked against the hook's permitted-modification / read-only contract (CONCEPT:KG-2.109)." ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range xsd:string .
+
+:singletonGroup a owl:DatatypeProperty ;
+    rdfs:label "singleton group" ;
+    rdfs:comment "A processor's mutual-exclusion class (_singleton_group): at most one accepted processor per (hook, group) (CONCEPT:KG-2.109)." ;
+    rdfs:domain :Processor ;
+    rdfs:range xsd:string .
+
+:hookOrder a owl:DatatypeProperty ;
+    rdfs:label "hook order" ;
+    rdfs:comment "Ordering hint of a processor within its hook: PRE | NORMAL | POST (_order) (CONCEPT:KG-2.109)." ;
+    rdfs:domain :Processor ;
+    rdfs:range xsd:string .
+
+# The eight lifecycle hooks (HarnessX Table 1).
+:task_start a :HarnessHook ; rdfs:label "task_start" ; :hookEventType "TaskStartEvent" ; :permittedModification "system prompt" ; :hookReadOnly false .
+:step_start a :HarnessHook ; rdfs:label "step_start" ; :hookEventType "StepStartEvent" ; :permittedModification "structural history edits" ; :hookReadOnly false .
+:before_model a :HarnessHook ; rdfs:label "before_model" ; :hookEventType "BeforeModelEvent" ; :permittedModification "last user content; one user-message append" ; :hookReadOnly false .
+:after_model a :HarnessHook ; rdfs:label "after_model" ; :hookEventType "ModelResponseEvent" ; :permittedModification "response content, tool calls" ; :hookReadOnly false .
+:before_tool a :HarnessHook ; rdfs:label "before_tool" ; :hookEventType "ToolCallEvent" ; :permittedModification "tool input, approval flag" ; :hookReadOnly false .
+:after_tool a :HarnessHook ; rdfs:label "after_tool" ; :hookEventType "ToolResultEvent" ; :permittedModification "tool result" ; :hookReadOnly false .
+:step_end a :HarnessHook ; rdfs:label "step_end" ; :hookEventType "StepEndEvent" ; :permittedModification "read-only" ; :hookReadOnly true .
+:task_end a :HarnessHook ; rdfs:label "task_end" ; :hookEventType "TaskEndEvent" ; :permittedModification "read-only" ; :hookReadOnly true .

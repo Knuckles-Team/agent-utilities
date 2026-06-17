@@ -82,3 +82,49 @@ async def test_no_actual_fixes_is_not_reliable():
     assert result.random_baseline_precision == 0.0
     assert result.attribution_lift == 0.0
     assert result.attribution_reliable is False
+
+
+# ── Signature attribution falsifiability (CONCEPT:AHE-3.58) ──────────────────
+def test_signature_fired_detects_presence_and_absence():
+    present = EvidenceCorpus(
+        entries=[
+            EvidenceEntry(task_id="t1", pass_fail=True, content="called WikiFetch ok")
+        ]
+    )
+    absent = EvidenceCorpus(
+        entries=[
+            EvidenceEntry(task_id="t1", pass_fail=True, content="solved by guessing")
+        ]
+    )
+    sig = {"tool_call": "WikiFetch", "min_count": 1}
+    assert ManifestVerifier._signature_fired(sig, present) is True
+    assert ManifestVerifier._signature_fired(sig, absent) is False
+    # An empty signature trivially fires (back-compat for edits that declare none).
+    assert ManifestVerifier._signature_fired({}, absent) is True
+
+
+@pytest.mark.asyncio
+async def test_unattributed_edit_is_not_confirmed():
+    """An apparent fix whose attribution signature never fires must NOT be
+    confirmed — it 'passed' only by coincidence (reward-hacking guard)."""
+    verifier = ManifestVerifier(registry=MagicMock())
+    manifest = ChangeManifest(baseline_score=0.5)
+    manifest.add_edit(
+        ComponentEdit(
+            id="edit:wiki",
+            component_type=ComponentType.TOOL_IMPLEMENTATION,
+            file_path="wiki.py",
+            edit_summary="add WikiFetch",
+            predicted_fixes=["t1"],
+            attribution_signature={"tool_call": "WikiFetch", "min_count": 1},
+        )
+    )
+    baseline = _corpus({"t1": False}, 0.0)
+    # t1 now passes, BUT the trace never shows WikiFetch → the edit is unattributed.
+    new = EvidenceCorpus(
+        entries=[EvidenceEntry(task_id="t1", pass_fail=True, content="guessed it")],
+        benchmark_score=1.0,
+    )
+    result = await verifier.verify(manifest, baseline, new)
+    assert "edit:wiki" in result.unattributed_edits
+    assert result.recommendation != "confirm"
