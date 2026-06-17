@@ -168,6 +168,19 @@ if command -v setup-config >/dev/null 2>&1; then
     || c_warn "harness-fence reported issues (non-fatal)."
 fi
 
+# 4.6 Register the concepts-regen git merge driver (CONCEPT:OS-5.42) so merging
+# parallel session worktrees regenerates docs/concepts.yaml from CONCEPT markers
+# instead of producing a textual conflict. The reservation ledger uses the
+# built-in union driver (declared in .gitattributes); this only registers the
+# custom regenerate driver. Best-effort and only inside a git work tree.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  c_info "Registering the concepts-regen git merge driver…"
+  run "git config merge.concepts-regen.name 'regenerate concepts.yaml from CONCEPT markers'" \
+    || c_warn "could not set merge driver name (non-fatal)."
+  run "git config merge.concepts-regen.driver 'python3 scripts/build_concepts_yaml.py >/dev/null 2>&1; cp docs/concepts.yaml %A'" \
+    || c_warn "could not set merge driver command (non-fatal)."
+fi
+
 # 5. Hand off to the deployment skill.
 SKILL="agent-utilities-deployment"
 [ "$PROFILE" = "enterprise" ] && SKILL="agent-os-genesis"

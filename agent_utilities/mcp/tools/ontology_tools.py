@@ -482,6 +482,108 @@ def register_ontology_tools(mcp):
     kg_server.REGISTERED_TOOLS["spec_ticket"] = spec_ticket
 
     @mcp.tool(
+        name="concept_registry",
+        description=(
+            "Atomically claim/list/release concept ids across parallel sessions & worktrees "
+            "(CONCEPT:OS-5.42). action='reserve' mints the next free id in a namespace (a pillar "
+            "like 'KG-2'/'OS-5' or a package prefix like 'KEY') and appends it to the committed, "
+            "merge=union ledger so two sessions never collide; 'list' shows reservations; "
+            "'release' frees one; 'reconcile' marks landed/expired. The ledger is authoritative; "
+            "reservations are also projected into the KG when the gateway is healthy."
+        ),
+        tags=["graph-os", "governance", "concept"],
+    )
+    def concept_registry(
+        action: str = Field(
+            default="list",
+            description="'reserve', 'list', 'release', or 'reconcile'.",
+        ),
+        namespace: str = Field(
+            default="",
+            description="For 'reserve': pillar ('KG-2','OS-5') or package prefix ('KEY','GL').",
+        ),
+        session_id: str = Field(
+            default="", description="Claiming session id (defaults to host:pid)."
+        ),
+        design_doc: str = Field(
+            default="",
+            description="Optional design-doc path recorded with the reservation.",
+        ),
+        concept_id: str = Field(
+            default="", description="For 'release': the id to free."
+        ),
+        status: str = Field(
+            default="",
+            description="For 'list': filter by status (reserved/landed/expired).",
+        ),
+        ttl_seconds: int = Field(
+            default=86_400, description="Reservation TTL before it is reclaimable."
+        ),
+        repo: str = Field(
+            default="",
+            description="Repo root whose ledger to use (defaults to agent-utilities).",
+        ),
+    ) -> str:
+        """Concept-ID reservation ledger operations (see docs/concept_coordination.md)."""
+        import os
+        import socket
+        from pathlib import Path
+
+        from agent_utilities.governance import concept_allocator as ca
+
+        try:
+            repo_root = Path(repo).expanduser().resolve() if repo else ca.REPO_ROOT
+            if str(action) == "list":
+                return json.dumps(
+                    {
+                        "reservations": ca.list_reservations(
+                            repo_root=repo_root, status=status or None
+                        )
+                    }
+                )
+            if str(action) == "reconcile":
+                return json.dumps(ca.reconcile(repo_root=repo_root))
+            if str(action) == "release":
+                if not concept_id:
+                    return json.dumps({"error": "release requires concept_id"})
+                return json.dumps(
+                    {"released": ca.release_concept_id(concept_id, repo_root=repo_root)}
+                )
+            if str(action) == "reserve":
+                if not namespace:
+                    return json.dumps({"error": "reserve requires namespace"})
+                sid = session_id or f"{socket.gethostname()}:{os.getpid()}"
+                record = ca.reserve_concept_id(
+                    namespace,
+                    session_id=sid,
+                    design_doc=design_doc or None,
+                    ttl_seconds=int(ttl_seconds),
+                    repo_root=repo_root,
+                )
+                # Best-effort projection into the KG for queryability — the ledger
+                # remains the authoritative claim regardless of gateway health.
+                try:
+                    from agent_utilities.mcp.kg_coordinator import KGCoordinator
+
+                    if KGCoordinator.is_server_healthy():
+                        kg_server._execute_tool(
+                            "graph_write",
+                            action="add_node",
+                            node_id=record["id"],
+                            node_type="ConceptReservation",
+                            properties=json.dumps(record),
+                        )
+                        record["kg_projected"] = True
+                except Exception:  # noqa: BLE001 - projection is advisory
+                    record["kg_projected"] = False
+                return json.dumps(record)
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["concept_registry"] = concept_registry
+
+    @mcp.tool(
         name="source_sync",
         description="Sync an external source's mirror into the KG (CONCEPT:KG-2.9). source='leanix'|'camunda'|'servicenow'|… (any registered hydration source). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream). Delta-capable sources do incremental sync; others fall back to a full hydrate. ids=[...] narrows to specific records (webhook-driven).",
         tags=["graph-os", "ingestion"],
