@@ -94,8 +94,81 @@ def _bench_cross_harness() -> BenchResult:
     )
 
 
+def _bench_variant_isolation() -> BenchResult:
+    """Heterogeneous tasks (CONCEPT:AHE-3.59): a mixed edit fixes one cluster but
+    regresses another. HarnessX's single-harness seesaw rejects it → stagnation;
+    our variant isolation forks a variant scoped to the improved cluster → the
+    out-of-scope regression routes elsewhere and the edit ships."""
+    from agent_utilities.harness.aegis_loop import AegisLoop
+    from agent_utilities.harness.harness_gate import HarnessGate
+
+    gate = HarnessGate()
+    # Single-harness baseline: the edit applies to the ONE harness covering all
+    # tasks, so its regression on taskB is in-scope → the seesaw rejects.
+    base_verdict = gate.check_facts(
+        edits=[{"id": "e1", "dimension": "D4_tools", "regresses": ["taskB"]}],
+        variants=[{"id": "base", "status": "accepted", "applies": ["e1"]}],
+    )
+    baseline_ships = 1.0 if base_verdict.passed else 0.0  # 0.0 → stagnation
+
+    def evolver(_landscape):
+        return {
+            "id": "e1",
+            "dimension": "D4_tools",
+            "fixes": ["taskA"],
+            "regresses": ["taskB"],
+        }
+
+    loop = AegisLoop(evolver, variant_capacity=2)
+    decisions = loop.run(rounds=1)
+    ours_ships = 1.0 if any(d.shipped and d.forked for d in decisions) else 0.0
+    return BenchResult(
+        name="variant_isolation",
+        metric="ships a heterogeneous mixed edit without regressing? (higher = better)",
+        baseline=baseline_ships,
+        ours=ours_ships,
+        lift=ours_ships - baseline_ships,
+        claim_reproduced=(ours_ships == 1.0 and baseline_ships == 0.0),
+    )
+
+
+def _bench_attribution() -> BenchResult:
+    """Reward-hacking at proposal time (CONCEPT:AHE-3.58): an edit claims a fix via a
+    tool that never fires in the next trace. HarnessX credits the coincidental pass;
+    our signature-attribution check refuses to credit an unattributed edit."""
+    from agent_utilities.harness.evidence_corpus import EvidenceCorpus, EvidenceEntry
+    from agent_utilities.harness.verifier import ManifestVerifier
+
+    new = EvidenceCorpus(
+        entries=[
+            EvidenceEntry(
+                task_id="taskA",
+                pass_fail=True,
+                content="solved by guessing; no external tool used",
+            )
+        ]
+    )
+    fired = ManifestVerifier._signature_fired({"tool_call": "WikiFetch"}, new)
+    ours_credits = 1.0 if fired else 0.0  # we do NOT credit (signature absent)
+    baseline_credits = 1.0  # per-task pass alone → credited
+    return BenchResult(
+        name="attribution_falsifiability",
+        metric="credits an edit whose signature never fired? (lower = safer)",
+        baseline=baseline_credits,
+        ours=ours_credits,
+        lift=baseline_credits - ours_credits,
+        claim_reproduced=(ours_credits == 0.0 and baseline_credits == 1.0),
+    )
+
+
 def run_all() -> list[BenchResult]:
-    return [_bench_concentration(), _bench_held_out(), _bench_cross_harness()]
+    return [
+        _bench_concentration(),
+        _bench_held_out(),
+        _bench_cross_harness(),
+        _bench_variant_isolation(),
+        _bench_attribution(),
+    ]
 
 
 def to_markdown(results: list[BenchResult]) -> str:

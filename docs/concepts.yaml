@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 315
+total_concepts: 319
 total_pillars: 20
 pillars:
 - AHE-3
@@ -576,13 +576,6 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: the parity-and-surpass scoreboard vs HarnessX
-- id: AHE-3.54
-  name: the no-regression seesaw is scoped
-  pillar: AHE-3
-  status: live
-  code_paths:
-  - agent_utilities/harness/aegis_loop.py
-  doc: the no-regression seesaw is scoped
 - id: AHE-3.55
   name: AHE-3.56
   pillar: AHE-3
@@ -598,6 +591,38 @@ concepts:
   - agent_utilities/harness/harness_grounding.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: /KG-2.108 — held-out certification + ARA-Seal of a
+- id: AHE-3.57
+  name: per-dimension ship-outcome ledger
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/aegis_loop.py
+  doc: per-dimension ship-outcome ledger
+- id: AHE-3.58
+  name: an edit claims a fix via a
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/harness_foundry_benchmark.py
+  - agent_utilities/harness/manifest.py
+  - agent_utilities/harness/verifier.py
+  doc: an edit claims a fix via a
+- id: AHE-3.59
+  name: ───────────────────────────────────
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/aegis_loop.py
+  - agent_utilities/harness/harness_foundry_benchmark.py
+  doc: ───────────────────────────────────
+- id: AHE-3.60
+  name: '** manifest-verify →'
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/aegis_loop.py
+  - agent_utilities/harness/manifest.py
+  doc: '** manifest-verify →'
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1540,6 +1565,7 @@ concepts:
   - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/core/engine_ingestion.py
   - agent_utilities/knowledge_graph/core/hydration.py
+  - agent_utilities/knowledge_graph/core/materialization.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/enrichment/extractors/ansible.py
@@ -1601,6 +1627,7 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/models/sdd.py
   - agent_utilities/protocols/source_connectors/connectors/database.py
@@ -2330,7 +2357,6 @@ concepts:
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/outbox.py
   - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
-  - agent_utilities/knowledge_graph/core/engine_ingestion.py
   - agent_utilities/knowledge_graph/extraction/ontology_grounding.py
   - agent_utilities/knowledge_graph/extraction/readers_media.py
   - agent_utilities/knowledge_graph/extraction/structure_router.py
@@ -2669,6 +2695,14 @@ concepts:
   - agent_utilities/harness/harness_grounding.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: KG-2.108
+- id: KG-2.109
+  name: KG-2.109
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/harness/harness_gate.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  doc: KG-2.109
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
