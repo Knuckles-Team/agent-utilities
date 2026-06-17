@@ -26,7 +26,7 @@ flowchart LR
     SS["source_sync()  ·  sweep_all_sources()\nTHE entrypoint (delta / full / reconcile)"]
     PROV["stamp_source()\nsource_system + domain (provenance)"]
     DELTA["write-layer content-hash delta\nskip unchanged → no write, no re-reason"]
-    WB["write_batch / ingest_external_batch"]
+    WB["write_entities() — THE one writer\n(ingest_external_batch + write_batch\nare thin adapters over it)"]
   end
 
   subgraph EG["epistemic-graph (Rust)"]
@@ -55,6 +55,15 @@ Three things are deliberately **uniform** across every connector:
    `domain` on every row, so named-graph routing, federation, and mirroring treat
    all connectors identically.
 3. **One delta model** — see §4.
+4. **One writer** — `core/materialization.write_entities()`. The two historical
+   write paths (`ingest_external_batch`, dict entities; and `write_batch`, typed
+   `ExtractionBatch` for the materialize/extractor fleet) are now thin adapters
+   over it, so provenance, the content-hash delta, and typed-label batching are
+   implemented once. The writer is **capability-tiered** — UNWIND batch where the
+   backend supports it, per-row MERGE on Ladybug/execute-only, and a
+   lowest-common-denominator `add_node`/`add_edge` fallback for node-only/SPARQL
+   backends — so every connector (including the materialize fleet) gets the
+   write-delta regardless of backend.
 
 ---
 

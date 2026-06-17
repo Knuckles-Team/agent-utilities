@@ -19,10 +19,8 @@ else:
     _Base = object
 
 
-import hashlib
 import json
 import logging
-import os
 import time
 import uuid
 from typing import Any
@@ -310,22 +308,23 @@ class IngestionMixin(_Base):
         This is the primary ingestion API for the hub-and-spoke model (e.g., directory services, ITSM connectors).
         Entities are expected to be pre-mapped to the BFO/PROV-O ontology.
         """
-        # One provenance contract for ALL external ingestion (CONCEPT:KG-2.9): stamp
-        # source_system (named-graph routing / provenance) + domain (federation
-        # resolver key) on every row, identical to the materialize/write_batch path,
-        # so downstream stores (e.g. a Stardog mirror) treat every connector the same.
-        from ..enrichment.provenance import stamp_source
-
-        for _row in entities:
-            stamp_source(_row, domain)
-        for _row in relationships or []:
-            stamp_source(_row, domain)
+        # Delegate to the ONE materialization core (CONCEPT:KG-2.9) — the same
+        # writer the materialize/write_batch path uses, so provenance stamping,
+        # the content-hash write-delta, typed-label UNWIND batching, and the
+        # Ladybug fallback are implemented once. We inject the engine's own
+        # schema-aware helpers so this path stays byte-identical.
+        from .materialization import write_entities
 
         if not self.backend:
             logger.warning(
                 "Backend not available for batch ingestion. Falling back to slow graph compute loop."
             )
-            # graph compute loop fallback
+            from ..enrichment.provenance import stamp_source
+
+            for _row in entities:
+                stamp_source(_row, domain)
+            for _row in relationships or []:
+                stamp_source(_row, domain)
             for e in entities:
                 eid = e.get("id")
                 if eid:
@@ -339,196 +338,18 @@ class IngestionMixin(_Base):
                         self.link_nodes(str(src), str(tgt), str(rtype), r)
             return {"status": "success", "nodes": len(entities), "backend": False}
 
-        # Generic write-layer content-hash delta (CONCEPT:KG-2.9): make EVERY
-        # connector incremental at the write layer. Each entity's stable
-        # content_hash is compared against the stored one and unchanged entities
-        # are dropped — no MERGE, no re-reasoning — even when the source was
-        # fetched in full. Code symbols already carry a content-stable ast_hash
-        # from the Rust parser (symbol:<hash> ids); this extends the same idea to
-        # every source. Falls back to a full write on any backend that can't
-        # answer the prefetch. Disable with KG_WRITE_DELTA=0.
-        skipped_unchanged = 0
-        if os.environ.get("KG_WRITE_DELTA", "1") != "0":
-            entities, skipped_unchanged = self._filter_unchanged_entities(entities)
-            if not entities and not (relationships or []):
-                return {
-                    "status": "success",
-                    "nodes": 0,
-                    "skipped_unchanged": skipped_unchanged,
-                    "backend": True,
-                }
-
-        # Use backend high-throughput UNWIND batching
-        # Check backend capabilities
-        is_ladybug = self.backend.__class__.__name__ == "LadybugBackend"
-
-        if is_ladybug:
-            # Iterative fallback since Ladybug doesn't support UNWIND
-            for row in entities:
-                node_type = row.get("type", "DomainEntity")
-                set_clause = self._get_set_clause(row, "n", label=node_type)
-                q_node = f"MERGE (n:{node_type} {{id: $id}}){set_clause}"
-                self.backend.execute(q_node, row)
-
-            if relationships:
-                for row in relationships:
-                    # Use the REAL rel type so Kuzu builds a typed ``:calls`` /
-                    # ``:depends_on`` table (not a generic ``EXTERNAL_LINK`` that
-                    # collapses every edge). The backend resolves the endpoints'
-                    # node tables by id and binds the rel-pair. (CONCEPT:KG-2.74)
-                    rtype = self._safe_label(row.get("type") or "RELATED")
-                    set_clause = self._get_set_clause(row, "r")
-                    q_rel = (
-                        f"MATCH (s {{id: $source}}) MATCH (t {{id: $target}}) "
-                        f"MERGE (s)-[r:{rtype}]->(t){set_clause}"
-                    )
-                    self.backend.execute(q_rel, row)
-        else:
-            # Use Neo4j/FalkorDB/AGE/epistemic high-throughput UNWIND batching.
-            # Group by the REAL node type / edge rel-type so each entity keeps its
-            # specific label (e.g. :Application, :BusinessProcess) instead of being
-            # flattened to the generic :DomainEntity superclass — uniform with the
-            # materialize/write_batch path, and so a SPARQL mirror types each node
-            # by rdf:type correctly. One UNWIND per type-group preserves batching.
-            for label, rows in self._group_by_label(entities).items():
-                keys = sorted({k for row in rows for k in row} - {"id"})
-                set_clause = (
-                    "SET " + ", ".join([f"n.`{k}` = row.`{k}`" for k in keys])
-                    if keys
-                    else ""
-                )
-                q_nodes = (
-                    f"UNWIND $batch AS row "
-                    f"MERGE (n:{label} {{id: row.id}}) {set_clause}".rstrip()
-                )
-                self.backend.execute_batch(q_nodes, rows)
-
-            for rel, rows in self._group_by_rel(relationships or []).items():
-                r_keys = sorted(
-                    {k for row in rows for k in row} - {"source", "target", "type"}
-                )
-                r_set_clause = (
-                    "SET " + ", ".join([f"r.`{k}` = row.`{k}`" for k in r_keys])
-                    if r_keys
-                    else ""
-                )
-                q_rels = (
-                    f"UNWIND $batch AS row "
-                    f"MATCH (s {{id: row.source}}) MATCH (t {{id: row.target}}) "
-                    f"MERGE (s)-[r:{rel}]->(t) {r_set_clause}".rstrip()
-                )
-                self.backend.execute_batch(q_rels, rows)
-
-        return {
-            "status": "success",
-            "nodes": len(entities),
-            "skipped_unchanged": skipped_unchanged,
-            "backend": True,
-        }
-
-    # Properties that must NOT contribute to the content hash: the hash itself,
-    # and volatile provenance/observation timestamps that change every ingest.
-    _VOLATILE_HASH_KEYS = frozenset(
-        {
-            "content_hash",
-            "_ingested_at",
-            "ingested_at",
-            "validFrom",
-            "validTo",
-            "observedAt",
-            "lastSeen",
-            "syncedAt",
-            "_kg_ts",
-        }
-    )
-
-    def _content_hash(self, row: dict[str, Any]) -> str:
-        """Stable SHA-256 over an entity's semantic properties (id + volatile
-        timestamps excluded), so an unchanged upstream record hashes identically
-        across ingests."""
-        payload = {
-            k: v
-            for k, v in row.items()
-            if k != "id" and k not in self._VOLATILE_HASH_KEYS
-        }
-        blob = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
-        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
-
-    def _filter_unchanged_entities(
-        self, entities: list[dict[str, Any]]
-    ) -> tuple[list[dict[str, Any]], int]:
-        """Stamp ``content_hash`` on each entity and drop the ones whose stored
-        hash is unchanged (generic write-layer delta). Best-effort: any backend
-        that can't answer the batched prefetch yields a full write (correct, just
-        not deduped)."""
-        if not entities or self.backend is None:
-            return entities, 0
-        for row in entities:
-            if row.get("id") is not None:
-                row["content_hash"] = self._content_hash(row)
-        ids = [str(r["id"]) for r in entities if r.get("id") is not None]
-        if not ids:
-            return entities, 0
-        stored: dict[str, str] = {}
-        try:
-            rows = self.backend.execute(
-                "MATCH (n) WHERE n.id IN $ids RETURN n.id AS id, n.content_hash AS h",
-                {"ids": ids},
-            )
-            for r in rows or []:
-                if isinstance(r, dict) and r.get("id") is not None and r.get("h"):
-                    stored[str(r["id"])] = str(r["h"])
-        except Exception:  # noqa: BLE001 — prefetch is an optimization, never fatal
-            logger.debug(
-                "content-hash prefetch failed; writing full batch", exc_info=True
-            )
-            return entities, 0
-        if not stored:
-            return entities, 0
-        changed = [
-            r
-            for r in entities
-            if r.get("id") is None or stored.get(str(r["id"])) != r.get("content_hash")
-        ]
-        return changed, len(entities) - len(changed)
-
-    def _group_by_label(
-        self, entities: list[dict[str, Any]]
-    ) -> dict[str, list[dict[str, Any]]]:
-        """Bucket entities by their normalized, label-safe node type (fallback
-        ``DomainEntity``) for per-type UNWIND MERGE."""
-        groups: dict[str, list[dict[str, Any]]] = {}
-        for row in entities:
-            groups.setdefault(self._safe_label(row.get("type")), []).append(row)
-        return groups
-
-    def _group_by_rel(
-        self, relationships: list[dict[str, Any]]
-    ) -> dict[str, list[dict[str, Any]]]:
-        """Bucket edges by their label-safe rel type (fallback ``EXTERNAL_LINK``)."""
-        groups: dict[str, list[dict[str, Any]]] = {}
-        for row in relationships:
-            groups.setdefault(
-                self._safe_label(row.get("type"), fallback="EXTERNAL_LINK"), []
-            ).append(row)
-        return groups
-
-    def _safe_label(self, raw: Any, *, fallback: str = "DomainEntity") -> str:
-        """A Cypher-safe label from a node/edge type: normalize via the schema, then
-        require a bare identifier so it can be inlined into MERGE; else the generic
-        fallback superclass (real type survives as the ``type`` property regardless)."""
-        import re as _re
-
-        # _normalize_label is provided by the composed engine (IntelligenceGraphEngine),
-        # not this mixin's base — resolve dynamically so a node type is canonicalized
-        # to its schema casing when available.
-        normalize = getattr(self, "_normalize_label", None)
-        label = (
-            normalize(str(raw or ""))
-            if (raw and callable(normalize))
-            else str(raw or "")
+        # The schema-aware helpers live on the composed engine, not this mixin's
+        # base — resolve them dynamically (as the old _safe_label did) so the
+        # engine path stays byte-identical while write_entities falls back to its
+        # faithful free defaults if a bare mixin is ever used.
+        return write_entities(
+            self.backend,
+            domain,
+            entities,
+            relationships,
+            set_clause_fn=getattr(self, "_get_set_clause", None),
+            normalize_fn=getattr(self, "_normalize_label", None),
         )
-        return label if _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label) else fallback
 
     def re_embed_node(self, node_id: str) -> bool:
         """Dynamically re-calculate and store the context-aware embedding for a node.

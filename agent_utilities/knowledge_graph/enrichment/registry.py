@@ -76,30 +76,34 @@ def write_batch(
     graph on a SPARQL mirror just like hydration sources. Omit ``source`` for
     internal-fact batches (finance/synthesize) to leave them untagged.
     """
-    from .provenance import stamp_source
+    # Delegate to the ONE materialization core (CONCEPT:KG-2.9): convert the typed
+    # ExtractionBatch to standardized entity/relationship dicts and write them
+    # through the same path ``ingest_external_batch`` uses. This is what gives the
+    # materialize/extractor fleet the content-hash write-delta + UNWIND batching
+    # for free — there is no longer a second, thinner per-node writer. Provenance
+    # stamping happens inside ``write_entities`` (a no-op when ``source`` is falsy,
+    # so internal finance/synthesize batches stay untagged exactly as before).
+    from ..core.materialization import write_entities
 
-    n = e = 0
-    for node in batch.nodes:
-        props = stamp_source(
-            {k: v for k, v in node.props.items() if v is not None}, source
-        )
-        try:
-            backend.add_node(node.id, type=node.type, **props)
-            n += 1
-        except Exception as exc:  # pragma: no cover - backend transport
-            logger.debug("write_batch node %s failed: %s", node.id, exc)
-    add_edge = getattr(backend, "add_edge", None)
-    if callable(add_edge):
-        for edge in batch.edges:
-            edge_props = stamp_source(
-                {k: v for k, v in edge.props.items() if v is not None}, source
-            )
-            try:
-                add_edge(edge.source, edge.target, rel_type=edge.rel_type, **edge_props)
-                e += 1
-            except Exception as exc:  # pragma: no cover
-                logger.debug("write_batch edge failed: %s", exc)
-    return n, e
+    entities = [
+        {
+            "id": node.id,
+            "type": node.type,
+            **{k: v for k, v in node.props.items() if v is not None},
+        }
+        for node in batch.nodes
+    ]
+    relationships = [
+        {
+            "source": edge.source,
+            "target": edge.target,
+            "type": edge.rel_type,
+            **{k: v for k, v in edge.props.items() if v is not None},
+        }
+        for edge in batch.edges
+    ]
+    result = write_entities(backend, source or "", entities, relationships)
+    return int(result.get("nodes", 0)), int(result.get("edges", 0))
 
 
 def discover_extractors() -> int:
