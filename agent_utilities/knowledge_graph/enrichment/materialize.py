@@ -78,6 +78,7 @@ def materialize_source(
 _CLIENT_MODULES: dict[str, str] = {
     "aris": "aris_mcp",
     "egeria": "egeria_mcp",
+    "ciso_assistant": "ciso_assistant_api",
     "nextcloud": "nextcloud_agent",
     "okta": "okta_agent",
     "keycloak": "keycloak_agent",
@@ -155,6 +156,7 @@ MATERIALIZE_SOURCES: frozenset[str] = frozenset(
         "camunda",
         "aris",
         "egeria",
+        "ciso_assistant",
         "servicenow",
         "erpnext",
         "nextcloud",

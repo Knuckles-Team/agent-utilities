@@ -86,7 +86,7 @@ wheels = [
 
 [[package]]
 name = "agent-utilities"
-version = "0.50.0"
+version = "0.51.0"
 source = { editable = "." }
 dependencies = [
     { name = "confluent-kafka" },
@@ -211,6 +211,7 @@ all = [
     { name = "skill-graphs" },
     { name = "slack-bolt" },
     { name = "statsmodels" },
+    { name = "syrupy" },
     { name = "torch" },
     { name = "twilio" },
     { name = "twitchio" },
@@ -434,6 +435,7 @@ test = [
     { name = "scikit-learn" },
     { name = "skill-graphs" },
     { name = "statsmodels" },
+    { name = "syrupy" },
     { name = "torch" },
     { name = "universal-skills" },
     { name = "websockets" },
@@ -479,6 +481,7 @@ test-backends = [
     { name = "scikit-learn" },
     { name = "skill-graphs" },
     { name = "statsmodels" },
+    { name = "syrupy" },
     { name = "testcontainers" },
     { name = "torch" },
     { name = "universal-skills" },
@@ -493,14 +496,14 @@ vault = [
 requires-dist = [
     { name = "acpkit", extras = ["pydantic"], marker = "extra == 'acp'", specifier = ">=0.9.6" },
     { name = "agent-terminal-ui", marker = "extra == 'terminal'", specifier = ">=0.14.0" },
-    { name = "agent-utilities", extras = ["agent"], marker = "extra == 'logfire'", specifier = ">=0.50.0" },
+    { name = "agent-utilities", extras = ["agent"], marker = "extra == 'logfire'", specifier = ">=0.51.0" },
     { name = "agent-utilities", extras = ["agent", "graph", "acp", "owl", "finance", "event-kafka"], marker = "extra == 'test'" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.50.0" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.50.0" },
-    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.50.0" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=0.51.0" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=0.51.0" },
+    { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=0.51.0" },
     { name = "agent-utilities", extras = ["finance"], marker = "extra == 'finance-kronos'" },
-    { name = "agent-utilities", extras = ["mcp", "ag-ui", "terminal"], marker = "extra == 'agent'", specifier = ">=0.50.0" },
-    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "documents", "graph", "ann", "browser", "test", "owl", "stardog", "vault", "auth", "finance", "messaging"], marker = "extra == 'all'", specifier = ">=0.50.0" },
+    { name = "agent-utilities", extras = ["mcp", "ag-ui", "terminal"], marker = "extra == 'agent'", specifier = ">=0.51.0" },
+    { name = "agent-utilities", extras = ["mcp", "agent", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "acp", "documents", "graph", "ann", "browser", "test", "owl", "stardog", "vault", "auth", "finance", "messaging"], marker = "extra == 'all'", specifier = ">=0.51.0" },
     { name = "agent-utilities", extras = ["messaging-discord", "messaging-slack", "messaging-telegram", "messaging-whatsapp", "messaging-teams", "messaging-googlechat", "messaging-googlemeet", "messaging-mattermost", "messaging-matrix", "messaging-irc", "messaging-signal", "messaging-line", "messaging-twitch", "messaging-synology", "messaging-voicecall", "messaging-nextcloud"], marker = "extra == 'messaging'" },
     { name = "agent-utilities", extras = ["owl"], marker = "extra == 'stardog'" },
     { name = "agent-utilities", extras = ["test", "neo4j", "falkordb", "postgresql", "kafka", "owl", "fuseki"], marker = "extra == 'test-backends'" },
@@ -514,7 +517,7 @@ requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "discord-py", marker = "extra == 'messaging-discord'", specifier = ">=2.7.1" },
     { name = "dspy-ai", specifier = ">=3.2.1" },
-    { name = "epistemic-graph", specifier = ">=0.30.0" },
+    { name = "epistemic-graph", specifier = ">=0.31.0" },
     { name = "eunomia-mcp", marker = "extra == 'mcp'", specifier = ">=0.3.10" },
     { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.6.1" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.137.0" },
@@ -604,6 +607,7 @@ requires-dist = [
     { name = "skill-graphs", marker = "extra == 'agent'", specifier = ">=0.38.0" },
     { name = "slack-bolt", marker = "extra == 'messaging-slack'", specifier = ">=1.28.0" },
     { name = "statsmodels", marker = "extra == 'finance'", specifier = ">=0.14.6" },
+    { name = "syrupy", marker = "extra == 'test'", specifier = ">=4.0" },
     { name = "testcontainers", marker = "extra == 'test-backends'", specifier = ">=4.14.2" },
     { name = "torch", marker = "extra == 'finance'", specifier = ">=2.12.0" },
     { name = "transformers", marker = "extra == 'finance-kronos'", specifier = ">=5.12.0" },
@@ -1954,17 +1958,17 @@ wheels = [
 
 [[package]]
 name = "epistemic-graph"
-version = "0.30.0"
+version = "0.31.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "msgpack" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/63/90/dbb4b5f1a6440c0777750bef95fc0a9487c3528e4fcccd5774dfeffa852a/epistemic_graph-0.30.0.tar.gz", hash = "sha256:6e10db26242f607f4b18f99c7f1b2d89d4e8fa26932326a75d4d25b3b26c5426", size = 358840, upload-time = "2026-06-16T15:30:28.35Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/60/8c/0ae54c4254cce6e46d7256fdea65d2f1d87d9df3333b58b365a3690e6d24/epistemic_graph-0.31.0.tar.gz", hash = "sha256:e3f7613554480801548810952f2f44185c090a791a66968b87f23a6299ba282f", size = 375744, upload-time = "2026-06-17T05:20:19.471Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/30/bf97e5f544451c7531daa63ec3e0bce5f737419347edb09938c6ccf6bdc9/epistemic_graph-0.30.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:8cff892012089b3812d0d89347d6041160dbe5002e7a22883876e4970a06bbc4", size = 1680647, upload-time = "2026-06-16T15:30:23.248Z" },
-    { url = "https://files.pythonhosted.org/packages/a5/b4/62278ed770c782953a9fa270e4de42d0856d365833a4bbad8aef19476c78/epistemic_graph-0.30.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:07032292d9f18d7d62460842a9e0ee39f755995d08a534ca6cb229312aff6b99", size = 1884253, upload-time = "2026-06-16T15:30:24.612Z" },
-    { url = "https://files.pythonhosted.org/packages/e5/41/102ca4c3b93bb8f6a87d8f978a63ef57d0d2c55c54bff889245c35d29529/epistemic_graph-0.30.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:b8c5f2e71ddf0550c78cefecce52681f2e71d60333b09a73e4fb7c5ac30d5ce9", size = 2078191, upload-time = "2026-06-16T15:30:25.97Z" },
-    { url = "https://files.pythonhosted.org/packages/0b/b3/f63a5389581a5e694656b133a20e4fee723967378f4822b2d37e25e325fb/epistemic_graph-0.30.0-py3-none-win_amd64.whl", hash = "sha256:4e06568ff77e8673f66db2ea3c69a01daef386aaacd5bfb66b544d23f89a333e", size = 1909764, upload-time = "2026-06-16T15:30:27.193Z" },
+    { url = "https://files.pythonhosted.org/packages/21/1c/cae5f82430ed35e700169c9c1fa643bc33958a8005e95b488880e99ac032/epistemic_graph-0.31.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:55d3cacfe789b2b44e9c8ba2736522198dd9c505a8555105c4b23bf81f9ea289", size = 1681849, upload-time = "2026-06-17T05:20:13.728Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/81/0af0ccfad2173d5417494fe2ef939ed6e30dce6c1e6d1d58582d0b45f99f/epistemic_graph-0.31.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:60c7aa9f5f81691cdabe2e6486ecdb48a4501c180254c63ce50f6cd9b938d5f5", size = 1888605, upload-time = "2026-06-17T05:20:15.547Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/29/7add39ea7b21a2d3068229d19824133781cd8ffe6ffb10a47102a6bcd577/epistemic_graph-0.31.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:16263853d7e86675339f244e3537240e043b8485f1a30d0ba63c3b55fba80ae6", size = 2083358, upload-time = "2026-06-17T05:20:17.074Z" },
+    { url = "https://files.pythonhosted.org/packages/71/27/4e27b172bac84e54bd51b13181793c965a8e2af39150364f65f786124211/epistemic_graph-0.31.0-py3-none-win_amd64.whl", hash = "sha256:2405d6db51bab0656ec284d67220670b1a53f2a3ac1c3cb93ce770243af773b0", size = 1912430, upload-time = "2026-06-17T05:20:18.325Z" },
 ]
 
 [[package]]
@@ -7411,6 +7415,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/83/d3/803453b36afefb7c2bb238361cd4ae6125a569b4db67cd9e79846ba2d68c/sympy-1.14.0.tar.gz", hash = "sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517", size = 7793921, upload-time = "2025-04-27T18:05:01.611Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5", size = 6299353, upload-time = "2025-04-27T18:04:59.103Z" },
+]
+
+[[package]]
+name = "syrupy"
+version = "5.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/72/c793cd7c56b09f71be80ee2f4cc64c8e2b6a3dc8abf37fbfb09785aa00a7/syrupy-5.3.2.tar.gz", hash = "sha256:d4c9d4badb165a5694dcd869812717d899a8aa0b6f14f842437cb57c4ce09b3a", size = 85948, upload-time = "2026-06-09T14:46:32.721Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/19/e45765fa26388f42e22af2fc27f06e78e1da56d4211f883f6f8ddaac7646/syrupy-5.3.2-py3-none-any.whl", hash = "sha256:a4cb08f07342655816c16b6b3aef5f6af8859ef5fbad6a57d0e2c20c0f8be54c", size = 52643, upload-time = "2026-06-09T14:46:31.168Z" },
 ]
 
 [[package]]
