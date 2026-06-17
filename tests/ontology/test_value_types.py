@@ -155,7 +155,7 @@ def _try_rdflib_parse(turtle: str):
     return g
 
 
-def test_to_shacl_property_shape_parses():
+def test_to_shacl_reusable_node_shape_parses():
     vt = VALUE_TYPES["EmailAddress"]
     from agent_utilities.knowledge_graph.ontology.value_types import SHAPES_PREFIXES
 
@@ -164,11 +164,15 @@ def test_to_shacl_property_shape_parses():
     if g is not None:
         from rdflib.namespace import SH
 
-        # The shape must declare sh:pattern and an sh:datatype.
+        # The reusable shape is a sh:NodeShape (a path-less PropertyShape is
+        # invalid SHACL) declaring sh:pattern and an sh:datatype.
+        node_shapes = set(g.subjects(predicate=None, object=SH.NodeShape))
+        assert node_shapes, "EmailAddress reusable shape must be a sh:NodeShape"
         patterns = list(g.subject_objects(SH.pattern))
         assert patterns, "EmailAddress SHACL shape must carry sh:pattern"
         assert list(g.subject_objects(SH.datatype))
     else:  # structural fallback
+        assert "a sh:NodeShape" in turtle
         assert "sh:pattern" in turtle and "sh:datatype" in turtle
         assert turtle.rstrip().endswith(".")
 
@@ -199,11 +203,11 @@ def test_full_registry_shapes_ttl_parses():
     if g is not None:
         from rdflib.namespace import SH
 
-        shapes = set(g.subjects(predicate=None, object=SH.PropertyShape))
-        # one PropertyShape per registered value type
+        shapes = set(g.subjects(predicate=None, object=SH.NodeShape))
+        # one reusable NodeShape per registered value type
         assert len(shapes) >= len(list_value_types())
     else:  # structural fallback
-        assert turtle.count("a sh:PropertyShape") >= len(list_value_types())
+        assert turtle.count("a sh:NodeShape") >= len(list_value_types())
 
 
 # --- OWL datatype restriction emission ---------------------------------------
@@ -266,7 +270,7 @@ def test_write_value_shapes_ttl_materializes_loadable_file(tmp_path):
     if g is not None:
         assert len(g) > 0
     else:  # structural fallback
-        assert "sh:PropertyShape" in content
+        assert "sh:NodeShape" in content
 
 
 # --- in-memory shapes validation (Option A: no disk round-trip) --------------
