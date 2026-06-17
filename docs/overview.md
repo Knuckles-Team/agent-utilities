@@ -222,6 +222,8 @@ graph TD
 | KG-2.71 | Shortcut-Risk Detectors | Four graph-query detectors — single-clue selectivity, evidence co-coverage, exposed constants, prior-knowledge binding — over the evidence graph (`knowledge_graph/search_synthesis/shortcut_risks.py`) |
 | KG-2.72 | Question Formulation & Adversarial Refinement | Render a clue subgraph as a verifiable question (name withholding) and adversarially refine until no shortcut trips (`knowledge_graph/search_synthesis/question_formulation.py`) |
 | KG-2.73 | Learned World-Model Backend + SAI Track | Parametric latent-dynamics backend for the world model that generalizes to unseen `(state, action)` (ridge map over embeddings), plus a `WorldModelVerifier` making prediction accuracy a SAI specialization domain (`knowledge_graph/core/world_model.py`, `harness/world_model_task.py`) |
+| KG-2.9 | Vendor-Neutral Enterprise Crosswalk | Bidirectional source connectors with each per-system class related to one canonical concept, making cross-vendor enterprise reasoning vendor-neutral (ServiceNow/ERPNext, LeanIX/Camunda/ARIS); risk-tier approval queue for high-stakes write-backs |
+| KG-2.81 | Finance Microstructure / Kyle-Surveillance Ontology | `MicrostructureSignal` and `SurveillanceSignal` OWL interfaces plus typed links (`grounded_in` Article / `relates_to` Concept) and promoted node types for insider/stealth surveillance signals (`knowledge_graph/ontology/finance_objects.py`) |
 
 ### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.21)
 
