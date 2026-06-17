@@ -1012,9 +1012,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         closed before returning (CONCEPT:KG-2.59 session lifecycle).
         """
 
-        async def run() -> tuple[
-            list[SourceDocument], dict[str, Any], bool, str | None
-        ]:
+        async def run() -> (
+            tuple[list[SourceDocument], dict[str, Any], bool, str | None]
+        ):
             docs: list[SourceDocument] = []
             new_state = dict(state)
             exhausted = False
