@@ -4,6 +4,9 @@
 # natively via the `cypher()` function, retiring the bounded regex transpiler) and
 # keeps pgvector for embeddings. apache/age ships Postgres 18 (Debian trixie, PGDG)
 # so pgvector installs from apt — no compile.
+# apache/age publishes no semver release tags (only :latest), so we track latest by
+# design; hadolint DL3007 is intentional here.
+# hadolint ignore=DL3007
 FROM apache/age:latest
 
 USER root
