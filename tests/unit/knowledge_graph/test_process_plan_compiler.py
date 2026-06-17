@@ -95,6 +95,29 @@ class _BatchWriter:
         rel = props.pop("rel_type", "RELATES_TO")
         self.engine.graph.add_edge(src, tgt, type=rel, **props)
 
+    # The one writer (write_entities) persists via UNWIND execute_batch; route
+    # those rows into the FakeGraph through the add_node/add_edge above.
+    def execute(self, query, params=None):
+        return []
+
+    def execute_batch(self, query, batch):
+        if "MERGE (n:" in query:
+            for row in batch:
+                self.add_node(row["id"], **{k: v for k, v in row.items() if k != "id"})
+        elif "MERGE (s)-[r:" in query:
+            for row in batch:
+                self.add_edge(
+                    row["source"],
+                    row["target"],
+                    rel_type=row.get("type"),
+                    **{
+                        k: v
+                        for k, v in row.items()
+                        if k not in ("source", "target", "type")
+                    },
+                )
+        return []
+
 
 def _seeded_engine(servers=("review", "archive")):
     """Extractor fixture (KG-2.53) → KG subgraph → compiler input."""

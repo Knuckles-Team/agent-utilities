@@ -33,30 +33,22 @@ def test_write_batch_stamps_source_system():
         GraphNode,
     )
     from agent_utilities.knowledge_graph.enrichment.registry import write_batch
-
-    captured = []
-
-    class _BE:
-        def add_node(self, node_id, type=None, **props):
-            captured.append(("node", node_id, props))
-
-        def add_edge(self, s, t, rel_type=None, **props):
-            captured.append(("edge", s, t, props))
+    from tests.kg_recording_backend import RecordingGraphBackend
 
     batch = ExtractionBatch(
         nodes=[GraphNode(id="a:1", type="Asset", props={"name": "x"})],
         edges=[EnrichmentEdge(source="a:1", target="a:2", rel_type="LINKS", props={})],
     )
-    write_batch(_BE(), batch, source="egeria")
-    node = next(c for c in captured if c[0] == "node")
-    assert node[2]["source_system"] == "egeria" and node[2]["domain"] == "egeria"
-    edge = next(c for c in captured if c[0] == "edge")
-    assert edge[3]["source_system"] == "egeria"
+    be = RecordingGraphBackend()
+    write_batch(be, batch, source="egeria")
+    assert be.nodes["a:1"]["source_system"] == "egeria"
+    assert be.nodes["a:1"]["domain"] == "egeria"
+    assert be.edge_props[0]["source_system"] == "egeria"
 
-    # No source → untouched (internal-fact batches).
-    captured.clear()
-    write_batch(_BE(), batch)
-    assert "source_system" not in next(c for c in captured if c[0] == "node")[2]
+    # No source → untagged (internal-fact batches).
+    be2 = RecordingGraphBackend()
+    write_batch(be2, batch)
+    assert "source_system" not in be2.nodes["a:1"]
 
 
 # ── run_etl dispatch ─────────────────────────────────────────────────────────

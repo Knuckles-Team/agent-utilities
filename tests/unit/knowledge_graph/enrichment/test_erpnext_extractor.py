@@ -61,16 +61,7 @@ class Config:
         self.client = client
 
 
-class FakeBackend:
-    def __init__(self):
-        self.nodes = {}
-        self.edges = []
-
-    def add_node(self, node_id, **props):
-        self.nodes[node_id] = props
-
-    def add_edge(self, s, t, **props):
-        self.edges.append((s, t, props.get("rel_type")))
+from tests.kg_recording_backend import RecordingGraphBackend as FakeBackend
 
 
 def _run():

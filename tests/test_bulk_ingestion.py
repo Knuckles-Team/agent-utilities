@@ -66,7 +66,6 @@ def test_ingest_external_batch():
 
     assert result["status"] == "success"
     assert result["nodes"] == 2
-    assert result["backend"] is True
 
     # Verify the backend received the UNWIND batch execution
     assert len(mock_backend.batches) == 2

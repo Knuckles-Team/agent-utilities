@@ -7,32 +7,24 @@ helpers in isolation (no heavy engine init).
 
 from __future__ import annotations
 
-from agent_utilities.knowledge_graph.core.engine_ingestion import IngestionMixin
-
-
-class _Grouper(IngestionMixin):
-    """Bare instance exposing only the helpers (identity label normalization)."""
-
-    def __init__(self):  # noqa: D401 - bypass the heavy engine __init__
-        pass
-
-    def _normalize_label(self, label):
-        return label
+from agent_utilities.knowledge_graph.core.materialization import (
+    group_by_label,
+    group_by_rel,
+    safe_label,
+)
 
 
 def test_safe_label_keeps_valid_identifiers_and_falls_back():
-    g = _Grouper()
-    assert g._safe_label("Application") == "Application"
-    assert g._safe_label("BusinessProcess") == "BusinessProcess"
-    assert g._safe_label("has space") == "DomainEntity"
-    assert g._safe_label("weird-dash") == "DomainEntity"
-    assert g._safe_label(None) == "DomainEntity"
-    assert g._safe_label(None, fallback="EXTERNAL_LINK") == "EXTERNAL_LINK"
+    assert safe_label("Application") == "Application"
+    assert safe_label("BusinessProcess") == "BusinessProcess"
+    assert safe_label("has space") == "DomainEntity"
+    assert safe_label("weird-dash") == "DomainEntity"
+    assert safe_label(None) == "DomainEntity"
+    assert safe_label(None, fallback="EXTERNAL_LINK") == "EXTERNAL_LINK"
 
 
 def test_group_by_label_buckets_by_real_type():
-    g = _Grouper()
-    groups = g._group_by_label(
+    groups = group_by_label(
         [
             {"id": "a:1", "type": "Application"},
             {"id": "a:2", "type": "Application"},
@@ -46,8 +38,7 @@ def test_group_by_label_buckets_by_real_type():
 
 
 def test_group_by_rel_buckets_by_real_rel_type():
-    g = _Grouper()
-    groups = g._group_by_rel(
+    groups = group_by_rel(
         [
             {"source": "a", "target": "b", "type": "SUPPORTS"},
             {"source": "b", "target": "c", "type": "SUPPORTS"},

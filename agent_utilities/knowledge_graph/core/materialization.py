@@ -8,14 +8,13 @@ A single write path for every connector. Both ingestion adapters delegate here:
   materialize / extractor path (camunda, egeria, okta, finance, …).
 
 So provenance stamping, the content-hash write-delta, typed-label UNWIND
-batching, and the Ladybug iterative fallback are implemented ONCE — there is no
+batching, and the Ladybug per-row variant are implemented ONCE — there is no
 second, thinner writer that silently misses delta or batching.
 
-The two schema-aware helpers (label normalization + the SET-clause column filter)
-live on the composed engine and have many non-write callers, so they are *not*
-moved here; instead ``write_entities`` accepts them as injected callables. The
-engine adapter passes its own (so its path is byte-identical to before); the
-backend-only ``write_batch`` adapter uses the faithful free defaults below.
+The schema-aware helpers here (``normalize_label``, ``schema_valid_keys``,
+``set_clause``) are the single source of truth; the engine's ``_normalize_label``
+/ ``_schema_valid_keys`` / ``_get_set_clause`` methods (which have many non-write
+callers) delegate to them, so the logic is not duplicated.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Callable
 from typing import Any
 
 from agent_utilities.core.config import setting
@@ -138,11 +136,12 @@ def schema_valid_keys(backend: Any, label: str | None) -> set[str] | None:
     return None
 
 
-def default_set_clause(
+def set_clause(
     data: dict[str, Any], backend: Any, alias: str = "n", label: str | None = None
 ) -> str:
-    """Free default SET clause (mirror of the engine's ``_get_set_clause``) for the
-    backend-only ``write_batch`` path."""
+    """The one SET-clause builder: skip ``id``, filter to declared columns on
+    schema-backed backends. The engine's ``_get_set_clause`` delegates here, so
+    there is a single implementation."""
     if label:
         label = normalize_label(label)
     if alias == "r" and backend and backend.__class__.__name__ == "LadybugBackend":
@@ -158,44 +157,33 @@ def default_set_clause(
     return " SET " + ", ".join(sets) if sets else ""
 
 
-def safe_label(
-    raw: Any,
-    *,
-    fallback: str = "DomainEntity",
-    normalize: Callable[[str], str] | None = None,
-) -> str:
+def safe_label(raw: Any, *, fallback: str = "DomainEntity") -> str:
     """A Cypher-safe label from a node/edge type: normalize via the schema, then
     require a bare identifier so it can be inlined into MERGE; else the generic
     fallback superclass (the real type survives as the ``type`` property)."""
-    norm = normalize or normalize_label
-    label = norm(str(raw or "")) if raw else str(raw or "")
+    label = normalize_label(str(raw or "")) if raw else str(raw or "")
     return label if _LABEL_RE.fullmatch(label) else fallback
 
 
 def group_by_label(
-    entities: list[dict[str, Any]], *, normalize: Callable[[str], str] | None = None
+    entities: list[dict[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
     """Bucket entities by their normalized, label-safe node type for per-type
     UNWIND MERGE (fallback ``DomainEntity``)."""
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in entities:
-        groups.setdefault(safe_label(row.get("type"), normalize=normalize), []).append(
-            row
-        )
+        groups.setdefault(safe_label(row.get("type")), []).append(row)
     return groups
 
 
 def group_by_rel(
     relationships: list[dict[str, Any]],
-    *,
-    normalize: Callable[[str], str] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Bucket edges by their label-safe rel type (fallback ``EXTERNAL_LINK``)."""
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in relationships:
         groups.setdefault(
-            safe_label(row.get("type"), fallback="EXTERNAL_LINK", normalize=normalize),
-            [],
+            safe_label(row.get("type"), fallback="EXTERNAL_LINK"), []
         ).append(row)
     return groups
 
@@ -210,20 +198,16 @@ def write_entities(
     relationships: list[dict[str, Any]] | None = None,
     *,
     delta: bool = True,
-    set_clause_fn: Callable[..., str] | None = None,
-    normalize_fn: Callable[[str], str] | None = None,
 ) -> dict[str, Any]:
     """Persist standardized entity/relationship dicts to ``backend`` — the single
-    materialization path (CONCEPT:KG-2.9).
+    materialization implementation (CONCEPT:KG-2.9).
 
     Stamps the shared provenance contract, applies the content-hash write-delta
     (unless ``KG_WRITE_DELTA=0`` or ``delta=False``), then writes via per-type
-    UNWIND MERGE (typed labels preserved) — or the iterative Ladybug fallback.
-
-    ``set_clause_fn``/``normalize_fn`` let the composed engine inject its own
-    schema-aware helpers so its path is byte-identical; the backend-only caller
-    omits them and gets the faithful free defaults above. Returns
-    ``{status, nodes, edges, skipped_unchanged, backend}``.
+    UNWIND MERGE (typed labels preserved). ``execute``/``execute_batch`` are
+    ``@abstractmethod`` on ``GraphBackend`` — every backend provides them — so
+    there is exactly one write path, with a per-row variant only for Ladybug
+    (Kuzu has no UNWIND). Returns ``{status, nodes, edges, skipped_unchanged}``.
     """
     from ..enrichment.provenance import stamp_source
 
@@ -233,19 +217,8 @@ def write_entities(
     for row in rels:
         stamp_source(row, domain)
 
-    # Backend capability tiers — the one writer adapts to what the backend offers:
-    #   1. execute_batch (+ not Ladybug) → high-throughput UNWIND MERGE (the norm).
-    #   2. Ladybug / execute-only       → per-row execute MERGE (Kuzu has no UNWIND).
-    #   3. add_node only                → lowest-common-denominator add_node/add_edge
-    #      (node-only / SPARQL-style backends — the original write_batch path).
-    is_ladybug = backend.__class__.__name__ == "LadybugBackend"
-    has_execute = callable(getattr(backend, "execute", None))
-    has_execute_batch = callable(getattr(backend, "execute_batch", None))
-
-    # The content-hash delta needs ``execute`` for its prefetch; skip it on
-    # add_node-only backends (they keep the original full-write behavior).
     skipped_unchanged = 0
-    if delta and has_execute and str(setting("KG_WRITE_DELTA", "1")) != "0":
+    if delta and str(setting("KG_WRITE_DELTA", "1")) != "0":
         entities, skipped_unchanged = filter_unchanged(backend, entities)
         if not entities and not rels:
             return {
@@ -253,94 +226,63 @@ def write_entities(
                 "nodes": 0,
                 "edges": 0,
                 "skipped_unchanged": skipped_unchanged,
-                "backend": True,
             }
-
-    if set_clause_fn is None:
-
-        def set_clause_fn(  # noqa: ANN001
-            data: dict[str, Any], alias: str = "n", label: str | None = None
-        ) -> str:
-            return default_set_clause(data, backend, alias, label)
 
     edges = 0
 
-    if has_execute_batch and not is_ladybug:
-        # Tier 1 — Neo4j/FalkorDB/AGE/epistemic high-throughput UNWIND batching,
-        # grouped by the REAL node/rel type so each entity keeps its specific label.
-        for label, rows in group_by_label(entities, normalize=normalize_fn).items():
-            keys = sorted({k for row in rows for k in row} - {"id"})
-            clause = (
-                "SET " + ", ".join([f"n.`{k}` = row.`{k}`" for k in keys])
-                if keys
-                else ""
-            )
-            backend.execute_batch(
-                f"UNWIND $batch AS row MERGE (n:{label} {{id: row.id}}) {clause}".rstrip(),
-                rows,
-            )
-        for rel, rows in group_by_rel(rels, normalize=normalize_fn).items():
-            r_keys = sorted(
-                {k for row in rows for k in row} - {"source", "target", "type"}
-            )
-            clause = (
-                "SET " + ", ".join([f"r.`{k}` = row.`{k}`" for k in r_keys])
-                if r_keys
-                else ""
-            )
-            backend.execute_batch(
-                f"UNWIND $batch AS row MATCH (s {{id: row.source}}) "
-                f"MATCH (t {{id: row.target}}) MERGE (s)-[r:{rel}]->(t) {clause}".rstrip(),
-                rows,
-            )
-            edges += len(rows)
-    elif has_execute:
-        # Tier 2 — Ladybug (Kuzu) / execute-only backends: per-row MERGE.
+    if backend.__class__.__name__ == "LadybugBackend":
+        # Ladybug (Kuzu) has no UNWIND — per-row MERGE via the shared SET clause.
         for row in entities:
-            node_type = safe_label(row.get("type"), normalize=normalize_fn)
-            clause = set_clause_fn(row, "n", node_type)
-            backend.execute(f"MERGE (n:{node_type} {{id: $id}}){clause}", row)
+            node_type = safe_label(row.get("type"))
+            backend.execute(
+                f"MERGE (n:{node_type} {{id: $id}}){set_clause(row, backend, 'n', node_type)}",
+                row,
+            )
         for row in rels:
             # Use the REAL rel type so Kuzu builds a typed table, not a generic
             # collapsed edge; the backend binds the endpoints' rel-pair (KG-2.74).
-            rtype = safe_label(row.get("type") or "RELATED", normalize=normalize_fn)
-            clause = set_clause_fn(row, "r", None)
+            rtype = safe_label(row.get("type") or "RELATED")
             backend.execute(
                 f"MATCH (s {{id: $source}}) MATCH (t {{id: $target}}) "
-                f"MERGE (s)-[r:{rtype}]->(t){clause}",
+                f"MERGE (s)-[r:{rtype}]->(t){set_clause(row, backend, 'r', None)}",
                 row,
             )
             edges += 1
-    else:
-        # Tier 3 — lowest-common-denominator: add_node/add_edge (node-only and
-        # SPARQL-style backends). add_edge is optional (guarded), exactly as the
-        # original write_batch did, so node-only stores still take the nodes.
-        for row in entities:
-            eid = row.get("id")
-            if eid is None:
-                continue
-            props = {k: v for k, v in row.items() if k not in ("id", "type")}
-            backend.add_node(eid, type=row.get("type"), **props)
-        add_edge = getattr(backend, "add_edge", None)
-        if callable(add_edge):
-            for row in rels:
-                props = {
-                    k: v
-                    for k, v in row.items()
-                    if k not in ("source", "target", "type")
-                }
-                add_edge(
-                    row.get("source"),
-                    row.get("target"),
-                    rel_type=row.get("type"),
-                    **props,
-                )
-                edges += 1
+        return {
+            "status": "success",
+            "nodes": len(entities),
+            "edges": edges,
+            "skipped_unchanged": skipped_unchanged,
+        }
+
+    # Every other backend: high-throughput UNWIND MERGE, grouped by the REAL
+    # node/rel type so each entity keeps its specific label.
+    for label, rows in group_by_label(entities).items():
+        keys = sorted({k for row in rows for k in row} - {"id"})
+        clause = (
+            "SET " + ", ".join([f"n.`{k}` = row.`{k}`" for k in keys]) if keys else ""
+        )
+        backend.execute_batch(
+            f"UNWIND $batch AS row MERGE (n:{label} {{id: row.id}}) {clause}".rstrip(),
+            rows,
+        )
+    for rel, rows in group_by_rel(rels).items():
+        r_keys = sorted({k for row in rows for k in row} - {"source", "target", "type"})
+        clause = (
+            "SET " + ", ".join([f"r.`{k}` = row.`{k}`" for k in r_keys])
+            if r_keys
+            else ""
+        )
+        backend.execute_batch(
+            f"UNWIND $batch AS row MATCH (s {{id: row.source}}) "
+            f"MATCH (t {{id: row.target}}) MERGE (s)-[r:{rel}]->(t) {clause}".rstrip(),
+            rows,
+        )
+        edges += len(rows)
 
     return {
         "status": "success",
         "nodes": len(entities),
         "edges": edges,
         "skipped_unchanged": skipped_unchanged,
-        "backend": True,
     }

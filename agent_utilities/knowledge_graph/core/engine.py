@@ -263,18 +263,11 @@ class IntelligenceGraphEngine(
         cls._ACTIVE_ENGINE = engine
 
     def _normalize_label(self, label: str) -> str:
-        """Find canonical case for a label from the schema."""
-        if not label:
-            return label
-        try:
-            from ...models.schema_definition import SCHEMA
+        """Find canonical case for a label from the schema. Delegates to the one
+        materialization helper (CONCEPT:KG-2.9) — single source of truth."""
+        from .materialization import normalize_label
 
-            for node_def in SCHEMA.nodes:
-                if node_def.name.lower() == label.lower():
-                    return node_def.name
-        except ImportError:
-            pass
-        return label
+        return normalize_label(label)
 
     def _get_allowed_columns(self, label: str) -> list[str]:
         """Get the list of allowed columns for a given node label from the schema."""
@@ -354,52 +347,19 @@ class IntelligenceGraphEngine(
         Binder error → the node is dropped). The Postgres transpiler creates per-label
         tables dynamically, so it stays schemaless (None) for unknown labels.
         """
-        if (
-            not self.backend
-            or self.backend.__class__.__name__ not in self._SCHEMA_BACKED
-            or not label
-        ):
-            return None
-        from agent_utilities.models.schema_definition import (
-            GENERIC_NODE_COLUMNS,
-            SCHEMA,
-        )
+        from .materialization import schema_valid_keys
 
-        for node in SCHEMA.nodes:
-            if node.name == label:
-                return set(node.columns.keys())
-        if self.backend.__class__.__name__ == "LadybugBackend":
-            return set(GENERIC_NODE_COLUMNS)
-        return None
+        return schema_valid_keys(self.backend, label)
 
     def _get_set_clause(
         self, data: dict[str, Any], alias: str = "n", label: str | None = None
     ) -> str:
-        """Generate a SET clause for a Cypher query from a dictionary.
+        """Generate a SET clause for a Cypher query from a dictionary. Delegates to
+        the one materialization helper (CONCEPT:KG-2.9) so SET-clause column
+        filtering has a single implementation."""
+        from .materialization import set_clause
 
-        On schema-backed backends, properties are filtered to declared columns.
-        """
-        if label:
-            label = self._normalize_label(label)
-
-        # Relationship tables have no properties in our current schema definition.
-        if (
-            alias == "r"
-            and self.backend
-            and (self.backend.__class__.__name__ in ("LadybugBackend",))
-        ):
-            return ""
-
-        valid_keys = self._schema_valid_keys(label)
-
-        sets = []
-        for k in data.keys():
-            if k == "id":
-                continue
-            if valid_keys is not None and k not in valid_keys:
-                continue
-            sets.append(f"{alias}.`{k}` = ${k}")
-        return " SET " + ", ".join(sets) if sets else ""
+        return set_clause(data, self.backend, alias, label)
 
     def _prepare_node_props(
         self, label: str | None, data: dict[str, Any]
