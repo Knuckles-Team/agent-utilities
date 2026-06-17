@@ -7,10 +7,31 @@ modules without changing tool behavior or names.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+
+def _run_coro(coro: Any) -> Any:
+    """Run an async coroutine from a sync MCP handler, loop-running or not.
+
+    The concept tools are registered sync (FastMCP runs them off the event loop)
+    but ``kg_server._execute_tool`` is async. When no loop is running we
+    ``asyncio.run``; when one is, we run on a worker thread with its own loop so
+    we never re-enter a running loop.
+    """
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(lambda: asyncio.run(coro)).result()
 
 
 def register_ontology_tools(mcp):
@@ -566,12 +587,14 @@ def register_ontology_tools(mcp):
                     from agent_utilities.mcp.kg_coordinator import KGCoordinator
 
                     if KGCoordinator.is_server_healthy():
-                        kg_server._execute_tool(
-                            "graph_write",
-                            action="add_node",
-                            node_id=record["id"],
-                            node_type="ConceptReservation",
-                            properties=json.dumps(record),
+                        _run_coro(
+                            kg_server._execute_tool(
+                                "graph_write",
+                                action="add_node",
+                                node_id=record["id"],
+                                node_type="ConceptReservation",
+                                properties=json.dumps(record),
+                            )
                         )
                         record["kg_projected"] = True
                 except Exception:  # noqa: BLE001 - projection is advisory
