@@ -55,15 +55,17 @@ Three things are deliberately **uniform** across every connector:
    `domain` on every row, so named-graph routing, federation, and mirroring treat
    all connectors identically.
 3. **One delta model** — see §4.
-4. **One writer** — `core/materialization.write_entities()`. The two historical
-   write paths (`ingest_external_batch`, dict entities; and `write_batch`, typed
-   `ExtractionBatch` for the materialize/extractor fleet) are now thin adapters
-   over it, so provenance, the content-hash delta, and typed-label batching are
-   implemented once. The writer is **capability-tiered** — UNWIND batch where the
-   backend supports it, per-row MERGE on Ladybug/execute-only, and a
-   lowest-common-denominator `add_node`/`add_edge` fallback for node-only/SPARQL
-   backends — so every connector (including the materialize fleet) gets the
-   write-delta regardless of backend.
+4. **One writer** — `core/materialization.write_entities()` is the single
+   materialization implementation. The two historical write paths
+   (`ingest_external_batch`, dict entities; and `write_batch`, typed
+   `ExtractionBatch` for the materialize/extractor fleet) are now thin **input
+   adapters** over it with zero duplicated logic, so provenance, the content-hash
+   delta, and typed-label batching are implemented once. Since `execute` /
+   `execute_batch` are `@abstractmethod` on `GraphBackend` (every backend provides
+   them), the writer has just two branches: **UNWIND MERGE** (all backends) and a
+   **per-row MERGE** variant for Ladybug (Kuzu has no UNWIND). The schema helpers
+   (`normalize_label` / `schema_valid_keys` / `set_clause`) also live here once —
+   the engine's `_normalize_label` / `_get_set_clause` delegate to them.
 
 ---
 

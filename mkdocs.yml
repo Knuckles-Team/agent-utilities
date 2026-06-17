@@ -61,6 +61,7 @@ nav:
       - Recipe — Single-node prod: recipes/single-node-prod.md
       - Recipe — Enterprise: recipes/enterprise.md
       - Recipe — Stardog + pg-age databases: recipes/databases.md
+      - Recipe — Delta-based ingestion via backends: recipes/delta-ingestion.md
       - LeanIX EA Integration (mirror/delta/backfeed): guides/leanix-integration.md
       - CMDB/ERP Bidirectional (ServiceNow + ERPNext): guides/cmdb-bidirectional-integration.md
       - Deploying agent-utilities: guides/deployment.md
