@@ -63,3 +63,46 @@
             }
         """
     ] .
+
+# ── Substitution-algebra type safety (CONCEPT:KG-2.109) ──────────────────────
+# HarnessX enforces the hook contract + singleton mutual-exclusion with a runtime
+# type system (Section 3.2). We make the same guarantees a REASONED check: an edit
+# cannot modify a read-only hook, and no two accepted processors can occupy the
+# same singleton group on the same hook.
+
+# HOOK CONTRACT: an edit that modifies a field at a read-only hook (step_end /
+# task_end) violates the hook contract the paper enforces at runtime.
+:HarnessHookContractShape a sh:NodeShape ;
+    sh:targetClass :HarnessEdit ;
+    sh:sparql [
+        sh:message "Hook contract: this edit modifies a field at a read-only hook (step_end/task_end), which the harness hook contract forbids (CONCEPT:KG-2.109)." ;
+        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
+        sh:select """
+            PREFIX kg: <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this kg:atHook ?hook ;
+                      kg:modifiesField ?f .
+                ?hook kg:hookReadOnly true .
+            }
+        """
+    ] .
+
+# SINGLETON EXCLUSION: at most one accepted processor per (hook, singleton group).
+:HarnessSingletonExclusionShape a sh:NodeShape ;
+    sh:targetClass :Processor ;
+    sh:sparql [
+        sh:message "Singleton exclusion: more than one accepted processor occupies the same (hook, singleton_group) — the substitution algebra forbids conflicting duplicates (CONCEPT:KG-2.109)." ;
+        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
+        sh:select """
+            PREFIX kg: <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this kg:attachedToHook ?hook ;
+                      kg:singletonGroup ?grp ;
+                      kg:variantStatus "accepted" .
+                ?other kg:attachedToHook ?hook ;
+                       kg:singletonGroup ?grp ;
+                       kg:variantStatus "accepted" .
+                FILTER (?other != $this)
+            }
+        """
+    ] .
