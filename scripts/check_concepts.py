@@ -11,7 +11,6 @@ Run:  python scripts/check_concepts.py
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
@@ -21,8 +20,11 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "agent_utilities"
 CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
 
-# Must stay in lock-step with scripts/build_concepts_yaml.py.
-MARKER_RE = re.compile(r"CONCEPT:([A-Z]+-\d+(?:\.[0-9A-Za-z]+)?)")
+# Single source of the marker grammar — shared with build_concepts_yaml.py and
+# the allocator so the three scanners can never drift. ``findall`` returns the
+# id (the one capturing group) for each match.
+sys.path.insert(0, str(ROOT))
+from agent_utilities.governance.concept_allocator import MARKER_RE  # noqa: E402
 
 
 def markers_in_code() -> dict[str, list[str]]:
