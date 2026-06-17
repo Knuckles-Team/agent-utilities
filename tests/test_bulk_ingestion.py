@@ -73,12 +73,15 @@ def test_ingest_external_batch():
 
     node_query, node_params = mock_backend.batches[0]
     assert "UNWIND $batch AS row" in node_query
-    assert "MERGE (n:DomainEntity {id: row.id})" in node_query
+    # Each entity keeps its REAL node label (group-by-real-type), not a flattened
+    # :DomainEntity superclass.
+    assert "MERGE (n:Employee {id: row.id})" in node_query
     assert len(node_params) == 2
     assert node_params[0]["id"] == "user:1"
 
     rel_query, rel_params = mock_backend.batches[1]
     assert "UNWIND $batch AS row" in rel_query
-    assert "MERGE (s)-[r:EXTERNAL_LINK {type: row.type}]->(t)" in rel_query
+    # And the REAL rel type, not a generic :EXTERNAL_LINK (CONCEPT:KG-2.74).
+    assert "MERGE (s)-[r:WORKS_WITH]->(t)" in rel_query
     assert len(rel_params) == 1
     assert rel_params[0]["source"] == "user:1"

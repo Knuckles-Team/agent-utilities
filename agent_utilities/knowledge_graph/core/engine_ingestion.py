@@ -19,8 +19,10 @@ else:
     _Base = object
 
 
+import hashlib
 import json
 import logging
+import os
 import time
 import uuid
 from typing import Any
@@ -337,6 +339,25 @@ class IngestionMixin(_Base):
                         self.link_nodes(str(src), str(tgt), str(rtype), r)
             return {"status": "success", "nodes": len(entities), "backend": False}
 
+        # Generic write-layer content-hash delta (CONCEPT:KG-2.9): make EVERY
+        # connector incremental at the write layer. Each entity's stable
+        # content_hash is compared against the stored one and unchanged entities
+        # are dropped — no MERGE, no re-reasoning — even when the source was
+        # fetched in full. Code symbols already carry a content-stable ast_hash
+        # from the Rust parser (symbol:<hash> ids); this extends the same idea to
+        # every source. Falls back to a full write on any backend that can't
+        # answer the prefetch. Disable with KG_WRITE_DELTA=0.
+        skipped_unchanged = 0
+        if os.environ.get("KG_WRITE_DELTA", "1") != "0":
+            entities, skipped_unchanged = self._filter_unchanged_entities(entities)
+            if not entities and not (relationships or []):
+                return {
+                    "status": "success",
+                    "nodes": 0,
+                    "skipped_unchanged": skipped_unchanged,
+                    "backend": True,
+                }
+
         # Use backend high-throughput UNWIND batching
         # Check backend capabilities
         is_ladybug = self.backend.__class__.__name__ == "LadybugBackend"
@@ -398,7 +419,78 @@ class IngestionMixin(_Base):
                 )
                 self.backend.execute_batch(q_rels, rows)
 
-        return {"status": "success", "nodes": len(entities), "backend": True}
+        return {
+            "status": "success",
+            "nodes": len(entities),
+            "skipped_unchanged": skipped_unchanged,
+            "backend": True,
+        }
+
+    # Properties that must NOT contribute to the content hash: the hash itself,
+    # and volatile provenance/observation timestamps that change every ingest.
+    _VOLATILE_HASH_KEYS = frozenset(
+        {
+            "content_hash",
+            "_ingested_at",
+            "ingested_at",
+            "validFrom",
+            "validTo",
+            "observedAt",
+            "lastSeen",
+            "syncedAt",
+            "_kg_ts",
+        }
+    )
+
+    def _content_hash(self, row: dict[str, Any]) -> str:
+        """Stable SHA-256 over an entity's semantic properties (id + volatile
+        timestamps excluded), so an unchanged upstream record hashes identically
+        across ingests."""
+        payload = {
+            k: v
+            for k, v in row.items()
+            if k != "id" and k not in self._VOLATILE_HASH_KEYS
+        }
+        blob = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    def _filter_unchanged_entities(
+        self, entities: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Stamp ``content_hash`` on each entity and drop the ones whose stored
+        hash is unchanged (generic write-layer delta). Best-effort: any backend
+        that can't answer the batched prefetch yields a full write (correct, just
+        not deduped)."""
+        if not entities:
+            return entities, 0
+        for row in entities:
+            if row.get("id") is not None:
+                row["content_hash"] = self._content_hash(row)
+        ids = [str(r["id"]) for r in entities if r.get("id") is not None]
+        if not ids:
+            return entities, 0
+        stored: dict[str, str] = {}
+        try:
+            rows = self.backend.execute(
+                "MATCH (n) WHERE n.id IN $ids RETURN n.id AS id, n.content_hash AS h",
+                {"ids": ids},
+            )
+            for r in rows or []:
+                if isinstance(r, dict) and r.get("id") is not None and r.get("h"):
+                    stored[str(r["id"])] = str(r["h"])
+        except Exception:  # noqa: BLE001 — prefetch is an optimization, never fatal
+            logger.debug(
+                "content-hash prefetch failed; writing full batch", exc_info=True
+            )
+            return entities, 0
+        if not stored:
+            return entities, 0
+        changed = [
+            r
+            for r in entities
+            if r.get("id") is None or stored.get(str(r["id"])) != r.get("content_hash")
+        ]
+        return changed, len(entities) - len(changed)
 
     def _group_by_label(
         self, entities: list[dict[str, Any]]

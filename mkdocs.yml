@@ -123,6 +123,7 @@ nav:
       - Event Backbone (Kafka): architecture/event_backbone_architecture.md
       - Ontology System: architecture/ontology_system.md
       - Graph Backend Architecture: architecture/graph_backends_architecture.md
+      - KG Connectors, Ingestors & Enrichers: architecture/kg_connectors_and_ingestion.md
       - KG as Bidirectional ETL Hub: architecture/kg_etl_hub.md
       - OWL/RDF Layer (local, always-on): architecture/owl_rdf_layer.md
       - MCP Fleet Authentication (JWT + Eunomia): architecture/mcp_auth.md
