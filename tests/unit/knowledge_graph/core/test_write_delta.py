@@ -97,11 +97,44 @@ def test_write_delta_disabled_writes_everything(monkeypatch):
     assert r2["skipped_unchanged"] == 0
 
 
+def test_write_batch_delegates_to_one_core_and_gains_delta(monkeypatch):
+    """write_batch (typed ExtractionBatch / materialize path) now flows through
+    the same write_entities core, so it gains the content-hash delta + returns
+    (nodes, edges) — consolidation proof (KG-2.9)."""
+    monkeypatch.delenv("KG_WRITE_DELTA", raising=False)
+    from agent_utilities.knowledge_graph.enrichment.models import (
+        EnrichmentEdge,
+        ExtractionBatch,
+        GraphNode,
+    )
+    from agent_utilities.knowledge_graph.enrichment.registry import write_batch
+
+    def _batch():
+        return ExtractionBatch(
+            category="t",
+            nodes=[GraphNode(id="m:1", type="Thing", props={"name": "X"})],
+            edges=[
+                EnrichmentEdge(source="m:1", target="m:1", rel_type="REL", props={})
+            ],
+        )
+
+    be = DeltaBackend()
+    n, e = write_batch(be, _batch(), source="t")
+    assert (n, e) == (1, 1)
+    # Re-materialize identical data → the node is delta-skipped (the per-node
+    # add_node writer never did this); the edge re-merges idempotently.
+    n2, e2 = write_batch(be, _batch(), source="t")
+    assert n2 == 0
+    # Provenance stamped through the shared contract.
+    assert be.store  # node hash was recorded on first write
+
+
 def test_content_hash_is_stable_and_excludes_volatile():
-    eng = IntelligenceGraphEngine(backend=DeltaBackend())
+    from agent_utilities.knowledge_graph.core.materialization import content_hash
+
     a = {"id": "x", "name": "n", "observedAt": "t1"}
     b = {"id": "x", "name": "n", "observedAt": "t2"}
     # Volatile timestamp + id excluded → identical semantic hash.
-    assert eng._content_hash(a) == eng._content_hash(b)
+    assert content_hash(a) == content_hash(b)
     c = {"id": "x", "name": "DIFFERENT", "observedAt": "t1"}
-    assert eng._content_hash(a) != eng._content_hash(c)
+    assert content_hash(a) != content_hash(c)
