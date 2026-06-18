@@ -2,8 +2,9 @@ from __future__ import annotations
 
 """Native RSS/Atom feed document-source connector (zero-infra).
 
-CONCEPT:KG-2.121 — a first-class, built-in RSS/Atom extractor: point it at one or
-more feed URLs and it yields each entry as a :class:`SourceDocument`, with NO
+CONCEPT:KG-2.121 — native zero-infra RSS/Atom feed extractor and unified feed source.
+Point it at one or more feed URLs and it yields each entry as a
+:class:`SourceDocument`, with NO
 external service required (unlike the FreshRSS feeder, which aggregates many feeds
 behind its own server). It is the RSS analog of the zero-infra ``filesystem`` /
 ``web`` connectors.
