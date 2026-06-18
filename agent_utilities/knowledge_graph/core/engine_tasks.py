@@ -644,8 +644,15 @@ class TaskManagerMixin(GraphEngineProtocol):
         import time
 
         RELEVANCE_SWEEP_INTERVAL = 3600.0  # 60 minutes
-        last_relevance_sweep = getattr(self, "_last_relevance_sweep", 0.0)
         now = time.time()
+        # CONCEPT:ECO-4.72 — do NOT fire the heavy relevance sweep immediately on every
+        # restart (the prior 0.0 default did): co-located with the messaging router, a
+        # startup sweep saturates the process and starves the inbound reply loop. Defer the
+        # first sweep by one full interval after start.
+        last_relevance_sweep = getattr(self, "_last_relevance_sweep", None)
+        if last_relevance_sweep is None:
+            self._last_relevance_sweep = now
+            return
         if now - last_relevance_sweep >= RELEVANCE_SWEEP_INTERVAL:
             try:
                 primary = self._detect_primary_codebase()
