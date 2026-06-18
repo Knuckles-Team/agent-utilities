@@ -454,16 +454,43 @@ def _get_messaging_agent(provider: str, model_id: str | None) -> Any:
 
 
 async def _model_routed_reply(content: str, kg_context: str) -> str:
-    """Run the dedicated messaging agent for the selected responder, tag the reply (ECO-4.56)."""
+    """Reply via the dedicated agent, degrading to plain chat if the model lacks tools.
+
+    CONCEPT:ECO-4.56 — the tool/skill/MCP-bearing agent is tried first (full capability on
+    tool-capable models like Claude). If the model rejects the tool-augmented request
+    (e.g. a vllm-served local model without function-calling — ``System message must be at
+    the beginning``), we fall back to a plain chat completion so the user always gets a
+    reply. Both paths are tagged with who answered.
+    """
     label, provider, model_id, task = _select_responder(content)
+    prompt = task if not kg_context else f"{task}\n\nRelevant context:\n{kg_context}"
+
+    # 1) Full dedicated agent (tools + skills + MCP fleet).
     try:
         agent = _get_messaging_agent(provider, model_id)
-        prompt = (
-            task if not kg_context else f"{task}\n\nRelevant context:\n{kg_context}"
-        )
         result = await agent.run(prompt)
+        text = str(getattr(result, "output", result)).strip()
+        if text:
+            return f"[{label}] {text}"
+    except Exception as e:  # noqa: BLE001 — model may not support tool-augmented requests
+        logger.warning(
+            "[CONCEPT:ECO-4.56] dedicated agent failed (%s); falling back to plain chat.",
+            e,
+        )
+
+    # 2) Plain chat completion — works on models without tool support.
+    try:
+        from pydantic_ai import Agent
+
+        from agent_utilities.core.model_factory import create_model
+
+        bare = Agent(
+            create_model(provider=provider or None, model_id=model_id),
+            system_prompt=_messaging_system_prompt(),
+        )
+        result = await bare.run(prompt)
         text = str(getattr(result, "output", result)).strip()
         return f"[{label}] {text}" if text else f"[{label}] (no output)"
     except Exception as e:  # noqa: BLE001
-        logger.error("[CONCEPT:ECO-4.56] messaging agent reply failed: %s", e)
+        logger.error("[CONCEPT:ECO-4.56] messaging reply failed: %s", e)
         return f"I saved your message, but couldn't draft a reply right now ({e})."

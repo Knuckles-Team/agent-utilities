@@ -70,6 +70,25 @@ async def test_model_routed_reply_uses_dedicated_agent_and_tags(
     assert reply == "[local] hi from the dedicated agent"
 
 
+@pytest.mark.asyncio
+async def test_model_routed_reply_falls_back_to_plain_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # When the dedicated agent fails (e.g. a local model without tool support), the reply
+    # must degrade to a plain chat completion, not error out (CONCEPT:ECO-4.56).
+    from agent_utilities.messaging import router
+
+    def _boom(provider, model_id):
+        raise RuntimeError("System message must be at the beginning.")
+
+    monkeypatch.setattr(router, "_get_messaging_agent", _boom)
+    # AGENT_UTILITIES_TESTING=true → create_model returns a TestModel for the plain path.
+    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
+    reply = await _model_routed_reply("hello there", "")
+    assert reply.startswith("[local] ")
+    assert "couldn't draft a reply" not in reply
+
+
 # ── Multiple concurrent backends ─────────────────────────────────────
 
 
