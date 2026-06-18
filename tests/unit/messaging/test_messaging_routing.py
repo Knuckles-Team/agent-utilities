@@ -233,3 +233,34 @@ async def test_reach_user_follows_last_active_service(multi: MessagingService) -
         )
     )
     assert multi.resolve_channel("u1") == ("telegram", "100")
+
+
+# ── Image / multimodal input (ECO-4.67) ──────────────────────────────
+
+
+def test_agent_input_plain_vs_multimodal() -> None:
+    from agent_utilities.messaging.router import _agent_input
+
+    assert _agent_input("hi", None) == "hi"
+    assert _agent_input("hi", []) == "hi"
+    parts = ["<img1>", "<img2>"]
+    assert _agent_input("describe", parts) == ["describe", "<img1>", "<img2>"]
+
+
+@pytest.mark.asyncio
+async def test_run_until_text_passes_images_to_agent() -> None:
+    from agent_utilities.messaging import router
+
+    seen: dict[str, Any] = {}
+
+    class _Result:
+        output = "a white square"
+
+    class _Agent:
+        async def run(self, inp: Any = None, **k: Any):
+            seen["input"] = inp
+            return _Result()
+
+    out = await router._run_until_text(_Agent(), "describe", image_parts=["<imgbytes>"])
+    assert out == "a white square"
+    assert seen["input"] == ["describe", "<imgbytes>"]

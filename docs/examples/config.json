@@ -376,5 +376,7 @@
     "messaging_enrich": "1",
     "messaging_webhook_base_url": "",
     "messaging_webhook_port": "8443",
-    "messaging_webhook_secret": ""
+    "messaging_webhook_secret": "",
+    "messaging_voice": "1",
+    "messaging_voice_model": "base"
 }

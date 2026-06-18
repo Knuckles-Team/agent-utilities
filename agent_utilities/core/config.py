@@ -382,6 +382,9 @@ class AgentConfig(BaseSettings):
     )
     messaging_webhook_port: str = Field(default="8443", alias="MESSAGING_WEBHOOK_PORT")
     messaging_webhook_secret: str = Field(default="", alias="MESSAGING_WEBHOOK_SECRET")
+    # Voice input (CONCEPT:ECO-4.68): transcribe voice notes to text via Whisper (opt-out).
+    messaging_voice: str = Field(default="1", alias="MESSAGING_VOICE")
+    messaging_voice_model: str = Field(default="base", alias="MESSAGING_VOICE_MODEL")
     # KG as a first-class default tool layer for every agent (opt-out).
     agent_kg_tools: str = Field(default="True", alias="AGENT_KG_TOOLS")
 
