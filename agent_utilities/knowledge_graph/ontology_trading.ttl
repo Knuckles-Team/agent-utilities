@@ -90,6 +90,10 @@
     rdfs:domain :TradingKnowledge ;
     rdfs:range xsd:string .
 
+<http://knuckles.team/kg/trading> a owl:Ontology ;
+    rdfs:label "Agent Intelligence Graph — Trading Module" ;
+    rdfs:comment "Trading domain extension (microstructure signals, market knowledge provenance). Imported by the canonical <http://knuckles.team/kg> ontology; resolved to ontology_trading.ttl by the local loader convention." .
+
 :MicrostructureSignal a owl:Class ;
     rdfs:label "Microstructure Signal" ;
     rdfs:comment "A short-horizon order-flow / microstructure alpha whose measured priors (directional accuracy, standalone Sharpe, PBO, decay) drive signal-fusion weights." ;

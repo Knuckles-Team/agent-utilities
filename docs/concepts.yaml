@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 328
+total_concepts: 330
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2772,6 +2772,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/ciso_assistant.py
   doc: / CISO-003
+- id: KG-2.112
+  name: Single canonical ontology library
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/maintenance/owl_closure.py
+  doc: Single canonical ontology library
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -3913,6 +3920,16 @@ concepts:
   - agent_utilities/governance/concept_allocator.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: Multi-session concept-ID allocation & coordination protocol
+- id: OS-5.43
+  name: the vault-first routine genesis/deployment uses so an
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/security/secrets_client.py
+  doc: the vault-first routine genesis/deployment uses so an
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
