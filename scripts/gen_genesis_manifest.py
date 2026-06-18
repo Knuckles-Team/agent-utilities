@@ -88,6 +88,31 @@ RUN_PLAN = {
     "secrets_store": ["vault", "env"],
     "ontology_hosts": ["stardog", "apache-jena", "local"],
     "install_modes": ["deploy-container", "deploy-baremetal", "use-existing", "skip"],
+    # prod = PyPI image / uvx; dev = editable: `pip/uv install -e` (baremetal) OR the
+    # package's compose.dev.yml source-mounted container (edits live on restart).
+    "install_variants": ["prod", "dev"],
+    # Agent->user messaging (CONCEPT:ECO-4.0). channels = MESSAGING_ENABLED_BACKENDS;
+    # reach_mode last-active works today, broadcast fans out to all (engine fan-out).
+    "messaging": {
+        "channels": [
+            "slack",
+            "teams",
+            "telegram",
+            "mattermost",
+            "discord",
+            "whatsapp",
+            "matrix",
+            "signal",
+        ],
+        "reach_modes": ["last-active", "broadcast"],
+    },
+    # Single-package skill-guided deploy: genesis with a one-item run plan; the entry
+    # point each agents/* README references. Reuses the connector catalog + install
+    # modes/variants + vault_sync.
+    "single_package_deploy": {
+        "invoke": "deploy <package> with agent-os-genesis",
+        "catalog": "universal-skills agent-os-genesis references/connector-catalog.md",
+    },
     "provisioner_by_orchestrator": {
         "docker-swarm": "swarm-mesh-provisioner",
         "kubernetes": "kubernetes-mesh-provisioner",
