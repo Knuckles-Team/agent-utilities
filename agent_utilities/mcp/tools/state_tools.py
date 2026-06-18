@@ -268,6 +268,64 @@ def register_state_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_loops"] = graph_loops
 
     @mcp.tool(
+        name="graph_schedules",
+        description=(
+            "Inspect and control the unified scheduler (CONCEPT:OS-5.44). Every "
+            "recurring job — the deploy/schedules.yml entries, the former "
+            "fixed-interval maintenance ticks, the self-evolution loop, and the "
+            "ScholarX RSS research feed — is a durable :Schedule node the one "
+            "scheduler tick enqueues from. action in 'list' (registry + live "
+            "run state), 'enable'/'disable' (toggle by name), 'prioritize' (set "
+            "the claim bucket 0-3 of the enqueued job), 'set_interval' (retune "
+            "cadence, seconds), 'run_now' (fire on the next tick)."
+        ),
+        tags=["graph-os", "scheduler"],
+    )
+    async def graph_schedules(
+        action: str = Field(
+            default="list",
+            description="list|enable|disable|prioritize|set_interval|run_now",
+        ),
+        name: str = Field(default="", description="Schedule name (all but list)."),
+        priority: str = Field(
+            default="normal",
+            description="Bucket 0-3 or critical|high|normal|background (prioritize).",
+        ),
+        interval_s: float = Field(
+            default=0.0, description="New interval seconds (set_interval)."
+        ),
+    ) -> str:
+        """List / enable / disable / prioritize / retune / run-now schedules."""
+        import json as _json
+
+        from agent_utilities.core import schedule_engine as _se
+
+        try:
+            engine = kg_server._get_engine()
+            if action == "list":
+                return _json.dumps(
+                    {"action": "list", "schedules": _se.calendar(engine)},
+                    default=str,
+                )
+            if not name:
+                return _json.dumps({"error": f"{action} needs a schedule name"})
+            if action == "enable":
+                return _json.dumps(_se.set_enabled(engine, name, True))
+            if action == "disable":
+                return _json.dumps(_se.set_enabled(engine, name, False))
+            if action == "prioritize":
+                return _json.dumps(_se.set_priority(engine, name, priority))
+            if action == "set_interval":
+                return _json.dumps(_se.set_interval(engine, name, interval_s))
+            if action == "run_now":
+                return _json.dumps(_se.run_now(engine, name))
+            return _json.dumps({"error": f"unknown action {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return _json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["graph_schedules"] = graph_schedules
+
+    @mcp.tool(
         name="research_artifact",
         description=(
             "Agent-Native Research Artifacts over the one ontology-driven KG "
