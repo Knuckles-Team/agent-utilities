@@ -308,7 +308,7 @@ async def create_planner_handler(
                     image_urls.append(att.url)
         image_parts = await _fetch_image_parts(image_urls)
 
-        kg_context = _recall_context(engine, combined, str(event.platform))
+        kg_context = await _recall_context(engine, combined, str(event.platform))
         logger.info(
             "[CONCEPT:ECO-4.63] Routing a burst of %d message(s) (%d image[s]) from %s/%s.",
             len(items),
@@ -453,18 +453,37 @@ async def _decide_reaction(content: str) -> str:
         return ""
 
 
-def _recall_context(engine: Any, content: str, platform: str) -> str:
-    """Recall relevant episodic memory for the inbound message (best-effort)."""
+async def _recall_context(engine: Any, content: str, platform: str) -> str:
+    """Recall relevant episodic memory for the inbound message (best-effort).
+
+    CONCEPT:ECO-4.72 — ``recall_memory`` is a BLOCKING call (vector + graph retrieval);
+    calling it directly in the async handler froze the whole messaging loop (poller + reply)
+    whenever retrieval stalled. Run it off the event loop with a hard timeout so a slow/hung
+    recall degrades to empty context instead of freezing inbound handling.
+    """
     recall = getattr(engine, "recall_memory", None)
     if not callable(recall):
         return ""
+    from agent_utilities.core.config import setting
+
+    timeout = float(setting("MESSAGING_RECALL_TIMEOUT", "8"))
     try:
-        memories = recall(
-            query=content,
-            memory_type="episodic",
-            top_k=5,
-            task_context=f"Messaging conversation on {platform}",
+        memories = await asyncio.wait_for(
+            asyncio.to_thread(
+                recall,
+                query=content,
+                memory_type="episodic",
+                top_k=5,
+                task_context=f"Messaging conversation on {platform}",
+            ),
+            timeout=timeout,
         )
+    except TimeoutError:
+        logger.warning(
+            "[CONCEPT:ECO-4.72] KG recall exceeded %.0fs — replying without context.",
+            timeout,
+        )
+        return ""
     except Exception as e:  # noqa: BLE001
         logger.debug("[CONCEPT:ECO-4.0] KG recall failed: %s", e)
         return ""
