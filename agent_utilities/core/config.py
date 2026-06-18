@@ -375,6 +375,8 @@ class AgentConfig(BaseSettings):
     messaging_burst_max_s: str = Field(default="12", alias="MESSAGING_BURST_MAX_S")
     # Post-conversation enrichment (CONCEPT:ECO-4.65): mine chats → KG concepts (opt-out).
     messaging_enrich: str = Field(default="1", alias="MESSAGING_ENRICH")
+    # Surface goals / SDD specs from chats (CONCEPT:ECO-4.70, opt-out).
+    messaging_goals: str = Field(default="1", alias="MESSAGING_GOALS")
     # Webhook push (CONCEPT:ECO-4.66): set the PUBLIC base URL (served via tunnel/edge to a
     # LOCAL port) to switch from polling to instant webhook delivery; empty = polling.
     messaging_webhook_base_url: str = Field(

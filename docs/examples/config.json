@@ -378,5 +378,6 @@
     "messaging_webhook_port": "8443",
     "messaging_webhook_secret": "",
     "messaging_voice": "1",
-    "messaging_voice_model": "base"
+    "messaging_voice_model": "base",
+    "messaging_goals": "1"
 }
