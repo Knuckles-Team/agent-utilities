@@ -344,6 +344,33 @@ class AgentConfig(BaseSettings):
     deepseek_api_key: str | None = Field(default=None, alias="DEEPSEEK_API_KEY")
     deepseek_base_url: str | None = Field(default=None, alias="DEEPSEEK_BASE_URL")
 
+    # --- Messaging reach + agent KG layer (CONCEPT:ECO-4.48–4.61) ---
+    # Outbound/inbound messaging (Telegram/Slack/Teams/Mattermost/…). Tokens per backend
+    # (e.g. TELEGRAM_BOT_TOKEN) auto-enable that backend; these tune routing + the agent.
+    telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
+    messaging_default_platform: str = Field(
+        default="telegram", alias="MESSAGING_DEFAULT_PLATFORM"
+    )
+    messaging_default_channel: str = Field(
+        default="", alias="MESSAGING_DEFAULT_CHANNEL"
+    )
+    messaging_agent: str = Field(default="", alias="MESSAGING_AGENT")
+    messaging_claude_trigger: str = Field(
+        default="/claude", alias="MESSAGING_CLAUDE_TRIGGER"
+    )
+    messaging_claude_model: str = Field(
+        default="claude-sonnet-4-6", alias="MESSAGING_CLAUDE_MODEL"
+    )
+    messaging_local_model: str = Field(default="", alias="MESSAGING_LOCAL_MODEL")
+    messaging_enable_skills: str = Field(default="0", alias="MESSAGING_ENABLE_SKILLS")
+    messaging_skill_types: str = Field(default="", alias="MESSAGING_SKILL_TYPES")
+    messaging_tool_tags: str = Field(default="", alias="MESSAGING_TOOL_TAGS")
+    messaging_mcp_url: str = Field(default="", alias="MESSAGING_MCP_URL")
+    messaging_mcp_config: str = Field(default="", alias="MESSAGING_MCP_CONFIG")
+    messaging_reactions: str = Field(default="1", alias="MESSAGING_REACTIONS")
+    # KG as a first-class default tool layer for every agent (opt-out).
+    agent_kg_tools: str = Field(default="True", alias="AGENT_KG_TOOLS")
+
     # --- Ingestion sources (CONCEPT:KG-2.7 web-fetch) ---
     # When set, ArchiveBox (a deployed web-archiving instance reached via the
     # archivebox-api MCP server) is preferred over a live crawl: the unified
@@ -1777,20 +1804,20 @@ def _init_lazy_config():
 
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT"] = cfg.otel_exporter_otlp_endpoint
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_HEADERS"] = cfg.otel_exporter_otlp_headers
-    _LAZY_CACHE[
-        "DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"
-    ] = cfg.otel_exporter_otlp_public_key
-    _LAZY_CACHE[
-        "DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"
-    ] = cfg.otel_exporter_otlp_secret_key
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"] = (
+        cfg.otel_exporter_otlp_public_key
+    )
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"] = (
+        cfg.otel_exporter_otlp_secret_key
+    )
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
 
     _LAZY_CACHE["DEFAULT_LANGFUSE_PUBLIC_KEY"] = cfg.langfuse_public_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_SECRET_KEY"] = cfg.langfuse_secret_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE[
-        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"
-    ] = cfg.langfuse_dataset_capture_threshold
+    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
+        cfg.langfuse_dataset_capture_threshold
+    )
 
     _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
     _LAZY_CACHE["DEFAULT_A2A_BROKER_URL"] = cfg.a2a_broker_url
@@ -1864,9 +1891,9 @@ def _init_lazy_config():
         _kg_model.id if _kg_model else None
     ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
     _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
-    _LAZY_CACHE[
-        "DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
-    ] = cfg.knowledge_graph_sync_background
+    _LAZY_CACHE["DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"] = (
+        cfg.knowledge_graph_sync_background
+    )
     _LAZY_CACHE["DEFAULT_GRAPH_DIRECT_EXECUTION"] = cfg.graph_direct_execution
 
     # --- Parallel Engine Defaults ---
@@ -1876,9 +1903,9 @@ def _init_lazy_config():
     _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
     _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
     _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE[
-        "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"
-    ] = cfg.enable_progressive_synthesis
+    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
+        cfg.enable_progressive_synthesis
+    )
 
     _LAZY_CACHE["AGENT_API_KEY"] = cfg.agent_api_key
     _LAZY_CACHE["ENABLE_API_AUTH"] = cfg.enable_api_auth
@@ -2765,14 +2792,14 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"][
-                            "PYTHONWARNINGS"
-                        ] = "ignore:urllib3 (2.3.0) or chardet"
+                        cfg["env"]["PYTHONWARNINGS"] = (
+                            "ignore:urllib3 (2.3.0) or chardet"
+                        )
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"][
-                                "PYTHONWARNINGS"
-                            ] += ",ignore:urllib3 (2.3.0) or chardet"
+                            cfg["env"]["PYTHONWARNINGS"] += (
+                                ",ignore:urllib3 (2.3.0) or chardet"
+                            )
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.

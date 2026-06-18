@@ -550,6 +550,47 @@ def _get_messaging_agent(provider: str, model_id: str | None) -> Any:
     return agent
 
 
+# CONCEPT:ECO-4.62 — read-only KG tools the messaging agent may auto-run without approval.
+# Everything else stays gated (mutations need explicit approval, not a chat side effect).
+_SAFE_AUTO_TOOLS = {"kg_search", "kg_recall", "kg_query"}
+
+
+async def _run_until_text(agent: Any, prompt: str, max_rounds: int = 4) -> str:
+    """Run the agent, auto-approving only safe read-only KG tools, until a text reply.
+
+    CONCEPT:ECO-4.62 — the dedicated agent defers tool calls for approval
+    (DeferredToolRequests). For chat we auto-approve the read-only KG tools so the agent can
+    actually query the graph and answer, while DENYING any other (mutating) tool — those
+    must be requested explicitly, not triggered as a chat side effect.
+    """
+    from pydantic_ai.tools import (
+        DeferredToolRequests,
+        DeferredToolResults,
+        ToolApproved,
+        ToolDenied,
+    )
+
+    result = await agent.run(prompt)
+    rounds = 0
+    while isinstance(result.output, DeferredToolRequests) and rounds < max_rounds:
+        rounds += 1
+        approvals: dict[str, ToolApproved | ToolDenied] = {}
+        for part in result.output.approvals:
+            if part.tool_name in _SAFE_AUTO_TOOLS:
+                approvals[part.tool_call_id] = ToolApproved()
+            else:
+                approvals[part.tool_call_id] = ToolDenied(
+                    message=f"'{part.tool_name}' isn't auto-run from chat; ask explicitly."
+                )
+        result = await agent.run(
+            message_history=result.all_messages(),
+            deferred_tool_results=DeferredToolResults(approvals=approvals),
+        )
+    if isinstance(result.output, DeferredToolRequests):
+        return ""  # still pending after the cap — let the caller fall back
+    return str(result.output).strip()
+
+
 async def _model_routed_reply(content: str, kg_context: str) -> str:
     """Reply via the dedicated agent, degrading to plain chat if the model lacks tools.
 
@@ -557,16 +598,16 @@ async def _model_routed_reply(content: str, kg_context: str) -> str:
     tool-capable models like Claude). If the model rejects the tool-augmented request
     (e.g. a vllm-served local model without function-calling — ``System message must be at
     the beginning``), we fall back to a plain chat completion so the user always gets a
-    reply. Both paths are tagged with who answered.
+    reply. CONCEPT:ECO-4.62 — safe read-only KG tools auto-run so the agent answers FROM the
+    graph. Both paths are tagged with who answered.
     """
     label, provider, model_id, task = _select_responder(content)
     prompt = task if not kg_context else f"{task}\n\nRelevant context:\n{kg_context}"
 
-    # 1) Full dedicated agent (tools + skills + MCP fleet).
+    # 1) Full dedicated agent (KG tools + MCP fleet), auto-running safe read-only KG tools.
     try:
         agent = _get_messaging_agent(provider, model_id)
-        result = await agent.run(prompt)
-        text = str(getattr(result, "output", result)).strip()
+        text = await _run_until_text(agent, prompt)
         if text:
             return f"[{label}] {text}"
     except Exception as e:  # noqa: BLE001 — model may not support tool-augmented requests

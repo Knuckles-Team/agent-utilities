@@ -33,7 +33,7 @@
     "graph_persistence_type": "file",
     "graph_persistence_path": "/home/user/.local/share/agent-utilities/graph_state",
     "pggraph_dsn": null,
-    "_comment_graph_backend": "Graph backend selection + connection. Read live via config.setting() — set here or via the matching UPPERCASE env var. See docs/architecture/configuration.md.",
+    "_comment_graph_backend": "Graph backend selection + connection. Read live via config.setting() \u2014 set here or via the matching UPPERCASE env var. See docs/architecture/configuration.md.",
     "graph_backend": "tiered",
     "graph_db_uri": null,
     "graph_db_host": "localhost",
@@ -53,10 +53,22 @@
     "kg_card_model": "lite",
     "kg_ingest_profile": null,
     "jena_fuseki_url": null,
-    "sparql_endpoints": ["https://query.wikidata.org/sparql"],
+    "sparql_endpoints": [
+        "https://query.wikidata.org/sparql"
+    ],
     "gitlab_instances": [
-        {"name": "internal", "url": "https://gitlab.arpa", "token": "glpat-xxxxxxxx", "verify_ssl": false},
-        {"name": "public", "url": "https://gitlab.com", "token": "glpat-yyyyyyyy", "verify_ssl": true}
+        {
+            "name": "internal",
+            "url": "https://gitlab.arpa",
+            "token": "glpat-xxxxxxxx",
+            "verify_ssl": false
+        },
+        {
+            "name": "public",
+            "url": "https://gitlab.com",
+            "token": "glpat-yyyyyyyy",
+            "verify_ssl": true
+        }
     ],
     "enable_llm_validation": false,
     "graph_router_timeout": 300.0,
@@ -344,5 +356,19 @@
                 "log"
             ]
         }
-    }
+    },
+    "telegram_bot_token": null,
+    "messaging_default_platform": "telegram",
+    "messaging_default_channel": "",
+    "messaging_agent": "",
+    "messaging_claude_trigger": "/claude",
+    "messaging_claude_model": "claude-sonnet-4-6",
+    "messaging_local_model": "",
+    "messaging_enable_skills": "0",
+    "messaging_skill_types": "",
+    "messaging_tool_tags": "",
+    "messaging_mcp_url": "",
+    "messaging_mcp_config": "",
+    "messaging_reactions": "1",
+    "agent_kg_tools": "True"
 }
