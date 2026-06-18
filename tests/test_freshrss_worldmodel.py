@@ -30,7 +30,7 @@ def test_freshrss_preset_shape():
     assert p["tool"] == "freshrss_reader" and p["action"] == "stream_contents"
     assert p["params_style"] == "json"
     assert p["records_path"] == "items"
-    assert p["text_field"] == "summary.content"
+    assert p["text_field"] == "text"
     assert p["updated_field"] == "published"
     assert p["pagination"] == "cursor"
     assert p["cursor_param"] == "continuation" and p["cursor_path"] == "continuation"
@@ -181,7 +181,7 @@ def test_sync_freshrss_gates_and_watermarks(monkeypatch):
     )
 
     class FakeRunner:
-        def __init__(self, engine=None):
+        def __init__(self, engine=None, config=None):
             pass
 
         def run_gated_ingest(self, docs):

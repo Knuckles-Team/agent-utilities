@@ -431,7 +431,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "records_path": "items",
         "id_field": "id",
         "title_field": "title",
-        "text_field": "summary.content",
+        "text_field": "text",
         "updated_field": "published",
         "updated_since_param": "newer_than",
         "pagination": "cursor",
