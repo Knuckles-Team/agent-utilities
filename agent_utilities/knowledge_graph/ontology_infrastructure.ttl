@@ -19,8 +19,7 @@
         networking, routing, DNS, observability, and enterprise-scale
         data-centre constructs (racks, chassis, GPUs, fabric switches,
         power distribution, cooling).
-    """ ;
-    owl:imports <https://agent-utilities.dev/ontology> .
+    """ .
 
 :BladeServer a owl:Class ;
     rdfs:label "Blade Server" ;

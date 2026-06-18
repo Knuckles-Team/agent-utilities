@@ -98,6 +98,7 @@ nav:
       - C4 Architecture: pillars/architecture_c4.md
       - Self-Improving Reasoning Substrate: architecture/self_improving_reasoning_substrate.md
       - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
+      - Ontology Library (catalog + anti-drift): architecture/ontology_library.md
       - Camunda + ARIS ↔ Knowledge Graph: architecture/camunda_aris_kg_integration.md
       - CISO Assistant ↔ Knowledge Graph: architecture/ciso_assistant_kg_integration.md
       - Company Brain Runtime: architecture/company_brain_runtime.md
