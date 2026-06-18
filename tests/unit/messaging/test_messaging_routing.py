@@ -298,3 +298,50 @@ async def test_recall_context_returns_memories() -> None:
 
     out = await router._recall_context(_Eng(), "hi", "telegram")
     assert "prior chat about webhooks" in out
+
+
+# ── Reply path must not block on slow KG writes (ECO-4.72) ───────────
+
+
+@pytest.mark.asyncio
+async def test_inbound_reply_path_not_blocked_by_slow_kg() -> None:
+    """planner_handler must NOT await blocking KG writes (last-active + ingest).
+
+    Regression for the 'message ingested but no reply' stall: record_inbound (add_node)
+    and ingest (store_memory + embed) are blocking; awaiting them inline starved the burst
+    reply. They now run in a background thread, so the handler returns immediately.
+    """
+    import time
+
+    from agent_utilities.messaging.router import create_planner_handler
+
+    MessagingService._instance = None
+
+    class _SlowEng:
+        def add_node(self, *a: Any, **k: Any) -> None:
+            time.sleep(2)  # blocking last-active write
+
+        def store_memory(self, **k: Any) -> str:
+            time.sleep(2)  # blocking ingest + embedding
+            return "m"
+
+        def recall_memory(self, **k: Any) -> list[Any]:
+            return []
+
+        def query_cypher(self, *a: Any, **k: Any) -> list[Any]:
+            return []
+
+    handler = await create_planner_handler(knowledge_engine=_SlowEng())
+    backend = _FakeBackend("telegram")
+    ev = InboundEvent(
+        event_type=EventType.MESSAGE,
+        platform="telegram",
+        channel_id="42",
+        user_id="u1",
+        content="hello there",
+    )
+
+    start = time.monotonic()
+    await handler(ev, backend)
+    elapsed = time.monotonic() - start
+    assert elapsed < 1.0, f"reply path blocked on KG writes ({elapsed:.2f}s)"

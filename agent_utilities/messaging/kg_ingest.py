@@ -16,6 +16,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -92,7 +93,10 @@ async def ingest_message_to_kg(
         tags.append(f"thread:{event.thread_id}")
 
     try:
-        memory_id = engine.store_memory(
+        # CONCEPT:ECO-4.72 — store_memory is a BLOCKING call (graph write + embedding).
+        # Run it off the event loop so ingest never stalls the messaging/reply loop.
+        memory_id = await asyncio.to_thread(
+            engine.store_memory,
             content=memory_content,
             memory_type="episodic",
             name=f"Chat: {user} on {platform}",
