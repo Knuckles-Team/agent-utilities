@@ -22,16 +22,27 @@ def _bare_mixin():
     return TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
 
 
+def _maint_specs():
+    """Register maintenance :Schedule nodes for the current config (OS-5.44)."""
+    from agent_utilities.core import schedule_engine as _se
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    inst = _bare_mixin()
+    inst.backend = EpistemicGraphBackend()
+    inst._register_maintenance_schedules()
+    return {s.name: s for s in _se._load_all(inst)}
+
+
 @pytest.mark.concept(id="KG-2.17")
 def test_hygiene_job_registered_by_default(monkeypatch):
     monkeypatch.delenv("KG_DEV_MODE", raising=False)
-    inst = _bare_mixin()
-    jobs = inst._maintenance_jobs()
-    names = [n for n, _, _ in jobs]
-    assert "hygiene" in names
+    # hygiene is now a durable :Schedule the unified scheduler enqueues (OS-5.44).
+    spec = _maint_specs()["hygiene"]
+    assert spec.enabled
     # Default interval is daily.
-    interval = next(i for n, i, _ in jobs if n == "hygiene")
-    assert interval == 86400.0
+    assert spec.interval_s == 86400.0
 
 
 @pytest.mark.concept(id="KG-2.17")
@@ -43,8 +54,7 @@ def test_all_maintenance_daemons_disabled_via_dev_mode(monkeypatch):
 
     monkeypatch.setattr(cfg_mod.config, "kg_dev_mode", True, raising=False)
     assert _kg_dev_mode() is True
-    names = [n for n, _, _ in _bare_mixin()._maintenance_jobs()]
-    assert "hygiene" in names
+    assert _maint_specs()["hygiene"].enabled
 
     monkeypatch.setattr(cfg_mod.config, "kg_dev_mode", False, raising=False)
     assert _kg_dev_mode() is False

@@ -194,3 +194,23 @@
             sh:minCount 1 ;
             sh:path :node_id ] ;
     sh:targetClass :WorkflowStep .
+
+:ScheduleShape a sh:NodeShape ;
+    sh:description "A unified-scheduler Schedule must declare its trigger kind (CONCEPT:OS-5.44)." ;
+    sh:name "Schedule Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:in ( "cron" "interval" "adaptive" ) ;
+            sh:message "Schedule must declare trigger in {cron, interval, adaptive}." ;
+            sh:minCount 1 ;
+            sh:maxCount 1 ;
+            sh:path :trigger ] ;
+    sh:targetClass :Schedule .
+
+:DeadLetterTaskShape a sh:NodeShape ;
+    sh:description "A dead-letter Task records the attempts it exhausted (CONCEPT:KG-2.113)." ;
+    sh:name "Dead-Letter Task Shape" ;
+    sh:property [ sh:datatype xsd:integer ;
+            sh:message "DeadLetterTask must record the attempt count it exhausted." ;
+            sh:minCount 1 ;
+            sh:path :attempts ] ;
+    sh:targetClass :DeadLetterTask .

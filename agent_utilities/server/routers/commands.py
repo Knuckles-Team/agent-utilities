@@ -403,12 +403,15 @@ async def execute_slash_command(payload: dict, request: Request):
 
     elif cmd_name == "cron":
         sub = args.strip().lower() or "calendar"
-        # Real registry (CONCEPT:OS-5.30) — declarative deploy/schedules.yml + last-run
-        # state, NOT hardcoded placeholder text.
+        # Real registry (CONCEPT:OS-5.44) — durable :Schedule nodes (seeded from
+        # deploy/schedules.yml) + live last-run state, NOT placeholder text.
         try:
-            from agent_utilities.core.skill_scheduler import calendar
+            from agent_utilities.core.schedule_engine import calendar
+            from agent_utilities.knowledge_graph.core.engine import (
+                IntelligenceGraphEngine,
+            )
 
-            entries = calendar()
+            entries = calendar(IntelligenceGraphEngine.get_active())
         except Exception as e:  # noqa: BLE001
             return {
                 "response_markdown": f"Scheduler unavailable: {e}",
