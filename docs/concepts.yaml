@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 354
+total_concepts: 355
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1253,13 +1253,14 @@ concepts:
   - agent_utilities/messaging/commands.py
   doc: shared by every messaging platform AND
 - id: ECO-4.72
-  name: fire-and-forget background tasks
+  name: do NOT fire the heavy relevance sweep immediately on every
   pillar: ECO-4
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/messaging/kg_ingest.py
   - agent_utilities/messaging/router.py
-  doc: fire-and-forget background tasks
+  doc: do NOT fire the heavy relevance sweep immediately on every
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -3622,6 +3623,14 @@ concepts:
   - agent_utilities/rlm/repl.py
   doc: Task-aware per-call LLM sampling that selects and threads a SamplingProfile of temperature top_p
     top_k min_p repetition_penalty max_tokens and penalties per question by task-class and role
+- id: ORCH-1.59
+  name: local-inference slots always kept free for the interactive path
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  doc: local-inference slots always kept free for the interactive path
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

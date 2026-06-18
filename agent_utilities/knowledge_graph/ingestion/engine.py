@@ -906,14 +906,19 @@ class IngestionEngine:
         # always be mined — never skip it, or we silently lose its facts.
         skip_facts = structure == "structured" and len(windows) <= 1
         if enrich_facts and windows and not skip_facts:
-            # Fact extraction is the measured bottleneck (~tens of seconds/window
-            # on the chat model). It is async, so fan the windows out concurrently
-            # with bounded concurrency — vLLM batches requests, turning an N×
-            # sequential cost into ~N/KG_ENRICH_CONCURRENCY. Writes happen in sync
-            # sections of each coroutine, so there is no backend write race.
+            # Fact extraction is the measured bottleneck (~tens of seconds/window on the
+            # chat model). It is async, so fan the windows out concurrently with bounded
+            # concurrency — vLLM batches requests, turning an N× sequential cost into
+            # ~N/concurrency. CONCEPT:ORCH-1.59 — the ceiling is the local-inference
+            # capacity (KG_LLM_CONCURRENCY) MINUS the reserved interactive slot, so this
+            # background sweep can never consume the slot the messaging responder /
+            # graph-os-spawned agents need to answer.
             import asyncio
 
-            sem = asyncio.Semaphore(int(setting("KG_ENRICH_CONCURRENCY", "8")))
+            from agent_utilities.core.config import RESERVED_INTERACTIVE_INSTANCES
+
+            _capacity = setting("KG_LLM_CONCURRENCY", 4)
+            sem = asyncio.Semaphore(max(1, _capacity - RESERVED_INTERACTIVE_INSTANCES))
 
             async def _facts_for(window: str) -> int:
                 async with sem:
