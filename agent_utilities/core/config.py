@@ -816,7 +816,8 @@ class AgentConfig(BaseSettings):
     evolution_worktree_root: str = Field(default="", alias="EVOLUTION_WORKTREE_ROOT")
     kg_loop_interval: float = Field(default=3600.0, alias="KG_LOOP_INTERVAL")
     kg_loop_topics: int = Field(default=5, alias="KG_LOOP_TOPICS")
-    # ScholarX RSS research-feed loop (CONCEPT:KG-2.114): a recurring schedule
+    # CONCEPT:KG-2.114 — ScholarX RSS research-feed loop that grades and fetches new papers.
+    # A recurring schedule
     # that grades incoming RSS items (keyword taxonomy + ConceptMatcher novelty),
     # skips already-seen items, and enqueues a prioritized full-paper fetch+ingest
     # only for the high-graded ones. Default-ON (it no-ops safely without ScholarX

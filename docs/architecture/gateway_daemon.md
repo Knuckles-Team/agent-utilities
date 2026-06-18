@@ -14,25 +14,35 @@ flowchart TB
         subgraph THREADS["Consolidated daemon threads"]
             T1[submission]
             T2[graph_writer]
-            T3[maintenance scheduler]
+            T3[maintenance scheduler\nplumbing-only]
             T4[embed_backfill]
             T5[task_workers pool]
         end
 
-        subgraph JOBS["Maintenance jobs (scheduler tick)"]
-            J1[analysis] --- J2[loop_cycle] --- J3[sai_factory]
-            J4[failure_ingest] --- J5[skill_scheduler] --- J6[anomaly_consumer]
-            J7[fuseki_publish] --- J8[compaction] --- J9[evolution]
-            J10[reconcile_durable] --- J11[enrichment] --- J12[usage_log_sync]
-            J13[usage_pricing_refresh] --- J14[file_watch] --- J15[hygiene]
-            J16[task_reaper] --- J17[tenant_gc]
+        subgraph PLUMB["Inline plumbing ticks (must run even when workers saturate)"]
+            P1[scheduler\nevaluate :Schedule → enqueue]
+            P2[task_reaper\nrequeue dead-host tasks]
+            P3[promotion_sweep\nscheduled/blocked → pending]
+        end
+
+        subgraph SCHED["Durable :Schedule registry (OS-5.44)\ncron · interval · adaptive"]
+            S1[deploy/schedules.yml seeds] --- S2[former maintenance ticks\nanalysis/enrichment/evolution/…]
+            S3[loop_cycle] --- S4[research_feed RSS\nKG-2.114]
+        end
+
+        subgraph QUEUE["Unified priority+scheduled queue — :Task (KG-2.113)"]
+            direction LR
+            Q0[bucket 0\ncritical] --> Q1[bucket 1\nhigh] --> Q2[bucket 2\nnormal] --> Q3[bucket 3\nbackground]
+            QS[scheduled\neta/backoff] -.promote.-> Q2
+            QB[blocked\ndepends_on] -.promote.-> Q2
+            QD[dead_letter\nretries exhausted]
         end
 
         subgraph MSG["Messaging inbound router (ECO-4.51, thread w/ own loop)"]
             R[InboundRouter] --> B1[(Telegram backend)]
             R --> B2[(Slack / Teams / Mattermost / … when configured)]
             R --> H[planner handler]
-            H --> AGENT[dedicated messaging agent\nlean; local-default / Claude]
+            H --> AGENT["dedicated messaging agent\nlean; local-default / Claude"]
             AGENT -. delegates .-> MCPOS
             H --> ING[KG auto-ingest chat memory]
         end
@@ -54,7 +64,11 @@ flowchart TB
     T1 --> PG
     T5 --> PG
     T2 --> ENG
-    T3 --> JOBS
+    T3 --> PLUMB
+    P1 --> SCHED
+    SCHED -->|enqueue scheduled_job| QUEUE
+    P3 --> QUEUE
+    T5 -->|claim highest bucket first| QUEUE
     REST --> ENG
     AGENT --> ENG
     ING --> ENG
@@ -70,14 +84,27 @@ flowchart TB
 ## What each group is
 
 - **Daemon threads** — the consolidated background workers: `submission` (queue submit),
-  `graph_writer` (durable writes to the engine), `maintenance` (the scheduler that fires
-  the jobs below), `embed_backfill` (embeddings catch-up), `task_workers` (on-demand work
-  pool draining the queue).
-- **Maintenance jobs** — declarative scheduled work (`deploy/schedules.yml` + built-ins):
-  KG `analysis`, the **`loop_cycle`** Loop engine, `sai_factory`, `failure_ingest`,
-  `skill_scheduler`, `anomaly_consumer`, `fuseki_publish`, `compaction`, `evolution`,
-  `reconcile_durable`, `enrichment`, `usage_log_sync`, `usage_pricing_refresh`,
-  `file_watch`, `hygiene`, `task_reaper`, `tenant_gc`.
+  `graph_writer` (durable writes to the engine), `maintenance` (now runs only the inline
+  *plumbing* ticks), `embed_backfill` (embeddings catch-up), `task_workers` (the pool that
+  drains the unified queue).
+- **Inline plumbing ticks (CONCEPT:OS-5.44)** — the only work the maintenance thread runs
+  directly, because it must run even when the queue/workers are saturated (it feeds and
+  heals them): `scheduler` (evaluate every `:Schedule` and **enqueue** the due jobs),
+  `task_reaper` (requeue tasks orphaned by a dead worker/host), and `promotion_sweep`
+  (promote due `scheduled` and unblocked `blocked` tasks to `pending`).
+- **Durable `:Schedule` registry (CONCEPT:OS-5.44)** — the ONE place recurring work is
+  declared. Seeded from `deploy/schedules.yml` and from the former fixed-interval
+  maintenance ticks (`analysis`, `enrichment`, `evolution`, `sai_factory`, `failure_ingest`,
+  `anomaly_consumer`, `fuseki_publish`, `compaction`, `reconcile_durable`, `usage_*`,
+  `file_watch`, `hygiene`, `tenant_gc`, the fleet ticks), plus **`loop_cycle`** and the
+  **`research_feed`** ScholarX RSS loop (KG-2.114). Triggers are `cron | interval | adaptive`;
+  each node carries live last-run / next-run / failure-backoff and is editable at runtime
+  via `graph_schedules` (MCP) and `/graph/schedules` (REST).
+- **Unified priority+scheduled queue (CONCEPT:KG-2.113)** — every recurring job and every
+  loop stage's fan-out becomes a `:Task`. Workers claim by discrete priority bucket
+  (0 critical → 3 background); `scheduled` tasks carry an eta (delayed execution + retry
+  backoff), `blocked` tasks carry `depends_on`, and an app-failure that exhausts its retries
+  becomes a `dead_letter` (distinct from the reaper's crash-requeue).
 - **Messaging inbound router** (ECO-4.51) — runs on its own event loop in a daemon thread;
   connects every configured backend, ingests chat to the KG, and routes to the dedicated
   messaging agent, which **delegates** heavy work to graph-os (ECO-4.59).

@@ -62,6 +62,7 @@ nav:
       - Recipe — Enterprise: recipes/enterprise.md
       - Recipe — Stardog + pg-age databases: recipes/databases.md
       - Recipe — Delta-based ingestion via backends: recipes/delta-ingestion.md
+      - Recipe — Unified scheduling + RSS research feed: recipes/unified-scheduling.md
       - LeanIX EA Integration (mirror/delta/backfeed): guides/leanix-integration.md
       - CMDB/ERP Bidirectional (ServiceNow + ERPNext): guides/cmdb-bidirectional-integration.md
       - Deploying agent-utilities: guides/deployment.md

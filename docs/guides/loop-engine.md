@@ -151,4 +151,16 @@ stage flags gate the heavier stages:
 
 All three are advanced by the one `LoopController`, share the durable
 checkpoint/resume machinery, and are reachable through the one `graph_loops`
-entrypoint.
+entrypoint. Loops carry a `prio_bucket`; `active_loops` advances the
+highest-priority loops first, and `graph_loops action=prioritize` bumps one.
+
+## Scheduling and the unified queue (CONCEPT:OS-5.44)
+
+The recurring **`loop_cycle`** is no longer a hardcoded daemon tick — it is a
+durable `:Schedule` the unified scheduler enqueues as a `scheduled_job` `:Task`,
+so the heavy controller runs in the worker pool under the throttle/lease/reaper
+rather than on the scheduler thread. A loop stage that fans out (e.g. the
+ScholarX RSS **`research_feed`** screen) **enqueues prioritized child tasks** onto
+the same queue — for the feed, a `research_paper_fetch` per high-graded paper,
+bucketed by grade so the best paper is fetched first. See the
+[unified scheduling recipe](../recipes/unified-scheduling.md).

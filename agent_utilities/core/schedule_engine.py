@@ -1,11 +1,11 @@
-"""CONCEPT:OS-5.44 — Unified scheduling engine (one intelligent scheduler).
+"""CONCEPT:OS-5.44 — Unified scheduling engine, one intelligent scheduler for all recurring work.
 
 Collapses the four historical scheduling surfaces — fixed-interval maintenance
 ticks, the static ``deploy/schedules.yml`` cron, the loop-cycle tick, and the
 legacy OS-5.2 ``MaintenanceCron`` — into ONE durable, dynamic scheduler. The
 scheduler is the sole *producer* of recurring work: when a schedule is due it
 **enqueues** a ``scheduled_job`` ``:Task`` onto the one hardened priority+
-scheduled queue (CONCEPT:KG-2.113), which the one worker pool drains under the
+scheduled queue (KG-2.113), which the one worker pool drains under the
 existing throttle / lease / reaper hardening. Nothing recurring runs inline in
 the scheduler thread anymore.
 
@@ -32,7 +32,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -341,9 +341,7 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
         else:
             interval = spec.interval_s or 60.0
             if spec.trigger == "adaptive" and spec.consecutive_failures:
-                mult = min(
-                    2**spec.consecutive_failures, _ADAPTIVE_MAX_BACKOFF_MULT
-                )
+                mult = min(2**spec.consecutive_failures, _ADAPTIVE_MAX_BACKOFF_MULT)
                 interval *= mult
             spec.next_run_unix = now_unix + interval
         _upsert(engine, spec)
@@ -465,7 +463,10 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
             text=True,
             timeout=payload.get("timeout", 600),
         )
-        return {"status": "ok" if res.returncode == 0 else "error", "rc": res.returncode}
+        return {
+            "status": "ok" if res.returncode == 0 else "error",
+            "rc": res.returncode,
+        }
     if kind in ("workflow", "agent"):
         try:
             import asyncio
@@ -482,7 +483,7 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
     return {"status": "skipped", "reason": f"unknown_kind:{kind}"}
 
 
-# ── Runtime control (CONCEPT:OS-5.44) — surfaced via MCP + REST in §8 ─────────
+# ── Runtime control — enable/disable/reprioritize/retune, surfaced via MCP + REST (CONCEPT:OS-5.44)
 def set_enabled(engine: Any, name: str, enabled: bool) -> dict[str, Any]:
     spec = _load_one(engine, name)
     if spec is None:

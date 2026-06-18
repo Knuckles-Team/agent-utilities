@@ -824,9 +824,7 @@ class LoopController:
 
         return sync_source(self.engine, "archivebox", mode="delta")
 
-    async def _fetch_rss_feed(
-        self, runner: Any, limit: int
-    ) -> list[dict[str, Any]]:
+    async def _fetch_rss_feed(self, runner: Any, limit: int) -> list[dict[str, Any]]:
         """Pull fresh ScholarX RSS feed items (title+abstract+ids) — the cheap
         screen input. ``get_recent_papers(days=1)`` routes through the arXiv RSS
         feed. No-ops (``[]``) when ScholarX is not installed. (CONCEPT:KG-2.114)"""

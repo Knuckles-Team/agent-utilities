@@ -31,12 +31,30 @@ class _Engine:
 
 
 _FEED = [
-    {"id": "arxiv:2601.0001", "title": "HIGH", "abstract": "", "authors": [],
-     "url": "http://x/1", "pdf_url": "http://x/1.pdf"},
-    {"id": "arxiv:2601.0002", "title": "MARG", "abstract": "", "authors": [],
-     "url": "http://x/2", "pdf_url": ""},
-    {"id": "arxiv:2601.0003", "title": "LOW", "abstract": "", "authors": [],
-     "url": "http://x/3", "pdf_url": ""},
+    {
+        "id": "arxiv:2601.0001",
+        "title": "HIGH",
+        "abstract": "",
+        "authors": [],
+        "url": "http://x/1",
+        "pdf_url": "http://x/1.pdf",
+    },
+    {
+        "id": "arxiv:2601.0002",
+        "title": "MARG",
+        "abstract": "",
+        "authors": [],
+        "url": "http://x/2",
+        "pdf_url": "",
+    },
+    {
+        "id": "arxiv:2601.0003",
+        "title": "LOW",
+        "abstract": "",
+        "authors": [],
+        "url": "http://x/3",
+        "pdf_url": "",
+    },
 ]
 
 
@@ -81,7 +99,9 @@ def test_feed_screen_grades_and_enqueues_by_priority(_patched):
     assert rep["ingested_marginal"] == 1  # MARG
     assert rep["rejected"] == 1  # LOW
     # The fetch task is enqueued with a grade-derived priority bucket.
-    fetches = [s for s in ctrl.engine.submitted if s["task_type"] == "research_paper_fetch"]
+    fetches = [
+        s for s in ctrl.engine.submitted if s["task_type"] == "research_paper_fetch"
+    ]
     assert len(fetches) == 1
     assert fetches[0]["priority"] == 0  # 7.0 >= 2*relevant(3.0) → most urgent
     assert fetches[0]["extra_meta"]["paper"]["id"] == "arxiv:2601.0001"
