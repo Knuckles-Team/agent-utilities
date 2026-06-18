@@ -84,6 +84,25 @@ run_plan:
   - deploy-baremetal
   - use-existing
   - skip
+  install_variants:
+  - prod
+  - dev
+  messaging:
+    channels:
+    - slack
+    - teams
+    - telegram
+    - mattermost
+    - discord
+    - whatsapp
+    - matrix
+    - signal
+    reach_modes:
+    - last-active
+    - broadcast
+  single_package_deploy:
+    invoke: deploy <package> with agent-os-genesis
+    catalog: universal-skills agent-os-genesis references/connector-catalog.md
   provisioner_by_orchestrator:
     docker-swarm: swarm-mesh-provisioner
     kubernetes: kubernetes-mesh-provisioner
