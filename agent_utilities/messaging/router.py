@@ -315,6 +315,24 @@ async def create_planner_handler(
         except Exception as e:  # noqa: BLE001
             logger.error("[CONCEPT:ECO-4.51] Sending reply failed: %s", e)
 
+        # Post-conversation enrichment (CONCEPT:ECO-4.65): mine the turn for concepts and
+        # link them into the KG, in the background so it never delays the reply.
+        try:
+            from agent_utilities.messaging.enrichment import enrich_conversation
+
+            convo = f"{combined}\n\nAssistant: {reply}"
+            asyncio.create_task(
+                asyncio.to_thread(
+                    enrich_conversation,
+                    engine,
+                    convo,
+                    platform=str(event.platform),
+                    channel_id=event.channel_id,
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[CONCEPT:ECO-4.65] enrichment dispatch skipped: %s", e)
+
     coalescer = BurstCoalescer(
         _reply_to_burst,
         window_s=float(setting("MESSAGING_BURST_WINDOW_S", "2.5")),

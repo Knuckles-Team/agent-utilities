@@ -373,6 +373,8 @@ class AgentConfig(BaseSettings):
         default="2.5", alias="MESSAGING_BURST_WINDOW_S"
     )
     messaging_burst_max_s: str = Field(default="12", alias="MESSAGING_BURST_MAX_S")
+    # Post-conversation enrichment (CONCEPT:ECO-4.65): mine chats → KG concepts (opt-out).
+    messaging_enrich: str = Field(default="1", alias="MESSAGING_ENRICH")
     # KG as a first-class default tool layer for every agent (opt-out).
     agent_kg_tools: str = Field(default="True", alias="AGENT_KG_TOOLS")
 
