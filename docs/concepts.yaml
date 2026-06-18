@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 355
+total_concepts: 356
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1092,13 +1092,12 @@ concepts:
   - agent_utilities/mcp/tools/reach_tools.py
   doc: graph_reach MCP tool and REST twin for outbound user messaging
 - id: ECO-4.51
-  name: Inbound messaging router with graph-agent reply in the host daemon
+  name: / ECO-4.55 — two responders, default local
   pillar: ECO-4
   status: live
   code_paths:
-  - agent_utilities/gateway/daemon.py
   - agent_utilities/messaging/router.py
-  doc: Inbound messaging router with graph-agent reply in the host daemon
+  doc: / ECO-4.55 — two responders, default local
 - id: ECO-4.52
   name: elicitation and loop bridge so a blocked loop reaches the user and resumes on reply
   pillar: ECO-4
@@ -1142,10 +1141,10 @@ concepts:
   pillar: ECO-4
   status: live
   code_paths:
-  - agent_utilities/gateway/daemon.py
   - agent_utilities/messaging/backends/telegram.py
   - agent_utilities/messaging/base.py
   - agent_utilities/messaging/commands.py
+  - agent_utilities/messaging/daemon.py
   - agent_utilities/messaging/router.py
   doc: the single inbound command dispatcher used by every platform
 - id: ECO-4.58
@@ -1261,6 +1260,14 @@ concepts:
   - agent_utilities/messaging/kg_ingest.py
   - agent_utilities/messaging/router.py
   doc: do NOT fire the heavy relevance sweep immediately on every
+- id: ECO-4.73
+  name: the inbound messaging router runs in its OWN process
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/gateway/daemon.py
+  - agent_utilities/messaging/daemon.py
+  doc: the inbound messaging router runs in its OWN process
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
