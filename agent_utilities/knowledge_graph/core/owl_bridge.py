@@ -105,6 +105,10 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "agent",
     "tool",
     "skill",
+    # Unified scheduling / task / loop engine (CONCEPT:OS-5.44 / KG-2.113)
+    "task",
+    "schedule",
+    "loop",
     "file",
     "symbol",
     "module",
