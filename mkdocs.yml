@@ -124,6 +124,8 @@ nav:
       - Fleet Autonomy Control Plane: architecture/fleet_autonomy.md
       - Unattended Claude Code Harness: architecture/unattended_claude_harness.md
       - Messaging Reach (Telegram + agents): architecture/messaging_reach.md
+      - Gateway Daemon (all runtime components): architecture/gateway_daemon.md
+      - Secure Messaging Ingress (zero open ports): architecture/messaging_security.md
       - Event Backbone (Kafka): architecture/event_backbone_architecture.md
       - Ontology System: architecture/ontology_system.md
       - Graph Backend Architecture: architecture/graph_backends_architecture.md
