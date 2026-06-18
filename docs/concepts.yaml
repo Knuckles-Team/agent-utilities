@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 357
+total_concepts: 358
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2994,6 +2994,14 @@ concepts:
   - agent_utilities/automation/feed_sources.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   doc: first-class RSS/Atom feed sources
+- id: KG-2.130
+  name: a memory write offloaded from a SERVING process. The
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_memory.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: a memory write offloaded from a SERVING process. The
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
