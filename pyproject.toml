@@ -29,6 +29,10 @@ dependencies = [
     "platformdirs>=4.10.0",
     "packaging>=24.2,<26",
     "psutil>=7.2.2",
+    # CONCEPT:KG-2.121 — robust RSS/Atom/RDF parsing for the native `rss` feed
+    # connector (handles RSS 0.9x/1.0/2.0 + Atom + malformed feeds + date/enclosure
+    # normalization). Pure-Python, single small dep; imported lazily in the connector.
+    "feedparser>=6.0.0",
     "tree-sitter-python>=0.25.0",
     "tree-sitter-javascript>=0.25.0",
     "tree-sitter-typescript>=0.23.2",
