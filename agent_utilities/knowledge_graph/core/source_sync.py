@@ -278,7 +278,18 @@ def _sync_freshrss(
     if params:
         config["params"] = params
     conn = build_connector("mcp_tool", config)
-    docs = list(conn.poll_all()) if hasattr(conn, "poll_all") else list(conn.load())  # type: ignore[attr-defined]
+    # Bound each run (the */20min sweep drains incrementally) so a cold first run —
+    # thousands of backlog articles before any watermark — can't run unbounded. Each
+    # cursor batch is ~100 items; default 3 pages ≈ 300 items/run. Override with
+    # FRESHRSS_MAX_BATCHES.
+    try:
+        max_batches = int(setting("FRESHRSS_MAX_BATCHES", default="3") or 3)
+    except (TypeError, ValueError):
+        max_batches = 3
+    if hasattr(conn, "poll_all"):
+        docs = list(conn.poll_all(max_batches=max_batches))  # type: ignore[attr-defined]
+    else:
+        docs = list(conn.load())  # type: ignore[attr-defined]
 
     report = WorldModelPipelineRunner(engine=engine).run_gated_ingest(docs)
 
