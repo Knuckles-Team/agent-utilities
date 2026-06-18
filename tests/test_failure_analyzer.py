@@ -173,22 +173,28 @@ class TestDaemonRegistration:
     """failure_ingest is a maintenance job gated on KG_FAILURE_EVOLUTION."""
 
     def test_registered_only_when_enabled(self, monkeypatch):
-        from unittest.mock import MagicMock
-
         from agent_utilities.core import config as cfg_mod
+        from agent_utilities.core import schedule_engine as se
+        from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+            EpistemicGraphBackend,
+        )
         from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
-        ms = MagicMock()
+        def _specs():
+            inst = TaskManagerMixin.__new__(TaskManagerMixin)
+            inst.backend = EpistemicGraphBackend()
+            inst._register_maintenance_schedules()
+            return {s.name: s for s in se._load_all(inst)}
+
         monkeypatch.setattr(cfg_mod.config, "kg_failure_evolution", False)
-        names = [n for n, _i, _t in TaskManagerMixin._maintenance_jobs(ms)]
-        assert "failure_ingest" not in names
+        assert not _specs()["failure_ingest"].enabled
 
         monkeypatch.setattr(cfg_mod.config, "kg_failure_evolution", True)
         monkeypatch.setattr(cfg_mod.config, "kg_failure_evolution_interval", 1234.0)
-        jobs = TaskManagerMixin._maintenance_jobs(ms)
-        match = [(i, t) for n, i, t in jobs if n == "failure_ingest"]
-        assert match and match[0][0] == 1234.0
-        assert match[0][1] == ms._tick_failure_ingest
+        spec = _specs()["failure_ingest"]
+        assert spec.enabled and spec.interval_s == 1234.0
+        # The scheduled_job runs the engine's _tick_failure_ingest (kind: maint).
+        assert spec.payload == {"kind": "maint", "ref": "failure_ingest"}
 
 
 class TestRunFailureIngest:

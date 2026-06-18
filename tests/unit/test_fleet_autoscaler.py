@@ -503,17 +503,26 @@ def test_quiet_tick_writes_nothing(engine, tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_autoscaler_tick_registration_is_flag_gated(monkeypatch):
-    from agent_utilities.core.config import config
+def _enabled_maintenance_names() -> set[str]:
+    """Names of ENABLED maintenance :Schedule nodes for the current config
+    (the unified-scheduler analog of a tick being registered; CONCEPT:OS-5.44)."""
+    from agent_utilities.core import schedule_engine as _se
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
     from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
-    class _Engine(TaskManagerMixin):
-        backend = object()
+    inst = TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
+    inst.backend = EpistemicGraphBackend()
+    inst._register_maintenance_schedules()
+    return {s.name for s in _se._load_all(inst) if s.enabled}
+
+
+def test_autoscaler_tick_registration_is_flag_gated(monkeypatch):
+    from agent_utilities.core.config import config
 
     monkeypatch.setattr(config, "fleet_autoscaler", True)
-    names = [n for n, _, _ in TaskManagerMixin._maintenance_jobs(_Engine())]
-    assert "fleet_autoscaler" in names
+    assert "fleet_autoscaler" in _enabled_maintenance_names()
 
     monkeypatch.setattr(config, "fleet_autoscaler", False)
-    names = [n for n, _, _ in TaskManagerMixin._maintenance_jobs(_Engine())]
-    assert "fleet_autoscaler" not in names
+    assert "fleet_autoscaler" not in _enabled_maintenance_names()

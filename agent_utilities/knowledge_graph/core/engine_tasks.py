@@ -735,238 +735,144 @@ class TaskManagerMixin(GraphEngineProtocol):
     # ── Consolidated maintenance scheduler (CONCEPT:KG-2.8) ──────────────
 
     def _maintenance_jobs(self) -> list[tuple[str, float, Any]]:
-        """Registry of periodic KG maintenance jobs: ``(name, interval_s, tick)``.
+        """Inline plumbing the maintenance thread runs DIRECTLY (CONCEPT:OS-5.44).
 
-        One place to see/declare every background job. The scheduler runs them
-        all in a single thread, each on its own interval, behind one shared
-        foreground-throttle gate.
+        Everything else recurring (analysis, the self-evolution loop, enrichment,
+        evolution, the fleet ticks, usage/file/hygiene/tenant-gc sweeps, and the
+        declarative ``deploy/schedules.yml`` entries) is now a durable
+        ``:Schedule`` that the ``scheduler`` tick ENQUEUES onto the unified queue
+        — those bodies run in the worker pool under the throttle/lease/reaper, not
+        in this thread (see :meth:`_register_maintenance_schedules`). Only the
+        queue's OWN plumbing stays inline, because it must run even when the
+        queue/workers are saturated (it is what feeds and heals them):
+
+          * ``scheduler``       — evaluate :Schedule nodes and enqueue due jobs
+          * ``task_reaper``     — requeue tasks orphaned by a dead worker/host
+          * ``promotion_sweep`` — promote due/unblocked scheduled & blocked tasks
         """
+        return [
+            ("scheduler", 60.0, self._tick_scheduler),
+            ("task_reaper", _TASK_REAPER_INTERVAL, self._tick_task_reaper),
+            ("promotion_sweep", _PROMOTION_SWEEP_INTERVAL, self._tick_promotion_sweep),
+        ]
 
+    def _register_maintenance_schedules(self) -> None:
+        """Register the former fixed-interval maintenance ticks as durable
+        ``:Schedule`` nodes so the unified scheduler enqueues them (CONCEPT:OS-5.44).
+
+        Each becomes an ``interval`` schedule whose ``scheduled_job`` runs the
+        engine ``_tick_<ref>`` method (``kind: maint``) — or, for the
+        self-evolution loop, a ``kind: maint`` schedule pointing at ``_tick_loop``.
+        The config gates that used to decide whether a tick was *registered* now
+        decide whether its *schedule* is registered, so the opt-in/opt-out
+        defaults are unchanged. Maintenance runs at background priority (bucket 3)
+        so it never preempts real ingestion/research; the loop runs at bucket 2.
+        Run once at startup; idempotent (registration preserves live run state).
+        """
         from agent_utilities.core.config import DEFAULT_KG_MODEL_ID
-
-        jobs: list[tuple[str, float, Any]] = []
-        # NOTE: embedding backfill is NOT a periodic maintenance job — it runs in
-        # its own dedicated drain loop (``_embedding_backfill_loop``) so it isn't
-        # starved behind the slower LLM ticks (analysis/enrichment) in this
-        # single sequential scheduler thread.
-        if DEFAULT_KG_MODEL_ID:
-            jobs.append(("analysis", 120.0, self._tick_kg_analysis))
-        # Self-evolution Loop engine (propose-only) — throttled and OPT-IN
-        # (autonomous LLM work). Enable with KG_LOOP=1. (KG-2.7/2.78)
         from agent_utilities.core.config import config as _cfg
+        from agent_utilities.core.schedule_engine import (
+            ScheduleSpec,
+            register_schedule,
+        )
 
-        if _cfg.kg_loop:
-            jobs.append(
-                (
-                    "loop_cycle",
-                    _cfg.kg_loop_interval,
-                    self._tick_loop,
-                )
-            )
-        # SAI factory self-specialization (CONCEPT:AHE-3.29) — native, ON by default
-        # (LLM-free, bounded, propose-only, no-op when idle). Grounds a learned world
-        # model in persisted transition history and specializes it. KG_SAI_FACTORY=0 disables.
-        if _cfg.kg_sai_factory:
-            jobs.append(
-                (
-                    "sai_factory",
-                    _cfg.kg_sai_factory_interval,
-                    self._tick_sai_factory,
-                )
-            )
-        # Failure-driven evolution (CONCEPT:AHE-3.18) — opt-in (KG_FAILURE_EVOLUTION=True).
-        # Ingests Langfuse failures into failure-gap topics and runs a
-        # regression-gated remediation cycle. This is the real telemetry sweep that
-        # _tick_evolution previously faked (it swept nothing).
-        if _cfg.kg_failure_evolution:
-            jobs.append(
-                (
-                    "failure_ingest",
-                    _cfg.kg_failure_evolution_interval,
-                    self._tick_failure_ingest,
-                )
-            )
-        # DSPy optimization sweep (CONCEPT:AHE-3.46) — opt-in (KG_DSPY_OPTIMIZATION=True),
-        # off by default because each pass runs an LLM-gated DSPy compile per target. The
-        # scheduled, propose-only twin of `graph_orchestrate action=optimize_component`:
-        # optimizes the self-supervised targets (extraction/concept_match/routing) from
-        # live graph data and records optimization trajectories (nothing auto-applies).
-        if _cfg.kg_dspy_optimization:
-            jobs.append(
-                (
-                    "dspy_optimization",
-                    _cfg.kg_dspy_optimization_interval,
-                    self._tick_optimize_components,
-                )
-            )
-        # PerformanceAnomaly consumer (CONCEPT:AHE-3.19) — drains unconsumed
-        # PerformanceAnomaly nodes into failure_gap topics. LLM-free, bounded,
-        # propose-only ⇒ ON by default (KG_ANOMALY_CONSUMER=0 to disable).
-        # Declarative skill / skill-workflow scheduler (CONCEPT:OS-5.30) — the ONE
-        # generic tick that dispatches everything in deploy/schedules.yml on its cron.
-        # Always registered; the registry (and per-entry `enabled`) is the control, so
-        # no recurring job is ever a hardcoded daemon tick. Runs every minute.
-        jobs.append(("scheduler", 60.0, self._tick_scheduler))
-        if _cfg.kg_anomaly_consumer:
-            jobs.append(
-                (
-                    "anomaly_consumer",
-                    _ANOMALY_CONSUMER_INTERVAL,
-                    self._tick_anomaly_consumer,
-                )
-            )
-        # Fuseki ontology distribution (CONCEPT:KG-2.52) — opt-in (a Fuseki
-        # deployment is optional infrastructure). Pushes the bundled ontology
-        # modules to the enterprise triplestore so SPARQL-federation consumers
-        # track the evolving authoritative TBox. Enable with KG_FUSEKI_PUBLISH=1.
-        if _cfg.kg_fuseki_publish:
-            jobs.append(
-                (
-                    "fuseki_publish",
-                    _cfg.kg_fuseki_publish_interval,
-                    self._tick_fuseki_publish,
-                )
-            )
-        # Desired-state fleet reconciler (CONCEPT:OS-5.25) — opt-in
-        # (FLEET_RECONCILER=1). Leader-only like every job in this scheduler:
-        # one host fleet-wide diffs registry-desired vs observed state and
-        # converges through the ActionPolicy gate (CONCEPT:OS-5.24). Default
-        # off until a deployment wires real actuators; with the default
-        # dry-run actuator it records intended actions without mutating.
-        if _cfg.fleet_reconciler:
-            jobs.append(
-                (
-                    "fleet_reconciler",
-                    _cfg.fleet_reconciler_interval,
-                    self._tick_fleet_reconciler,
-                )
-            )
-        # Reactive replica autoscaler (CONCEPT:OS-5.29) — opt-in
-        # (FLEET_AUTOSCALER=1). Leader-only: one host fleet-wide target-tracks
-        # load signals against registry-declared scaling bounds and proposes
-        # scale_service through the ActionPolicy gate (CONCEPT:OS-5.24).
-        # Default off; with the default dry-run actuator it records intent
-        # without mutating, and a service without a scaling block (or with no
-        # signal data) is never scaled.
-        if _cfg.fleet_autoscaler:
-            jobs.append(
-                (
-                    "fleet_autoscaler",
-                    _cfg.fleet_autoscaler_interval,
-                    self._tick_fleet_autoscaler,
-                )
-            )
-        jobs.append(("compaction", 1800.0, self._tick_compaction))
-        jobs.append(
-            (
-                "evolution",
-                _EVOLUTION_INTERVAL,
-                self._tick_evolution,
-            )
-        )
-        # Durable-tier autoheal (CONCEPT:KG-2.8): backfill L1 (compute) → L2/L3
-        # (durable Postgres) so the stores converge and an L1-only run / restart /
-        # new node type can never silently diverge. Self-healing: runs ~15s after
-        # startup then every KG_RECONCILE_INTERVAL. Registered only when a durable
-        # reconcile exists (tiered backend). Disabled wholesale via KG_DEV_MODE.
-        if callable(
-            getattr(getattr(self, "backend", None), "reconcile_to_durable", None)
-        ):
-            jobs.append(
-                (
-                    "reconcile_durable",
-                    _RECONCILE_INTERVAL,
-                    self._tick_reconcile_durable,
-                )
-            )
-        jobs.append(
-            (
-                "enrichment",
-                _ENRICH_INTERVAL,
-                self._tick_enrichment,
-            )
-        )
-        # Usage/cost observability (CONCEPT:ECO-4.41 / ECO-4.42): auto-detect and
-        # sync local agent logs into the usage store, and refresh the LiteLLM
-        # pricing catalog. Default-on (USAGE_TRACKING_ENABLED=1); both ticks are
-        # best-effort and never block the scheduler. Sync auto-skips when the
-        # engine is a remote client (collector pushes from the client instead).
-        if getattr(_cfg, "usage_tracking_enabled", True):
-            jobs.append(
-                (
-                    "usage_log_sync",
-                    _USAGE_SYNC_INTERVAL,
-                    self._tick_usage_log_sync,
-                )
-            )
-            jobs.append(
-                (
-                    "usage_pricing_refresh",
-                    _USAGE_PRICING_REFRESH_INTERVAL,
-                    self._tick_usage_pricing_refresh,
-                )
-            )
-        # SDD/skills/scholarx/config file-watch as a periodic scan job — folded
-        # in here instead of its own KGPlanWatcherThread + watchdog. Gated by
-        # ``config.enable_sdd_watcher``. (CONCEPT:KG-2.6 / OS-5.0)
-        try:
-            from agent_utilities.core.config import config as _cfg
+        specs: list[ScheduleSpec] = []
 
-            watch_enabled = getattr(_cfg, "enable_sdd_watcher", True)
-        except Exception:  # noqa: BLE001
-            watch_enabled = True
-        if watch_enabled:
-            jobs.append(
-                (
-                    "file_watch",
-                    _FILE_WATCH_INTERVAL,
-                    self._tick_file_watch,
+        def _maint(name, ref, interval, *, enabled=True, prio=3):
+            # Always upsert the node (with ``enabled`` reflecting the config gate)
+            # so toggling a flag off across a restart disables the schedule too.
+            specs.append(
+                ScheduleSpec(
+                    name=name,
+                    payload={"kind": "maint", "ref": ref},
+                    trigger="interval",
+                    interval_s=float(interval),
+                    prio_bucket=prio,
+                    enabled=bool(enabled),
                 )
             )
-        # Memory hygiene: decay-archive stale AI memory + semantic-merge dedup (CONCEPT:KG-2.17).
-        # Long interval (default daily) — bounded maintenance.
-        jobs.append(
-            (
-                "hygiene",
-                _HYGIENE_INTERVAL,
-                self._tick_hygiene,
-            )
+
+        _maint("analysis", "kg_analysis", 120.0, enabled=bool(DEFAULT_KG_MODEL_ID))
+        # Self-evolution Loop engine cycle (CONCEPT:KG-2.78), OPT-IN via KG_LOOP=1;
+        # runs _tick_loop as a task at research priority.
+        _maint("loop_cycle", "loop", _cfg.kg_loop_interval, enabled=_cfg.kg_loop, prio=2)
+        _maint(
+            "sai_factory",
+            "sai_factory",
+            _cfg.kg_sai_factory_interval,
+            enabled=_cfg.kg_sai_factory,
         )
-        # Zombie/stuck task reaper: requeue 'running' tasks orphaned by a dead
-        # worker/host so a killed/redeployed host's in-flight ingestions are
-        # recovered within minutes instead of stranding forever. Short interval.
-        # (CONCEPT:KG-2.8 ingestion durability)
-        jobs.append(
-            (
-                "task_reaper",
-                _TASK_REAPER_INTERVAL,
-                self._tick_task_reaper,
-            )
+        _maint(
+            "failure_ingest",
+            "failure_ingest",
+            _cfg.kg_failure_evolution_interval,
+            enabled=_cfg.kg_failure_evolution,
         )
-        # Delayed/blocked → pending promotion sweep (CONCEPT:KG-2.113): the ONE
-        # place the unified queue does an eta/dependency comparison, over the
-        # small scheduled/blocked set, so the hot worker-claim path stays pure
-        # equality. Drives scheduled retries (backoff), delayed submits, and
-        # dependency gating. Leader-only, short interval.
-        jobs.append(
-            (
-                "promotion_sweep",
-                _PROMOTION_SWEEP_INTERVAL,
-                self._tick_promotion_sweep,
-            )
+        _maint(
+            "dspy_optimization",
+            "optimize_components",
+            _cfg.kg_dspy_optimization_interval,
+            enabled=_cfg.kg_dspy_optimization,
         )
-        # Tenant GC: drop leaked per-job community-detection tenants. The inline
-        # finally-delete can't run when a process is killed mid-ingest (a daemon
-        # redeploy), so they leak — and every leaked tenant is re-serialized on
-        # EVERY checkpoint (the sprawl that bloated checkpoint cost). (CONCEPT:KG-2.8)
-        jobs.append(
-            (
-                "tenant_gc",
-                _cfg.kg_tenant_gc_interval,
-                self._tick_tenant_gc,
-            )
+        _maint(
+            "anomaly_consumer",
+            "anomaly_consumer",
+            _ANOMALY_CONSUMER_INTERVAL,
+            enabled=_cfg.kg_anomaly_consumer,
         )
-        return jobs
+        _maint(
+            "fuseki_publish",
+            "fuseki_publish",
+            _cfg.kg_fuseki_publish_interval,
+            enabled=_cfg.kg_fuseki_publish,
+        )
+        _maint(
+            "fleet_reconciler",
+            "fleet_reconciler",
+            _cfg.fleet_reconciler_interval,
+            enabled=_cfg.fleet_reconciler,
+        )
+        _maint(
+            "fleet_autoscaler",
+            "fleet_autoscaler",
+            _cfg.fleet_autoscaler_interval,
+            enabled=_cfg.fleet_autoscaler,
+        )
+        _maint("compaction", "compaction", 1800.0)
+        _maint("evolution", "evolution", _EVOLUTION_INTERVAL)
+        _maint(
+            "reconcile_durable",
+            "reconcile_durable",
+            _RECONCILE_INTERVAL,
+            enabled=callable(
+                getattr(getattr(self, "backend", None), "reconcile_to_durable", None)
+            ),
+        )
+        _maint("enrichment", "enrichment", _ENRICH_INTERVAL)
+        _usage = bool(getattr(_cfg, "usage_tracking_enabled", True))
+        _maint("usage_log_sync", "usage_log_sync", _USAGE_SYNC_INTERVAL, enabled=_usage)
+        _maint(
+            "usage_pricing_refresh",
+            "usage_pricing_refresh",
+            _USAGE_PRICING_REFRESH_INTERVAL,
+            enabled=_usage,
+        )
+        _maint(
+            "file_watch",
+            "file_watch",
+            _FILE_WATCH_INTERVAL,
+            enabled=bool(getattr(_cfg, "enable_sdd_watcher", True)),
+        )
+        _maint("hygiene", "hygiene", _HYGIENE_INTERVAL)
+        _maint("tenant_gc", "tenant_gc", _cfg.kg_tenant_gc_interval)
+
+        for spec in specs:
+            try:
+                register_schedule(self, spec)
+            except Exception as e:  # noqa: BLE001 — one schedule never blocks others
+                logger.debug(
+                    "register maintenance schedule %s failed: %s", spec.name, e
+                )
 
     def _tick_usage_log_sync(self) -> None:
         """Auto-detect + sync local agent logs into the usage store (ECO-4.42).
@@ -1889,6 +1795,11 @@ class TaskManagerMixin(GraphEngineProtocol):
         try:
             from agent_utilities.core.schedule_engine import run_scheduler_tick
 
+            # Register the former fixed-interval maintenance ticks as durable
+            # :Schedule nodes once (after the backend is ready). Idempotent.
+            if not getattr(self, "_maint_schedules_registered", False):
+                self._register_maintenance_schedules()
+                self._maint_schedules_registered = True
             result = run_scheduler_tick(self)
             if result.get("fired"):
                 logger.info("scheduler fired: %s", result["fired"])

@@ -420,16 +420,6 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
             return {"status": "skipped", "reason": f"no_maint_tick:{ref}"}
         tick()
         return {"status": "ok"}
-    if kind == "loop":
-        # The self-evolution Loop engine cycle (CONCEPT:KG-2.78), run as a task.
-        from agent_utilities.knowledge_graph.research.loop_controller import (
-            LoopController,
-        )
-
-        LoopController(engine).run_one_cycle(
-            topics=payload.get("topics"), max_topics=payload.get("max_topics")
-        )
-        return {"status": "ok"}
     if kind == "research_feed":
         # ScholarX RSS grade → fetch → ingest feed screen (CONCEPT:KG-2.114).
         from agent_utilities.knowledge_graph.research.loop_controller import (
