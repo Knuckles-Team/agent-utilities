@@ -62,6 +62,10 @@
     rdfs:domain :Function ;
     rdfs:range xsd:boolean .
 
+<http://knuckles.team/kg/system> a owl:Ontology ;
+    rdfs:label "Agent Intelligence Graph — System Module" ;
+    rdfs:comment "System domain extension (interface link constraints, system-level types). Imported by the canonical <http://knuckles.team/kg> ontology; resolved to ontology_system.ttl by the local loader convention." .
+
 :FunctionInvocation a owl:Class ;
     rdfs:label "Function Invocation" ;
     rdfs:comment """An audited record of a single ontology Function call: the
