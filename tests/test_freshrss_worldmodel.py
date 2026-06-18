@@ -152,6 +152,11 @@ def test_run_gated_ingest_tiers_without_engine():
 
 def test_sync_freshrss_skips_when_unconfigured(monkeypatch):
     monkeypatch.delenv("FRESHRSS_URL", raising=False)
+    # No freshrss-mcp server registered either → genuinely unconfigured.
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_tool._load_mcp_config",
+        lambda: {},
+    )
     res = ss.sync_source(MagicMock(), "freshrss", mode="delta")
     assert res["status"] == "skipped"
 

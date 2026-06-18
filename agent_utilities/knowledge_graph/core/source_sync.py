@@ -244,8 +244,26 @@ def _sync_freshrss(
     """
     from ...core.config import setting
 
-    if not (setting("FRESHRSS_URL", default="") or "").strip():
-        return {"status": "skipped", "reason": "FRESHRSS_URL not configured"}
+    # Configured if FRESHRSS_URL is set OR the freshrss-mcp server is registered in
+    # mcp_config — the connector reaches FreshRSS through that server (which holds the
+    # GReader credentials), so graph-os itself needs no direct FreshRSS env.
+    configured = bool((setting("FRESHRSS_URL", default="") or "").strip())
+    if not configured:
+        try:
+            from ...protocols.source_connectors.connectors.mcp_tool import (
+                _load_mcp_config,
+            )
+
+            servers = _load_mcp_config() or {}
+            configured = "freshrss-mcp" in servers or "freshrss" in servers
+        except Exception:  # noqa: BLE001 — best-effort discovery
+            configured = False
+    if not configured:
+        return {
+            "status": "skipped",
+            "reason": "FreshRSS not configured (set FRESHRSS_URL or add the "
+            "freshrss-mcp server to mcp_config)",
+        }
 
     backend = getattr(engine, "backend", None)
     since = None if mode == "full" else _read_watermark(backend, "freshrss")
