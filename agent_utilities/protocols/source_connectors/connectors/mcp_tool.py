@@ -439,6 +439,81 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "cursor_path": "continuation",
         "doc_type": "news_article",
     },
+    # ── Atlassian + Plane issue trackers / wiki (CONCEPT:KG-2.123/2.124/2.125) ──
+    #
+    # All three drive an action-routed fleet tool whose result is the api-client
+    # envelope ``{status_code, data, message}`` — so every records/cursor path is
+    # prefixed ``data.``. The ``server`` is overridden per instance by the sync
+    # handler (a second Atlassian site / Plane workspace = a second ``*-mcp`` server),
+    # and the handler injects the per-run ``params`` (JQL / space-id / project-id).
+    #
+    # Jira issues as typed entities: the ``jira`` delta handler (``_sync_jira``)
+    # rebuilds issue/person/epic nodes from each record (carried in the Document's
+    # ``metadata.record``); ``text_field`` is the always-present summary so no issue
+    # is dropped. JQL ``updated >=`` (server delta) is built by the handler; cursor =
+    # the enhanced-search ``nextPageToken`` (absent on the last page → exhausted).
+    "jira": {
+        "server": "atlassian-mcp",
+        "tool": "atlassian_jira_issue",
+        "action": "search_and_reconsile_issues_using_jql",
+        "params_style": "json",
+        "params": {"jql": "ORDER BY updated DESC", "max_results": 100,
+                   "expand": ["renderedFields"]},
+        "records_path": "data.issues",
+        "id_field": "key",
+        "title_field": "fields.summary",
+        "text_field": "fields.summary",
+        "updated_field": "fields.updated",
+        "pagination": "cursor",
+        "cursor_param": "next_page_token",
+        "cursor_path": "data.nextPageToken",
+        "doc_type": "issue",
+    },
+    # Confluence pages as a FULL MIRROR of ``:ConfluencePage`` Documents. Cloud v2
+    # has no CQL search, so list via ``get_pages`` sorted by recency; the body lands
+    # in ``body.storage.value`` (``body_format=storage``). Cloud v2 paginates by a
+    # next-page URL under ``_links.next`` — ``cursor_from_query`` extracts the bare
+    # ``cursor`` token. Delta = the connector's ``version.createdAt`` since-filter +
+    # the write-layer content-hash (KG_WRITE_DELTA). The handler injects ``space-id``.
+    "confluence": {
+        "server": "atlassian-mcp",
+        "tool": "atlassian_confluence_page",
+        "action": "get_pages",
+        "params_style": "json",
+        "params": {"body_format": "storage", "sort": "-modified-date", "limit": 100},
+        "records_path": "data.results",
+        "id_field": "id",
+        "title_field": "title",
+        "text_field": "body.storage.value",
+        "updated_field": "version.createdAt",
+        "pagination": "cursor",
+        "cursor_param": "cursor",
+        "cursor_path": "data._links.next",
+        "cursor_from_query": "cursor",
+        "doc_type": "wiki",
+    },
+    # Plane work items as typed entities (``_sync_plane`` rebuilds issue/project nodes
+    # from ``metadata.record``). Requires a ``project_id`` (injected per project by the
+    # handler); ``per_page``/``cursor`` page the workspace. Depends on plane-agent's
+    # ``list_work_items`` returning the raw envelope (results + ``next_cursor`` +
+    # ``next_page_results``) — the fidelity fix that also restores ``updated_at``.
+    "plane": {
+        "server": "plane-mcp",
+        "tool": "plane_work_items",
+        "action": "list_work_items",
+        "params_style": "json",
+        "params": {"per_page": 100},
+        "records_path": "data.results",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "name",
+        "updated_field": "updated_at",
+        "pagination": "cursor",
+        "cursor_param": "cursor",
+        "cursor_path": "data.next_cursor",
+        "more_path": "data.next_page_results",
+        "doc_type": "issue",
+    },
 }
 
 
@@ -462,6 +537,23 @@ def _ident(name: str, what: str) -> str:
     if not _IDENT_RE.match(name or ""):
         raise ValueError(f"sql_table {what} {name!r} is not a plain SQL identifier")
     return name
+
+
+def _extract_query_param(url: str, key: str) -> str | None:
+    """Pull one query-param value out of a URL/relative link.
+
+    Cloud v2 APIs (e.g. Confluence) return the next page as a *URL* under
+    ``_links.next`` (``/wiki/api/v2/pages?cursor=ABC&limit=100``) rather than a bare
+    token, so a connector that needs the token sets ``cursor_from_query`` to extract
+    it. Returns ``None`` when the param is absent (→ pagination is exhausted).
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    try:
+        values = parse_qs(urlparse(url).query).get(key)
+    except (ValueError, TypeError):
+        return None
+    return values[0] if values else None
 
 
 def _set_path(target: dict[str, Any], dotted: str, value: Any) -> None:
@@ -563,6 +655,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         cursor_path: Dotted path in the response carrying the next cursor.
         cursor_record_field: Fallback — cursor taken from the last record
             (keyset pagination).
+        cursor_from_query: When the ``cursor_path`` value is a next-page *URL*
+            (Cloud v2 ``_links.next``), the query-param name to extract the bare
+            cursor token from; absence of the param ends pagination.
         more_path: Dotted path to a boolean "has more" flag; when present and
             falsy the sweep stops regardless of cursor.
         page_param / page_size_param / page_size / page_kind / start_page:
@@ -617,6 +712,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         cursor_param: str = "",
         cursor_path: str = "",
         cursor_record_field: str = "",
+        cursor_from_query: str = "",
         more_path: str = "",
         page_param: str = "",
         page_size_param: str = "",
@@ -696,6 +792,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         self.cursor_param = cursor_param
         self.cursor_path = cursor_path
         self.cursor_record_field = cursor_record_field
+        self.cursor_from_query = cursor_from_query
         self.more_path = more_path
         self.page_param = page_param
         self.page_size_param = page_size_param
@@ -1051,6 +1148,10 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         nxt: Any = None
         if self.cursor_path and isinstance(result, dict):
             nxt = _dig(result, self.cursor_path)
+            if nxt is not None and self.cursor_from_query:
+                # The cursor is embedded in a next-page URL (Confluence ``_links.next``);
+                # extract the bare token, or None when the link omits it (exhausted).
+                nxt = _extract_query_param(str(nxt), self.cursor_from_query)
         if nxt is None and self.cursor_record_field:
             nxt = _dig(records[-1], self.cursor_record_field)
         if nxt is None or nxt == state.get("cursor"):
