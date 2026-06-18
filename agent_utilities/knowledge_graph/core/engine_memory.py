@@ -334,10 +334,20 @@ class MemoryMixin(_Base):
         tags: list[str] | None = None,
         trust_score: float = 0.8,
         agent_id: str = "",
+        *,
+        _local: bool = False,
+        _memory_id: str | None = None,
     ) -> str:
         """Store a tiered memory with trust scoring and provenance.
 
         CONCEPT:KG-2.1 — Research: ParamMem (2604.27707v1) §6.2
+
+        CONCEPT:KG-2.130 — Ingestion/serving plane separation: in a SERVING role (any
+        process that is not the daemon ``host``), the embed+write is NOT done inline — that
+        would contend with reads/replies on the shared connection pool and can stall the
+        event loop. Instead the write is enqueued to the durable task queue and performed by
+        the host/ingest-worker process. The memory id is returned immediately. ``_local``
+        forces inline execution (used by the task handler so it never re-enqueues).
 
         Args:
             content: Memory content text.
@@ -351,7 +361,40 @@ class MemoryMixin(_Base):
         Returns:
             Memory node ID.
         """
-        memory_id = f"mem:{uuid.uuid4().hex[:8]}"
+        memory_id = _memory_id or f"mem:{uuid.uuid4().hex[:8]}"
+
+        if not _local:
+            from agent_utilities.knowledge_graph.core.host_lock import (
+                effective_daemon_role,
+            )
+
+            if effective_daemon_role() != "host":
+                try:
+                    self.submit_task(
+                        target_path=memory_id,
+                        is_codebase=False,
+                        provenance={"source": "store_memory", "agent_id": agent_id},
+                        task_type="kg_memory",
+                        extra_meta={
+                            "payload": {
+                                "memory_id": memory_id,
+                                "content": content,
+                                "memory_type": memory_type,
+                                "name": name,
+                                "tags": list(tags or []),
+                                "trust_score": trust_score,
+                                "agent_id": agent_id,
+                            }
+                        },
+                    )
+                    return memory_id
+                except Exception as e:  # noqa: BLE001 — last resort: write inline
+                    logger.warning(
+                        "[CONCEPT:KG-2.130] memory ingest enqueue failed; "
+                        "writing inline: %s",
+                        e,
+                    )
+
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = MemoryNode(
