@@ -373,5 +373,8 @@
     "agent_kg_tools": "True",
     "messaging_burst_window_s": "2.5",
     "messaging_burst_max_s": "12",
-    "messaging_enrich": "1"
+    "messaging_enrich": "1",
+    "messaging_webhook_base_url": "",
+    "messaging_webhook_port": "8443",
+    "messaging_webhook_secret": ""
 }
