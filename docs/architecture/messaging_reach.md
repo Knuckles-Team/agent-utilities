@@ -77,6 +77,19 @@ rebuilt per message, never a second daemon). The model is routed per message,
 
 Every reply is tagged with who answered (`[local]` / `[claude]`).
 
+## Universal commands (ECO-4.57)
+
+Commands are defined once in `agent_utilities/messaging/commands.py` (`COMMANDS`) — the
+single source of truth shared by every platform and importable by agent-terminal-ui
+(`command_specs()`). On connect the daemon calls `backend.register_commands(...)` on every
+backend; each registers the menu where its platform supports a **runtime** command API
+(Telegram `setMyCommands`) and no-ops where commands are set via app-manifest/admin
+(Slack/Teams/Mattermost) or a separate interaction model (Discord). Regardless of menu
+support, commands also work as **typed `/cmd` text on any backend** — the inbound handler
+parses a leading `/cmd` and `handle_command` answers built-ins (`/help`, `/status`,
+`/tools`); `/claude` and `/skill` fall through to the model/agent. Add a command once and
+it appears everywhere.
+
 ## Multiple services at once
 
 The router runs **every configured backend concurrently** — set tokens for any of

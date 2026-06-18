@@ -310,6 +310,18 @@ async def create_planner_handler(
         except Exception as e:  # noqa: BLE001
             logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
 
+        # 3b. Built-in universal command? (CONCEPT:ECO-4.57) Answer it and stop;
+        #     /claude, /skill, and unknowns fall through to the agent below.
+        from agent_utilities.messaging.commands import handle_command
+
+        cmd_reply = await handle_command(content, service=svc)
+        if cmd_reply is not None:
+            try:
+                await backend.send_message(event.channel_id, cmd_reply)
+            except Exception as e:  # noqa: BLE001
+                logger.error("[CONCEPT:ECO-4.57] command reply send failed: %s", e)
+            return
+
         # 4. Recall conversation context, then run the graph agent.
         kg_context = _recall_context(engine, content, str(event.platform))
         logger.info(

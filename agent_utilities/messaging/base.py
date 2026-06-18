@@ -357,6 +357,21 @@ class MessagingBackend(ABC):
         """
         return []
 
+    async def register_commands(self, commands: list[dict[str, str]]) -> None:
+        """Register the universal command set on this platform (CONCEPT:ECO-4.57).
+
+        Each platform surfaces commands via its own mechanism (Telegram ``setMyCommands``,
+        Slack/Mattermost slash commands). Default is a no-op for platforms without a native
+        command menu; override to register.
+
+        Args:
+            commands: ``[{"command": name, "description": text}, ...]`` from
+                :func:`agent_utilities.messaging.commands.command_specs`.
+        """
+        logger.debug(
+            "[CONCEPT:ECO-4.57] %s backend has no command-menu registration.", self.id
+        )
+
     # ── Utility ──────────────────────────────────────────────────────
 
     def __repr__(self) -> str:

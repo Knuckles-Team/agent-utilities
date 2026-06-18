@@ -212,6 +212,20 @@ class TelegramBackend(MessagingBackend):
         """Send typing action. CONCEPT:ECO-4.0"""
         await self._app.bot.send_chat_action(chat_id=int(channel_id), action="typing")
 
+    async def register_commands(self, commands: list[dict[str, str]]) -> None:
+        """Publish the universal command set to Telegram's command menu (CONCEPT:ECO-4.57)."""
+        from telegram import BotCommand
+
+        try:
+            await self._app.bot.set_my_commands(
+                [BotCommand(c["command"], c["description"]) for c in commands]
+            )
+            logger.info(
+                "[CONCEPT:ECO-4.57] Registered %d Telegram commands.", len(commands)
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[CONCEPT:ECO-4.57] Telegram setMyCommands failed: %s", e)
+
     async def listen(self) -> AsyncIterator[InboundEvent]:
         """Yield inbound Telegram events, starting the poller on first use. CONCEPT:ECO-4.0"""
         if not self._polling:
