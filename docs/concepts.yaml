@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 344
+total_concepts: 352
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1167,6 +1167,7 @@ concepts:
   pillar: ECO-4
   status: live
   code_paths:
+  - agent_utilities/messaging/backends/slack.py
   - agent_utilities/messaging/backends/telegram.py
   - agent_utilities/messaging/router.py
   - agent_utilities/messaging/service.py
@@ -1219,6 +1220,45 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/messaging/backends/telegram.py
   doc: Telegram webhook receiver started on 127.0.0.1
+- id: ECO-4.67
+  name: image attachments are passed to the vision model. Both paths
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/router.py
+  doc: image attachments are passed to the vision model. Both paths
+- id: ECO-4.68
+  name: no text? transcribe a voice/audio attachment and use that
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/messaging/backends/telegram.py
+  - agent_utilities/messaging/router.py
+  - agent_utilities/messaging/voice.py
+  doc: no text? transcribe a voice/audio attachment and use that
+- id: ECO-4.70
+  name: Surfaced
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/messaging/enrichment.py
+  doc: Surfaced
+- id: ECO-4.71
+  name: shared by every messaging platform AND
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/commands.py
+  doc: shared by every messaging platform AND
+- id: ECO-4.72
+  name: KG recall exceeded
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/router.py
+  doc: KG recall exceeded
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -2514,7 +2554,7 @@ concepts:
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: Concurrent N-way mirroring health/repair ──
 - id: KG-2.75
-  name: KG-2.75
+  name: and the world-model gate
   pillar: KG-2
   status: live
   code_paths:
@@ -2523,7 +2563,7 @@ concepts:
   - agent_utilities/knowledge_graph/assimilation/ingest.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/models/knowledge_graph.py
-  doc: KG-2.75
+  doc: and the world-model gate
 - id: KG-2.76
   name: KG-2.76
   pillar: KG-2
@@ -2893,6 +2933,32 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: ScholarX RSS research-feed loop that grades and fetches new papers
+- id: KG-2.115
+  name: the homelab RSS reader as a gated world-model
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+  doc: the homelab RSS reader as a gated world-model
+- id: KG-2.116
+  name: the news/finance/tech sibling
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/automation/research_pipeline.py
+  - agent_utilities/automation/worldmodel_pipeline.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  doc: the news/finance/tech sibling
+- id: KG-2.117
+  name: KG-2.117
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/automation/worldmodel_pipeline.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  doc: KG-2.117
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

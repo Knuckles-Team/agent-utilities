@@ -205,7 +205,7 @@ See also: [KG as Bidirectional ETL Hub](kg_etl_hub.md),
 
 _Auto-generated — do not edit by hand. Run `python scripts/generate_connector_map.py`._
 
-**51 distinct connectors** across the ingestion/enrichment paths: 3 delta handlers · 34 capability-hydrate · 24 materialize extractors · 29 writeback sinks · 27 document-ingest presets.
+**52 distinct connectors** across the ingestion/enrichment paths: 4 delta handlers · 34 capability-hydrate · 24 materialize extractors · 29 writeback sinks · 28 document-ingest presets.
 
 ### Connector × path matrix
 
@@ -228,6 +228,7 @@ _Auto-generated — do not edit by hand. Run `python scripts/generate_connector_
 | `enterprise_architecture` | — | ✅ | — | — |
 | `erpnext` | — | ✅ | ✅ | ✅ |
 | `essential_ea` | — | ✅ | — | — |
+| `freshrss` | ✅ | — | — | — |
 | `github` | — | ✅ | — | ✅ |
 | `gitlab` | ✅ | ✅ | — | ✅ |
 | `glpi` | — | ✅ | — | — |
@@ -270,6 +271,7 @@ _Auto-generated — do not edit by hand. Run `python scripts/generate_connector_
 Declarative connectors that pull records/files/search-results as Documents through the generic `McpToolSourceConnector`:
 
 - `archivebox`
+- `freshrss`
 - `github-repos`
 - `gitlab-issues`
 - `gitlab-merge-requests`

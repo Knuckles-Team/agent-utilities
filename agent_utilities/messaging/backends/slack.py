@@ -161,17 +161,30 @@ class SlackBackend(MessagingBackend):
             logger.error("[CONCEPT:ECO-4.0] Slack send failed: %s", e)
             return SendResult(success=False, platform=PlatformId.SLACK, error=str(e))
 
-    async def send_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
-        """Add a reaction. CONCEPT:ECO-4.0"""
-        await self._client.reactions_add(
-            channel=channel_id, timestamp=message_id, name=emoji
-        )
-
     async def send_typing(self, channel_id: str) -> None:
         """Indicate typing. CONCEPT:ECO-4.0"""
         # Slack doesn't have a direct typing API for bots, so we log the trigger
         logger.debug(
             f"[CONCEPT:ECO-4.0] Slack typing indicator triggered for channel {channel_id}"
+        )
+
+    # Unicode → Slack reaction names (Slack wants names, not the emoji char).
+    _SLACK_EMOJI = {
+        "👍": "thumbsup",
+        "❤️": "heart",
+        "🎉": "tada",
+        "👀": "eyes",
+        "✅": "white_check_mark",
+        "🙏": "pray",
+        "🔥": "fire",
+        "😄": "smile",
+    }
+
+    async def send_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
+        """React to a message with an emoji (CONCEPT:ECO-4.60) via reactions.add."""
+        name = self._SLACK_EMOJI.get(emoji, emoji.strip(":"))
+        await self._client.reactions_add(
+            channel=channel_id, timestamp=message_id, name=name
         )
 
     async def create_thread(

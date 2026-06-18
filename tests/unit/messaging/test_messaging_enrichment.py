@@ -64,3 +64,42 @@ def test_enrich_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_enrich_no_engine() -> None:
     assert enrichment.enrich_conversation(None, "x", platform="t", channel_id="1") == 0
+
+
+def test_surface_intents_creates_goal_and_spec() -> None:
+    from agent_utilities.messaging import enrichment
+
+    class _Eng:
+        def __init__(self):
+            self.nodes = []
+            self.links = []
+
+        def add_node(self, node_id, node_type, properties):
+            self.nodes.append((node_type, node_id))
+
+        def link_nodes(self, source_id, target_id, rel_type, properties):
+            self.links.append(rel_type)
+
+    eng = _Eng()
+    llm = lambda p: '{"goal": "deploy the tunnel", "spec": "webhook receiver spec"}'
+    enrichment._surface_intents(
+        eng, "let's deploy the tunnel and spec the webhook", "chatturn:x", llm
+    )
+    types = {t for t, _ in eng.nodes}
+    assert "Goal" in types and "Spec" in types
+    assert "HAS_GOAL" in eng.links and "PROPOSES_SPEC" in eng.links
+
+
+def test_surface_intents_disabled(monkeypatch) -> None:
+    from agent_utilities.messaging import enrichment
+
+    monkeypatch.setenv("MESSAGING_GOALS", "0")
+
+    class _Eng:
+        def add_node(self, **k):
+            raise AssertionError("should not write")
+
+        def link_nodes(self, **k):
+            raise AssertionError("should not link")
+
+    enrichment._surface_intents(_Eng(), "deploy it", "s", lambda p: '{"goal":"x"}')

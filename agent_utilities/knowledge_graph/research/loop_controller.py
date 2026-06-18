@@ -230,6 +230,13 @@ class LoopController:
         if (setting("ARCHIVEBOX_URL", default="") or "").strip():
             report["archivebox"] = _stage("archivebox", self._run_archivebox_intake)
 
+        # -0.4 FRESHRSS — pull curated RSS items through the world-model relevance
+        # gate (delta) when a FreshRSS instance is wired. Default ON when configured;
+        # the URL's presence is the on-signal, the watermark keeps it idempotent, and
+        # the gate keeps it selective (only KG-relevant/novel items land). (KG-2.116)
+        if (setting("FRESHRSS_URL", default="") or "").strip():
+            report["freshrss"] = _stage("freshrss", self._run_freshrss_intake)
+
         # 0. ASSIMILATE — graph-compute middle (dedup/gap/synergy/rank), idempotent.
         if assimilate:
             report["assimilate"] = _stage(
@@ -823,6 +830,19 @@ class LoopController:
         from ..core.source_sync import sync_source
 
         return sync_source(self.engine, "archivebox", mode="delta")
+
+    def _run_freshrss_intake(self) -> dict[str, Any]:
+        """Pull curated FreshRSS items through the world-model gate (delta).
+
+        Delegates to the unified ``sync_source`` entrypoint (``_sync_freshrss``):
+        enumerate items past the GReader ``ot`` watermark and route each through the
+        :class:`WorldModelPipelineRunner` relevance gate — only KG-relevant/novel (or
+        agent-force-flagged) items are fully ingested; Research/arXiv items route to
+        the research path. (CONCEPT:KG-2.116 / KG-2.117)
+        """
+        from ..core.source_sync import sync_source
+
+        return sync_source(self.engine, "freshrss", mode="delta")
 
     async def _fetch_rss_feed(self, runner: Any, limit: int) -> list[dict[str, Any]]:
         """Pull fresh ScholarX RSS feed items (title+abstract+ids) — the cheap
