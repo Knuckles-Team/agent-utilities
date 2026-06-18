@@ -89,6 +89,40 @@ async def test_model_routed_reply_falls_back_to_plain_chat(
     assert "couldn't draft a reply" not in reply
 
 
+# ── Lean / lazy loadout (ECO-4.58) ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_messaging_agent_is_lean_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agent_utilities.agent.factory as factory
+    from agent_utilities.messaging import router
+
+    captured: dict[str, Any] = {}
+
+    def _fake_create_agent(**kwargs: Any):
+        captured.clear()
+        captured.update(kwargs)
+        return object(), []
+
+    monkeypatch.setattr(factory, "create_agent", _fake_create_agent)
+
+    router._MESSAGING_AGENTS.clear()
+    router._get_messaging_agent("", None)
+    # Lean: skills NOT pre-loaded; universal tools on (fleet tools load on demand).
+    assert captured["enable_skills"] is False
+    assert captured["enable_universal_tools"] is True
+
+    # Opt into skills + scoped tool tags.
+    monkeypatch.setenv("MESSAGING_ENABLE_SKILLS", "1")
+    monkeypatch.setenv("MESSAGING_TOOL_TAGS", "kg,reach")
+    router._MESSAGING_AGENTS.clear()
+    router._get_messaging_agent("", None)
+    assert captured["enable_skills"] is True
+    assert captured["tool_tags"] == ["kg", "reach"]
+
+
 # ── Multiple concurrent backends ─────────────────────────────────────
 
 

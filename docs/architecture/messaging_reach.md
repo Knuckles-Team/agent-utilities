@@ -110,3 +110,14 @@ action=send` targets a specific service explicitly.
 | `MESSAGING_CLAUDE_MODEL` | Anthropic model for the Claude route (default `claude-sonnet-4-6`) |
 | `MESSAGING_LOCAL_MODEL` | Override the local responder model id |
 | `ANTHROPIC_API_KEY` | Required for the Claude route |
+| `MESSAGING_ENABLE_SKILLS` | Pre-load the full skill library (default `0` = lean; fleet MCP tools still load on demand) |
+| `MESSAGING_SKILL_TYPES` | Comma-list: pre-load only these skill types |
+| `MESSAGING_TOOL_TAGS` | Comma-list: scope the universal toolset to these tags |
+
+### Context burden (ECO-4.58)
+
+The messaging agent is **lean by default**: the skill library is *not* pre-loaded, and
+fleet MCP tools load **on demand** via the mcp-multiplexer's dynamic mode
+(`find_tools`/`load_tools`). Context is also bounded per turn — the current message plus
+top-K KG memory recall, **not** full chat history (history lives in the KG, retrieved as
+needed). Opt into more via the settings above.
