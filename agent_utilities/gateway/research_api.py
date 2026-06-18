@@ -70,6 +70,16 @@ async def review_artifact(article_id: str, level: str = "L1") -> ResearchEnvelop
     return ResearchEnvelope(result=_error_to_http(res))
 
 
+# ── perspectival inquiry (STORM, native) ────────────────────────────────────
+
+
+@research_router.post("/research/inquire", response_model=ResearchEnvelope)
+async def inquire(topic: str, materialize: bool = True) -> ResearchEnvelope:
+    """Run a native multi-perspective (STORM) inquiry over ``topic`` (CONCEPT:KG-2.127)."""
+    res = await _call("inquire", topic=topic, materialize=materialize)
+    return ResearchEnvelope(result=_error_to_http(res))
+
+
 # ── live capture ────────────────────────────────────────────────────────────
 
 

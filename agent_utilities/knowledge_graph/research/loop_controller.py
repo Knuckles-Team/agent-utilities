@@ -33,7 +33,7 @@ from agent_utilities.core.config import setting
 
 from ..adaptation.topic_resolver import mark_addressed
 from .loops import active_loops
-from .search import acquire_for_topic
+from .search import acquire_for_topic_perspectival
 
 logger = logging.getLogger(__name__)
 
@@ -317,7 +317,9 @@ class LoopController:
                     # L3) and must NOT be marked addressed by semantic sources here.
                     if t.get("kind", "research") != "research":
                         continue
-                    srcs = acquire_for_topic(self.engine, t, embed_fn=embed_fn)
+                    srcs = acquire_for_topic_perspectival(
+                        self.engine, t, embed_fn=embed_fn
+                    )
                     if srcs:
                         n = mark_addressed(
                             self.engine, t["id"], srcs, source="loop_engine"
@@ -641,11 +643,11 @@ class LoopController:
         """
         from ..adaptation.topic_resolver import mark_addressed
         from ..enrichment.semantic import make_embed_fn
-        from .search import acquire_for_topic
+        from .search import acquire_for_topic_perspectival
 
         try:
             embed_fn = make_embed_fn()
-            srcs = acquire_for_topic(self.engine, loop, embed_fn=embed_fn)
+            srcs = acquire_for_topic_perspectival(self.engine, loop, embed_fn=embed_fn)
         except Exception as e:  # noqa: BLE001 — best-effort
             return {"status": "pending", "output": f"acquire failed: {e}"}
         if srcs:

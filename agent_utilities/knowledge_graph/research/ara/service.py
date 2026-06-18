@@ -33,7 +33,16 @@ from .seal import ARASeal
 
 logger = logging.getLogger(__name__)
 
-ACTIONS = ("reason", "compile", "review", "seal", "capture", "get", "list")
+ACTIONS = (
+    "reason",
+    "compile",
+    "review",
+    "seal",
+    "capture",
+    "get",
+    "list",
+    "inquire",
+)
 
 
 class ARAService:
@@ -63,6 +72,7 @@ class ARAService:
             "capture": self._capture,
             "get": self._get,
             "list": self._list,
+            "inquire": self._inquire,
         }
         handler = handlers.get(action)
         if handler is None:
@@ -76,6 +86,57 @@ class ARAService:
             return {"error": str(e)}
 
     # -- actions ---------------------------------------------------------- #
+    def _inquire(
+        self,
+        *,
+        topic: str = "",
+        topic_id: str = "",
+        materialize: bool = True,
+        **_: Any,
+    ) -> dict[str, Any]:
+        """Run a native multi-perspective inquiry over ``topic`` (CONCEPT:KG-2.127).
+
+        The on-demand twin of the loop's perspectival acquire: derives expert lenses,
+        fans KG probes across their questions, and returns the contradiction map +
+        self-critique (optionally materialized as KG nodes).
+        """
+        name = (topic or topic_id).strip()
+        if not name:
+            return {"error": "inquire needs a topic"}
+        from ..perspective import PerspectiveEngine
+        from ..search import acquire_for_topic
+
+        tid = topic_id or f"topic:{name.lower().replace(' ', '-')[:80]}"
+        engine = self._engine
+
+        def _probe(question: str) -> list[str]:
+            return acquire_for_topic(engine, {"id": tid, "name": question}, top_k=3)
+
+        inquiry = PerspectiveEngine(engine).inquire({"id": tid, "name": name}, _probe)
+        materialized = (
+            PerspectiveEngine(engine).materialize(inquiry) if materialize else {}
+        )
+        cm = inquiry.contradiction_map
+        pr = inquiry.peer_review
+        return {
+            "action": "inquire",
+            "topic": name,
+            "perspectives": [
+                {"lens": p.lens, "sources": p.source_node_ids} for p in inquiry.perspectives
+            ],
+            "agreements": cm.agreements,
+            "divergences": cm.divergences,
+            "blind_spot": cm.blind_spot,
+            "peer_review": {
+                "dominant_lens": pr.dominant_lens,
+                "missing_perspective": pr.missing_perspective,
+                "weakest_link": pr.weakest_link,
+                "frontier_question": pr.frontier_question,
+                "confidence": pr.confidence,
+            },
+            "materialized": materialized,
+        }
+
     def _reason(
         self, *, query: str = "", persist: bool = True, **_: Any
     ) -> dict[str, Any]:
