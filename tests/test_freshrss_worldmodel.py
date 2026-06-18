@@ -181,7 +181,7 @@ def test_sync_freshrss_gates_and_watermarks(monkeypatch):
     )
 
     class FakeRunner:
-        def __init__(self, engine=None):
+        def __init__(self, engine=None, config=None):
             pass
 
         def run_gated_ingest(self, docs):
