@@ -138,6 +138,29 @@ def _decode_metadata(raw: str | None) -> dict[str, Any]:
     return {"_raw": raw}
 
 
+def _coerce_prio_bucket(value: Any, default: int = 2) -> int:
+    """Map a priority spec to a discrete claim bucket 0..3 (CONCEPT:KG-2.113).
+
+    Accepts an int bucket, a numeric string, or the legacy ``priority`` string
+    (``critical``/``high``/``normal``/``background``/``low``). Out-of-range ints
+    are clamped into ``[0, 3]`` so a caller can never wedge the claim loop.
+    """
+    if value is None or isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return max(0, min(value, 3))
+    text = str(value).strip().lower()
+    if text.isdigit():
+        return max(0, min(int(text), 3))
+    return {
+        "critical": 0,
+        "high": 1,
+        "normal": 2,
+        "background": 3,
+        "low": 3,
+    }.get(text, default)
+
+
 import sqlite3
 
 from .queue_backend import QueueBackend
@@ -237,6 +260,29 @@ _TASK_MAX_RUNTIME_SEC = 7200.0
 _TASK_MAX_REQUEUE = 3
 _USAGE_SYNC_INTERVAL = 900.0
 _USAGE_PRICING_REFRESH_INTERVAL = 86400.0
+
+# Unified scheduling/queue model (CONCEPT:KG-2.113). Priority is a discrete
+# integer *bucket* (0=critical .. 3=background) rather than a numeric field,
+# because the L1 graph interpreter strips ORDER BY and supports only equality —
+# so the worker claim iterates buckets ascending with one equality query each
+# (the generalization of the old binary high/normal two-query tier). Legacy
+# nodes carrying only the ``priority`` string map high→1, normal→2.
+_PRIORITY_BUCKETS: tuple[int, ...] = (0, 1, 2, 3)
+_PRIO_CRITICAL, _PRIO_HIGH, _PRIO_NORMAL, _PRIO_BACKGROUND = 0, 1, 2, 3
+_DEFAULT_PRIO_BUCKET = _PRIO_NORMAL
+# App-level retry: a task that *raises* (vs. a host crash, handled by the reaper)
+# is retried with exponential backoff by re-scheduling it for a future minute,
+# then dead-lettered past the cap. Distinct from the reaper's crash-requeue
+# counter (``reaper_resets`` / ``_TASK_MAX_REQUEUE``) — two failure modes.
+_TASK_MAX_ATTEMPTS = 3
+_TASK_RETRY_BASE_SEC = 30.0
+# Delayed/blocked → pending promotion sweep cadence (the only range comparison
+# in the queue, done in Python over the small scheduled/blocked set).
+_PROMOTION_SWEEP_INTERVAL = 60.0
+# Terminal task statuses (no further work). ``dead_letter`` is a poison task
+# that exhausted its app-level retries; kept distinct from ``failed`` (the
+# reaper's crash-requeue terminal) so the two failure modes triage separately.
+_TERMINAL_TASK_STATUS = frozenset({"completed", "failed", "cancelled", "dead_letter"})
 
 # Enrichment pass sizing (config discipline): per-tick LLM-card batch budget. The
 # worker concurrency is CPU/mem auto-sized via compute_ingest_worker_count();
@@ -897,6 +943,18 @@ class TaskManagerMixin(GraphEngineProtocol):
                 self._tick_task_reaper,
             )
         )
+        # Delayed/blocked → pending promotion sweep (CONCEPT:KG-2.113): the ONE
+        # place the unified queue does an eta/dependency comparison, over the
+        # small scheduled/blocked set, so the hot worker-claim path stays pure
+        # equality. Drives scheduled retries (backoff), delayed submits, and
+        # dependency gating. Leader-only, short interval.
+        jobs.append(
+            (
+                "promotion_sweep",
+                _PROMOTION_SWEEP_INTERVAL,
+                self._tick_promotion_sweep,
+            )
+        )
         # Tenant GC: drop leaked per-job community-detection tenants. The inline
         # finally-delete can't run when a process is killed mid-ingest (a daemon
         # redeploy), so they leak — and every leaked tenant is re-serialized on
@@ -1194,6 +1252,103 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
             logger.debug("task_reaper tick error: %s", e)
+
+    def _deps_state(self, deps: list[str]) -> str:
+        """Resolve a dependency set to ``ready`` / ``waiting`` / ``broken``.
+
+        ``ready`` = every dep ``completed``; ``broken`` = a dep reached a
+        terminal non-completed state (failed/dead_letter/cancelled) so the
+        dependent must never run on a broken precondition; ``waiting``
+        otherwise. (CONCEPT:KG-2.113)
+        """
+        if not deps:
+            return "ready"
+        # Per-dep id-scoped equality queries: the L1 graph interpreter refuses an
+        # unscoped ``WHERE t.id IN [...]`` (full-graph scan), so we look each dep
+        # up by id (deps are few). (CONCEPT:KG-2.113)
+        broken = {"failed", "dead_letter", "cancelled"}
+        all_done = True
+        for dep in deps:
+            rows = self.query_cypher(
+                "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": dep}
+            )
+            state = rows[0].get("s") if rows else None
+            if state in broken:
+                return "broken"
+            if state != "completed":
+                all_done = False
+        return "ready" if all_done else "waiting"
+
+    def _tick_promotion_sweep(self) -> None:
+        """Promote due 'scheduled' and unblocked 'blocked' tasks to 'pending'.
+
+        The unified queue defers work two ways without ORDER BY/range queries on
+        the hot path: a delayed/retrying task waits as ``scheduled`` (carrying
+        ``eta_unix``) and a dependent task waits as ``blocked`` (carrying
+        ``depends_on``). This per-minute, leader-only sweep is the ONE place an
+        eta/dependency comparison happens — in Python over the small
+        scheduled/blocked set — so the worker claim stays pure equality.
+        (CONCEPT:KG-2.113)
+        """
+        from .host_lock import effective_daemon_role
+
+        if effective_daemon_role() != "host":
+            return
+        try:
+            now = time.time()
+            promoted = 0
+            cancelled = 0
+            # scheduled → pending once eta is due (or eta missing/garbled → now).
+            rows = self.query_cypher(
+                "MATCH (t:Task {status: 'scheduled'}) "
+                "RETURN t.id as id, t.metadata as meta"
+            )
+            for row in rows or []:
+                tid = row.get("id")
+                if not tid:
+                    continue
+                meta = _decode_metadata(row.get("meta")) or {}
+                eta = meta.get("eta_unix")
+                try:
+                    due = eta is None or float(eta) <= now
+                except (TypeError, ValueError):
+                    due = True
+                if due:
+                    self.backend.execute(
+                        "MATCH (t:Task {id: $id, status: 'scheduled'}) "
+                        "SET t.status = 'pending'",
+                        {"id": tid},
+                    )
+                    promoted += 1
+            # blocked → pending once all deps completed; broken deps → cancel.
+            rows = self.query_cypher(
+                "MATCH (t:Task {status: 'blocked'}) "
+                "RETURN t.id as id, t.metadata as meta"
+            )
+            for row in rows or []:
+                tid = row.get("id")
+                if not tid:
+                    continue
+                meta = _decode_metadata(row.get("meta")) or {}
+                deps = meta.get("depends_on") or []
+                state = self._deps_state(deps)
+                if state == "ready":
+                    self.backend.execute(
+                        "MATCH (t:Task {id: $id, status: 'blocked'}) "
+                        "SET t.status = 'pending'",
+                        {"id": tid},
+                    )
+                    promoted += 1
+                elif state == "broken":
+                    meta["error"] = "dependency failed; cancelling dependent task"
+                    self._update_task_status(tid, "cancelled", meta)
+                    cancelled += 1
+            if promoted or cancelled:
+                logger.info(
+                    "PromotionSweep: promoted=%d cancelled=%d", promoted, cancelled
+                )
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("promotion_sweep tick error: %s", e)
 
     def _tick_file_watch(self) -> None:
         """One SDD/skills/scholarx/config file-watch scan (CONCEPT:KG-2.6 / OS-5.0).
@@ -2191,30 +2346,70 @@ class TaskManagerMixin(GraphEngineProtocol):
         provenance: dict,
         task_type: str | None = None,
         skip_dedupe: bool = False,
+        priority: str | int | None = None,
+        scheduled_for: float | None = None,
+        depends_on: list[str] | None = None,
+        max_attempts: int = _TASK_MAX_ATTEMPTS,
+        job_id: str | None = None,
     ) -> str:
-        """Submit a background ingestion task to the KG natively."""
+        """Submit a background task to the unified durable queue (CONCEPT:KG-2.113).
+
+        ``priority`` picks a claim bucket (0=critical .. 3=background, or the
+        legacy ``high``/``normal`` strings). ``scheduled_for`` (a unix ts in the
+        future) enqueues the task as ``scheduled`` until the per-minute promotion
+        sweep makes it ``pending``. ``depends_on`` (other job ids) enqueues it as
+        ``blocked`` until every dependency has ``completed``. ``job_id`` lets a
+        caller supply a deterministic id (the unified Scheduler uses
+        ``sched:<name>:<minute>`` so a double-fire is an idempotent upsert).
+        """
+        # Statuses that still represent un-finished work for dedupe + the
+        # promotion sweep: pending/running plus the new delayed/blocked lanes.
         if not skip_dedupe:
             existing = self.query_cypher(
-                "MATCH (t:Task) WHERE t.status IN ['pending', 'running'] RETURN t.id as id, t.metadata as meta"
+                "MATCH (t:Task) WHERE t.status IN "
+                "['pending', 'running', 'scheduled', 'blocked'] "
+                "RETURN t.id as id, t.metadata as meta"
             )
             for row in existing:
                 meta = _decode_metadata(row.get("meta"))
                 if meta and meta.get("target") == target_path:
                     return row["id"]
 
-        job_id = f"job-{uuid.uuid4().hex[:8]}"
+        if not job_id:
+            job_id = f"job-{uuid.uuid4().hex[:8]}"
 
         if not task_type:
             task_type = "codebase" if is_codebase else "document"
 
-        task_data = {
+        now = time.time()
+        task_data: dict[str, Any] = {
             "target": target_path,
             "type": task_type,
             "submitted_at": datetime.now(UTC).isoformat(),
+            "attempts": 0,
+            "max_attempts": int(max_attempts),
         }
 
+        prio_bucket = _coerce_prio_bucket(priority)
+        # Resolve the initial lane: blocked (deps) > scheduled (eta) > pending.
+        status = "pending"
+        due_bucket: int | None = None
+        if depends_on:
+            task_data["depends_on"] = list(depends_on)
+            status = "blocked"
+        elif scheduled_for and float(scheduled_for) > now:
+            task_data["eta_unix"] = float(scheduled_for)
+            due_bucket = int(float(scheduled_for) // 60)
+            status = "scheduled"
+
         encoded_meta = _encode_metadata(task_data)
-        props = {"status": "pending", "metadata": encoded_meta}
+        props: dict[str, Any] = {
+            "status": status,
+            "metadata": encoded_meta,
+            "prio_bucket": prio_bucket,
+        }
+        if due_bucket is not None:
+            props["due_bucket"] = due_bucket
         if provenance:
             props.update(provenance)
 
@@ -2406,64 +2601,86 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
             t.start()
 
-    def _task_worker_loop(self):
-        """Distributed polling loop that picks up pending tasks natively."""
+    def _select_pending_task(self) -> dict[str, Any] | None:
+        """Return one claimable pending Task row, highest priority bucket first.
+
+        Bucketed equality queries (0=critical .. 3=background) replace
+        ``ORDER BY priority`` because the L1 graph interpreter strips ORDER BY
+        and supports only equality. A final untyped sweep picks up legacy nodes
+        that predate ``prio_bucket`` and carry only the ``priority`` string. This
+        single path works on both the SQLite default and pg-age (equality only),
+        so priority + reordering hold everywhere. (CONCEPT:KG-2.113)
+        """
+        for bucket in _PRIORITY_BUCKETS:
+            rows = self.query_cypher(
+                "MATCH (t:Task {status: 'pending', prio_bucket: $b}) "
+                "RETURN t.id as id, t.metadata as meta LIMIT 1",
+                {"b": bucket},
+            )
+            if rows:
+                return rows[0]
+        # Legacy fallback (pre-bucket nodes): honor the old high-then-any tiering.
+        rows = self.query_cypher(
+            "MATCH (t:Task {status: 'pending', priority: 'high'}) "
+            "RETURN t.id as id, t.metadata as meta LIMIT 1"
+        )
+        if rows:
+            return rows[0]
+        rows = self.query_cypher(
+            "MATCH (t:Task {status: 'pending'}) "
+            "RETURN t.id as id, t.metadata as meta LIMIT 1"
+        )
+        return rows[0] if rows else None
+
+    def _claim_next_task(self) -> tuple[str, dict[str, Any]] | None:
+        """Claim the next runnable Task and stamp ownership (CONCEPT:KG-2.113).
+
+        Serialized in-process by ``_claim_lock`` and across hosts by
+        ``state_claim_guard`` (CONCEPT:KG-2.54); the SET is status-guarded so a
+        row is claimed exactly once. The ownership stamp (live host token +
+        claim_unix) is what the zombie reaper uses to requeue a dead host's
+        work. Returns ``(job_id, stamped_meta)`` or ``None`` when idle.
+        """
         from agent_utilities.core.state_store import state_claim_guard
 
+        if not hasattr(self, "_claim_lock"):
+            self._claim_lock = threading.Lock()
+        with self._claim_lock, state_claim_guard("kg-task-claim"):
+            row = self._select_pending_task()
+            if not row:
+                return None
+            job_id = row["id"]
+            meta = _decode_metadata(row.get("meta"))
+            encoded_meta = ""
+            if meta:
+                meta["started_at"] = datetime.now(UTC).isoformat()
+                meta["claimed_by"] = self._get_host_token()
+                meta["claim_unix"] = time.time()
+                encoded_meta = _encode_metadata(meta)
+            self.backend.execute(
+                "MATCH (t:Task {id: $id, status: 'pending'}) "
+                "SET t.status = 'running', t.metadata = $meta",
+                {"id": job_id, "meta": encoded_meta},
+            )
+            return job_id, meta
+
+    def _task_worker_loop(self):
+        """Distributed polling loop that picks up pending tasks natively."""
         while True:
             try:
-                # Use a thread lock to prevent multiple workers from claiming the same task simultaneously
                 job_id = None
                 target_path = None
                 is_codebase = False
                 task_type = "document"
 
-                if not hasattr(self, "_claim_lock"):
-                    self._claim_lock = threading.Lock()
-
-                # ``_claim_lock`` serializes claims between this process's worker
-                # threads; ``state_claim_guard`` extends that atomicity across
-                # hosts via a Postgres advisory lock when durable state is
-                # externalized (CONCEPT:KG-2.54 — two hosts can no longer
-                # double-claim the same Task between the SELECT and the UPDATE).
-                # Under the SQLite default the guard is a no-op.
-                with self._claim_lock, state_claim_guard("kg-task-claim"):
-                    # Priority-aware poll: claim ``priority='high'`` pending tasks
-                    # first, then any pending. (The L1 interpreter strips ORDER BY,
-                    # so we tier via two queries instead of ORDER BY priority.)
-                    # (CONCEPT:KG-2.8 queue control)
-                    results = self.query_cypher(
-                        "MATCH (t:Task {status: 'pending', priority: 'high'}) RETURN t.id as id, t.metadata as meta LIMIT 1"
-                    )
-                    if not results:
-                        results = self.query_cypher(
-                            "MATCH (t:Task {status: 'pending'}) RETURN t.id as id, t.metadata as meta LIMIT 1"
-                        )
-
-                    if results:
-                        job_id = results[0]["id"]
-                        meta = _decode_metadata(results[0].get("meta"))
-                        if meta:
-                            if "target" in meta:
-                                target_path = Path(meta["target"])
-                            task_type = meta.get("type", "document")
-                            is_codebase = task_type == "codebase"
-                            meta["started_at"] = datetime.now(UTC).isoformat()
-                            # Ownership stamp for the zombie reaper: the live host's
-                            # unique token + a unix claim time. The singleton host
-                            # lock guarantees exactly one host runs workers, so any
-                            # 'running' task NOT stamped with the live token is an
-                            # orphan from a dead host and is safe to requeue.
-                            # (CONCEPT:KG-2.8 ingestion durability)
-                            meta["claimed_by"] = self._get_host_token()
-                            meta["claim_unix"] = time.time()
-                            encoded_meta = _encode_metadata(meta)
-
-                        # Immediately claim it while holding the lock
-                        self.backend.execute(
-                            "MATCH (t:Task {id: $id, status: 'pending'}) SET t.status = 'running', t.metadata = $meta",
-                            {"id": job_id, "meta": encoded_meta if meta else ""},
-                        )
+                claimed = self._claim_next_task()
+                if claimed:
+                    job_id, meta = claimed
+                    if meta:
+                        if "target" in meta:
+                            target_path = Path(meta["target"])
+                        task_type = meta.get("type", "document")
+                        is_codebase = task_type == "codebase"
 
                 if not job_id:
                     # Idle backoff. During a bulk ingest, back off HARD: one worker
@@ -2497,7 +2714,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 logger.error(f"TaskManager worker error: {e}")
                 if job_id:
                     try:
-                        self._update_task_status(job_id, "failed", {"error": str(e)})
+                        self._fail_or_retry_task(job_id, str(e))
                     except Exception as inner_e:
                         logger.error(
                             f"Failed to update task status to failed for {job_id}: {inner_e}"
@@ -2899,9 +3116,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         },
                     )
                 except Exception as e:
-                    self._update_task_status(
-                        job_id, "failed", {"error": str(e), "type": task_type}
-                    )
+                    self._fail_or_retry_task(job_id, str(e), {"type": task_type})
             else:
                 import hashlib
 
@@ -3031,11 +3246,12 @@ class TaskManagerMixin(GraphEngineProtocol):
             error_msg = str(e)
             error_tb = traceback.format_exc()
             logger.error(f"Task {job_id} failed: {error_tb}")
-            self._update_task_status(
+            # App-level failure: retry with backoff, then dead-letter past the cap
+            # (CONCEPT:KG-2.113). The reaper's crash-requeue is a separate path.
+            self._fail_or_retry_task(
                 job_id,
-                "failed",
+                error_msg,
                 {
-                    "error": error_msg,
                     "traceback": error_tb[-4000:],  # last 4000 chars of traceback
                     "target": str(target),
                     "type": task_type,
@@ -3580,6 +3796,63 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         self._checkpoint_db()
 
+    def _fail_or_retry_task(
+        self, job_id: str, error: str, details: dict[str, Any] | None = None
+    ) -> None:
+        """Handle an application-level task failure with retry/backoff/dead-letter.
+
+        A task that *raises* (vs. a host crash, which the reaper handles via
+        ``reaper_resets``) is retried with exponential backoff by re-scheduling
+        it for a future minute (``status='scheduled'`` + ``due_bucket``), then
+        dead-lettered once it exhausts ``max_attempts``. The two counters are
+        deliberately separate: ``attempts`` answers "does this task reliably
+        throw?", ``reaper_resets`` answers "did its host die?". (CONCEPT:KG-2.113)
+        """
+        if not self.backend:
+            return
+        rows = self.query_cypher(
+            "MATCH (t:Task {id: $id}) RETURN t.metadata as meta", {"id": job_id}
+        )
+        meta = _decode_metadata(rows[0]["meta"]) if rows and rows[0].get("meta") else {}
+        if details:
+            meta.update(details)
+        attempts = int(meta.get("attempts", 0)) + 1
+        max_attempts = int(meta.get("max_attempts", _TASK_MAX_ATTEMPTS))
+        meta["attempts"] = attempts
+        meta["error"] = error
+        if attempts >= max_attempts:
+            meta["dead_letter_at"] = datetime.now(UTC).isoformat()
+            logger.warning(
+                "Task %s dead-lettered after %d attempts: %s",
+                job_id,
+                attempts,
+                error,
+            )
+            self._update_task_status(job_id, "dead_letter", meta)
+            return
+        # Exponential backoff with jitter; re-route through the delayed-visibility
+        # machinery so the promotion sweep makes it pending again when due.
+        delay = _TASK_RETRY_BASE_SEC * (2 ** (attempts - 1))
+        delay += (hash(job_id) % 1000) / 1000.0 * _TASK_RETRY_BASE_SEC  # nosec B311
+        eta = time.time() + delay
+        meta["eta_unix"] = eta
+        meta.pop("claimed_by", None)
+        meta.pop("claim_unix", None)
+        due_bucket = int(eta // 60)
+        self.backend.execute(
+            "MATCH (t:Task {id: $id}) "
+            "SET t.status = 'scheduled', t.due_bucket = $due, t.metadata = $meta",
+            {"id": job_id, "due": due_bucket, "meta": _encode_metadata(meta)},
+        )
+        logger.info(
+            "Task %s retry %d/%d scheduled in %.0fs (%s)",
+            job_id,
+            attempts,
+            max_attempts,
+            delay,
+            error,
+        )
+
     def aggregate_ingest_metrics(self, window_sec: int = 86400) -> dict[str, Any]:
         """Per-category ingest metrics from completed Task nodes (CONCEPT:KG-2.8).
 
@@ -3851,27 +4124,41 @@ class TaskManagerMixin(GraphEngineProtocol):
             "remaining": remaining,
         }
 
-    def prioritize_task(self, job_id: str, priority: str = "high") -> dict:
-        """Set a pending task's queue priority ('high' jumps ahead of normal).
+    def prioritize_task(self, job_id: str, priority: str | int = "high") -> dict:
+        """Re-prioritize a task by setting its claim bucket (CONCEPT:KG-2.113).
 
-        The worker poll claims ``priority='high'`` pending tasks before any other
-        pending task, so a bumped job runs next. (CONCEPT:KG-2.8 queue control)
+        Accepts a numeric bucket (0=critical .. 3=background) or a named level
+        (``critical``/``high``/``normal``/``background``). The worker claim
+        iterates buckets ascending, so a bumped job runs ahead of higher
+        buckets. The legacy ``priority`` string is kept in lockstep for any
+        node/tool that still reads it.
         """
-        priority = (priority or "high").strip().lower()
-        if priority not in {"high", "normal"}:
-            return {"status": "error", "error": "priority must be 'high' or 'normal'"}
+        valid_names = {"critical", "high", "normal", "background", "low"}
+        if (
+            isinstance(priority, str)
+            and not priority.strip().lstrip("-").isdigit()
+            and priority.strip().lower() not in valid_names
+        ):
+            return {
+                "status": "error",
+                "error": "priority must be one of "
+                f"{sorted(valid_names)} or a bucket 0-3",
+            }
+        bucket = _coerce_prio_bucket(priority)
+        legacy = {0: "high", 1: "high", 2: "normal", 3: "normal"}[bucket]
         rows = self.query_cypher(
             "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": job_id}
         )
         if not rows:
             return {"status": "error", "error": f"job {job_id} not found"}
         self.backend.execute(
-            "MATCH (t:Task {id: $id}) SET t.priority = $p",
-            {"id": job_id, "p": priority},
+            "MATCH (t:Task {id: $id}) SET t.prio_bucket = $b, t.priority = $p",
+            {"id": job_id, "b": bucket, "p": legacy},
         )
         return {
             "status": "success",
             "job_id": job_id,
-            "priority": priority,
+            "priority": legacy,
+            "prio_bucket": bucket,
             "task_status": rows[0].get("s"),
         }
