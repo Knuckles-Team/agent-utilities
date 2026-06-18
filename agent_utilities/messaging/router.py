@@ -299,14 +299,26 @@ async def create_planner_handler(
             except Exception as e:  # noqa: BLE001
                 logger.debug("[CONCEPT:ECO-4.60] reaction step skipped: %s", e)
 
-        kg_context = _recall_context(engine, combined, str(event.platform))
+        # Collect image attachments across the burst → vision input (CONCEPT:ECO-4.67).
+        image_urls: list[str] = []
+        for it in items:
+            msg = getattr(it["event"], "message", None)
+            for att in getattr(msg, "attachments", None) or []:
+                if str(getattr(att, "media_type", "")) == "image" and att.url:
+                    image_urls.append(att.url)
+        image_parts = await _fetch_image_parts(image_urls)
+
+        kg_context = await _recall_context(engine, combined, str(event.platform))
         logger.info(
-            "[CONCEPT:ECO-4.63] Routing a burst of %d message(s) from %s/%s to the agent.",
+            "[CONCEPT:ECO-4.63] Routing a burst of %d message(s) (%d image[s]) from %s/%s.",
             len(items),
+            len(image_parts),
             event.platform,
             event.user_name,
         )
-        reply = await _graph_agent_reply(engine, combined, kg_context)
+        reply = await _graph_agent_reply(
+            engine, combined, kg_context, image_parts=image_parts
+        )
         try:
             if event.message and event.message.id:
                 await backend.reply_to(event.channel_id, event.message.id, reply)
@@ -345,6 +357,12 @@ async def create_planner_handler(
             return  # Only handle messages
 
         content = event.content or (event.message.content if event.message else "")
+        if not content:
+            # CONCEPT:ECO-4.68 — no text? transcribe a voice/audio attachment and use that.
+            content = await _transcribe_attachments(event)
+            if content and event.message is not None:
+                event.message.content = content
+                event.content = content
         if not content:
             return
 
@@ -435,33 +453,96 @@ async def _decide_reaction(content: str) -> str:
         return ""
 
 
-def _recall_context(engine: Any, content: str, platform: str) -> str:
-    """Recall relevant episodic memory for the inbound message (best-effort)."""
+async def _recall_context(engine: Any, content: str, platform: str) -> str:
+    """Recall relevant episodic memory for the inbound message (best-effort).
+
+    CONCEPT:ECO-4.72 — ``recall_memory`` is a BLOCKING call (vector + graph retrieval);
+    calling it directly in the async handler froze the whole messaging loop (poller + reply)
+    whenever retrieval stalled. Run it off the event loop with a hard timeout so a slow/hung
+    recall degrades to empty context instead of freezing inbound handling.
+    """
     recall = getattr(engine, "recall_memory", None)
     if not callable(recall):
         return ""
+    from agent_utilities.core.config import setting
+
+    timeout = float(setting("MESSAGING_RECALL_TIMEOUT", "8"))
     try:
-        memories = recall(
-            query=content,
-            memory_type="episodic",
-            top_k=5,
-            task_context=f"Messaging conversation on {platform}",
+        memories = await asyncio.wait_for(
+            asyncio.to_thread(
+                recall,
+                query=content,
+                memory_type="episodic",
+                top_k=5,
+                task_context=f"Messaging conversation on {platform}",
+            ),
+            timeout=timeout,
         )
+    except TimeoutError:
+        logger.warning(
+            "[CONCEPT:ECO-4.72] KG recall exceeded %.0fs — replying without context.",
+            timeout,
+        )
+        return ""
     except Exception as e:  # noqa: BLE001
         logger.debug("[CONCEPT:ECO-4.0] KG recall failed: %s", e)
         return ""
     return "\n".join(f"- {m.get('description', '')[:200]}" for m in (memories or []))
 
 
-async def _graph_agent_reply(engine: Any, content: str, kg_context: str) -> str:
+async def _transcribe_attachments(event: Any) -> str:
+    """Transcribe any voice/audio attachments to text (CONCEPT:ECO-4.68)."""
+    msg = getattr(event, "message", None)
+    urls = [
+        att.url
+        for att in getattr(msg, "attachments", None) or []
+        if str(getattr(att, "media_type", "")) in ("voice_note", "audio") and att.url
+    ]
+    if not urls:
+        return ""
+    from agent_utilities.messaging.voice import transcribe_voice
+
+    parts = [t for t in [await transcribe_voice(u) for u in urls] if t]
+    return "\n".join(parts)
+
+
+async def _fetch_image_parts(urls: list[str]) -> list[Any]:
+    """Download image attachments → pydantic-ai BinaryContent for vision (CONCEPT:ECO-4.67).
+
+    Downloaded + inlined (not passed as a URL) so the vision model never has to fetch an
+    external/token-bearing URL itself. Best-effort; unreachable images are skipped.
+    """
+    if not urls:
+        return []
+    try:
+        import httpx
+        from pydantic_ai import BinaryContent
+    except Exception:  # noqa: BLE001
+        return []
+    parts: list[Any] = []
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for url in urls[:6]:  # cap per turn
+            try:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                media = resp.headers.get("content-type", "image/jpeg").split(";")[0]
+                parts.append(BinaryContent(data=resp.content, media_type=media))
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[ECO-4.67] image fetch failed (%s): %s", url, e)
+    return parts
+
+
+async def _graph_agent_reply(
+    engine: Any, content: str, kg_context: str, *, image_parts: list[Any] | None = None
+) -> str:
     """Draft a reply to an inbound message, routing to the right responder.
 
     CONCEPT:ECO-4.51 / ECO-4.55 — two responders, default local:
       * ``MESSAGING_AGENT`` set → run that full named graph agent (Orchestrator override).
       * otherwise → a lightweight model-routed reply: the **local LLM by default**, or
         **Claude** when the message is addressed to it (``MESSAGING_CLAUDE_TRIGGER``,
-        default ``/claude``). The reply is tagged with who answered so the user always
-        knows whether the local model or Claude responded.
+        default ``/claude``). CONCEPT:ECO-4.67 — image attachments are passed to the
+        (vision-capable) model. The reply is tagged with who answered.
     """
     from agent_utilities.core.config import setting
 
@@ -477,7 +558,7 @@ async def _graph_agent_reply(engine: Any, content: str, kg_context: str) -> str:
         except Exception as e:  # noqa: BLE001
             logger.error("[CONCEPT:ECO-4.51] graph agent execution failed: %s", e)
             return f"I saved your message, but couldn't draft a reply right now ({e})."
-    return await _model_routed_reply(content, kg_context)
+    return await _model_routed_reply(content, kg_context, image_parts=image_parts)
 
 
 # CONCEPT:ECO-4.55 — Model-routed inbound responder with local LLM default and Claude address
@@ -595,13 +676,25 @@ def _get_messaging_agent(provider: str, model_id: str | None) -> Any:
 _SAFE_AUTO_TOOLS = {"kg_search", "kg_recall", "kg_query"}
 
 
-async def _run_until_text(agent: Any, prompt: str, max_rounds: int = 4) -> str:
+def _agent_input(prompt: str, image_parts: list[Any] | None) -> Any:
+    """A bare prompt, or a multimodal [prompt, image, …] list when images are present."""
+    return [prompt, *image_parts] if image_parts else prompt
+
+
+async def _run_until_text(
+    agent: Any,
+    prompt: str,
+    max_rounds: int = 4,
+    *,
+    image_parts: list[Any] | None = None,
+) -> str:
     """Run the agent, auto-approving only safe read-only KG tools, until a text reply.
 
     CONCEPT:ECO-4.62 — the dedicated agent defers tool calls for approval
     (DeferredToolRequests). For chat we auto-approve the read-only KG tools so the agent can
     actually query the graph and answer, while DENYING any other (mutating) tool — those
-    must be requested explicitly, not triggered as a chat side effect.
+    must be requested explicitly, not triggered as a chat side effect. CONCEPT:ECO-4.67 —
+    ``image_parts`` are sent alongside the prompt for vision.
     """
     from pydantic_ai.tools import (
         DeferredToolRequests,
@@ -610,7 +703,7 @@ async def _run_until_text(agent: Any, prompt: str, max_rounds: int = 4) -> str:
         ToolDenied,
     )
 
-    result = await agent.run(prompt)
+    result = await agent.run(_agent_input(prompt, image_parts))
     rounds = 0
     while isinstance(result.output, DeferredToolRequests) and rounds < max_rounds:
         rounds += 1
@@ -631,7 +724,9 @@ async def _run_until_text(agent: Any, prompt: str, max_rounds: int = 4) -> str:
     return str(result.output).strip()
 
 
-async def _model_routed_reply(content: str, kg_context: str) -> str:
+async def _model_routed_reply(
+    content: str, kg_context: str, *, image_parts: list[Any] | None = None
+) -> str:
     """Reply via the dedicated agent, degrading to plain chat if the model lacks tools.
 
     CONCEPT:ECO-4.56 — the tool/skill/MCP-bearing agent is tried first (full capability on
@@ -639,7 +734,8 @@ async def _model_routed_reply(content: str, kg_context: str) -> str:
     (e.g. a vllm-served local model without function-calling — ``System message must be at
     the beginning``), we fall back to a plain chat completion so the user always gets a
     reply. CONCEPT:ECO-4.62 — safe read-only KG tools auto-run so the agent answers FROM the
-    graph. Both paths are tagged with who answered.
+    graph. CONCEPT:ECO-4.67 — image attachments are passed to the vision model. Both paths
+    are tagged with who answered.
     """
     label, provider, model_id, task = _select_responder(content)
     prompt = task if not kg_context else f"{task}\n\nRelevant context:\n{kg_context}"
@@ -647,7 +743,7 @@ async def _model_routed_reply(content: str, kg_context: str) -> str:
     # 1) Full dedicated agent (KG tools + MCP fleet), auto-running safe read-only KG tools.
     try:
         agent = _get_messaging_agent(provider, model_id)
-        text = await _run_until_text(agent, prompt)
+        text = await _run_until_text(agent, prompt, image_parts=image_parts)
         if text:
             return f"[{label}] {text}"
     except Exception as e:  # noqa: BLE001 — model may not support tool-augmented requests
@@ -666,7 +762,7 @@ async def _model_routed_reply(content: str, kg_context: str) -> str:
             create_model(provider=provider or None, model_id=model_id),
             system_prompt=_messaging_system_prompt(),
         )
-        result = await bare.run(prompt)
+        result = await bare.run(_agent_input(prompt, image_parts))
         text = str(getattr(result, "output", result)).strip()
         return f"[{label}] {text}" if text else f"[{label}] (no output)"
     except Exception as e:  # noqa: BLE001

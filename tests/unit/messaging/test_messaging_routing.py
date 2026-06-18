@@ -233,3 +233,68 @@ async def test_reach_user_follows_last_active_service(multi: MessagingService) -
         )
     )
     assert multi.resolve_channel("u1") == ("telegram", "100")
+
+
+# ── Image / multimodal input (ECO-4.67) ──────────────────────────────
+
+
+def test_agent_input_plain_vs_multimodal() -> None:
+    from agent_utilities.messaging.router import _agent_input
+
+    assert _agent_input("hi", None) == "hi"
+    assert _agent_input("hi", []) == "hi"
+    parts = ["<img1>", "<img2>"]
+    assert _agent_input("describe", parts) == ["describe", "<img1>", "<img2>"]
+
+
+@pytest.mark.asyncio
+async def test_run_until_text_passes_images_to_agent() -> None:
+    from agent_utilities.messaging import router
+
+    seen: dict[str, Any] = {}
+
+    class _Result:
+        output = "a white square"
+
+    class _Agent:
+        async def run(self, inp: Any = None, **k: Any):
+            seen["input"] = inp
+            return _Result()
+
+    out = await router._run_until_text(_Agent(), "describe", image_parts=["<imgbytes>"])
+    assert out == "a white square"
+    assert seen["input"] == ["describe", "<imgbytes>"]
+
+
+# ── Non-blocking recall (ECO-4.72) ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_recall_context_times_out_without_freezing(monkeypatch) -> None:
+    import time as _t
+
+    from agent_utilities.messaging import router
+
+    monkeypatch.setenv("MESSAGING_RECALL_TIMEOUT", "1")
+
+    class _Eng:
+        def recall_memory(self, **kw):
+            _t.sleep(10)  # simulate a hung blocking retrieval
+            return []
+
+    # Must return "" within the timeout, NOT hang for 10s.
+    start = _t.monotonic()
+    out = await router._recall_context(_Eng(), "hello", "telegram")
+    assert out == "" and (_t.monotonic() - start) < 5
+
+
+@pytest.mark.asyncio
+async def test_recall_context_returns_memories() -> None:
+    from agent_utilities.messaging import router
+
+    class _Eng:
+        def recall_memory(self, **kw):
+            return [{"description": "prior chat about webhooks"}]
+
+    out = await router._recall_context(_Eng(), "hi", "telegram")
+    assert "prior chat about webhooks" in out
