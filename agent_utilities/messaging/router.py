@@ -349,29 +349,84 @@ def _recall_context(engine: Any, content: str, platform: str) -> str:
 
 
 async def _graph_agent_reply(engine: Any, content: str, kg_context: str) -> str:
-    """Run the configured graph agent against the message and return its reply.
+    """Draft a reply to an inbound message, routing to the right responder.
 
-    CONCEPT:ECO-4.51 — the real graph execution that replaced the prior canned
-    acknowledgment. ``MESSAGING_AGENT`` names the agent to route to; when unset, the
-    message is still ingested and we return an honest status instead of inventing a reply.
+    CONCEPT:ECO-4.51 / ECO-4.55 — two responders, default local:
+      * ``MESSAGING_AGENT`` set → run that full named graph agent (Orchestrator override).
+      * otherwise → a lightweight model-routed reply: the **local LLM by default**, or
+        **Claude** when the message is addressed to it (``MESSAGING_CLAUDE_TRIGGER``,
+        default ``/claude``). The reply is tagged with who answered so the user always
+        knows whether the local model or Claude responded.
     """
     from agent_utilities.core.config import setting
 
     agent_name = str(setting("MESSAGING_AGENT", "")).strip()
-    if not agent_name:
-        return (
-            "Got it — saved to the knowledge graph. (Set MESSAGING_AGENT to let a "
-            "graph agent draft replies.)"
-        )
-    try:
-        from agent_utilities.orchestration.manager import Orchestrator
+    if agent_name:
+        try:
+            from agent_utilities.orchestration.manager import Orchestrator
 
-        out = await Orchestrator(engine).execute_agent(
-            agent_name=agent_name,
-            task=content,
-            context=kg_context or None,
+            out = await Orchestrator(engine).execute_agent(
+                agent_name=agent_name, task=content, context=kg_context or None
+            )
+            return str(out) if out else "(the agent returned no output)"
+        except Exception as e:  # noqa: BLE001
+            logger.error("[CONCEPT:ECO-4.51] graph agent execution failed: %s", e)
+            return f"I saved your message, but couldn't draft a reply right now ({e})."
+    return await _model_routed_reply(content, kg_context)
+
+
+# CONCEPT:ECO-4.55 — Model-routed inbound responder with local LLM default and Claude address
+def _select_responder(content: str) -> tuple[str, str, str | None, str]:
+    """Pick the responder for an inbound message (CONCEPT:ECO-4.55).
+
+    Returns ``(label, provider, model_id, task)`` — ``task`` has the trigger stripped.
+    Default is the local LLM; an explicit ``/claude`` (configurable) address routes to
+    Claude, falling back to local with a note when no Anthropic key is configured.
+    """
+    from agent_utilities.core.config import config, setting
+
+    trigger = str(setting("MESSAGING_CLAUDE_TRIGGER", "/claude")).strip().lower()
+    stripped = content.lstrip()
+    addressed_claude = trigger and stripped.lower().startswith(trigger)
+    if addressed_claude:
+        task = stripped[len(trigger) :].lstrip(" :,-").strip() or stripped
+        if getattr(config, "anthropic_api_key", None):
+            model_id = str(setting("MESSAGING_CLAUDE_MODEL", "claude-sonnet-4-6"))
+            return "claude", "anthropic", model_id, task
+        # Addressed Claude but no key — answer locally and say so.
+        local_id = str(setting("MESSAGING_LOCAL_MODEL", "")) or None
+        return (
+            "local (no Anthropic key — set ANTHROPIC_API_KEY for Claude)",
+            "",
+            local_id,
+            task,
         )
-        return str(out) if out else "(the agent returned no output)"
+    local_id = str(setting("MESSAGING_LOCAL_MODEL", "")) or None
+    return "local", "", local_id, content
+
+
+async def _model_routed_reply(content: str, kg_context: str) -> str:
+    """Run a one-shot model call for the selected responder and tag the reply (ECO-4.55)."""
+    label, provider, model_id, task = _select_responder(content)
+    try:
+        from pydantic_ai import Agent
+
+        from agent_utilities.core.model_factory import create_model
+
+        model = create_model(provider=provider or None, model_id=model_id)
+        prompt = (
+            task if not kg_context else f"{task}\n\nRelevant context:\n{kg_context}"
+        )
+        agent = Agent(
+            model,
+            system_prompt=(
+                "You are an assistant replying to the user over a chat app (Telegram, "
+                "Slack, Teams, etc.). Be concise and helpful. Use any provided context."
+            ),
+        )
+        result = await agent.run(prompt)
+        text = str(getattr(result, "output", result)).strip()
+        return f"[{label}] {text}" if text else f"[{label}] (no output)"
     except Exception as e:  # noqa: BLE001
-        logger.error("[CONCEPT:ECO-4.51] graph agent execution failed: %s", e)
+        logger.error("[CONCEPT:ECO-4.55] model-routed reply failed: %s", e)
         return f"I saved your message, but couldn't draft a reply right now ({e})."
