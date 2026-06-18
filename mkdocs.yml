@@ -99,6 +99,7 @@ nav:
   - Architecture:
       - C4 Architecture: pillars/architecture_c4.md
       - Self-Improving Reasoning Substrate: architecture/self_improving_reasoning_substrate.md
+      - Perspectival Inquiry (STORM, native): architecture/perspectival_inquiry.md
       - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
       - Ontology Library (catalog + anti-drift): architecture/ontology_library.md
       - Camunda + ARIS ↔ Knowledge Graph: architecture/camunda_aris_kg_integration.md

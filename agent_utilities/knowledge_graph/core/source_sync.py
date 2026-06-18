@@ -297,9 +297,9 @@ def _sync_freshrss(
     wm_config = WorldModelConfig(
         use_novelty=to_boolean(setting("FRESHRSS_USE_NOVELTY", default="False"))
     )
-    report = WorldModelPipelineRunner(
-        engine=engine, config=wm_config
-    ).run_gated_ingest(docs)
+    report = WorldModelPipelineRunner(engine=engine, config=wm_config).run_gated_ingest(
+        docs
+    )
 
     seen = [e for d in docs if (e := _as_epoch(d.updated_at)) is not None]
     new_watermark = str(max(seen)) if seen else None
@@ -350,15 +350,15 @@ def _sync_rss(
     # Native feed URLs = the comma-separated config seed UNION the runtime-added
     # :FeedSource registry (so graph_feeds add → next sweep ingests it).
     seed = (getattr(_cfg, "kg_rss_feeds", "") or "").split(",")
-    native_urls = {u.strip() for u in seed if u.strip()}
+    native_url_set = {u.strip() for u in seed if u.strip()}
     for node in list_feed_sources(engine):
         if (
             node.get("source_system") == "rss"
             and node.get("enabled", True)
             and node.get("feed_url")
         ):
-            native_urls.add(str(node["feed_url"]))
-    native_urls = sorted(native_urls)
+            native_url_set.add(str(node["feed_url"]))
+    native_urls = sorted(native_url_set)
     try:
         import scholarx  # noqa: F401
 
@@ -489,6 +489,454 @@ def _sync_gitlab(
     }
 
 
+# ── Atlassian + Plane issue trackers / wiki (KG-2.123/2.124/2.125) ────────────
+#
+# Three first-class delta connectors that reach Jira / Confluence / Plane through
+# their fleet MCP servers (``atlassian-mcp`` / ``plane-mcp``) via the declarative
+# mcp_tool presets — never a direct vendor client. Each is **multi-instance** (the
+# GitLab pattern): a second Atlassian site or Plane workspace is a second ``*-mcp``
+# server entry + a typed ``*_instances`` config row, so the same logic ingests both.
+#
+# CONCEPT:KG-2.123 — Confluence first-class delta connector
+# CONCEPT:KG-2.124 — Jira first-class delta connector
+# CONCEPT:KG-2.125 — Plane first-class delta connector
+
+
+def _resolve_tracker_instances(
+    field: str,
+    *,
+    default_name: str,
+    default_server: str,
+    scope_key: str,
+    scope_setting: str,
+) -> list[dict[str, Any]]:
+    """Configured ``*_instances`` rows, or one synthetic instance from the single-host
+    settings (mirrors ``gitlab_indexer.instances_from_config``)."""
+    from ...core.config import config as cfg
+    from ...core.config import setting
+
+    rows = [r for r in (getattr(cfg, field, None) or []) if isinstance(r, dict)]
+    if rows:
+        return rows
+    scope = [
+        s.strip()
+        for s in (setting(scope_setting, default="") or "").split(",")
+        if s.strip()
+    ]
+    return [{"name": default_name, "server": default_server, scope_key: scope}]
+
+
+def _build_preset_conn(preset: str, server: str, params: dict[str, Any]) -> Any:
+    """Build the mcp_tool connector for one tracker instance (preset + per-instance
+    server override + per-run params)."""
+    from ...protocols.source_connectors.registry import build_connector
+
+    config: dict[str, Any] = {"preset": preset, "server": server}
+    if params:
+        config["params"] = params
+    return build_connector("mcp_tool", config)
+
+
+def _drain_incremental(
+    conn: Any, since: str | None, *, max_batches: int = 25
+) -> list[Any]:
+    """Drain a connector incrementally via ``poll()`` — binds the ``since`` watermark
+    (client-side ``updated_field`` filter), resumes the cursor across batches, and is
+    bounded so a cold first run can't run unbounded."""
+    from ...protocols.source_connectors.base import ConnectorCheckpoint
+
+    docs: list[Any] = []
+    cp = ConnectorCheckpoint(watermark=since) if since else None
+    for _ in range(max(1, max_batches)):
+        batch = conn.poll(cp)
+        docs.extend(batch.documents)
+        cp = batch.checkpoint
+        if not getattr(cp, "has_more", False):
+            break
+    return docs
+
+
+def _record_of(doc: Any) -> dict[str, Any]:
+    """The raw source record the connector preserved in ``metadata.record``."""
+    rec = (getattr(doc, "metadata", None) or {}).get("record")
+    return rec if isinstance(rec, dict) else {}
+
+
+def _max_updated(docs: list[Any]) -> str | None:
+    seen = [u for d in docs if (u := getattr(d, "updated_at", None))]
+    return max(seen, key=str) if seen else None
+
+
+def _jira_jql_date(value: Any) -> str | None:
+    """Render an ISO8601 watermark as a Jira JQL datetime (``yyyy-MM-dd HH:mm``)."""
+    import re
+
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})", str(value))
+    return (
+        f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}"
+        if m
+        else None
+    )
+
+
+def _jira_jql(inst: dict[str, Any], since: str | None, ids: list[str] | None) -> str:
+    clauses: list[str] = []
+    keys = [str(k) for k in (inst.get("project_keys") or []) if k]
+    if keys:
+        clauses.append(f"project in ({','.join(keys)})")
+    if ids:
+        clauses.append(f"key in ({','.join(str(i) for i in ids)})")
+    if since and (d := _jira_jql_date(since)):
+        clauses.append(f'updated >= "{d}"')
+    if extra := str(inst.get("jql") or "").strip():
+        clauses.append(f"({extra})")
+    where = " AND ".join(clauses)
+    return f"{where} ORDER BY updated DESC" if where else "ORDER BY updated DESC"
+
+
+def _jira_entities(
+    docs: list[Any], instance: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Map drained Jira records → issue/person/epic entities + relationships
+    (the mapping inherited from the removed ``_hydrate_jira``)."""
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+    src = f"jira:{instance}"
+    for doc in docs:
+        key = getattr(doc, "id", None)
+        if not key:
+            continue
+        fields = _record_of(doc).get("fields") or {}
+        node_id = f"jira:{instance}:issue:{key}"
+        entities.append(
+            {
+                "id": node_id,
+                "type": "issue",
+                "name": fields.get("summary") or f"Issue {key}",
+                "status": (fields.get("status") or {}).get("name", ""),
+                "priority": (fields.get("priority") or {}).get("name", ""),
+                "issueKey": str(key),
+                "domain": "jira",
+                "source_system": src,
+                "externalToolId": str(key),
+                "updatedAt": fields.get("updated"),
+            }
+        )
+        assignee = fields.get("assignee")
+        if isinstance(assignee, dict):
+            uid = assignee.get("accountId") or assignee.get("name")
+            if uid:
+                user_node = f"jira:{instance}:user:{uid}"
+                entities.append(
+                    {
+                        "id": user_node,
+                        "type": "person",
+                        "name": assignee.get("displayName") or f"User {uid}",
+                        "domain": "jira",
+                        "source_system": src,
+                    }
+                )
+                rels.append(
+                    {
+                        "source": node_id,
+                        "target": user_node,
+                        "type": "has_role",
+                        "domain": "jira",
+                    }
+                )
+        parent = fields.get("parent")
+        epic = (
+            parent.get("key")
+            if isinstance(parent, dict)
+            else fields.get("customfield_10014")
+        )
+        if epic:
+            epic_node = f"jira:{instance}:epic:{epic}"
+            entities.append(
+                {
+                    "id": epic_node,
+                    "type": "goal",
+                    "name": f"Epic {epic}",
+                    "domain": "jira",
+                    "source_system": src,
+                }
+            )
+            rels.append(
+                {
+                    "source": node_id,
+                    "target": epic_node,
+                    "type": "part_of",
+                    "domain": "jira",
+                }
+            )
+    return entities, rels
+
+
+def _sync_jira(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Jira issues as typed issue/person/epic entities (CONCEPT:KG-2.124).
+
+    Per configured instance, drains the ``jira`` mcp_tool preset over its
+    ``atlassian-mcp`` server with a JQL ``updated >= <watermark>`` server-side delta
+    (the write-layer content-hash is the second guard); rebuilds the issue graph from
+    each record and ``ingest_external_batch``-es it. ``ids`` narrows to specific keys
+    (webhook). Replaces the removed single-shot ``_hydrate_jira``.
+    """
+    backend = getattr(engine, "backend", None)
+    instances = _resolve_tracker_instances(
+        "jira_instances",
+        default_name="jira",
+        default_server="atlassian-mcp",
+        scope_key="project_keys",
+        scope_setting="JIRA_PROJECT_KEYS",
+    )
+    results: list[dict[str, Any]] = []
+    total_e = total_r = 0
+    for inst in instances:
+        name = str(inst.get("name") or "jira")
+        server = str(inst.get("server") or "atlassian-mcp")
+        wm_key = f"jira:{name}"
+        since = None if mode == "full" else _read_watermark(backend, wm_key)
+        if mode == "reconcile":
+            conn = _build_preset_conn(
+                "jira", server, {"jql": _jira_jql(inst, None, None)}
+            )
+            live = {str(getattr(d, "id", "")) for d in _drain_incremental(conn, None)}
+            results.append(_reconcile(engine, "jira", live) | {"instance": name})
+            continue
+        conn = _build_preset_conn("jira", server, {"jql": _jira_jql(inst, since, ids)})
+        docs = _drain_incremental(conn, since)
+        entities, rels = _jira_entities(docs, name)
+        if entities:
+            engine.ingest_external_batch("jira", entities, rels)
+        watermark = _max_updated(docs)
+        if watermark and (since is None or str(watermark) > str(since)):
+            _write_watermark(backend, wm_key, watermark)
+        total_e += len(entities)
+        total_r += len(rels)
+        results.append({"instance": name, "issues": len(docs), "watermark": watermark})
+    return {
+        "status": "ok",
+        "source": "jira",
+        "mode": mode,
+        "delta_capable": True,
+        "instances": results,
+        "nodes_hydrated": total_e,
+        "relations_hydrated": total_r,
+    }
+
+
+def _plane_entities(
+    docs: list[Any], instance: str, project_id: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Map drained Plane work items → issue + project entities (inherited from the
+    removed ``_hydrate_plane``)."""
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+    src = f"plane:{instance}"
+    proj_node = f"plane:{instance}:proj:{project_id}"
+    proj_emitted = False
+    for doc in docs:
+        iid = getattr(doc, "id", None)
+        if not iid:
+            continue
+        rec = _record_of(doc)
+        state = rec.get("state")
+        state_name = state.get("name", "") if isinstance(state, dict) else (state or "")
+        node_id = f"plane:{instance}:issue:{iid}"
+        entities.append(
+            {
+                "id": node_id,
+                "type": "issue",
+                "name": rec.get("name") or f"Plane Issue {iid}",
+                "state": state_name,
+                "priority": rec.get("priority") or "",
+                "domain": "plane",
+                "source_system": src,
+                "externalToolId": str(iid),
+                "updatedAt": rec.get("updated_at"),
+            }
+        )
+        if not proj_emitted:
+            entities.append(
+                {
+                    "id": proj_node,
+                    "type": "software_project",
+                    "name": f"Plane Project {project_id}",
+                    "domain": "plane",
+                    "source_system": src,
+                }
+            )
+            proj_emitted = True
+        rels.append(
+            {
+                "source": node_id,
+                "target": proj_node,
+                "type": "part_of",
+                "domain": "plane",
+            }
+        )
+    return entities, rels
+
+
+def _sync_plane(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Plane work items as typed issue/project entities (CONCEPT:KG-2.125).
+
+    Per configured instance × project, drains the ``plane`` mcp_tool preset over its
+    ``plane-mcp`` server (a SECOND Plane workspace is a second instance row pointing at
+    a second server). Delta = the ``updated_at`` watermark + content-hash. Replaces the
+    removed ``_hydrate_plane``.
+    """
+    backend = getattr(engine, "backend", None)
+    instances = _resolve_tracker_instances(
+        "plane_instances",
+        default_name="plane",
+        default_server="plane-mcp",
+        scope_key="projects",
+        scope_setting="PLANE_PROJECT_IDS",
+    )
+    results: list[dict[str, Any]] = []
+    total_e = total_r = 0
+    for inst in instances:
+        name = str(inst.get("name") or "plane")
+        server = str(inst.get("server") or "plane-mcp")
+        projects = [str(p) for p in (inst.get("projects") or []) if p]
+        if not projects:
+            results.append(
+                {
+                    "instance": name,
+                    "status": "skipped",
+                    "reason": "no projects configured",
+                }
+            )
+            continue
+        inst_e: list[dict[str, Any]] = []
+        inst_r: list[dict[str, Any]] = []
+        for pid in projects:
+            wm_key = f"plane:{name}:{pid}"
+            since = None if mode == "full" else _read_watermark(backend, wm_key)
+            params: dict[str, Any] = {"project_id": pid}
+            if ids:
+                params["filters"] = {"id": ids}
+            conn = _build_preset_conn("plane", server, params)
+            docs = _drain_incremental(conn, since)
+            e, r = _plane_entities(docs, name, pid)
+            inst_e += e
+            inst_r += r
+            watermark = _max_updated(docs)
+            if watermark and (since is None or str(watermark) > str(since)):
+                _write_watermark(backend, wm_key, watermark)
+        if inst_e:
+            engine.ingest_external_batch("plane", inst_e, inst_r)
+        total_e += len(inst_e)
+        total_r += len(inst_r)
+        results.append(
+            {"instance": name, "issues": sum(1 for x in inst_e if x["type"] == "issue")}
+        )
+    return {
+        "status": "ok",
+        "source": "plane",
+        "mode": mode,
+        "delta_capable": True,
+        "instances": results,
+        "nodes_hydrated": total_e,
+        "relations_hydrated": total_r,
+    }
+
+
+def _confluence_processor(engine: Any) -> Any:
+    from ..ontology.document_processing import ChunkingConfig, DocumentProcessor
+
+    return DocumentProcessor(
+        getattr(engine, "backend", None), chunking=ChunkingConfig(), contextual=True
+    )
+
+
+def _sync_confluence(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Full-mirror Confluence pages as ``:ConfluencePage`` Documents (CONCEPT:KG-2.123).
+
+    Per configured instance × space, drains the ``confluence`` mcp_tool preset
+    (Cloud-v2 ``get_pages``, recency-sorted, body inline) over its ``atlassian-mcp``
+    server and ingests each page through the KG-2.48 ``DocumentProcessor`` (chunk +
+    embed) so the wiki is fully searchable. Delta = the ``version.createdAt`` since
+    filter + the write-layer content-hash. ``ids`` narrows to specific pages (webhook).
+    NOT relevance-gated — internal wiki is curated knowledge.
+    """
+    backend = getattr(engine, "backend", None)
+    instances = _resolve_tracker_instances(
+        "confluence_instances",
+        default_name="confluence",
+        default_server="atlassian-mcp",
+        scope_key="spaces",
+        scope_setting="CONFLUENCE_SPACE_IDS",
+    )
+    proc: Any = None
+    results: list[dict[str, Any]] = []
+    total = 0
+    for inst in instances:
+        name = str(inst.get("name") or "confluence")
+        server = str(inst.get("server") or "atlassian-mcp")
+        spaces: list[str | None] = [
+            str(s) for s in (inst.get("spaces") or []) if s
+        ] or [None]
+        pages = 0
+        for space in spaces:
+            wm_key = f"confluence:{name}:{space or 'all'}"
+            since = None if mode == "full" else _read_watermark(backend, wm_key)
+            params: dict[str, Any] = {}
+            if space:
+                params["space_id"] = [space]
+            if ids:
+                params["id_"] = ids
+            conn = _build_preset_conn("confluence", server, params)
+            docs = _drain_incremental(conn, since)
+            if docs and proc is None:
+                proc = _confluence_processor(engine)
+            for doc in docs:
+                doc_id = f"confluence:{name}:{getattr(doc, 'id', '')}"
+                rec = _record_of(doc)
+                try:
+                    proc.process(
+                        getattr(doc, "text", "") or "",
+                        document_id=doc_id,
+                        title=getattr(doc, "title", "") or str(getattr(doc, "id", "")),
+                        doc_type="wiki",
+                        source=getattr(doc, "source_uri", ""),
+                        metadata={
+                            "source_system": f"confluence:{name}",
+                            "space_id": rec.get("spaceId"),
+                            "version": (rec.get("version") or {}).get("number"),
+                            "confluence_page_id": str(getattr(doc, "id", "")),
+                            "updated_at": getattr(doc, "updated_at", None),
+                        },
+                    )
+                    pages += 1
+                except Exception as exc:  # noqa: BLE001 — one bad page must not abort
+                    logger.warning(
+                        "[KG-2.123] confluence page ingest failed for %s: %s",
+                        getattr(doc, "id", "?"),
+                        exc,
+                    )
+            watermark = _max_updated(docs)
+            if watermark and (since is None or str(watermark) > str(since)):
+                _write_watermark(backend, wm_key, watermark)
+        total += pages
+        results.append({"instance": name, "pages": pages})
+    return {
+        "status": "ok",
+        "source": "confluence",
+        "mode": mode,
+        "delta_capable": True,
+        "instances": results,
+        "pages_ingested": total,
+    }
+
+
 # Sources with a native delta (watermark/reconcile) handler. Add an entry here to
 # make another source incremental (e.g. Camunda once its extractor takes `since`).
 _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -497,6 +945,9 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "gitlab": _sync_gitlab,
     "freshrss": _sync_freshrss,
     "rss": _sync_rss,
+    "jira": _sync_jira,
+    "confluence": _sync_confluence,
+    "plane": _sync_plane,
 }
 
 

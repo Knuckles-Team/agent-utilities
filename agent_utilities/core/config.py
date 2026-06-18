@@ -1065,11 +1065,45 @@ class AgentConfig(BaseSettings):
     instance registry, so one config drives multi-tenant indexing and API access.
     Unset → falls back to the single-host ``GITLAB_URL``/``GITLAB_TOKEN`` env."""
 
-    @field_validator("gitlab_instances", mode="before")
+    jira_instances: list[dict[str, Any]] | None = Field(
+        default=None, alias="JIRA_INSTANCES"
+    )
+    """Jira instances to ingest into the KG (CONCEPT:KG-2.124). A JSON list of
+    ``{"name": <str>, "server": <atlassian-mcp server name>, "project_keys": [<str>],
+    "jql": <optional extra JQL>}`` — each is drained via the ``jira`` mcp_tool preset
+    through its named ``atlassian-mcp`` server (which holds the credentials), so two
+    Atlassian sites are two server entries + two instances. Unset → one synthetic
+    instance over ``atlassian-mcp`` filtered by ``JIRA_PROJECT_KEYS``."""
+
+    confluence_instances: list[dict[str, Any]] | None = Field(
+        default=None, alias="CONFLUENCE_INSTANCES"
+    )
+    """Confluence instances to mirror into the KG (CONCEPT:KG-2.123). A JSON list of
+    ``{"name": <str>, "server": <atlassian-mcp server name>, "spaces": [<space-id>]}``
+    — each space is drained via the ``confluence`` mcp_tool preset and ingested as
+    full-text ``:ConfluencePage`` Documents. Unset → one synthetic instance over
+    ``atlassian-mcp`` across ``CONFLUENCE_SPACE_IDS``."""
+
+    plane_instances: list[dict[str, Any]] | None = Field(
+        default=None, alias="PLANE_INSTANCES"
+    )
+    """Plane instances to ingest into the KG (CONCEPT:KG-2.125). A JSON list of
+    ``{"name": <str>, "server": <plane-mcp server name>, "projects": [<project-id>]}``
+    — each is drained via the ``plane`` mcp_tool preset through its named ``plane-mcp``
+    server, so a SECOND Plane workspace is just a second server entry + instance. Unset
+    → one synthetic instance over ``plane-mcp`` across ``PLANE_PROJECT_IDS``."""
+
+    @field_validator(
+        "gitlab_instances",
+        "jira_instances",
+        "confluence_instances",
+        "plane_instances",
+        mode="before",
+    )
     @classmethod
-    def _coerce_gitlab_instances(cls, v: Any) -> Any:
-        """Accept a JSON-encoded string or an already-parsed list for
-        GITLAB_INSTANCES (CONCEPT:KG-2.9g)."""
+    def _coerce_instance_list(cls, v: Any) -> Any:
+        """Accept a JSON-encoded string or an already-parsed list for the
+        ``*_INSTANCES`` multi-instance connector configs (CONCEPT:KG-2.9g/2.123-2.125)."""
         if v is None or isinstance(v, list):
             return v
         if isinstance(v, str):
