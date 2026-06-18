@@ -115,12 +115,24 @@ def test_submit_loop_records_priority_bucket():
 
 def test_active_loops_emitted_in_priority_order():
     rows = [
-        {"id": "loop:research:bg", "loop_kind": "research", "status": "pending",
-         "prio_bucket": 3},
-        {"id": "loop:research:crit", "loop_kind": "research", "status": "pending",
-         "prio_bucket": 0},
-        {"id": "loop:research:norm", "loop_kind": "research", "status": "pending",
-         "prio_bucket": 2},
+        {
+            "id": "loop:research:bg",
+            "loop_kind": "research",
+            "status": "pending",
+            "prio_bucket": 3,
+        },
+        {
+            "id": "loop:research:crit",
+            "loop_kind": "research",
+            "status": "pending",
+            "prio_bucket": 0,
+        },
+        {
+            "id": "loop:research:norm",
+            "loop_kind": "research",
+            "status": "pending",
+            "prio_bucket": 2,
+        },
     ]
     eng = _Engine(concept_rows=rows)
     order = [lp["id"] for lp in active_loops(eng, limit=10)]

@@ -1846,9 +1846,7 @@ def register_analysis_tools(mcp):
                 lines = []
                 for entry in calendar(engine):
                     state = "ON" if entry.get("enabled", True) else "OFF"
-                    trig = entry.get("cron") or (
-                        f"every {entry.get('interval_s')}s"
-                    )
+                    trig = entry.get("cron") or (f"every {entry.get('interval_s')}s")
                     lines.append(
                         f"[{state}] {entry['name']} ({entry.get('trigger')}: {trig}) "
                         f"— last run: {entry.get('last_run')}"
@@ -1860,7 +1858,9 @@ def register_analysis_tools(mcp):
 
                 target_id = task.strip()
                 if not target_id:
-                    return "Error: Must specify the schedule name in the 'task' parameter."
+                    return (
+                        "Error: Must specify the schedule name in the 'task' parameter."
+                    )
                 res = run_now(engine, target_id)
                 if res.get("status") != "success":
                     return f"Error: {res.get('error')}"

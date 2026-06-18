@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 342
+total_concepts: 344
 total_pillars: 20
 pillars:
 - AHE-3
@@ -515,7 +515,6 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/harness/dspy_optimization.py
-  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: a candidate replaces the incumbent only when it
 - id: AHE-3.47
@@ -1015,7 +1014,6 @@ concepts:
   code_paths:
   - agent_utilities/gateway/usage_api.py
   - agent_utilities/gateway_client/client.py
-  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/server/app.py
   doc: usage/cost/observability surface for all 3 UIs
@@ -2549,6 +2547,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/sessions.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/research/loops.py
   - agent_utilities/mcp/tools/analysis_tools.py
@@ -2876,6 +2875,24 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/maintenance/owl_closure.py
   doc: Single canonical ontology library
+- id: KG-2.113
+  name: Hardened priority and scheduled task queue with retry and dead-letter
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/research/loops.py
+  doc: Hardened priority and scheduled task queue with retry and dead-letter
+- id: KG-2.114
+  name: ScholarX RSS research-feed loop that grades and fetches new papers
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/core/schedule_engine.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  doc: ScholarX RSS research-feed loop that grades and fetches new papers
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -3542,7 +3559,6 @@ concepts:
   - agent_utilities/agent/factory.py
   - agent_utilities/automation/__init__.py
   - agent_utilities/automation/file_watcher.py
-  - agent_utilities/automation/maintenance_cron.py
   - agent_utilities/core/config.py
   - agent_utilities/core/discovery.py
   - agent_utilities/core/paths.py
@@ -3603,7 +3619,6 @@ concepts:
   - agent_utilities/__init__.py
   - agent_utilities/automation/__init__.py
   - agent_utilities/automation/file_watcher.py
-  - agent_utilities/automation/maintenance_cron.py
   - agent_utilities/automation/research_pipeline.py
   - agent_utilities/core/__init__.py
   - agent_utilities/core/cognitive_scheduler.py
@@ -3891,15 +3906,6 @@ concepts:
   - agent_utilities/orchestration/fleet_reconciler.py
   - agent_utilities/orchestration/scaling_signals.py
   doc: Reactive replica autoscaling
-- id: OS-5.30
-  name: Declarative skill / skill-workflow scheduler
-  pillar: OS-5
-  status: live
-  code_paths:
-  - agent_utilities/core/skill_scheduler.py
-  - agent_utilities/knowledge_graph/core/engine_tasks.py
-  - agent_utilities/server/routers/commands.py
-  doc: Declarative skill / skill-workflow scheduler
 - id: OS-5.31
   name: persist this graph run as a runtime usage row so
   pillar: OS-5
@@ -4027,6 +4033,18 @@ concepts:
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/security/secrets_client.py
   doc: the vault-first routine genesis/deployment uses so an
+- id: OS-5.44
+  name: Unified scheduling engine, one intelligent scheduler for all recurring work
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/schedule_engine.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/state_tools.py
+  - agent_utilities/server/routers/commands.py
+  doc: Unified scheduling engine, one intelligent scheduler for all recurring work
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

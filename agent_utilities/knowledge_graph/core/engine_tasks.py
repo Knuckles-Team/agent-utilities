@@ -261,7 +261,8 @@ _TASK_MAX_REQUEUE = 3
 _USAGE_SYNC_INTERVAL = 900.0
 _USAGE_PRICING_REFRESH_INTERVAL = 86400.0
 
-# Unified scheduling/queue model (CONCEPT:KG-2.113). Priority is a discrete
+# CONCEPT:KG-2.113 — Hardened priority and scheduled task queue with retry and dead-letter.
+# Priority is a discrete
 # integer *bucket* (0=critical .. 3=background) rather than a numeric field,
 # because the L1 graph interpreter strips ORDER BY and supports only equality —
 # so the worker claim iterates buckets ascending with one equality query each
@@ -795,7 +796,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         _maint("analysis", "kg_analysis", 120.0, enabled=bool(DEFAULT_KG_MODEL_ID))
         # Self-evolution Loop engine cycle (CONCEPT:KG-2.78), OPT-IN via KG_LOOP=1;
         # runs _tick_loop as a task at research priority.
-        _maint("loop_cycle", "loop", _cfg.kg_loop_interval, enabled=_cfg.kg_loop, prio=2)
+        _maint(
+            "loop_cycle", "loop", _cfg.kg_loop_interval, enabled=_cfg.kg_loop, prio=2
+        )
         # ScholarX RSS research-feed screen (CONCEPT:KG-2.114): grade incoming RSS
         # items, skip already-seen, enqueue prioritized full-paper fetch+ingest.
         # Default-ON (no-ops without ScholarX); KG_RESEARCH_FEED=0 disables.
