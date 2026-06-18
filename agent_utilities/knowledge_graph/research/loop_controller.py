@@ -844,6 +844,142 @@ class LoopController:
 
         return sync_source(self.engine, "freshrss", mode="delta")
 
+    async def _fetch_rss_feed(self, runner: Any, limit: int) -> list[dict[str, Any]]:
+        """Pull fresh ScholarX RSS feed items (title+abstract+ids) — the cheap
+        screen input. ``get_recent_papers(days=1)`` routes through the arXiv RSS
+        feed. No-ops (``[]``) when ScholarX is not installed. (CONCEPT:KG-2.114)"""
+        try:
+            from scholarx.api_client import ScholarXClient
+        except ImportError:
+            logger.info("ScholarX not installed — RSS feed screen is a no-op")
+            return []
+
+        def _attr(obj: Any, name: str, default: Any) -> Any:
+            if isinstance(obj, dict):
+                return obj.get(name, default)
+            return getattr(obj, name, default)
+
+        client = ScholarXClient()
+        result = await client.get_recent_papers(
+            categories=runner.config.categories, days=1
+        )
+        papers = getattr(result, "papers", None)
+        if papers is None:
+            papers = result if isinstance(result, list) else []
+        out: list[dict[str, Any]] = []
+        for r in papers[:limit]:
+            out.append(
+                {
+                    "id": str(_attr(r, "id", "") or ""),
+                    "title": _attr(r, "title", "") or "",
+                    "abstract": _attr(r, "abstract", "") or "",
+                    "authors": _attr(r, "authors", []) or [],
+                    "url": _attr(r, "url", "") or "",
+                    "pdf_url": _attr(r, "pdf_url", "") or "",
+                }
+            )
+        return out
+
+    def run_rss_feed_screen(self, max_items: int | None = None) -> dict[str, Any]:
+        """Grade incoming ScholarX RSS items, skip already-seen, enqueue the
+        high-graded ones for full-paper fetch+ingest (CONCEPT:KG-2.114).
+
+        The flagship consumer of the unified scheduler/queue. A recurring
+        ``research_feed`` schedule enqueues this screen; the screen reads the RSS
+        feed (cheap title+abstract), grades each NEW item (keyword taxonomy + a
+        ConceptMatcher novelty probe), records every examined item in a
+        ``DeltaManifest`` seen-set so it is never re-graded, and for items at or
+        above the relevance threshold enqueues a prioritized
+        ``research_paper_fetch`` task whose ``prio_bucket`` is derived from the
+        grade — so the best papers are fetched and ingested FIRST (priority =
+        queue reordering). Marginal items get a cheap abstract-only ingest inline.
+        Embedder-outage-resilient: the novelty probe returns ``None`` and the
+        screen degrades to keyword-only grading rather than failing.
+        """
+        from agent_utilities.automation.research_pipeline import (
+            ResearchPipelineRunner,
+        )
+        from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
+
+        runner = ResearchPipelineRunner(engine=self.engine)
+        cfg = runner.config
+        limit = int(max_items or cfg.max_papers_per_run)
+        papers = _run_coro(self._fetch_rss_feed(runner, limit))
+        manifest = DeltaManifest(backend=getattr(self.engine, "backend", None))
+
+        graph, cat, mark = "research_feed", "seen", "examined"
+        relevant, marginal = cfg.relevant_threshold, cfg.marginal_threshold
+        seen_skipped = graded = queued_full = ingested_marginal = rejected = 0
+        queued: list[dict[str, Any]] = []
+
+        for paper in papers:
+            aid = str(paper.get("id") or "").strip()
+            if not aid:
+                continue
+            if manifest.seen(graph, cat, aid, mark):
+                seen_skipped += 1  # already examined on a prior tick → skip re-grade
+                continue
+            title, abstract = paper.get("title", ""), paper.get("abstract", "")
+            score, domains = runner.score_paper(title, abstract)
+            novelty = runner._paper_novelty(title, abstract)  # None on embedder outage
+            # Record EVERY examined item (incl. rejected) so it never re-grades.
+            manifest.record(graph, cat, aid, mark)
+            graded += 1
+            # Already-built (low-novelty) high-keyword paper → demote to memory-only.
+            if novelty is not None and novelty < 0.25 and score >= relevant:
+                score = marginal
+            if score >= relevant:
+                # Higher grade → lower (more urgent) bucket → fetched first.
+                bucket = 0 if score >= 2 * relevant else 1
+                self.engine.submit_task(
+                    target_path=paper.get("url") or paper.get("pdf_url") or aid,
+                    is_codebase=False,
+                    provenance={"source_url": paper.get("url", "")},
+                    task_type="research_paper_fetch",
+                    skip_dedupe=True,
+                    priority=bucket,
+                    extra_meta={
+                        "paper": {
+                            "id": aid,
+                            "title": title,
+                            "abstract": abstract,
+                            "authors": paper.get("authors", []),
+                            "url": paper.get("url", ""),
+                            "pdf_url": paper.get("pdf_url", ""),
+                            "score": score,
+                            "domains": domains,
+                        }
+                    },
+                )
+                queued_full += 1
+                queued.append({"id": aid, "score": round(score, 2), "bucket": bucket})
+            elif score >= marginal:
+                _run_coro(
+                    runner.ingest_paper_marginal(
+                        aid,
+                        title,
+                        abstract,
+                        paper.get("authors", []),
+                        source_url=paper.get("url", ""),
+                        relevance_score=score,
+                        domains=domains,
+                    )
+                )
+                ingested_marginal += 1
+            else:
+                rejected += 1
+
+        return {
+            "status": "ok",
+            "feed_items": len(papers),
+            "seen_skipped": seen_skipped,
+            "graded": graded,
+            "queued_full": queued_full,
+            "ingested_marginal": ingested_marginal,
+            "rejected": rejected,
+            "queued": queued[:10],
+        }
+
     def _run_breadth(self) -> dict[str, Any]:
         """Ingest the OSS/repos/docs corpus (idempotent).
 

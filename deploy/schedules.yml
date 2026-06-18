@@ -1,9 +1,13 @@
-# Declarative schedule registry (CONCEPT:OS-5.30).
+# Declarative schedule registry — SEED for the unified scheduler (CONCEPT:OS-5.44).
 #
-# ONE entry per scheduled skill / skill-workflow. The daemon runs a single generic
-# scheduler tick (agent_utilities.core.skill_scheduler.run_due_schedules) that reads
-# THIS file and dispatches whatever is due — there are NO hardcoded per-job ticks.
-# Adding a recurring job = adding an entry here. `/cron calendar` surfaces this list.
+# ONE entry per scheduled skill / skill-workflow. On boot these entries seed durable
+# :Schedule nodes; the single scheduler tick
+# (agent_utilities.core.schedule_engine.run_scheduler_tick) evaluates every node and
+# ENQUEUES a scheduled_job :Task for whatever is due — nothing runs inline, and there
+# are NO hardcoded per-job ticks. This file is desired-state; the node carries live
+# last-run / next-run / failure-backoff state. Adding a recurring job = adding an
+# entry here (or registering a :Schedule programmatically). `/cron calendar` surfaces
+# the live registry.
 #
 # Fields:
 #   name        unique id (also the last-run state key)

@@ -22,16 +22,26 @@ from agent_utilities.knowledge_graph.core.ontology_publisher import (
 pytestmark = pytest.mark.concept("KG-2.52")
 
 
+def _maint_specs():
+    """Register maintenance :Schedule nodes for the current config (OS-5.44)."""
+    from agent_utilities.core import schedule_engine as _se
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
+
+    inst = TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
+    inst.backend = EpistemicGraphBackend()
+    inst._register_maintenance_schedules()
+    return {s.name: s for s in _se._load_all(inst)}
+
+
 class TestDaemonRegistration:
     def _jobs(self, monkeypatch, enabled: bool):
         from agent_utilities.core.config import config as cfg
-        from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
         monkeypatch.setattr(cfg, "kg_fuseki_publish", enabled)
-        inst = object.__new__(TaskManagerMixin)
-        return [
-            name for name, _interval, _tick in TaskManagerMixin._maintenance_jobs(inst)
-        ]
+        return {n for n, s in _maint_specs().items() if s.enabled}
 
     def test_flag_on_registers_tick(self, monkeypatch):
         assert "fuseki_publish" in self._jobs(monkeypatch, True)
@@ -51,16 +61,11 @@ class TestDaemonRegistration:
 
     def test_tick_interval_comes_from_config(self, monkeypatch):
         from agent_utilities.core.config import config as cfg
-        from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
         monkeypatch.setattr(cfg, "kg_fuseki_publish", True)
         monkeypatch.setattr(cfg, "kg_fuseki_publish_interval", 1234.0)
-        inst = object.__new__(TaskManagerMixin)
-        intervals = {
-            name: interval
-            for name, interval, _tick in TaskManagerMixin._maintenance_jobs(inst)
-        }
-        assert intervals["fuseki_publish"] == 1234.0
+        spec = _maint_specs()["fuseki_publish"]
+        assert spec.interval_s == 1234.0 and spec.payload["ref"] == "fuseki_publish"
 
 
 class TestBundledOntologyCollection:
