@@ -369,6 +369,28 @@ class MessagingService:
             return True
         return False
 
+    # ── Reactions (CONCEPT:ECO-4.60) ─────────────────────────────────
+    async def react(
+        self, platform: str, channel_id: str, message_id: str, emoji: str
+    ) -> bool:
+        """React to a message with an emoji where the platform supports it.
+
+        Returns True if sent; False if the backend is unavailable or doesn't support it.
+        """
+        if not (platform and channel_id and message_id and emoji):
+            return False
+        backend = await self.get_backend(platform)
+        if backend is None:
+            return False
+        try:
+            await backend.send_reaction(channel_id, message_id, emoji)
+            return True
+        except NotImplementedError:
+            return False
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[ECO-4.60] reaction failed on %s: %s", platform, exc)
+            return False
+
     # ── Introspection ────────────────────────────────────────────────
     async def list_channels(self, platform: str) -> list[dict[str, Any]]:
         backend = await self.get_backend(platform)

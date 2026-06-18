@@ -77,6 +77,16 @@ rebuilt per message, never a second daemon). The model is routed per message,
 
 Every reply is tagged with who answered (`[local]` / `[claude]`).
 
+## Instinctive reactions (ECO-4.60)
+
+The agent reacts to your messages with an emoji where the platform supports it — 👍 to
+acknowledge a request, ❤️ for praise/thanks, etc. A cheap, **model-agnostic** decision
+(`_decide_reaction`, a tool-free completion) runs per inbound message, so reactions work
+even on local models that can't call tools; set `MESSAGING_REACTIONS=0` to disable.
+`MessagingService.react()` dispatches to the backend's `send_reaction` (Telegram
+`setMessageReaction` is implemented; other backends expose `send_reaction` as the extension
+point and degrade gracefully where unsupported — the capability matrix declares support).
+
 ## Universal commands (ECO-4.57)
 
 Commands are defined once in `agent_utilities/messaging/commands.py` (`COMMANDS`) — the

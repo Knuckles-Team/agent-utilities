@@ -322,6 +322,18 @@ async def create_planner_handler(
                 logger.error("[CONCEPT:ECO-4.57] command reply send failed: %s", e)
             return
 
+        # 3c. Instinctive emoji reaction (CONCEPT:ECO-4.60) — model-agnostic, best-effort,
+        #     where the platform supports it (👍 to a request, ❤️ to praise, …).
+        if event.message and event.message.id:
+            try:
+                emoji = await _decide_reaction(content)
+                if emoji:
+                    await svc.react(
+                        str(event.platform), event.channel_id, event.message.id, emoji
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[CONCEPT:ECO-4.60] reaction step skipped: %s", e)
+
         # 4. Recall conversation context, then run the graph agent.
         kg_context = _recall_context(engine, content, str(event.platform))
         logger.info(
@@ -340,6 +352,47 @@ async def create_planner_handler(
             logger.error("[CONCEPT:ECO-4.51] Sending reply failed: %s", e)
 
     return planner_handler
+
+
+# CONCEPT:ECO-4.60 — instinctive, model-agnostic emoji reaction decision
+_REACTION_SYSTEM = (
+    "You decide whether to react to a user's chat message with a single emoji, the way a "
+    "thoughtful assistant would. Reply with ONE emoji if a reaction fits (e.g. 👍 to "
+    "acknowledge a request/command, ❤️ for thanks or praise, 🎉 for good news, 👀 when "
+    "starting to look into something), or the exact word NONE if no reaction fits. Output "
+    "only the emoji or NONE — nothing else."
+)
+
+
+async def _decide_reaction(content: str) -> str:
+    """Return a single emoji to react with, or "" (model-agnostic; plain completion).
+
+    CONCEPT:ECO-4.60 — a cheap, tool-free classification so reactions work on ANY model
+    (including local serves that can't do tool calls). Disabled with MESSAGING_REACTIONS=0.
+    """
+    from agent_utilities.core.config import setting
+
+    if str(setting("MESSAGING_REACTIONS", "1")).strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return ""
+    try:
+        from pydantic_ai import Agent
+
+        from agent_utilities.core.model_factory import create_model
+
+        agent = Agent(create_model(), system_prompt=_REACTION_SYSTEM)
+        result = await agent.run(content)
+        out = str(getattr(result, "output", result)).strip()
+        if not out or out.upper().startswith("NONE") or len(out) > 8:
+            return ""
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[CONCEPT:ECO-4.60] reaction decision failed: %s", e)
+        return ""
 
 
 def _recall_context(engine: Any, content: str, platform: str) -> str:
