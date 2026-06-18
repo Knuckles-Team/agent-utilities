@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 341
+total_concepts: 342
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1213,6 +1213,14 @@ concepts:
   - agent_utilities/messaging/enrichment.py
   - agent_utilities/messaging/router.py
   doc: Post-conversation concept extraction + KG linking for chat
+- id: ECO-4.66
+  name: Telegram webhook receiver started on 127.0.0.1
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/messaging/backends/telegram.py
+  doc: Telegram webhook receiver started on 127.0.0.1
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
