@@ -839,6 +839,11 @@ class AgentConfig(BaseSettings):
     kg_research_feed_interval: float = Field(
         default=1800.0, alias="KG_RESEARCH_FEED_INTERVAL"
     )
+    # CONCEPT:KG-2.121 — native RSS/Atom feed URLs (comma-separated) the zero-infra
+    # `rss` connector ingests through the unified world-model gate. This is the SEED;
+    # feeds added at runtime via graph_feeds live as :FeedSource nodes in the KG and
+    # are swept too. Empty by default (a deployment opts in its feeds).
+    kg_rss_feeds: str = Field(default="", alias="KG_RSS_FEEDS")
     # SAI factory self-specialization (CONCEPT:AHE-3.29). LLM-free, bounded, and
     # propose-only (it only persists a SaiFactoryCycle metrics node — nothing is
     # merged or deployed), and a *no-op when there is too little transition history*,

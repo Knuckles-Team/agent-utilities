@@ -100,10 +100,10 @@ class WorldModelPipelineRunner:
     def _gate_one(
         self, doc: Any, taxonomy: dict[str, dict[str, Any]], report: WorldModelReport
     ) -> None:
-        if self._is_known(doc):
+        rec = (getattr(doc, "metadata", None) or {}).get("record") or {}
+        if self._is_known(doc, rec):
             report.skipped += 1
             return
-        rec = (getattr(doc, "metadata", None) or {}).get("record") or {}
 
         # Unified intake: arXiv/Research-feed items take the research path (KG-2.117).
         if self._is_research(rec):
@@ -207,17 +207,45 @@ class WorldModelPipelineRunner:
         origin = rec.get("origin") or {}
         return str(origin.get("htmlUrl") or "")
 
-    def _is_known(self, doc: Any) -> bool:
+    @staticmethod
+    def _arxiv_id(rec: dict[str, Any]) -> str:
+        """Canonical ``arxiv:<id>`` from a feed record, or ``""``.
+
+        Lets the SAME arXiv paper arriving via native ScholarX RSS AND via FreshRSS
+        collapse to one node (CONCEPT:KG-2.121 dedup convergence).
+        """
+        import re as _re
+
+        origin = rec.get("origin") or {}
+        blob = " ".join(
+            str(x)
+            for x in (
+                rec.get("id", ""),
+                WorldModelPipelineRunner._canonical(rec),
+                origin.get("htmlUrl", ""),
+            )
+        )
+        m = _re.search(r"(\d{4}\.\d{4,5})", blob)
+        return f"arxiv:{m.group(1)}" if m else ""
+
+    def _is_known(self, doc: Any, rec: dict[str, Any] | None = None) -> bool:
         graph = getattr(self.engine, "graph", None)
         if graph is None:
             return False
         rid = getattr(doc, "id", "")
+        keys = [
+            self._node_id(p, rid)
+            for p in ("doc:freshrss:", "news:freshrss:", "doc:scholarx:")
+        ]
+        aid = self._arxiv_id(rec or {})
+        if aid:
+            safe = aid.replace(":", "-")
+            # The research path lands papers at article:scholarx:<safe> (full/marginal).
+            keys.append(f"article:scholarx:{safe}")
+            keys.append(self._node_id("doc:scholarx:", aid))
         try:
             nodes = graph.nodes
-            return any(
-                self._node_id(p, rid) in nodes
-                for p in ("doc:freshrss:", "news:freshrss:", "doc:scholarx:")
-            )
+            return any(k in nodes for k in keys)
         except Exception:  # noqa: BLE001
             return False
 
@@ -247,10 +275,11 @@ class WorldModelPipelineRunner:
             return
         url = self._canonical(rec) or getattr(doc, "source_uri", "")
         origin = rec.get("origin") or {}
+        item_node_id = self._node_id("doc:freshrss:", doc.id)
         try:
             self._processor().process(
                 getattr(doc, "text", "") or "",
-                document_id=self._node_id("doc:freshrss:", doc.id),
+                document_id=item_node_id,
                 title=getattr(doc, "title", "") or doc.id,
                 doc_type="news_article",
                 source=url,
@@ -264,6 +293,7 @@ class WorldModelPipelineRunner:
                     "published": rec.get("published"),
                 },
             )
+            self._link_feed_source(item_node_id, doc, rec)
         except Exception as exc:  # noqa: BLE001 — degrade to a marginal footprint
             logger.warning("[KG-2.116] full ingest failed for %s: %s", doc.id, exc)
             self._ingest_marginal(doc, rec, score, domains)
@@ -299,39 +329,51 @@ class WorldModelPipelineRunner:
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("[KG-2.116] marginal upsert failed for %s", doc.id)
+        self._link_feed_source(article_id, doc, rec)
 
     def _ingest_research(self, doc: Any, rec: dict[str, Any]) -> None:
-        """Route a Research/arXiv item to the research path (CONCEPT:KG-2.117).
+        """Route a Research/arXiv item to the unified research path (CONCEPT:KG-2.117/2.121).
 
-        Ingests the abstract natively with scholarx provenance and best-effort
-        acquires the cited paper via the shared research-acquisition helpers.
+        Grades the item and enqueues a prioritized ``research_paper_fetch`` task (the
+        KG-2.114 path) — so a research item from ANY feed (native RSS, ScholarX,
+        FreshRSS-arXiv) is graded and fetched the SAME way, best-graded first. The
+        node-id keys off the canonical arXiv id so duplicates across feeds collapse.
         """
         if self.engine is None:
             return
-        url = self._canonical(rec) or getattr(doc, "source_uri", "")
-        try:
-            self._processor().process(
-                getattr(doc, "text", "") or "",
-                document_id=self._node_id("doc:scholarx:", doc.id),
-                title=getattr(doc, "title", "") or doc.id,
-                doc_type="paper",
-                source=url,
-                metadata={
-                    **(getattr(doc, "metadata", None) or {}),
-                    "source_system": "scholarx",
-                    "importance_score": 0.8,
-                    "via": "freshrss",
-                },
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[KG-2.117] research ingest failed for %s: %s", doc.id, exc)
-        # Best-effort: hand off to scholarx acquisition for the full PDF.
-        try:
-            from ..knowledge_graph.ingestion.paper_links import extract_paper_links
-            from ..knowledge_graph.ingestion.research_acquisition import acquire_papers
+        from ..knowledge_graph.research.feed_grading import grade_and_enqueue_paper
 
-            refs = extract_paper_links(f"{url} {getattr(doc, 'text', '') or ''}")
-            if refs:
-                acquire_papers(refs)
-        except Exception:  # noqa: BLE001 — acquisition is best-effort / network-gated
-            logger.debug("[KG-2.117] paper acquisition skipped for %s", doc.id)
+        aid = self._arxiv_id(rec) or getattr(doc, "id", "")
+        url = self._canonical(rec) or getattr(doc, "source_uri", "")
+        paper = {
+            "id": aid,
+            "title": getattr(doc, "title", "") or doc.id,
+            "abstract": getattr(doc, "text", "") or "",
+            "authors": rec.get("authors", []),
+            "url": url,
+            "pdf_url": rec.get("pdf_url", ""),
+        }
+        try:
+            grade_and_enqueue_paper(self.engine, paper)
+        except Exception as exc:  # noqa: BLE001 — one item never aborts the sweep
+            logger.warning("[KG-2.117] research grade/enqueue failed for %s: %s", aid, exc)
+
+    def _link_feed_source(self, item_node_id: str, doc: Any, rec: dict[str, Any]) -> None:
+        """Best-effort ``:ingestedFrom`` edge item → its :FeedSource node (KG-2.122)."""
+        engine = self.engine
+        if engine is None or not hasattr(engine, "add_edge"):
+            return
+        from .feed_sources import _feed_node_id
+
+        system = str((getattr(doc, "metadata", None) or {}).get("source_system") or "")
+        stream = str((rec.get("origin") or {}).get("streamId") or "")
+        if system == "rss" and stream:
+            feed_id = _feed_node_id("rss", stream)
+        elif system == "freshrss":
+            feed_id = _feed_node_id("freshrss", "freshrss")
+        else:
+            return  # only link where the FeedSource node is deterministically registered
+        try:
+            engine.add_edge(item_node_id, feed_id, "INGESTED_FROM")
+        except Exception:  # noqa: BLE001 — provenance link is best-effort
+            logger.debug("feed-source link failed for %s", item_node_id)

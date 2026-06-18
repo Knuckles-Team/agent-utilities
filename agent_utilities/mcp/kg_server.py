@@ -567,6 +567,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "research_artifact": "/research/artifact",
     "graph_loops": "/graph/loops",
     "graph_schedules": "/graph/schedules",
+    "graph_feeds": "/graph/feeds",
 }
 
 

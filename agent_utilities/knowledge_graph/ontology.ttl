@@ -41,6 +41,7 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
         <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,
         <http://knuckles.team/kg/erpnext>,
+        <http://knuckles.team/kg/feed>,
         <http://knuckles.team/kg/government>,
         <http://knuckles.team/kg/grafana>,
         <http://knuckles.team/kg/harness>,

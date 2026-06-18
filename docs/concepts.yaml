@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 353
+total_concepts: 355
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2931,9 +2931,8 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
-  - agent_utilities/core/schedule_engine.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
-  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/knowledge_graph/research/feed_grading.py
   doc: ScholarX RSS research-feed loop that grades and fetches new papers
 - id: KG-2.115
   name: the homelab RSS reader as a gated world-model
@@ -2954,13 +2953,33 @@ concepts:
   - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: the news/finance/tech sibling
 - id: KG-2.117
-  name: KG-2.117
+  name: /2.121
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/automation/worldmodel_pipeline.py
   - agent_utilities/knowledge_graph/core/source_sync.py
-  doc: KG-2.117
+  doc: /2.121
+- id: KG-2.121
+  name: native zero-infra RSS/Atom feed extractor and unified feed source
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/automation/feed_sources.py
+  - agent_utilities/automation/worldmodel_pipeline.py
+  - agent_utilities/core/config.py
+  - agent_utilities/core/schedule_engine.py
+  - agent_utilities/mcp/tools/state_tools.py
+  - agent_utilities/protocols/source_connectors/connectors/rss.py
+  doc: native zero-infra RSS/Atom feed extractor and unified feed source
+- id: KG-2.122
+  name: first-class RSS/Atom feed sources
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/automation/feed_sources.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  doc: first-class RSS/Atom feed sources
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
