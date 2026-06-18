@@ -1169,6 +1169,7 @@ concepts:
   pillar: ECO-4
   status: live
   code_paths:
+  - agent_utilities/messaging/backends/slack.py
   - agent_utilities/messaging/backends/telegram.py
   - agent_utilities/messaging/router.py
   - agent_utilities/messaging/service.py
