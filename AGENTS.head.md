@@ -24,11 +24,18 @@ installer. Follow this exact procedure — it is the router; the runbook detail 
 in the skills and **[`genesis.yaml`](genesis.yaml)** (the machine-readable manifest
 you loop over). The whole thing is built to need only this repo URL.
 
-1. **Ask the profile.** One question decides everything:
+1. **Ask the profile, then resolve the adaptive run plan.** The profile —
    `tiny` (homelab / laptop, zero-infra) · `single-node-prod` (one durable host) ·
-   `enterprise` (multi-host Swarm, full integration). If they say "homelab", default
-   `tiny`; "enterprise / wire everything in", default `enterprise`. Ask which optional
-   UIs they want too: `agent-webui`, `agent-terminal-ui`, `geniusbot`.
+   `enterprise` (multi-host, full integration) — seeds defaults. Genesis then resolves
+   a **granular run plan**: per platform-dep and per connector, **deploy-container /
+   deploy-baremetal (pypi/uvx) / use-existing / skip** (so it fits an environment that
+   already runs its own Postgres/Vault/ingress/IdP), plus the **orchestrator**
+   (docker-compose / docker-swarm / podman rootful-rootless / podman-compose /
+   kubernetes — k8s default for enterprise), the **IdP** (deploy Keycloak OR wire an
+   existing Okta/OIDC org), the **secrets store** (OpenBao/HashiCorp Vault, read+seed),
+   an optional **enterprise root-CA**, and the **ontology host** (Stardog/Jena/local).
+   The axes + per-profile defaults live in `genesis.yaml` (`run_plan` + `profiles`).
+   Ask which optional UIs they want too: `agent-webui`, `agent-terminal-ui`, `geniusbot`.
 2. **Preflight the host.** `agent-utilities-doctor --preflight --profile <p>
    [--component <c>]` (or MCP `graph_configure action=preflight config_key=<p>`).
    It reports what's missing with fixes. Note: **no Rust needed** — the engine ships

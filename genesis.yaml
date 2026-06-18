@@ -26,6 +26,10 @@ profiles:
     secrets: dotenv
     servers: none
     skill: agent-utilities-deployment
+    orchestrator: docker-compose
+    install_mode: deploy-baremetal
+    idp: none
+    ontology_host: local
   single-node-prod:
     summary: one durable, secured host (Postgres/pg-age) + the core MCP connectors
     recipe: docs/recipes/single-node-prod.md
@@ -33,6 +37,10 @@ profiles:
     secrets: openbao-or-dotenv
     servers: core
     skill: agent-utilities-deployment
+    orchestrator: docker-swarm
+    install_mode: deploy-container
+    idp: keycloak
+    ontology_host: local
   enterprise:
     summary: multi-host Docker Swarm, full integration (Vault/SSO/DNS/ingress/observability + all connectors)
     recipe: docs/recipes/enterprise.md
@@ -40,6 +48,48 @@ profiles:
     secrets: openbao
     servers: all
     skill: agent-os-genesis
+    orchestrator: kubernetes
+    install_mode: deploy-container
+    idp: keycloak
+    ontology_host: stardog
+run_plan:
+  actions:
+  - deploy-container
+  - deploy-baremetal
+  - use-existing
+  - skip
+  orchestrators:
+  - docker-compose
+  - docker-swarm
+  - podman
+  - podman-compose
+  - kubernetes
+  podman_modes:
+  - rootful
+  - rootless
+  idp:
+  - keycloak
+  - okta
+  - other-oidc
+  - none
+  secrets_store:
+  - vault
+  - env
+  ontology_hosts:
+  - stardog
+  - apache-jena
+  - local
+  install_modes:
+  - deploy-container
+  - deploy-baremetal
+  - use-existing
+  - skip
+  provisioner_by_orchestrator:
+    docker-swarm: swarm-mesh-provisioner
+    kubernetes: kubernetes-mesh-provisioner
+    podman: podman-mesh-provisioner
+    podman-compose: podman-mesh-provisioner
+    docker-compose: docker-compose-operator
 preflight:
   command: agent-utilities-doctor --preflight
   mcp_action: graph_configure action=preflight config_key=<profile>
