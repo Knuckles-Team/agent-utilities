@@ -750,14 +750,49 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         return {"mcpServers": {self.server: dict(cfg)}}
 
     def _open_client(self) -> Any:
-        """Build the fastmcp client for one run (lazy import, clear error)."""
+        """Build the fastmcp client for one run (lazy import, clear error).
+
+        Authenticate to JWT-protected fleet servers with the service-account bearer
+        (CONCEPT:OS-5.32) — opt-in via ``MCP_CLIENT_AUTH=oidc-client-credentials``,
+        mirroring the multiplexer. A url-based target uses the URL directly so the
+        per-request ``httpx.Auth`` applies; a mint failure / disabled auth degrades
+        to no auth (an unauthenticated server is unaffected). An injected client is
+        used as-is.
+        """
         try:
             from fastmcp import Client
         except ImportError as exc:  # pragma: no cover - env without fastmcp
             raise McpToolSourceError(
                 "McpToolSourceConnector needs 'fastmcp' (install agent-utilities[mcp])."
             ) from exc
-        return Client(self._client_target(), timeout=self.timeout)
+        target = self._client_target()
+        if self._injected_client is not None:
+            return Client(target, timeout=self.timeout)
+
+        auth = None
+        try:
+            from agent_utilities.mcp.client_credentials import bearer_auth
+
+            auth = bearer_auth(None)
+        except Exception:  # noqa: BLE001 — auth is best-effort/opt-in
+            auth = None
+        if auth is None:
+            return Client(target, timeout=self.timeout)
+
+        # Resolve a single url-based server config to its URL so the bearer applies.
+        url = target if isinstance(target, str) else None
+        if url is None and isinstance(target, dict):
+            servers = target.get("mcpServers") or {}
+            if len(servers) == 1:
+                cfg = next(iter(servers.values()))
+                if isinstance(cfg, dict) and cfg.get("url"):
+                    url = str(cfg["url"])
+        if url and url.startswith(("http://", "https://")):
+            try:
+                return Client(url, auth=auth, timeout=self.timeout)
+            except TypeError:  # pragma: no cover - older fastmcp without auth=
+                pass
+        return Client(target, timeout=self.timeout)
 
     # ── tool-call plumbing ───────────────────────────────────────────────────
 
