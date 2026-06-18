@@ -38,6 +38,37 @@ async def test_status_returns_service_status() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tools_summarizes_from_kg() -> None:
+    # /tools answers from the KG catalog (counts), not by loading everything (ECO-4.64).
+    class _Eng:
+        def query_cypher(self, q: str, _p: dict):
+            if "count" in q and "Server" in q:
+                return [{"c": 12}]
+            if "count" in q and "Skill" in q:
+                return [{"c": 40}]
+            if "count" in q:
+                return [{"c": 3}]
+            if "Server" in q:
+                return [{"name": "gitlab-mcp"}, {"name": "servicenow-api"}]
+            return [{"name": "code-enhancer"}]
+
+    class _SvcKG:
+        def _resolve_engine(self):
+            return _Eng()
+
+    reply = await handle_command("/tools", service=_SvcKG())
+    assert reply is not None
+    assert "12 MCP servers" in reply and "40 skills" in reply
+    assert "gitlab-mcp" in reply
+
+
+@pytest.mark.asyncio
+async def test_tools_fallback_without_engine() -> None:
+    reply = await handle_command("/tools", service=_Svc())  # no _resolve_engine
+    assert reply is not None and "on demand" in reply
+
+
+@pytest.mark.asyncio
 async def test_botname_suffix_is_stripped() -> None:
     # Telegram delivers "/help@MyBot" in groups.
     assert await handle_command("/help@Crabhammerbot", service=_Svc()) is not None

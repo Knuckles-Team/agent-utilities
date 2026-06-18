@@ -89,9 +89,62 @@ async def handle_command(content: str, *, service: Any) -> str | None:
         except Exception:  # noqa: BLE001
             return "status: unavailable"
     if name == "tools":
-        return (
-            "I'm a full agent-utilities agent: I have the universal tools (Knowledge Graph "
-            "search, reach_user, and more), the agent skill library, and the MCP server "
-            "fleet — loaded on demand. Just ask in plain language and I'll use what fits."
-        )
+        return _capability_summary(service)
     return None
+
+
+def _capability_summary(service: Any) -> str:
+    """Summarize available MCP servers + skills FROM THE KG (CONCEPT:ECO-4.64).
+
+    Counts the ingested ``Server``/``Tool``/``Skill`` catalog in the shared graph and names
+    a few examples — so the agent answers "what can you do" from the KG without loading
+    every tool/skill into context.
+    """
+    engine = None
+    resolve = getattr(service, "_resolve_engine", None)
+    if callable(resolve):
+        engine = resolve()
+    query = getattr(engine, "query_cypher", None)
+    if not callable(query):
+        return (
+            "I'm a full agent-utilities agent: universal tools (Knowledge Graph search, "
+            "reach_user, …), the skill library, and the MCP server fleet — loaded on "
+            "demand. Ask in plain language and I'll use what fits."
+        )
+
+    def _count(label: str) -> int:
+        try:
+            rows = query(f"MATCH (n:{label}) RETURN count(n) AS c", {})
+            return int((rows or [{}])[0].get("c", 0)) if rows else 0
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def _names(label: str, limit: int = 6) -> list[str]:
+        try:
+            rows = query(f"MATCH (n:{label}) RETURN n.name AS name LIMIT {limit}", {})
+            return [r.get("name") for r in (rows or []) if r.get("name")]
+        except Exception:  # noqa: BLE001
+            return []
+
+    servers = _count("Server")
+    tools = _count("Tool") + _count("CallableResource")
+    skills = _count("Skill")
+    if not (servers or tools or skills):
+        return (
+            "My capability catalog isn't indexed in the knowledge graph yet — but I have "
+            "the universal tools and can load fleet tools/skills on demand. Ask away."
+        )
+    parts = []
+    if servers:
+        ex = ", ".join(_names("Server")) or ""
+        parts.append(f"{servers} MCP servers" + (f" (e.g. {ex})" if ex else ""))
+    if tools:
+        parts.append(f"~{tools} tools")
+    if skills:
+        ex = ", ".join(_names("Skill")) or ""
+        parts.append(f"{skills} skills" + (f" (e.g. {ex})" if ex else ""))
+    return (
+        "From the knowledge-graph catalog I can draw on: "
+        + "; ".join(parts)
+        + ". I load the specific tool/skill on demand — just tell me what you need."
+    )
