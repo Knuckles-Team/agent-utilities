@@ -439,27 +439,50 @@ def _messaging_system_prompt() -> str:
         )
 
 
+def _csv_setting(key: str) -> list[str] | None:
+    """Parse a comma-separated config setting into a list (None if empty)."""
+    from agent_utilities.core.config import setting
+
+    raw = str(setting(key, "")).strip()
+    return [p.strip() for p in raw.split(",") if p.strip()] or None
+
+
 def _get_messaging_agent(provider: str, model_id: str | None) -> Any:
-    """Build (once, cached) the dedicated messaging agent for a model (CONCEPT:ECO-4.56).
+    """Build (once, cached) the dedicated messaging agent for a model (CONCEPT:ECO-4.56/4.58).
 
     Uses ``create_agent`` so the agent inherits the SAME universal tools (incl. reach_user
-    + KG search), agent skills, and MCP server fleet as the rest of agent-utilities — with
-    its own system prompt. Cached per (provider, model_id) so the heavy MCP/skills wiring is
-    built only once inside the gateway daemon.
+    + KG search) and MCP server fleet as the rest of agent-utilities, with its own system
+    prompt. Cached per (provider, model_id) so the build is paid once in the gateway daemon.
+
+    CONCEPT:ECO-4.58 — lean by default to avoid context burden: the full skill library is
+    NOT pre-loaded (``MESSAGING_ENABLE_SKILLS=0``); fleet MCP tools load **on demand** via
+    the mcp-multiplexer's dynamic mode (find_tools/load_tools). Operators opt into more:
+    ``MESSAGING_ENABLE_SKILLS=1`` (or ``MESSAGING_SKILL_TYPES=a,b`` for a subset) and
+    ``MESSAGING_TOOL_TAGS=x,y`` to scope the universal toolset.
     """
+    from agent_utilities.core.config import setting
+
     key = (provider or "", model_id or "")
     agent = _MESSAGING_AGENTS.get(key)
     if agent is not None:
         return agent
     from agent_utilities.agent.factory import create_agent
 
+    enable_skills = str(setting("MESSAGING_ENABLE_SKILLS", "0")).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
     agent, _toolsets = create_agent(
         provider=provider or None,
         model_id=model_id,
         name="messaging-assistant",
         system_prompt=_messaging_system_prompt(),
         enable_universal_tools=True,
-        enable_skills=True,
+        enable_skills=enable_skills,
+        skill_types=_csv_setting("MESSAGING_SKILL_TYPES"),
+        tool_tags=_csv_setting("MESSAGING_TOOL_TAGS"),
     )
     _MESSAGING_AGENTS[key] = agent
     return agent

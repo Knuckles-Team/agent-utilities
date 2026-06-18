@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 333
+total_concepts: 334
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1149,6 +1149,13 @@ concepts:
   - agent_utilities/messaging/commands.py
   - agent_utilities/messaging/router.py
   doc: the single inbound command dispatcher used by every platform
+- id: ECO-4.58
+  name: lean by default to avoid context burden
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/router.py
+  doc: lean by default to avoid context burden
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
