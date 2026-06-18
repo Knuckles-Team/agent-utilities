@@ -2788,6 +2788,29 @@ class TaskManagerMixin(GraphEngineProtocol):
                     },
                 )
                 return
+            if task_type == "kg_memory":
+                # CONCEPT:KG-2.130 — a memory write offloaded from a SERVING process. The
+                # host performs the embed+write here (inline, _local=True so it never
+                # re-enqueues), isolating heavy ingestion from the serving/read plane.
+                rows = self.query_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
+                )
+                meta = _decode_metadata(rows[0]["m"]) if rows else {}
+                p = meta.get("payload", {})
+                mid = self.store_memory(
+                    content=p.get("content", ""),
+                    memory_type=p.get("memory_type", "episodic"),
+                    name=p.get("name", ""),
+                    tags=p.get("tags", []),
+                    trust_score=p.get("trust_score", 0.8),
+                    agent_id=p.get("agent_id", ""),
+                    _local=True,
+                    _memory_id=p.get("memory_id"),
+                )
+                self._update_task_status(
+                    job_id, "completed", {"memory_id": mid, "type": "kg_memory"}
+                )
+                return
             if task_type == "conversation":
                 # Process a single conversation from a JSON or overview file
                 from agent_utilities.knowledge_graph.core.conversation_ingestion import (
