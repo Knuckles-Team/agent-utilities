@@ -49,6 +49,7 @@ def register_agent_tools(
     from .db_tools import db_tools
     from .developer_tools import developer_tools
     from .git_tools import git_tools
+    from .kg_tools import kg_tools
     from .mcp_sync_tool import trigger_mcp_sync
     from .media_tools import media_tools
     from .onboarding_tools import onboarding_tools
@@ -198,6 +199,12 @@ def register_agent_tools(
     _safe_tool(share_reasoning)
     # CONCEPT:ECO-4.53 — universal agent reach_user tool over the messaging reach service
     _safe_tool(reach_user)
+    # CONCEPT:ECO-4.61 — KG as a first-class shared layer: every agent can search/recall/
+    # query the ONE shared graph by default (search runs over the continuously OWL-reasoned
+    # graph). Opt out with AGENT_KG_TOOLS=0. Requires a tool-capable model to be used.
+    if to_boolean(string=setting("AGENT_KG_TOOLS", "True")):
+        for tool in kg_tools:
+            _safe_tool(tool)
 
     # 9. Onboarding Tools
     for tool in onboarding_tools:
