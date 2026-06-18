@@ -405,28 +405,65 @@ def _select_responder(content: str) -> tuple[str, str, str | None, str]:
     return "local", "", local_id, content
 
 
+# CONCEPT:ECO-4.56 — Dedicated messaging agent (own prompt + universal tools + skills + MCP fleet)
+# Cache one fully-built agent per (provider, model_id) so the MCP/skills wiring is paid once,
+# inside the single gateway daemon — never rebuilt per message, never a second daemon.
+_MESSAGING_AGENTS: dict[tuple[str, str], Any] = {}
+
+
+def _messaging_system_prompt() -> str:
+    """Load the dedicated messaging-assistant system prompt (CONCEPT:ECO-4.56)."""
+    import json
+    from pathlib import Path
+
+    pfile = Path(__file__).resolve().parents[1] / "prompts" / "messaging_assistant.json"
+    try:
+        blueprint = json.loads(pfile.read_text(encoding="utf-8"))
+        return str(blueprint.get("instructions", {}).get("core_directive", "")).strip()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[ECO-4.56] messaging prompt load failed: %s", e)
+        return (
+            "You are the Agent-Utilities Messaging Assistant. Be concise and helpful."
+        )
+
+
+def _get_messaging_agent(provider: str, model_id: str | None) -> Any:
+    """Build (once, cached) the dedicated messaging agent for a model (CONCEPT:ECO-4.56).
+
+    Uses ``create_agent`` so the agent inherits the SAME universal tools (incl. reach_user
+    + KG search), agent skills, and MCP server fleet as the rest of agent-utilities — with
+    its own system prompt. Cached per (provider, model_id) so the heavy MCP/skills wiring is
+    built only once inside the gateway daemon.
+    """
+    key = (provider or "", model_id or "")
+    agent = _MESSAGING_AGENTS.get(key)
+    if agent is not None:
+        return agent
+    from agent_utilities.agent.factory import create_agent
+
+    agent, _toolsets = create_agent(
+        provider=provider or None,
+        model_id=model_id,
+        name="messaging-assistant",
+        system_prompt=_messaging_system_prompt(),
+        enable_universal_tools=True,
+        enable_skills=True,
+    )
+    _MESSAGING_AGENTS[key] = agent
+    return agent
+
+
 async def _model_routed_reply(content: str, kg_context: str) -> str:
-    """Run a one-shot model call for the selected responder and tag the reply (ECO-4.55)."""
+    """Run the dedicated messaging agent for the selected responder, tag the reply (ECO-4.56)."""
     label, provider, model_id, task = _select_responder(content)
     try:
-        from pydantic_ai import Agent
-
-        from agent_utilities.core.model_factory import create_model
-
-        model = create_model(provider=provider or None, model_id=model_id)
+        agent = _get_messaging_agent(provider, model_id)
         prompt = (
             task if not kg_context else f"{task}\n\nRelevant context:\n{kg_context}"
-        )
-        agent = Agent(
-            model,
-            system_prompt=(
-                "You are an assistant replying to the user over a chat app (Telegram, "
-                "Slack, Teams, etc.). Be concise and helpful. Use any provided context."
-            ),
         )
         result = await agent.run(prompt)
         text = str(getattr(result, "output", result)).strip()
         return f"[{label}] {text}" if text else f"[{label}] (no output)"
     except Exception as e:  # noqa: BLE001
-        logger.error("[CONCEPT:ECO-4.55] model-routed reply failed: %s", e)
+        logger.error("[CONCEPT:ECO-4.56] messaging agent reply failed: %s", e)
         return f"I saved your message, but couldn't draft a reply right now ({e})."

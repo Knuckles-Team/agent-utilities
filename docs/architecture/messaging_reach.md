@@ -60,14 +60,19 @@ the planner; otherwise the planner drafts a real reply via the graph agent
 
 ## Responder routing — local LLM by default, Claude on request (ECO-4.55)
 
-Inbound messages are answered by one of two responders, **defaulting to the local LLM**:
+Inbound messages are answered by a **dedicated messaging agent** (ECO-4.56) — built with
+`create_agent`, so it inherits the **same universal tools (incl. `reach_user` + KG search),
+agent skills, and MCP server fleet** as the rest of agent-utilities, with its **own system
+prompt** at `agent_utilities/prompts/messaging_assistant.json`. The agent is built once and
+**cached per model inside the single gateway daemon** (MCP/skills wiring paid once, never
+rebuilt per message, never a second daemon). The model is routed per message,
+**defaulting to the local LLM**:
 
-- **Local LLM (default):** answered by the configured local model (`qwen` on `vllm.arpa`
-  in the homelab) via a one-shot pydantic-ai call.
+- **Local LLM (default):** the configured local model (`qwen` on `vllm.arpa` in the homelab).
 - **Claude (addressed):** a message starting with the trigger (`MESSAGING_CLAUDE_TRIGGER`,
-  default `/claude`) is answered by an Anthropic model — requires `ANTHROPIC_API_KEY`;
-  without it, it falls back to local and says so.
-- **Full named agent (override):** if `MESSAGING_AGENT` is set, that full graph agent
+  default `/claude`) uses an Anthropic model — requires `ANTHROPIC_API_KEY`; without it it
+  falls back to local and says so.
+- **Full named agent (override):** if `MESSAGING_AGENT` is set, that named graph agent
   handles the message instead (Orchestrator path).
 
 Every reply is tagged with who answered (`[local]` / `[claude]`).

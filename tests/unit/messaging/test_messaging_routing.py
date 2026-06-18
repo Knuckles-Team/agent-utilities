@@ -49,14 +49,25 @@ def test_claude_address_falls_back_to_local_without_key(
 
 
 @pytest.mark.asyncio
-async def test_model_routed_reply_runs_and_tags(
+async def test_model_routed_reply_uses_dedicated_agent_and_tags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # AGENT_UTILITIES_TESTING=true makes create_model return a TestModel, so this
-    # exercises the real reply path deterministically (no live LLM).
-    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
+    # Stub the cached dedicated agent (ECO-4.56) so the test stays hermetic (no MCP/skills
+    # build, no live LLM) while exercising the routing + tag + agent.run path.
+    from agent_utilities.messaging import router
+
+    class _Result:
+        output = "hi from the dedicated agent"
+
+    class _StubAgent:
+        async def run(self, _prompt: str):
+            return _Result()
+
+    monkeypatch.setattr(
+        router, "_get_messaging_agent", lambda provider, model_id: _StubAgent()
+    )
     reply = await _model_routed_reply("hello there", "")
-    assert reply.startswith("[local]")
+    assert reply == "[local] hi from the dedicated agent"
 
 
 # ── Multiple concurrent backends ─────────────────────────────────────
