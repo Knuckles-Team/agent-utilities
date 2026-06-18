@@ -190,6 +190,224 @@ RELEVANCE_TAXONOMY: dict[str, dict[str, Any]] = {
 }
 
 
+# World-model relevance taxonomy (CONCEPT:KG-2.116) — the news/finance/tech sibling
+# of RELEVANCE_TAXONOMY, used by the FreshRSS world-model gate (WorldModelPipelineRunner)
+# instead of the research-paper profile. Keyed by domain → {keywords, weight}, scored by
+# the SAME ``score_text`` function. The ``companies`` set is seeded here and augmented at
+# runtime from existing KG OrganizationNodes so ingestion biases toward what we already model.
+WORLD_MODEL_TAXONOMY: dict[str, dict[str, Any]] = {
+    "macro_economy": {
+        "keywords": [
+            "inflation",
+            "interest rate",
+            "federal reserve",
+            "central bank",
+            "gdp",
+            "recession",
+            "unemployment",
+            "tariff",
+            "supply chain",
+            "monetary policy",
+        ],
+        "weight": 1.3,
+    },
+    "markets_finance": {
+        "keywords": [
+            "earnings",
+            "stock",
+            "equities",
+            "bond yield",
+            "ipo",
+            "merger",
+            "acquisition",
+            "guidance",
+            "dividend",
+            "valuation",
+            "crypto",
+            "bitcoin",
+            "commodities",
+        ],
+        "weight": 1.4,
+    },
+    "technology": {
+        "keywords": [
+            "artificial intelligence",
+            "llm",
+            "semiconductor",
+            "chip",
+            "gpu",
+            "cloud",
+            "data center",
+            "open source",
+            "model release",
+            "product launch",
+            "robotics",
+        ],
+        "weight": 1.3,
+    },
+    "cybersecurity": {
+        "keywords": [
+            "breach",
+            "vulnerability",
+            "cve",
+            "ransomware",
+            "exploit",
+            "zero-day",
+            "threat actor",
+            "data leak",
+            "malware",
+        ],
+        "weight": 1.3,
+    },
+    "geopolitics": {
+        "keywords": [
+            "sanctions",
+            "election",
+            "treaty",
+            "conflict",
+            "regulation",
+            "antitrust",
+            "trade war",
+            "export control",
+            "diplomacy",
+        ],
+        "weight": 1.1,
+    },
+    "science": {
+        "keywords": [
+            "breakthrough",
+            "space",
+            "nasa",
+            "energy",
+            "fusion",
+            "biotech",
+            "climate",
+            "vaccine",
+            "quantum",
+        ],
+        "weight": 1.1,
+    },
+    "companies": {
+        # seeded; live set augmented from KG OrganizationNodes at runtime.
+        "keywords": [
+            "nvidia",
+            "openai",
+            "anthropic",
+            "microsoft",
+            "apple",
+            "google",
+            "amazon",
+            "meta",
+            "tesla",
+        ],
+        "weight": 1.2,
+    },
+}
+
+
+# Named relevance profiles (CONCEPT:KG-2.116). One scorer, two taxonomies: the research
+# pipeline uses ``research``; the FreshRSS world-model gate uses ``world_model``.
+RELEVANCE_PROFILES: dict[str, dict[str, dict[str, Any]]] = {
+    "research": RELEVANCE_TAXONOMY,
+    "world_model": WORLD_MODEL_TAXONOMY,
+}
+
+
+def score_text(
+    title: str,
+    abstract: str,
+    taxonomy: dict[str, dict[str, Any]],
+    extra_keywords: list[str] | None = None,
+) -> tuple[float, list[str]]:
+    """Profile-agnostic keyword relevance score (CONCEPT:KG-2.116).
+
+    The shared scorer behind both ``ResearchPipelineRunner.score_paper`` (research
+    taxonomy) and ``WorldModelPipelineRunner`` (world-model taxonomy): sum of
+    ``domain_hits * weight`` over the lowercased ``title + abstract``, plus +0.5 per
+    matched ``extra_keywords`` entry. Returns ``(score, matched_domains)``.
+    """
+    text = f"{title} {abstract}".lower()
+    total_score = 0.0
+    matched_domains: list[str] = []
+
+    for domain, info in taxonomy.items():
+        keywords = info["keywords"] if isinstance(info["keywords"], list) else []
+        weight = (
+            info.get("weight", 1.0)
+            if isinstance(info.get("weight"), int | float)
+            else 1.0
+        )
+        domain_hits = sum(1 for kw in keywords if kw.lower() in text)
+        if domain_hits > 0:
+            total_score += domain_hits * weight
+            matched_domains.append(domain)
+
+    if extra_keywords:
+        for kw in extra_keywords:
+            if kw.lower() in text:
+                total_score += 0.5
+
+    return total_score, matched_domains
+
+
+def concept_novelty(engine: Any, text: str, *, holder: Any = None) -> float | None:
+    """Matcher-driven novelty in [0,1] (1.0 = fully novel); ``None`` if unknown.
+
+    A cheap (no-LLM) ``ConceptMatcher`` cosine probe of ``text`` against the ecosystem
+    ``Concept`` registry — the shared "relevant-enough-vs-existing-KG" signal behind both
+    the research pipeline (CONCEPT:KG-2.75) and the world-model gate (CONCEPT:KG-2.116).
+    When a ``holder`` object is given, the concept index + embed fn are cached on it
+    (``_novelty_index`` / ``_novelty_embed_fn``) for the run. Best-effort: returns ``None``
+    (no demotion) when no engine / no concepts / embedder is unavailable.
+    """
+    try:
+        from agent_utilities.knowledge_graph.assimilation.concept_matcher import (
+            ConceptMatcher,
+            _build_concept_index,
+        )
+        from agent_utilities.knowledge_graph.assimilation.gap_analysis import (
+            _CONCEPT_TYPES,
+            _collect_rich,
+        )
+
+        if engine is None:
+            return None
+        idx = getattr(holder, "_novelty_index", None) if holder is not None else None
+        if idx is None:
+            concepts = _collect_rich(engine, _CONCEPT_TYPES)
+            idx = _build_concept_index(concepts) if concepts else ()
+            if holder is not None:
+                holder._novelty_index = idx  # cache for the run
+        if not idx or not idx[1]:  # no concept vectors
+            return None
+        concept_by_key, concept_vecs, concept_text = idx
+        embed_fn = (
+            getattr(holder, "_novelty_embed_fn", None) if holder is not None else None
+        )
+        if embed_fn is None:
+            from agent_utilities.knowledge_graph.enrichment.semantic import (
+                make_embed_fn,
+            )
+
+            embed_fn = make_embed_fn()
+            if holder is not None:
+                holder._novelty_embed_fn = embed_fn
+        vec = embed_fn([text])[0]
+        if not vec or len(vec) < 2:
+            return None
+        fm = ConceptMatcher(use_llm=False).match_feature(
+            "feature:probe",
+            {"name": text[:120], "summary": text, "embedding": vec},
+            concept_by_key=concept_by_key,
+            concept_vecs=concept_vecs,
+            concept_text=concept_text,
+            feature_vec=vec,
+        )
+        return fm.novelty_score
+    except Exception:  # noqa: BLE001 — best-effort; never block discovery
+        return None
+
+
 class PipelineConfig(BaseModel):
     """Configuration for the research pipeline.
 
@@ -358,29 +576,7 @@ class ResearchPipelineRunner:
         Returns:
             Tuple of (score, list of matched domain names).
         """
-        text = f"{title} {abstract}".lower()
-        total_score = 0.0
-        matched_domains: list[str] = []
-
-        for domain, info in RELEVANCE_TAXONOMY.items():
-            keywords = info["keywords"] if isinstance(info["keywords"], list) else []
-            weight = (
-                info.get("weight", 1.0)
-                if isinstance(info.get("weight"), int | float)
-                else 1.0
-            )
-            domain_hits = sum(1 for kw in keywords if kw.lower() in text)
-            if domain_hits > 0:
-                total_score += domain_hits * weight
-                matched_domains.append(domain)
-
-        # Boost from custom watchlist keywords
-        if extra_keywords:
-            for kw in extra_keywords:
-                if kw.lower() in text:
-                    total_score += 0.5
-
-        return total_score, matched_domains
+        return score_text(title, abstract, RELEVANCE_TAXONOMY, extra_keywords)
 
     def _paper_novelty(self, title: str, abstract: str) -> float | None:
         """Matcher-driven novelty in [0,1] (1.0 = fully novel); ``None`` if unknown.
@@ -394,47 +590,7 @@ class ResearchPipelineRunner:
         covered/related verdict is still written later by the assimilate matcher.
         (CONCEPT:KG-2.75)
         """
-        try:
-            from agent_utilities.knowledge_graph.assimilation.concept_matcher import (
-                ConceptMatcher,
-                _build_concept_index,
-            )
-            from agent_utilities.knowledge_graph.assimilation.gap_analysis import (
-                _CONCEPT_TYPES,
-                _collect_rich,
-            )
-
-            if self.engine is None:
-                return None
-            idx = getattr(self, "_novelty_index", None)
-            if idx is None:
-                concepts = _collect_rich(self.engine, _CONCEPT_TYPES)
-                idx = _build_concept_index(concepts) if concepts else ()
-                self._novelty_index = idx  # cache for the run
-            if not idx or not idx[1]:  # no concept vectors
-                return None
-            concept_by_key, concept_vecs, concept_text = idx
-            embed_fn = getattr(self, "_novelty_embed_fn", None)
-            if embed_fn is None:
-                from agent_utilities.knowledge_graph.enrichment.semantic import (
-                    make_embed_fn,
-                )
-
-                embed_fn = make_embed_fn()
-            vec = embed_fn([f"{title} — {abstract}"])[0]
-            if not vec or len(vec) < 2:
-                return None
-            fm = ConceptMatcher(use_llm=False).match_feature(
-                "paper:probe",
-                {"name": title, "summary": abstract, "embedding": vec},
-                concept_by_key=concept_by_key,
-                concept_vecs=concept_vecs,
-                concept_text=concept_text,
-                feature_vec=vec,
-            )
-            return fm.novelty_score
-        except Exception:  # noqa: BLE001 — best-effort; never block discovery
-            return None
+        return concept_novelty(self.engine, f"{title} — {abstract}", holder=self)
 
     def _is_paper_known(self, paper_id: str) -> bool:
         """Check if a paper is already in the KG by its external ID."""

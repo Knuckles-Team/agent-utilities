@@ -414,6 +414,31 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         }
         for src in ("rss", "v2ex")
     },
+    # FreshRSS (CONCEPT:KG-2.115): the homelab RSS reader as a gated world-model
+    # source. Drives the freshrss-mcp ``freshrss_reader`` action-routed tool
+    # (action=stream_contents) over the Google-Reader API; each entry becomes a
+    # ``news_article`` Document. The preset is decoupled from raw GReader param
+    # names — the tool maps ``newer_than``→GReader ``ot`` (unix-seconds delta
+    # watermark) and ``continuation``→GReader ``c``. NOT a mirror: items pass the
+    # world-model relevance gate in ``_sync_freshrss`` (KG-2.116). Restrict to one
+    # category with {"params": {"stream_id": "user/-/label/Markets & Finance"}}.
+    "freshrss": {
+        "server": "freshrss-mcp",
+        "tool": "freshrss_reader",
+        "action": "stream_contents",
+        "params_style": "json",
+        "params": {"count": 100, "order": "o"},
+        "records_path": "items",
+        "id_field": "id",
+        "title_field": "title",
+        "text_field": "summary.content",
+        "updated_field": "published",
+        "updated_since_param": "newer_than",
+        "pagination": "cursor",
+        "cursor_param": "continuation",
+        "cursor_path": "continuation",
+        "doc_type": "news_article",
+    },
 }
 
 
@@ -1012,9 +1037,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         closed before returning (CONCEPT:KG-2.59 session lifecycle).
         """
 
-        async def run() -> (
-            tuple[list[SourceDocument], dict[str, Any], bool, str | None]
-        ):
+        async def run() -> tuple[
+            list[SourceDocument], dict[str, Any], bool, str | None
+        ]:
             docs: list[SourceDocument] = []
             new_state = dict(state)
             exhausted = False

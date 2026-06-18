@@ -218,6 +218,74 @@ def _sync_archivebox(
     }
 
 
+def _as_epoch(value: Any) -> int | None:
+    """Best-effort parse of a watermark value to int unix-seconds."""
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _sync_freshrss(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Relevance-gated ingestion of curated FreshRSS items (CONCEPT:KG-2.115).
+
+    Enumerates items via the ``freshrss`` mcp_tool preset over the Google-Reader API
+    (delta = ``newer_than`` → GReader ``ot`` **unix-seconds** watermark on
+    ``published``; ``mode='full'`` drains all). Unlike a mirror connector this source
+    is INTENTIONALLY GATED: each item passes the world-model relevance gate
+    (:class:`WorldModelPipelineRunner`, CONCEPT:KG-2.116) — only items relevant to the
+    existing KG (taxonomy score OR concept-novelty) or agent-force flagged are fully
+    ingested as ``news_article`` Documents; the rest get a marginal footprint or are
+    skipped. Research/arXiv-feed items route to the research path (CONCEPT:KG-2.117),
+    unifying RSS intake. ``skipped_unchanged`` plus the watermark prove the delta on a
+    re-run; the write-layer content-hash delta (KG_WRITE_DELTA) is the second guard.
+    """
+    from ...core.config import setting
+
+    if not (setting("FRESHRSS_URL", default="") or "").strip():
+        return {"status": "skipped", "reason": "FRESHRSS_URL not configured"}
+
+    backend = getattr(engine, "backend", None)
+    since = None if mode == "full" else _read_watermark(backend, "freshrss")
+
+    from ...automation.worldmodel_pipeline import WorldModelPipelineRunner
+    from ...protocols.source_connectors.registry import build_connector
+
+    params: dict[str, Any] = {}
+    if since and (since_epoch := _as_epoch(since)) is not None:
+        params["newer_than"] = since_epoch  # GReader ``ot`` — unix seconds
+    config: dict[str, Any] = {"preset": "freshrss"}
+    if params:
+        config["params"] = params
+    conn = build_connector("mcp_tool", config)
+    docs = list(conn.poll_all()) if hasattr(conn, "poll_all") else list(conn.load())  # type: ignore[attr-defined]
+
+    report = WorldModelPipelineRunner(engine=engine).run_gated_ingest(docs)
+
+    seen = [e for d in docs if (e := _as_epoch(d.updated_at)) is not None]
+    new_watermark = str(max(seen)) if seen else None
+    since_epoch = _as_epoch(since) if since else None
+    if new_watermark and (since_epoch is None or int(new_watermark) > since_epoch):
+        _write_watermark(backend, "freshrss", new_watermark)
+
+    return {
+        "status": "ok",
+        "source": "freshrss",
+        "mode": mode,
+        "delta_capable": True,
+        "items_seen": len(docs),
+        "ingested": report.ingested,
+        "relevant": report.relevant,
+        "marginal": report.marginal,
+        "research": report.research,
+        "skipped_unchanged": report.skipped,
+        "since": since,
+        "watermark": new_watermark or since,
+    }
+
+
 def _sync_gitlab(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
@@ -298,6 +366,7 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "leanix": _sync_leanix,
     "archivebox": _sync_archivebox,
     "gitlab": _sync_gitlab,
+    "freshrss": _sync_freshrss,
 }
 
 
