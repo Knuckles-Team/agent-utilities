@@ -22,27 +22,44 @@ mappings (PROV-O, Schema.org, Dublin Core, FOAF, SKOS, OWL-Time, BIBO, FIBO),
 transitive/subclass/inverse-property reasoning, and full SKOS taxonomy support
 over stable LPG data.
 
-Modular imports:
-  - enterprise: ArchiMate EA governance, ADR decision traces
-  - sdd: Spec-driven development (Requirements, Features, TestCases)
-  - infrastructure: Runtime-agnostic infra topology (CONCEPT:OS-5.3)
-  - banking, government, hr, legal, medical: Domain-specific extensions""" ;
-    owl:imports <http://knuckles.team/kg/action>,
+This is the SINGLE canonical ontology. It imports EVERY bundled domain module
+(one owl:imports edge per ontology_<module>.ttl), so the owl:imports federation
+index and the file set the loader/publisher glob stay in lockstep — there are no
+unlinked domain ontologies. Adding a new domain ontology means adding its file AND
+an import edge here; scripts/check_ontology.py enforces both. See
+docs/architecture/ontology_library.md for the full module catalog and roles.""" ;
+    owl:imports <http://knuckles.team/kg/a2a>,
+        <http://knuckles.team/kg/action>,
         <http://knuckles.team/kg/archimate>,
+        <http://knuckles.team/kg/banking>,
         <http://knuckles.team/kg/calendar>,
         <http://knuckles.team/kg/capability>,
+        <http://knuckles.team/kg/company>,
+        <http://knuckles.team/kg/company_infra>,
+        <http://knuckles.team/kg/database>,
         <http://knuckles.team/kg/egeria>,
         <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,
+        <http://knuckles.team/kg/erpnext>,
+        <http://knuckles.team/kg/government>,
+        <http://knuckles.team/kg/grafana>,
         <http://knuckles.team/kg/harness>,
+        <http://knuckles.team/kg/hr>,
         <http://knuckles.team/kg/identity>,
         <http://knuckles.team/kg/leanix>,
+        <http://knuckles.team/kg/legal>,
         <http://knuckles.team/kg/media>,
+        <http://knuckles.team/kg/medical>,
         <http://knuckles.team/kg/observability>,
+        <http://knuckles.team/kg/orchestration>,
         <http://knuckles.team/kg/personal>,
         <http://knuckles.team/kg/quant>,
         <http://knuckles.team/kg/sdd>,
+        <http://knuckles.team/kg/servicenow>,
         <http://knuckles.team/kg/social>,
+        <http://knuckles.team/kg/software>,
+        <http://knuckles.team/kg/system>,
+        <http://knuckles.team/kg/trading>,
         <http://knuckles.team/kg/trm>,
         <http://knuckles.team/kg/wellness>,
         <https://agent-utilities.dev/ontology/infrastructure> .
