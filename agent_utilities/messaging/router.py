@@ -287,16 +287,20 @@ async def create_planner_handler(
         contents = [it["content"] for it in items]
         combined = contents[0] if len(contents) == 1 else "\n".join(contents)
 
-        # One instinctive reaction for the burst (CONCEPT:ECO-4.60).
+        # One instinctive reaction for the burst (CONCEPT:ECO-4.60). It is COSMETIC and
+        # involves an LLM call, so it runs OFF the reply path in the background
+        # (CONCEPT:ECO-4.74) — a slow/hung reaction call must never block the actual reply,
+        # which was the root cause of "message received but no answer".
         if event.message and event.message.id:
-            try:
-                emoji = await _decide_reaction(combined)
-                if emoji:
-                    await svc.react(
-                        str(event.platform), event.channel_id, event.message.id, emoji
-                    )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("[CONCEPT:ECO-4.60] reaction step skipped: %s", e)
+            _spawn_bg(
+                _react_in_background(
+                    svc,
+                    str(event.platform),
+                    event.channel_id,
+                    event.message.id,
+                    combined,
+                )
+            )
 
         # Collect image attachments across the burst → vision input (CONCEPT:ECO-4.67).
         image_urls: list[str] = []
@@ -436,14 +440,32 @@ async def _decide_reaction(content: str) -> str:
         from agent_utilities.core.model_factory import create_model
 
         agent = Agent(create_model(), system_prompt=_REACTION_SYSTEM)
-        result = await agent.run(content)
+        # CONCEPT:ECO-4.74 — bound the reaction LLM call so it can never hang forever
+        # (TimeoutError is an Exception subclass, so the handler below catches it too).
+        result = await asyncio.wait_for(agent.run(content), timeout=10.0)
         out = str(getattr(result, "output", result)).strip()
         if not out or out.upper().startswith("NONE") or len(out) > 8:
             return ""
         return out
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.60] reaction decision failed: %s", e)
+        logger.debug("[CONCEPT:ECO-4.60] reaction decision skipped: %s", e)
         return ""
+
+
+async def _react_in_background(
+    svc: Any, platform: str, channel_id: str, message_id: str, content: str
+) -> None:
+    """Decide + apply an instinctive emoji reaction, OFF the reply path (CONCEPT:ECO-4.74).
+
+    Best-effort and bounded: the reply is generated and sent independently, so a slow or
+    failing reaction never delays (or blocks) the user getting an answer.
+    """
+    try:
+        emoji = await _decide_reaction(content)
+        if emoji:
+            await svc.react(platform, channel_id, message_id, emoji)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[CONCEPT:ECO-4.60] reaction step skipped: %s", e)
 
 
 # CONCEPT:ECO-4.72 — fire-and-forget background tasks (strong refs so they aren't GC'd).
