@@ -1,0 +1,54 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix schema: <http://schema.org/> .
+
+# Unified feed ingestion (CONCEPT:KG-2.121 / KG-2.122). Models RSS/Atom feeds as
+# first-class citizens: a :FeedSource is a registered external feed (native RSS URL,
+# FreshRSS, or ScholarX arXiv) the one feed pipeline ingests through the world-model
+# gate; a :FeedItem is one ingested entry (a :Document specialization). Reuses
+# :DataConnector (ontology_quant.ttl) and :Document (ontology.ttl).
+
+<http://knuckles.team/kg/feed> a owl:Ontology ;
+    rdfs:label "Agent Intelligence Graph — Feed Ingestion Module" ;
+    rdfs:comment "Unified RSS/Atom feed sources + items. Imported by the canonical <http://knuckles.team/kg> ontology; resolved to ontology_feed.ttl by the local loader convention." .
+
+:FeedSource a owl:Class ;
+    rdfs:subClassOf :DataConnector ;
+    rdfs:label "Feed Source" ;
+    rdfs:comment """CONCEPT:KG-2.122 — a registered, first-class feed (a native
+    RSS/Atom URL, the FreshRSS aggregator, or a ScholarX arXiv category) the unified
+    feed pipeline ingests through the one world-model gate. The long-missing
+    presets→KG materialization: a feed is a KG node, not just config.""" .
+
+:RssFeed a owl:Class ;
+    rdfs:subClassOf :FeedSource ;
+    rdfs:label "RSS Feed" ;
+    rdfs:comment "CONCEPT:KG-2.121 — a FeedSource backed by a native RSS/Atom feed URL, ingested by the zero-infra rss connector (no external service required)." .
+
+:FeedItem a owl:Class ;
+    rdfs:subClassOf :Document ;
+    rdfs:seeAlso schema:Article ;
+    rdfs:label "Feed Item" ;
+    rdfs:comment "CONCEPT:KG-2.122 — one entry ingested from a FeedSource (a Document specialization), carrying provenance back to the source it came from." .
+
+:publishesItem a owl:ObjectProperty ;
+    rdfs:label "publishes item" ;
+    rdfs:domain :FeedSource ;
+    rdfs:range :FeedItem ;
+    rdfs:comment "CONCEPT:KG-2.122 — a FeedSource PUBLISHES the items ingested from it." ;
+    owl:inverseOf :itemFrom .
+
+:itemFrom a owl:ObjectProperty ;
+    rdfs:label "item from" ;
+    rdfs:domain :FeedItem ;
+    rdfs:range :FeedSource .
+
+:ingestedFrom a owl:ObjectProperty ;
+    rdfs:label "ingested from" ;
+    rdfs:domain :FeedItem ;
+    rdfs:range :FeedSource ;
+    rdfs:seeAlso prov:wasDerivedFrom ;
+    rdfs:comment "CONCEPT:KG-2.122 — provenance: the FeedSource an item was ingested from (the INGESTED_FROM edge written on the live sweep path)." .

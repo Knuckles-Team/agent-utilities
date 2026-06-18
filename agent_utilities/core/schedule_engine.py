@@ -420,15 +420,17 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
             return {"status": "skipped", "reason": f"no_maint_tick:{ref}"}
         tick()
         return {"status": "ok"}
-    if kind == "research_feed":
-        # ScholarX RSS grade → fetch → ingest feed screen (CONCEPT:KG-2.114).
-        from agent_utilities.knowledge_graph.research.loop_controller import (
-            LoopController,
-        )
+    if kind in ("research_feed", "feed_sweep"):
+        # Unified feed sweep (CONCEPT:KG-2.121): native RSS + ScholarX arXiv through
+        # the one world-model gate, plus the FreshRSS delta — all converge on the same
+        # research/news routing. (Supersedes the scholarx-only run_rss_feed_screen.)
+        from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
-        return LoopController(engine).run_rss_feed_screen(
-            max_items=payload.get("max_items")
-        )
+        results = {
+            "rss": sync_source(engine, "rss", mode="delta"),
+            "freshrss": sync_source(engine, "freshrss", mode="delta"),
+        }
+        return {"status": "ok", "feeds": results}
     if kind == "skill":
         ref = payload.get("ref", "")
         action = payload.get("action", "")
