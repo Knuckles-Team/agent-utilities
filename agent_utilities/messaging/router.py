@@ -256,88 +256,122 @@ class InboundRouter:
 async def create_planner_handler(
     knowledge_engine: Any = None,
 ) -> EventHandler:
-    """Create a default event handler that routes to the planner graph agent.
+    """Create the default inbound handler that drives the graph agent (CONCEPT:ECO-4.51).
 
-    CONCEPT:ECO-4.0
-
-    This handler:
-    1. Auto-ingests the inbound message into the KG
-    2. Recalls relevant conversation context via ``recall_memory()``
-    3. Runs the planner graph agent with KG context
-    4. Sends the response back through the originating backend
+    For each inbound message the handler:
+    1. Records the originating channel as the user's last-active one (CONCEPT:ECO-4.49).
+    2. Delivers the message to a waiting goal-loop if it is the answer to a question the
+       loop asked (CONCEPT:ECO-4.52) — in which case it is NOT re-routed to the planner.
+    3. Auto-ingests the message into the KG as conversational memory (CONCEPT:KG-2.1).
+    4. Recalls relevant context via ``recall_memory()`` and runs the graph agent
+       (``Orchestrator.execute_agent``) to draft a real reply, sent back through the
+       originating backend.
 
     Args:
-        knowledge_engine: Optional ``IntelligenceGraphEngine`` for KG queries.
-            If not provided, attempts to load from the default workspace.
+        knowledge_engine: Optional ``IntelligenceGraphEngine``; falls back to the active
+            served engine.
 
     Returns:
         An async event handler function.
     """
     from agent_utilities.messaging.kg_ingest import ingest_message_to_kg
+    from agent_utilities.messaging.service import MessagingService
 
     async def planner_handler(event: InboundEvent, backend: MessagingBackend) -> None:
-        """Route an inbound message through the planner graph agent.
-
-        CONCEPT:ECO-4.0
-        """
+        """Drive an inbound message through the graph agent. CONCEPT:ECO-4.51"""
         if event.event_type != EventType.MESSAGE:
-            return  # Only handle messages for now
+            return  # Only handle messages
 
         content = event.content or (event.message.content if event.message else "")
         if not content:
             return
 
-        # 1. Auto-ingest to KG (CONCEPT:KG-2.1)
+        svc = MessagingService.instance(knowledge_engine)
+        engine = svc._resolve_engine()
+
+        # 1. Record last-active channel (CONCEPT:ECO-4.49).
         try:
-            await ingest_message_to_kg(event, knowledge_engine=knowledge_engine)
-        except Exception as e:
+            svc.record_inbound(event)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[CONCEPT:ECO-4.49] record_inbound failed: %s", e)
+
+        # 2. If a goal-loop is awaiting this user's reply, deliver it and stop
+        #    (CONCEPT:ECO-4.52) — the message is an answer, not a new request.
+        if svc.deliver_reply(str(event.platform), event.channel_id, content):
+            logger.info(
+                "[CONCEPT:ECO-4.52] Delivered reply on %s to a waiting loop.",
+                event.platform,
+            )
+            return
+
+        # 3. Auto-ingest to KG (CONCEPT:KG-2.1).
+        try:
+            await ingest_message_to_kg(event, knowledge_engine=engine)
+        except Exception as e:  # noqa: BLE001
             logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
 
-        # 2. Recall conversation context from KG
-        kg_context = ""
-        if knowledge_engine:
-            try:
-                memories = knowledge_engine.recall_memory(
-                    query=content,
-                    memory_type="episodic",
-                    top_k=5,
-                    task_context=f"Messaging conversation on {event.platform}",
-                )
-                if memories:
-                    kg_context = "\n".join(
-                        f"- {m.get('description', '')[:200]}" for m in memories
-                    )
-            except Exception as e:
-                logger.debug("[CONCEPT:ECO-4.0] KG recall failed: %s", e)
+        # 4. Recall conversation context, then run the graph agent.
+        kg_context = _recall_context(engine, content, str(event.platform))
+        logger.info(
+            "[CONCEPT:ECO-4.51] Routing message from %s/%s to the graph agent.",
+            event.platform,
+            event.user_name,
+        )
+        reply = await _graph_agent_reply(engine, content, kg_context)
 
-        # 3. Run through planner graph agent
         try:
-            # Build context-enriched prompt
-            if kg_context:
-                pass
-
-            logger.info(
-                "[CONCEPT:ECO-4.0] Routing message from %s/%s to planner.",
-                event.platform,
-                event.user_name,
-            )
-
-            # For now, generate a simple acknowledgment
-            # Full graph execution will be wired when the graph is running
-            response_text = (
-                f"Received your message on {event.platform}. "
-                "Processing through the agent graph..."
-            )
-
-            # 4. Send response back through the backend
             if event.message and event.message.id:
-                await backend.reply_to(
-                    event.channel_id, event.message.id, response_text
-                )
+                await backend.reply_to(event.channel_id, event.message.id, reply)
             else:
-                await backend.send_message(event.channel_id, response_text)
-
-        except Exception as e:
-            logger.error("[CONCEPT:ECO-4.0] Planner routing failed: %s", e)
+                await backend.send_message(event.channel_id, reply)
+        except Exception as e:  # noqa: BLE001
+            logger.error("[CONCEPT:ECO-4.51] Sending reply failed: %s", e)
 
     return planner_handler
+
+
+def _recall_context(engine: Any, content: str, platform: str) -> str:
+    """Recall relevant episodic memory for the inbound message (best-effort)."""
+    recall = getattr(engine, "recall_memory", None)
+    if not callable(recall):
+        return ""
+    try:
+        memories = recall(
+            query=content,
+            memory_type="episodic",
+            top_k=5,
+            task_context=f"Messaging conversation on {platform}",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[CONCEPT:ECO-4.0] KG recall failed: %s", e)
+        return ""
+    return "\n".join(f"- {m.get('description', '')[:200]}" for m in (memories or []))
+
+
+async def _graph_agent_reply(engine: Any, content: str, kg_context: str) -> str:
+    """Run the configured graph agent against the message and return its reply.
+
+    CONCEPT:ECO-4.51 — the real graph execution that replaced the prior canned
+    acknowledgment. ``MESSAGING_AGENT`` names the agent to route to; when unset, the
+    message is still ingested and we return an honest status instead of inventing a reply.
+    """
+    from agent_utilities.core.config import setting
+
+    agent_name = str(setting("MESSAGING_AGENT", "")).strip()
+    if not agent_name:
+        return (
+            "Got it — saved to the knowledge graph. (Set MESSAGING_AGENT to let a "
+            "graph agent draft replies.)"
+        )
+    try:
+        from agent_utilities.orchestration.manager import Orchestrator
+
+        out = await Orchestrator(engine).execute_agent(
+            agent_name=agent_name,
+            task=content,
+            context=kg_context or None,
+        )
+        return str(out) if out else "(the agent returned no output)"
+    except Exception as e:  # noqa: BLE001
+        logger.error("[CONCEPT:ECO-4.51] graph agent execution failed: %s", e)
+        return f"I saved your message, but couldn't draft a reply right now ({e})."

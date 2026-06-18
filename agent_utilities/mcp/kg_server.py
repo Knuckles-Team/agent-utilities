@@ -540,6 +540,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_sessions": "/graph/sessions",
     "graph_goals": "/graph/goals",
     "graph_message": "/graph/message",
+    "graph_reach": "/graph/reach",
     "document_process": "/document/process",
     "source_connector": "/connector/source",
     "graph_writeback": "/graph/writeback",
@@ -2013,9 +2014,9 @@ def fanout_execute(entries, fn, *, timeout=None):
         except Exception as e:  # noqa: BLE001 — partial-success contract
             errors[name] = str(e)
     for fut in not_done:
-        errors[
-            futures[fut]
-        ] = f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        errors[futures[fut]] = (
+            f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        )
     # Never block on a hung backend's thread; let it finish in the background.
     ex.shutdown(wait=False, cancel_futures=True)
     return results, errors
@@ -2311,6 +2312,7 @@ def _build_server(bootstrap: bool = True):
         register_analysis_tools,
         register_ontology_tools,
         register_query_tools,
+        register_reach_tools,
         register_state_tools,
         register_write_ingest_tools,
     )
@@ -2320,6 +2322,7 @@ def _build_server(bootstrap: bool = True):
     register_analysis_tools(mcp)
     register_state_tools(mcp)
     register_ontology_tools(mcp)
+    register_reach_tools(mcp)
 
     return args, mcp, middlewares
 

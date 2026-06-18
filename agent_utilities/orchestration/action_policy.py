@@ -87,6 +87,10 @@ DEFAULT_POLICY: dict[str, Any] = {
         {"kind": "diagnose", "target": "*", "tier": TIER_AUTO},
         {"kind": "observe", "target": "*", "tier": TIER_AUTO},
         {"kind": "notify", "target": "*", "tier": TIER_AUTO},
+        # Outbound user messaging (CONCEPT:ECO-4.48): governed but default-on —
+        # auto+notify so reaching the user is auditable; operators may tighten a
+        # ``message.send`` rule to approval_required for a stricter posture.
+        {"kind": "message.send", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "record_dry_run", "target": "*", "tier": TIER_AUTO},
         # Sandboxed developer-workspace actions (CONCEPT:OS-5.33) default to
         # auto: the workspace container/process IS the containment boundary.

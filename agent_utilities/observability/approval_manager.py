@@ -274,9 +274,9 @@ async def run_with_approvals(
 # server callbacks.  Set by the server/AG-UI endpoint before running
 # the agent and read by the callback below.
 
-elicitation_queue_var: contextvars.ContextVar[
-    asyncio.Queue | None
-] = contextvars.ContextVar("elicitation_queue", default=None)
+elicitation_queue_var: contextvars.ContextVar[asyncio.Queue | None] = (
+    contextvars.ContextVar("elicitation_queue", default=None)
+)
 
 # Singleton manager reused for both tool approval and MCP elicitation.
 # The /api/approve endpoint resolves requests from both sources.
@@ -317,7 +317,11 @@ async def global_elicitation_callback(context: Any = None, params: Any = None) -
     logger.info(f"MCP elicitation triggered: {request_id}")
     await queue.put({"type": "elicitation", **request_data})
 
-    # PAUSE — wait for the UI to resolve via /api/approve
+    # CONCEPT:ECO-4.52 — also reach the user on their last-active channel (e.g. Telegram)
+    # so a blocked loop / agent question is answerable from chat, not only the web UI.
+    _bridge_elicitation_to_messaging(request_id, request_data)
+
+    # PAUSE — wait for the UI OR the messaging reply to resolve via /api/approve.
     result = await elicitation_manager.wait_for_approval(request_id)
 
     # If called from MCP session, try to return ElicitResult
@@ -327,3 +331,41 @@ async def global_elicitation_callback(context: Any = None, params: Any = None) -
         return mcp_types.ElicitResult(**result)
     except Exception:
         return result
+
+
+def _bridge_elicitation_to_messaging(
+    request_id: str, request_data: dict[str, Any]
+) -> None:
+    """Push an elicitation prompt to the user's last-active channel (CONCEPT:ECO-4.52).
+
+    Spawns a background task that sends the question via the messaging service and, when
+    the user replies (delivered by the inbound router), resolves the SAME elicitation —
+    so a goal-loop/agent that blocks on input can be unblocked from chat. No-ops when no
+    messaging backend is configured. The web-UI ``/api/approve`` path is unchanged;
+    whichever surface answers first wins.
+    """
+    try:
+        from agent_utilities.messaging.service import MessagingService
+
+        service = MessagingService.instance()
+        if not service.configured_platforms():
+            return
+        prompt = (
+            request_data.get("message")
+            or request_data.get("prompt")
+            or "An agent needs your input."
+        )
+
+        async def _bridge() -> None:
+            reply = await service.reach_user_and_wait(
+                str(prompt), source="elicitation", reason="agent needs input"
+            )
+            if reply:
+                elicitation_manager.resolve(
+                    request_id,
+                    {"action": "accept", "content": {"text": reply}},
+                )
+
+        asyncio.ensure_future(_bridge())
+    except Exception as exc:  # noqa: BLE001 — messaging bridge is best-effort
+        logger.debug("elicitation→messaging bridge skipped: %s", exc)

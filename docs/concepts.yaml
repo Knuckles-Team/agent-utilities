@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 321
+total_concepts: 328
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1069,6 +1069,61 @@ concepts:
   - agent_utilities/claude_harness/overnight_runner.py
   - agent_utilities/cli/__init__.py
   doc: Unattended overnight loop-driver + morning-summary write-back
+- id: ECO-4.48
+  name: Messaging reach service for governed outbound and channel routing
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/service.py
+  - agent_utilities/orchestration/action_policy.py
+  doc: Messaging reach service for governed outbound and channel routing
+- id: ECO-4.49
+  name: Last-active channel routing state for the messaging reach service
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/router.py
+  - agent_utilities/messaging/service.py
+  doc: Last-active channel routing state for the messaging reach service
+- id: ECO-4.50
+  name: graph_reach MCP tool and REST twin for outbound user messaging
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/reach_tools.py
+  doc: graph_reach MCP tool and REST twin for outbound user messaging
+- id: ECO-4.51
+  name: Inbound messaging router with graph-agent reply in the host daemon
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/gateway/daemon.py
+  - agent_utilities/messaging/router.py
+  doc: Inbound messaging router with graph-agent reply in the host daemon
+- id: ECO-4.52
+  name: elicitation and loop bridge so a blocked loop reaches the user and resumes on reply
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/router.py
+  - agent_utilities/messaging/service.py
+  - agent_utilities/observability/approval_manager.py
+  doc: elicitation and loop bridge so a blocked loop reaches the user and resumes on reply
+- id: ECO-4.53
+  name: Universal agent reach_user tool over the messaging reach service
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/tools/agent_tools.py
+  - agent_utilities/tools/tool_registry.py
+  doc: Universal agent reach_user tool over the messaging reach service
+- id: ECO-4.54
+  name: Messaging ontology shape so reach channels are reasoned over
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/interfaces.py
+  doc: Messaging ontology shape so reach channels are reasoned over
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
