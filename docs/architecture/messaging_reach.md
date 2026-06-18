@@ -87,6 +87,16 @@ even on local models that can't call tools; set `MESSAGING_REACTIONS=0` to disab
 `setMessageReaction` is implemented; other backends expose `send_reaction` as the extension
 point and degrade gracefully where unsupported — the capability matrix declares support).
 
+## Voice & image input (ECO-4.67/4.68)
+
+- **Voice (ECO-4.68):** a voice note / audio with no text is transcribed via the
+  audio-transcriber Whisper backend (`transcribe_voice`, lazy-loaded, off the event loop)
+  and the transcript flows through the normal path — so you can just talk. Opt-out
+  `MESSAGING_VOICE=0`; model via `MESSAGING_VOICE_MODEL` (default `base`).
+- **Image (ECO-4.67):** image attachments are downloaded and passed as inline
+  `BinaryContent` to the **vision-capable** model (qwen confirmed), so you can upload a
+  picture and ask about it. Images ride the same burst → one multimodal agent turn.
+
 ## Burst coalescing (ECO-4.63)
 
 When you fire several messages in quick succession, the agent collapses them into **one

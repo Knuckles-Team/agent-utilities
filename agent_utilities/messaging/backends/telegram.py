@@ -102,6 +102,22 @@ class TelegramBackend(MessagingBackend):
                         filename=msg.document.file_name or "",
                     )
                 )
+            if msg.voice:  # CONCEPT:ECO-4.68 — voice note → transcribed downstream
+                file = await msg.voice.get_file()
+                attachments.append(
+                    MediaAttachment(
+                        media_type=MediaType.VOICE_NOTE, url=file.file_path or ""
+                    )
+                )
+            if msg.audio:
+                file = await msg.audio.get_file()
+                attachments.append(
+                    MediaAttachment(
+                        media_type=MediaType.AUDIO,
+                        url=file.file_path or "",
+                        filename=getattr(msg.audio, "file_name", "") or "",
+                    )
+                )
 
             event = InboundEvent(
                 event_type=EventType.MESSAGE,
