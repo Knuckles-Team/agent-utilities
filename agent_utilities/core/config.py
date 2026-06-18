@@ -29,6 +29,12 @@ DEFAULT_DB_PATH = str(
     platformdirs.user_data_path("agent-utilities", "knuckles-team") / "graph_state"
 )
 
+# CONCEPT:ORCH-1.59 — local-inference slots always kept free for the interactive path
+# (the messaging responder + graph-os-spawned pydantic-ai agents, which share the default
+# model). Background KG work is bounded to (capacity − this). A constant, not a knob: 1 is
+# the correct universal default (config discipline — no flag for a one-correct-value).
+RESERVED_INTERACTIVE_INSTANCES = 1
+
 from agent_utilities.base_utilities import (
     GET_DEFAULT_SSL_VERIFY,
     to_boolean,
@@ -1196,8 +1202,20 @@ class AgentConfig(BaseSettings):
     kg_backups: int = Field(default=3, alias="KG_BACKUPS")
     kg_ingestion_workers: int | None = Field(default=None, alias="KG_INGESTION_WORKERS")
     kg_llm_concurrency: int = Field(default=4, alias="KG_LLM_CONCURRENCY")
-    """Max concurrent LLM calls for KG operations (Layer 2/3 analysis, embeddings).
-    Set to match your inference endpoint's parallel capacity (e.g. LM Studio slots)."""
+    """Total parallel capacity of the local inference endpoint (e.g. vLLM/LM Studio slots).
+
+    This is the ONE knob for local-model parallelism. CONCEPT:ORCH-1.59 — the system always
+    reserves ``RESERVED_INTERACTIVE_INSTANCES`` (1) of these slots for the **interactive**
+    path (the Telegram/messaging responder and graph-os-spawned pydantic-ai agents, which
+    share the default model); all background KG work (fact enrichment, Layer 2/3 analysis,
+    embeddings) is bounded to ``background_llm_concurrency()`` = capacity − reserved. So a
+    background sweep can never consume the slot you need to get an answer. Set this to your
+    endpoint's real parallel capacity and the reservation scales automatically."""
+
+    def background_llm_concurrency(self) -> int:
+        """Concurrency ceiling for background KG LLM work — capacity minus the reserved
+        interactive slot(s) (CONCEPT:ORCH-1.59). Floors at 1 so background never starves."""
+        return max(1, self.kg_llm_concurrency - RESERVED_INTERACTIVE_INSTANCES)
 
     kg_analysis_max_depth: int = Field(default=2, alias="KG_ANALYSIS_MAX_DEPTH")
     """Maximum recursive depth for background knowledge graph research daemons."""

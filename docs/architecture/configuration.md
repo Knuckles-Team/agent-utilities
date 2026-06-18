@@ -174,7 +174,7 @@ the engine bounds the call itself.
 
 | Flag | Default | Notes |
 |---|---|---|
-| `KG_LLM_CONCURRENCY` | 4 | typed on `AgentConfig` (`kg_llm_concurrency`); max concurrent LLM calls for KG operations — set to match the inference endpoint's parallel capacity |
+| `KG_LLM_CONCURRENCY` | 4 | typed on `AgentConfig` (`kg_llm_concurrency`); the **total** parallel capacity of the local inference endpoint — the one knob for local-model parallelism. ORCH-1.59 always reserves 1 slot for the interactive path (messaging responder + graph-os-spawned agents, which share the default model); background KG work (enrichment/analysis/embeddings) is bounded to `background_llm_concurrency()` = capacity − 1. Subsumes the former `KG_ENRICH_CONCURRENCY`. |
 | `KG_PARSE_BATCH` | 128 | constant |
 | `KG_ENRICH_BATCH` / `KG_ENRICH_MAX_BATCHES` | 16 / 8 | constants |
 | `KG_EMBED_BACKFILL_BATCH` | **256 *and* 512 (BUG)** | read twice with different defaults (L1040, L1155) — unify |
