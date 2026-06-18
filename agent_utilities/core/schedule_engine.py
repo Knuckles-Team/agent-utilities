@@ -152,7 +152,9 @@ class ScheduleSpec:
             trigger=row.get("trigger") or "cron",
             cron=row.get("cron") or None,
             interval_s=row.get("interval_s") or None,
-            prio_bucket=int(row.get("prio_bucket", 2) or 2),
+            prio_bucket=(
+                int(row["prio_bucket"]) if row.get("prio_bucket") is not None else 2
+            ),
             enabled=bool(row.get("enabled", True)),
             last_minute=int(row.get("last_minute", 0) or 0),
             next_run_unix=float(row.get("next_run_unix", 0.0) or 0.0),
