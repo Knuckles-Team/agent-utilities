@@ -178,12 +178,20 @@ class TestConsumeAnomalies:
 
 class TestDaemonRegistration:
     def _jobs(self, monkeypatch, enabled: bool):
+        from agent_utilities.core import schedule_engine as _se
         from agent_utilities.core.config import config as cfg
-        from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
+        from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+            EpistemicGraphBackend,
+        )
+        from agent_utilities.knowledge_graph.core.engine_tasks import (
+            TaskManagerMixin,
+        )
 
         monkeypatch.setattr(cfg, "kg_anomaly_consumer", enabled)
-        inst = object.__new__(TaskManagerMixin)
-        return [name for name, _interval, _tick in TaskManagerMixin._maintenance_jobs(inst)]
+        inst = TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
+        inst.backend = EpistemicGraphBackend()
+        inst._register_maintenance_schedules()
+        return {s.name for s in _se._load_all(inst) if s.enabled}
 
     def test_tick_registered_by_default_flag(self, monkeypatch):
         assert "anomaly_consumer" in self._jobs(monkeypatch, True)

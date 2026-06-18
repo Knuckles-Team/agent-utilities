@@ -267,17 +267,26 @@ def test_denied_approvals_are_not_drained(engine, tmp_path, patch_desired):
 # ---------------------------------------------------------------------------
 
 
-def test_reconciler_tick_registration_is_flag_gated(monkeypatch):
-    from agent_utilities.core.config import config
+def _enabled_maintenance_names() -> set[str]:
+    """Names of ENABLED maintenance :Schedule nodes for the current config
+    (the unified-scheduler analog of a tick being registered; CONCEPT:OS-5.44)."""
+    from agent_utilities.core import schedule_engine as _se
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
     from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
-    class _Stub(TaskManagerMixin):
-        backend = object()
+    inst = TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
+    inst.backend = EpistemicGraphBackend()
+    inst._register_maintenance_schedules()
+    return {s.name for s in _se._load_all(inst) if s.enabled}
+
+
+def test_reconciler_tick_registration_is_flag_gated(monkeypatch):
+    from agent_utilities.core.config import config
 
     monkeypatch.setattr(config, "fleet_reconciler", True)
-    names = [n for n, _, _ in TaskManagerMixin._maintenance_jobs(_Stub())]
-    assert "fleet_reconciler" in names
+    assert "fleet_reconciler" in _enabled_maintenance_names()
 
     monkeypatch.setattr(config, "fleet_reconciler", False)
-    names = [n for n, _, _ in TaskManagerMixin._maintenance_jobs(_Stub())]
-    assert "fleet_reconciler" not in names
+    assert "fleet_reconciler" not in _enabled_maintenance_names()
