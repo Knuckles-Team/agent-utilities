@@ -185,3 +185,74 @@ def test_source_document_shape():
     doc = SourceDocument(id="1", text="hello", title="T")
     assert doc.doc_type == "document"
     assert doc.external_access is None
+
+
+# ── Native RSS/Atom connector (CONCEPT:KG-2.121) ─────────────────────────────
+
+_RSS_XML = """<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Tech News</title>
+  <item><title>GPU launch</title><link>http://n/1</link>
+    <guid>http://n/1</guid><pubDate>Tue, 17 Jun 2025 10:00:00 GMT</pubDate>
+    <description>A new accelerator from a chipmaker.</description>
+    <category>hardware</category></item>
+  <item><title>Funding round</title><link>http://n/2</link>
+    <guid>http://n/2</guid><pubDate>Wed, 18 Jun 2025 10:00:00 GMT</pubDate>
+    <description>Series B for an AI startup.</description></item>
+</channel></rss>"""
+
+_ATOM_XML = """<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>arXiv cs.AI</title>
+  <entry><title>A paper on agents</title><id>arxiv:2601.0009</id>
+    <link href="http://arxiv.org/abs/2601.0009"/>
+    <updated>2025-06-18T09:00:00Z</updated>
+    <summary>We study self-improving agent harnesses.</summary>
+    <category term="research"/></entry>
+</feed>"""
+
+
+@pytest.mark.concept("KG-2.121")
+def test_rss_connector_registered():
+    assert "rss" in set(list_sources())
+
+
+@pytest.mark.concept("KG-2.121")
+def test_rss_connector_parses_rss_and_atom():
+    feeds = {"http://feed/rss": _RSS_XML, "http://feed/atom": _ATOM_XML}
+    conn = build_connector(
+        "rss", {"feed_urls": list(feeds), "fetch_fn": feeds.get}
+    )
+    assert isinstance(conn, (LoadConnector, PollConnector))
+    docs = list(conn.load())
+    assert len(docs) == 3
+    by_id = {d.id: d for d in docs}
+    # RSS item: record envelope carries categories + origin so the gate can route it.
+    rss_doc = by_id["http://n/1"]
+    rec = rss_doc.metadata["record"]
+    assert rec["categories"] == ["hardware"]
+    assert rec["origin"]["streamId"] == "http://feed/rss"
+    assert rss_doc.metadata["source_system"] == "rss"
+    assert rss_doc.updated_at == "2025-06-17T10:00:00Z"
+    # Atom (arXiv) entry parses with its id + research category.
+    atom = by_id["arxiv:2601.0009"]
+    assert atom.title == "A paper on agents"
+    assert "research" in atom.metadata["record"]["categories"]
+
+
+@pytest.mark.concept("KG-2.121")
+def test_rss_connector_poll_watermark_dedup():
+    feeds = {"http://feed/rss": _RSS_XML}
+    conn = build_connector("rss", {"feed_urls": "http://feed/rss", "fetch_fn": feeds.get})
+    b1 = conn.poll()
+    assert len(b1.documents) == 2  # first poll → all
+    assert b1.checkpoint.watermark == "2025-06-18T10:00:00Z"
+    b2 = conn.poll(b1.checkpoint)  # unchanged feed → nothing new (seen-id belt)
+    assert b2.documents == []
+
+
+@pytest.mark.concept("KG-2.121")
+def test_rss_connector_dead_feed_is_skipped():
+    def _boom(url):
+        raise RuntimeError("dns fail")
+
+    conn = build_connector("rss", {"feed_urls": "http://dead/", "fetch_fn": _boom})
+    assert list(conn.load()) == []  # a dead feed never aborts
