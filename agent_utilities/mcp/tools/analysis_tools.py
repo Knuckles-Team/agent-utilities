@@ -1839,42 +1839,32 @@ def register_analysis_tools(mcp):
                 )
                 return f"Submitted Risk Veto for debate {job_id}."
             elif action == "list_cron_jobs":
-                try:
-                    from agent_utilities.automation.maintenance_cron import (
-                        MaintenanceCron,
-                    )
+                # Unified scheduler registry (CONCEPT:OS-5.44): the durable
+                # :Schedule nodes the one scheduler tick enqueues from.
+                from agent_utilities.core.schedule_engine import calendar
 
-                    cron = MaintenanceCron()
-                    due_tasks = cron.get_due_tasks()
-                    lines = []
-                    for t in cron.tasks:
-                        status = (
-                            "DUE"
-                            if any(dt.id == t.id for dt in due_tasks)
-                            else "WAITING"
-                        )
-                        lines.append(
-                            f"[{status}] {t.id} (Frequency: {t.frequency.value})"
-                        )
-                    return "\n".join(lines)
-                except ImportError:
-                    return "Error: maintenance_cron module not available"
+                lines = []
+                for entry in calendar(engine):
+                    state = "ON" if entry.get("enabled", True) else "OFF"
+                    trig = entry.get("cron") or (
+                        f"every {entry.get('interval_s')}s"
+                    )
+                    lines.append(
+                        f"[{state}] {entry['name']} ({entry.get('trigger')}: {trig}) "
+                        f"— last run: {entry.get('last_run')}"
+                    )
+                return "\n".join(lines) or "No schedules registered."
             elif action == "trigger_cron_job":
-                try:
-                    from agent_utilities.automation.maintenance_cron import (
-                        MaintenanceCron,
-                    )
+                # Force a schedule to fire on the next scheduler tick (OS-5.44).
+                from agent_utilities.core.schedule_engine import run_now
 
-                    cron = MaintenanceCron()
-                    target_id = task.strip()
-                    if not target_id:
-                        return "Error: Must specify the cron job ID in the 'task' parameter."
-                    cron.record_execution(
-                        target_id, status="triggered_manually", tokens_used=0
-                    )
-                    return f"Manually triggered cron job: {target_id}"
-                except ImportError:
-                    return "Error: maintenance_cron module not available"
+                target_id = task.strip()
+                if not target_id:
+                    return "Error: Must specify the schedule name in the 'task' parameter."
+                res = run_now(engine, target_id)
+                if res.get("status") != "success":
+                    return f"Error: {res.get('error')}"
+                return f"Scheduled '{target_id}' to fire on the next tick."
             elif action == "dispatch_workflow":
                 # CONCEPT:ORCH-1.42 — the SAME execution-time ontology gate as
                 # execute_workflow, BEFORE background dispatch: (a) SHACL-validate
