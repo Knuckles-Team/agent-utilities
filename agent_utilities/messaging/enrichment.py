@@ -114,4 +114,64 @@ def enrich_conversation(
             platform,
             written,
         )
+
+    # Surface goals / SDD-worthy specs from the turn (CONCEPT:ECO-4.70).
+    _surface_intents(engine, text, source_id, llm_fn)
     return written
+
+
+def _surface_intents(engine: Any, text: str, source_id: str, llm_fn: Any) -> None:
+    """Detect a goal/SDD-worthy spec in the turn → surface as Goal/Spec nodes (ECO-4.70).
+
+    Surfaces (does not auto-execute): a ``Goal`` or ``Spec`` node linked from the chat-turn
+    so the loop engine / SDD tooling can pick it up. Best-effort + opt-out
+    (``MESSAGING_GOALS=0``). Re-detection is idempotent (stable hashed node ids).
+    """
+    if str(setting("MESSAGING_GOALS", "1")).strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
+    ):
+        return
+    prompt = (
+        "From this chat, extract any concrete GOAL the user wants accomplished and any "
+        "feature/spec worth a spec-driven-development plan. Reply JSON only: "
+        '{"goal": "<one line or empty>", "spec": "<one line or empty>"}.\n\n'
+        + text[:4000]
+    )
+    try:
+        raw = llm_fn(prompt)
+        data = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[ECO-4.70] intent detection failed: %s", exc)
+        return
+    for label, key in (("Goal", "goal"), ("Spec", "spec")):
+        desc = str((data or {}).get(key, "") or "").strip()
+        if not desc:
+            continue
+        nid = f"{label.lower()}:{hashlib.sha1((source_id + desc).encode()).hexdigest()[:10]}"  # noqa: S324
+        try:
+            engine.add_node(
+                node_id=nid,
+                node_type=label,
+                properties={
+                    "id": nid,
+                    "name": desc[:120],
+                    "description": desc,
+                    "status": "surfaced",
+                    "origin": "chat",
+                    "created_at": time.time(),
+                },
+            )
+            engine.link_nodes(
+                source_id=source_id,
+                target_id=nid,
+                rel_type="HAS_GOAL" if label == "Goal" else "PROPOSES_SPEC",
+                properties={"source": "chat"},
+            )
+            logger.info(
+                "[CONCEPT:ECO-4.70] Surfaced %s from chat: %s", label, desc[:60]
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[ECO-4.70] %s surfacing failed: %s", label, exc)
