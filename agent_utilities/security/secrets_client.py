@@ -677,6 +677,72 @@ class SecretsClient:
         # Plain key
         return self._backend.get(ref)
 
+    def vault_sync(
+        self,
+        service: str,
+        env_keys: list[str],
+        values: dict[str, str] | None = None,
+        *,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        """Reconcile a service's secrets with the store (read-existing + seed).
+
+        CONCEPT:OS-5.43 — the vault-first routine genesis/deployment uses so an
+        operator (or Claude) never re-supplies a secret that already exists. For
+        each env var name a service needs, it:
+
+        1. **Reads** the existing value from the store at ``<service>/<KEY>`` (the
+           standardized ``apps/<service>`` layout when the backend is mounted at
+           ``apps``) — already-present keys are kept and reported, never re-prompted.
+        2. **Writes** any value supplied in ``values`` for a key that is missing
+           (or for every supplied key when ``overwrite=True``).
+        3. Emits the ``vault://<service>/<KEY>`` reference for every key so the
+           caller can drop resolvable refs straight into ``config.json`` (they
+           round-trip through :meth:`resolve_ref`).
+
+        Backend-agnostic: works against vault/sqlite/inmemory via the same
+        ``get``/``set`` contract — ``vault://`` is just the canonical ref scheme.
+
+        Args:
+            service: Logical service name (the ``apps/<service>`` path segment).
+            env_keys: The env var names the service consumes.
+            values: Optional ``{KEY: value}`` to seed for missing (or all) keys.
+            overwrite: When True, write every supplied value even if one exists.
+
+        Returns:
+            ``{service, refs: {KEY: "vault://<service>/<KEY>"}, present, written,
+            missing}`` — ``present`` already existed, ``written`` were just stored,
+            ``missing`` have neither a stored value nor a supplied one.
+        """
+        values = values or {}
+        refs: dict[str, str] = {}
+        present: list[str] = []
+        written: list[str] = []
+        missing: list[str] = []
+        for key in env_keys:
+            store_key = f"{service}/{key}"
+            refs[key] = f"vault://{store_key}"
+            existing = self._backend.get(store_key)
+            if existing is not None and not overwrite:
+                present.append(key)
+                continue
+            supplied = values.get(key)
+            if supplied is not None and supplied != "":
+                self._backend.set(store_key, supplied, service=service)
+                written.append(key)
+            elif existing is not None:
+                # overwrite requested but no new value — keep the existing one.
+                present.append(key)
+            else:
+                missing.append(key)
+        return {
+            "service": service,
+            "refs": refs,
+            "present": present,
+            "written": written,
+            "missing": missing,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Factory

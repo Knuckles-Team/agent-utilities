@@ -1801,6 +1801,24 @@ async def graph_configure_secret_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_configure_vault_sync_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_configure action=vault_sync (CONCEPT:OS-5.43)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_configure",
+            action="vault_sync",
+            config_key=body.get("config_key", ""),
+            config_value=body.get("config_value", ""),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_configure_register_mcp_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -2777,6 +2795,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
 
     # ── Granular configure ──
     route("/graph/configure/secret", graph_configure_secret_endpoint, ["POST"])
+    route("/graph/configure/vault-sync", graph_configure_vault_sync_endpoint, ["POST"])
     route(
         "/graph/configure/register-mcp", graph_configure_register_mcp_endpoint, ["POST"]
     )

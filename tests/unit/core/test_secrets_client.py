@@ -287,3 +287,52 @@ class TestSecretsFactory:
         ):
             client = create_secrets_client()
             assert isinstance(client.backend, SQLiteBackend)
+
+
+# ---------------------------------------------------------------------------
+# vault_sync — read-existing + seed (CONCEPT:OS-5.43)
+# ---------------------------------------------------------------------------
+
+
+class TestVaultSync:
+    """Tests for the vault-first read-existing/seed routine."""
+
+    @pytest.mark.concept("CONCEPT:OS-5.43")
+    def test_seeds_missing_and_emits_refs(self):
+        client = SecretsClient(InEpistemicGraphBackend())
+        result = client.vault_sync(
+            "gitlab-api",
+            ["GITLAB_TOKEN", "GITLAB_URL"],
+            values={"GITLAB_TOKEN": "glpat-xyz"},
+        )
+        assert result["written"] == ["GITLAB_TOKEN"]
+        assert result["missing"] == ["GITLAB_URL"]
+        assert result["refs"]["GITLAB_TOKEN"] == "vault://gitlab-api/GITLAB_TOKEN"
+        # The written value is resolvable via the emitted ref.
+        assert client.resolve_ref(result["refs"]["GITLAB_TOKEN"]) == "glpat-xyz"
+
+    @pytest.mark.concept("CONCEPT:OS-5.43")
+    def test_reads_existing_without_reprompt(self):
+        backend = InEpistemicGraphBackend()
+        backend.set("keycloak-mcp/OIDC_CLIENT_SECRET", "already-here")
+        client = SecretsClient(backend)
+        result = client.vault_sync(
+            "keycloak-mcp",
+            ["OIDC_CLIENT_SECRET"],
+            values={"OIDC_CLIENT_SECRET": "should-not-overwrite"},
+        )
+        assert result["present"] == ["OIDC_CLIENT_SECRET"]
+        assert result["written"] == []
+        # Existing value preserved (no re-prompt / no overwrite).
+        assert client.resolve_ref("vault://keycloak-mcp/OIDC_CLIENT_SECRET") == "already-here"
+
+    @pytest.mark.concept("CONCEPT:OS-5.43")
+    def test_overwrite_replaces_existing(self):
+        backend = InEpistemicGraphBackend()
+        backend.set("svc/API_KEY", "old")
+        client = SecretsClient(backend)
+        result = client.vault_sync(
+            "svc", ["API_KEY"], values={"API_KEY": "new"}, overwrite=True
+        )
+        assert result["written"] == ["API_KEY"]
+        assert client.resolve_ref("vault://svc/API_KEY") == "new"
