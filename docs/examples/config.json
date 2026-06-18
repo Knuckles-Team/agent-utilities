@@ -379,5 +379,6 @@
     "messaging_webhook_secret": "",
     "messaging_voice": "1",
     "messaging_voice_model": "base",
-    "messaging_goals": "1"
+    "messaging_goals": "1",
+    "messaging_recall_timeout": "8"
 }
