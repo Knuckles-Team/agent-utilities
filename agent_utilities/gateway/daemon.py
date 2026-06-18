@@ -24,78 +24,6 @@ logger = logging.getLogger(__name__)
 
 _engine: Any = None
 _lock = threading.Lock()
-_messaging_thread: threading.Thread | None = None
-
-
-# CONCEPT:ECO-4.51 — Inbound messaging router with graph-agent reply in the host daemon
-def start_messaging_router(engine: Any) -> None:
-    """Start the inbound messaging router for any configured backend.
-
-    Auto-detected: runs only when a messaging backend has a token/app id configured (so
-    it is opt-out, not a manual knob). The router runs on its OWN event loop in a daemon
-    thread, so it works both inside the async gateway and in the thread-based standalone
-    daemon ``main()``. Idempotent.
-    """
-    global _messaging_thread
-    with _lock:
-        if _messaging_thread is not None and _messaging_thread.is_alive():
-            return
-        from agent_utilities.messaging.service import MessagingService
-
-        platforms = MessagingService.instance(engine).configured_platforms()
-        if not platforms:
-            logger.info(
-                "messaging: no backend configured — inbound router not started "
-                "(set e.g. TELEGRAM_BOT_TOKEN to enable)."
-            )
-            return
-        _messaging_thread = threading.Thread(
-            target=_run_messaging_router,
-            args=(engine, platforms),
-            name="messaging-inbound-router",
-            daemon=True,
-        )
-        _messaging_thread.start()
-        logger.info("messaging: inbound router starting for backends %s", platforms)
-
-
-def _run_messaging_router(engine: Any, platforms: list[str]) -> None:
-    """Connect configured backends and run the InboundRouter on a private loop."""
-    import asyncio
-
-    from agent_utilities.messaging.commands import command_specs
-    from agent_utilities.messaging.router import (
-        InboundRouter,
-        create_planner_handler,
-    )
-    from agent_utilities.messaging.service import MessagingService
-
-    async def _serve() -> None:
-        svc = MessagingService.instance(engine)
-        router = InboundRouter()
-        for pid in platforms:
-            backend = await svc.get_backend(pid)
-            if backend is None:
-                continue
-            svc.register_connected(backend)
-            # Publish OUR universal command set on every backend (CONCEPT:ECO-4.57);
-            # each registers it where the platform supports a runtime menu, else no-ops.
-            try:
-                await backend.register_commands(command_specs("messaging"))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("messaging: register_commands(%s) failed: %s", pid, exc)
-            router.register_backend(backend)
-        router.set_default_handler(await create_planner_handler(engine))
-        await router.start()  # blocks on the listener tasks
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(_serve())
-    except Exception as e:  # noqa: BLE001
-        logger.error("messaging inbound router stopped: %s", e)
-    finally:
-        loop.close()
 
 
 def start_host_daemon() -> Any:
@@ -123,12 +51,10 @@ def start_host_daemon() -> Any:
         except Exception as e:  # noqa: BLE001
             logger.warning("host daemon: start_task_workers failed: %s", e)
         logger.info("Gateway host daemon started: %s", daemon_status())
-    # Auto-start the inbound messaging router (CONCEPT:ECO-4.51) outside the lock —
-    # it takes its own lock and no-ops when no backend is configured.
-    try:
-        start_messaging_router(_engine)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("host daemon: messaging router start failed: %s", e)
+    # CONCEPT:ECO-4.73 — the inbound messaging router runs in its OWN process
+    # (``agent-utilities-messaging`` / ``agent_utilities.messaging.daemon``), NOT here, so
+    # the host's CPU-bound maintenance (codebase ingestion / relevance sweeps) can never
+    # starve the inbound reply loop. It connects to this same shared engine as a client.
     return _engine
 
 
