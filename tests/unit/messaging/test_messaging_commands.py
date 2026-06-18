@@ -82,3 +82,15 @@ async def test_non_builtin_falls_through(text: str) -> None:
     # Plain text, model-routed (/claude), agent-routed (/skill), and unknown all fall
     # through to the agent (return None) rather than being answered here.
     assert await handle_command(text, service=_Svc()) is None
+
+
+def test_command_specs_surface_filtering() -> None:
+    # CONCEPT:ECO-4.71 — one registry, per-surface views; model is terminal-only.
+    from agent_utilities.messaging.commands import command_specs, describe
+
+    msg = {s["command"] for s in command_specs("messaging")}
+    term = {s["command"] for s in command_specs("terminal")}
+    assert "model" in term and "model" not in msg
+    assert {"help", "status", "tools", "goal", "sdd", "agents"} <= msg
+    assert describe("/goal") == describe("goal") and describe("goal")
+    assert describe("nonexistent") is None
