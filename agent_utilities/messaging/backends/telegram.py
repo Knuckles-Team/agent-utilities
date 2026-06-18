@@ -212,6 +212,16 @@ class TelegramBackend(MessagingBackend):
         """Send typing action. CONCEPT:ECO-4.0"""
         await self._app.bot.send_chat_action(chat_id=int(channel_id), action="typing")
 
+    async def send_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
+        """React to a message with an emoji (CONCEPT:ECO-4.60) via setMessageReaction."""
+        from telegram import ReactionTypeEmoji
+
+        await self._app.bot.set_message_reaction(
+            chat_id=int(channel_id),
+            message_id=int(message_id),
+            reaction=[ReactionTypeEmoji(emoji)],
+        )
+
     async def register_commands(self, commands: list[dict[str, str]]) -> None:
         """Publish the universal command set to Telegram's command menu (CONCEPT:ECO-4.57)."""
         from telegram import BotCommand
