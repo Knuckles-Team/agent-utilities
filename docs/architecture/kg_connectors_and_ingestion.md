@@ -205,7 +205,7 @@ See also: [KG as Bidirectional ETL Hub](kg_etl_hub.md),
 
 _Auto-generated — do not edit by hand. Run `python scripts/generate_connector_map.py`._
 
-**52 distinct connectors** across the ingestion/enrichment paths: 4 delta handlers · 34 capability-hydrate · 24 materialize extractors · 29 writeback sinks · 28 document-ingest presets.
+**56 distinct connectors** across the ingestion/enrichment paths: 8 delta handlers · 32 capability-hydrate · 24 materialize extractors · 31 writeback sinks · 31 document-ingest presets.
 
 ### Connector × path matrix
 
@@ -221,6 +221,7 @@ _Auto-generated — do not edit by hand. Run `python scripts/generate_connector_
 | `camunda` | — | — | ✅ | — |
 | `capability` | — | — | — | ✅ |
 | `ciso_assistant` | — | — | ✅ | ✅ |
+| `confluence` | ✅ | — | — | — |
 | `databases` | — | ✅ | — | — |
 | `egeria` | — | — | ✅ | ✅ |
 | `emerald` | — | — | ✅ | ✅ |
@@ -234,7 +235,8 @@ _Auto-generated — do not edit by hand. Run `python scripts/generate_connector_
 | `glpi` | — | ✅ | — | — |
 | `homeassistant` | — | — | ✅ | ✅ |
 | `issue_tracking` | — | ✅ | — | — |
-| `jira` | — | ✅ | — | ✅ |
+| `jira` | ✅ | — | — | ✅ |
+| `jira_transition` | — | — | — | ✅ |
 | `kafka` | — | — | ✅ | ✅ |
 | `keycloak` | — | ✅ | ✅ | ✅ |
 | `langfuse` | — | ✅ | — | — |
@@ -250,12 +252,14 @@ _Auto-generated — do not edit by hand. Run `python scripts/generate_connector_
 | `okta` | — | — | ✅ | ✅ |
 | `openbao` | — | ✅ | — | — |
 | `openmaint` | — | ✅ | — | — |
-| `plane` | — | ✅ | — | ✅ |
+| `plane` | ✅ | — | — | ✅ |
+| `plane_state` | — | — | — | ✅ |
 | `portainer` | — | ✅ | ✅ | ✅ |
 | `postiz` | — | ✅ | — | — |
 | `process` | — | — | — | ✅ |
 | `process_modeling` | — | ✅ | — | — |
 | `relational_database` | — | ✅ | — | — |
+| `rss` | ✅ | — | — | — |
 | `salesforce` | — | — | ✅ | ✅ |
 | `scholarx` | — | ✅ | — | — |
 | `servicenow` | — | ✅ | ✅ | ✅ |
@@ -271,16 +275,19 @@ _Auto-generated — do not edit by hand. Run `python scripts/generate_connector_
 Declarative connectors that pull records/files/search-results as Documents through the generic `McpToolSourceConnector`:
 
 - `archivebox`
+- `confluence`
 - `freshrss`
 - `github-repos`
 - `gitlab-issues`
 - `gitlab-merge-requests`
 - `harness-runs`
+- `jira`
 - `keycloak-users`
 - `mealie-recipes`
 - `nextcloud-files`
 - `objectstore-prefix`
 - `okta-users`
+- `plane`
 - `pulselink-bilibili`
 - `pulselink-exa`
 - `pulselink-github`

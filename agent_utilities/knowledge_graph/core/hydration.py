@@ -54,8 +54,9 @@ CAPABILITY_REGISTRY: dict[str, dict[str, str]] = {
     "openmaint": {"category": "itsm", "method": "_hydrate_servicenow"},
     "servicenow": {"category": "itsm", "method": "_hydrate_servicenow"},
     "erpnext": {"category": "erp", "method": "_hydrate_erpnext"},
-    "jira": {"category": "issue_tracking", "method": "_hydrate_issue_tracking"},
-    "plane": {"category": "issue_tracking", "method": "_hydrate_issue_tracking"},
+    # ``jira``/``plane``/``confluence`` are first-class delta connectors now
+    # (``source_sync._DELTA_HANDLERS``, CONCEPT:KG-2.123/2.124/2.125); the generic
+    # ``issue_tracking`` capability remains for the zero-infra local-markdown checklist.
     "issue_tracking": {
         "category": "issue_tracking",
         "method": "_hydrate_issue_tracking",
@@ -700,13 +701,12 @@ class HydrationManager:
         }
 
     def _hydrate_issue_tracking(self, engine: Any) -> dict[str, Any]:
-        """Hydrate issue tracking workspace states. Supports Plane, Local Markdown checklists, and Jira."""
-        if setting("JIRA_TOKEN") or setting("JIRA_API_TOKEN"):
-            return self._hydrate_jira(engine)
+        """Hydrate a zero-infra local-markdown task checklist into the KG.
 
-        if setting("PLANE_TOKEN") or setting("PLANE_API_TOKEN"):
-            return self._hydrate_plane(engine)
-
+        Jira and Plane are first-class delta connectors (``source_sync._sync_jira`` /
+        ``_sync_plane``, CONCEPT:KG-2.124/2.125); this generic capability is now only
+        the local-markdown checklist fallback (no external tracker configured).
+        """
         entities = []
         relationships = []
 
@@ -1032,210 +1032,6 @@ class HydrationManager:
 
         if entities:
             engine.ingest_external_batch("gitlab", entities, relationships)
-
-        return {
-            "status": "ok",
-            "nodes_hydrated": len(entities),
-            "relations_hydrated": len(relationships),
-        }
-
-    def _hydrate_jira(self, engine: Any) -> dict[str, Any]:
-        """Hydrate Jira Issues & Epics, focusing on specific configured projects."""
-        try:
-            from atlassian_agent.api_client import JiraApi  # type: ignore
-        except ImportError:
-            return {
-                "status": "skipped",
-                "reason": "atlassian-agent package not installed",
-            }
-
-        url = setting("JIRA_URL")
-        token = setting("JIRA_TOKEN") or setting("JIRA_API_TOKEN")
-        if not url or not token:
-            return {"status": "skipped", "reason": "Missing JIRA_URL or JIRA_TOKEN"}
-
-        # Specific projects filter
-        project_keys_str = setting("JIRA_PROJECT_KEYS", "")
-        project_keys = [k.strip() for k in project_keys_str.split(",") if k.strip()]
-
-        client = JiraApi(base_url=url, token=token)
-        entities: list[dict[str, Any]] = []
-        relationships: list[dict[str, Any]] = []
-
-        try:
-            # Query Jira issues for the selected projects
-            jql = "order by updated DESC"
-            if project_keys:
-                jql = f"project in ({','.join(project_keys)}) AND " + jql
-
-            issues_resp = client.search_issues(jql=jql, max_results=50)
-            issues = (
-                issues_resp.get("issues", []) if isinstance(issues_resp, dict) else []
-            )
-
-            for issue in issues:
-                key = issue.get("key")
-                if not key:
-                    continue
-
-                fields = issue.get("fields", {})
-                node_id = f"jira:issue:{key}"
-
-                # OWL Mapping: JiraIssue -> issue
-                entities.append(
-                    {
-                        "id": node_id,
-                        "type": "issue",
-                        "name": fields.get("summary", f"Issue {key}"),
-                        "status": fields.get("status", {}).get("name", ""),
-                        "priority": fields.get("priority", {}).get("name", ""),
-                        "domain": "jira",
-                    }
-                )
-
-                # Assignee relation
-                assignee = fields.get("assignee")
-                if assignee:
-                    user_id = assignee.get("accountId") or assignee.get("name")
-                    user_node_id = f"jira:user:{user_id}"
-                    entities.append(
-                        {
-                            "id": user_node_id,
-                            "type": "person",
-                            "name": assignee.get("displayName", f"User {user_id}"),
-                            "domain": "jira",
-                        }
-                    )
-                    relationships.append(
-                        {
-                            "source": node_id,
-                            "target": user_node_id,
-                            "type": "has_role",
-                            "domain": "jira",
-                        }
-                    )
-
-                # Link issues if parent / epic exists
-                epic = fields.get("epic") or fields.get(
-                    "customfield_10014"
-                )  # standard Epic link field
-                if epic:
-                    epic_node_id = f"jira:epic:{epic}"
-                    entities.append(
-                        {
-                            "id": epic_node_id,
-                            "type": "goal",
-                            "name": f"Epic {epic}",
-                            "domain": "jira",
-                        }
-                    )
-                    relationships.append(
-                        {
-                            "source": node_id,
-                            "target": epic_node_id,
-                            "type": "part_of",
-                            "domain": "jira",
-                        }
-                    )
-
-        except Exception as e:
-            return {"status": "error", "error": f"Failed to fetch Jira issues: {e}"}
-
-        if entities:
-            engine.ingest_external_batch("jira", entities, relationships)
-
-        return {
-            "status": "ok",
-            "nodes_hydrated": len(entities),
-            "relations_hydrated": len(relationships),
-        }
-
-    def _hydrate_plane(self, engine: Any) -> dict[str, Any]:
-        """Hydrate from Plane PMS cycle tasks, filtering by configured projects."""
-        try:
-            from plane_agent.api_client import PlaneApi  # type: ignore
-        except ImportError:
-            return {"status": "skipped", "reason": "plane-agent package not installed"}
-
-        url = setting("PLANE_URL")
-        token = setting("PLANE_TOKEN") or setting("PLANE_API_TOKEN")
-        if not url or not token:
-            return {"status": "skipped", "reason": "Missing PLANE_URL or PLANE_TOKEN"}
-
-        target_project_ids = [
-            p.strip() for p in setting("PLANE_PROJECT_IDS", "").split(",") if p.strip()
-        ]
-
-        client = PlaneApi(base_url=url, token=token)
-        entities: list[dict[str, Any]] = []
-        relationships: list[dict[str, Any]] = []
-
-        try:
-            # If no target projects, fetch available list
-            projects = target_project_ids
-            if not projects:
-                proj_resp = client.get_projects()
-                proj_list = (
-                    proj_resp.get("results", [])
-                    if isinstance(proj_resp, dict)
-                    else proj_resp
-                )
-                projects = [
-                    str(p.get("id"))
-                    for p in proj_list
-                    if isinstance(p, dict) and p.get("id")
-                ]
-
-            for proj_id in projects[:5]:
-                issues_resp = client.get_project_issues(proj_id)
-                issues = (
-                    issues_resp.get("results", [])
-                    if isinstance(issues_resp, dict)
-                    else []
-                )
-
-                for issue in issues:
-                    issue_id = str(issue.get("id"))
-                    if not issue_id:
-                        continue
-
-                    node_id = f"plane:issue:{issue_id}"
-                    # OWL Mapping: PlaneIssue -> issue
-                    entities.append(
-                        {
-                            "id": node_id,
-                            "type": "issue",
-                            "name": issue.get("name", f"Plane Issue {issue_id}"),
-                            "state": issue.get("state", {}).get("name", ""),
-                            "priority": issue.get("priority", ""),
-                            "domain": "plane",
-                        }
-                    )
-
-                    # Project node
-                    proj_node_id = f"plane:proj:{proj_id}"
-                    entities.append(
-                        {
-                            "id": proj_node_id,
-                            "type": "software_project",
-                            "name": f"Plane Project {proj_id}",
-                            "domain": "plane",
-                        }
-                    )
-                    relationships.append(
-                        {
-                            "source": node_id,
-                            "target": proj_node_id,
-                            "type": "part_of",
-                            "domain": "plane",
-                        }
-                    )
-
-        except Exception as e:
-            return {"status": "error", "error": f"Failed to fetch Plane issues: {e}"}
-
-        if entities:
-            engine.ingest_external_batch("plane", entities, relationships)
 
         return {
             "status": "ok",
