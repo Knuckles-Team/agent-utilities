@@ -274,11 +274,55 @@ async def create_planner_handler(
     Returns:
         An async event handler function.
     """
+    from agent_utilities.core.config import setting
+    from agent_utilities.messaging.coalescer import BurstCoalescer
     from agent_utilities.messaging.kg_ingest import ingest_message_to_kg
     from agent_utilities.messaging.service import MessagingService
 
+    async def _reply_to_burst(_key: str, items: list[Any]) -> None:
+        """Answer a coalesced burst with ONE agent turn + ONE reply (CONCEPT:ECO-4.63)."""
+        svc = MessagingService.instance(knowledge_engine)
+        engine = svc._resolve_engine()
+        event, backend = items[-1]["event"], items[-1]["backend"]
+        # Combine the burst into one holistic prompt (preserve order).
+        contents = [it["content"] for it in items]
+        combined = contents[0] if len(contents) == 1 else "\n".join(contents)
+
+        # One instinctive reaction for the burst (CONCEPT:ECO-4.60).
+        if event.message and event.message.id:
+            try:
+                emoji = await _decide_reaction(combined)
+                if emoji:
+                    await svc.react(
+                        str(event.platform), event.channel_id, event.message.id, emoji
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[CONCEPT:ECO-4.60] reaction step skipped: %s", e)
+
+        kg_context = _recall_context(engine, combined, str(event.platform))
+        logger.info(
+            "[CONCEPT:ECO-4.63] Routing a burst of %d message(s) from %s/%s to the agent.",
+            len(items),
+            event.platform,
+            event.user_name,
+        )
+        reply = await _graph_agent_reply(engine, combined, kg_context)
+        try:
+            if event.message and event.message.id:
+                await backend.reply_to(event.channel_id, event.message.id, reply)
+            else:
+                await backend.send_message(event.channel_id, reply)
+        except Exception as e:  # noqa: BLE001
+            logger.error("[CONCEPT:ECO-4.51] Sending reply failed: %s", e)
+
+    coalescer = BurstCoalescer(
+        _reply_to_burst,
+        window_s=float(setting("MESSAGING_BURST_WINDOW_S", "2.5")),
+        max_wait_s=float(setting("MESSAGING_BURST_MAX_S", "12")),
+    )
+
     async def planner_handler(event: InboundEvent, backend: MessagingBackend) -> None:
-        """Drive an inbound message through the graph agent. CONCEPT:ECO-4.51"""
+        """Drive an inbound message through the graph agent. CONCEPT:ECO-4.51/4.63"""
         if event.event_type != EventType.MESSAGE:
             return  # Only handle messages
 
@@ -289,7 +333,7 @@ async def create_planner_handler(
         svc = MessagingService.instance(knowledge_engine)
         engine = svc._resolve_engine()
 
-        # 1. Record last-active channel (CONCEPT:ECO-4.49).
+        # 1. Record last-active channel (CONCEPT:ECO-4.49) — immediate, per message.
         try:
             svc.record_inbound(event)
         except Exception as e:  # noqa: BLE001
@@ -304,14 +348,14 @@ async def create_planner_handler(
             )
             return
 
-        # 3. Auto-ingest to KG (CONCEPT:KG-2.1).
+        # 3. Auto-ingest to KG (CONCEPT:KG-2.1) — immediate, per message (full history).
         try:
             await ingest_message_to_kg(event, knowledge_engine=engine)
         except Exception as e:  # noqa: BLE001
             logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
 
-        # 3b. Built-in universal command? (CONCEPT:ECO-4.57) Answer it and stop;
-        #     /claude, /skill, and unknowns fall through to the agent below.
+        # 3b. Built-in universal command? (CONCEPT:ECO-4.57) Answer immediately and stop;
+        #     /claude, /skill, and unknowns fall through to the coalesced agent reply.
         from agent_utilities.messaging.commands import handle_command
 
         cmd_reply = await handle_command(content, service=svc)
@@ -322,34 +366,12 @@ async def create_planner_handler(
                 logger.error("[CONCEPT:ECO-4.57] command reply send failed: %s", e)
             return
 
-        # 3c. Instinctive emoji reaction (CONCEPT:ECO-4.60) — model-agnostic, best-effort,
-        #     where the platform supports it (👍 to a request, ❤️ to praise, …).
-        if event.message and event.message.id:
-            try:
-                emoji = await _decide_reaction(content)
-                if emoji:
-                    await svc.react(
-                        str(event.platform), event.channel_id, event.message.id, emoji
-                    )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("[CONCEPT:ECO-4.60] reaction step skipped: %s", e)
-
-        # 4. Recall conversation context, then run the graph agent.
-        kg_context = _recall_context(engine, content, str(event.platform))
-        logger.info(
-            "[CONCEPT:ECO-4.51] Routing message from %s/%s to the graph agent.",
-            event.platform,
-            event.user_name,
+        # 4. Coalesce normal messages into one agent turn per burst (CONCEPT:ECO-4.63):
+        #    a rapid run of messages → ONE holistic reply + ONE LLM call, not N.
+        await coalescer.submit(
+            f"{event.platform}:{event.channel_id}",
+            {"event": event, "backend": backend, "content": content},
         )
-        reply = await _graph_agent_reply(engine, content, kg_context)
-
-        try:
-            if event.message and event.message.id:
-                await backend.reply_to(event.channel_id, event.message.id, reply)
-            else:
-                await backend.send_message(event.channel_id, reply)
-        except Exception as e:  # noqa: BLE001
-            logger.error("[CONCEPT:ECO-4.51] Sending reply failed: %s", e)
 
     return planner_handler
 
