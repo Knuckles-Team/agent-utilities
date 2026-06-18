@@ -291,7 +291,15 @@ def _sync_freshrss(
     else:
         docs = list(conn.load())  # type: ignore[attr-defined]
 
-    report = WorldModelPipelineRunner(engine=engine).run_gated_ingest(docs)
+    from ...automation.worldmodel_pipeline import WorldModelConfig
+    from ...base_utilities import to_boolean
+
+    wm_config = WorldModelConfig(
+        use_novelty=to_boolean(setting("FRESHRSS_USE_NOVELTY", default="False"))
+    )
+    report = WorldModelPipelineRunner(
+        engine=engine, config=wm_config
+    ).run_gated_ingest(docs)
 
     seen = [e for d in docs if (e := _as_epoch(d.updated_at)) is not None]
     new_watermark = str(max(seen)) if seen else None

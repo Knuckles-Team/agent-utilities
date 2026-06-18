@@ -47,6 +47,13 @@ class WorldModelConfig:
     # Below this novelty an otherwise-relevant item is demoted to marginal (we
     # already model it) — mirrors the research pipeline's 0.25 redundancy gate.
     redundancy_floor: float = 0.25
+    # Concept-novelty (the embedding probe vs the KG concept registry) is a
+    # refinement on top of the keyword score: it demotes already-covered items and
+    # rescues highly-novel low-score ones. It requires a populated registry with
+    # stored embeddings; building that index can be expensive, so it is OPT-IN
+    # (FRESHRSS_USE_NOVELTY / use_novelty). Off → tier on keyword score alone (the
+    # taxonomy + KG-grounded company terms still ground "relevant to the KG").
+    use_novelty: bool = False
 
 
 @dataclass
@@ -108,7 +115,14 @@ class WorldModelPipelineRunner:
         title = getattr(doc, "title", "") or ""
         text = getattr(doc, "text", "") or ""
         score, domains = score_text(title, text, taxonomy)
-        novelty = concept_novelty(self.engine, f"{title} — {text[:2000]}", holder=self)
+        # Novelty is opt-in and only consulted for items the score already makes
+        # ingestable/borderline (it can only demote a relevant item or rescue a
+        # novel low-score one) — never pay the embedding probe for the skip-majority.
+        novelty = None
+        if self.config.use_novelty and (score > 0 or forced):
+            novelty = concept_novelty(
+                self.engine, f"{title} — {text[:2000]}", holder=self
+            )
         tier = self._tier(score, novelty, forced)
 
         if tier == "relevant":
