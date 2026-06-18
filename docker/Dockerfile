@@ -15,8 +15,14 @@ ENV UV_COMPILE_BYTECODE=1 \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
+# Build from the LOCAL checkout, not from PyPI. The pipeline runs publish-docker
+# right after publish-pypi for the same version bump; pulling that version from
+# PyPI races its propagation (and couples the image to a successful PyPI publish).
+# Installing the source tree in the build context removes that race entirely — the
+# image always matches the committed code. `.dockerignore` keeps the context lean.
+COPY . /src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --upgrade --break-system-packages --prerelease=allow "agent-utilities[all]>=0.47.1"
+    uv pip install --system --upgrade --break-system-packages --prerelease=allow "/src[all]"
 
 FROM python:3.11-slim
 
