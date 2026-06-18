@@ -207,12 +207,20 @@ def _check_auth() -> dict[str, Any]:
     if not required:
         return _result("auth", "ok", "KG auth not required (open mode)")
     if jwks:
-        return _result("auth", "ok", "KG auth required and JWKS configured")
+        # IdP-agnostic: any OIDC issuer's JWKS works. Name it for the report so
+        # an operator on Okta isn't told they need Keycloak (CONCEPT:OS-5.43 genesis
+        # IdP choice — keycloak deploy-if-absent OR an existing okta/other-oidc org).
+        low = jwks.lower()
+        idp = "Okta" if "okta" in low else ("Keycloak" if "keycloak" in low else "OIDC")
+        return _result("auth", "ok", f"KG auth required and JWKS configured ({idp})")
     return _result(
         "auth",
         "fail",
         "KG_AUTH_REQUIRED is set but AUTH_JWT_JWKS_URI is missing — fail-closed",
-        remediation="set AUTH_JWT_JWKS_URI (Keycloak certs endpoint)",
+        remediation=(
+            "set AUTH_JWT_JWKS_URI to your IdP's JWKS/certs endpoint — your existing "
+            "Okta org (…/oauth2/<server>/v1/keys) or deploy Keycloak"
+        ),
         skill="keycloak-client-onboarder",
     )
 
