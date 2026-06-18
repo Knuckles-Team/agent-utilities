@@ -114,6 +114,10 @@
     rdfs:domain :Code ;
     rdfs:range xsd:string .
 
+<http://knuckles.team/kg/software> a owl:Ontology ;
+    rdfs:label "Agent Intelligence Graph — Software Module" ;
+    rdfs:comment "Software domain extension (code, tests, assertions). Imported by the canonical <http://knuckles.team/kg> ontology; resolved to ontology_software.ttl by the local loader convention." .
+
 :Feature a owl:Class ;
     rdfs:label "Feature" ;
     rdfs:comment "A cohesive cluster of code symbols implementing a capability." .
