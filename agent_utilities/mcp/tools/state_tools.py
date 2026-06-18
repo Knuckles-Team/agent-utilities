@@ -326,6 +326,65 @@ def register_state_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_schedules"] = graph_schedules
 
     @mcp.tool(
+        name="graph_feeds",
+        description=(
+            "Manage the unified RSS/Atom feed registry (CONCEPT:KG-2.121/2.122). "
+            "Native RSS feeds, the FreshRSS aggregator, and ScholarX arXiv are "
+            "first-class :FeedSource nodes ingested through ONE world-model gate "
+            "(research items → prioritized fetch, news → relevance+novelty). action "
+            "in 'list' (registered feeds), 'add' (register a native RSS/Atom feed by "
+            "url), 'remove' (deregister a feed by url), 'sync' (run the feed sweep "
+            "now — native RSS + ScholarX through the gate)."
+        ),
+        tags=["graph-os", "feeds"],
+    )
+    async def graph_feeds(
+        action: str = Field(default="list", description="list|add|remove|sync"),
+        url: str = Field(default="", description="Feed URL (add/remove)."),
+        mode: str = Field(default="delta", description="delta|full (sync)."),
+    ) -> str:
+        """List / add / remove / sync unified RSS feed sources."""
+        import json as _json
+
+        from agent_utilities.automation.feed_sources import (
+            list_feed_sources,
+            remove_feed_source,
+            upsert_feed_source,
+        )
+
+        try:
+            engine = kg_server._get_engine()
+            if action == "list":
+                return _json.dumps(
+                    {"action": "list", "feeds": list_feed_sources(engine)}, default=str
+                )
+            if action == "add":
+                if not url:
+                    return _json.dumps({"error": "add needs a feed url"})
+                node_id = upsert_feed_source(
+                    engine,
+                    key=url,
+                    source_system="rss",
+                    feed_url=url,
+                    kind="RssFeed",
+                )
+                return _json.dumps({"action": "add", "id": node_id, "url": url})
+            if action == "remove":
+                if not url:
+                    return _json.dumps({"error": "remove needs a feed url"})
+                ok = remove_feed_source(engine, key=url, source_system="rss")
+                return _json.dumps({"action": "remove", "url": url, "ok": ok})
+            if action == "sync":
+                from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+                return _json.dumps(sync_source(engine, "rss", mode=mode), default=str)
+            return _json.dumps({"error": f"unknown action {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return _json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["graph_feeds"] = graph_feeds
+
+    @mcp.tool(
         name="research_artifact",
         description=(
             "Agent-Native Research Artifacts over the one ontology-driven KG "

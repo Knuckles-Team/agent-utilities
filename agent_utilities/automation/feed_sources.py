@@ -185,6 +185,22 @@ def register_feed_nodes(
     return ids
 
 
+def remove_feed_source(engine: Any, *, key: str, source_system: str = "rss") -> bool:
+    """Tombstone a registered feed by its url/key (CONCEPT:KG-2.122). Best-effort."""
+    backend = getattr(engine, "backend", None)
+    if backend is None:
+        return False
+    node_id = _feed_node_id(source_system, key)
+    try:
+        backend.execute(
+            "MATCH (f:FeedSource {id: $id}) DETACH DELETE f", {"id": node_id}
+        )
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.debug("remove_feed_source failed for %s: %s", node_id, e)
+        return False
+
+
 def list_feed_sources(engine: Any) -> list[dict[str, Any]]:
     """Return the registered feed-source nodes for the graph_feeds surface."""
     backend = getattr(engine, "backend", None)
