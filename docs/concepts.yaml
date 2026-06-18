@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 330
+total_concepts: 331
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1124,6 +1124,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ontology/interfaces.py
   doc: Messaging ontology shape so reach channels are reasoned over
+- id: ECO-4.55
+  name: Model-routed inbound responder with local LLM default and Claude address
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/router.py
+  doc: Model-routed inbound responder with local LLM default and Claude address
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033

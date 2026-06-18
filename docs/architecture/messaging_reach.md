@@ -58,11 +58,37 @@ asked, `deliver_reply` resolves the waiting future and the message is **not** re
 the planner; otherwise the planner drafts a real reply via the graph agent
 (`MESSAGING_AGENT`).
 
+## Responder routing — local LLM by default, Claude on request (ECO-4.55)
+
+Inbound messages are answered by one of two responders, **defaulting to the local LLM**:
+
+- **Local LLM (default):** answered by the configured local model (`qwen` on `vllm.arpa`
+  in the homelab) via a one-shot pydantic-ai call.
+- **Claude (addressed):** a message starting with the trigger (`MESSAGING_CLAUDE_TRIGGER`,
+  default `/claude`) is answered by an Anthropic model — requires `ANTHROPIC_API_KEY`;
+  without it, it falls back to local and says so.
+- **Full named agent (override):** if `MESSAGING_AGENT` is set, that full graph agent
+  handles the message instead (Orchestrator path).
+
+Every reply is tagged with who answered (`[local]` / `[claude]`).
+
+## Multiple services at once
+
+The router runs **every configured backend concurrently** — set tokens for any of
+Telegram, Slack, Teams, Mattermost, Discord, … and `start_messaging_router` connects and
+listens on all of them. Last-active routing stores `platform + channel` per user, so
+`reach_user` follows the user to whichever service they last used; `graph_reach
+action=send` targets a specific service explicitly.
+
 ## Configuration
 
 | Setting | Purpose |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | Enables the Telegram backend (auto-detected) |
+| `TELEGRAM_BOT_TOKEN` / `SLACK_BOT_TOKEN` / `MATTERMOST_TOKEN` / `MSTEAMS_APP_ID`… | Enable each backend (auto-detected; multiple may be set together) |
 | `MESSAGING_DEFAULT_PLATFORM` | Default platform when no last-active channel (default `telegram`) |
-| `MESSAGING_DEFAULT_CHANNEL` | Default chat id for `reach_user` fallback |
-| `MESSAGING_AGENT` | Agent name the inbound planner routes spontaneous messages to |
+| `MESSAGING_DEFAULT_CHANNEL` | Default channel id for `reach_user` fallback |
+| `MESSAGING_AGENT` | Optional: full graph agent that handles inbound (overrides model routing) |
+| `MESSAGING_CLAUDE_TRIGGER` | Prefix that routes a message to Claude (default `/claude`) |
+| `MESSAGING_CLAUDE_MODEL` | Anthropic model for the Claude route (default `claude-sonnet-4-6`) |
+| `MESSAGING_LOCAL_MODEL` | Override the local responder model id |
+| `ANTHROPIC_API_KEY` | Required for the Claude route |
