@@ -377,6 +377,8 @@ class AgentConfig(BaseSettings):
     messaging_enrich: str = Field(default="1", alias="MESSAGING_ENRICH")
     # Surface goals / SDD specs from chats (CONCEPT:ECO-4.70, opt-out).
     messaging_goals: str = Field(default="1", alias="MESSAGING_GOALS")
+    # Max seconds for the (blocking) KG recall before replying without context (ECO-4.72).
+    messaging_recall_timeout: str = Field(default="8", alias="MESSAGING_RECALL_TIMEOUT")
     # Webhook push (CONCEPT:ECO-4.66): set the PUBLIC base URL (served via tunnel/edge to a
     # LOCAL port) to switch from polling to instant webhook delivery; empty = polling.
     messaging_webhook_base_url: str = Field(
