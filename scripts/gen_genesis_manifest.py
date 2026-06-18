@@ -41,6 +41,11 @@ PROFILES_META = {
         "secrets": "dotenv",
         "servers": "none",
         "skill": "agent-utilities-deployment",
+        # Step 0 run-plan defaults (the operator overrides only the exceptions).
+        "orchestrator": "docker-compose",
+        "install_mode": "deploy-baremetal",
+        "idp": "none",
+        "ontology_host": "local",
     },
     "single-node-prod": {
         "summary": "one durable, secured host (Postgres/pg-age) + the core MCP connectors",
@@ -48,6 +53,10 @@ PROFILES_META = {
         "secrets": "openbao-or-dotenv",
         "servers": "core",
         "skill": "agent-utilities-deployment",
+        "orchestrator": "docker-swarm",
+        "install_mode": "deploy-container",
+        "idp": "keycloak",
+        "ontology_host": "local",
     },
     "enterprise": {
         "summary": "multi-host Docker Swarm, full integration (Vault/SSO/DNS/ingress/observability + all connectors)",
@@ -55,6 +64,36 @@ PROFILES_META = {
         "secrets": "openbao",
         "servers": "all",
         "skill": "agent-os-genesis",
+        # Enterprises default to Kubernetes (Step 0 note).
+        "orchestrator": "kubernetes",
+        "install_mode": "deploy-container",
+        "idp": "keycloak",
+        "ontology_host": "stardog",
+    },
+}
+
+# Step 0 adaptive run-plan axes — the choices the genesis questionnaire offers per
+# capability/connector. Profiles seed the defaults above; these are the allowed values.
+RUN_PLAN = {
+    "actions": ["deploy-container", "deploy-baremetal", "use-existing", "skip"],
+    "orchestrators": [
+        "docker-compose",
+        "docker-swarm",
+        "podman",
+        "podman-compose",
+        "kubernetes",
+    ],
+    "podman_modes": ["rootful", "rootless"],
+    "idp": ["keycloak", "okta", "other-oidc", "none"],
+    "secrets_store": ["vault", "env"],
+    "ontology_hosts": ["stardog", "apache-jena", "local"],
+    "install_modes": ["deploy-container", "deploy-baremetal", "use-existing", "skip"],
+    "provisioner_by_orchestrator": {
+        "docker-swarm": "swarm-mesh-provisioner",
+        "kubernetes": "kubernetes-mesh-provisioner",
+        "podman": "podman-mesh-provisioner",
+        "podman-compose": "podman-mesh-provisioner",
+        "docker-compose": "docker-compose-operator",
     },
 }
 
@@ -125,6 +164,11 @@ def build() -> dict:
             "secrets": meta["secrets"],
             "servers": meta["servers"],
             "skill": meta["skill"],
+            # Step 0 run-plan defaults for this profile (overridable per item).
+            "orchestrator": meta["orchestrator"],
+            "install_mode": meta["install_mode"],
+            "idp": meta["idp"],
+            "ontology_host": meta["ontology_host"],
         }
 
     return {
@@ -138,6 +182,7 @@ def build() -> dict:
             "multi_node_skill": "agent-os-genesis",
         },
         "profiles": profiles,
+        "run_plan": RUN_PLAN,
         "preflight": {
             "command": "agent-utilities-doctor --preflight",
             "mcp_action": "graph_configure action=preflight config_key=<profile>",
