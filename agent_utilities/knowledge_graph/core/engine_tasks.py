@@ -806,7 +806,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         # generic tick that dispatches everything in deploy/schedules.yml on its cron.
         # Always registered; the registry (and per-entry `enabled`) is the control, so
         # no recurring job is ever a hardcoded daemon tick. Runs every minute.
-        jobs.append(("skill_scheduler", 60.0, self._tick_skill_scheduler))
+        jobs.append(("scheduler", 60.0, self._tick_scheduler))
         if _cfg.kg_anomaly_consumer:
             jobs.append(
                 (
@@ -1875,23 +1875,25 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception as e:  # noqa: BLE001
             logger.error("anomaly_consumer tick error: %s", e)
 
-    def _tick_skill_scheduler(self) -> None:
-        """Dispatch every declaratively-scheduled skill / skill-workflow that is due.
+    def _tick_scheduler(self) -> None:
+        """Evaluate every durable ``:Schedule`` and ENQUEUE the jobs that are due.
 
-        The ONLY scheduling code in the daemon (CONCEPT:OS-5.30): it reads
-        ``deploy/schedules.yml`` and runs whatever cron fires this minute — there are
-        no hardcoded per-job ticks. New recurring jobs (e.g. the code-health sweep)
-        are registry entries, not daemon edits. ``/cron calendar`` reads the same
-        registry.
+        The ONE scheduler tick (CONCEPT:OS-5.44): it reads the durable
+        ``:Schedule`` registry (seeded from ``deploy/schedules.yml`` plus the
+        former fixed-interval maintenance ticks registered programmatically) and
+        for every due schedule enqueues a ``scheduled_job`` ``:Task`` onto the
+        unified queue — it does not run any job inline. Cron, interval, and
+        adaptive triggers are all handled here. ``/cron calendar`` reads the
+        same registry.
         """
         try:
-            from agent_utilities.core.skill_scheduler import run_due_schedules
+            from agent_utilities.core.schedule_engine import run_scheduler_tick
 
-            result = run_due_schedules(self)
+            result = run_scheduler_tick(self)
             if result.get("fired"):
-                logger.info("skill_scheduler fired: %s", result["fired"])
+                logger.info("scheduler fired: %s", result["fired"])
         except Exception as e:  # noqa: BLE001
-            logger.error("skill_scheduler tick error: %s", e)
+            logger.error("scheduler tick error: %s", e)
 
     def _tick_fuseki_publish(self) -> None:
         """Push the bundled ontology modules to Apache Jena Fuseki.
@@ -2351,6 +2353,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         depends_on: list[str] | None = None,
         max_attempts: int = _TASK_MAX_ATTEMPTS,
         job_id: str | None = None,
+        extra_meta: dict[str, Any] | None = None,
     ) -> str:
         """Submit a background task to the unified durable queue (CONCEPT:KG-2.113).
 
@@ -2389,6 +2392,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             "attempts": 0,
             "max_attempts": int(max_attempts),
         }
+        if extra_meta:
+            task_data.update(extra_meta)
 
         prio_bucket = _coerce_prio_bucket(priority)
         # Resolve the initial lane: blocked (deps) > scheduled (eta) > pending.
@@ -2749,6 +2754,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             "background_research",
             "relevance_sweep",
             "skill_workflows",
+            # Scheduled jobs (source syncs, loop cycles, the RSS feed screen) run
+            # under the background throttle so a heavy cycle yields to foreground
+            # work like any other background task. (CONCEPT:OS-5.44)
+            "scheduled_job",
         }
         if task_type in _HEAVY_TASK_TYPES:
             from agent_utilities.core.background_throttle import get_throttle
@@ -2772,6 +2781,42 @@ class TaskManagerMixin(GraphEngineProtocol):
     ):
         """Execute the ingestion logic."""
         try:
+            if task_type == "scheduled_job":
+                # A recurring job enqueued by the unified scheduler (CONCEPT:OS-5.44).
+                # The payload (the dispatch descriptor) rides on the task metadata;
+                # run it through the single dispatcher and let the schedule's own
+                # failure backoff govern cadence (so we do NOT route a job failure
+                # through the task-level retry — that would double-retry).
+                from agent_utilities.core.schedule_engine import (
+                    record_schedule_result,
+                    run_scheduled_job,
+                )
+
+                rows = self.query_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
+                )
+                meta = _decode_metadata(rows[0]["m"]) if rows else {}
+                sched_name = meta.get("schedule", "")
+                payload = meta.get("payload", {})
+                try:
+                    result = run_scheduled_job(self, payload)
+                    ok = str(result.get("status", "ok")) not in {"error", "failed"}
+                except Exception as e:  # noqa: BLE001 — recorded as a schedule failure
+                    result = {"status": "error", "error": str(e)}
+                    ok = False
+                if sched_name:
+                    record_schedule_result(self, sched_name, ok)
+                self._update_task_status(
+                    job_id,
+                    "completed" if ok else "failed",
+                    {
+                        "target": str(target),
+                        "type": task_type,
+                        "schedule": sched_name,
+                        "result": result,
+                    },
+                )
+                return
             if task_type == "conversation":
                 # Process a single conversation from a JSON or overview file
                 from agent_utilities.knowledge_graph.core.conversation_ingestion import (
