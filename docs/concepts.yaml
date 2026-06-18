@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 336
+total_concepts: 337
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1172,6 +1172,14 @@ concepts:
   - agent_utilities/messaging/router.py
   - agent_utilities/messaging/service.py
   doc: a cheap, tool-free classification so reactions work on ANY model
+- id: ECO-4.61
+  name: KG as a first-class shared knowledge/reasoning layer for all agents
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/tools/kg_tools.py
+  - agent_utilities/tools/tool_registry.py
+  doc: KG as a first-class shared knowledge/reasoning layer for all agents
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
