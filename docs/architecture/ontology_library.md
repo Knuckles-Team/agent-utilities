@@ -84,6 +84,7 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | `ontology_energy_geopolitics.ttl` | `…/kg/energy_geopolitics` | Energy & geopolitics domain. |
 | `ontology_enterprise.ttl` | `…/kg/enterprise` | Enterprise EA governance, ADR decision traces. |
 | `ontology_erpnext.ttl` | `…/kg/erpnext` | ERPNext integration. |
+| `ontology_feed.ttl` | `…/kg/feed` | Unified RSS/Atom feed sources + items (`:FeedSource`/`:RssFeed`/`:FeedItem`). |
 | `ontology_government.ttl` | `…/kg/government` | Government domain extension. |
 | `ontology_grafana.ttl` | `…/kg/grafana` | Grafana dashboards / observability assets. |
 | `ontology_harness.ttl` | `…/kg/harness` | Agentic harness engineering (AHE). |
@@ -116,3 +117,4 @@ IRI). They are validated for well-formedness by the gate via pyshacl.
 |------|------|
 | `shapes/governance.shapes.ttl` | Governance SHACL shapes (the closure/validation gate in `owl_closure.py`). |
 | `shapes/harness.shapes.ttl` | Harness-engineering SHACL shapes. |
+| `shapes/feed.shapes.ttl` | Feed-ingestion SHACL shapes (`:FeedSource` must carry `source_system`). |

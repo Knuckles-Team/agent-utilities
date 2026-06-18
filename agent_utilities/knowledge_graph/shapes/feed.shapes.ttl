@@ -1,0 +1,12 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:FeedSourceShape a sh:NodeShape ;
+    sh:description "A FeedSource must record the source system it ingests from (CONCEPT:KG-2.122)." ;
+    sh:name "Feed Source Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "FeedSource must carry source_system." ;
+            sh:minCount 1 ;
+            sh:path :source_system ] ;
+    sh:targetClass :FeedSource .
