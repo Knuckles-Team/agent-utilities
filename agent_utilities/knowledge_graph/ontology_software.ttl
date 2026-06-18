@@ -151,3 +151,16 @@
     rdfs:label "Code" ;
     rdfs:comment "An application code symbol: function, class, or method." .
 
+# Issue-tracker + wiki ingestion (CONCEPT:KG-2.123/2.124) — Jira/Plane issues
+# specialise the generic :Issue; Confluence pages specialise :Document so the wiki
+# mirror is both a Document (chunk/embed/retrieval) and a typed knowledge artifact.
+:JiraIssue a owl:Class ;
+    rdfs:label "Jira Issue" ;
+    rdfs:comment "A Jira issue ingested from an Atlassian site (CONCEPT:KG-2.124)." ;
+    rdfs:subClassOf :Issue .
+
+:ConfluencePage a owl:Class ;
+    rdfs:label "Confluence Page" ;
+    rdfs:comment "A Confluence wiki page mirrored as a full-text Document (CONCEPT:KG-2.123)." ;
+    rdfs:subClassOf :Document .
+
