@@ -43,8 +43,16 @@ _GOVERNANCE_SHAPES = (
     Path(__file__).resolve().parent.parent / "shapes" / "governance.shapes.ttl"
 )
 
-# The bundled ontology the OWL backend reasons over (knowledge_graph/core/ontology.ttl).
-_ONTOLOGY_PATH = Path(__file__).resolve().parent.parent / "core" / "ontology.ttl"
+# CONCEPT:KG-2.112 — Single canonical ontology library: one root ontology.ttl that
+# imports every domain module, no divergent duplicate, no unlinked/orphan modules;
+# kept valid + connected by scripts/check_ontology.py (docs/architecture/ontology_library.md).
+# The single canonical bundled ontology the OWL backend reasons over
+# (knowledge_graph/ontology.ttl). The owlready2 backend's _register_local_imports
+# globs every sibling ``ontology*.ttl`` in this file's directory, so pointing at
+# the package-root ontology loads the full domain-module set (not the old core/
+# subset, which globbed only its own directory and silently dropped every domain
+# module). One canonical file, one load path — see docs/architecture/ontology_library.md.
+_ONTOLOGY_PATH = Path(__file__).resolve().parent.parent / "ontology.ttl"
 
 
 def _empty_summary(reason: str) -> dict[str, Any]:

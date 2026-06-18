@@ -150,6 +150,10 @@
     rdfs:domain :Agent ;
     rdfs:range :Tool .
 
+<http://knuckles.team/kg/orchestration> a owl:Ontology ;
+    rdfs:label "Agent Intelligence Graph — Orchestration Module" ;
+    rdfs:comment "Orchestration domain extension (skill proposals, workflow/process distillation). Imported by the canonical <http://knuckles.team/kg> ontology; resolved to ontology_orchestration.ttl by the local loader convention." .
+
 :AgentMessage a owl:Class ;
     rdfs:label "AgentMessage" ;
     rdfs:comment "CONCEPT:ORCH-1.40 — a durable, replayable record of one message exchanged on an invoker↔spawned-agent channel (the live channel is in-RAM; this node is the durable record)." .
