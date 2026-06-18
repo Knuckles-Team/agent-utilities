@@ -816,6 +816,15 @@ class AgentConfig(BaseSettings):
     evolution_worktree_root: str = Field(default="", alias="EVOLUTION_WORKTREE_ROOT")
     kg_loop_interval: float = Field(default=3600.0, alias="KG_LOOP_INTERVAL")
     kg_loop_topics: int = Field(default=5, alias="KG_LOOP_TOPICS")
+    # ScholarX RSS research-feed loop (CONCEPT:KG-2.114): a recurring schedule
+    # that grades incoming RSS items (keyword taxonomy + ConceptMatcher novelty),
+    # skips already-seen items, and enqueues a prioritized full-paper fetch+ingest
+    # only for the high-graded ones. Default-ON (it no-ops safely without ScholarX
+    # / network); set KG_RESEARCH_FEED=0 to disable the autonomous fetching.
+    kg_research_feed: bool = Field(default=True, alias="KG_RESEARCH_FEED")
+    kg_research_feed_interval: float = Field(
+        default=1800.0, alias="KG_RESEARCH_FEED_INTERVAL"
+    )
     # SAI factory self-specialization (CONCEPT:AHE-3.29). LLM-free, bounded, and
     # propose-only (it only persists a SaiFactoryCycle metrics node — nothing is
     # merged or deployed), and a *no-op when there is too little transition history*,
