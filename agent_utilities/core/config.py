@@ -375,6 +375,13 @@ class AgentConfig(BaseSettings):
     messaging_burst_max_s: str = Field(default="12", alias="MESSAGING_BURST_MAX_S")
     # Post-conversation enrichment (CONCEPT:ECO-4.65): mine chats → KG concepts (opt-out).
     messaging_enrich: str = Field(default="1", alias="MESSAGING_ENRICH")
+    # Webhook push (CONCEPT:ECO-4.66): set the PUBLIC base URL (served via tunnel/edge to a
+    # LOCAL port) to switch from polling to instant webhook delivery; empty = polling.
+    messaging_webhook_base_url: str = Field(
+        default="", alias="MESSAGING_WEBHOOK_BASE_URL"
+    )
+    messaging_webhook_port: str = Field(default="8443", alias="MESSAGING_WEBHOOK_PORT")
+    messaging_webhook_secret: str = Field(default="", alias="MESSAGING_WEBHOOK_SECRET")
     # KG as a first-class default tool layer for every agent (opt-out).
     agent_kg_tools: str = Field(default="True", alias="AGENT_KG_TOOLS")
 

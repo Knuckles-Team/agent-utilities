@@ -236,12 +236,51 @@ class TelegramBackend(MessagingBackend):
         except Exception as e:  # noqa: BLE001
             logger.warning("[CONCEPT:ECO-4.57] Telegram setMyCommands failed: %s", e)
 
-    async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Yield inbound Telegram events, starting the poller on first use. CONCEPT:ECO-4.0"""
-        if not self._polling:
+    async def _start_intake(self) -> None:
+        """Start inbound intake once: webhook push if configured, else long-polling.
+
+        CONCEPT:ECO-4.66 — webhook mode uses python-telegram-bot's built-in receiver
+        (``start_webhook``), which validates Telegram's ``secret_token`` header and calls
+        ``setWebhook`` for us. It binds a LOCAL port (``MESSAGING_WEBHOOK_PORT``) that your
+        tunnel/edge (pangolin/Cloudflare/Caddy) forwards the public ``webhook_url`` to — so
+        nothing is exposed directly and only Telegram's signed requests are accepted.
+        """
+        if self._polling:
+            return
+        from agent_utilities.core.config import setting
+
+        base = str(setting("MESSAGING_WEBHOOK_BASE_URL", "")).strip()
+        if base:
+            import secrets
+
+            port = int(setting("MESSAGING_WEBHOOK_PORT", "8443"))
+            token = str(setting("MESSAGING_WEBHOOK_SECRET", "")) or secrets.token_hex(
+                16
+            )
+            url_path = "messaging/webhook/telegram"
+            await self._app.updater.start_webhook(
+                listen="127.0.0.1",
+                port=port,
+                url_path=url_path,
+                webhook_url=f"{base.rstrip('/')}/{url_path}",
+                secret_token=token,
+            )
+            self._polling = True
+            logger.info(
+                "[CONCEPT:ECO-4.66] Telegram webhook receiver started on 127.0.0.1:%s "
+                "(public %s/%s, secret-validated).",
+                port,
+                base.rstrip("/"),
+                url_path,
+            )
+        else:
             await self._app.updater.start_polling()
             self._polling = True
             logger.info("[CONCEPT:ECO-4.0] Telegram polling started.")
+
+    async def listen(self) -> AsyncIterator[InboundEvent]:
+        """Yield inbound Telegram events (webhook push or polling). CONCEPT:ECO-4.0/4.66"""
+        await self._start_intake()
         while self._connected:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
