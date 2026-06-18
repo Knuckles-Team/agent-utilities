@@ -147,3 +147,38 @@ async def share_reasoning(ctx: RunContext[Any], reasoning: str) -> str:
     """
     # In the future, this could also store a ReasoningTraceNode in the KG
     return f"Reasoning log: {reasoning}"
+
+
+async def reach_user(
+    ctx: RunContext[Any],
+    message: str,
+    wait_for_reply: bool = False,
+) -> str:
+    """Message the human operator on their last-active channel (e.g. Telegram).
+
+    CONCEPT:ECO-4.53 — Universal agent reach_user tool over the messaging reach service.
+    Use it to proactively tell the user something, or to ask a question and optionally wait
+    for their reply. Routing follows the user's most-recently-used channel, falling back to
+    the configured default; the send is governed by the ActionPolicy gate.
+
+    Args:
+        ctx: The agent run context.
+        message: The text to send (supports the channel's rich text, e.g. Telegram HTML).
+        wait_for_reply: When True, block until the user replies (or a timeout) and return
+            their reply; when False, send and return immediately.
+
+    Returns:
+        The user's reply (if ``wait_for_reply``), else a short send-status string.
+    """
+    from agent_utilities.messaging.service import MessagingService
+
+    service = MessagingService.instance()
+    if wait_for_reply:
+        reply = await service.reach_user_and_wait(
+            message, source="agent", reason="agent asked the user"
+        )
+        return reply if reply else "(no reply received before timeout)"
+    result = await service.reach_user(message, source="agent", reason="agent outreach")
+    if result.success:
+        return f"sent via {result.platform}"
+    return f"send failed: {result.error}"

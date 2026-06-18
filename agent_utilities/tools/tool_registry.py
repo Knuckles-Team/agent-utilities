@@ -42,6 +42,7 @@ def register_agent_tools(
     from .agent_tools import (
         invoke_specialized_agent,
         list_available_agents,
+        reach_user,
         share_reasoning,
     )
     from .browser import browser_tools
@@ -195,6 +196,8 @@ def register_agent_tools(
     _safe_tool(invoke_specialized_agent)
     _safe_tool(list_available_agents)
     _safe_tool(share_reasoning)
+    # CONCEPT:ECO-4.53 — universal agent reach_user tool over the messaging reach service
+    _safe_tool(reach_user)
 
     # 9. Onboarding Tools
     for tool in onboarding_tools:

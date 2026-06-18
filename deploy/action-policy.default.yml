@@ -29,6 +29,9 @@ rules:
   - {kind: diagnose, target: "*", tier: auto}
   - {kind: observe, target: "*", tier: auto}
   - {kind: notify, target: "*", tier: auto}
+  # Outbound user messaging (CONCEPT:ECO-4.48): governed but default-on (auto+notify);
+  # tighten to approval_required for a stricter posture.
+  - {kind: message.send, target: "*", tier: auto_notify}
   - {kind: record_dry_run, target: "*", tier: auto}
   # Sandboxed developer-workspace actions (CONCEPT:OS-5.33) default to auto:
   # the workspace container/process IS the containment boundary. Override any

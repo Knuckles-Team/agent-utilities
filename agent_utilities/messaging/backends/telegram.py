@@ -49,6 +49,7 @@ class TelegramBackend(MessagingBackend):
         super().__init__(config)
         self._app: Any = None
         self._event_queue: asyncio.Queue[InboundEvent] = asyncio.Queue()
+        self._polling = False
 
     @property
     def id(self) -> str:
@@ -59,7 +60,13 @@ class TelegramBackend(MessagingBackend):
         return CAPABILITY_MATRIX["telegram"]
 
     async def connect(self) -> None:
-        """Connect to Telegram Bot API. CONCEPT:ECO-4.0"""
+        """Connect to Telegram Bot API — send-ready, no poller. CONCEPT:ECO-4.0
+
+        Polling for inbound updates is started lazily by :meth:`listen` (the inbound
+        stream), NOT here, so a send-only consumer (e.g. the ``graph_reach`` MCP tool
+        in a client process) never starts a second ``getUpdates`` poller that would
+        409-conflict with the daemon's inbound listener.
+        """
         try:
             from telegram.ext import ApplicationBuilder, MessageHandler, filters
         except ImportError:
@@ -121,14 +128,15 @@ class TelegramBackend(MessagingBackend):
         self._app.add_handler(MessageHandler(filters.ALL, on_message))
         await self._app.initialize()
         await self._app.start()
-        asyncio.create_task(self._app.updater.start_polling())
         self._connected = True
-        logger.info("[CONCEPT:ECO-4.0] Telegram backend connected.")
+        logger.info("[CONCEPT:ECO-4.0] Telegram backend connected (send-ready).")
 
     async def disconnect(self) -> None:
         """Disconnect from Telegram. CONCEPT:ECO-4.0"""
         if self._app:
-            await self._app.updater.stop()
+            if self._polling:
+                await self._app.updater.stop()
+                self._polling = False
             await self._app.stop()
             await self._app.shutdown()
         await super().disconnect()
@@ -205,7 +213,11 @@ class TelegramBackend(MessagingBackend):
         await self._app.bot.send_chat_action(chat_id=int(channel_id), action="typing")
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
-        """Yield inbound Telegram events. CONCEPT:ECO-4.0"""
+        """Yield inbound Telegram events, starting the poller on first use. CONCEPT:ECO-4.0"""
+        if not self._polling:
+            await self._app.updater.start_polling()
+            self._polling = True
+            logger.info("[CONCEPT:ECO-4.0] Telegram polling started.")
         while self._connected:
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)

@@ -184,34 +184,18 @@ async def ingest_outbound_to_kg(
 
 
 def _get_default_engine() -> Any | None:
-    """Attempt to load the default IntelligenceGraphEngine from workspace.
+    """Return the live served engine (the same one ``gateway/daemon.py`` uses).
 
-    CONCEPT:ECO-4.0
+    CONCEPT:ECO-4.0 — bind to ``IntelligenceGraphEngine.get_active()`` so ingested
+    messages land in the running graph rather than a throwaway side database.
 
     Returns:
-        IntelligenceGraphEngine instance or None.
+        The active IntelligenceGraphEngine instance, or None if none is running.
     """
     try:
-        from agent_utilities.core.paths import data_dir
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-        from agent_utilities.knowledge_graph.pipeline import RegistryPipeline
-        from agent_utilities.models.knowledge_graph import PipelineConfig
 
-        registry_db = data_dir() / "kg" / "registry_graph.db"
-        if not registry_db.exists():
-            return None
-
-        config = PipelineConfig(
-            workspace_path=str(registry_db.parent),
-            persist_to_ladybug=True,
-            ladybug_path=str(registry_db),
-        )
-        pipeline = RegistryPipeline(config)
-        return IntelligenceGraphEngine(
-            graph=pipeline.graph, db_path=config.ladybug_path
-        )
-    except ImportError:
-        return None
-    except Exception as e:
+        return IntelligenceGraphEngine.get_active()
+    except Exception as e:  # noqa: BLE001
         logger.debug("[CONCEPT:ECO-4.0] Default engine load failed: %s", e)
         return None

@@ -812,6 +812,32 @@ def register_builtin_interfaces(registry: InterfaceRegistry) -> None:
         )
     )
 
+    # CONCEPT:ECO-4.54 — Messaging ontology shape so reach channels are reasoned over
+    # A MessagingChannel is any platform conversation the system can reach a user on; the
+    # durable UserChannelPreference node (ECO-4.49) implements it, letting the reasoner
+    # relate users to their last-active channel as first-class OWL/RDF.
+    registry.register(
+        Interface(
+            name="MessagingChannel",
+            description=(
+                "Abstract shape for a messaging channel the system can reach a user "
+                "on: a platform identifier and a platform-specific channel id."
+            ),
+            properties=[
+                InterfaceProperty(
+                    name="platform",
+                    type_ref="string",
+                    description="Messaging platform id, e.g. 'telegram'.",
+                ),
+                InterfaceProperty(
+                    name="channel_id",
+                    type_ref="string",
+                    description="Platform-specific channel/chat id.",
+                ),
+            ],
+        )
+    )
+
     # Agent-Native Research Artifact shapes (CONCEPT:KG-2.80). An ARA is a 4-layer
     # artifact whose /logic claims are verifiable and grounded; making these
     # ontology interfaces (owl:Class + SHACL NodeShape) lets the reasoner
