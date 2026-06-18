@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 338
+total_concepts: 339
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1188,6 +1188,14 @@ concepts:
   code_paths:
   - agent_utilities/messaging/router.py
   doc: read-only KG tools the messaging agent may auto-run without approval
+- id: ECO-4.63
+  name: Burst-mode message coalescing
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/coalescer.py
+  - agent_utilities/messaging/router.py
+  doc: Burst-mode message coalescing
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033

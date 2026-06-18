@@ -87,6 +87,17 @@ even on local models that can't call tools; set `MESSAGING_REACTIONS=0` to disab
 `setMessageReaction` is implemented; other backends expose `send_reaction` as the extension
 point and degrade gracefully where unsupported — the capability matrix declares support).
 
+## Burst coalescing (ECO-4.63)
+
+When you fire several messages in quick succession, the agent collapses them into **one
+holistic reply with one LLM call** instead of answering each separately. A per-conversation
+debounce (`BurstCoalescer`, `messaging/coalescer.py`) accumulates messages and flushes the
+batch when you pause for `MESSAGING_BURST_WINDOW_S` (default 2.5s) or `MESSAGING_BURST_MAX_S`
+(default 12s) elapses. Per-message side effects that must stay immediate — last-active
+channel, KG history ingest, loop-reply delivery, `/commands` — run per message; only the
+agent reply (and its single reaction) coalesce. `BurstCoalescer` is a shared core primitive
+agent-terminal-ui reuses, so burst behavior is identical across surfaces.
+
 ## Universal commands (ECO-4.57)
 
 Commands are defined once in `agent_utilities/messaging/commands.py` (`COMMANDS`) — the
