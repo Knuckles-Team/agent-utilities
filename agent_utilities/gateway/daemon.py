@@ -81,7 +81,7 @@ def _run_messaging_router(engine: Any, platforms: list[str]) -> None:
             # Publish OUR universal command set on every backend (CONCEPT:ECO-4.57);
             # each registers it where the platform supports a runtime menu, else no-ops.
             try:
-                await backend.register_commands(command_specs())
+                await backend.register_commands(command_specs("messaging"))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("messaging: register_commands(%s) failed: %s", pid, exc)
             router.register_backend(backend)

@@ -28,9 +28,13 @@ class MessagingCommand:
     name: str
     description: str
     builtin: bool
+    # Which surfaces expose this command (CONCEPT:ECO-4.71). Both by default; terminal-ui
+    # consumes the same registry so chat and TUI commands stay in lockstep.
+    surfaces: tuple[str, ...] = ("messaging", "terminal")
 
 
-# The single source of truth — shared by every platform and the terminal UI.
+# The single source of truth (CONCEPT:ECO-4.71) — shared by every messaging platform AND
+# agent-terminal-ui so the same commands mean the same thing on every surface.
 COMMANDS: tuple[MessagingCommand, ...] = (
     MessagingCommand("help", "Show what this assistant can do and list commands", True),
     MessagingCommand("status", "Show messaging + agent status", True),
@@ -43,12 +47,33 @@ COMMANDS: tuple[MessagingCommand, ...] = (
         False,
     ),
     MessagingCommand("skill", "Run a skill by name: /skill <name> [args]", False),
+    # Cross-surface commands (terminal-ui already implements these; the registry is the
+    # canonical name+description so both surfaces stay aligned).
+    MessagingCommand("model", "Show or set the model", False, surfaces=("terminal",)),
+    MessagingCommand("agents", "List available agents", False),
+    MessagingCommand("goal", "Show or set the current goal", False),
+    MessagingCommand(
+        "sdd", "Spec-driven development: turn a request into a plan", False
+    ),
 )
 
 
-def command_specs() -> list[dict[str, str]]:
-    """Spec for per-platform registration and agent-terminal-ui rendering."""
-    return [{"command": c.name, "description": c.description} for c in COMMANDS]
+def command_specs(surface: str | None = None) -> list[dict[str, str]]:
+    """Command specs for a surface (``messaging``/``terminal``), or all (CONCEPT:ECO-4.71).
+
+    Used for per-platform registration (Telegram setMyCommands) and agent-terminal-ui help.
+    """
+    return [
+        {"command": c.name, "description": c.description}
+        for c in COMMANDS
+        if surface is None or surface in c.surfaces
+    ]
+
+
+def describe(name: str) -> str | None:
+    """Canonical description for a command name (the single source of truth)."""
+    cmd = next((c for c in COMMANDS if c.name == name.lstrip("/").lower()), None)
+    return cmd.description if cmd else None
 
 
 def _parse(content: str) -> tuple[str, str] | None:
