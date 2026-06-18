@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 344
+total_concepts: 345
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1239,6 +1239,14 @@ concepts:
   - agent_utilities/messaging/router.py
   - agent_utilities/messaging/voice.py
   doc: no text? transcribe a voice/audio attachment and use that
+- id: ECO-4.70
+  name: Surfaced
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/messaging/enrichment.py
+  doc: Surfaced
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
