@@ -796,6 +796,19 @@ class TaskManagerMixin(GraphEngineProtocol):
         # Self-evolution Loop engine cycle (CONCEPT:KG-2.78), OPT-IN via KG_LOOP=1;
         # runs _tick_loop as a task at research priority.
         _maint("loop_cycle", "loop", _cfg.kg_loop_interval, enabled=_cfg.kg_loop, prio=2)
+        # ScholarX RSS research-feed screen (CONCEPT:KG-2.114): grade incoming RSS
+        # items, skip already-seen, enqueue prioritized full-paper fetch+ingest.
+        # Default-ON (no-ops without ScholarX); KG_RESEARCH_FEED=0 disables.
+        specs.append(
+            ScheduleSpec(
+                name="research_feed",
+                payload={"kind": "research_feed"},
+                trigger="interval",
+                interval_s=float(getattr(_cfg, "kg_research_feed_interval", 1800.0)),
+                prio_bucket=2,
+                enabled=bool(getattr(_cfg, "kg_research_feed", True)),
+            )
+        )
         _maint(
             "sai_factory",
             "sai_factory",
@@ -2669,6 +2682,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             # under the background throttle so a heavy cycle yields to foreground
             # work like any other background task. (CONCEPT:OS-5.44)
             "scheduled_job",
+            # Full-paper download + ingest enqueued by the RSS feed screen.
+            "research_paper_fetch",
         }
         if task_type in _HEAVY_TASK_TYPES:
             from agent_utilities.core.background_throttle import get_throttle
@@ -2725,6 +2740,41 @@ class TaskManagerMixin(GraphEngineProtocol):
                         "type": task_type,
                         "schedule": sched_name,
                         "result": result,
+                    },
+                )
+                return
+            if task_type == "research_paper_fetch":
+                # A high-graded RSS item: download the full paper and ingest it
+                # (CONCEPT:KG-2.114). Enqueued by the RSS feed screen with a
+                # grade-derived priority, so the best papers are fetched first.
+                from agent_utilities.automation.research_pipeline import (
+                    ResearchPipelineRunner,
+                )
+
+                rows = self.query_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
+                )
+                meta = _decode_metadata(rows[0]["m"]) if rows else {}
+                paper = meta.get("paper", {})
+                runner = ResearchPipelineRunner(engine=self)
+                article_id = await runner.ingest_paper_full(
+                    paper.get("id", ""),
+                    paper.get("title", ""),
+                    paper.get("abstract", ""),
+                    paper.get("authors", []),
+                    pdf_path=None,
+                    source_url=paper.get("url", ""),
+                    relevance_score=float(paper.get("score", 0.0) or 0.0),
+                    domains=paper.get("domains"),
+                )
+                self._update_task_status(
+                    job_id,
+                    "completed",
+                    {
+                        "target": paper.get("id", ""),
+                        "type": task_type,
+                        "article_id": article_id,
+                        "score": paper.get("score"),
                     },
                 )
                 return
