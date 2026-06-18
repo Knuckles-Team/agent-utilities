@@ -132,6 +132,7 @@ class JiraIssueSink(_IssueSinkBase):
         )
 
 
+# CONCEPT:KG-2.126 — Ticket status and comment writeback
 # ── Status-transition + comment sinks (CONCEPT:KG-2.126) ─────────────────────
 #
 # The action half of the ticket→PR loop: KG/agent decisions move an issue through

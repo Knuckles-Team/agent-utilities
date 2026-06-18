@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 357
+total_concepts: 365
 total_pillars: 20
 pillars:
 - AHE-3
@@ -2994,6 +2994,67 @@ concepts:
   - agent_utilities/automation/feed_sources.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   doc: first-class RSS/Atom feed sources
+- id: KG-2.123
+  name: Confluence first-class delta connector
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/hydration.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+  doc: Confluence first-class delta connector
+- id: KG-2.124
+  name: Jira first-class delta connector
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/hydration.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  doc: Jira first-class delta connector
+- id: KG-2.125
+  name: Plane first-class delta connector
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  doc: Plane first-class delta connector
+- id: KG-2.126
+  name: Ticket status and comment writeback
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/issue_tracker.py
+  doc: Ticket status and comment writeback
+- id: KG-2.127
+  name: Perspectival inquiry engine
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/gateway/research_api.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/research/ara/service.py
+  - agent_utilities/knowledge_graph/research/perspective.py
+  - agent_utilities/knowledge_graph/research/search.py
+  - agent_utilities/mcp/tools/state_tools.py
+  doc: Perspectival inquiry engine
+- id: KG-2.128
+  name: Contradiction / agreement / blind-spot as first-class KG structures
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/research/perspective.py
+  doc: Contradiction / agreement / blind-spot as first-class KG structures
+- id: KG-2.129
+  name: Peer-review / self-critique closing the loop
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/perspective.py
+  doc: Peer-review / self-critique closing the loop
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -3645,6 +3706,14 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   doc: local-inference slots always kept free for the interactive path
+- id: ORCH-1.60
+  name: Ticket-driven workflow playbook
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/fleet_event_triage.py
+  - agent_utilities/knowledge_graph/adaptation/ticket_playbooks.py
+  doc: Ticket-driven workflow playbook
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

@@ -1,7 +1,9 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ticket-driven workflow playbooks (CONCEPT:ORCH-1.60).
+"""Ticket-driven workflow playbooks.
+
+CONCEPT:ORCH-1.60 — Ticket-driven workflow playbook
 
 The event-driven half of Jira/Plane enablement. A tracker webhook posts to the
 gateway's ``POST /api/fleet/events?source=jira`` (or ``?source=plane``); the fleet
@@ -58,7 +60,9 @@ def _notify(engine: Any, text: str) -> None:
         logger.debug("ticket playbook notify failed: %s", exc)
 
 
-def _dispatch_workflow(engine: Any, workflow: str, ticket: str, source: str) -> str | None:
+def _dispatch_workflow(
+    engine: Any, workflow: str, ticket: str, source: str
+) -> str | None:
     """Run the configured graph_orchestrate workflow for this ticket (or None)."""
     if not workflow:
         return None
@@ -106,7 +110,10 @@ def _ticket_playbook(source: str, workflow_setting: str) -> Any:
             out["workflow"] = dispatched
 
         # 3. Operator notification (the Telegram cockpit).
-        _notify(engine, f"🎫 {source} {ticket}: workflow triggered ({out.get('workflow') or 'ingest only'}).")
+        _notify(
+            engine,
+            f"🎫 {source} {ticket}: workflow triggered ({out.get('workflow') or 'ingest only'}).",
+        )
         return out
 
     return playbook

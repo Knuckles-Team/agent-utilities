@@ -131,10 +131,22 @@ class PerspectiveInquiry:
                     "domain": "research",
                 }
             )
-            rels.append({"source": p.id, "target": root, "type": "part_of", "domain": "research"})
+            rels.append(
+                {
+                    "source": p.id,
+                    "target": root,
+                    "type": "part_of",
+                    "domain": "research",
+                }
+            )
             for sid in p.source_node_ids:
                 rels.append(
-                    {"source": p.id, "target": sid, "type": "asks_from", "domain": "research"}
+                    {
+                        "source": p.id,
+                        "target": sid,
+                        "type": "asks_from",
+                        "domain": "research",
+                    }
                 )
         cm = self.contradiction_map
         if cm.agreements:
@@ -148,7 +160,12 @@ class PerspectiveInquiry:
                 }
             )
             rels.append(
-                {"source": agree_id, "target": root, "type": "part_of", "domain": "research"}
+                {
+                    "source": agree_id,
+                    "target": root,
+                    "type": "part_of",
+                    "domain": "research",
+                }
             )
             for sid in cm.agreements:
                 rels.append(
@@ -170,7 +187,12 @@ class PerspectiveInquiry:
                 }
             )
             rels.append(
-                {"source": blind_id, "target": root, "type": "part_of", "domain": "research"}
+                {
+                    "source": blind_id,
+                    "target": root,
+                    "type": "part_of",
+                    "domain": "research",
+                }
             )
         for a, b in cm.divergences:
             entities.append(
@@ -195,7 +217,12 @@ class PerspectiveInquiry:
             }
         )
         rels.append(
-            {"source": review_id, "target": root, "type": "reviews", "domain": "research"}
+            {
+                "source": review_id,
+                "target": root,
+                "type": "reviews",
+                "domain": "research",
+            }
         )
         return entities, rels
 
@@ -208,7 +235,9 @@ class PerspectiveEngine:
     raises into the research loop.
     """
 
-    def __init__(self, engine: Any = None, *, llm_fn: Callable[[str], str] | None = None) -> None:
+    def __init__(
+        self, engine: Any = None, *, llm_fn: Callable[[str], str] | None = None
+    ) -> None:
         self.engine = engine
         self.llm_fn = llm_fn
 
@@ -221,7 +250,11 @@ class PerspectiveEngine:
         rationale is annotated so the lens is grounded in what the graph actually holds.
         """
         neighbours = self._neighbour_types(topic_id)
-        hint = f" (graph neighbours: {', '.join(sorted(neighbours)[:5])})" if neighbours else ""
+        hint = (
+            f" (graph neighbours: {', '.join(sorted(neighbours)[:5])})"
+            if neighbours
+            else ""
+        )
         out: list[Perspective] = []
         for lens, sees in CANONICAL_LENSES:
             out.append(
@@ -264,7 +297,11 @@ class PerspectiveEngine:
                     f"As a {perspective.lens} researching '{topic_name}', list "
                     f"{_QUESTIONS_PER_LENS} short distinct questions, one per line."
                 )
-                lines = [q.strip("-• ").strip() for q in str(refined).splitlines() if q.strip()]
+                lines = [
+                    q.strip("-• ").strip()
+                    for q in str(refined).splitlines()
+                    if q.strip()
+                ]
                 if lines:
                     return lines[:_QUESTIONS_PER_LENS]
             except Exception:  # noqa: BLE001 — fall back to templated questions
@@ -296,7 +333,9 @@ class PerspectiveEngine:
             p.source_node_ids = found
         inquiry.perspectives = perspectives
         inquiry.contradiction_map = self._contradiction_map(perspectives, topic_id)
-        inquiry.peer_review = self._peer_review(perspectives, inquiry.contradiction_map, topic_name)
+        inquiry.peer_review = self._peer_review(
+            perspectives, inquiry.contradiction_map, topic_name
+        )
         return inquiry
 
     def _contradiction_map(
@@ -363,7 +402,9 @@ class PerspectiveEngine:
         return PeerReview(
             confidence=confidence,
             weakest_link=singletons[0] if singletons else None,
-            dominant_lens=dominant.lens if dominant and dominant.source_node_ids else None,
+            dominant_lens=dominant.lens
+            if dominant and dominant.source_node_ids
+            else None,
             missing_perspective=missing.lens if missing else None,
             frontier_question=frontier
             if (frontier and len(with_sources) >= 2)

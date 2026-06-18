@@ -297,9 +297,9 @@ def _sync_freshrss(
     wm_config = WorldModelConfig(
         use_novelty=to_boolean(setting("FRESHRSS_USE_NOVELTY", default="False"))
     )
-    report = WorldModelPipelineRunner(
-        engine=engine, config=wm_config
-    ).run_gated_ingest(docs)
+    report = WorldModelPipelineRunner(engine=engine, config=wm_config).run_gated_ingest(
+        docs
+    )
 
     seen = [e for d in docs if (e := _as_epoch(d.updated_at)) is not None]
     new_watermark = str(max(seen)) if seen else None
@@ -350,15 +350,15 @@ def _sync_rss(
     # Native feed URLs = the comma-separated config seed UNION the runtime-added
     # :FeedSource registry (so graph_feeds add → next sweep ingests it).
     seed = (getattr(_cfg, "kg_rss_feeds", "") or "").split(",")
-    native_urls = {u.strip() for u in seed if u.strip()}
+    native_url_set = {u.strip() for u in seed if u.strip()}
     for node in list_feed_sources(engine):
         if (
             node.get("source_system") == "rss"
             and node.get("enabled", True)
             and node.get("feed_url")
         ):
-            native_urls.add(str(node["feed_url"]))
-    native_urls = sorted(native_urls)
+            native_url_set.add(str(node["feed_url"]))
+    native_urls = sorted(native_url_set)
     try:
         import scholarx  # noqa: F401
 
@@ -496,6 +496,10 @@ def _sync_gitlab(
 # mcp_tool presets — never a direct vendor client. Each is **multi-instance** (the
 # GitLab pattern): a second Atlassian site or Plane workspace is a second ``*-mcp``
 # server entry + a typed ``*_instances`` config row, so the same logic ingests both.
+#
+# CONCEPT:KG-2.123 — Confluence first-class delta connector
+# CONCEPT:KG-2.124 — Jira first-class delta connector
+# CONCEPT:KG-2.125 — Plane first-class delta connector
 
 
 def _resolve_tracker_instances(
@@ -569,7 +573,9 @@ def _jira_jql_date(value: Any) -> str | None:
 
     m = re.match(r"(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})", str(value))
     return (
-        f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}" if m else None
+        f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}"
+        if m
+        else None
     )
 
 
@@ -764,7 +770,12 @@ def _plane_entities(
             )
             proj_emitted = True
         rels.append(
-            {"source": node_id, "target": proj_node, "type": "part_of", "domain": "plane"}
+            {
+                "source": node_id,
+                "target": proj_node,
+                "type": "part_of",
+                "domain": "plane",
+            }
         )
     return entities, rels
 

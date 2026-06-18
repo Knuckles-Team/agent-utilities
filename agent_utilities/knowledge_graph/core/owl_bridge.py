@@ -163,7 +163,6 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "evidence_record",
     "constraint_state",
     # Backfill Gap Types
-    "task",
     "codemap",
     "pattern_template",
     "proposed_skill",
