@@ -315,6 +315,98 @@ def _sync_freshrss(
     }
 
 
+def _sync_rss(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Native RSS/Atom feeds + ScholarX arXiv through the ONE world-model gate (KG-2.121).
+
+    The unified feed handler: native feed URLs (``KG_RSS_FEEDS``) are drained by the
+    zero-infra ``rss`` connector and ScholarX arXiv items by the scholarx feed bridge;
+    both emit the same ``SourceDocument`` shape and flow through
+    :meth:`WorldModelPipelineRunner.run_gated_ingest` — research/arXiv items take the
+    prioritized ``research_paper_fetch`` path, news items the relevance+novelty gate.
+    Each configured feed is materialized as a first-class ``:FeedSource`` node on this
+    live path. Delta = an ISO publish-date watermark; node-existence (``_is_known``)
+    is the cross-run dedup.
+    """
+    from ...automation.feed_sources import (
+        list_feed_sources,
+        register_feed_nodes,
+        scholarx_feed_documents,
+    )
+    from ...automation.worldmodel_pipeline import WorldModelPipelineRunner
+    from ...core.config import config as _cfg
+    from ...protocols.source_connectors.base import ConnectorCheckpoint
+    from ...protocols.source_connectors.registry import build_connector
+
+    # Native feed URLs = the comma-separated config seed UNION the runtime-added
+    # :FeedSource registry (so graph_feeds add → next sweep ingests it).
+    seed = (getattr(_cfg, "kg_rss_feeds", "") or "").split(",")
+    native_urls = {u.strip() for u in seed if u.strip()}
+    for node in list_feed_sources(engine):
+        if (
+            node.get("source_system") == "rss"
+            and node.get("enabled", True)
+            and node.get("feed_url")
+        ):
+            native_urls.add(str(node["feed_url"]))
+    native_urls = sorted(native_urls)
+    try:
+        import scholarx  # noqa: F401
+
+        scholarx_ok = True
+    except Exception:  # noqa: BLE001
+        scholarx_ok = False
+    if not native_urls and not scholarx_ok:
+        return {
+            "status": "skipped",
+            "reason": "no native RSS feeds (set KG_RSS_FEEDS) and scholarx not installed",
+        }
+
+    backend = getattr(engine, "backend", None)
+    since = None if mode == "full" else _read_watermark(backend, "rss")
+
+    # Materialize the feed registry on the live sweep path (Wire-First, KG-2.122).
+    register_feed_nodes(
+        engine,
+        native_urls=native_urls,
+        scholarx_categories=(["arxiv"] if scholarx_ok else []),
+    )
+
+    docs: list[Any] = []
+    if native_urls:
+        conn = build_connector("rss", {"feed_urls": native_urls})
+        cp = ConnectorCheckpoint(watermark=since) if since else None
+        if hasattr(conn, "poll_all"):
+            docs.extend(list(conn.poll_all(cp)))  # type: ignore[attr-defined]
+        else:
+            docs.extend(list(conn.load()))  # type: ignore[attr-defined]
+    if scholarx_ok:
+        docs.extend(scholarx_feed_documents())
+
+    report = WorldModelPipelineRunner(engine=engine).run_gated_ingest(docs)
+
+    iso_dates = [d.updated_at for d in docs if getattr(d, "updated_at", None)]
+    new_watermark = max(iso_dates) if iso_dates else None
+    if new_watermark and (since is None or new_watermark > since):
+        _write_watermark(backend, "rss", new_watermark)
+
+    return {
+        "status": "ok",
+        "source": "rss",
+        "mode": mode,
+        "delta_capable": True,
+        "items_seen": len(docs),
+        "ingested": report.ingested,
+        "relevant": report.relevant,
+        "marginal": report.marginal,
+        "research": report.research,
+        "skipped_unchanged": report.skipped,
+        "since": since,
+        "watermark": new_watermark or since,
+    }
+
+
 def _sync_gitlab(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
@@ -396,6 +488,7 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "archivebox": _sync_archivebox,
     "gitlab": _sync_gitlab,
     "freshrss": _sync_freshrss,
+    "rss": _sync_rss,
 }
 
 
