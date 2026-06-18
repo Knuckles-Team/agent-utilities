@@ -276,7 +276,6 @@ async def create_planner_handler(
     """
     from agent_utilities.core.config import setting
     from agent_utilities.messaging.coalescer import BurstCoalescer
-    from agent_utilities.messaging.kg_ingest import ingest_message_to_kg
     from agent_utilities.messaging.service import MessagingService
 
     async def _reply_to_burst(_key: str, items: list[Any]) -> None:
@@ -369,11 +368,11 @@ async def create_planner_handler(
         svc = MessagingService.instance(knowledge_engine)
         engine = svc._resolve_engine()
 
-        # 1. Record last-active channel (CONCEPT:ECO-4.49) — immediate, per message.
-        try:
-            svc.record_inbound(event)
-        except Exception as e:  # noqa: BLE001
-            logger.debug("[CONCEPT:ECO-4.49] record_inbound failed: %s", e)
+        # 1. Persist last-active channel (ECO-4.49) + KG ingest (KG-2.1) OFF the reply
+        #    path (CONCEPT:ECO-4.72). Both are BLOCKING KG writes (add_node /
+        #    store_memory + embedding); awaiting them here stalled the messaging loop and
+        #    starved the burst reply, so they run in the background, in a thread.
+        _spawn_bg(_persist_inbound(svc, event, engine))
 
         # 2. If a goal-loop is awaiting this user's reply, deliver it and stop
         #    (CONCEPT:ECO-4.52) — the message is an answer, not a new request.
@@ -383,12 +382,6 @@ async def create_planner_handler(
                 event.platform,
             )
             return
-
-        # 3. Auto-ingest to KG (CONCEPT:KG-2.1) — immediate, per message (full history).
-        try:
-            await ingest_message_to_kg(event, knowledge_engine=engine)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
 
         # 3b. Built-in universal command? (CONCEPT:ECO-4.57) Answer immediately and stop;
         #     /claude, /skill, and unknowns fall through to the coalesced agent reply.
@@ -451,6 +444,36 @@ async def _decide_reaction(content: str) -> str:
     except Exception as e:  # noqa: BLE001
         logger.debug("[CONCEPT:ECO-4.60] reaction decision failed: %s", e)
         return ""
+
+
+# CONCEPT:ECO-4.72 — fire-and-forget background tasks (strong refs so they aren't GC'd).
+_BG_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _spawn_bg(coro: Any) -> None:
+    """Schedule a coroutine off the reply path, keeping a strong ref until it finishes."""
+    task = asyncio.create_task(coro)
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+
+
+async def _persist_inbound(svc: Any, event: Any, engine: Any) -> None:
+    """Record last-active channel + ingest the message to the KG (CONCEPT:ECO-4.72).
+
+    Both are BLOCKING KG writes (``add_node`` / ``store_memory`` + embedding); run them in
+    a worker thread so they never stall the messaging loop or delay the burst reply.
+    Best-effort — persistence failures must not affect the reply.
+    """
+    from agent_utilities.messaging.kg_ingest import ingest_message_to_kg
+
+    try:
+        await asyncio.to_thread(svc.record_inbound, event)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[CONCEPT:ECO-4.49] record_inbound failed: %s", e)
+    try:
+        await ingest_message_to_kg(event, knowledge_engine=engine)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
 
 
 async def _recall_context(engine: Any, content: str, platform: str) -> str:
