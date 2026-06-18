@@ -63,6 +63,7 @@ def _run_messaging_router(engine: Any, platforms: list[str]) -> None:
     """Connect configured backends and run the InboundRouter on a private loop."""
     import asyncio
 
+    from agent_utilities.messaging.commands import command_specs
     from agent_utilities.messaging.router import (
         InboundRouter,
         create_planner_handler,
@@ -77,6 +78,12 @@ def _run_messaging_router(engine: Any, platforms: list[str]) -> None:
             if backend is None:
                 continue
             svc.register_connected(backend)
+            # Publish OUR universal command set on every backend (CONCEPT:ECO-4.57);
+            # each registers it where the platform supports a runtime menu, else no-ops.
+            try:
+                await backend.register_commands(command_specs())
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("messaging: register_commands(%s) failed: %s", pid, exc)
             router.register_backend(backend)
         router.set_default_handler(await create_planner_handler(engine))
         await router.start()  # blocks on the listener tasks
