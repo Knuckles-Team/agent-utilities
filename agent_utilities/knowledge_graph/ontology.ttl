@@ -452,6 +452,39 @@ Works for DataClassification, SecurityClearance, risk tier, etc.""" ;
     rdfs:label "Correction" ;
     rdfs:comment "A human-asserted correction of an agent output, fact, or routing decision." .
 
+# Perspectival inquiry — STORM made native (CONCEPT:KG-2.127/2.128/2.129). The inquiry
+# and its lenses/agreements/contradictions/blind-spot/self-critique are Concepts so they
+# are first-class, graph-queryable knowledge units next to the topic they address.
+:ResearchInquiry a owl:Class ;
+    rdfs:label "Research Inquiry" ;
+    rdfs:comment "A multi-perspective inquiry over a topic (CONCEPT:KG-2.127)." ;
+    rdfs:subClassOf :Concept .
+
+:Perspective a owl:Class ;
+    rdfs:label "Perspective" ;
+    rdfs:comment "One expert lens whose questions surface a distinct source set (CONCEPT:KG-2.127)." ;
+    rdfs:subClassOf :Concept .
+
+:Agreement a owl:Class ;
+    rdfs:label "Agreement" ;
+    rdfs:comment "Sources corroborated by two or more perspectives — likely true (CONCEPT:KG-2.128)." ;
+    rdfs:subClassOf :Concept .
+
+:Contradiction a owl:Class ;
+    rdfs:label "Contradiction" ;
+    rdfs:comment "Two perspectives that surfaced non-overlapping evidence (CONCEPT:KG-2.128)." ;
+    rdfs:subClassOf :Concept .
+
+:BlindSpot a owl:Class ;
+    rdfs:label "Blind Spot" ;
+    rdfs:comment "Topic neighbourhood no perspective's questions covered (CONCEPT:KG-2.128)." ;
+    rdfs:subClassOf :Concept .
+
+:PeerReview a owl:Class ;
+    rdfs:label "Peer Review" ;
+    rdfs:comment "The inquiry's self-critique: confidence, bias check, frontier question (CONCEPT:KG-2.129)." ;
+    rdfs:subClassOf :Concept .
+
 :Decision a owl:Class ;
     rdfs:label "Decision" ;
     rdfs:comment "A decision linking Goal → Action → Outcome. Subtype of Event." ;

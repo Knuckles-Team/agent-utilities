@@ -392,15 +392,18 @@ def register_state_tools(mcp):
             "the whole ecosystem and harvest extrapolated cross-domain relationships "
             "as research topics), 'compile' (paper -> ecosystem-grounded OWL-native "
             "4-layer ARA), 'review'/'seal' (L1/L2/L3 OWL/SHACL-grounded review + "
-            "certificate), 'capture' (live research event w/ provenance), 'get', 'list'."
+            "certificate), 'capture' (live research event w/ provenance), 'get', 'list', "
+            "'inquire' (native multi-perspective STORM inquiry: expert lenses -> "
+            "contradiction/agreement/blind-spot map + self-critique, CONCEPT:KG-2.127)."
         ),
         tags=["graph-os", "research", "ontology"],
     )
     async def research_artifact(
         action: str = Field(
             default="reason",
-            description="reason|compile|review|seal|capture|get|list",
+            description="reason|compile|review|seal|capture|get|list|inquire",
         ),
+        topic: str = Field(default="", description="Topic to inquire into (inquire)."),
         article_id: str = Field(
             default="", description="Paper/article id (compile/review/get)."
         ),
@@ -419,6 +422,9 @@ def register_state_tools(mcp):
             default="", description="Codebase to ground claims against (compile)."
         ),
         limit: int = Field(default=50, description="Max rows (list)."),
+        materialize: bool = Field(
+            default=True, description="Persist inquiry nodes (inquire)."
+        ),
     ) -> str:
         """Run an ARA action over the one ontology-driven KG (single SoT)."""
 
@@ -429,6 +435,7 @@ def register_state_tools(mcp):
             result = service.run(
                 action,
                 article_id=article_id,
+                topic=topic or query,
                 query=query,
                 level=level,
                 text=text,
@@ -437,6 +444,7 @@ def register_state_tools(mcp):
                 event_type=event_type,
                 target_codebase=target_codebase or None,
                 limit=limit,
+                materialize=materialize,
             )
             return json.dumps(result, default=str)
         except Exception as e:

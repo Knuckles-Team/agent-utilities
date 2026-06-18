@@ -202,6 +202,13 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "issue",
     "external_graph_reference",
     "external_entity",
+    # Perspectival inquiry — STORM structures (CONCEPT:KG-2.127/2.128/2.129)
+    "research_inquiry",
+    "perspective",
+    "agreement",
+    "contradiction",
+    "blind_spot",
+    "peer_review",
     # Financial Trading Pipeline (CONCEPT:KG-2.6)
     "trading_signal",
     "order",
@@ -313,6 +320,10 @@ PROMOTABLE_NODE_TYPES: set[str] = {
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
 PROMOTABLE_EDGE_TYPES: set[str] = {
+    # Perspectival inquiry edges (CONCEPT:KG-2.128/2.129)
+    "asks_from",
+    "agrees_with",
+    "reviews",
     # Enrichment / code-understanding edges (CONCEPT:KG-2.8)
     "calls",
     "covers",

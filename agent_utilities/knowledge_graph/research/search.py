@@ -117,6 +117,45 @@ def acquire_for_topic(
     return ids
 
 
+def acquire_for_topic_perspectival(
+    engine: Any,
+    topic: dict[str, Any],
+    *,
+    top_k: int = 5,
+    embed_fn: Any = None,
+    timeout: float | None = None,
+) -> list[str]:
+    """Multi-perspective acquire — STORM made native (CONCEPT:KG-2.127).
+
+    Instead of one semantic probe of the topic name, fan :func:`acquire_for_topic`
+    across questions asked from several expert lenses, derive the contradiction /
+    agreement / blind-spot map and a self-critique, materialize them as KG nodes, and
+    submit the frontier question as the next research loop. Returns the **union** of
+    source ids every lens surfaced, so the loop's ``mark_addressed`` still converges
+    the topic. Falls back to the single-lens probe when the fan-out finds nothing (e.g.
+    embeddings unavailable), so behaviour never regresses.
+    """
+    from .perspective import PerspectiveEngine
+
+    tid = str(topic.get("id") or "")
+
+    def _probe(question: str) -> list[str]:
+        return acquire_for_topic(
+            engine,
+            {"id": tid, "name": question},
+            top_k=max(2, top_k // 2),
+            embed_fn=embed_fn,
+            timeout=timeout,
+        )
+
+    eng = PerspectiveEngine(engine)
+    inquiry = eng.inquire({"id": tid, "name": str(topic.get("name") or tid)}, _probe)
+    eng.materialize(inquiry)
+    return inquiry.all_source_ids() or acquire_for_topic(
+        engine, topic, top_k=top_k, embed_fn=embed_fn, timeout=timeout
+    )
+
+
 def _acquire_external(engine: Any, query: str, top_k: int) -> list[str]:
     """Optional external acquisition (X / SearXNG / scholarx) — best-effort.
 
