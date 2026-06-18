@@ -109,6 +109,8 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "task",
     "schedule",
     "loop",
+    # Unified feed ingestion (CONCEPT:KG-2.122) — first-class RSS/Atom feed sources.
+    "feedsource",
     "file",
     "symbol",
     "module",
