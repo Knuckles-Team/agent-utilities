@@ -122,7 +122,8 @@ class ARAService:
             "action": "inquire",
             "topic": name,
             "perspectives": [
-                {"lens": p.lens, "sources": p.source_node_ids} for p in inquiry.perspectives
+                {"lens": p.lens, "sources": p.source_node_ids}
+                for p in inquiry.perspectives
             ],
             "agreements": cm.agreements,
             "divergences": cm.divergences,
