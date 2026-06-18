@@ -99,3 +99,29 @@ def test_active_loops_dispatch_by_kind_and_status():
 
 def test_terminal_status_set():
     assert "completed" in TERMINAL_STATUS and "running" not in TERMINAL_STATUS
+
+
+def test_submit_loop_records_priority_bucket():
+    from agent_utilities.knowledge_graph.research.loops import prioritize_loop
+
+    eng = _Engine()
+    loop = submit_loop(eng, "hot objective", prio_bucket=0)
+    assert loop["prio_bucket"] == 0
+    assert eng.nodes[loop["id"]]["prio_bucket"] == 0
+    # prioritize_loop upserts a new bucket onto the node.
+    assert prioritize_loop(eng, loop["id"], 3) is True
+    assert eng.nodes[loop["id"]]["prio_bucket"] == 3
+
+
+def test_active_loops_emitted_in_priority_order():
+    rows = [
+        {"id": "loop:research:bg", "loop_kind": "research", "status": "pending",
+         "prio_bucket": 3},
+        {"id": "loop:research:crit", "loop_kind": "research", "status": "pending",
+         "prio_bucket": 0},
+        {"id": "loop:research:norm", "loop_kind": "research", "status": "pending",
+         "prio_bucket": 2},
+    ]
+    eng = _Engine(concept_rows=rows)
+    order = [lp["id"] for lp in active_loops(eng, limit=10)]
+    assert order == ["loop:research:crit", "loop:research:norm", "loop:research:bg"]

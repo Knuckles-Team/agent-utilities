@@ -58,6 +58,7 @@ def submit_loop(
     source: str = "user",
     loop_id: str = "",
     max_iterations: int = 20,
+    prio_bucket: int = 2,
 ) -> dict[str, Any] | None:
     """Materialize a long-running objective as a Loop node (CONCEPT:KG-2.78).
 
@@ -76,6 +77,10 @@ def submit_loop(
         "status": "pending",
         "source": source,
         "max_iterations": int(max_iterations),
+        # Claim/intake priority bucket (0=critical .. 3=background); active_loops
+        # emits in ascending-bucket order so a hot loop is advanced first, and a
+        # loop-spawned child task inherits this. (CONCEPT:KG-2.113)
+        "prio_bucket": int(prio_bucket),
         "timestamp": _now_iso(),
     }
     if end_state:
@@ -93,10 +98,13 @@ def submit_loop(
 
 
 def _loop_dict(oid: str, data: dict[str, Any]) -> dict[str, Any]:
+    _pb = data.get("prio_bucket")
     out: dict[str, Any] = {
         "id": oid,
         "name": data.get("name") or data.get("objective") or oid,
         "kind": data.get("loop_kind") or "research",
+        # NB: bucket 0 (critical) is falsy — don't collapse it to the default.
+        "prio_bucket": int(_pb) if _pb is not None else 2,
     }
     for k in ("objective", "end_state", "validation_cmd", "skill_ref", "status"):
         v = data.get(k)
@@ -138,6 +146,23 @@ def mark_loop_status(
         return False
 
 
+def prioritize_loop(engine: Any, loop_id: str, prio_bucket: int) -> bool:
+    """Set a Loop's intake/claim priority bucket (CONCEPT:KG-2.113).
+
+    ``active_loops`` emits loops in ascending-bucket order, so bumping a loop to
+    bucket 0/1 advances it ahead of background loops on the next cycle.
+    Best-effort: a failed persist returns ``False``, never raises.
+    """
+    try:
+        engine.add_node(
+            loop_id, "Concept", properties={"prio_bucket": int(prio_bucket)}
+        )
+        return True
+    except Exception as e:  # noqa: BLE001 — best-effort
+        logger.debug("prioritize_loop persist failed: %s", e)
+        return False
+
+
 def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
     """Every Loop still needing work — the LoopController's intake (CONCEPT:KG-2.78).
 
@@ -167,7 +192,8 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
             "MATCH (c:Concept) RETURN c.id AS id, c.name AS name, "
             "c.loop_kind AS loop_kind, c.status AS status, "
             "c.objective AS objective, c.validation_cmd AS validation_cmd, "
-            "c.skill_ref AS skill_ref, c.end_state AS end_state LIMIT $limit",
+            "c.skill_ref AS skill_ref, c.end_state AS end_state, "
+            "c.prio_bucket AS prio_bucket LIMIT $limit",
             {"limit": int(limit) * 20},
         )
     except Exception as e:  # noqa: BLE001
@@ -191,9 +217,11 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
         if kind == "research" and cid in addressed:
             continue  # research loop already addressed → resolved
         out.append(_loop_dict(cid, r))
-        if len(out) >= limit:
-            break
-    return out
+    # Priority-ordered intake: the L1 interpreter strips ORDER BY, so we sort the
+    # already-fetched candidate set in-memory by claim bucket (0 first) before
+    # the limit cutoff — a hot loop is advanced ahead of background ones.
+    out.sort(key=lambda d: d.get("prio_bucket", 2))
+    return out[:limit]
 
 
 __all__ = [
@@ -202,4 +230,5 @@ __all__ = [
     "submit_loop",
     "active_loops",
     "mark_loop_status",
+    "prioritize_loop",
 ]

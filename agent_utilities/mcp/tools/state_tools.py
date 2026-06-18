@@ -160,7 +160,10 @@ def register_state_tools(mcp):
         tags=["graph-os", "loops"],
     )
     async def graph_loops(
-        action: str = Field(default="list", description="submit|list|run|cancel"),
+        action: str = Field(
+            default="list",
+            description="submit|list|run|drive|cancel|prioritize",
+        ),
         objective: str = Field(default="", description="Objective text (submit)."),
         kind: str = Field(
             default="research", description="research|develop|skill (submit)."
@@ -176,16 +179,26 @@ def register_state_tools(mcp):
         ),
         max_topics: int = Field(default=5, description="Loops to advance per run."),
         limit: int = Field(default=10, description="Max rows (list)."),
+        priority: str = Field(
+            default="normal",
+            description="Priority bucket 0-3 or critical|high|normal|background "
+            "(submit/prioritize).",
+        ),
     ) -> str:
-        """Submit / list / run / cancel Loops — the one Loop-engine entrypoint."""
+        """Submit / list / run / drive / cancel / prioritize Loops — the one
+        Loop-engine entrypoint."""
         import json as _json
 
+        from agent_utilities.knowledge_graph.core.engine_tasks import (
+            _coerce_prio_bucket,
+        )
         from agent_utilities.knowledge_graph.research.loop_controller import (
             LoopController,
         )
         from agent_utilities.knowledge_graph.research.loops import (
             active_loops,
             mark_loop_status,
+            prioritize_loop,
             submit_loop,
         )
 
@@ -202,6 +215,7 @@ def register_state_tools(mcp):
                     end_state=end_state,
                     skill_ref=skill_ref,
                     loop_id=loop_id,
+                    prio_bucket=_coerce_prio_bucket(priority),
                 )
                 return _json.dumps({"action": "submit", "loop": loop}, default=str)
             if action == "list":
@@ -234,6 +248,19 @@ def register_state_tools(mcp):
                     return _json.dumps({"error": "cancel needs a loop_id"})
                 ok = mark_loop_status(engine, loop_id, "cancelled", source="user")
                 return _json.dumps({"action": "cancel", "id": loop_id, "ok": ok})
+            if action == "prioritize":
+                if not loop_id:
+                    return _json.dumps({"error": "prioritize needs a loop_id"})
+                bucket = _coerce_prio_bucket(priority)
+                ok = prioritize_loop(engine, loop_id, bucket)
+                return _json.dumps(
+                    {
+                        "action": "prioritize",
+                        "id": loop_id,
+                        "prio_bucket": bucket,
+                        "ok": ok,
+                    }
+                )
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:
             return _json.dumps({"error": str(e)})
