@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 356
+total_concepts: 357
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1268,6 +1268,13 @@ concepts:
   - agent_utilities/gateway/daemon.py
   - agent_utilities/messaging/daemon.py
   doc: the inbound messaging router runs in its OWN process
+- id: ECO-4.74
+  name: a slow/hung reaction call must never block the actual reply
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/router.py
+  doc: a slow/hung reaction call must never block the actual reply
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
