@@ -113,6 +113,17 @@ action=send` targets a specific service explicitly.
 | `MESSAGING_ENABLE_SKILLS` | Pre-load the full skill library (default `0` = lean; fleet MCP tools still load on demand) |
 | `MESSAGING_SKILL_TYPES` | Comma-list: pre-load only these skill types |
 | `MESSAGING_TOOL_TAGS` | Comma-list: scope the universal toolset to these tags |
+| `MESSAGING_MCP_URL` | Point the agent at graph-os MCP (e.g. `http://127.0.0.1:8100/sse`) to delegate via `graph_orchestrate`/`graph_search` + load fleet tools on demand (ECO-4.59) |
+| `MESSAGING_MCP_CONFIG` | Path to an MCP config (e.g. the multiplexer) instead of a single URL |
+
+### Delegation via graph-os (ECO-4.59)
+
+Rather than carrying every tool, the lean messaging agent **offloads** heavy work through
+graph-os when `MESSAGING_MCP_URL`/`MESSAGING_MCP_CONFIG` is set: `graph_orchestrate(
+action=execute_agent)` spawns a specialist agent (with the needed skills/MCP tools), runs
+it, and relays the result back; `find_tools`/`load_tools` pull a specific fleet tool on
+demand; `graph_search` hits the KG. Keeps the agent's context small while giving it the
+full platform's capability — via existing graph-os actions, no bespoke delegation code.
 
 ### Context burden (ECO-4.58)
 

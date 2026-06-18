@@ -459,6 +459,13 @@ def _get_messaging_agent(provider: str, model_id: str | None) -> Any:
     the mcp-multiplexer's dynamic mode (find_tools/load_tools). Operators opt into more:
     ``MESSAGING_ENABLE_SKILLS=1`` (or ``MESSAGING_SKILL_TYPES=a,b`` for a subset) and
     ``MESSAGING_TOOL_TAGS=x,y`` to scope the universal toolset.
+
+    CONCEPT:ECO-4.59 — delegation by graph-os MCP. Point ``MESSAGING_MCP_URL`` at the
+    served graph-os MCP (e.g. ``http://127.0.0.1:8100/sse``) or ``MESSAGING_MCP_CONFIG`` at
+    the multiplexer config; the agent then keeps a lean local context and OFFLOADS heavy
+    work through graph-os — ``graph_orchestrate(execute_agent)`` spawns a specialist with
+    the needed skills/MCP tools and routes the result back, ``graph_search`` hits the KG,
+    and ``find_tools``/``load_tools`` pull fleet tools on demand. No bespoke delegation code.
     """
     from agent_utilities.core.config import setting
 
@@ -483,6 +490,8 @@ def _get_messaging_agent(provider: str, model_id: str | None) -> Any:
         enable_skills=enable_skills,
         skill_types=_csv_setting("MESSAGING_SKILL_TYPES"),
         tool_tags=_csv_setting("MESSAGING_TOOL_TAGS"),
+        mcp_url=str(setting("MESSAGING_MCP_URL", "")) or None,
+        mcp_config=str(setting("MESSAGING_MCP_CONFIG", "")) or None,
     )
     _MESSAGING_AGENTS[key] = agent
     return agent
