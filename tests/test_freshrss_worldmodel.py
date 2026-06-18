@@ -174,7 +174,7 @@ def test_sync_freshrss_gates_and_watermarks(monkeypatch):
         SimpleNamespace(updated_at="1700000300"),
         SimpleNamespace(updated_at=None),
     ]
-    fake_conn = SimpleNamespace(poll_all=lambda: docs)
+    fake_conn = SimpleNamespace(poll_all=lambda **kw: docs)
     monkeypatch.setattr(
         "agent_utilities.protocols.source_connectors.registry.build_connector",
         lambda *a, **k: fake_conn,
