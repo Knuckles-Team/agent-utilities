@@ -89,6 +89,29 @@ async def test_model_routed_reply_falls_back_to_plain_chat(
     assert "couldn't draft a reply" not in reply
 
 
+@pytest.mark.asyncio
+async def test_run_until_text_plain_output() -> None:
+    # _run_until_text returns the agent's text when it doesn't defer tools (ECO-4.62).
+    from agent_utilities.messaging import router
+
+    class _Result:
+        output = "the answer"
+
+    class _Agent:
+        async def run(self, *a: Any, **k: Any):
+            return _Result()
+
+    out = await router._run_until_text(_Agent(), "q")
+    assert out == "the answer"
+
+
+def test_safe_auto_tools_are_readonly_kg() -> None:
+    # Only read-only KG tools auto-run from chat; mutations stay gated (ECO-4.62).
+    from agent_utilities.messaging.router import _SAFE_AUTO_TOOLS
+
+    assert _SAFE_AUTO_TOOLS == {"kg_search", "kg_recall", "kg_query"}
+
+
 # ── Lean / lazy loadout (ECO-4.58) ───────────────────────────────────
 
 
