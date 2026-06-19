@@ -2684,15 +2684,16 @@ concepts:
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: run one autonomous night-shift cycle over a
 - id: KG-2.85
-  name: Adaptive Chunk Selection
+  name: Unset → the dependency-free
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/neural_reranker.py
   - agent_utilities/knowledge_graph/retrieval/reasoning_reranker.py
   - agent_utilities/knowledge_graph/retrieval/score_gate.py
-  doc: Adaptive Chunk Selection
+  doc: Unset → the dependency-free
 - id: KG-2.86
   name: ChronoID. Fits a residual-quantization codebook on the
   pillar: KG-2

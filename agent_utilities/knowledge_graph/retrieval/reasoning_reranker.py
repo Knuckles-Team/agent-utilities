@@ -125,8 +125,22 @@ def _auto_scorer() -> RerankScorer:
     cross-encoder stays available as an explicit opt-in (``KG_RERANK_LOCAL_NEURAL=1``) for a host
     that genuinely wants it; even then it is probed and falls back to lexical if it can't load.
     """
-    from agent_utilities.core.config import setting
+    from agent_utilities.core.config import config, setting
 
+    # 1) Remote reranker on vLLM when a model is configured — the default once you point
+    # KG_RERANK_MODEL at a served reranker (e.g. bge-reranker). No local model.
+    if config.kg_rerank_model:
+        from .neural_reranker import RemoteRerankScorer
+
+        base = (
+            config.kg_rerank_base_url
+            or config.openai_base_url
+            or "http://vllm.arpa/v1"
+        )
+        return RemoteRerankScorer(config.kg_rerank_model, base)
+
+    # 2) No remote model → the dependency-free lexical scorer, unless a host explicitly
+    # opts into the local neural cross-encoder.
     if not setting("KG_RERANK_LOCAL_NEURAL", False, cast=bool):
         return LexicalRelevanceScorer()
 

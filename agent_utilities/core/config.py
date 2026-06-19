@@ -1197,6 +1197,14 @@ class AgentConfig(BaseSettings):
     graph_service_socket: str | None = Field(default=None, alias="GRAPH_SERVICE_SOCKET")
     """Path to the epistemic-graph Tokio service UDS socket. Defaults to
     $XDG_RUNTIME_DIR/epistemic-graph.sock."""
+    kg_rerank_model: str | None = Field(default=None, alias="KG_RERANK_MODEL")
+    """Remote reranker model served on vLLM (e.g. ``BAAI/bge-reranker-v2-m3``). When set,
+    reranking scores (query, passage) on the remote ``/v1/rerank`` endpoint — no local model,
+    consistent with embeddings/LLM on vLLM (CONCEPT:KG-2.85). Unset → the dependency-free
+    lexical scorer (or opt-in local neural via ``KG_RERANK_LOCAL_NEURAL``)."""
+    kg_rerank_base_url: str | None = Field(default=None, alias="KG_RERANK_BASE_URL")
+    """Base URL for the remote reranker endpoint; defaults to ``OPENAI_BASE_URL`` (the vLLM
+    endpoint already serving the embedder/LLM)."""
     kg_ingest_engine_endpoint: str | None = Field(
         default=None, alias="KG_INGEST_ENGINE_ENDPOINT"
     )
