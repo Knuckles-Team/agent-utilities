@@ -391,19 +391,24 @@ not REST; the legacy `graph_search_hybrid_endpoint` is deprecated.
 Parity is **measured**, not asserted: `harness/assimilation_benchmark.py` (`CONCEPT:AHE-3.47`)
 runs each mechanism vs a baseline on a controlled, seeded, CPU-only task and reports the real lift
 + a `claim_reproduced` verdict — surfaced via `graph_analyze action='assimilation_benchmark'`.
-**8/8 mechanisms reproduce their paper's claimed direction** (seed 0). The PauseRec parity gap is
-closed by `retrieval/pause_token_trainer.py` (`CONCEPT:KG-2.93` training track) — the paper's actual
-**trainable `<pause>` tokens optimized by gradient descent** (torch-optional, CPU), measured
-Recall@3 = 1.00 with vs 0.67 without the trained tokens. Full *scale* reproduction (paper datasets +
-GPU training) remains GPU-gated.
+**7/7 torch-free mechanisms reproduce their paper's claimed direction** (seed 0).
+
+The PauseRec **training track** — the paper's actual **trainable `<pause>` tokens optimized by
+gradient descent** (`CONCEPT:KG-2.93`) — was re-homed to **data-science-mcp**
+(`data_science_mcp/training/pause_token_trainer.py`, reached over MCP) so agent-utilities core
+stays torch-free (see [AGENTS.md](../../AGENTS.md) "Dependency discipline"). It measured
+Recall@3 = 1.00 with vs 0.67 without the trained tokens (torch, CPU); full *scale* reproduction
+(paper datasets + GPU training) remains GPU-gated. The **inference-time** deterministic adaptation
+(`retrieval/generative_recommender.py`, `bench_pauserec`) is torch-free and stays in core.
 
 ```mermaid
 flowchart LR
-    subgraph BENCH["assimilation_benchmark (AHE-3.47)"]
+    subgraph BENCH["assimilation_benchmark (AHE-3.47, torch-free)"]
         B1["bench_pauserec / scoregate / tasr / adore<br/>decentmem / mlevolve / sgs"]
-        B2["bench_pauserec_trained<br/>(torch: real pause-token training)"]
     end
     SURF["graph_analyze action=assimilation_benchmark"] --> BENCH
-    BENCH --> RES["BenchmarkResult[] + to_markdown<br/>baseline vs ours + claim_reproduced (8/8)"]
-    PTT["pause_token_trainer.py (KG-2.93)<br/>trainable pause tokens + next-item CE"] --> B2
+    BENCH --> RES["BenchmarkResult[] + to_markdown<br/>baseline vs ours + claim_reproduced (7/7)"]
+    subgraph DSM["data-science-mcp[training] (re-homed, torch)"]
+        PTT["pause_token_trainer.py (KG-2.93)<br/>trainable pause tokens + next-item CE"]
+    end
 ```

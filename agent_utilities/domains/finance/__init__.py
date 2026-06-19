@@ -55,11 +55,6 @@ from .credit_quality import (
     merton_distance_to_default,
     normal_cdf,
 )
-
-try:  # torch-backed LSTM eval — optional extra; data-science-mcp owns ML training (dep rule)
-    from .evaluation import evaluate_trading_signal, walk_forward_validation
-except ImportError:  # noqa: BLE001 - torch absent in the lean serving install
-    evaluate_trading_signal = walk_forward_validation = None  # type: ignore[assignment]
 from .execution import calculate_kelly_fraction, check_regime_shift
 from .features import StationaryFeatureEngineer, check_stationarity
 from .filing_diff import (
@@ -120,11 +115,6 @@ from .market_feeds import (
     Tick,
     TickAggregator,
 )
-
-try:  # torch-backed LSTM model — optional extra; data-science-mcp owns ML training (dep rule)
-    from .models import TradingLSTM, prepare_sequences
-except ImportError:  # noqa: BLE001 - torch absent in the lean serving install
-    TradingLSTM = prepare_sequences = None  # type: ignore[assignment,misc]
 from .pattern_classifier import (
     Candle,
     EdgeLabel,
@@ -279,12 +269,12 @@ __all__ = [
     "build_copy_trade_workflow",
     "seed_copy_trade_workflow",
     # Original modules
+    # NOTE: TradingLSTM / prepare_sequences / evaluate_trading_signal /
+    # walk_forward_validation were re-homed to
+    # data-science-mcp (data_science_mcp.training.trading_lstm) so core stays
+    # torch-free — see AGENTS.md "Dependency discipline".
     "StationaryFeatureEngineer",
     "check_stationarity",
-    "TradingLSTM",
-    "prepare_sequences",
-    "evaluate_trading_signal",
-    "walk_forward_validation",
     "calculate_kelly_fraction",
     "check_regime_shift",
     # Alpha Factors (KG-2.6)
