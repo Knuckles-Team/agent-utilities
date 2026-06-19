@@ -311,7 +311,12 @@ async def create_planner_handler(
                     image_urls.append(att.url)
         image_parts = await _fetch_image_parts(image_urls)
 
-        kg_context = await _recall_context(engine, combined, str(event.platform))
+        # NO blocking recall pre-fetch on the reply path (CONCEPT:ECO-4.74). recall_memory
+        # runs a heavy LOCAL embed + cross-encoder rerank (tens of CPU-bound "Batches") in
+        # this process, which grinds the messaging daemon and stalls the answer. The reply
+        # is generated immediately; the agent pulls KG context ON DEMAND via its
+        # auto-approved kg_search/kg_recall tools when a question actually needs it.
+        kg_context = ""
         logger.info(
             "[CONCEPT:ECO-4.63] Routing a burst of %d message(s) (%d image[s]) from %s/%s.",
             len(items),
@@ -330,23 +335,11 @@ async def create_planner_handler(
         except Exception as e:  # noqa: BLE001
             logger.error("[CONCEPT:ECO-4.51] Sending reply failed: %s", e)
 
-        # Post-conversation enrichment (CONCEPT:ECO-4.65): mine the turn for concepts and
-        # link them into the KG, in the background so it never delays the reply.
-        try:
-            from agent_utilities.messaging.enrichment import enrich_conversation
-
-            convo = f"{combined}\n\nAssistant: {reply}"
-            asyncio.create_task(
-                asyncio.to_thread(
-                    enrich_conversation,
-                    engine,
-                    convo,
-                    platform=str(event.platform),
-                    channel_id=event.channel_id,
-                )
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.debug("[CONCEPT:ECO-4.65] enrichment dispatch skipped: %s", e)
+        # Persist + enrich AFTER the reply is sent (CONCEPT:ECO-4.74). EVERY KG write and
+        # local-model encode (last-active, message ingest, concept enrichment) runs here —
+        # NEVER concurrently with reply generation, which otherwise contends with it on the
+        # GIL-bound local embedding model and stalls the answer (the root of "no reply").
+        _spawn_bg(_persist_and_enrich(svc, engine, items, combined, reply))
 
     coalescer = BurstCoalescer(
         _reply_to_burst,
@@ -372,11 +365,9 @@ async def create_planner_handler(
         svc = MessagingService.instance(knowledge_engine)
         engine = svc._resolve_engine()
 
-        # 1. Persist last-active channel (ECO-4.49) + KG ingest (KG-2.1) OFF the reply
-        #    path (CONCEPT:ECO-4.72). Both are BLOCKING KG writes (add_node /
-        #    store_memory + embedding); awaiting them here stalled the messaging loop and
-        #    starved the burst reply, so they run in the background, in a thread.
-        _spawn_bg(_persist_inbound(svc, event, engine))
+        # NOTE: last-active + KG ingest are NOT done here. They run AFTER the reply is sent
+        # (in _reply_to_burst → _persist_and_enrich, CONCEPT:ECO-4.74) so no KG write or
+        # local-model encode ever runs concurrently with reply generation.
 
         # 2. If a goal-loop is awaiting this user's reply, deliver it and stop
         #    (CONCEPT:ECO-4.52) — the message is an answer, not a new request.
@@ -479,23 +470,40 @@ def _spawn_bg(coro: Any) -> None:
     task.add_done_callback(_BG_TASKS.discard)
 
 
-async def _persist_inbound(svc: Any, event: Any, engine: Any) -> None:
-    """Record last-active channel + ingest the message to the KG (CONCEPT:ECO-4.72).
+async def _persist_and_enrich(
+    svc: Any, engine: Any, items: list[Any], combined: str, reply: str
+) -> None:
+    """Record last-active + ingest every message + enrich — AFTER the reply (CONCEPT:ECO-4.74).
 
-    Both are BLOCKING KG writes (``add_node`` / ``store_memory`` + embedding); run them in
-    a worker thread so they never stall the messaging loop or delay the burst reply.
-    Best-effort — persistence failures must not affect the reply.
+    Runs strictly off the reply path so no KG write or local-model encode (add_node, ingest,
+    concept extraction) ever competes with reply generation. Best-effort; failures here never
+    affect the reply that already went out.
     """
     from agent_utilities.messaging.kg_ingest import ingest_message_to_kg
 
+    last = items[-1]["event"]
     try:
-        await asyncio.to_thread(svc.record_inbound, event)
+        await asyncio.to_thread(svc.record_inbound, last)
     except Exception as e:  # noqa: BLE001
         logger.debug("[CONCEPT:ECO-4.49] record_inbound failed: %s", e)
+    for it in items:
+        try:
+            await ingest_message_to_kg(it["event"], knowledge_engine=engine)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
     try:
-        await ingest_message_to_kg(event, knowledge_engine=engine)
+        from agent_utilities.messaging.enrichment import enrich_conversation
+
+        convo = f"{combined}\n\nAssistant: {reply}"
+        await asyncio.to_thread(
+            enrich_conversation,
+            engine,
+            convo,
+            platform=str(last.platform),
+            channel_id=last.channel_id,
+        )
     except Exception as e:  # noqa: BLE001
-        logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
+        logger.debug("[CONCEPT:ECO-4.65] enrichment skipped: %s", e)
 
 
 async def _recall_context(engine: Any, content: str, platform: str) -> str:

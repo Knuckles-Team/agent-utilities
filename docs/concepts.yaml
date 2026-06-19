@@ -1269,12 +1269,13 @@ concepts:
   - agent_utilities/messaging/daemon.py
   doc: the inbound messaging router runs in its OWN process
 - id: ECO-4.74
-  name: a slow/hung reaction call must never block the actual reply
+  name: only cancel the debounce timer when flushing from a DIFFERENT
   pillar: ECO-4
   status: live
   code_paths:
+  - agent_utilities/messaging/coalescer.py
   - agent_utilities/messaging/router.py
-  doc: a slow/hung reaction call must never block the actual reply
+  doc: only cancel the debounce timer when flushing from a DIFFERENT
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
