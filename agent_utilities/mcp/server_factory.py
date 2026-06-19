@@ -465,11 +465,35 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
     from fastmcp.server.auth.providers.jwt import JWTVerifier
 
     jwks_uri = args.token_jwks_uri or setting("FASTMCP_SERVER_AUTH_JWT_JWKS_URI")
-    issuer = args.token_issuer or setting("FASTMCP_SERVER_AUTH_JWT_ISSUER")
+    # OIDC_ISSUER is the canonical, provider-agnostic var; FASTMCP_SERVER_AUTH_JWT_ISSUER
+    # is the per-server alias. Either may be a comma-separated multi-issuer list (OS-5.45).
+    issuer = (
+        setting("OIDC_ISSUER")
+        or args.token_issuer
+        or setting("FASTMCP_SERVER_AUTH_JWT_ISSUER")
+    )
     audience = args.token_audience or setting("FASTMCP_SERVER_AUTH_JWT_AUDIENCE")
     algorithm = args.token_algorithm
     secret_or_key = args.token_secret or args.token_public_key
     public_key_pem = None
+
+    # CONCEPT:OS-5.46 — IdP-agnostic: with no explicit JWKS URI (and not a static key),
+    # resolve it from each issuer's OIDC discovery document, so config carries only the
+    # issuer (Keycloak, Okta, Auth0, Entra, …) — never a vendor-specific path.
+    if not jwks_uri and not secret_or_key and issuer:
+        from agent_utilities.security.oidc_discovery import jwks_uri_for
+
+        _resolved = [
+            jwks_uri_for(i.strip()) for i in str(issuer).split(",") if i.strip()
+        ]
+        if _resolved and all(_resolved):
+            jwks_uri = ",".join(_resolved)
+        elif any(_resolved):
+            logger.warning(
+                "OIDC discovery resolved JWKS for only some of issuer(s) '%s'; "
+                "set FASTMCP_SERVER_AUTH_JWT_JWKS_URI explicitly.",
+                issuer,
+            )
 
     if not (jwks_uri or secret_or_key):
         logger.error(
