@@ -369,13 +369,33 @@ class MessagingService:
             return True
         return False
 
-    # ── Reactions (CONCEPT:ECO-4.60) ─────────────────────────────────
+    # ── Reactions: the messaging RENDERER of the core output (CONCEPT:ECO-4.81) ──
+    async def render_reaction(
+        self, platform: str, channel_id: str, reaction: Any
+    ) -> bool:
+        """Render a core :class:`AgentReaction` on ``platform`` (the renderer contract).
+
+        CONCEPT:ECO-4.81 — messaging is a RENDERER of the orchestrator's
+        :class:`~agent_utilities.orchestration.reactions.AgentReaction`, not the owner of
+        the reaction logic. This paints the core decision onto chat via the backend's
+        ``send_reaction`` / ``setMessageReaction``. Returns True if rendered.
+        """
+        if reaction is None or not getattr(reaction, "emote", ""):
+            return False
+        return await self.react(
+            platform,
+            channel_id,
+            getattr(reaction, "target_message_id", None) or "",
+            reaction.emote,
+        )
+
     async def react(
         self, platform: str, channel_id: str, message_id: str, emoji: str
     ) -> bool:
         """React to a message with an emoji where the platform supports it.
 
-        Returns True if sent; False if the backend is unavailable or doesn't support it.
+        Low-level renderer primitive. Returns True if sent; False if the backend is
+        unavailable or doesn't support it.
         """
         if not (platform and channel_id and message_id and emoji):
             return False
@@ -388,7 +408,7 @@ class MessagingService:
         except NotImplementedError:
             return False
         except Exception as exc:  # noqa: BLE001
-            logger.debug("[ECO-4.60] reaction failed on %s: %s", platform, exc)
+            logger.debug("[ECO-4.81] reaction failed on %s: %s", platform, exc)
             return False
 
     # ── Introspection ────────────────────────────────────────────────

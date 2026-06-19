@@ -32,6 +32,10 @@ rules:
   # Outbound user messaging (CONCEPT:ECO-4.48): governed but default-on (auto+notify);
   # tighten to approval_required for a stricter posture.
   - {kind: message.send, target: "*", tier: auto_notify}
+  # Reactions/emotes (CONCEPT:ECO-4.80): cosmetic, low-risk output any entrypoint may
+  # render — auto by default. Tighten to forbidden to disable reactions for a
+  # principal/context, or scope by target (the channel/surface).
+  - {kind: reaction, target: "*", tier: auto}
   - {kind: record_dry_run, target: "*", tier: auto}
   # Sandboxed developer-workspace actions (CONCEPT:OS-5.33) default to auto:
   # the workspace container/process IS the containment boundary. Override any
