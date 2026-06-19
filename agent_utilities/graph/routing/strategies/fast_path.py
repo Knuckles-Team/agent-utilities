@@ -142,6 +142,40 @@ def needs_full_orchestration(query: str) -> bool:
     return False
 
 
+def orchestration_signal_strength(query: str) -> int:
+    """Count how STRONGLY a turn signals a need for full orchestration (CONCEPT:ORCH-1.69).
+
+    Built from the same signals as :func:`needs_full_orchestration` so the rule stays
+    single-sourced, but graded instead of boolean:
+
+    * ``0`` — no signal: a trivial/conversational turn (take the lean direct-completion shape).
+    * ``1`` — a single weak signal: the *ambiguous middle* the escalating planner sends to the
+      KG capability stage to disambiguate (is it a real tool task, or just conversational?).
+    * ``2+`` — a strong, unambiguous need for the full multi-agent graph.
+
+    A slash-command, an over-length turn, or multiple clauses each count as strong on their own;
+    each distinct action keyword counts as one.
+    """
+    if not query:
+        return 0
+    q = query.strip()
+    ql = q.lower()
+    strength = 0
+    if q.startswith("/"):
+        strength += 2
+    if len(q.split()) > MAX_SIMPLE_WORDS:
+        strength += 2
+    if _looks_multi_clause(ql):
+        strength += 2
+    for kw in _ESCALATION_KEYWORDS:
+        if " " in kw or "-" in kw:
+            if kw in ql:
+                strength += 1
+        elif re.search(rf"\b{re.escape(kw)}\b", ql):
+            strength += 1
+    return strength
+
+
 def is_trivial_query(query: str) -> bool:
     """Return True if ``query`` should take the single-round fast path (CONCEPT:ORCH-1.63).
 
