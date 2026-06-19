@@ -70,3 +70,25 @@ async def test_keys_are_independent() -> None:
     await c.submit("b", 2)
     await asyncio.sleep(0.2)
     assert flushes == {"a": [1], "b": [2]}
+
+
+@pytest.mark.asyncio
+async def test_flush_does_not_cancel_its_own_handler() -> None:
+    """Regression (ECO-4.74): the debounce-timer flush must not cancel itself.
+
+    _wait_and_flush (the timer task) calls _flush, which popped + cancelled the timer — i.e.
+    cancelled THIS running task — killing on_flush at its first await. This killed every
+    coalesced reply. on_flush must run to completion even though it awaits.
+    """
+    from agent_utilities.messaging.coalescer import BurstCoalescer
+
+    completed = []
+
+    async def on_flush(key, items):
+        await asyncio.sleep(0.3)  # an await is where the bogus cancellation struck
+        completed.append((key, len(items)))
+
+    c = BurstCoalescer(on_flush, window_s=0.2, max_wait_s=5)
+    await c.submit("k", {"x": 1})
+    await asyncio.sleep(1.0)
+    assert completed == [("k", 1)], "on_flush was cancelled mid-flight"

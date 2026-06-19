@@ -71,7 +71,16 @@ class BurstCoalescer:
         items = self._buffers.pop(key, [])
         self._first.pop(key, None)
         timer = self._timers.pop(key, None)
-        if timer is not None and not timer.done():
+        # CONCEPT:ECO-4.74 — only cancel the debounce timer when flushing from a DIFFERENT
+        # task (the hard-cap path in ``submit``). When ``_wait_and_flush`` (the timer task
+        # itself) calls ``_flush``, cancelling ``timer`` would cancel THIS running task and
+        # kill ``_on_flush`` (the whole reply) at its first ``await`` — the root cause of
+        # "message received, reaction maybe, but no reply".
+        if (
+            timer is not None
+            and timer is not asyncio.current_task()
+            and not timer.done()
+        ):
             timer.cancel()
         if not items:
             return
