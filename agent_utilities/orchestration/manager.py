@@ -23,19 +23,19 @@ class Orchestrator:
         self.scanner = PromptInjectionScanner()
 
     def _scan_task(self, task: str) -> None:
-        """Scan a task for prompt injection or malicious intent."""
-        # Check if analyze method exists and returns a dict/object indicating threat
-        if hasattr(self.scanner, "analyze"):
-            result = self.scanner.analyze(task)
-            # Handle possible variations of the result (dict vs object)
-            if isinstance(result, dict) and result.get("is_threat"):
-                raise ValueError(
-                    f"Security Alert: Task rejected due to detected prompt injection/threat. Details: {result.get('reason')}"
-                )
-            elif hasattr(result, "is_threat") and result.is_threat:
-                raise ValueError(
-                    f"Security Alert: Task rejected due to detected prompt injection/threat. Details: {getattr(result, 'reason', 'Unknown')}"
-                )
+        """Scan a task for prompt injection or malicious intent.
+
+        Uses the scanner's real ``scan_text`` API (pure regex, microseconds). The
+        previous ``hasattr(self.scanner, "analyze")`` guard always evaluated False —
+        ``PromptInjectionScanner`` exposes ``scan_text``/``scan_conversation``, never
+        ``analyze`` — so this gate silently never fired (dead code).
+        """
+        result = self.scanner.scan_text(task)
+        if result.is_malicious:
+            raise ValueError(
+                "Security Alert: Task rejected due to detected prompt "
+                f"injection/threat. Details: {result.explanation}"
+            )
 
     async def dispatch_task(
         self, task: str, dependencies: list[str] | None = None

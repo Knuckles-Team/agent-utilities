@@ -684,8 +684,10 @@ def _build_execution_config(
                     server = MCPServerStdio(
                         command=command, args=args, env=env_vars, timeout=30.0
                     )
-                    print(
-                        f"DEBUG [agent_runner]: Created MCPServerStdio with command='{command}', args={args}, env_keys={list(env_vars.keys())}"
+                    logger.debug(
+                        "[agent_runner] Created MCPServerStdio command=%s args=%s",
+                        command,
+                        args,
                     )
                     config["mcp_toolsets"].append(server)
                 else:
