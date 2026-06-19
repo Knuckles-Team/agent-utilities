@@ -91,6 +91,10 @@ DEFAULT_POLICY: dict[str, Any] = {
         # auto+notify so reaching the user is auditable; operators may tighten a
         # ``message.send`` rule to approval_required for a stricter posture.
         {"kind": "message.send", "target": "*", "tier": TIER_AUTO_NOTIFY},
+        # Reactions/emotes (CONCEPT:ECO-4.80) are cosmetic, low-risk output any
+        # entrypoint may render — auto by default. Tighten to forbidden to disable
+        # reactions for a principal/context, or scope by target (the channel/surface).
+        {"kind": "reaction", "target": "*", "tier": TIER_AUTO},
         {"kind": "record_dry_run", "target": "*", "tier": TIER_AUTO},
         # Sandboxed developer-workspace actions (CONCEPT:OS-5.33) default to
         # auto: the workspace container/process IS the containment boundary.
