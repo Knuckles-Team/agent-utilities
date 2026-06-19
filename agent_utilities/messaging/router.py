@@ -724,9 +724,72 @@ def _get_messaging_agent(provider: str, model_id: str | None) -> Any:
     return agent
 
 
-# CONCEPT:ECO-4.62 — read-only KG tools the messaging agent may auto-run without approval.
-# Everything else stays gated (mutations need explicit approval, not a chat side effect).
-_SAFE_AUTO_TOOLS = {"kg_search", "kg_recall", "kg_query"}
+# CONCEPT:ECO-4.62/4.75 — tools the messaging agent may auto-run from a chat message.
+# Read-only KG tools PLUS the graph-os delegation/discovery surface: graph_orchestrate is
+# how the agent offloads work to a spawned specialist (e.g. github-agent) — and that
+# specialist's OWN fleet actions are still governed by the fail-closed ActionPolicy gate
+# (OS-5.24), so auto-running the delegation entrypoint from chat is safe. Mutating tools
+# (write/delete/update/...) stay denied — they are never a chat side effect.
+_SAFE_AUTO_TOOLS = {
+    "kg_search",
+    "kg_recall",
+    "kg_query",
+    "graph_search",
+    "graph_query",
+    "graph_context",
+    "graph_orchestrate",
+    "find_tools",
+    "load_tools",
+    "list_catalog",
+    "multiplexer_status",
+}
+_READONLY_HINTS = (
+    "search",
+    "list",
+    "get",
+    "query",
+    "find",
+    "recall",
+    "status",
+    "info",
+    "describe",
+    "read",
+    "fetch",
+    "show",
+    "view",
+)
+_MUTATING_HINTS = (
+    "write",
+    "delete",
+    "update",
+    "create",
+    "save",
+    "remove",
+    "post",
+    "put",
+    "patch",
+    "send",
+    "execute",
+    "merge",
+    "close",
+    "cancel",
+    "approve",
+)
+
+
+def _auto_approvable(tool_name: str) -> bool:
+    """Whether a deferred tool may auto-run from chat (CONCEPT:ECO-4.75).
+
+    The explicit delegation/KG surface always passes. Otherwise a fleet tool auto-runs only
+    when it clearly READS (a read-only verb, no mutating verb) — so on-demand fetches like
+    ``github_*`` list/get work, while writes default to deny (explicit approval required).
+    """
+    bare = tool_name.split("__")[-1].lower()
+    if tool_name in _SAFE_AUTO_TOOLS or bare in _SAFE_AUTO_TOOLS:
+        return True
+    if any(h in bare for h in _MUTATING_HINTS):
+        return False
+    return any(h in bare for h in _READONLY_HINTS)
 
 
 def _agent_input(prompt: str, image_parts: list[Any] | None) -> Any:
@@ -762,7 +825,7 @@ async def _run_until_text(
         rounds += 1
         approvals: dict[str, ToolApproved | ToolDenied] = {}
         for part in result.output.approvals:
-            if part.tool_name in _SAFE_AUTO_TOOLS:
+            if _auto_approvable(part.tool_name):
                 approvals[part.tool_call_id] = ToolApproved()
             else:
                 approvals[part.tool_call_id] = ToolDenied(
