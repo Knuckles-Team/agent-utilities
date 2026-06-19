@@ -366,3 +366,15 @@ async def test_inbound_reply_path_not_blocked_by_slow_kg() -> None:
     await handler(ev, backend)
     elapsed = time.monotonic() - start
     assert elapsed < 1.0, f"reply path blocked on KG writes ({elapsed:.2f}s)"
+
+
+def test_load_fleet_auth_noop_when_already_set(monkeypatch) -> None:
+    # CONCEPT:ECO-4.75 — if MCP_CLIENT_AUTH is already in the env (deploy/OpenBao path),
+    # the bootstrap is a no-op (doesn't overwrite or read other sources).
+    import os
+    from agent_utilities.messaging import daemon
+
+    monkeypatch.setenv("MCP_CLIENT_AUTH", "oidc-client-credentials")
+    monkeypatch.setenv("OIDC_CLIENT_ID", "preset")
+    daemon._load_fleet_auth()
+    assert os.environ["OIDC_CLIENT_ID"] == "preset"
