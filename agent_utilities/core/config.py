@@ -360,6 +360,9 @@ class AgentConfig(BaseSettings):
     messaging_default_channel: str = Field(
         default="", alias="MESSAGING_DEFAULT_CHANNEL"
     )
+    # CONCEPT:ECO-4.78 — the universal graph agent a chat turn routes to. Defaults to the
+    # dedicated "messaging-assistant" identity in code; set to route a chat turn to a
+    # different named agent. Unresolved names still go through the full orchestration graph.
     messaging_agent: str = Field(default="", alias="MESSAGING_AGENT")
     messaging_claude_trigger: str = Field(
         default="/claude", alias="MESSAGING_CLAUDE_TRIGGER"
@@ -368,11 +371,6 @@ class AgentConfig(BaseSettings):
         default="claude-sonnet-4-6", alias="MESSAGING_CLAUDE_MODEL"
     )
     messaging_local_model: str = Field(default="", alias="MESSAGING_LOCAL_MODEL")
-    messaging_enable_skills: str = Field(default="0", alias="MESSAGING_ENABLE_SKILLS")
-    messaging_skill_types: str = Field(default="", alias="MESSAGING_SKILL_TYPES")
-    messaging_tool_tags: str = Field(default="", alias="MESSAGING_TOOL_TAGS")
-    messaging_mcp_url: str = Field(default="", alias="MESSAGING_MCP_URL")
-    messaging_mcp_config: str = Field(default="", alias="MESSAGING_MCP_CONFIG")
     messaging_reactions: str = Field(default="1", alias="MESSAGING_REACTIONS")
     # Burst coalescing (CONCEPT:ECO-4.63): collapse a rapid run of messages into ONE reply.
     messaging_burst_window_s: str = Field(
@@ -383,12 +381,6 @@ class AgentConfig(BaseSettings):
     messaging_enrich: str = Field(default="1", alias="MESSAGING_ENRICH")
     # Surface goals / SDD specs from chats (CONCEPT:ECO-4.70, opt-out).
     messaging_goals: str = Field(default="1", alias="MESSAGING_GOALS")
-    # Max seconds for the (blocking) KG recall before replying without context (ECO-4.72).
-    messaging_recall_timeout: str = Field(default="8", alias="MESSAGING_RECALL_TIMEOUT")
-    # Bounded conversation history fed to the reply path for continuity (CONCEPT:ECO-4.76):
-    # how many prior turns (user+assistant) for THIS channel to recall via the cheap
-    # recency query. 0 disables history. Bounded by MESSAGING_RECALL_TIMEOUT.
-    messaging_history_turns: str = Field(default="8", alias="MESSAGING_HISTORY_TURNS")
     # Webhook push (CONCEPT:ECO-4.66): set the PUBLIC base URL (served via tunnel/edge to a
     # LOCAL port) to switch from polling to instant webhook delivery; empty = polling.
     messaging_webhook_base_url: str = Field(

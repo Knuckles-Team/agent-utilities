@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 371
+total_concepts: 368
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1092,12 +1092,12 @@ concepts:
   - agent_utilities/mcp/tools/reach_tools.py
   doc: graph_reach MCP tool and REST twin for outbound user messaging
 - id: ECO-4.51
-  name: / ECO-4.55 — two responders, default local
+  name: Sending reply failed
   pillar: ECO-4
   status: live
   code_paths:
   - agent_utilities/messaging/router.py
-  doc: / ECO-4.55 — two responders, default local
+  doc: Sending reply failed
 - id: ECO-4.52
   name: elicitation and loop bridge so a blocked loop reaches the user and resumes on reply
   pillar: ECO-4
@@ -1130,12 +1130,12 @@ concepts:
   - agent_utilities/messaging/router.py
   doc: Model-routed inbound responder with local LLM default and Claude address
 - id: ECO-4.56
-  name: the tool/skill/MCP-bearing agent is tried first
+  name: ECO-4.56
   pillar: ECO-4
   status: live
   code_paths:
   - agent_utilities/messaging/router.py
-  doc: the tool/skill/MCP-bearing agent is tried first
+  doc: ECO-4.56
 - id: ECO-4.57
   name: the single inbound command dispatcher used by every platform
   pillar: ECO-4
@@ -1147,20 +1147,6 @@ concepts:
   - agent_utilities/messaging/daemon.py
   - agent_utilities/messaging/router.py
   doc: the single inbound command dispatcher used by every platform
-- id: ECO-4.58
-  name: lean by default to avoid context burden
-  pillar: ECO-4
-  status: live
-  code_paths:
-  - agent_utilities/messaging/router.py
-  doc: lean by default to avoid context burden
-- id: ECO-4.59
-  name: delegation by graph-os MCP. Point
-  pillar: ECO-4
-  status: live
-  code_paths:
-  - agent_utilities/messaging/router.py
-  doc: delegation by graph-os MCP. Point
 - id: ECO-4.60
   name: a cheap, tool-free classification so reactions work on ANY model
   pillar: ECO-4
@@ -1179,13 +1165,6 @@ concepts:
   - agent_utilities/tools/kg_tools.py
   - agent_utilities/tools/tool_registry.py
   doc: KG as a first-class shared knowledge/reasoning layer for all agents
-- id: ECO-4.62
-  name: /4.75 — tools the messaging agent may auto-run from a chat message
-  pillar: ECO-4
-  status: live
-  code_paths:
-  - agent_utilities/messaging/router.py
-  doc: /4.75 — tools the messaging agent may auto-run from a chat message
 - id: ECO-4.63
   name: collapse a rapid run of messages into ONE reply
   pillar: ECO-4
@@ -1220,12 +1199,12 @@ concepts:
   - agent_utilities/messaging/backends/telegram.py
   doc: Telegram webhook receiver started on 127.0.0.1
 - id: ECO-4.67
-  name: image attachments are passed to the vision model. Both paths
+  name: image attachments are carried on the fallback
   pillar: ECO-4
   status: live
   code_paths:
   - agent_utilities/messaging/router.py
-  doc: image attachments are passed to the vision model. Both paths
+  doc: image attachments are carried on the fallback
 - id: ECO-4.68
   name: no text? transcribe a voice/audio attachment and use that
   pillar: ECO-4
@@ -1282,18 +1261,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/messaging/daemon.py
-  - agent_utilities/messaging/router.py
   doc: make fleet credentials present in THIS process env so the MCP
-- id: ECO-4.76
-  name: bounded, FAST conversation history for reply continuity. This is a
-  pillar: ECO-4
-  status: live
-  code_paths:
-  - agent_utilities/core/config.py
-  - agent_utilities/knowledge_graph/core/engine_memory.py
-  - agent_utilities/messaging/kg_ingest.py
-  - agent_utilities/messaging/router.py
-  doc: bounded, FAST conversation history for reply continuity. This is a
 - id: ECO-4.77
   name: ONE delegation surface. This is a thin wrapper over the SAME
   pillar: ECO-4
@@ -1301,6 +1269,17 @@ concepts:
   code_paths:
   - agent_utilities/tools/agent_tools.py
   doc: ONE delegation surface. This is a thin wrapper over the SAME
+- id: ECO-4.78
+  name: the universal graph agent a chat turn routes to. Defaults to the
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/messaging/kg_ingest.py
+  - agent_utilities/messaging/router.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/manager.py
+  doc: the universal graph agent a chat turn routes to. Defaults to the
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033

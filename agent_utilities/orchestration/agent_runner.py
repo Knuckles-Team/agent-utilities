@@ -86,6 +86,7 @@ async def run_agent(
     cred_ref: str | None = None,
     session_id: str | None = None,
     open_channel: bool = False,
+    memento_source: str | None = None,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -233,7 +234,9 @@ async def run_agent(
     agent_meta = _resolve_agent_from_kg(engine, agent_name)
 
     # Step 3: Build execution config from KG metadata
-    config = _build_execution_config(engine, agent_name, agent_meta)
+    config = _build_execution_config(
+        engine, agent_name, agent_meta, memento_source=memento_source
+    )
     # CONCEPT:ORCH-1.39 — carry the invoker's curated context + token budget into the spawn.
     # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
     # from the epistemic-graph and link it to this run's RunTrace for provenance.
@@ -550,11 +553,19 @@ def _build_execution_config(
     engine: IntelligenceGraphEngine,
     agent_name: str,
     agent_meta: dict[str, Any],
+    memento_source: str | None = None,
 ) -> dict[str, Any]:
     """Build a graph execution config dict from KG-resolved agent metadata.
 
     This produces the same config shape that ``create_graph_agent()`` and
     ``run_graph()`` expect, but tailored to the specific agent being executed.
+
+    CONCEPT:ECO-4.78 — ``memento_source`` selects WHICH stream of compressed
+    mementos primes the run's context. It defaults to ``agent_name`` (an agent's
+    own past runs), but a session-scoped caller (e.g. a chat channel) passes its
+    session key so successive turns share continuity through the core memory: the
+    prior turns of THAT conversation are recalled as mementos, not via a bespoke
+    per-surface history query.
     """
     from agent_utilities.core.config import (
         DEFAULT_GRAPH_ROUTER_TIMEOUT,
@@ -582,12 +593,14 @@ def _build_execution_config(
             get_recent_mementos,
         )
 
-        recent_mementos = get_recent_mementos(engine, source=agent_name, limit=3)
+        recent_mementos = get_recent_mementos(
+            engine, source=memento_source or agent_name, limit=3
+        )
         if recent_mementos:
             memento_text = "\n\n---\n\n".join(recent_mementos)
-            tag_prompts[
-                "mementos"
-            ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+            tag_prompts["mementos"] = (
+                f"Past Context Mementos (Compressed State):\n{memento_text}"
+            )
     except Exception as e:
         logger.debug("Failed to fetch Mementos for context: %s", e)
 

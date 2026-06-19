@@ -1,23 +1,29 @@
-"""Inbound Message Router — Routes platform events to Planner Graph Agent (CONCEPT:ECO-4.0).
+"""Inbound Message Router — messaging is thin transport to the ONE universal agent.
 
-Consumes ``InboundEvent`` streams from all connected messaging backends and
-routes them to the planner graph agent for KG-aware orchestration. The planner
-queries the Knowledge Graph for conversation context via ``recall_memory()``
-before deciding how to handle each message.
+Consumes ``InboundEvent`` streams from all connected messaging backends. A chat turn is
+NOT handled by a bespoke messaging-only reply path: it IS a run of the universal
+orchestration pipeline (``Orchestrator.execute_agent`` → ``run_agent``), session-scoped per
+channel (CONCEPT:ECO-4.78). That single path natively provides what the router used to hand-
+roll — conversation CONTINUITY (the core memory primes each run with the recent compressed
+mementos for the channel's session and persists this turn back as one) and DYNAMIC CAPABILITY
+selection (specialists / skills / A2A / swarms / fleet tools, ActionPolicy-governed). The
+router stays a transport: receive → run the universal agent → send its text back, with a
+hard reply-timeout plain-chat fallback so a slow/hung graph run still answers.
 
 Architecture::
 
-    Backend.listen()  →  InboundRouter  →  Planner Graph Agent
-                                ↓                    ↓
-                         KG Auto-Ingest      KG recall_memory()
-                         (kg_ingest.py)      (engine_memory.py)
+    Backend.listen() → InboundRouter → Orchestrator.execute_agent → run_agent (graph)
+                              ↓                    ↑ mementos (session)      ↓
+                       KG Auto-Ingest  ───────────┘  + per-turn memento  ───┘
+                       (kg_ingest.py)         (knowledge_graph/memory/*)
 
 CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
+CONCEPT:ECO-4.78 — Messaging routes through the universal graph/orchestration path
 
 See Also:
-    - ``graph/builder.py`` for ``create_graph_agent()``
-    - ``knowledge_graph/core/engine_memory.py`` for memory recall
-    - ``messaging/kg_ingest.py`` for auto-ingestion
+    - ``orchestration/manager.py`` / ``orchestration/agent_runner.py`` for the universal path
+    - ``knowledge_graph/memory/memento_compressor.py`` for session-scoped continuity
+    - ``messaging/kg_ingest.py`` for episodic auto-ingestion
 """
 
 from __future__ import annotations
@@ -45,11 +51,12 @@ class InboundRouter:
     CONCEPT:ECO-4.0 — Native Messaging Backend Abstraction
 
     The router listens on all connected backends simultaneously and
-    dispatches events to registered handlers. The default handler
-    routes messages to the planner graph agent which:
+    dispatches events to registered handlers. The default handler runs
+    each chat turn through the universal graph agent (CONCEPT:ECO-4.78),
+    which:
 
-    1. Queries the KG via ``recall_memory()`` for conversation context
-    2. Uses the graph orchestrator to decide which agents should handle it
+    1. Recalls prior turns of this channel from the core memory (session-scoped mementos)
+    2. Dynamically resolves which agents / skills / tools should handle it
     3. Sends the response back through the originating backend
 
     Usage::
@@ -256,16 +263,19 @@ class InboundRouter:
 async def create_planner_handler(
     knowledge_engine: Any = None,
 ) -> EventHandler:
-    """Create the default inbound handler that drives the graph agent (CONCEPT:ECO-4.51).
+    """Create the default inbound handler that drives the universal graph agent (ECO-4.78).
 
     For each inbound message the handler:
-    1. Records the originating channel as the user's last-active one (CONCEPT:ECO-4.49).
-    2. Delivers the message to a waiting goal-loop if it is the answer to a question the
-       loop asked (CONCEPT:ECO-4.52) — in which case it is NOT re-routed to the planner.
-    3. Auto-ingests the message into the KG as conversational memory (CONCEPT:KG-2.1).
-    4. Recalls relevant context via ``recall_memory()`` and runs the graph agent
-       (``Orchestrator.execute_agent``) to draft a real reply, sent back through the
-       originating backend.
+    1. Delivers the message to a waiting goal-loop if it is the answer to a question the
+       loop asked (CONCEPT:ECO-4.52) — in which case it is NOT re-routed to the agent.
+    2. Coalesces a burst of messages into ONE turn (CONCEPT:ECO-4.63) and runs that turn
+       through the universal path (``Orchestrator.execute_agent`` → ``run_agent``), session-
+       scoped per channel (CONCEPT:ECO-4.78), so continuity + dynamic capability come from
+       the core — not a messaging-specific recall. The returned text is sent back through the
+       originating backend, with a hard ``MESSAGING_REPLY_TIMEOUT`` plain-chat fallback.
+    3. AFTER the reply, off the reply path: records last-active (CONCEPT:ECO-4.49), auto-
+       ingests the turn as episodic memory (CONCEPT:KG-2.1), and persists a per-session
+       conversation memento that gives the NEXT turn its continuity (CONCEPT:ECO-4.78).
 
     Args:
         knowledge_engine: Optional ``IntelligenceGraphEngine``; falls back to the active
@@ -311,29 +321,24 @@ async def create_planner_handler(
                     image_urls.append(att.url)
         image_parts = await _fetch_image_parts(image_urls)
 
-        # NO blocking SEMANTIC recall on the reply path (CONCEPT:ECO-4.74). recall_memory
-        # runs a heavy LOCAL embed + cross-encoder rerank (tens of CPU-bound "Batches") in
-        # this process, which grinds the messaging daemon and stalls the answer.
-        #
-        # We DO feed bounded, FAST conversation history (CONCEPT:ECO-4.76): the last few
-        # turns for THIS channel via a cheap exact-match recency query (no HNSW/reranker),
-        # wrapped in a short timeout so a slow/empty fetch degrades to no-context instead of
-        # stalling the reply. This gives multi-message tasks continuity; deeper semantic KG
-        # context is still pulled ON DEMAND by the agent's auto-approved kg_search/kg_recall.
-        kg_context = await _recall_history(
-            engine, str(event.platform), event.channel_id
-        )
+        # CONCEPT:ECO-4.78 — the reply IS the universal graph agent, session-scoped per
+        # channel. NO bespoke recall on the reply path: continuity comes from the core memory
+        # the universal path already threads — ``run_agent`` primes the run with the recent
+        # compressed mementos for this ``session`` source (``get_recent_mementos``), and after
+        # the reply we persist this turn as a memento under the SAME source (background, off
+        # the reply path). So message 2 sees message 1 via core memory, not a messaging query.
+        session = _channel_session(str(event.platform), event.channel_id)
         logger.info(
-            "[CONCEPT:ECO-4.63] Routing a burst of %d message(s) (%d image[s]) from %s/%s "
-            "(history=%s).",
+            "[CONCEPT:ECO-4.78] Routing a burst of %d message(s) (%d image[s]) from %s/%s "
+            "through the universal graph agent (session=%s).",
             len(items),
             len(image_parts),
             event.platform,
             event.user_name,
-            "yes" if kg_context else "none",
+            session,
         )
         reply = await _graph_agent_reply(
-            engine, combined, kg_context, image_parts=image_parts
+            engine, combined, session=session, image_parts=image_parts
         )
         try:
             if event.message and event.message.id:
@@ -344,10 +349,13 @@ async def create_planner_handler(
             logger.error("[CONCEPT:ECO-4.51] Sending reply failed: %s", e)
 
         # Persist + enrich AFTER the reply is sent (CONCEPT:ECO-4.74). EVERY KG write and
-        # local-model encode (last-active, message ingest, concept enrichment) runs here —
-        # NEVER concurrently with reply generation, which otherwise contends with it on the
+        # local-model encode (last-active, message ingest, episodic memory, and the
+        # per-session conversation memento that gives the NEXT turn its continuity) runs here
+        # — NEVER concurrently with reply generation, which otherwise contends with it on the
         # GIL-bound local embedding model and stalls the answer (the root of "no reply").
-        _spawn_bg(_persist_and_enrich(svc, engine, items, combined, reply))
+        _spawn_bg(
+            _persist_and_enrich(svc, engine, items, combined, reply, session=session)
+        )
 
     coalescer = BurstCoalescer(
         _reply_to_burst,
@@ -477,14 +485,37 @@ def _spawn_bg(coro: Any) -> None:
     task.add_done_callback(_BG_TASKS.discard)
 
 
+def _channel_session(platform: str, channel_id: str) -> str:
+    """The universal-agent session key for a chat channel (CONCEPT:ECO-4.78).
+
+    One stable id per ``(platform, channel_id)`` so successive turns of the same conversation
+    run as one session — the core memory (mementos under this source) carries continuity, and
+    ``run_agent`` anchors each turn's RunTrace to the matching Session node.
+    """
+    return f"messaging:{platform}:{channel_id}"
+
+
 async def _persist_and_enrich(
-    svc: Any, engine: Any, items: list[Any], combined: str, reply: str
+    svc: Any,
+    engine: Any,
+    items: list[Any],
+    combined: str,
+    reply: str,
+    *,
+    session: str,
 ) -> None:
     """Record last-active + ingest every message + enrich — AFTER the reply (CONCEPT:ECO-4.74).
 
     Runs strictly off the reply path so no KG write or local-model encode (add_node, ingest,
-    concept extraction) ever competes with reply generation. Best-effort; failures here never
-    affect the reply that already went out.
+    concept extraction, memento compression) ever competes with reply generation. Best-effort;
+    failures here never affect the reply that already went out.
+
+    CONCEPT:ECO-4.78 — this is also where conversation CONTINUITY is established: the just-
+    finished turn (user prompt + assistant reply) is compressed into a memento under the
+    channel's ``session`` source via the CORE memory primitive (``compress_to_memento``), so
+    the NEXT turn of this channel recalls it through ``run_agent``'s native memento priming —
+    no messaging-specific recall query. The compression involves an LLM call, which is exactly
+    why it runs here (background), never on the reply path.
     """
     from agent_utilities.messaging.kg_ingest import ingest_message_to_kg
 
@@ -498,6 +529,22 @@ async def _persist_and_enrich(
             await ingest_message_to_kg(it["event"], knowledge_engine=engine)
         except Exception as e:  # noqa: BLE001
             logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
+    # Compress this turn into a per-session memento so the next turn inherits continuity
+    # through the universal path's core memory (CONCEPT:ECO-4.78).
+    try:
+        from agent_utilities.knowledge_graph.memory.memento_compressor import (
+            compress_to_memento,
+        )
+
+        turn = [
+            {"role": "user", "content": combined},
+            {"role": "assistant", "content": reply},
+        ]
+        await asyncio.to_thread(
+            compress_to_memento, engine, turn, source=session, refine=False
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[CONCEPT:ECO-4.78] session memento skipped: %s", e)
     try:
         from agent_utilities.messaging.enrichment import enrich_conversation
 
@@ -511,96 +558,6 @@ async def _persist_and_enrich(
         )
     except Exception as e:  # noqa: BLE001
         logger.debug("[CONCEPT:ECO-4.65] enrichment skipped: %s", e)
-
-
-async def _recall_history(engine: Any, platform: str, channel_id: str) -> str:
-    """Fetch bounded, fast conversation history for THIS channel (CONCEPT:ECO-4.76).
-
-    Recalls the last ``MESSAGING_HISTORY_TURNS`` (default 8) chat turns for ``(platform,
-    channel_id)`` via the cheap exact-match recency query ``recall_recent_messages`` (NOT
-    the heavy semantic ``recall_memory``), and formats them as a compact block the reply
-    path passes as ``kg_context`` to ``_model_routed_reply``.
-
-    It MUST stay non-blocking: the query runs off the event loop under a hard timeout
-    (reusing ``MESSAGING_RECALL_TIMEOUT``); on timeout/empty/failure it returns ``""`` so
-    the reply is generated with no history rather than stalling.
-    """
-    from agent_utilities.core.config import setting
-
-    turns = int(setting("MESSAGING_HISTORY_TURNS", "8"))
-    if turns <= 0:
-        return ""
-    timeout = float(setting("MESSAGING_RECALL_TIMEOUT", "8"))
-    from agent_utilities.messaging.kg_ingest import recall_recent_messages
-
-    try:
-        messages = await asyncio.wait_for(
-            asyncio.to_thread(
-                recall_recent_messages,
-                platform,
-                channel_id,
-                limit=turns,
-                knowledge_engine=engine,
-            ),
-            timeout=timeout,
-        )
-    except TimeoutError:
-        logger.warning(
-            "[CONCEPT:ECO-4.76] history recall exceeded %.0fs — replying without history.",
-            timeout,
-        )
-        return ""
-    except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.76] history recall failed: %s", e)
-        return ""
-    if not messages:
-        return ""
-    lines = []
-    for m in messages:
-        who = "assistant" if m.get("role") == "assistant" else "user"
-        text = str(m.get("text", "")).strip().replace("\n", " ")
-        if text:
-            lines.append(f"<{who}>: {text}")
-    if not lines:
-        return ""
-    return "Recent conversation:\n" + "\n".join(lines)
-
-
-async def _recall_context(engine: Any, content: str, platform: str) -> str:
-    """Recall relevant episodic memory for the inbound message (best-effort).
-
-    CONCEPT:ECO-4.72 — ``recall_memory`` is a BLOCKING call (vector + graph retrieval);
-    calling it directly in the async handler froze the whole messaging loop (poller + reply)
-    whenever retrieval stalled. Run it off the event loop with a hard timeout so a slow/hung
-    recall degrades to empty context instead of freezing inbound handling.
-    """
-    recall = getattr(engine, "recall_memory", None)
-    if not callable(recall):
-        return ""
-    from agent_utilities.core.config import setting
-
-    timeout = float(setting("MESSAGING_RECALL_TIMEOUT", "8"))
-    try:
-        memories = await asyncio.wait_for(
-            asyncio.to_thread(
-                recall,
-                query=content,
-                memory_type="episodic",
-                top_k=5,
-                task_context=f"Messaging conversation on {platform}",
-            ),
-            timeout=timeout,
-        )
-    except TimeoutError:
-        logger.warning(
-            "[CONCEPT:ECO-4.72] KG recall exceeded %.0fs — replying without context.",
-            timeout,
-        )
-        return ""
-    except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.0] KG recall failed: %s", e)
-        return ""
-    return "\n".join(f"- {m.get('description', '')[:200]}" for m in (memories or []))
 
 
 async def _transcribe_attachments(event: Any) -> str:
@@ -646,32 +603,61 @@ async def _fetch_image_parts(urls: list[str]) -> list[Any]:
 
 
 async def _graph_agent_reply(
-    engine: Any, content: str, kg_context: str, *, image_parts: list[Any] | None = None
+    engine: Any, content: str, *, session: str, image_parts: list[Any] | None = None
 ) -> str:
-    """Draft a reply to an inbound message, routing to the right responder.
+    """Draft a reply by running the UNIVERSAL graph agent (CONCEPT:ECO-4.78).
 
-    CONCEPT:ECO-4.51 / ECO-4.55 — two responders, default local:
-      * ``MESSAGING_AGENT`` set → run that full named graph agent (Orchestrator override).
-      * otherwise → a lightweight model-routed reply: the **local LLM by default**, or
-        **Claude** when the message is addressed to it (``MESSAGING_CLAUDE_TRIGGER``,
-        default ``/claude``). CONCEPT:ECO-4.67 — image attachments are passed to the
-        (vision-capable) model. The reply is tagged with who answered.
+    Messaging is thin transport: an inbound chat turn IS a run of the one universal
+    orchestration path (``Orchestrator.execute_agent`` → ``run_agent``), session-scoped per
+    channel. That path natively provides everything the messaging layer used to hand-roll:
+
+      * **Continuity** — ``run_agent`` primes the run with the recent compressed mementos for
+        this ``session`` source (``memento_source``) and anchors the RunTrace to the Session,
+        so turn 2 sees turn 1 via the CORE memory, not a messaging-specific recall query.
+      * **Dynamic capabilities** — the graph dynamically resolves specialists / skills / A2A /
+        swarms and fleet tools (e.g. a GitHub request reaches ``graph_orchestrate`` →
+        ``execute_agent`` for the github specialist), all governed by the ActionPolicy gate.
+
+    It is wrapped in a hard ``MESSAGING_REPLY_TIMEOUT`` (CONCEPT:ECO-4.74): a slow/hung graph
+    run must still yield a reply, so on timeout/error we fall through to a plain-chat
+    completion. CONCEPT:ECO-4.67 — image attachments are carried on the fallback (vision)
+    path; the responder label / ``/claude`` routing applies there too.
     """
     from agent_utilities.core.config import setting
 
-    agent_name = str(setting("MESSAGING_AGENT", "")).strip()
-    if agent_name:
-        try:
-            from agent_utilities.orchestration.manager import Orchestrator
+    # The named agent the universal path routes a chat turn to. Unresolved names still go
+    # through the full multi-agent orchestration graph (dynamic delegation) — which is what we
+    # want — so the default is the dedicated messaging assistant identity.
+    agent_name = str(setting("MESSAGING_AGENT", "")).strip() or "messaging-assistant"
+    reply_timeout = float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
+    try:
+        from agent_utilities.orchestration.manager import Orchestrator
 
-            out = await Orchestrator(engine).execute_agent(
-                agent_name=agent_name, task=content, context=kg_context or None
-            )
-            return str(out) if out else "(the agent returned no output)"
-        except Exception as e:  # noqa: BLE001
-            logger.error("[CONCEPT:ECO-4.51] graph agent execution failed: %s", e)
-            return f"I saved your message, but couldn't draft a reply right now ({e})."
-    return await _model_routed_reply(content, kg_context, image_parts=image_parts)
+        out = await asyncio.wait_for(
+            Orchestrator(engine).execute_agent(
+                agent_name=agent_name,
+                task=content,
+                session_id=session,
+                memento_source=session,
+            ),
+            timeout=reply_timeout,
+        )
+        text = str(out).strip() if out else ""
+        if text and not text.startswith("Agent execution failed"):
+            return text
+        logger.warning(
+            "[CONCEPT:ECO-4.78] universal agent returned no usable reply (%.60s); "
+            "falling back to plain chat.",
+            text,
+        )
+    except Exception as e:  # noqa: BLE001 — timeout/hang/delegation error → plain-chat reply
+        logger.warning(
+            "[CONCEPT:ECO-4.78] universal agent failed/timed out (%s); "
+            "falling back to plain chat.",
+            e,
+        )
+    # Plain-chat fallback — ALWAYS yields a reply even if the graph run stalls (CONCEPT:ECO-4.74).
+    return await _plain_chat_reply(content, image_parts=image_parts)
 
 
 # CONCEPT:ECO-4.55 — Model-routed inbound responder with local LLM default and Claude address
@@ -704,12 +690,6 @@ def _select_responder(content: str) -> tuple[str, str, str | None, str]:
     return "local", "", local_id, content
 
 
-# CONCEPT:ECO-4.56 — Dedicated messaging agent (own prompt + universal tools + skills + MCP fleet)
-# Cache one fully-built agent per (provider, model_id) so the MCP/skills wiring is paid once,
-# inside the single gateway daemon — never rebuilt per message, never a second daemon.
-_MESSAGING_AGENTS: dict[tuple[str, str], Any] = {}
-
-
 def _messaging_system_prompt() -> str:
     """Load the dedicated messaging-assistant system prompt (CONCEPT:ECO-4.56)."""
     import json
@@ -726,231 +706,26 @@ def _messaging_system_prompt() -> str:
         )
 
 
-def _csv_setting(key: str) -> list[str] | None:
-    """Parse a comma-separated config setting into a list (None if empty)."""
-    from agent_utilities.core.config import setting
-
-    raw = str(setting(key, "")).strip()
-    return [p.strip() for p in raw.split(",") if p.strip()] or None
-
-
-def _get_messaging_agent(provider: str, model_id: str | None) -> Any:
-    """Build (once, cached) the dedicated messaging agent for a model (CONCEPT:ECO-4.56/4.58).
-
-    Uses ``create_agent`` so the agent inherits the SAME universal tools (incl. reach_user
-    + KG search) and MCP server fleet as the rest of agent-utilities, with its own system
-    prompt. Cached per (provider, model_id) so the build is paid once in the gateway daemon.
-
-    CONCEPT:ECO-4.58 — lean by default to avoid context burden: the full skill library is
-    NOT pre-loaded (``MESSAGING_ENABLE_SKILLS=0``); fleet MCP tools load **on demand** via
-    the mcp-multiplexer's dynamic mode (find_tools/load_tools). Operators opt into more:
-    ``MESSAGING_ENABLE_SKILLS=1`` (or ``MESSAGING_SKILL_TYPES=a,b`` for a subset) and
-    ``MESSAGING_TOOL_TAGS=x,y`` to scope the universal toolset.
-
-    CONCEPT:ECO-4.59 — delegation by graph-os MCP. Point ``MESSAGING_MCP_URL`` at the
-    served graph-os MCP (e.g. ``http://127.0.0.1:8100/sse``) or ``MESSAGING_MCP_CONFIG`` at
-    the multiplexer config; the agent then keeps a lean local context and OFFLOADS heavy
-    work through graph-os — ``graph_orchestrate(execute_agent)`` spawns a specialist with
-    the needed skills/MCP tools and routes the result back, ``graph_search`` hits the KG,
-    and ``find_tools``/``load_tools`` pull fleet tools on demand. No bespoke delegation code.
-    """
-    from agent_utilities.core.config import setting
-
-    key = (provider or "", model_id or "")
-    agent = _MESSAGING_AGENTS.get(key)
-    if agent is not None:
-        return agent
-    from agent_utilities.agent.factory import create_agent
-
-    enable_skills = str(setting("MESSAGING_ENABLE_SKILLS", "0")).strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-    agent, _toolsets = create_agent(
-        provider=provider or None,
-        model_id=model_id,
-        name="messaging-assistant",
-        system_prompt=_messaging_system_prompt(),
-        enable_universal_tools=True,
-        enable_skills=enable_skills,
-        skill_types=_csv_setting("MESSAGING_SKILL_TYPES"),
-        tool_tags=_csv_setting("MESSAGING_TOOL_TAGS"),
-        mcp_url=str(setting("MESSAGING_MCP_URL", "")) or None,
-        mcp_config=str(setting("MESSAGING_MCP_CONFIG", "")) or None,
-    )
-    _MESSAGING_AGENTS[key] = agent
-    return agent
-
-
-# CONCEPT:ECO-4.62/4.75 — tools the messaging agent may auto-run from a chat message.
-# Read-only KG tools PLUS the graph-os delegation/discovery surface: graph_orchestrate is
-# how the agent offloads work to a spawned specialist (e.g. github-agent) — and that
-# specialist's OWN fleet actions are still governed by the fail-closed ActionPolicy gate
-# (OS-5.24), so auto-running the delegation entrypoint from chat is safe. Mutating tools
-# (write/delete/update/...) stay denied — they are never a chat side effect.
-_SAFE_AUTO_TOOLS = {
-    "kg_search",
-    "kg_recall",
-    "kg_query",
-    "graph_search",
-    "graph_query",
-    "graph_context",
-    "graph_orchestrate",
-    "invoke_specialized_agent",
-    "find_tools",
-    "load_tools",
-    "list_catalog",
-    "multiplexer_status",
-}
-_READONLY_HINTS = (
-    "search",
-    "list",
-    "get",
-    "query",
-    "find",
-    "recall",
-    "status",
-    "info",
-    "describe",
-    "read",
-    "fetch",
-    "show",
-    "view",
-)
-_MUTATING_HINTS = (
-    "write",
-    "delete",
-    "update",
-    "create",
-    "save",
-    "remove",
-    "post",
-    "put",
-    "patch",
-    "send",
-    "execute",
-    "merge",
-    "close",
-    "cancel",
-    "approve",
-)
-
-
-def _auto_approvable(tool_name: str) -> bool:
-    """Whether a deferred tool may auto-run from chat (CONCEPT:ECO-4.75).
-
-    The explicit delegation/KG surface always passes. Otherwise a fleet tool auto-runs only
-    when it clearly READS (a read-only verb, no mutating verb) — so on-demand fetches like
-    ``github_*`` list/get work, while writes default to deny (explicit approval required).
-    """
-    bare = tool_name.split("__")[-1].lower()
-    if tool_name in _SAFE_AUTO_TOOLS or bare in _SAFE_AUTO_TOOLS:
-        return True
-    if any(h in bare for h in _MUTATING_HINTS):
-        return False
-    return any(h in bare for h in _READONLY_HINTS)
-
-
 def _agent_input(prompt: str, image_parts: list[Any] | None) -> Any:
     """A bare prompt, or a multimodal [prompt, image, …] list when images are present."""
     return [prompt, *image_parts] if image_parts else prompt
 
 
-async def _run_until_text(
-    agent: Any,
-    prompt: str,
-    max_rounds: int = 4,
-    *,
-    image_parts: list[Any] | None = None,
+async def _plain_chat_reply(
+    content: str, *, image_parts: list[Any] | None = None
 ) -> str:
-    """Run the agent, auto-approving only safe read-only KG tools, until a text reply.
+    """Plain chat completion — the ALWAYS-yields-a-reply fallback (CONCEPT:ECO-4.78).
 
-    CONCEPT:ECO-4.62 — the dedicated agent defers tool calls for approval
-    (DeferredToolRequests). For chat we auto-approve the read-only KG tools so the agent can
-    actually query the graph and answer, while DENYING any other (mutating) tool — those
-    must be requested explicitly, not triggered as a chat side effect. CONCEPT:ECO-4.67 —
-    ``image_parts`` are sent alongside the prompt for vision.
+    This is the only responder still owned by the messaging layer: a bare, tool-free chat
+    completion used when the universal graph agent times out / errors (so a slow or hung
+    graph run never leaves a message unanswered). The full tool/skill/MCP/delegation
+    capability that the dedicated messaging agent used to carry now lives on the universal
+    path (``_graph_agent_reply`` → ``Orchestrator.execute_agent``), so it is not duplicated
+    here. CONCEPT:ECO-4.55 — the local-default / ``/claude``-address responder selection and
+    its label are preserved; CONCEPT:ECO-4.67 — image attachments are passed to the (vision)
+    model. Works on local models without function-calling.
     """
-    # CONCEPT:ECO-4.75 — enter the agent context so its MCP toolsets (graph-os + the
-    # multiplexer at MESSAGING_MCP_CONFIG) connect and their tools (graph_orchestrate +
-    # find_tools/load_tools + the fleet) actually load for the run. Without it the model
-    # never sees them and writes the call out as text. ``nullcontext`` for agents that don't
-    # support the async context (no MCP / test stubs).
-    import contextlib
-
-    from pydantic_ai.tools import (
-        DeferredToolRequests,
-        DeferredToolResults,
-        ToolApproved,
-        ToolDenied,
-    )
-
-    ctx = agent if hasattr(agent, "__aenter__") else contextlib.nullcontext()
-    async with ctx:
-        result = await agent.run(_agent_input(prompt, image_parts))
-        rounds = 0
-        while isinstance(result.output, DeferredToolRequests) and rounds < max_rounds:
-            rounds += 1
-            approvals: dict[str, ToolApproved | ToolDenied] = {}
-            for part in result.output.approvals:
-                if _auto_approvable(part.tool_name):
-                    approvals[part.tool_call_id] = ToolApproved()
-                else:
-                    approvals[part.tool_call_id] = ToolDenied(
-                        message=(
-                            f"'{part.tool_name}' isn't auto-run from chat; ask explicitly."
-                        )
-                    )
-            result = await agent.run(
-                message_history=result.all_messages(),
-                deferred_tool_results=DeferredToolResults(approvals=approvals),
-            )
-    if isinstance(result.output, DeferredToolRequests):
-        return ""  # still pending after the cap — let the caller fall back
-    return str(result.output).strip()
-
-
-async def _model_routed_reply(
-    content: str, kg_context: str, *, image_parts: list[Any] | None = None
-) -> str:
-    """Reply via the dedicated agent, degrading to plain chat if the model lacks tools.
-
-    CONCEPT:ECO-4.56 — the tool/skill/MCP-bearing agent is tried first (full capability on
-    tool-capable models like Claude). If the model rejects the tool-augmented request
-    (e.g. a vllm-served local model without function-calling — ``System message must be at
-    the beginning``), we fall back to a plain chat completion so the user always gets a
-    reply. CONCEPT:ECO-4.62 — safe read-only KG tools auto-run so the agent answers FROM the
-    graph. CONCEPT:ECO-4.67 — image attachments are passed to the vision model. Both paths
-    are tagged with who answered.
-    """
-    from agent_utilities.core.config import setting
-
     label, provider, model_id, task = _select_responder(content)
-    prompt = task if not kg_context else f"{task}\n\nRelevant context:\n{kg_context}"
-
-    # 1) Full dedicated agent (KG tools + MCP fleet), auto-running safe read-only KG tools.
-    # CONCEPT:ECO-4.75 — bound it: the agent enters the MCP delegation context (graph-os +
-    # multiplexer) and a slow/hung fleet tool call would otherwise stall the reply forever
-    # (message received, never answered). On timeout we fall through to the plain-chat path
-    # so a reply ALWAYS goes out; delegation still works when it completes in time.
-    try:
-        agent = _get_messaging_agent(provider, model_id)
-        reply_timeout = float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
-        text = await asyncio.wait_for(
-            _run_until_text(agent, prompt, image_parts=image_parts),
-            timeout=reply_timeout,
-        )
-        if text:
-            return f"[{label}] {text}"
-    except Exception as e:  # noqa: BLE001 — tool-unsupported OR delegation hang/timeout
-        logger.warning(
-            "[CONCEPT:ECO-4.56] dedicated agent failed/timed out (%s); falling back to plain chat.",
-            e,
-        )
-
-    # 2) Plain chat completion — works on models without tool support.
     try:
         from pydantic_ai import Agent
 
@@ -960,9 +735,9 @@ async def _model_routed_reply(
             create_model(provider=provider or None, model_id=model_id),
             system_prompt=_messaging_system_prompt(),
         )
-        result = await bare.run(_agent_input(prompt, image_parts))
+        result = await bare.run(_agent_input(task, image_parts))
         text = str(getattr(result, "output", result)).strip()
         return f"[{label}] {text}" if text else f"[{label}] (no output)"
     except Exception as e:  # noqa: BLE001
-        logger.error("[CONCEPT:ECO-4.56] messaging reply failed: %s", e)
+        logger.error("[CONCEPT:ECO-4.78] plain-chat fallback failed: %s", e)
         return f"I saved your message, but couldn't draft a reply right now ({e})."
