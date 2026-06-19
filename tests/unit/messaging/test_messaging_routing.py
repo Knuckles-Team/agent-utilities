@@ -105,11 +105,32 @@ async def test_run_until_text_plain_output() -> None:
     assert out == "the answer"
 
 
-def test_safe_auto_tools_are_readonly_kg() -> None:
-    # Only read-only KG tools auto-run from chat; mutations stay gated (ECO-4.62).
-    from agent_utilities.messaging.router import _SAFE_AUTO_TOOLS
+def test_auto_approvable_delegation_and_reads_yes_mutations_no() -> None:
+    # CONCEPT:ECO-4.75 — KG reads + the graph-os delegation/discovery surface auto-run;
+    # read-only fleet tools auto-run; mutating tools stay gated.
+    from agent_utilities.messaging.router import _auto_approvable
 
-    assert _SAFE_AUTO_TOOLS == {"kg_search", "kg_recall", "kg_query"}
+    # delegation + discovery + KG reads
+    for t in (
+        "kg_search",
+        "graph_orchestrate",
+        "graph_search",
+        "find_tools",
+        "load_tools",
+    ):
+        assert _auto_approvable(t), t
+    # read-only fleet tools (incl. multiplexer-prefixed) auto-run
+    assert _auto_approvable("go__github_list_issues")
+    assert _auto_approvable("gith__repos_get")
+    # mutations stay denied
+    for t in (
+        "github_create_issue",
+        "go__graph_write",
+        "delete_node",
+        "save_chat_message",
+        "kafka_send",
+    ):
+        assert not _auto_approvable(t), t
 
 
 # ── Lean / lazy loadout (ECO-4.58) ───────────────────────────────────
