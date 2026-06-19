@@ -61,13 +61,23 @@ def _enabled() -> bool:
 
 
 def _derive_token_url() -> str | None:
+    # Explicit pin wins (any provider, or discovery-less environments).
     explicit = setting("OIDC_TOKEN_URL", None)
     if explicit:
         return explicit
-    issuer = setting("FASTMCP_SERVER_AUTH_JWT_ISSUER", None)
-    if issuer:
-        return issuer.rstrip("/") + "/protocol/openid-connect/token"
-    return None
+    # Provider-agnostic (CONCEPT:OS-5.46): resolve the token endpoint from the issuer's
+    # OIDC discovery doc instead of a vendor-specific path. ``OIDC_ISSUER`` is the
+    # canonical var; fall back to the JWT issuer. For multi-issuer trust (comma list,
+    # CONCEPT:OS-5.45) the service mints from its primary (first) issuer.
+    issuer = setting("OIDC_ISSUER", None) or setting(
+        "FASTMCP_SERVER_AUTH_JWT_ISSUER", None
+    )
+    if not issuer:
+        return None
+    primary = issuer.split(",")[0].strip()
+    from agent_utilities.security.oidc_discovery import token_endpoint_for
+
+    return token_endpoint_for(primary)
 
 
 class ClientCredentialsTokenProvider:
