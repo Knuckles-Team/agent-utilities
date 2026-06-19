@@ -372,6 +372,7 @@ def test_load_fleet_auth_noop_when_already_set(monkeypatch) -> None:
     # CONCEPT:ECO-4.75 — if MCP_CLIENT_AUTH is already in the env (deploy/OpenBao path),
     # the bootstrap is a no-op (doesn't overwrite or read other sources).
     import os
+
     from agent_utilities.messaging import daemon
 
     monkeypatch.setenv("MCP_CLIENT_AUTH", "oidc-client-credentials")
