@@ -81,7 +81,10 @@ def test_surface_intents_creates_goal_and_spec() -> None:
             self.links.append(rel_type)
 
     eng = _Eng()
-    llm = lambda p: '{"goal": "deploy the tunnel", "spec": "webhook receiver spec"}'
+
+    def llm(p):
+        return '{"goal": "deploy the tunnel", "spec": "webhook receiver spec"}'
+
     enrichment._surface_intents(
         eng, "let's deploy the tunnel and spec the webhook", "chatturn:x", llm
     )
