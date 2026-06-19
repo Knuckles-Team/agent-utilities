@@ -55,7 +55,11 @@ from .credit_quality import (
     merton_distance_to_default,
     normal_cdf,
 )
-from .evaluation import evaluate_trading_signal, walk_forward_validation
+
+try:  # torch-backed LSTM eval — optional extra; data-science-mcp owns ML training (dep rule)
+    from .evaluation import evaluate_trading_signal, walk_forward_validation
+except ImportError:  # noqa: BLE001 - torch absent in the lean serving install
+    evaluate_trading_signal = walk_forward_validation = None  # type: ignore[assignment]
 from .execution import calculate_kelly_fraction, check_regime_shift
 from .features import StationaryFeatureEngineer, check_stationarity
 from .filing_diff import (
@@ -116,7 +120,11 @@ from .market_feeds import (
     Tick,
     TickAggregator,
 )
-from .models import TradingLSTM, prepare_sequences
+
+try:  # torch-backed LSTM model — optional extra; data-science-mcp owns ML training (dep rule)
+    from .models import TradingLSTM, prepare_sequences
+except ImportError:  # noqa: BLE001 - torch absent in the lean serving install
+    TradingLSTM = prepare_sequences = None  # type: ignore[assignment,misc]
 from .pattern_classifier import (
     Candle,
     EdgeLabel,

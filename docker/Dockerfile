@@ -22,7 +22,7 @@ RUN apt-get update \
 # image always matches the committed code. `.dockerignore` keeps the context lean.
 COPY . /src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --upgrade --break-system-packages --prerelease=allow "/src[all]"
+    uv pip install --system --upgrade --break-system-packages --prerelease=allow "/src[serving]"
 
 FROM python:3.11-slim
 
