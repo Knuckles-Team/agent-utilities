@@ -333,16 +333,16 @@ def list_a2a_peers() -> Any:
     if not engine:
         return A2ARegistryModel(peers=[])
 
-    query = "MATCH (a:Agent {agent_type: 'a2a'}) RETURN a.name as name, a.description AS descriptionription, a.endpoint_url as url, a.metadata as meta"
+    query = "MATCH (a:Agent {agent_type: 'a2a'}) RETURN a.name as name, a.description AS description, a.endpoint_url as url, a.metadata as meta"
     results = engine.query_cypher(query)
 
     peers = {}
     for r in results:
         peers[r["name"]] = A2APeerModel(
             name=r["name"],
-            url=r["url"],
-            description=r["description"],
-            capabilities=",".join(r.get("meta", {}).get("capabilities", [])),
+            url=r.get("url", ""),
+            description=r.get("description", "") or "",
+            capabilities=",".join((r.get("meta") or {}).get("capabilities", [])),
         )
 
     return A2ARegistryModel(peers=list(peers.values()))
