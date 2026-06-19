@@ -53,7 +53,7 @@ def test_trailing_slash_normalized() -> None:
 def test_discovery_failure_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Boom:
         def __init__(self, *a: object, **k: object) -> None: ...
-        def __enter__(self) -> "_Boom":
+        def __enter__(self) -> _Boom:
             return self
 
         def __exit__(self, *a: object) -> bool:
