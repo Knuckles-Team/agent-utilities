@@ -441,6 +441,7 @@ class AgentOrchestrationEngine:
             verifier_timeout=config.get(
                 "verifier_timeout", DEFAULT_GRAPH_VERIFIER_TIMEOUT
             ),
+            execution_shape=config.get("execution_shape"),
             request_id=config.get("request_id", run_id),
             routing_strategy=config.get("routing_strategy", "hybrid"),
             enable_llm_validation=config.get(

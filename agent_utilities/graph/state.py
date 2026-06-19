@@ -102,6 +102,11 @@ class GraphDeps:
     enable_llm_validation: bool = False
     router_timeout: float = DEFAULT_GRAPH_ROUTER_TIMEOUT
     verifier_timeout: float = DEFAULT_GRAPH_VERIFIER_TIMEOUT
+    execution_shape: Any | None = None
+    """CONCEPT:ORCH-1.67/1.68 — the dynamically-constructed ExecutionProfile (shape) for THIS
+    job. Graph nodes read it to decide whether to run their work or pass through (e.g. the
+    router direct-completes a trivial turn; usage_guard skips its policy-LLM round). ``None``
+    keeps the full-graph behaviour for direct callers that didn't plan a shape."""
     project_root: str = ""
     max_parallel_agents: int = 3
     auto_approve_plan: bool = False
