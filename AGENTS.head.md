@@ -186,6 +186,41 @@ Rules:
 The check: `import agent_utilities` and a `kg_server` boot must succeed with torch uninstalled
 (the lean serving image has no torch).
 
+## Sprawl boundaries — WHERE new deps / ontology / daemons go (READ BEFORE adding any of them)
+
+Anti-sprawl is not just "don't duplicate code" — it's "put each thing in the ONE place it belongs."
+Before adding a dependency, an ontology file, or a daemon/service, route it:
+
+**Heavy dependencies → out of core, into the service that owns that weight.** (Extends *Dependency
+discipline*.) Core (`agent-utilities`) is the lean serving plane; heavy work is reached over MCP:
+- **Heavy AI / ML** (torch, transformers, sentence-transformers, training/inference, GPU) →
+  **`agents/data-science-mcp`** (the `[training]` home). Never add these to core — call data-science-mcp.
+- **Finance / trading / exchange / market** logic + deps → **`emerald-exchange`** (the finance/quant
+  service), reached over MCP. The core `domains/finance` stays light (no torch/sklearn — already
+  re-homed); new finance compute goes to emerald-exchange, not into core.
+- **Heavy compute · vector similarity · ANN · graph algorithms · any KG compute** → the Rust
+  **`epistemic-graph`** engine (the L0 compute plane). **Always ask "can the engine do this?" before
+  writing an O(N) cosine/graph loop in Python.** Python orchestrates; the engine computes.
+
+**Ontology — extend the canonical, never sprawl a new `.ttl`.** The ontology is ONE consolidated
+library (`core/ontology.ttl` + the domain `ontology_*.ttl`), validated by the valid/connected/SHACL
+gate (CONCEPT:KG-2.112). New classes/links/value-types go **into the existing ontology file for that
+domain** via `interfaces.to_owl`/`owl_bridge`. A new top-level ontology file is a **build break**
+unless it's a genuinely new domain registered into the ontology library + gate. Don't create a
+per-feature `.ttl`; don't redefine a class that already exists — extend it.
+
+**Daemons / microservices — extend before you add.** The platform already has the KG host daemon,
+the graph-os MCP surface, the multiplexer, the ingest/dispatch workers, and ~62 `*-mcp` services. A
+new capability is almost always **a new action/tool on an existing service**, or a **connector
+preset** (CONCEPT:KG-2.59 `mcp_tool` — external sources are declarative presets, NEVER new connector
+modules or services). Add a new daemon/service **ONLY** for a genuinely new long-running
+responsibility that fits no existing process — and even then it is a thin transport over the core
+orchestrator (see *Universal capability*). "I'll spin up a service for this" is the wrong default.
+
+Smell test for all three: if you're about to add a heavy dep to core, a new `.ttl`, or a new daemon,
+first name the existing place it belongs (data-science-mcp / emerald-exchange / epistemic-graph / the
+canonical ontology / an existing service action) and prove it can't go there.
+
 ## Configuration discipline — an env var is a LAST RESORT (READ before adding any flag)
 
 We were drowning in ~96 `KG_*`/`GRAPH_*` env flags — over-configuration that is
