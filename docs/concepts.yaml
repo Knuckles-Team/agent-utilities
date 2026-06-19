@@ -1277,12 +1277,13 @@ concepts:
   - agent_utilities/messaging/router.py
   doc: only cancel the debounce timer when flushing from a DIFFERENT
 - id: ECO-4.75
-  name: ECO-4.75
+  name: make fleet credentials present in THIS process env so the MCP
   pillar: ECO-4
   status: live
   code_paths:
+  - agent_utilities/messaging/daemon.py
   - agent_utilities/messaging/router.py
-  doc: ECO-4.75
+  doc: make fleet credentials present in THIS process env so the MCP
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
