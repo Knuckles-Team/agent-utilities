@@ -70,6 +70,10 @@ from .optimization_engine import (
     ebbinghaus_decay,
     run_reflector,
 )
+from .session_memento_cache import (
+    SessionMementoCache,
+    refresh_session_memento_cache,
+)
 
 __all__ = [
     # Memory Lifecycle
@@ -95,6 +99,8 @@ __all__ = [
     "estimate_message_tokens",
     "estimate_tokens",
     "get_recent_mementos",
+    "SessionMementoCache",
+    "refresh_session_memento_cache",
     "prune_context_by_semantic_distance",
     # Synthesis
     "SynthesisEngine",

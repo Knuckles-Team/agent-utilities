@@ -94,6 +94,77 @@ _PYDANTIC_GRAPH_AVAILABLE = True
 logger = logging.getLogger(__name__)
 
 
+class _BuiltGraphCache:
+    """Process-local bounded LRU of structural graph builds (CONCEPT:ORCH-1.64).
+
+    ``create_graph_agent`` rebuilt the entire topology + ``discover_agents()`` on EVERY
+    turn. The topology is a pure function of (tag_prompts, models, routing strategy, sub
+    agents, custom nodes), so we memoize the structural build keyed by a hash of that
+    config and reuse a warm graph. Toolset connections stay per-run (built outside the
+    cache). Small cap — distinct routing configs are few — and thread-safe for concurrent
+    gateway turns.
+    """
+
+    def __init__(self, max_entries: int = 64) -> None:
+        import threading
+        from collections import OrderedDict
+
+        self._max = max_entries
+        self._lock = threading.Lock()
+        self._store: OrderedDict[str, dict[str, Any]] = OrderedDict()
+
+    def get(self, key: str) -> dict[str, Any] | None:
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is not None:
+                self._store.move_to_end(key)
+            return entry
+
+    def put(self, key: str, value: dict[str, Any]) -> None:
+        with self._lock:
+            self._store[key] = value
+            self._store.move_to_end(key)
+            while len(self._store) > self._max:
+                self._store.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
+
+
+_GRAPH_CACHE = _BuiltGraphCache()
+
+
+def _graph_cache_key(
+    *,
+    tag_prompts: dict[str, str],
+    router_model: str | None,
+    agent_model: str | None,
+    routing_strategy: str,
+    sub_agents: dict[str, Any] | None,
+    custom_nodes: list[Any] | None,
+) -> str:
+    """A stable hash of the STRUCTURAL graph inputs (CONCEPT:ORCH-1.64).
+
+    Keys on what changes the topology: the set of routing tags, the models, the routing
+    strategy, the sub-agent tags, and whether custom nodes are present. A change in
+    discovery (new agent registered) changes the tag/sub-agent set and so invalidates the
+    key naturally. Excludes per-run values (toolsets, timeouts, api keys, the query).
+    """
+    import hashlib
+
+    parts = [
+        "|".join(sorted(tag_prompts.keys())),
+        str(router_model),
+        str(agent_model),
+        str(routing_strategy),
+        "|".join(sorted((sub_agents or {}).keys())),
+        # custom nodes are uncacheable-shaped; only their presence matters to the topology.
+        str(bool(custom_nodes)),
+    ]
+    return hashlib.sha1("\x1e".join(parts).encode("utf-8")).hexdigest()  # noqa: S324
+
+
 def build_tag_env_map(tag_names: list[str]) -> dict[str, str]:
     """Build a tag→env_var mapping following the standard convention.
 
@@ -409,6 +480,52 @@ def create_agent(
 
     if tag_env_vars is None:
         tag_env_vars = build_tag_env_map(list(tag_prompts.keys()))
+
+    # CONCEPT:ORCH-1.64 — cache the built graph TOPOLOGY per routing-config. The topology +
+    # ``discover_agents()`` are a pure function of (tag_prompts, models, routing strategy,
+    # sub-agents, custom nodes), rebuilt on EVERY turn before this. We memoize the structural
+    # build keyed by a hash of that config, so a turn reuses a warm graph. Toolset *connections*
+    # (mcp_url/mcp_config/mcp_toolsets) stay per-run and are built fresh below — so we only
+    # serve the cache when the structure is toolset-free (the messaging chat default). When a
+    # run binds toolsets, we build fresh (correctness over the micro-optimisation).
+    _cache_key = _graph_cache_key(
+        tag_prompts=tag_prompts,
+        router_model=router_model,
+        agent_model=agent_model,
+        routing_strategy=routing_strategy,
+        sub_agents=sub_agents,
+        custom_nodes=custom_nodes,
+    )
+    # Cache only when there are no per-run toolset connections AND no custom nodes (whose
+    # identity the structural key only approximates by presence). The messaging chat default
+    # — the hot path this targets — is exactly toolset-free with no custom nodes.
+    _cacheable = (
+        not mcp_url and not mcp_config and not mcp_toolsets and not custom_nodes
+    )
+    _toolset_free = _cacheable
+    _cached = _GRAPH_CACHE.get(_cache_key) if _cacheable else None
+    if _cached is not None:
+        # Warm graph hit (CONCEPT:ORCH-1.64): reuse the structural topology + node registry
+        # + registry engine; build only the cheap per-run config. No toolsets on this path
+        # (toolset-free by the cache guard above), so connections never get reused.
+        logger.debug("create_agent: reusing cached graph topology (key=%s)", _cache_key)
+        return _cached["graph"], _build_graph_config(
+            graph_nodes=_cached["nodes_registry"],
+            knowledge_engine=_cached["knowledge_engine"],
+            mcp_toolsets=[],
+            tag_prompts=tag_prompts,
+            tag_env_vars=tag_env_vars,
+            mcp_url=mcp_url,
+            mcp_config=mcp_config,
+            router_model=router_model,
+            agent_model=agent_model,
+            router_timeout=router_timeout,
+            verifier_timeout=verifier_timeout,
+            min_confidence=min_confidence,
+            sub_agents=sub_agents,
+            routing_strategy=routing_strategy,
+            kwargs=kwargs,
+        )
 
     knowledge_engine = None
     try:
@@ -767,20 +884,79 @@ def create_agent(
             else:
                 logger.warning(f"MCP config {mcp_config} not found")
 
-    _api_key = kwargs.get("api_key")
-    _base_url = kwargs.get("base_url")
+    config = _build_graph_config(
+        graph_nodes=nodes_registry,
+        knowledge_engine=knowledge_engine,
+        mcp_toolsets=_mcp_toolsets,
+        tag_prompts=tag_prompts,
+        tag_env_vars=tag_env_vars,
+        mcp_url=mcp_url,
+        mcp_config=mcp_config,
+        router_model=router_model,
+        agent_model=agent_model,
+        router_timeout=router_timeout,
+        verifier_timeout=verifier_timeout,
+        min_confidence=min_confidence,
+        sub_agents=sub_agents,
+        routing_strategy=routing_strategy,
+        kwargs=kwargs,
+    )
 
+    logger.debug(
+        f"create_agent: returning config with mcp_toolsets of len: {len(config['mcp_toolsets'])}"
+    )
+
+    # CONCEPT:ORCH-1.64 — store the toolset-free structural build for reuse next turn.
+    if _toolset_free:
+        _GRAPH_CACHE.put(
+            _cache_key,
+            {
+                "graph": graph,
+                "nodes_registry": nodes_registry,
+                "knowledge_engine": knowledge_engine,
+            },
+        )
+
+    return graph, config
+
+
+def _build_graph_config(
+    *,
+    graph_nodes: dict[str, Any],
+    knowledge_engine: Any,
+    mcp_toolsets: list[Any],
+    tag_prompts: dict[str, str],
+    tag_env_vars: dict[str, str],
+    mcp_url: str | None,
+    mcp_config: str | None,
+    router_model: str | None,
+    agent_model: str | None,
+    router_timeout: float | None,
+    verifier_timeout: float | None,
+    min_confidence: float,
+    sub_agents: dict[str, str | Agent] | None,
+    routing_strategy: str,
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the per-run execution config dict (CONCEPT:ORCH-1.64).
+
+    The config is cheap and per-run (carries the run's toolsets / models / timeouts); only
+    the graph TOPOLOGY is cached. Extracted so the cache-hit and cache-miss paths build the
+    same config shape from a (possibly cached) ``graph_nodes`` registry and registry engine.
+    """
     from agent_utilities.core.config import (
         DEFAULT_GRAPH_ROUTER_TIMEOUT,
         DEFAULT_GRAPH_VERIFIER_TIMEOUT,
     )
 
-    config = {
+    _api_key = kwargs.get("api_key")
+    _base_url = kwargs.get("base_url")
+    return {
         "tag_prompts": tag_prompts,
         "tag_env_vars": tag_env_vars,
         "mcp_url": mcp_url,
         "mcp_config": mcp_config,
-        "mcp_toolsets": _mcp_toolsets,
+        "mcp_toolsets": mcp_toolsets,
         "router_model": router_model,
         "agent_model": agent_model,
         "router_timeout": (
@@ -802,16 +978,10 @@ def create_agent(
         "custom_headers": kwargs.get("custom_headers"),
         "sub_agents": sub_agents or {},
         "routing_strategy": routing_strategy,
-        "nodes": nodes_registry,
+        "nodes": graph_nodes,
         "discovery_metadata": kwargs.get("discovery_metadata") or {},
         "knowledge_engine": knowledge_engine,
     }
-
-    logger.debug(
-        f"create_agent: returning config with mcp_toolsets of len: {len(config['mcp_toolsets'])}"
-    )
-
-    return graph, config
 
 
 # Alias for backward compatibility

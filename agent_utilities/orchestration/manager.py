@@ -82,6 +82,7 @@ class Orchestrator:
         session_id: str | None = None,
         open_channel: bool = False,
         memento_source: str | None = None,
+        execution_profile: str | None = None,
     ) -> str:
         """Execute a single agent against a task.
 
@@ -92,6 +93,10 @@ class Orchestrator:
         CONCEPT:ECO-4.78 — ``memento_source`` scopes which compressed-memory stream primes
         the run (defaults to ``agent_name``); a session-scoped caller passes its session key
         so successive turns of one conversation share continuity through the core memory.
+        CONCEPT:ORCH-1.62 — ``execution_profile`` ("chat" vs the default "task") selects the
+        per-node timeout budget. A chat-budget profile bounds each LLM round to tens of
+        seconds (not 300 s) so a slow/degraded backend fails fast inside the chat budget;
+        the messaging reply path passes ``"chat"``.
         """
         self._scan_task(task)
         logger.info(f"Executing agent {agent_name} for task: {task[:50]}...")
@@ -109,6 +114,7 @@ class Orchestrator:
             session_id=session_id,
             open_channel=open_channel,
             memento_source=memento_source,
+            execution_profile=execution_profile,
         )
         return result
 

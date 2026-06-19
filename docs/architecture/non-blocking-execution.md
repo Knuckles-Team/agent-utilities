@@ -208,7 +208,7 @@ flowchart LR
     T0 -->|enqueue heavy/optional| T2
     T0 -->|escalate multi-step| T1
     Workers["kg-ingest-worker / agent-dispatch-worker<br/>(auto-sized, leader-elected)"] --> T1 & T2 & T3
-    Q[(STATE_DB_URI<br/>SKIP LOCKED)] --- Queue
+    Q[("STATE_DB_URI<br/>SKIP LOCKED")] --- Queue
 ```
 
 - **Tier 0 (reply)** runs *in-process* on the chat profile and returns fast. It
@@ -249,28 +249,65 @@ router's pre-LLM discovery is one async call instead of N synchronous ones.
 
 ## 9. Prioritized roadmap
 
-**P0 — latency (chat answers fast):**
-1. Widen the fast-path classifier (rules-first intent/altitude) — most simple turns
-   take one lite-model round. (§6.1)
-2. Add a `chat` execution profile with chat-budget node timeouts; align
+**P0 — latency (chat answers fast):** ✅ **DONE** (CONCEPT:ORCH-1.62/1.63, KG-2.131)
+1. ✅ Widen the fast-path classifier (rules-first intent/altitude) — most simple turns
+   take one lite-model round. (§6.1) — `graph/routing/strategies/fast_path.py`:
+   `is_trivial_query` is now rules-first (a `needs_full_orchestration` escalation gate); a
+   normal short question answers on the fast path, only tool/plan/slash-command/multi-clause/
+   long turns escalate. (CONCEPT:ORCH-1.63)
+2. ✅ Add a `chat` execution profile with chat-budget node timeouts; align
    `MESSAGING_REPLY_TIMEOUT` so turns resolve inside the graph, not via the
-   plain-chat fallback; stop the routine double-LLM tax. (§6.1)
-3. Session memento cache + background refresh so priming never blocks. (§6.2)
+   plain-chat fallback; stop the routine double-LLM tax. (§6.1) —
+   `orchestration/execution_profile.py` (`ExecutionProfile`, `resolve_execution_profile`):
+   the `chat` profile bounds router/verifier to ≈12 s (≤ `MESSAGING_REPLY_TIMEOUT − 3 s`),
+   threaded `_graph_agent_reply` → `Orchestrator.execute_agent` → `run_agent` →
+   `_build_execution_config` → graph config; `task` keeps the 300 s defaults. The messaging
+   reply path now returns a graceful message on a backend **timeout** instead of a second
+   full LLM call to the same degraded endpoint (double-LLM tax removed; plain-chat fallback
+   fires only on a genuine non-timeout graph error). (CONCEPT:ORCH-1.62)
+3. ✅ Session memento cache + background refresh so priming never blocks. (§6.2) —
+   `knowledge_graph/memory/session_memento_cache.py` (`SessionMementoCache`,
+   `refresh_session_memento_cache`): `run_agent` reads the cache (zero I/O) via
+   `_prime_recent_mementos`; a cold miss fetches once via `to_thread`; the background
+   `_persist_and_enrich` pass (ECO-4.74) refreshes the cache after each turn so turn N+1
+   reads turn N's memento from memory. (CONCEPT:KG-2.131)
 
-**P1 — non-blocking:**
-4. Cache the built graph per routing-config. (§6.3)
-5. `to_thread`-wrap (or pre-prime) the remaining sync KG calls on the reply path:
-   `_resolve_agent_from_kg`, router discovery. (§4)
-6. Route `_persist_and_enrich` background work through the durable priority queue
-   (Tiers 1–3) instead of process-local `asyncio` tasks. (§7)
+**P1 — non-blocking:** ✅ **DONE** (CONCEPT:ORCH-1.64/1.65) — except item 6 (deferred)
+4. ✅ Cache the built graph per routing-config. (§6.3) — `graph/builder.py`
+   (`_BuiltGraphCache`, `_graph_cache_key`, `_build_graph_config`): the structural topology +
+   `discover_agents()` are memoized keyed by a hash of (tag_prompts, models, routing strategy,
+   sub-agents, custom-node presence); a turn reuses a warm graph. Toolset connections stay
+   per-run (only the toolset-free / custom-node-free build — the messaging chat default — is
+   cached). (CONCEPT:ORCH-1.64)
+5. ✅ `to_thread`-wrap (or pre-prime) the remaining sync KG calls on the reply path:
+   `_resolve_agent_from_kg`, router discovery. (§4) — `run_agent` runs
+   `_resolve_agent_from_kg` via `to_thread`; `graph/_router_impl.py::router_step` runs the
+   whole pre-LLM discovery bundle (`find_agent_for_tool` + `designate_specialists` +
+   `search_hybrid` + `find_relevant_policies` + `find_relevant_processes`) in ONE `to_thread`
+   pass, plus `find_matching_team_config` off the loop. The router **N+1** is collapsed:
+   `find_agent_for_tool` is called once over the **unique** keyword set (deduped), not per
+   query word. A `TODO(CONCEPT:ORCH-1.62 P2)` references the engine `discover()` contract.
+   (CONCEPT:ORCH-1.65)
+6. ⏳ **Deferred** — Route `_persist_and_enrich` background work through the durable priority
+   queue (Tiers 1–3) instead of process-local `asyncio` tasks. (§7) Not in this change; the
+   background work already runs off the reply path via `_spawn_bg` (ECO-4.74), so it is a
+   durability/leadership task, not a latency item.
 
-**P2 — Rust-offload:**
-7. One-round-trip engine `discover()` to replace the router N+1 + sequential sync
-   queries. (§8)
-8. Demote the numpy cosine/argsort rankers to last-resort; route similarity/ranking
-   through `semantic_search`. (§8)
+**P2 — Rust-offload (NOT in this change — separate epistemic-graph effort):**
+7. One-round-trip engine `discover()` to replace the router N+1 + sequential sync queries.
+   (§8) **Contract** (left as a TODO in `router_step`): a single `discover(query, k)`
+   engine-client method on `knowledge_graph/core/graph_compute.py` returning
+   `{matched_agents, hybrid_hits, policies, processes}` in one MessagePack/UDS round-trip, so
+   the router's pre-LLM discovery is one async hop instead of the current thread-offloaded
+   fan-out. Until the Rust side surfaces it, the dedupe + single `to_thread` pass is the
+   Python-side mitigation.
+8. Demote the numpy cosine/argsort rankers to last-resort; route similarity/ranking through
+   `semantic_search`. (§8)
 
-Each P0 item is independently shippable and each maps to a measured finding in §2.
+Each P0/P1 item is independently shippable and each maps to a measured finding in §2.
+**Status:** P0 + P1 items 1–5 implemented and unit-wired; item 6 + P2 (items 7–8) remain.
+LIVE validation (a healthy vLLM — currently degraded per the GB10 power fault — plus a
+human-gated daemon restart) is still required to confirm end-to-end chat latency.
 
 ## 10. Trivial fixes applied in this change
 

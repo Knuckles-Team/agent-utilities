@@ -543,6 +543,14 @@ async def _persist_and_enrich(
         await asyncio.to_thread(
             compress_to_memento, engine, turn, source=session, refine=False
         )
+        # CONCEPT:KG-2.131 — refresh the per-session memento cache in this SAME background
+        # pass so the NEXT turn reads the just-written memento from memory, never from a
+        # blocking ``get_recent_mementos`` round-trip on the reply path.
+        from agent_utilities.knowledge_graph.memory.session_memento_cache import (
+            refresh_session_memento_cache,
+        )
+
+        await asyncio.to_thread(refresh_session_memento_cache, engine, session)
     except Exception as e:  # noqa: BLE001
         logger.debug("[CONCEPT:ECO-4.78] session memento skipped: %s", e)
     try:
@@ -602,6 +610,20 @@ async def _fetch_image_parts(urls: list[str]) -> list[Any]:
     return parts
 
 
+def _is_backend_timeout(failure_text: str) -> bool:
+    """True when a failure string is a backend/LLM timeout (CONCEPT:ORCH-1.62).
+
+    Such a failure means the endpoint is slow/degraded; a second full LLM call to the same
+    endpoint (the double-LLM tax) is exactly what we must avoid, so the caller surfaces a
+    graceful message instead of falling through to the plain-chat fallback.
+    """
+    low = failure_text.lower()
+    return any(
+        marker in low
+        for marker in ("timed out", "timeout", "cancellederror", "deadline")
+    )
+
+
 async def _graph_agent_reply(
     engine: Any, content: str, *, session: str, image_parts: list[Any] | None = None
 ) -> str:
@@ -622,6 +644,13 @@ async def _graph_agent_reply(
     run must still yield a reply, so on timeout/error we fall through to a plain-chat
     completion. CONCEPT:ECO-4.67 — image attachments are carried on the fallback (vision)
     path; the responder label / ``/claude`` routing applies there too.
+
+    CONCEPT:ORCH-1.62 — the run uses the ``chat`` execution profile, so each LLM round is
+    bounded to the chat budget (≈12 s) instead of 300 s: a degraded backend fails fast
+    inside the reply budget. And to remove the measured double-LLM tax, a *backend timeout*
+    (the run hit the reply-timeout wall) does NOT trigger a second full LLM call to the same
+    degraded endpoint — it returns a graceful message. The plain-chat fallback fires only on
+    a genuine graph *error* (delegation/structural), where a single short attempt is cheap.
     """
     from agent_utilities.core.config import setting
 
@@ -639,24 +668,54 @@ async def _graph_agent_reply(
                 task=content,
                 session_id=session,
                 memento_source=session,
+                execution_profile="chat",
             ),
             timeout=reply_timeout,
         )
         text = str(out).strip() if out else ""
         if text and not text.startswith("Agent execution failed"):
             return text
+        # The run completed but returned a failure string. If that failure was a backend
+        # timeout (an inner node hit the chat-profile bound), do NOT re-call the same slow
+        # endpoint (CONCEPT:ORCH-1.62) — surface the graceful message. Only a non-timeout
+        # failure (delegation/structural) is worth a single cheap plain-chat attempt.
+        if _is_backend_timeout(text):
+            logger.warning(
+                "[CONCEPT:ORCH-1.62] universal agent timed out on a degraded backend "
+                "(%.80s); skipping the double-LLM plain-chat call.",
+                text,
+            )
+            return (
+                "I saved your message, but the assistant backend is responding slowly "
+                "right now, so I couldn't finish a reply in time. Please try again shortly."
+            )
         logger.warning(
             "[CONCEPT:ECO-4.78] universal agent returned no usable reply (%.60s); "
-            "falling back to plain chat.",
+            "falling back to a single plain-chat reply.",
             text,
         )
-    except Exception as e:  # noqa: BLE001 — timeout/hang/delegation error → plain-chat reply
+    except TimeoutError:
+        # The whole turn hit the reply-timeout wall — the backend is slow/degraded. Making a
+        # SECOND full LLM call to the same endpoint is the double-LLM tax that pushed a single
+        # turn past 90 s (CONCEPT:ORCH-1.62). Return a graceful message instead; the chat
+        # profile already bounded each round, so this path is now a fast bound + one message.
         logger.warning(
-            "[CONCEPT:ECO-4.78] universal agent failed/timed out (%s); "
-            "falling back to plain chat.",
+            "[CONCEPT:ORCH-1.62] universal agent hit the %ss reply budget — skipping the "
+            "plain-chat fallback to avoid a second call to a degraded backend.",
+            reply_timeout,
+        )
+        return (
+            "I saved your message, but the assistant backend is responding slowly right "
+            "now, so I couldn't finish a reply in time. Please try again shortly."
+        )
+    except Exception as e:  # noqa: BLE001 — a genuine graph error → ONE short plain-chat reply
+        logger.warning(
+            "[CONCEPT:ECO-4.78] universal agent failed (%s); "
+            "falling back to a single plain-chat reply.",
             e,
         )
-    # Plain-chat fallback — ALWAYS yields a reply even if the graph run stalls (CONCEPT:ECO-4.74).
+    # Plain-chat fallback — a single short bounded attempt, fired ONLY on a genuine graph
+    # error (not a backend timeout), so it never doubles a slow round (CONCEPT:ORCH-1.62/4.74).
     return await _plain_chat_reply(content, image_parts=image_parts)
 
 

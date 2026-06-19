@@ -3,7 +3,7 @@ Capability Ledger (R1–R13). Strategies are composed in order by the Router.
 """
 
 from .fallback import match_specialists_in_text, unstructured_fallback_prompt
-from .fast_path import FastPathStrategy, is_trivial_query
+from .fast_path import FastPathStrategy, is_trivial_query, needs_full_orchestration
 from .learned import (
     CostAwareRouter,
     RoutingDecision,
@@ -38,6 +38,7 @@ from .workflow_context import ShieldedResult, WorkflowContextRouter
 __all__ = [
     "FastPathStrategy",
     "is_trivial_query",
+    "needs_full_orchestration",
     "ShieldedResult",
     "WorkflowContextRouter",
     "RoutingPolicy",
