@@ -481,3 +481,29 @@ def test_graph_deps_carries_execution_shape() -> None:
         GraphDeps(tag_prompts={}, tag_env_vars={}, mcp_toolsets=[]).execution_shape
         is None
     )
+
+
+# ───────── ORCH-1.68 — memory_selection doc scan is pruned/capped/off-loop ─────────
+
+
+def test_memory_selection_doc_scan_pruned_and_capped(tmp_path) -> None:
+    """The workspace doc inventory must prune vendor/build trees and cap its output, not
+    rglob the whole 234-repo tree + read_text every file on the event loop (CONCEPT:ORCH-1.68).
+    """
+    from agent_utilities.graph.hierarchical_planner import (
+        _DOC_SCAN_CAP,
+        _scan_workspace_docs,
+    )
+
+    (tmp_path / "README.md").write_text("---\ndescription: root readme\n---\n")
+    # A vendor tree that MUST be pruned (never descended into).
+    nm = tmp_path / "node_modules" / "pkg"
+    nm.mkdir(parents=True)
+    (nm / "IGNORED.md").write_text("must not be scanned")
+    # More docs than the cap, to prove the scan stops early.
+    for i in range(_DOC_SCAN_CAP + 25):
+        (tmp_path / f"doc{i}.md").write_text("hi")
+
+    out = _scan_workspace_docs(str(tmp_path))
+    assert len(out) <= _DOC_SCAN_CAP, "doc scan exceeded its cap"
+    assert not any("IGNORED.md" in line for line in out), "node_modules was not pruned"
