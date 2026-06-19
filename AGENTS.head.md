@@ -154,6 +154,38 @@ For trivial tasks, use judgment; the bias here is correctness over speed.
 - **Cardinal rules:** no stubs (`raise NotImplementedError` only with `# ABSTRACT-OK`);
   strangler-then-delete (never "v2 beside old"); keep the unit suite green.
 
+## Dependency discipline — NO heavy ML/native deps in core (READ before adding a dependency)
+
+agent-utilities core is the **serving plane**: the KG, retrieval, MCP server (`kg_server`),
+the gateway/host daemon, and messaging. **It must install and run with zero heavy ML/native
+dependencies** — specifically **never** add `torch`, `transformers`, `sentence-transformers`,
+or any CUDA/AVX-compiled ML wheel to the core `dependencies`. They are GPU/CPU-baseline-pinned
+(they SIGILL on older CPUs — e.g. an SSE4-only host — and bloat the serving image by ~GB), and
+the heavy compute already lives elsewhere:
+
+- **Embeddings → remote vLLM** (`core/embedding_utilities`, OpenAI-style HTTP). Never a local
+  embedding model in core.
+- **Vector similarity / ANN / graph algorithms → the Rust `epistemic-graph` engine**
+  (`graph_compute` → the engine client). Never an O(N) torch/numpy scan in Python.
+- **Reranking → remote vLLM** (`RemoteRerankScorer`, `KG_RERANK_MODEL`) or the dependency-free
+  lexical scorer. The local cross-encoder is opt-in only (`KG_RERANK_LOCAL_NEURAL=1`).
+- **Model training / heavy inference → `agents/data-science-mcp`**, reached over MCP — not
+  imported into core.
+
+Rules:
+1. **Heavy ML deps live ONLY in optional extras** (`[finance]`, `[finance-kronos]`, a training
+   extra), never the base `dependencies`. The serving image builds the **`serving`** extra
+   (core + mcp + graph + backends + embeddings), NOT `[all]`.
+2. **Every `import torch`/`transformers`/`sentence_transformers`/`hnswlib` MUST be
+   `try/except ImportError`-guarded and lazy** (inside the function that uses it) so the
+   package imports clean without them. **No eager re-export** of a torch module from an
+   `__init__.py` that a live tool path touches — that silently puts torch on the serving path.
+3. **New ML capability goes to data-science-mcp** (or a domain extra) and is called remotely,
+   not added to core. If you think core needs torch, you're adding it to the wrong package.
+
+The check: `import agent_utilities` and a `kg_server` boot must succeed with torch uninstalled
+(the lean serving image has no torch).
+
 ## Configuration discipline — an env var is a LAST RESORT (READ before adding any flag)
 
 We were drowning in ~96 `KG_*`/`GRAPH_*` env flags — over-configuration that is
