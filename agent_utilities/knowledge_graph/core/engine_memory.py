@@ -335,6 +335,7 @@ class MemoryMixin(_Base):
         trust_score: float = 0.8,
         agent_id: str = "",
         *,
+        extra_props: dict[str, Any] | None = None,
         _local: bool = False,
         _memory_id: str | None = None,
     ) -> str:
@@ -357,6 +358,9 @@ class MemoryMixin(_Base):
             trust_score: Provenance trust (0.0–1.0). Memories below 0.3 are
                 quarantined from default recall. Default 0.8.
             agent_id: Source agent for provenance tracking.
+            extra_props: Optional scalar node properties merged onto the stored
+                node (e.g. ``channel_key`` for cheap exact-match recency recall,
+                CONCEPT:ECO-4.76). Kept flat/indexable — not for nested data.
 
         Returns:
             Memory node ID.
@@ -384,6 +388,7 @@ class MemoryMixin(_Base):
                                 "tags": list(tags or []),
                                 "trust_score": trust_score,
                                 "agent_id": agent_id,
+                                "extra_props": dict(extra_props or {}),
                             }
                         },
                     )
@@ -429,6 +434,11 @@ class MemoryMixin(_Base):
         data["last_accessed"] = timestamp
         if agent_id:
             data["agent_id"] = agent_id
+        # CONCEPT:ECO-4.76 — flat, indexable scalars (e.g. channel_key) for cheap
+        # exact-match recency recall (messaging conversation history).
+        for _k, _v in (extra_props or {}).items():
+            if isinstance(_v, str | int | float | bool):
+                data[_k] = _v
 
         if self.backend:
             self._upsert_node("Memory", node.id, data)
