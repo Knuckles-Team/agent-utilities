@@ -83,6 +83,12 @@ class ExecutionProfile:
         run_verifier: Run the verifier (+repair) round for this job.
         resolve_agent: Resolve the agent name against the KG (a semantic search) before the
             run; ``False`` skips it for a job that doesn't target a specific specialist.
+        enable_reasoning: Run the model with extended reasoning ("thinking" / RLM-style
+            recursive reasoning) ENABLED for this job. A trivial turn turns it off so the
+            local reasoning model answers in ~0.4 s instead of emitting a multi-second
+            chain-of-thought trace; a job that benefits from deliberation turns it on. This is
+            a per-job *capability* toggle on the model — the first of the dynamic model/agent
+            capabilities the planner selects (CONCEPT:ORCH-1.68).
         model_id: Per-job model override; ``None`` lets ``create_model`` pick the local
             default. Never a hard-coded remote model.
         origin: Which planner stage produced this shape (``preset`` / ``heuristic`` /
@@ -103,6 +109,7 @@ class ExecutionProfile:
     run_discovery: bool = True
     run_verifier: bool = True
     resolve_agent: bool = True
+    enable_reasoning: bool = True
     model_id: str | None = None
     origin: str = "preset"
     confidence: float = 1.0
@@ -204,6 +211,7 @@ def plan_execution_shape(
             run_discovery=False,
             run_verifier=False,
             resolve_agent=False,
+            enable_reasoning=False,
             origin="heuristic",
             confidence=0.9,
         )
@@ -218,6 +226,7 @@ def plan_execution_shape(
         run_discovery=True,
         run_verifier=True,
         resolve_agent=True,
+        enable_reasoning=True,
         origin="heuristic",
         confidence=0.7,
     )
