@@ -631,3 +631,43 @@ def test_recipe_cache_reuses_and_resets() -> None:
     reset_recipe_cache()
     third = plan_execution_shape("crawl the site", profile_hint="chat", engine=eng)
     assert third.origin == "designate"  # cache cleared → recomputed
+
+
+def test_recipe_outcome_evicts_on_failure_keeps_on_success() -> None:
+    """The cached recipe self-corrects: a failed run evicts it (re-plan next time); a
+    successful run keeps it (reuse next time) — CONCEPT:ORCH-1.70."""
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        record_shape_outcome,
+        reset_recipe_cache,
+    )
+
+    reset_recipe_cache()
+    eng = _FakeSearchEngine([{"name": "x"}])
+    cache_boom = _FakeSearchEngine(RuntimeError("must be served from cache"))
+
+    assert plan_execution_shape(
+        "crawl the site", profile_hint="chat", engine=eng
+    ).origin == ("designate")
+    # cached now
+    assert (
+        plan_execution_shape(
+            "crawl the site", profile_hint="chat", engine=cache_boom
+        ).origin
+        == "cache:designate"
+    )
+
+    # failure evicts -> next call re-plans (engine called again)
+    record_shape_outcome("crawl the site", "chat", success=False)
+    assert plan_execution_shape(
+        "crawl the site", profile_hint="chat", engine=eng
+    ).origin == ("designate")
+
+    # success keeps -> next call served from cache
+    record_shape_outcome("crawl the site", "chat", success=True)
+    assert (
+        plan_execution_shape(
+            "crawl the site", profile_hint="chat", engine=cache_boom
+        ).origin
+        == "cache:designate"
+    )
