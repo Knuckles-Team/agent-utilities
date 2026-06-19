@@ -6,6 +6,7 @@ messaging services work side by side (last-active routing + per-platform send).
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -366,6 +367,150 @@ async def test_inbound_reply_path_not_blocked_by_slow_kg() -> None:
     await handler(ev, backend)
     elapsed = time.monotonic() - start
     assert elapsed < 1.0, f"reply path blocked on KG writes ({elapsed:.2f}s)"
+
+
+# ── Bounded conversation history / continuity (ECO-4.76) ─────────────
+
+
+class _HistoryEng:
+    """Engine stub that stores Memory nodes and answers the recency query."""
+
+    def __init__(self) -> None:
+        self.nodes: list[dict[str, Any]] = []
+        self._t = 0
+
+    def store_memory(self, *, extra_props=None, **kw: Any) -> str:
+        self._t += 1
+        node = {
+            "channel_key": (extra_props or {}).get("channel_key", ""),
+            "chat_role": (extra_props or {}).get("chat_role", "user"),
+            "chat_text": (extra_props or {}).get("chat_text", ""),
+            # monotonically increasing timestamp so sort order is deterministic
+            "timestamp": f"2026-06-19T00:00:{self._t:02d}Z",
+        }
+        self.nodes.append(node)
+        return f"m{self._t}"
+
+    def query_cypher(self, _q: str, params: dict[str, Any]):
+        ck = params.get("ck")
+        return [
+            {
+                "role": n["chat_role"],
+                "text": n["chat_text"],
+                "ts": n["timestamp"],
+            }
+            for n in self.nodes
+            if n["channel_key"] == ck
+        ]
+
+
+@pytest.mark.asyncio
+async def test_recall_recent_messages_returns_channel_history() -> None:
+    from agent_utilities.messaging.kg_ingest import (
+        ingest_message_to_kg,
+        recall_recent_messages,
+    )
+
+    eng = _HistoryEng()
+    # Two messages on the SAME channel + one on a different channel.
+    for chan, txt in (("42", "first message"), ("42", "second message")):
+        await ingest_message_to_kg(
+            InboundEvent(
+                event_type=EventType.MESSAGE,
+                platform="telegram",
+                channel_id=chan,
+                user_id="u1",
+                content=txt,
+            ),
+            knowledge_engine=eng,
+        )
+    await ingest_message_to_kg(
+        InboundEvent(
+            event_type=EventType.MESSAGE,
+            platform="telegram",
+            channel_id="99",
+            user_id="u1",
+            content="other channel",
+        ),
+        knowledge_engine=eng,
+    )
+
+    hist = recall_recent_messages("telegram", "42", limit=8, knowledge_engine=eng)
+    texts = [h["text"] for h in hist]
+    # Only this channel, chronological order, other channel excluded.
+    assert texts == ["first message", "second message"]
+    assert all(h["role"] == "user" for h in hist)
+
+
+@pytest.mark.asyncio
+async def test_second_message_reply_receives_first_as_history(monkeypatch) -> None:
+    """Two messages in the same channel → the 2nd reply sees the 1st as history.
+
+    The live-path test for continuity (ECO-4.76): the burst reply path calls
+    _recall_history, which formats prior turns into the kg_context handed to
+    _model_routed_reply. We capture that context to prove the first message reaches
+    the second turn.
+    """
+    from agent_utilities.messaging import router
+    from agent_utilities.messaging.router import create_planner_handler
+
+    MessagingService._instance = None
+    eng = _HistoryEng()
+
+    captured: list[str] = []
+
+    async def _fake_reply(_engine, _content, kg_context, *, image_parts=None):
+        captured.append(kg_context)
+        return "ok"
+
+    monkeypatch.setattr(router, "_graph_agent_reply", _fake_reply)
+    # Tight burst window so the coalescer flushes promptly in-test.
+    monkeypatch.setenv("MESSAGING_BURST_WINDOW_S", "0.2")
+    monkeypatch.setenv("MESSAGING_BURST_MAX_S", "1")
+    monkeypatch.setenv("MESSAGING_HISTORY_TURNS", "8")
+
+    handler = await create_planner_handler(knowledge_engine=eng)
+    backend = _FakeBackend("telegram")
+
+    def _ev(text: str) -> InboundEvent:
+        return InboundEvent(
+            event_type=EventType.MESSAGE,
+            platform="telegram",
+            channel_id="42",
+            user_id="u1",
+            content=text,
+        )
+
+    # First message → reply (no prior history), then persist runs in background.
+    await handler(_ev("what is the capital of France?"), backend)
+    await asyncio.sleep(0.6)  # let the burst flush + background persist complete
+    # Second message in the SAME channel → its reply must see the first as history.
+    await handler(_ev("and its population?"), backend)
+    await asyncio.sleep(0.6)
+
+    assert len(captured) == 2, captured
+    assert captured[0] == ""  # first turn had no prior history
+    assert "Recent conversation:" in captured[1]
+    assert "capital of France" in captured[1]
+
+
+@pytest.mark.asyncio
+async def test_recall_history_times_out_without_freezing(monkeypatch) -> None:
+    import time as _t
+
+    from agent_utilities.messaging import router
+
+    monkeypatch.setenv("MESSAGING_RECALL_TIMEOUT", "1")
+    monkeypatch.setenv("MESSAGING_HISTORY_TURNS", "8")
+
+    class _SlowEng:
+        def query_cypher(self, *a: Any, **k: Any):
+            _t.sleep(10)
+            return []
+
+    start = _t.monotonic()
+    out = await router._recall_history(_SlowEng(), "telegram", "42")
+    assert out == "" and (_t.monotonic() - start) < 5
 
 
 def test_load_fleet_auth_noop_when_already_set(monkeypatch) -> None:

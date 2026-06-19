@@ -311,18 +311,26 @@ async def create_planner_handler(
                     image_urls.append(att.url)
         image_parts = await _fetch_image_parts(image_urls)
 
-        # NO blocking recall pre-fetch on the reply path (CONCEPT:ECO-4.74). recall_memory
+        # NO blocking SEMANTIC recall on the reply path (CONCEPT:ECO-4.74). recall_memory
         # runs a heavy LOCAL embed + cross-encoder rerank (tens of CPU-bound "Batches") in
-        # this process, which grinds the messaging daemon and stalls the answer. The reply
-        # is generated immediately; the agent pulls KG context ON DEMAND via its
-        # auto-approved kg_search/kg_recall tools when a question actually needs it.
-        kg_context = ""
+        # this process, which grinds the messaging daemon and stalls the answer.
+        #
+        # We DO feed bounded, FAST conversation history (CONCEPT:ECO-4.76): the last few
+        # turns for THIS channel via a cheap exact-match recency query (no HNSW/reranker),
+        # wrapped in a short timeout so a slow/empty fetch degrades to no-context instead of
+        # stalling the reply. This gives multi-message tasks continuity; deeper semantic KG
+        # context is still pulled ON DEMAND by the agent's auto-approved kg_search/kg_recall.
+        kg_context = await _recall_history(
+            engine, str(event.platform), event.channel_id
+        )
         logger.info(
-            "[CONCEPT:ECO-4.63] Routing a burst of %d message(s) (%d image[s]) from %s/%s.",
+            "[CONCEPT:ECO-4.63] Routing a burst of %d message(s) (%d image[s]) from %s/%s "
+            "(history=%s).",
             len(items),
             len(image_parts),
             event.platform,
             event.user_name,
+            "yes" if kg_context else "none",
         )
         reply = await _graph_agent_reply(
             engine, combined, kg_context, image_parts=image_parts
@@ -503,6 +511,59 @@ async def _persist_and_enrich(
         )
     except Exception as e:  # noqa: BLE001
         logger.debug("[CONCEPT:ECO-4.65] enrichment skipped: %s", e)
+
+
+async def _recall_history(engine: Any, platform: str, channel_id: str) -> str:
+    """Fetch bounded, fast conversation history for THIS channel (CONCEPT:ECO-4.76).
+
+    Recalls the last ``MESSAGING_HISTORY_TURNS`` (default 8) chat turns for ``(platform,
+    channel_id)`` via the cheap exact-match recency query ``recall_recent_messages`` (NOT
+    the heavy semantic ``recall_memory``), and formats them as a compact block the reply
+    path passes as ``kg_context`` to ``_model_routed_reply``.
+
+    It MUST stay non-blocking: the query runs off the event loop under a hard timeout
+    (reusing ``MESSAGING_RECALL_TIMEOUT``); on timeout/empty/failure it returns ``""`` so
+    the reply is generated with no history rather than stalling.
+    """
+    from agent_utilities.core.config import setting
+
+    turns = int(setting("MESSAGING_HISTORY_TURNS", "8"))
+    if turns <= 0:
+        return ""
+    timeout = float(setting("MESSAGING_RECALL_TIMEOUT", "8"))
+    from agent_utilities.messaging.kg_ingest import recall_recent_messages
+
+    try:
+        messages = await asyncio.wait_for(
+            asyncio.to_thread(
+                recall_recent_messages,
+                platform,
+                channel_id,
+                limit=turns,
+                knowledge_engine=engine,
+            ),
+            timeout=timeout,
+        )
+    except TimeoutError:
+        logger.warning(
+            "[CONCEPT:ECO-4.76] history recall exceeded %.0fs — replying without history.",
+            timeout,
+        )
+        return ""
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[CONCEPT:ECO-4.76] history recall failed: %s", e)
+        return ""
+    if not messages:
+        return ""
+    lines = []
+    for m in messages:
+        who = "assistant" if m.get("role") == "assistant" else "user"
+        text = str(m.get("text", "")).strip().replace("\n", " ")
+        if text:
+            lines.append(f"<{who}>: {text}")
+    if not lines:
+        return ""
+    return "Recent conversation:\n" + "\n".join(lines)
 
 
 async def _recall_context(engine: Any, content: str, platform: str) -> str:
