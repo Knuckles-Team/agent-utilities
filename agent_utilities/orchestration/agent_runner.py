@@ -87,6 +87,7 @@ async def run_agent(
     session_id: str | None = None,
     open_channel: bool = False,
     memento_source: str | None = None,
+    execution_profile: str | None = None,
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
@@ -230,12 +231,30 @@ async def run_agent(
             e,
         )
 
-    # Step 2: Query KG for agent metadata
-    agent_meta = _resolve_agent_from_kg(engine, agent_name)
+    # Step 2: Query KG for agent metadata.
+    # CONCEPT:ORCH-1.65 — ``_resolve_agent_from_kg`` runs synchronous backend round-trips;
+    # run them OFF the event loop via ``to_thread`` so they never stall the async reply path.
+    agent_meta = await asyncio.to_thread(_resolve_agent_from_kg, engine, agent_name)
 
-    # Step 3: Build execution config from KG metadata
+    # Step 2b: Prime the recent compressed mementos for this run OFF the event loop.
+    # CONCEPT:KG-2.131 — read the per-session memento cache (zero I/O); only on a cold
+    # miss do we fetch via ``to_thread`` so the synchronous backend round-trip never
+    # blocks the async reply path (the priming used to run inline in
+    # ``_build_execution_config``). The background ``_persist_and_enrich`` pass refreshes
+    # the cache after each turn, so turn N+1 reads turn N's memento from memory.
+    recent_mementos = await _prime_recent_mementos(engine, memento_source or agent_name)
+
+    # Step 3: Build execution config from KG metadata.
+    # CONCEPT:ORCH-1.62 — the execution profile selects the per-node timeout budget
+    # (chat = tens of seconds, task = the long default) so a chat turn fails fast inside
+    # its budget on a degraded backend instead of stalling on a 300 s router round.
     config = _build_execution_config(
-        engine, agent_name, agent_meta, memento_source=memento_source
+        engine,
+        agent_name,
+        agent_meta,
+        memento_source=memento_source,
+        execution_profile=execution_profile,
+        recent_mementos=recent_mementos,
     )
     # CONCEPT:ORCH-1.39 — carry the invoker's curated context + token budget into the spawn.
     # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
@@ -549,11 +568,51 @@ def _spawn_auth_headers() -> dict[str, str]:
         return {}
 
 
+async def _prime_recent_mementos(
+    engine: IntelligenceGraphEngine,
+    source: str,
+    limit: int = 3,
+) -> list[str]:
+    """Return the recent compressed mementos for ``source`` WITHOUT blocking the loop.
+
+    CONCEPT:KG-2.131 — reads the per-session memento cache first (zero I/O). The cache
+    is refreshed by the background ``_persist_and_enrich`` pass after each turn, so the
+    common case (turn N+1 of a live conversation) is a pure in-memory read. On a cold
+    miss we fetch once via ``to_thread`` (off the event loop) and populate the cache, so
+    even the first turn never stalls the async reply path on a synchronous backend query.
+    """
+    try:
+        from agent_utilities.knowledge_graph.memory.memento_compressor import (
+            get_recent_mementos,
+        )
+        from agent_utilities.knowledge_graph.memory.session_memento_cache import (
+            SessionMementoCache,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Memento priming unavailable: %s", e)
+        return []
+
+    cache = SessionMementoCache.instance()
+    cached = cache.get(source)
+    if cached is not None:
+        return cached
+
+    try:
+        mementos = await asyncio.to_thread(get_recent_mementos, engine, source, limit)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Failed to prime Mementos for %s: %s", source, e)
+        return []
+    cache.put(source, mementos)
+    return mementos
+
+
 def _build_execution_config(
     engine: IntelligenceGraphEngine,
     agent_name: str,
     agent_meta: dict[str, Any],
     memento_source: str | None = None,
+    execution_profile: str | None = None,
+    recent_mementos: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build a graph execution config dict from KG-resolved agent metadata.
 
@@ -566,6 +625,16 @@ def _build_execution_config(
     session key so successive turns share continuity through the core memory: the
     prior turns of THAT conversation are recalled as mementos, not via a bespoke
     per-surface history query.
+
+    CONCEPT:KG-2.131 — ``recent_mementos`` is the already-primed memento list (read
+    off the event loop by :func:`_prime_recent_mementos`). When ``None`` (the legacy
+    direct callers / tests), we fall back to a synchronous fetch here so the function
+    stays self-contained, but the hot reply path always passes the primed list so no
+    blocking backend round-trip runs on the loop.
+
+    CONCEPT:ORCH-1.62 — ``execution_profile`` ("chat" vs default "task") selects the
+    per-node timeout budget: the chat profile bounds router/verifier to tens of seconds
+    so a degraded backend fails fast inside the chat budget rather than at 300 s.
     """
     from agent_utilities.core.config import (
         DEFAULT_GRAPH_ROUTER_TIMEOUT,
@@ -578,6 +647,11 @@ def _build_execution_config(
         DEFAULT_ROUTER_MODEL,
         DEFAULT_SSL_VERIFY,
     )
+    from agent_utilities.orchestration.execution_profile import (
+        resolve_execution_profile,
+    )
+
+    profile = resolve_execution_profile(execution_profile)
 
     # Tag prompts: the agent itself + any capabilities
     tag_prompts = {
@@ -587,28 +661,43 @@ def _build_execution_config(
         if cap and cap != agent_name:
             tag_prompts[cap] = f"Capability: {cap}"
 
-    # Fetch recent Mementos to build the sawtooth context
-    try:
-        from agent_utilities.knowledge_graph.memory import (
-            get_recent_mementos,
-        )
+    # Prime recent Mementos into the sawtooth context. The hot reply path supplies them
+    # already (read off the loop, CONCEPT:KG-2.131); only a direct caller that passed
+    # nothing falls back to a synchronous fetch here.
+    if recent_mementos is None:
+        try:
+            from agent_utilities.knowledge_graph.memory import get_recent_mementos
 
-        recent_mementos = get_recent_mementos(
-            engine, source=memento_source or agent_name, limit=3
-        )
-        if recent_mementos:
-            memento_text = "\n\n---\n\n".join(recent_mementos)
-            tag_prompts["mementos"] = (
-                f"Past Context Mementos (Compressed State):\n{memento_text}"
+            recent_mementos = get_recent_mementos(
+                engine, source=memento_source or agent_name, limit=3
             )
-    except Exception as e:
-        logger.debug("Failed to fetch Mementos for context: %s", e)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Failed to fetch Mementos for context: %s", e)
+            recent_mementos = []
+    if recent_mementos:
+        memento_text = "\n\n---\n\n".join(recent_mementos)
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
 
     # Tool descriptions from KG
     for tool in agent_meta.get("tools", []):
         tool_name = tool.get("name", "")
         if tool_name:
             tag_prompts[tool_name] = tool.get("description", tool_name)
+
+    # CONCEPT:ORCH-1.62 — chat profile bounds node timeouts to the chat budget; the task
+    # profile keeps the long defaults.
+    router_timeout = (
+        profile.router_timeout
+        if profile.router_timeout is not None
+        else DEFAULT_GRAPH_ROUTER_TIMEOUT
+    )
+    verifier_timeout = (
+        profile.verifier_timeout
+        if profile.verifier_timeout is not None
+        else DEFAULT_GRAPH_VERIFIER_TIMEOUT
+    )
 
     config: dict[str, Any] = {
         "tag_prompts": tag_prompts,
@@ -618,8 +707,9 @@ def _build_execution_config(
         "mcp_toolsets": [],
         "router_model": DEFAULT_ROUTER_MODEL,
         "agent_model": DEFAULT_LITE_LLM_MODEL_ID,
-        "router_timeout": DEFAULT_GRAPH_ROUTER_TIMEOUT,
-        "verifier_timeout": DEFAULT_GRAPH_VERIFIER_TIMEOUT,
+        "router_timeout": router_timeout,
+        "verifier_timeout": verifier_timeout,
+        "execution_profile": profile.name,
         "min_confidence": DEFAULT_MIN_CONFIDENCE,
         "valid_domains": tuple(tag_prompts.keys()),
         "provider": DEFAULT_LLM_PROVIDER,

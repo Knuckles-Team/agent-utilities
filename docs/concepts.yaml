@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 371
+total_concepts: 376
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1248,13 +1248,14 @@ concepts:
   - agent_utilities/messaging/daemon.py
   doc: the inbound messaging router runs in its OWN process
 - id: ECO-4.74
-  name: only cancel the debounce timer when flushing from a DIFFERENT
+  name: after each turn that pass already *writes* the new memento under the
   pillar: ECO-4
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/memory/session_memento_cache.py
   - agent_utilities/messaging/coalescer.py
   - agent_utilities/messaging/router.py
-  doc: only cancel the debounce timer when flushing from a DIFFERENT
+  doc: after each turn that pass already *writes* the new memento under the
 - id: ECO-4.75
   name: make fleet credentials present in THIS process env so the MCP
   pillar: ECO-4
@@ -1292,6 +1293,7 @@ concepts:
   pillar: ECO-4
   status: live
   code_paths:
+  - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/reactions.py
   doc: one emote registry and governance gate shared
 - id: ECO-4.81
@@ -3091,6 +3093,15 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_memory.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: a memory write offloaded from a SERVING process. The
+- id: KG-2.131
+  name: refresh the per-session memento cache in this SAME background
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/session_memento_cache.py
+  - agent_utilities/messaging/router.py
+  - agent_utilities/orchestration/agent_runner.py
+  doc: refresh the per-session memento cache in this SAME background
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -3750,6 +3761,40 @@ concepts:
   - agent_utilities/knowledge_graph/adaptation/fleet_event_triage.py
   - agent_utilities/knowledge_graph/adaptation/ticket_playbooks.py
   doc: Ticket-driven workflow playbook
+- id: ORCH-1.62
+  name: chat profile bounds node timeouts to the chat budget; the task
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/_router_impl.py
+  - agent_utilities/messaging/router.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/execution_profile.py
+  - agent_utilities/orchestration/manager.py
+  doc: chat profile bounds node timeouts to the chat budget; the task
+- id: ORCH-1.63
+  name: the original rule was far too narrow
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/routing/strategies/fast_path.py
+  - agent_utilities/orchestration/execution_profile.py
+  doc: the original rule was far too narrow
+- id: ORCH-1.64
+  name: cache the built graph TOPOLOGY per routing-config. The topology +
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/builder.py
+  doc: cache the built graph TOPOLOGY per routing-config. The topology +
+- id: ORCH-1.65
+  name: the pre-LLM discovery below is several SYNCHRONOUS engine
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/_router_impl.py
+  - agent_utilities/orchestration/agent_runner.py
+  doc: the pre-LLM discovery below is several SYNCHRONOUS engine
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
