@@ -180,10 +180,11 @@ serving = [
     "agent-utilities[mcp,graph,embeddings,neo4j,falkordb,owl,documents,agent,auth,metrics]",
 ]
 finance = [
-    "torch>=2.12.0",
+    # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
+    # trainer (the only sklearn user in finance) was re-homed to
+    # data-science-mcp[training]. See AGENTS.md "Dependency discipline".
     "statsmodels>=0.14.6",
     "yfinance>=1.4.1",
-    "scikit-learn>=1.9.0",
     "pandas>=2.0.0,<3",
     "httpx>=0.28.1",
     "websockets>=16.0",

@@ -1552,7 +1552,6 @@ concepts:
   - agent_utilities/domains/finance/cross_market_arb.py
   - agent_utilities/domains/finance/crypto_connector.py
   - agent_utilities/domains/finance/debate_engine.py
-  - agent_utilities/domains/finance/evaluation.py
   - agent_utilities/domains/finance/exchange_bridge.py
   - agent_utilities/domains/finance/filing_diff.py
   - agent_utilities/domains/finance/forensic_screener.py
@@ -2772,7 +2771,6 @@ concepts:
   code_paths:
   - agent_utilities/harness/assimilation_benchmark.py
   - agent_utilities/knowledge_graph/retrieval/generative_recommender.py
-  - agent_utilities/knowledge_graph/retrieval/pause_token_trainer.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: PauseRec implicit-reasoning generative recommender
 - id: KG-2.94
