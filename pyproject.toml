@@ -90,6 +90,21 @@ agent = [
     "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.106.0,<2.0.0",
     "pydantic-graph>=1.106.0"
 ]
+# Server-side agent runtime WITHOUT the frontend component libraries. `agent`
+# pulls `ag-ui` (agent-webui) + `terminal` (agent-terminal-ui), which a serving
+# process never renders — and agent-webui depends on the FULL `pydantic-ai`
+# meta-package, dragging temporalio/botocore/google-genai/grpc/mistralai onto the
+# serving image (~140 MB). `agent-headless` is the same skill/runtime stack the
+# agent actually needs at serve time, minus those two frontend libs. Used by
+# `[serving]`. See AGENTS.md "Dependency discipline".
+agent-headless = [
+    "agent-utilities[mcp]>=0.51.0",
+    "universal-skills>=0.45.0",
+    "skill-graphs>=0.38.0",
+    "pydantic-ai-skills>=0.11.0",
+    "pydantic-ai-slim[fastmcp,openai,a2a,web,cli]>=1.106.0,<2.0.0",
+    "pydantic-graph>=1.106.0"
+]
 agent-google = [
     "pydantic-ai-slim[google]>=1.106.0,<2.0.0"
 ]
@@ -177,7 +192,18 @@ serving = [
     # The serving plane (graph-os MCP, host daemon, messaging): NO heavy ML/native deps.
     # Heavy compute is remote (vLLM) or in the Rust engine; torch/transformers/AVX-ann are
     # excluded on purpose (they SIGILL on old CPUs + bloat the image). See AGENTS.md dep rule.
-    "agent-utilities[mcp,graph,embeddings,neo4j,falkordb,owl,documents,agent,auth,metrics,finance]",
+    #
+    # Deliberately EXCLUDED from the serving plane (kept in the host-daemon / domain images):
+    #   - finance: scipy + pandas + statsmodels (~360 MB). The only serving consumer was the
+    #     `quant` MCP tool's boot-time registration; that registration is now guarded
+    #     (mcp/tools/ontology_tools.py) so kg_server boots cleanly without it.
+    #   - agent (→ ag-ui/terminal): agent-webui + agent-terminal-ui are FRONTEND component
+    #     libs a server never renders, and agent-webui pulls the full pydantic-ai meta
+    #     (temporalio/botocore/google-genai/grpc/mistralai, ~140 MB). Replaced by the
+    #     `agent-headless` extra (same skill/runtime stack, no frontends).
+    #   - documents: pymupdf (~62 MB) is the host daemon's PDF ingestion reader
+    #     (engine_tasks._pdf_file_extractor); the MCP query/serving surface never parses PDFs.
+    "agent-utilities[mcp,graph,embeddings,neo4j,falkordb,owl,auth,metrics,agent-headless]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
