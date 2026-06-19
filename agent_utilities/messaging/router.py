@@ -737,6 +737,7 @@ _SAFE_AUTO_TOOLS = {
     "graph_query",
     "graph_context",
     "graph_orchestrate",
+    "invoke_specialized_agent",
     "find_tools",
     "load_tools",
     "list_catalog",
