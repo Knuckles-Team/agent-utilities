@@ -385,6 +385,10 @@ class AgentConfig(BaseSettings):
     messaging_goals: str = Field(default="1", alias="MESSAGING_GOALS")
     # Max seconds for the (blocking) KG recall before replying without context (ECO-4.72).
     messaging_recall_timeout: str = Field(default="8", alias="MESSAGING_RECALL_TIMEOUT")
+    # Bounded conversation history fed to the reply path for continuity (CONCEPT:ECO-4.76):
+    # how many prior turns (user+assistant) for THIS channel to recall via the cheap
+    # recency query. 0 disables history. Bounded by MESSAGING_RECALL_TIMEOUT.
+    messaging_history_turns: str = Field(default="8", alias="MESSAGING_HISTORY_TURNS")
     # Webhook push (CONCEPT:ECO-4.66): set the PUBLIC base URL (served via tunnel/edge to a
     # LOCAL port) to switch from polling to instant webhook delivery; empty = polling.
     messaging_webhook_base_url: str = Field(

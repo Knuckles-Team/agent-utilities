@@ -23,90 +23,46 @@ class SubAgentResponse(BaseModel):
 
 
 @trace(name="invoke_specialized_agent", trace_type="TOOL")
-@tool_version("1.0.0")
+@tool_version("1.1.0")
 async def invoke_specialized_agent(
     ctx: RunContext[AgentDeps],
     agent_name: str,
     prompt: str,
     model: str | None = None,
 ) -> str:
-    """Invoke a specialized sub-agent for a targeted task.
+    """Delegate a targeted task to a specialized sub-agent (local MCP/prompt or remote A2A).
 
-    This tool handles local adaptive_agent_router (Prompts, MCP) and remote A2A peers
-    discovered via the Knowledge Graph.
+    CONCEPT:ECO-4.77 — ONE delegation surface. This is a thin wrapper over the SAME
+    orchestration core as ``graph_orchestrate(action="execute_agent", ...)`` —
+    ``Orchestrator.execute_agent`` → ``run_agent`` — which resolves the specialist from the
+    Knowledge Graph (server / skill / a2a) and runs it. There is no separate discovery /
+    A2A / sub-agent-build path here (No-Legacy); both entrypoints converge on one core.
 
     Args:
         ctx: The agent run context.
         agent_name: The name of the expert node to invoke (e.g., 'python', 'github').
         prompt: The specific instruction or task for the specialist.
-        model: Optional model override for the sub-agent.
+        model: Optional model override (currently advisory; the orchestrator resolves the
+            model from the spawned agent's own configuration).
 
     Returns:
         The result string from the sub-agent execution.
-
     """
-    from agent_utilities.agent.discovery import discover_all_specialists
-    from agent_utilities.protocols.a2a import A2AClient
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.orchestration.manager import Orchestrator
 
-    adaptive_agent_router = discover_all_specialists()
-    agent_info = next((a for a in adaptive_agent_router if a.name == agent_name), None)
-
-    if not agent_info:
-        # Try fuzzy match
-        agent_info = next(
-            (
-                a
-                for a in adaptive_agent_router
-                if a.tag == agent_name or a.name.lower() == agent_name.lower()
-            ),
-            None,
-        )
-
-    if not agent_info:
-        return f"Error: Specialist '{agent_name}' not found in the Knowledge Graph."
-
-    logger.info(
-        f"Invoking specialized agent '{agent_name}' (source: {agent_info.source})"
+    engine = (
+        getattr(ctx.deps, "knowledge_engine", None)
+        or IntelligenceGraphEngine.get_active()
     )
-
-    if agent_info.source == "a2a":
-        # Remote A2A Execution
-        client = A2AClient(ssl_verify=getattr(ctx.deps, "ssl_verify", True))
-        res = await client.execute_task(agent_info.url, prompt)
-        return str(res)
-
-    elif agent_info.source in ["mcp", "prompt", "local_mcp"]:
-        # Local Execution (MCP or Prompt)
-        # We reuse the existing MCP toolsets from the current context
-        mcp_toolsets = getattr(ctx.deps, "mcp_toolsets", [])
-
-        # Filter toolsets for this specific agent if it's an MCP agent
-        target_toolsets = mcp_toolsets
-        if agent_info.mcp_server:
-            target_toolsets = [
-                ts
-                for ts in mcp_toolsets
-                if getattr(ts, "id", getattr(ts, "name", "")) == agent_info.mcp_server
-            ]
-
-        from agent_utilities.agent.factory import create_agent
-
-        sub_agent, _ = create_agent(
-            name=agent_info.name,
-            model_id=model or ctx.deps.model_id,
-            mcp_toolsets=target_toolsets,
-            system_prompt=agent_info.description,  # Use description as system prompt if it's a prompt agent
-            enable_skills=True,
-            enable_universal_tools=False,  # Avoid recursive tool registration
+    if engine is None:
+        return "Error: IntelligenceGraphEngine not active for delegation."
+    try:
+        return await Orchestrator(engine).execute_agent(
+            agent_name=agent_name, task=prompt
         )
-
-        try:
-            res = await sub_agent.run(prompt, deps=ctx.deps)
-            return str(res.output)
-        except Exception as e:
-            return f"Error invoking sub-agent '{agent_name}': {e}"
-
-    return f"Error: Unsupported agent source '{agent_info.source}' for '{agent_name}'"
+    except Exception as e:  # noqa: BLE001
+        return f"Error invoking sub-agent '{agent_name}': {e}"
 
 
 @trace(name="list_available_agents", trace_type="TOOL")
