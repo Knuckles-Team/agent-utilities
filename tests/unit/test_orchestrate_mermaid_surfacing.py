@@ -27,7 +27,7 @@ def _patched_run_agent(monkeypatch):
     }
 
     monkeypatch.setattr(agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"})
-    monkeypatch.setattr(agent_runner, "_build_execution_config", lambda e, n, m: {})
+    monkeypatch.setattr(agent_runner, "_build_execution_config", lambda e, n, m, **kw: {})
     monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
 
     async def _fake_execute_graph(**kwargs):
@@ -73,7 +73,7 @@ async def test_run_agent_return_mermaid_wraps_when_present(_patched_run_agent):
 async def test_run_agent_no_mermaid_stays_bare_string(monkeypatch):
     """AC4 edge: return_mermaid=True but no diagram -> still a bare string."""
     monkeypatch.setattr(agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"})
-    monkeypatch.setattr(agent_runner, "_build_execution_config", lambda e, n, m: {})
+    monkeypatch.setattr(agent_runner, "_build_execution_config", lambda e, n, m, **kw: {})
     monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
 
     async def _fake_execute_graph(**kwargs):

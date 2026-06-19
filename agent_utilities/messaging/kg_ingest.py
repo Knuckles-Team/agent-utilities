@@ -95,9 +95,9 @@ async def ingest_message_to_kg(
     try:
         # CONCEPT:ECO-4.72 — store_memory is a BLOCKING call (graph write + embedding).
         # Run it off the event loop so ingest never stalls the messaging/reply loop.
-        # CONCEPT:ECO-4.76 — stamp a flat, indexable channel_key + role so the reply
-        # path can recall the last N turns for THIS channel via a cheap exact-match
-        # query (recall_recent_messages) instead of the heavy semantic recall_memory.
+        # CONCEPT:ECO-4.78 — this is episodic memory the universal recall reads on demand;
+        # reply continuity comes from the per-session conversation memento, not a bespoke
+        # per-channel history query, so no flat channel_key/role/text scaffolding is stamped.
         memory_id = await asyncio.to_thread(
             engine.store_memory,
             content=memory_content,
@@ -106,12 +106,6 @@ async def ingest_message_to_kg(
             tags=tags,
             trust_score=0.7,
             agent_id=agent_id,
-            extra_props={
-                "channel_key": f"{platform}:{channel}",
-                "chat_role": "user",
-                "chat_user": user,
-                "chat_text": content,
-            },
         )
 
         logger.debug(
@@ -182,11 +176,6 @@ async def ingest_outbound_to_kg(
             tags=tags,
             trust_score=0.9,  # Agent's own output is highly trusted
             agent_id=agent_id,
-            extra_props={
-                "channel_key": f"{platform}:{channel}",
-                "chat_role": "assistant",
-                "chat_text": message.content,
-            },
         )
 
         logger.debug(
@@ -199,72 +188,6 @@ async def ingest_outbound_to_kg(
     except Exception as e:
         logger.warning("[CONCEPT:ECO-4.0] Failed to ingest outbound to KG: %s", e)
         return None
-
-
-def recall_recent_messages(
-    platform: str,
-    channel_id: str,
-    limit: int = 8,
-    knowledge_engine: Any = None,
-) -> list[dict[str, str]]:
-    """Recall the last ``limit`` chat turns for ONE channel, most-recent-last.
-
-    CONCEPT:ECO-4.76 — bounded, FAST conversation history for reply continuity. This is a
-    cheap exact-match recency query on the flat ``channel_key`` scalar stamped at ingest
-    (``ingest_message_to_kg`` / ``ingest_outbound_to_kg``) — NOT the heavy semantic
-    ``recall_memory`` (HNSW + cross-encoder) that was removed from the reply path because it
-    blocked replies. Both user and assistant turns are returned so the agent has continuity.
-
-    Args:
-        platform: The messaging platform (e.g. ``telegram``).
-        channel_id: The channel/chat id within that platform.
-        limit: Max number of turns to return (most recent ``limit``).
-        knowledge_engine: The live engine; falls back to the active served engine.
-
-    Returns:
-        A chronological (oldest→newest) list of ``{"role": ..., "text": ...}`` dicts.
-        Empty on any failure — never raises, so the caller can proceed without history.
-    """
-    if not platform or not channel_id or limit <= 0:
-        return []
-    engine = knowledge_engine
-    if engine is None:
-        try:
-            engine = _get_default_engine()
-        except Exception:  # noqa: BLE001
-            return []
-    query = getattr(engine, "query_cypher", None)
-    if not callable(query):
-        return []
-    channel_key = f"{platform}:{channel_id}"
-    # Exact-match scalar filter (portable across backends) + timestamp ordering done in
-    # Python (some backends — e.g. AGE/L1 — drop ORDER BY). Over-fetch a bounded window,
-    # then sort + slice locally.
-    try:
-        rows = query(
-            "MATCH (m:Memory {channel_key: $ck}) "
-            "RETURN m.chat_role AS role, m.chat_text AS text, m.timestamp AS ts "
-            "LIMIT 200",
-            {"ck": channel_key},
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.76] history recall failed: %s", exc)
-        return []
-
-    turns: list[tuple[str, str, str]] = []
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        text = row.get("text")
-        if not text:
-            continue
-        role = str(row.get("role") or "user")
-        ts = str(row.get("ts") or "")
-        turns.append((ts, role, str(text)))
-    # Most recent ``limit`` by timestamp, returned oldest→newest for natural reading.
-    turns.sort(key=lambda t: t[0])
-    recent = turns[-limit:]
-    return [{"role": r, "text": t} for _ts, r, t in recent]
 
 
 def _get_default_engine() -> Any | None:

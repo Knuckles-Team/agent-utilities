@@ -45,37 +45,44 @@ flowchart TD
     subgraph Inbound
         User -->|reply| Backend
         Backend -->|listen| Router[InboundRouter]
-        Router -->|record_inbound| Pref[(UserChannelPreference)]
         Router -->|deliver_reply?| SVC
-        Router -->|else| Planner[graph agent reply]
-        Planner --> Backend
+        Router -->|else, per-channel session| Universal[Orchestrator.execute_agent → run_agent]
+        Universal -->|mementos for session| Mem[(core memory)]
+        Universal --> Backend
+        Router -.->|after reply, background| Pref[(UserChannelPreference + episodic + session memento)]
     end
 ```
 
 The daemon (`gateway/daemon.py`) auto-starts the `InboundRouter` whenever a backend token
 is configured (opt-out, auto-detected). When the user's reply answers a question a loop
-asked, `deliver_reply` resolves the waiting future and the message is **not** re-routed to
-the planner; otherwise the planner drafts a real reply via the graph agent
-(`MESSAGING_AGENT`).
+asked, `deliver_reply` resolves the waiting future and the message is **not** re-routed;
+otherwise the chat turn runs the **universal graph agent**.
 
-## Responder routing — local LLM by default, Claude on request (ECO-4.55)
+## The reply IS the universal graph agent (ECO-4.78)
 
-Inbound messages are answered by a **dedicated messaging agent** (ECO-4.56) — built with
-`create_agent`, so it inherits the **same universal tools (incl. `reach_user` + KG search),
-agent skills, and MCP server fleet** as the rest of agent-utilities, with its **own system
-prompt** at `agent_utilities/prompts/messaging_assistant.json`. The agent is built once and
-**cached per model inside the single gateway daemon** (MCP/skills wiring paid once, never
-rebuilt per message, never a second daemon). The model is routed per message,
-**defaulting to the local LLM**:
+Messaging is **thin transport**. An inbound chat turn is not handled by a bespoke
+messaging-only reply path — it IS a run of the one universal orchestration pipeline
+(`Orchestrator.execute_agent` → `run_agent`, `orchestration/`), session-scoped per channel
+(`session = messaging:{platform}:{channel_id}`). That single path natively provides
+everything the router used to hand-roll:
 
-- **Local LLM (default):** the configured local model (`qwen` on `vllm.arpa` in the homelab).
-- **Claude (addressed):** a message starting with the trigger (`MESSAGING_CLAUDE_TRIGGER`,
-  default `/claude`) uses an Anthropic model — requires `ANTHROPIC_API_KEY`; without it it
-  falls back to local and says so.
-- **Full named agent (override):** if `MESSAGING_AGENT` is set, that named graph agent
-  handles the message instead (Orchestrator path).
+- **Continuity** comes from the **core memory**: `run_agent` primes each run with the recent
+  compressed **mementos** for this session source (`get_recent_mementos`, `memento_source`),
+  and after the reply the just-finished turn is compressed into a memento under the **same**
+  source (background). So turn 2 sees turn 1 — without any messaging-specific recall query.
+- **Dynamic capabilities** — the graph dynamically resolves specialists / skills / A2A /
+  swarms and fleet tools; a request that needs e.g. GitHub reaches
+  `graph_orchestrate(execute_agent)` for the github specialist, all governed by the
+  fail-closed ActionPolicy gate (OS-5.24). No bespoke delegation code in the messaging layer.
 
-Every reply is tagged with who answered (`[local]` / `[claude]`).
+The universal run is wrapped in a hard `MESSAGING_REPLY_TIMEOUT` (default 45s): a slow or
+hung graph run must still answer, so on timeout/error the reply degrades to a **plain-chat
+completion** (`_plain_chat_reply`). That fallback keeps the **local-default / `/claude`**
+responder selection (ECO-4.55) — every fallback reply is tagged with who answered
+(`[local]` / `[claude]`) — and carries image attachments to the vision model (ECO-4.67).
+`MESSAGING_AGENT` names which agent the universal path routes a chat turn to (default the
+`messaging-assistant` identity); an unresolved name still flows through the full
+orchestration graph, which is exactly the dynamic-delegation behaviour we want.
 
 ## Instinctive reactions (ECO-4.60)
 
@@ -108,21 +115,18 @@ channel, KG history ingest, loop-reply delivery, `/commands` — run per message
 agent reply (and its single reaction) coalesce. `BurstCoalescer` is a shared core primitive
 agent-terminal-ui reuses, so burst behavior is identical across surfaces.
 
-## Conversation history / continuity (ECO-4.76)
+## Conversation history / continuity (ECO-4.78)
 
-Every reply is grounded in **bounded, fast conversation history** so multi-message tasks
-have continuity. Before drafting a reply the burst path (`_reply_to_burst` → `_recall_history`)
-recalls the last `MESSAGING_HISTORY_TURNS` (default 8) turns — both user and assistant — for
-**this** `(platform, channel_id)` and formats them into a compact `Recent conversation:` block
-passed as the reply context (`_model_routed_reply`).
-
-This is a cheap **exact-match recency query** (`kg_ingest.recall_recent_messages`) over a flat
-`channel_key` scalar stamped on each message at ingest — **not** the heavy semantic
-`recall_memory` (HNSW + cross-encoder), which was removed from the reply path because its
-CPU-bound rerank stalled replies. The fetch is wrapped in `asyncio.wait_for` bounded by
-`MESSAGING_RECALL_TIMEOUT`; on timeout/empty it degrades to no history rather than blocking
-the answer. Deeper semantic KG context is still pulled **on demand** by the agent's
-auto-approved `kg_search`/`kg_recall` tools when a question actually needs it.
+Continuity is a property of the **core memory**, not a messaging-specific query. Because each
+chat turn runs the universal path session-scoped per channel (above), `run_agent` primes the
+run with the recent compressed **mementos** for that session source, and after the reply the
+turn (user prompt + assistant reply) is compressed into a memento under the **same** source
+(`compress_to_memento(source=session)`), off the reply path. The next turn of the channel
+then inherits that continuity through the universal path's native memento priming — there is
+no bespoke per-channel history query, no `channel_key` scaffolding, and no recall on the
+reply path to stall the answer. The turn is also auto-ingested as **episodic** memory
+(`kg_ingest`), which the agent's KG tools can pull **on demand** when a question needs deeper
+recall.
 
 ## Universal commands (ECO-4.57)
 
@@ -152,57 +156,22 @@ action=send` targets a specific service explicitly.
 | `TELEGRAM_BOT_TOKEN` / `SLACK_BOT_TOKEN` / `MATTERMOST_TOKEN` / `MSTEAMS_APP_ID`… | Enable each backend (auto-detected; multiple may be set together) |
 | `MESSAGING_DEFAULT_PLATFORM` | Default platform when no last-active channel (default `telegram`) |
 | `MESSAGING_DEFAULT_CHANNEL` | Default channel id for `reach_user` fallback |
-| `MESSAGING_AGENT` | Optional: full graph agent that handles inbound (overrides model routing) |
-| `MESSAGING_CLAUDE_TRIGGER` | Prefix that routes a message to Claude (default `/claude`) |
+| `MESSAGING_AGENT` | Named agent the universal path routes a chat turn to (default the `messaging-assistant` identity; unresolved names still flow through the full orchestration graph) |
+| `MESSAGING_CLAUDE_TRIGGER` | Prefix that routes the plain-chat fallback to Claude (default `/claude`) |
 | `MESSAGING_CLAUDE_MODEL` | Anthropic model for the Claude route (default `claude-sonnet-4-6`) |
 | `MESSAGING_LOCAL_MODEL` | Override the local responder model id |
+| `MESSAGING_REPLY_TIMEOUT` | Seconds to wait for the universal graph run before degrading to the plain-chat fallback (default `45`) |
 | `ANTHROPIC_API_KEY` | Required for the Claude route |
-| `MESSAGING_ENABLE_SKILLS` | Pre-load the full skill library (default `0` = lean; fleet MCP tools still load on demand) |
-| `MESSAGING_SKILL_TYPES` | Comma-list: pre-load only these skill types |
-| `MESSAGING_TOOL_TAGS` | Comma-list: scope the universal toolset to these tags |
-| `MESSAGING_MCP_URL` | graph-os MCP for the agent (e.g. `http://127.0.0.1:8100/sse`) — gives `graph_orchestrate`/`graph_search` directly (ECO-4.59/4.75) |
-| `MESSAGING_MCP_CONFIG` | Path to an MCP config whose `mcp-multiplexer` server fronts the whole fleet (`find_tools`/`load_tools`) — attach this **and** `MESSAGING_MCP_URL` for the two-server setup |
-| `MCP_CLIENT_AUTH` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_AUDIENCE` / `OIDC_TOKEN_URL` | Fleet OIDC client-credentials — loaded into the daemon env so the spawned multiplexer + nested agents authenticate. **Source from OpenBao**, never a plaintext file (ECO-4.75) |
+| `MCP_CLIENT_AUTH` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_AUDIENCE` / `OIDC_TOKEN_URL` | Fleet OIDC client-credentials — loaded into the daemon env so spawned agents authenticate to the jwt-protected fleet. **Source from OpenBao**, never a plaintext file (ECO-4.75) |
 
-### Fleet delegation via graph-os + multiplexer (ECO-4.59/4.75)
+### Fleet delegation is native to the universal path (ECO-4.78)
 
-Rather than carrying every connector, the lean messaging agent gets the **same two MCP
-servers Claude uses** and delegates through them:
-
-1. **graph-os** (`MESSAGING_MCP_URL`, the served `kg_server --transport sse`) →
-   `graph_orchestrate(action=execute_agent)` spawns a specialist (github-agent, …), runs it,
-   relays the result; plus `graph_search` over the KG.
-2. **mcp-multiplexer** (`MESSAGING_MCP_CONFIG`, pointed at the same fleet `mcp_config.json`) →
-   dynamic `find_tools`/`load_tools` over the *whole* fleet on demand.
-
-So the agent keeps a tiny context yet can reach any connector. Three things make it work
-(all default-on once the two servers are set):
-
-- **MCP context at run time** — the reply runs inside `async with agent` so the MCP toolsets
-  actually connect and their tools load; otherwise the model only sees them as text.
-- **Fleet auth** — the daemon loads OIDC client-credentials into its process env at startup
-  (`env → OpenBao apps/mcp-multiplexer → local Claude MCP config`; values never logged), so
-  the spawned multiplexer **and every nested `graph_orchestrate`-spawned agent** (via
-  `_spawn_auth_headers`) authenticate to the jwt-protected fleet. **OpenBao is the source of
-  truth** — never put these creds in a plaintext config/env file.
-- **Chat tool policy** — the agent auto-runs the delegation/discovery surface
-  (`graph_orchestrate`, `graph_search`, `find_tools`, `load_tools`) and read-only fleet tools
-  from a chat message; mutating tools stay gated, and a spawned specialist's own fleet actions
-  remain governed by the fail-closed ActionPolicy gate (OS-5.24).
-- **One delegation surface (ECO-4.77)** — `graph_orchestrate(action=execute_agent)` is the
-  single delegation entrypoint. The universal `invoke_specialized_agent` tool is a thin
-  wrapper over the **same** orchestration core (`Orchestrator.execute_agent` → `run_agent`),
-  not a parallel discovery/A2A/sub-agent-build path — so however the model phrases delegation
-  it converges on one core (and one governance/identity path).
-
-> The multiplexer is run as a stdio server today (debug); when it is deployed as a remote
-> MCP server (Portainer), point `MESSAGING_MCP_CONFIG`'s entry at its URL instead — no other
-> change. Genesis wires all of this in messaging **Step A4c**.
-
-### Context burden (ECO-4.58)
-
-The messaging agent is **lean by default**: the skill library is *not* pre-loaded, and
-fleet MCP tools load **on demand** via the mcp-multiplexer's dynamic mode
-(`find_tools`/`load_tools`). Context is also bounded per turn — the current message plus
-top-K KG memory recall, **not** full chat history (history lives in the KG, retrieved as
-needed). Opt into more via the settings above.
+Delegation needs no messaging-specific wiring. Because a chat turn runs the universal path
+(`Orchestrator.execute_agent` → `run_agent`), the orchestration graph resolves and binds the
+right specialists / skills / MCP fleet tools dynamically and offloads through
+`graph_orchestrate(execute_agent)` for a spawned specialist — the same single delegation
+core (and one governance/identity path) the rest of agent-utilities uses. A spawned
+specialist's own fleet actions remain governed by the fail-closed ActionPolicy gate
+(OS-5.24), and a nested spawn authenticates to the jwt-protected fleet via the daemon's
+OIDC client-credentials (loaded into its env at startup, `_spawn_auth_headers`). **OpenBao
+is the source of truth** for those creds — never a plaintext config/env file.

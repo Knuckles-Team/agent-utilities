@@ -1,7 +1,11 @@
-"""Tests for model-routed replies + multiple concurrent backends (CONCEPT:ECO-4.55).
+"""Tests for the universal-path messaging reply flow (CONCEPT:ECO-4.78).
 
-Verifies the local-default / Claude-address responder selection and that several
-messaging services work side by side (last-active routing + per-platform send).
+Messaging is thin transport: an inbound chat turn runs the ONE universal graph agent
+(``Orchestrator.execute_agent`` → ``run_agent``), session-scoped per channel. These tests
+prove the reply routes through that universal path (not a bespoke messaging-only path), that
+continuity + dynamic delegation come from the core, and that a slow/hung graph run still
+yields a reply via the plain-chat fallback. They also cover the preserved local-default /
+Claude-address responder selection used by that fallback, and several concurrent backends.
 """
 
 from __future__ import annotations
@@ -12,7 +16,12 @@ from typing import Any
 import pytest
 
 from agent_utilities.messaging.models import EventType, InboundEvent, SendResult
-from agent_utilities.messaging.router import _model_routed_reply, _select_responder
+from agent_utilities.messaging.router import (
+    _channel_session,
+    _graph_agent_reply,
+    _plain_chat_reply,
+    _select_responder,
+)
 from agent_utilities.messaging.service import MessagingService
 
 # ── Responder selection (local default / Claude address) ─────────────
@@ -49,123 +58,125 @@ def test_claude_address_falls_back_to_local_without_key(
     assert provider == ""  # local fallback
 
 
+# ── The reply IS the universal graph agent (CONCEPT:ECO-4.78) ─────────
+
+
+def test_channel_session_is_stable_per_channel() -> None:
+    # The session key is one stable id per (platform, channel) so successive turns share it.
+    assert _channel_session("telegram", "42") == "messaging:telegram:42"
+    assert _channel_session("telegram", "42") == _channel_session("telegram", "42")
+    assert _channel_session("slack", "C1") != _channel_session("telegram", "42")
+
+
 @pytest.mark.asyncio
-async def test_model_routed_reply_uses_dedicated_agent_and_tags(
+async def test_reply_routes_through_universal_execute_agent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Stub the cached dedicated agent (ECO-4.56) so the test stays hermetic (no MCP/skills
-    # build, no live LLM) while exercising the routing + tag + agent.run path.
-    from agent_utilities.messaging import router
+    """A chat turn runs ``Orchestrator.execute_agent`` with the per-channel session — NOT a
+    bespoke messaging-only path. We capture the call to prove the universal path is taken and
+    that the session/memento source is wired so continuity comes from the core memory."""
+    from agent_utilities.orchestration import manager as mgr
 
-    class _Result:
-        output = "hi from the dedicated agent"
+    captured: dict[str, Any] = {}
 
-    class _StubAgent:
-        async def run(self, _prompt: str):
-            return _Result()
+    class _Orch:
+        def __init__(self, _engine: Any) -> None:
+            pass
 
-    monkeypatch.setattr(
-        router, "_get_messaging_agent", lambda provider, model_id: _StubAgent()
+        async def execute_agent(self, **kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "answer from the universal graph agent"
+
+    monkeypatch.setattr(mgr, "Orchestrator", _Orch)
+
+    reply = await _graph_agent_reply(
+        object(), "what's the github status?", session="messaging:telegram:42"
     )
-    reply = await _model_routed_reply("hello there", "")
-    assert reply == "[local] hi from the dedicated agent"
+    assert reply == "answer from the universal graph agent"
+    # Routed through execute_agent, session-scoped, with the memento source = the session so
+    # the next turn recalls this conversation via the core memory (no messaging recall query).
+    assert captured["session_id"] == "messaging:telegram:42"
+    assert captured["memento_source"] == "messaging:telegram:42"
+    assert captured["task"] == "what's the github status?"
 
 
 @pytest.mark.asyncio
-async def test_model_routed_reply_falls_back_to_plain_chat(
+async def test_reply_timeout_falls_back_to_plain_chat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # When the dedicated agent fails (e.g. a local model without tool support), the reply
-    # must degrade to a plain chat completion, not error out (CONCEPT:ECO-4.56).
-    from agent_utilities.messaging import router
+    """A slow/hung graph run must still yield a reply: the universal run is wrapped in
+    MESSAGING_REPLY_TIMEOUT and degrades to a plain-chat completion (CONCEPT:ECO-4.74)."""
+    import time
 
-    def _boom(provider, model_id):
-        raise RuntimeError("System message must be at the beginning.")
+    from agent_utilities.orchestration import manager as mgr
 
-    monkeypatch.setattr(router, "_get_messaging_agent", _boom)
+    class _SlowOrch:
+        def __init__(self, _engine: Any) -> None:
+            pass
+
+        async def execute_agent(self, **kwargs: Any) -> str:
+            await asyncio.sleep(10)  # simulate a hung graph run
+            return "never reached"
+
+    monkeypatch.setattr(mgr, "Orchestrator", _SlowOrch)
+    monkeypatch.setenv("MESSAGING_REPLY_TIMEOUT", "0.3")
     # AGENT_UTILITIES_TESTING=true → create_model returns a TestModel for the plain path.
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
-    reply = await _model_routed_reply("hello there", "")
+
+    start = time.monotonic()
+    reply = await _graph_agent_reply(
+        object(), "hello there", session="messaging:telegram:42"
+    )
+    elapsed = time.monotonic() - start
+    assert elapsed < 5, f"timeout fallback did not fire promptly ({elapsed:.2f}s)"
+    assert reply.startswith("[local] ")  # plain-chat fallback tagged with responder
+    assert "couldn't draft a reply" not in reply
+
+
+@pytest.mark.asyncio
+async def test_reply_error_falls_back_to_plain_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the universal run errors (e.g. a delegation failure), the reply degrades to plain
+    chat so the user always gets an answer."""
+    from agent_utilities.orchestration import manager as mgr
+
+    class _BoomOrch:
+        def __init__(self, _engine: Any) -> None:
+            pass
+
+        async def execute_agent(self, **kwargs: Any) -> str:
+            raise RuntimeError("delegation exploded")
+
+    monkeypatch.setattr(mgr, "Orchestrator", _BoomOrch)
+    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
+
+    reply = await _graph_agent_reply(
+        object(), "hello there", session="messaging:telegram:42"
+    )
     assert reply.startswith("[local] ")
     assert "couldn't draft a reply" not in reply
 
 
 @pytest.mark.asyncio
-async def test_run_until_text_plain_output() -> None:
-    # _run_until_text returns the agent's text when it doesn't defer tools (ECO-4.62).
-    from agent_utilities.messaging import router
-
-    class _Result:
-        output = "the answer"
-
-    class _Agent:
-        async def run(self, *a: Any, **k: Any):
-            return _Result()
-
-    out = await router._run_until_text(_Agent(), "q")
-    assert out == "the answer"
+async def test_plain_chat_reply_tags_responder(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The plain-chat fallback tags the reply with who answered (CONCEPT:ECO-4.55).
+    monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
+    reply = await _plain_chat_reply("hello there")
+    assert reply.startswith("[local] ")
+    assert "couldn't draft a reply" not in reply
 
 
-def test_auto_approvable_delegation_and_reads_yes_mutations_no() -> None:
-    # CONCEPT:ECO-4.75 — KG reads + the graph-os delegation/discovery surface auto-run;
-    # read-only fleet tools auto-run; mutating tools stay gated.
-    from agent_utilities.messaging.router import _auto_approvable
-
-    # delegation + discovery + KG reads
-    for t in (
-        "kg_search",
-        "graph_orchestrate",
-        "graph_search",
-        "find_tools",
-        "load_tools",
-    ):
-        assert _auto_approvable(t), t
-    # read-only fleet tools (incl. multiplexer-prefixed) auto-run
-    assert _auto_approvable("go__github_list_issues")
-    assert _auto_approvable("gith__repos_get")
-    # mutations stay denied
-    for t in (
-        "github_create_issue",
-        "go__graph_write",
-        "delete_node",
-        "save_chat_message",
-        "kafka_send",
-    ):
-        assert not _auto_approvable(t), t
+# ── Image / multimodal input (ECO-4.67) ──────────────────────────────
 
 
-# ── Lean / lazy loadout (ECO-4.58) ───────────────────────────────────
+def test_agent_input_plain_vs_multimodal() -> None:
+    from agent_utilities.messaging.router import _agent_input
 
-
-@pytest.mark.asyncio
-async def test_messaging_agent_is_lean_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import agent_utilities.agent.factory as factory
-    from agent_utilities.messaging import router
-
-    captured: dict[str, Any] = {}
-
-    def _fake_create_agent(**kwargs: Any):
-        captured.clear()
-        captured.update(kwargs)
-        return object(), []
-
-    monkeypatch.setattr(factory, "create_agent", _fake_create_agent)
-
-    router._MESSAGING_AGENTS.clear()
-    router._get_messaging_agent("", None)
-    # Lean: skills NOT pre-loaded; universal tools on (fleet tools load on demand).
-    assert captured["enable_skills"] is False
-    assert captured["enable_universal_tools"] is True
-
-    # Opt into skills + scoped tool tags.
-    monkeypatch.setenv("MESSAGING_ENABLE_SKILLS", "1")
-    monkeypatch.setenv("MESSAGING_TOOL_TAGS", "kg,reach")
-    router._MESSAGING_AGENTS.clear()
-    router._get_messaging_agent("", None)
-    assert captured["enable_skills"] is True
-    assert captured["tool_tags"] == ["kg", "reach"]
+    assert _agent_input("hi", None) == "hi"
+    assert _agent_input("hi", []) == "hi"
+    parts = ["<img1>", "<img2>"]
+    assert _agent_input("describe", parts) == ["describe", "<img1>", "<img2>"]
 
 
 # ── Multiple concurrent backends ─────────────────────────────────────
@@ -257,72 +268,7 @@ async def test_reach_user_follows_last_active_service(multi: MessagingService) -
     assert multi.resolve_channel("u1") == ("telegram", "100")
 
 
-# ── Image / multimodal input (ECO-4.67) ──────────────────────────────
-
-
-def test_agent_input_plain_vs_multimodal() -> None:
-    from agent_utilities.messaging.router import _agent_input
-
-    assert _agent_input("hi", None) == "hi"
-    assert _agent_input("hi", []) == "hi"
-    parts = ["<img1>", "<img2>"]
-    assert _agent_input("describe", parts) == ["describe", "<img1>", "<img2>"]
-
-
-@pytest.mark.asyncio
-async def test_run_until_text_passes_images_to_agent() -> None:
-    from agent_utilities.messaging import router
-
-    seen: dict[str, Any] = {}
-
-    class _Result:
-        output = "a white square"
-
-    class _Agent:
-        async def run(self, inp: Any = None, **k: Any):
-            seen["input"] = inp
-            return _Result()
-
-    out = await router._run_until_text(_Agent(), "describe", image_parts=["<imgbytes>"])
-    assert out == "a white square"
-    assert seen["input"] == ["describe", "<imgbytes>"]
-
-
-# ── Non-blocking recall (ECO-4.72) ───────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_recall_context_times_out_without_freezing(monkeypatch) -> None:
-    import time as _t
-
-    from agent_utilities.messaging import router
-
-    monkeypatch.setenv("MESSAGING_RECALL_TIMEOUT", "1")
-
-    class _Eng:
-        def recall_memory(self, **kw):
-            _t.sleep(10)  # simulate a hung blocking retrieval
-            return []
-
-    # Must return "" within the timeout, NOT hang for 10s.
-    start = _t.monotonic()
-    out = await router._recall_context(_Eng(), "hello", "telegram")
-    assert out == "" and (_t.monotonic() - start) < 5
-
-
-@pytest.mark.asyncio
-async def test_recall_context_returns_memories() -> None:
-    from agent_utilities.messaging import router
-
-    class _Eng:
-        def recall_memory(self, **kw):
-            return [{"description": "prior chat about webhooks"}]
-
-    out = await router._recall_context(_Eng(), "hi", "telegram")
-    assert "prior chat about webhooks" in out
-
-
-# ── Reply path must not block on slow KG writes (ECO-4.72) ───────────
+# ── Reply path must not block on slow KG writes (ECO-4.72/4.74) ───────
 
 
 @pytest.mark.asyncio
@@ -369,107 +315,33 @@ async def test_inbound_reply_path_not_blocked_by_slow_kg() -> None:
     assert elapsed < 1.0, f"reply path blocked on KG writes ({elapsed:.2f}s)"
 
 
-# ── Bounded conversation history / continuity (ECO-4.76) ─────────────
-
-
-class _HistoryEng:
-    """Engine stub that stores Memory nodes and answers the recency query."""
-
-    def __init__(self) -> None:
-        self.nodes: list[dict[str, Any]] = []
-        self._t = 0
-
-    def store_memory(self, *, extra_props=None, **kw: Any) -> str:
-        self._t += 1
-        node = {
-            "channel_key": (extra_props or {}).get("channel_key", ""),
-            "chat_role": (extra_props or {}).get("chat_role", "user"),
-            "chat_text": (extra_props or {}).get("chat_text", ""),
-            # monotonically increasing timestamp so sort order is deterministic
-            "timestamp": f"2026-06-19T00:00:{self._t:02d}Z",
-        }
-        self.nodes.append(node)
-        return f"m{self._t}"
-
-    def query_cypher(self, _q: str, params: dict[str, Any]):
-        ck = params.get("ck")
-        return [
-            {
-                "role": n["chat_role"],
-                "text": n["chat_text"],
-                "ts": n["timestamp"],
-            }
-            for n in self.nodes
-            if n["channel_key"] == ck
-        ]
+# ── Continuity via the CORE memory — two turns share a session (ECO-4.78) ──
 
 
 @pytest.mark.asyncio
-async def test_recall_recent_messages_returns_channel_history() -> None:
-    from agent_utilities.messaging.kg_ingest import (
-        ingest_message_to_kg,
-        recall_recent_messages,
-    )
-
-    eng = _HistoryEng()
-    # Two messages on the SAME channel + one on a different channel.
-    for chan, txt in (("42", "first message"), ("42", "second message")):
-        await ingest_message_to_kg(
-            InboundEvent(
-                event_type=EventType.MESSAGE,
-                platform="telegram",
-                channel_id=chan,
-                user_id="u1",
-                content=txt,
-            ),
-            knowledge_engine=eng,
-        )
-    await ingest_message_to_kg(
-        InboundEvent(
-            event_type=EventType.MESSAGE,
-            platform="telegram",
-            channel_id="99",
-            user_id="u1",
-            content="other channel",
-        ),
-        knowledge_engine=eng,
-    )
-
-    hist = recall_recent_messages("telegram", "42", limit=8, knowledge_engine=eng)
-    texts = [h["text"] for h in hist]
-    # Only this channel, chronological order, other channel excluded.
-    assert texts == ["first message", "second message"]
-    assert all(h["role"] == "user" for h in hist)
-
-
-@pytest.mark.asyncio
-async def test_second_message_reply_receives_first_as_history(monkeypatch) -> None:
-    """Two messages in the same channel → the 2nd reply sees the 1st as history.
-
-    The live-path test for continuity (ECO-4.76): the burst reply path calls
-    _recall_history, which formats prior turns into the kg_context handed to
-    _model_routed_reply. We capture that context to prove the first message reaches
-    the second turn.
+async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
+    """Two messages in the same channel → both runs use the SAME per-channel session, so the
+    core memory (mementos under that session source) carries continuity from turn 1 to turn 2
+    — WITHOUT any messaging-specific recall query. We capture the session passed to the
+    universal path on each turn to prove it is stable and channel-scoped.
     """
     from agent_utilities.messaging import router
     from agent_utilities.messaging.router import create_planner_handler
 
     MessagingService._instance = None
-    eng = _HistoryEng()
 
-    captured: list[str] = []
+    sessions: list[str] = []
 
-    async def _fake_reply(_engine, _content, kg_context, *, image_parts=None):
-        captured.append(kg_context)
+    async def _fake_reply(_engine, _content, *, session, image_parts=None):
+        sessions.append(session)
         return "ok"
 
     monkeypatch.setattr(router, "_graph_agent_reply", _fake_reply)
     # Tight burst window so the coalescer flushes promptly in-test.
     monkeypatch.setenv("MESSAGING_BURST_WINDOW_S", "0.2")
     monkeypatch.setenv("MESSAGING_BURST_MAX_S", "1")
-    monkeypatch.setenv("MESSAGING_HISTORY_TURNS", "8")
 
-    handler = await create_planner_handler(knowledge_engine=eng)
+    handler = await create_planner_handler(knowledge_engine=_Eng())
     backend = _FakeBackend("telegram")
 
     def _ev(text: str) -> InboundEvent:
@@ -481,36 +353,14 @@ async def test_second_message_reply_receives_first_as_history(monkeypatch) -> No
             content=text,
         )
 
-    # First message → reply (no prior history), then persist runs in background.
     await handler(_ev("what is the capital of France?"), backend)
-    await asyncio.sleep(0.6)  # let the burst flush + background persist complete
-    # Second message in the SAME channel → its reply must see the first as history.
+    await asyncio.sleep(0.6)
     await handler(_ev("and its population?"), backend)
     await asyncio.sleep(0.6)
 
-    assert len(captured) == 2, captured
-    assert captured[0] == ""  # first turn had no prior history
-    assert "Recent conversation:" in captured[1]
-    assert "capital of France" in captured[1]
-
-
-@pytest.mark.asyncio
-async def test_recall_history_times_out_without_freezing(monkeypatch) -> None:
-    import time as _t
-
-    from agent_utilities.messaging import router
-
-    monkeypatch.setenv("MESSAGING_RECALL_TIMEOUT", "1")
-    monkeypatch.setenv("MESSAGING_HISTORY_TURNS", "8")
-
-    class _SlowEng:
-        def query_cypher(self, *a: Any, **k: Any):
-            _t.sleep(10)
-            return []
-
-    start = _t.monotonic()
-    out = await router._recall_history(_SlowEng(), "telegram", "42")
-    assert out == "" and (_t.monotonic() - start) < 5
+    assert len(sessions) == 2, sessions
+    # Both turns of the SAME channel share one stable session → continuity via the core.
+    assert sessions[0] == sessions[1] == "messaging:telegram:42"
 
 
 def test_load_fleet_auth_noop_when_already_set(monkeypatch) -> None:

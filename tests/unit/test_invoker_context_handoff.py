@@ -52,7 +52,7 @@ async def test_run_agent_threads_context_into_config(monkeypatch):
 
     monkeypatch.setattr(agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"})
     monkeypatch.setattr(
-        agent_runner, "_build_execution_config", lambda e, n, m: {"tag_prompts": {}}
+        agent_runner, "_build_execution_config", lambda e, n, m, **kw: {"tag_prompts": {}}
     )
     monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
 
@@ -94,7 +94,7 @@ async def test_run_agent_resolves_context_ref(monkeypatch):
 
     monkeypatch.setattr(agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"})
     monkeypatch.setattr(
-        agent_runner, "_build_execution_config", lambda e, n, m: {"tag_prompts": {}}
+        agent_runner, "_build_execution_config", lambda e, n, m, **kw: {"tag_prompts": {}}
     )
     monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
 
