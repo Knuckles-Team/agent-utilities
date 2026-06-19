@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 368
+total_concepts: 371
 total_pillars: 20
 pillars:
 - AHE-3
@@ -1148,15 +1148,15 @@ concepts:
   - agent_utilities/messaging/router.py
   doc: the single inbound command dispatcher used by every platform
 - id: ECO-4.60
-  name: a cheap, tool-free classification so reactions work on ANY model
+  name: via setMessageReaction
   pillar: ECO-4
   status: live
   code_paths:
   - agent_utilities/messaging/backends/slack.py
   - agent_utilities/messaging/backends/telegram.py
   - agent_utilities/messaging/router.py
-  - agent_utilities/messaging/service.py
-  doc: a cheap, tool-free classification so reactions work on ANY model
+  - agent_utilities/orchestration/reactions.py
+  doc: via setMessageReaction
 - id: ECO-4.61
   name: KG as a first-class shared knowledge/reasoning layer for all agents
   pillar: ECO-4
@@ -1280,6 +1280,29 @@ concepts:
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/manager.py
   doc: the universal graph agent a chat turn routes to. Defaults to the
+- id: ECO-4.79
+  name: first-class reaction output any agent turn can emit, shared by every
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/reactions.py
+  doc: first-class reaction output any agent turn can emit, shared by every
+- id: ECO-4.80
+  name: one emote registry and governance gate shared
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/reactions.py
+  doc: one emote registry and governance gate shared
+- id: ECO-4.81
+  name: messaging is a RENDERER of the orchestrator
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/router.py
+  - agent_utilities/messaging/service.py
+  - agent_utilities/orchestration/reactions.py
+  doc: messaging is a RENDERER of the orchestrator
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033

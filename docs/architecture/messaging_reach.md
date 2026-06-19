@@ -84,15 +84,19 @@ responder selection (ECO-4.55) — every fallback reply is tagged with who answe
 `messaging-assistant` identity); an unresolved name still flows through the full
 orchestration graph, which is exactly the dynamic-delegation behaviour we want.
 
-## Instinctive reactions (ECO-4.60)
+## Instinctive reactions (ECO-4.60 → core ECO-4.79/4.81)
 
 The agent reacts to your messages with an emoji where the platform supports it — 👍 to
-acknowledge a request, ❤️ for praise/thanks, etc. A cheap, **model-agnostic** decision
-(`_decide_reaction`, a tool-free completion) runs per inbound message, so reactions work
-even on local models that can't call tools; set `MESSAGING_REACTIONS=0` to disable.
-`MessagingService.react()` dispatches to the backend's `send_reaction` (Telegram
-`setMessageReaction` is implemented; other backends expose `send_reaction` as the extension
-point and degrade gracefully where unsupported — the capability matrix declares support).
+acknowledge a request, ❤️ for praise/thanks, etc. **As of ECO-4.79/4.81 the reaction logic is
+no longer owned by messaging** — it is a first-class output of the universal orchestrator
+(`orchestration/reactions.py`), so every entrypoint inherits it. Messaging is now a
+**renderer**: the router's background step calls the core, model-agnostic decision
+(`decide_reaction` → an `AgentReaction`) and `MessagingService.render_reaction()` paints it
+via the backend's `send_reaction` (Telegram `setMessageReaction` is implemented; other
+backends expose `send_reaction` and degrade gracefully where unsupported). The cheap tool-free
+decision works even on local models that can't call tools; set `REACTIONS=0` (legacy
+`MESSAGING_REACTIONS=0` still honored) to disable. Full design + the renderer contract for the
+other surfaces: [`reactions.md`](reactions.md).
 
 ## Voice & image input (ECO-4.67/4.68)
 

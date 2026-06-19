@@ -415,63 +415,49 @@ async def create_planner_handler(
     return planner_handler
 
 
-# CONCEPT:ECO-4.60 — instinctive, model-agnostic emoji reaction decision
-_REACTION_SYSTEM = (
-    "You decide whether to react to a user's chat message with a single emoji, the way a "
-    "thoughtful assistant would. Reply with ONE emoji if a reaction fits (e.g. 👍 to "
-    "acknowledge a request/command, ❤️ for thanks or praise, 🎉 for good news, 👀 when "
-    "starting to look into something), or the exact word NONE if no reaction fits. Output "
-    "only the emoji or NONE — nothing else."
-)
-
-
 async def _decide_reaction(content: str) -> str:
-    """Return a single emoji to react with, or "" (model-agnostic; plain completion).
+    """Return a single emoji to react with, or "" — a thin shim over the CORE decision.
 
-    CONCEPT:ECO-4.60 — a cheap, tool-free classification so reactions work on ANY model
-    (including local serves that can't do tool calls). Disabled with MESSAGING_REACTIONS=0.
+    CONCEPT:ECO-4.81 — reactions are no longer owned by messaging: the instinctive,
+    model-agnostic decision lives in the core orchestrator
+    (``orchestration.reactions.decide_reaction``), so EVERY entrypoint produces reactions
+    from the same one heuristic. Messaging is now just a RENDERER. This shim preserves the
+    string contract its callers/tests expect (``""`` for no reaction); disabled with
+    ``REACTIONS=0`` / ``MESSAGING_REACTIONS=0``.
     """
-    from agent_utilities.core.config import setting
+    from agent_utilities.orchestration.reactions import decide_reaction
 
-    if str(setting("MESSAGING_REACTIONS", "1")).strip().lower() in (
-        "0",
-        "false",
-        "no",
-        "off",
-    ):
-        return ""
-    try:
-        from pydantic_ai import Agent
-
-        from agent_utilities.core.model_factory import create_model
-
-        agent = Agent(create_model(), system_prompt=_REACTION_SYSTEM)
-        # CONCEPT:ECO-4.74 — bound the reaction LLM call so it can never hang forever
-        # (TimeoutError is an Exception subclass, so the handler below catches it too).
-        result = await asyncio.wait_for(agent.run(content), timeout=10.0)
-        out = str(getattr(result, "output", result)).strip()
-        if not out or out.upper().startswith("NONE") or len(out) > 8:
-            return ""
-        return out
-    except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.60] reaction decision skipped: %s", e)
-        return ""
+    reaction = await decide_reaction(content)
+    return reaction.emote if reaction and reaction.is_valid() else ""
 
 
 async def _react_in_background(
     svc: Any, platform: str, channel_id: str, message_id: str, content: str
 ) -> None:
-    """Decide + apply an instinctive emoji reaction, OFF the reply path (CONCEPT:ECO-4.74).
+    """Render the CORE instinctive reaction on this platform, OFF the reply path.
 
-    Best-effort and bounded: the reply is generated and sent independently, so a slow or
-    failing reaction never delays (or blocks) the user getting an answer.
+    CONCEPT:ECO-4.81 — the decision is the core orchestrator's
+    (``orchestration.reactions.decide_reaction`` → an :class:`AgentReaction`); messaging
+    only RENDERS it via ``svc.react`` → the backend's ``send_reaction`` /
+    ``setMessageReaction``. Best-effort and bounded (CONCEPT:ECO-4.74): the reply is
+    generated and sent independently, so a slow or failing reaction never delays (or
+    blocks) the user getting an answer.
     """
+    from agent_utilities.orchestration.reactions import decide_reaction
+
     try:
-        emoji = await _decide_reaction(content)
-        if emoji:
-            await svc.react(platform, channel_id, message_id, emoji)
+        reaction = await decide_reaction(
+            content, target_message_id=message_id, context=platform
+        )
+        if reaction and reaction.is_valid():
+            await svc.react(
+                platform,
+                channel_id,
+                reaction.target_message_id or message_id,
+                reaction.emote,
+            )
     except Exception as e:  # noqa: BLE001
-        logger.debug("[CONCEPT:ECO-4.60] reaction step skipped: %s", e)
+        logger.debug("[CONCEPT:ECO-4.81] reaction render skipped: %s", e)
 
 
 # CONCEPT:ECO-4.72 — fire-and-forget background tasks (strong refs so they aren't GC'd).

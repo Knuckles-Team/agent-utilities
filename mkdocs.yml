@@ -100,6 +100,7 @@ nav:
       - C4 Architecture: pillars/architecture_c4.md
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
       - Entrypoint Unification (one orchestrator): architecture/entrypoint-unification.md
+      - Reactions / Emotes (system-wide, renderer contract): architecture/reactions.md
       - Self-Improving Reasoning Substrate: architecture/self_improving_reasoning_substrate.md
       - Perspectival Inquiry (STORM, native): architecture/perspectival_inquiry.md
       - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
