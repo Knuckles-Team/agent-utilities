@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 376
+total_concepts: 380
 total_pillars: 20
 pillars:
 - AHE-3
@@ -3795,6 +3795,39 @@ concepts:
   - agent_utilities/graph/_router_impl.py
   - agent_utilities/orchestration/agent_runner.py
   doc: the pre-LLM discovery below is several SYNCHRONOUS engine
+- id: ORCH-1.67
+  name: the profile is no longer a fixed per-entrypoint *preset*; it is the
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/state.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/execution_profile.py
+  doc: the profile is no longer a fixed per-entrypoint *preset*; it is the
+- id: ORCH-1.68
+  name: a direct-completion / generic chat turn does not target a named
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/graph/_router_impl.py
+  - agent_utilities/graph/lifecycle.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/execution_profile.py
+  doc: a direct-completion / generic chat turn does not target a named
+- id: ORCH-1.69
+  name: only for genuinely complex/uncertain
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/execution_profile.py
+  doc: only for genuinely complex/uncertain
+- id: ORCH-1.70
+  name: if a previously-constructed
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/execution_profile.py
+  doc: if a previously-constructed
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

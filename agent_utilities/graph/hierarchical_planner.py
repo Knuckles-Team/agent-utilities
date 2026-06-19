@@ -28,6 +28,7 @@ Extracted from the monolithic steps.py for maintainability.
 """
 # CONCEPT:ECO-4.0 — Planner Step
 
+import asyncio
 import logging
 import os
 import re
@@ -501,6 +502,112 @@ async def architect_step(
         return "error_recovery"
 
 
+# CONCEPT:ORCH-1.68 — the workspace-doc inventory is static within a process; cache it per
+# root so the scan runs ONCE, not on every full-graph turn.
+_DOC_SCAN_CACHE: dict[str, list[str]] = {}
+
+# Directories the doc scan must never descend into (build/cache/vendor trees that hold
+# millions of files and no first-party docs). Pruned IN-PLACE during the walk.
+_DOC_SCAN_IGNORED_DIRS: frozenset[str] = frozenset(
+    {
+        ".venv",
+        ".git",
+        ".gemini",
+        "node_modules",
+        ".cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".specify",
+        ".validation_reports",
+        ".acp-sessions",
+        ".agent",
+        ".agent_data",
+        ".agent_utilities_test",
+        ".config",
+        ".hypothesis",
+        ".lbdb",
+        ".local",
+        ".mypy_cache",
+        ".npm",
+        ".opencode",
+        ".openvscode-server",
+        "dist",
+        "build",
+    }
+)
+
+# The LLM selector only ever consumes the top slice of memories, so the scan is capped well
+# above that and never reads the whole 234-repo tree.
+_DOC_SCAN_CAP = 60
+
+# Phase-2 KG memory scan bounds: visit at most this many nodes, and stop after collecting this
+# many matching memories (the selector only consumes the top slice anyway).
+_KG_MEMORY_SCAN_CAP = 5000
+_KG_MEMORY_RESULT_CAP = 20
+
+
+def _scan_workspace_docs(root: str) -> list[str]:
+    """Inventory workspace markdown docs as memory lines — pruned, capped, off the loop.
+
+    CONCEPT:ORCH-1.68 — this replaces an unbounded ``Path(root).rglob("*.md")`` +
+    ``read_text`` over the ENTIRE workspace (which descended into ``.venv``/``node_modules``/
+    ``.git`` and read ~1000 files, ~90 s, on the event loop). ``os.walk`` with IN-PLACE dir
+    pruning never descends into the ignored trees, and the scan stops at ``_DOC_SCAN_CAP``.
+    """
+    out: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _DOC_SCAN_IGNORED_DIRS]
+        for fn in filenames:
+            if not fn.endswith(".md"):
+                continue
+            p = Path(dirpath) / fn
+            try:
+                # Only the frontmatter carries a description; read a bounded head, not the
+                # whole file.
+                with p.open(encoding="utf-8", errors="ignore") as fh:
+                    head = fh.read(1024)
+                description = "General project documentation"
+                if head.startswith("---"):
+                    match = re.search(r"description:\s*(.*)", head)
+                    if match:
+                        description = match.group(1).strip()
+                out.append(f"- [Doc] {p.name}: {description}")
+                if len(out) >= _DOC_SCAN_CAP:
+                    return out
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Context document scanning failed: {e}")
+    return out
+
+
+def _load_selected_docs(root: str, selected: list[str]) -> list[str]:
+    """Load the content of the selected memory docs in ONE pruned walk (CONCEPT:ORCH-1.68).
+
+    This replaces an unbounded ``Path(root).rglob(filename)`` PER selected file; it walks the
+    tree once with the same in-place dir pruning and reads only the wanted filenames, stopping
+    as soon as all are found.
+    """
+    wanted = set(selected)
+    out: list[str] = []
+    if not wanted:
+        return out
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _DOC_SCAN_IGNORED_DIRS]
+        for fn in filenames:
+            if fn not in wanted:
+                continue
+            p = Path(dirpath) / fn
+            try:
+                out.append(
+                    f"### {fn}\n{p.read_text(encoding='utf-8', errors='ignore')}"
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Selected memory load failed: {e}")
+            wanted.discard(fn)
+            if not wanted:
+                return out
+    return out
+
+
 async def memory_selection_step(
     ctx: StepContext,
 ) -> str | End[Any]:
@@ -532,71 +639,51 @@ async def memory_selection_step(
     _emit_node_lifecycle(ctx.deps.event_queue, "memory_selection", "node_start")
     prompt_content = load_specialized_prompts("memory_selection")
     root = ctx.state.project_root or os.getcwd()
-    memories = []
 
-    # Phase 1: Scan Workspace Documentation (Markdown files)
-    ignored_dirs = {
-        ".venv",
-        ".git",
-        ".gemini",
-        "node_modules",
-        ".cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".specify",
-        ".validation_reports",
-        ".acp-sessions",
-        ".agent",
-        ".agent_data",
-        ".agent_utilities_test",
-        ".config",
-        ".hypothesis",
-        ".lbdb",
-        ".local",
-        ".mypy_cache",
-        ".npm",
-        ".opencode",
-        ".openvscode-server",
-        "dist",
-        "build",
-    }
-    for p in Path(root).rglob("*.md"):
-        if any(part in p.parts for part in ignored_dirs):
-            continue
-        try:
-            content = p.read_text(encoding="utf-8", errors="ignore")
-            description = "General project documentation"
-            if content.startswith("---"):
-                match = re.search(r"description:\s*(.*)", content)
-                if match:
-                    description = match.group(1).strip()
-            memories.append(f"- [Doc] {p.name}: {description}")
-        except Exception as e:
-            logger.warning(f"Context document scanning failed: {e}")
+    # Phase 1: Workspace documentation inventory — pruned/capped/cached and run OFF the event
+    # loop (CONCEPT:ORCH-1.68). Cached per root because the inventory is static within a
+    # process; the first turn pays the (bounded) scan, later turns read memory.
+    cached = _DOC_SCAN_CACHE.get(root)
+    if cached is None:
+        cached = await asyncio.to_thread(_scan_workspace_docs, root)
+        _DOC_SCAN_CACHE[root] = cached
+    memories = list(cached)
 
-    # Phase 2: Knowledge Graph Memory Lookup (Unified Layer)
-    kg_memories = []
+    # Phase 2: Knowledge Graph memory lookup — bounded single pass, OFF the event loop
+    # (CONCEPT:ORCH-1.68). The previous version was O(query_words × all_KG_nodes) with a
+    # per-node property fetch ON the loop; this visits each node at most once against the whole
+    # word set, caps both the nodes scanned and the memories returned, and runs in a thread.
     if ctx.deps.knowledge_engine:
         logger.info(
             "Memory Selection: Querying Knowledge Graph for contextual memories..."
         )
-        # Simple extraction of potential memory keywords
-        words = re.findall(r"\b[a-z0-9_]{4,}\b", ctx.state.query.lower())
-        seen_mem_ids = set()
-        for word in words:
-            for node_id in ctx.deps.knowledge_engine.graph.node_ids():
-                if node_id in seen_mem_ids:
-                    continue
-                data = ctx.deps.knowledge_engine.graph._get_node_properties(node_id)
-                if data.get("type") == "memory" and (
-                    word in data.get("description", "").lower()
-                    or word in data.get("name", "").lower()
-                ):
-                    kg_memories.append(
-                        f"- [KnowledgeGraph Memory] {data['name']}: {data['description'][:300]}"
-                    )
-                    seen_mem_ids.add(node_id)
+        words = set(re.findall(r"\b[a-z0-9_]{4,}\b", ctx.state.query.lower()))
+        engine = ctx.deps.knowledge_engine
 
+        def _scan_kg_memories() -> list[str]:
+            found: list[str] = []
+            if not words:
+                return found
+            graph = engine.graph
+            scanned = 0
+            for node_id in graph.node_ids():
+                scanned += 1
+                if scanned > _KG_MEMORY_SCAN_CAP:
+                    break
+                data = graph._get_node_properties(node_id)
+                if data.get("type") != "memory":
+                    continue
+                desc = str(data.get("description", "")).lower()
+                name = str(data.get("name", "")).lower()
+                if any(w in desc or w in name for w in words):
+                    found.append(
+                        f"- [KnowledgeGraph Memory] {data['name']}: {str(data['description'])[:300]}"
+                    )
+                    if len(found) >= _KG_MEMORY_RESULT_CAP:
+                        break
+            return found
+
+        kg_memories = await asyncio.to_thread(_scan_kg_memories)
         if kg_memories:
             logger.info(
                 f"Memory Selection: Retrieved {len(kg_memories)} memories from Knowledge Graph."
@@ -683,15 +770,7 @@ async def memory_selection_step(
             logger.error(f"Memory selection fallback also failed: {fallback_e}")
             selected = []
 
-        loaded_context = []
-        for filename in selected:
-            for p in Path(root).rglob(filename):
-                if any(part in p.parts for part in ignored_dirs):
-                    continue
-                loaded_context.append(
-                    f"### {filename}\n{p.read_text(encoding='utf-8', errors='ignore')}"
-                )
-                break
+        loaded_context = await asyncio.to_thread(_load_selected_docs, root, selected)
 
         ctx.state.exploration_notes += "\n\n### SELECTED MEMORIES\n" + "\n\n".join(
             loaded_context

@@ -69,14 +69,14 @@ def _load_fleet_auth() -> None:
     Without these the spawned multiplexer cannot reach the jwt-protected fleet, so the chat
     agent can't load github/gitlab/etc. tools.
     """
-    if os.environ.get("MCP_CLIENT_AUTH"):
+    from agent_utilities.core.config import setting
+
+    if setting("MCP_CLIENT_AUTH"):
         logger.info("[ECO-4.75] fleet auth: already in environment.")
         return
 
     # 2) OpenBao (source of truth) — only when reachable from this process.
     try:
-        from agent_utilities.core.config import setting
-
         vurl = str(setting("OPENBAO_URL", "")).rstrip("/")
         vtok = str(setting("OPENBAO_TOKEN", ""))
         if vurl and vtok:

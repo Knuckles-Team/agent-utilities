@@ -208,9 +208,9 @@ class AgentOrchestrationEngine:
         legacy AgentOrchestrationEngine team synthesis.
         """
         logger.info(f"Synthesizing team for {domain} (complexity: {complexity})")
-        assert (
-            self.engine is not None
-        ), "IntelligenceGraphEngine is required for team synthesis"
+        assert self.engine is not None, (
+            "IntelligenceGraphEngine is required for team synthesis"
+        )
 
         import uuid
 
@@ -311,9 +311,9 @@ class AgentOrchestrationEngine:
         Replaces KGDrivenExecutionEngine routing logic.
         """
         # Call into rust to evaluate next hops based on semantic edges
-        assert (
-            self.engine is not None
-        ), "IntelligenceGraphEngine is required for node determination"
+        assert self.engine is not None, (
+            "IntelligenceGraphEngine is required for node determination"
+        )
         successors = self.engine.graph_compute.get_successors(current_node)
         return successors[0] if successors else "END"
 
@@ -441,6 +441,7 @@ class AgentOrchestrationEngine:
             verifier_timeout=config.get(
                 "verifier_timeout", DEFAULT_GRAPH_VERIFIER_TIMEOUT
             ),
+            execution_shape=config.get("execution_shape"),
             request_id=config.get("request_id", run_id),
             routing_strategy=config.get("routing_strategy", "hybrid"),
             enable_llm_validation=config.get(
@@ -637,6 +638,15 @@ class AgentOrchestrationEngine:
                     error=str(e),
                     metadata={"run_id": run_id, "is_error": True},
                 ).model_dump()
+
+            # CONCEPT:ORCH-1.68 — a node may END the run directly with End[GraphResponse]
+            # (the router's direct-completion shape). pydantic-graph returns the End wrapper,
+            # so unwrap it to the GraphResponse here; otherwise the result handling below
+            # falls through to ``str(result)`` and the reply becomes "End(data=GraphResponse(…))".
+            from pydantic_graph import End
+
+            if isinstance(result, End):
+                result = result.data
 
             logger.info(
                 f"run_graph: graph.run finished. Result type: {type(result)}, Result: {result}"
