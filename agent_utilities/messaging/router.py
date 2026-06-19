@@ -863,18 +863,28 @@ async def _model_routed_reply(
     graph. CONCEPT:ECO-4.67 — image attachments are passed to the vision model. Both paths
     are tagged with who answered.
     """
+    from agent_utilities.core.config import setting
+
     label, provider, model_id, task = _select_responder(content)
     prompt = task if not kg_context else f"{task}\n\nRelevant context:\n{kg_context}"
 
     # 1) Full dedicated agent (KG tools + MCP fleet), auto-running safe read-only KG tools.
+    # CONCEPT:ECO-4.75 — bound it: the agent enters the MCP delegation context (graph-os +
+    # multiplexer) and a slow/hung fleet tool call would otherwise stall the reply forever
+    # (message received, never answered). On timeout we fall through to the plain-chat path
+    # so a reply ALWAYS goes out; delegation still works when it completes in time.
     try:
         agent = _get_messaging_agent(provider, model_id)
-        text = await _run_until_text(agent, prompt, image_parts=image_parts)
+        reply_timeout = float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
+        text = await asyncio.wait_for(
+            _run_until_text(agent, prompt, image_parts=image_parts),
+            timeout=reply_timeout,
+        )
         if text:
             return f"[{label}] {text}"
-    except Exception as e:  # noqa: BLE001 — model may not support tool-augmented requests
+    except Exception as e:  # noqa: BLE001 — tool-unsupported OR delegation hang/timeout
         logger.warning(
-            "[CONCEPT:ECO-4.56] dedicated agent failed (%s); falling back to plain chat.",
+            "[CONCEPT:ECO-4.56] dedicated agent failed/timed out (%s); falling back to plain chat.",
             e,
         )
 
