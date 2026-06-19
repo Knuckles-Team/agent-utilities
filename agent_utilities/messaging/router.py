@@ -812,6 +812,13 @@ async def _run_until_text(
     must be requested explicitly, not triggered as a chat side effect. CONCEPT:ECO-4.67 —
     ``image_parts`` are sent alongside the prompt for vision.
     """
+    # CONCEPT:ECO-4.75 — enter the agent context so its MCP toolsets (graph-os + the
+    # multiplexer at MESSAGING_MCP_CONFIG) connect and their tools (graph_orchestrate +
+    # find_tools/load_tools + the fleet) actually load for the run. Without it the model
+    # never sees them and writes the call out as text. ``nullcontext`` for agents that don't
+    # support the async context (no MCP / test stubs).
+    import contextlib
+
     from pydantic_ai.tools import (
         DeferredToolRequests,
         DeferredToolResults,
@@ -819,22 +826,26 @@ async def _run_until_text(
         ToolDenied,
     )
 
-    result = await agent.run(_agent_input(prompt, image_parts))
-    rounds = 0
-    while isinstance(result.output, DeferredToolRequests) and rounds < max_rounds:
-        rounds += 1
-        approvals: dict[str, ToolApproved | ToolDenied] = {}
-        for part in result.output.approvals:
-            if _auto_approvable(part.tool_name):
-                approvals[part.tool_call_id] = ToolApproved()
-            else:
-                approvals[part.tool_call_id] = ToolDenied(
-                    message=f"'{part.tool_name}' isn't auto-run from chat; ask explicitly."
-                )
-        result = await agent.run(
-            message_history=result.all_messages(),
-            deferred_tool_results=DeferredToolResults(approvals=approvals),
-        )
+    ctx = agent if hasattr(agent, "__aenter__") else contextlib.nullcontext()
+    async with ctx:
+        result = await agent.run(_agent_input(prompt, image_parts))
+        rounds = 0
+        while isinstance(result.output, DeferredToolRequests) and rounds < max_rounds:
+            rounds += 1
+            approvals: dict[str, ToolApproved | ToolDenied] = {}
+            for part in result.output.approvals:
+                if _auto_approvable(part.tool_name):
+                    approvals[part.tool_call_id] = ToolApproved()
+                else:
+                    approvals[part.tool_call_id] = ToolDenied(
+                        message=(
+                            f"'{part.tool_name}' isn't auto-run from chat; ask explicitly."
+                        )
+                    )
+            result = await agent.run(
+                message_history=result.all_messages(),
+                deferred_tool_results=DeferredToolResults(approvals=approvals),
+            )
     if isinstance(result.output, DeferredToolRequests):
         return ""  # still pending after the cap — let the caller fall back
     return str(result.output).strip()
