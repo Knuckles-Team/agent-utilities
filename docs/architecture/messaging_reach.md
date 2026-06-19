@@ -144,17 +144,39 @@ action=send` targets a specific service explicitly.
 | `MESSAGING_ENABLE_SKILLS` | Pre-load the full skill library (default `0` = lean; fleet MCP tools still load on demand) |
 | `MESSAGING_SKILL_TYPES` | Comma-list: pre-load only these skill types |
 | `MESSAGING_TOOL_TAGS` | Comma-list: scope the universal toolset to these tags |
-| `MESSAGING_MCP_URL` | Point the agent at graph-os MCP (e.g. `http://127.0.0.1:8100/sse`) to delegate via `graph_orchestrate`/`graph_search` + load fleet tools on demand (ECO-4.59) |
-| `MESSAGING_MCP_CONFIG` | Path to an MCP config (e.g. the multiplexer) instead of a single URL |
+| `MESSAGING_MCP_URL` | graph-os MCP for the agent (e.g. `http://127.0.0.1:8100/sse`) — gives `graph_orchestrate`/`graph_search` directly (ECO-4.59/4.75) |
+| `MESSAGING_MCP_CONFIG` | Path to an MCP config whose `mcp-multiplexer` server fronts the whole fleet (`find_tools`/`load_tools`) — attach this **and** `MESSAGING_MCP_URL` for the two-server setup |
+| `MCP_CLIENT_AUTH` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_AUDIENCE` / `OIDC_TOKEN_URL` | Fleet OIDC client-credentials — loaded into the daemon env so the spawned multiplexer + nested agents authenticate. **Source from OpenBao**, never a plaintext file (ECO-4.75) |
 
-### Delegation via graph-os (ECO-4.59)
+### Fleet delegation via graph-os + multiplexer (ECO-4.59/4.75)
 
-Rather than carrying every tool, the lean messaging agent **offloads** heavy work through
-graph-os when `MESSAGING_MCP_URL`/`MESSAGING_MCP_CONFIG` is set: `graph_orchestrate(
-action=execute_agent)` spawns a specialist agent (with the needed skills/MCP tools), runs
-it, and relays the result back; `find_tools`/`load_tools` pull a specific fleet tool on
-demand; `graph_search` hits the KG. Keeps the agent's context small while giving it the
-full platform's capability — via existing graph-os actions, no bespoke delegation code.
+Rather than carrying every connector, the lean messaging agent gets the **same two MCP
+servers Claude uses** and delegates through them:
+
+1. **graph-os** (`MESSAGING_MCP_URL`, the served `kg_server --transport sse`) →
+   `graph_orchestrate(action=execute_agent)` spawns a specialist (github-agent, …), runs it,
+   relays the result; plus `graph_search` over the KG.
+2. **mcp-multiplexer** (`MESSAGING_MCP_CONFIG`, pointed at the same fleet `mcp_config.json`) →
+   dynamic `find_tools`/`load_tools` over the *whole* fleet on demand.
+
+So the agent keeps a tiny context yet can reach any connector. Three things make it work
+(all default-on once the two servers are set):
+
+- **MCP context at run time** — the reply runs inside `async with agent` so the MCP toolsets
+  actually connect and their tools load; otherwise the model only sees them as text.
+- **Fleet auth** — the daemon loads OIDC client-credentials into its process env at startup
+  (`env → OpenBao apps/mcp-multiplexer → local Claude MCP config`; values never logged), so
+  the spawned multiplexer **and every nested `graph_orchestrate`-spawned agent** (via
+  `_spawn_auth_headers`) authenticate to the jwt-protected fleet. **OpenBao is the source of
+  truth** — never put these creds in a plaintext config/env file.
+- **Chat tool policy** — the agent auto-runs the delegation/discovery surface
+  (`graph_orchestrate`, `graph_search`, `find_tools`, `load_tools`) and read-only fleet tools
+  from a chat message; mutating tools stay gated, and a spawned specialist's own fleet actions
+  remain governed by the fail-closed ActionPolicy gate (OS-5.24).
+
+> The multiplexer is run as a stdio server today (debug); when it is deployed as a remote
+> MCP server (Portainer), point `MESSAGING_MCP_CONFIG`'s entry at its URL instead — no other
+> change. Genesis wires all of this in messaging **Step A4c**.
 
 ### Context burden (ECO-4.58)
 
