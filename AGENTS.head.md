@@ -391,6 +391,38 @@ together with everything around it. Reserve opt-out for a real disable case and
 opt-in for genuinely expensive behavior — everything else just becomes how the
 system works. This applies to *every* change, not just big ones.
 
+## Universal capability — ONE core, thin entrypoints (READ BEFORE adding a feature to one surface)
+
+This is the **entrypoint dimension of anti-sprawl**, and the one most easily missed. agent-utilities
+is **one pydantic-ai Knowledge-Graph orchestrator**. Every user/system-facing surface is a **thin
+entrypoint (transport)** that feeds that orchestrator and renders its output — it is NOT a place to
+re-implement agent capability:
+
+> messaging stack (Telegram/Slack/Teams/… `messaging/`) · `agent-webui` · `agent-terminal-ui` ·
+> `geniusbot` · `agents/*/…/agent_server.py` (A2A/HTTP, e.g. servicenow-api)
+
+A capability — **memory, RLM/mementos, dynamic agent/swarm/tool/skill selection, slash commands,
+reactions/emotes, multimodal (voice/image) input, streaming/typing, last-active routing, identity/
+governance** — is built **once in the core orchestrator** (`Orchestrator.execute_agent`/`run_agent`,
+the planner graph, the memory/ontology layers) and **inherited by every entrypoint**. An entrypoint
+contributes ONLY: (1) how it receives input, (2) how it renders the orchestrator's output for its
+medium. Nothing else.
+
+Rules:
+1. **Before adding a feature to ONE surface, ask: is this a core capability every entrypoint should
+   have?** If yes, build it in the core orchestrator and let the entrypoint render it — do NOT
+   implement it inside the messaging/webui/terminal/geniusbot layer. (Slash commands ✅, conversation
+   history, reactions/emotes, voice/image are all capabilities that belong in core, not per-surface.)
+2. **Never re-implement a capability per surface.** A messaging-only recall, a webui-only history, a
+   terminal-only command parser are all sprawl — collapse them onto the one core path (No-Legacy).
+3. **Smell test:** if adding or changing a feature means editing N entrypoints, it's in the wrong
+   layer — move it to the core so the entrypoints inherit it with zero per-surface code.
+4. **Definition of done for an entrypoint:** it is input-adaptation + output-rendering only, and a
+   new core capability shows up in it with **no entrypoint code change**.
+
+This generalizes *Two surfaces by default* (REST + MCP) from the gateway to ALL entrypoints. Plan +
+the running opportunity list: `docs/architecture/entrypoint-unification.md`.
+
 ## Two surfaces by default — every feature reachable via the gateway AND MCP (READ BEFORE shipping a capability)
 
 **Every feature we build must be usable and configurable from two places: the
