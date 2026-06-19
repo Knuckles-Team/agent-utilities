@@ -39,32 +39,71 @@ structural check; a genuinely complex job earns the KG / LLM planning it needs.
 
 ```mermaid
 flowchart TD
-    job([job / task]) --> s0{stage 0:\nreuse a proven shape?}
-    s0 -- cache hit --> shape[GraphShape]
-    s0 -- miss --> s1[stage 1: free structural signals\nis_trivial_query — built]
-    s1 -- confident --> shape
-    s1 -- uncertain --> s2[stage 2: cheap KG signals\ndesignate / policy lookup — planned]
-    s2 -- resolved --> shape
-    s2 -- complex/uncertain --> s3[stage 3: LLM HTN planning\nPlanner.decompose — planned]
-    s3 --> shape
-    shape --> deps[GraphDeps.execution_shape]
+    job([job / task]) --> s0{stage 0:\nrecipe cache hit?}
+    s0 -- cache hit --> shape[ExecutionProfile shape]
+    s0 -- miss --> s1[stage 1: orchestration_signal_strength\nfree, no I/O — built]
+    s1 -- "strength 0 (confident lean)" --> shape
+    s1 -- "strength >=2 (confident full)" --> shape
+    s1 -- "strength 1 (ambiguous middle)" --> s2[stage 2: Rust search_hybrid\n~4.5s, gated — built]
+    s2 -- "hit -> full" --> shape
+    s2 -- "empty -> lean" --> shape
+    s3[stage 3: LLM HTN — planned]
+    shape --> cache[(recipe cache\nLRU by job signature)]
+    cache --> deps[GraphDeps.execution_shape]
     deps --> nodes[graph nodes honor the shape]
     nodes --> exec([execute])
-    exec -- on success --> learn[persist shape as AgentTemplate\n+ record_outcome — planned ORCH-1.70]
-    learn -. reused by .-> s0
+    exec -- "failure" --> evict[record_shape_outcome\nevict recipe — built]
+    evict -. re-plan next time .-> s0
+    cache -. reuse identical job .-> s0
 ```
 
-- **Stage 0 — reuse a proven shape** (ORCH-1.70, planned): a previously-constructed shape for a
-  similar job, persisted as an `AgentTemplate` / skill-workflow and reused successfully, is
-  returned directly. This is the closed self-improvement loop: the system accrues optimized,
-  job-scoped recipes and gets faster with use.
-- **Stage 1 — free structural signals** (built): the rules-first `is_trivial_query`
-  (`graph/routing/strategies/fast_path.py`, the single source of truth) shapes a lean
-  direct-completion turn vs. the full graph, with no I/O and no LLM.
-- **Stage 2 — cheap KG signals** (ORCH-1.69, planned): a capability designation / policy lookup
-  refines *which* nodes/specialists/tools the job needs when stage 1 is uncertain.
-- **Stage 3 — LLM HTN planning** (ORCH-1.69, planned): for genuinely complex jobs, an HTN
-  decomposition (`graph/planning/Planner.decompose`) produces the shape.
+- **Stage 0 — reuse a cached recipe** (ORCH-1.70, **built**): a bounded in-process LRU keyed by a
+  normalized job signature returns the constructed shape for an identical job, skipping all
+  resolution (incl. the expensive stage-2 search). `reset_recipe_cache()` for tests. The durable
+  cross-process layer (persisting recipes as `AgentTemplate`s for reuse across restarts) is the
+  next increment.
+- **Stage 1 — free structural signals** (**built**): the graded `orchestration_signal_strength`
+  (`graph/routing/strategies/fast_path.py`, single source of truth). **0** → confident lean; **≥2**
+  → confident full; **1 → the ambiguous middle**, the only case that escalates. No I/O, no LLM.
+- **Stage 2 — cheap, Rust-routed KG search** (ORCH-1.69, **built**): only the ambiguous middle pays
+  this — `engine.search_hybrid` disambiguates *tool-task* (→ full) vs. *conversational* (→ lean).
+- **Stage 3 — LLM HTN planning** (ORCH-1.69, planned): genuinely complex jobs earn an HTN
+  decomposition (`graph/planning/Planner.decompose`).
+- **Learning loop** (ORCH-1.70, **built**): `record_shape_outcome`, wired into `run_agent`, evicts a
+  recipe whose run **failed** (re-plan next time) and keeps one whose run **succeeded** (reinforce).
+
+## Performance: routing vector search through the Rust engine
+
+The single biggest planner optimization is **where the ANN/vector search runs**. The capability
+designation (`designate_specialists` → the Python `CapabilityIndex`, hnswlib/numpy) **cold-builds an
+in-process HNSW index** — measured **>70 s** on first use. The KG engine already exposes the same
+similarity search over the **Rust `epistemic-graph` engine** (tokio + MessagePack/UDS) via
+`search_hybrid` → `HybridRetriever` → `graph_compute` — measured **~4.5 s** (and most of that is the
+query *embedding*, not the search). So stage 2 routes through `search_hybrid`, per the standing rule
+*"vector similarity / ANN → the Rust engine, never an O(N) Python scan."*
+
+Layered optimizations, in order of impact:
+
+1. **Early-exit cascade** — clear jobs (strength 0 / ≥2) never touch the engine at all.
+2. **Rust-routed stage 2** — the ambiguous middle uses `search_hybrid` (~15× faster than the Python
+   cold-build).
+3. **Recipe cache** — an identical job skips stage 2 entirely (free reuse); failure self-corrects.
+
+**Known remaining hot path (recommended next):** the **router's** discovery (`_router_impl._run_discovery`)
+still calls the slow Python `designate_specialists` (line ~243) *alongside* the Rust `search_hybrid`
+(line ~249) on every full-graph turn — a redundant cold-build. The fix that preserves designation's
+reward-EMA learning is to route the `CapabilityIndex` **candidate retrieval** through `search_hybrid`
+(Rust) and apply only the cheap reward/ontology re-rank in Python on the small candidate set
+(*"Rust computes, Python orchestrates"*), or to warm the index at daemon startup. Not done here
+(behavior-sensitive — needs its own validation).
+
+**On hard tool/skill binding (#9):** binding a job to *only* the designated tools via
+`invoker_allowed_tools` is **unsafe as-is** — the KG hits are mixed capability/code nodes
+(`type: Code`, e.g. `create_asset`) whose names do **not** cleanly map to the live MCP toolset tool
+names the filter matches on, so a hard allow-list would filter the agent's tools to nothing. The safe
+context-window optimization is the cascade's lean/full decision + the existing routing prioritization
++ the lean loadout + the multiplexer's on-demand `load_tools`. Hard binding needs a verified
+id→tool-name resolution and live validation first.
 
 ## The shape is an agent *recipe* (planned, ORCH-1.69/1.70)
 

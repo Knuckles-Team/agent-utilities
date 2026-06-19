@@ -29,11 +29,17 @@ the default ``"task"``.
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import re
+from collections import OrderedDict
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+logger = logging.getLogger(__name__)
 
 # The messaging reply path caps the whole turn at MESSAGING_REPLY_TIMEOUT (default 45 s).
 # The chat-profile node budget MUST be far below that so a turn resolves *inside* the
@@ -166,67 +172,174 @@ def resolve_execution_profile(
     )
 
 
+# ── Recipe cache (CONCEPT:ORCH-1.70) ─────────────────────────────────────────────────
+# The expensive part of planning a shape is the KG/LLM resolution (stages 2/3); an identical
+# job should REUSE the proven recipe, not recompute it. Bounded in-process LRU keyed by a
+# normalized job signature. The durable cross-process layer (persisting recipes as
+# AgentTemplates + reuse on success) is the learning loop (CONCEPT:ORCH-1.70).
+_RECIPE_CACHE: OrderedDict[str, ExecutionProfile] = OrderedDict()
+_RECIPE_CACHE_MAX = 512
+
+# Lean (trivial/conversational) vs full (real multi-step/specialist) field overrides.
+_LEAN_FIELDS: dict[str, Any] = dict(
+    direct_complete=True,
+    skip_usage_guard=True,
+    run_discovery=False,
+    run_verifier=False,
+    resolve_agent=False,
+    enable_reasoning=False,
+)
+_FULL_FIELDS: dict[str, Any] = dict(
+    direct_complete=False,
+    skip_usage_guard=False,
+    run_discovery=True,
+    run_verifier=True,
+    resolve_agent=True,
+    enable_reasoning=True,
+)
+
+
+def _job_signature(task: str, profile_hint: str | ExecutionProfile | None) -> str:
+    """A stable cache key for a job: its normalized word-set + the entrypoint altitude."""
+    words = sorted(set(re.findall(r"[a-z0-9]+", (task or "").lower())))
+    digest = hashlib.sha1(" ".join(words).encode("utf-8")).hexdigest()[:16]
+    hint = (
+        profile_hint.name
+        if isinstance(profile_hint, ExecutionProfile)
+        else str(profile_hint or "")
+    )
+    return f"{hint}|{digest}"
+
+
+def _recipe_cache_get(sig: str) -> ExecutionProfile | None:
+    shape = _RECIPE_CACHE.get(sig)
+    if shape is not None:
+        _RECIPE_CACHE.move_to_end(sig)
+    return shape
+
+
+def _recipe_cache_put(sig: str, shape: ExecutionProfile) -> None:
+    _RECIPE_CACHE[sig] = shape
+    _RECIPE_CACHE.move_to_end(sig)
+    while len(_RECIPE_CACHE) > _RECIPE_CACHE_MAX:
+        _RECIPE_CACHE.popitem(last=False)
+
+
+def reset_recipe_cache() -> None:
+    """Clear the in-process recipe cache (tests; a deployment wanting a cold planner)."""
+    _RECIPE_CACHE.clear()
+
+
+def record_shape_outcome(
+    task: str, profile_hint: str | ExecutionProfile | None, *, success: bool
+) -> None:
+    """Close the learning loop on a planned recipe (CONCEPT:ORCH-1.70).
+
+    The planner caches a shape at plan-time; this folds the RUN RESULT back in. A successful
+    run leaves the recipe cached (it is reused for the next identical job — reinforcement); a
+    failed run EVICTS it, so the next identical job re-plans from scratch instead of blindly
+    repeating a shape that did not work. Cheap, in-process, and best-effort — never raises into
+    the caller's result path.
+    """
+    if success:
+        return  # the cached entry stays (reused next time)
+    try:
+        _RECIPE_CACHE.pop(_job_signature(task, profile_hint), None)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[ORCH-1.70] recipe outcome record skipped: %s", e)
+
+
+def _resolve_job_capabilities(
+    engine: IntelligenceGraphEngine, task: str, *, top_k: int = 8
+) -> list[dict[str, Any]] | None:
+    """Stage-2 job→capability search, routed through the Rust engine (CONCEPT:ORCH-1.69).
+
+    Uses the engine's ``search_hybrid`` (``HybridRetriever`` → ``graph_compute`` → the Rust
+    tokio/MessagePack engine over UDS) instead of a per-process Python HNSW cold-build — ~15×
+    faster live (~4.5 s incl. the query embedding vs >70 s for the Python ``CapabilityIndex``).
+    Returns the hit list (possibly empty), or ``None`` when search is unavailable (so the caller
+    keeps the safe full-graph default rather than mistaking "unavailable" for "no match").
+    """
+    try:
+        hits = engine.search_hybrid(task, top_k=top_k)
+        return list(hits or [])
+    except Exception as e:  # noqa: BLE001 — search must never break planning
+        logger.debug("[ORCH-1.69] stage-2 capability search unavailable: %s", e)
+        return None
+
+
+def _refine_with_kg(
+    engine: IntelligenceGraphEngine, task: str, base: ExecutionProfile
+) -> ExecutionProfile:
+    """Stage 2 — disambiguate the *ambiguous middle* with a cheap, Rust-routed capability search."""
+    hits = _resolve_job_capabilities(engine, task)
+    if hits is None:
+        # Search unavailable → keep the full graph (safe default for an action-shaped turn).
+        return replace(base, **_FULL_FIELDS, origin="heuristic", confidence=0.6)
+    if hits:
+        # The job maps to real fleet capabilities → it IS a tool task; keep the full graph.
+        return replace(base, **_FULL_FIELDS, origin="designate", confidence=0.8)
+    # Search succeeded but found NOTHING relevant → the borderline turn is conversational after
+    # all; downgrade to the lean shape so it gets the fast path instead of the full graph.
+    return replace(base, **_LEAN_FIELDS, origin="designate-empty", confidence=0.7)
+
+
 def plan_execution_shape(
     task: str,
     *,
     profile_hint: str | ExecutionProfile | None = None,
     engine: IntelligenceGraphEngine | None = None,
 ) -> ExecutionProfile:
-    """Construct the execution shape for ONE job (CONCEPT:ORCH-1.67).
+    """Construct the execution shape for ONE job (CONCEPT:ORCH-1.67/1.69/1.70).
 
-    This is the single, dynamic entry the orchestrator uses to decide *how much graph* a job
-    needs — replacing the static ``"chat"``/``"task"`` preset choice. It runs an **escalating
-    planner** (a "classifier for the classifier"): each stage costs more than the last and is
-    only reached when the cheaper stage is not confident, so a trivial turn pays only the free
-    structural check while a genuinely complex job earns the KG / LLM planning it needs.
+    The single, dynamic entry the orchestrator uses to decide *how much graph* a job needs —
+    replacing the static ``"chat"``/``"task"`` preset. It runs an **escalating planner** (a
+    "classifier for the classifier"): each stage costs more than the last and is reached only
+    when the cheaper stage is not confident, so a trivial turn pays only the free structural
+    check while a genuinely complex job earns the KG search it needs.
 
-      * **Stage 0 — reuse a proven shape** (CONCEPT:ORCH-1.70): if a previously-constructed
-        shape for a similar job was persisted (as a skill-workflow) and reused successfully,
-        return it. Wired in ORCH-1.70; until shapes are persisted this finds nothing.
-      * **Stage 1 — free structural signals** (here): the rules-first classifier
-        (``is_trivial_query`` — the single source of truth) shapes a lean direct-completion
-        turn vs. the full graph, with no I/O and no LLM.
-      * **Stage 2 — cheap KG signals** (CONCEPT:ORCH-1.69): when stage 1 is uncertain, a
-        capability designation / policy lookup refines *which* nodes/specialists the job needs.
-      * **Stage 3 — LLM planning** (CONCEPT:ORCH-1.69): only for genuinely complex/uncertain
-        jobs, an HTN decomposition produces the shape.
+      * **Stage 0 — reuse a cached recipe** (CONCEPT:ORCH-1.70): an identical job returns its
+        cached shape, skipping all resolution. (Durable cross-process reuse = the learning loop.)
+      * **Stage 1 — free structural signals**: the graded ``orchestration_signal_strength``
+        (single source of truth in ``fast_path``). Strength 0 → confident lean; ≥2 → confident
+        full; **1 → the ambiguous middle**, escalated to stage 2.
+      * **Stage 2 — cheap, Rust-routed KG search** (CONCEPT:ORCH-1.69): only the ambiguous
+        middle pays this — ``search_hybrid`` disambiguates tool-task vs. conversational.
+      * **Stage 3 — LLM planning** (CONCEPT:ORCH-1.69, planned): genuinely complex/uncertain
+        jobs earn an HTN decomposition.
 
-    ``profile_hint`` (the entrypoint's altitude, e.g. messaging passes ``"chat"``) seeds the
-    timeout budget; the planner then refines the shape from the job itself.
+    ``profile_hint`` (the entrypoint altitude, e.g. messaging passes ``"chat"``) seeds the
+    timeout budget; the planner refines the shape from the job itself.
     """
     base = resolve_execution_profile(profile_hint)
+    sig = _job_signature(task, profile_hint)
+
+    # Stage 0 — reuse a cached recipe.
+    cached = _recipe_cache_get(sig)
+    if cached is not None:
+        return replace(cached, origin=f"cache:{cached.origin}")
 
     # Stage 1 — free, deterministic structural classifier (single source of truth in
     # ``fast_path``). Imported lazily to keep this module dependency-light.
-    from agent_utilities.graph.routing.strategies.fast_path import is_trivial_query
-
-    if is_trivial_query(task or ""):
-        # A simple conversational/Q&A turn: answer it directly on a local model and skip the
-        # whole heavy apparatus (usage-guard LLM round, KG agent resolution, discovery,
-        # verifier). This is the lean shape that lands a chat reply in a human-scale budget.
-        return replace(
-            base,
-            direct_complete=True,
-            skip_usage_guard=True,
-            run_discovery=False,
-            run_verifier=False,
-            resolve_agent=False,
-            enable_reasoning=False,
-            origin="heuristic",
-            confidence=0.9,
-        )
-
-    # A real task: keep the full multi-agent graph (discovery + verifier on), targeting a
-    # specialist (resolve_agent). Stages 2/3 (ORCH-1.69) refine this per job; for now the
-    # structural signal carries it.
-    return replace(
-        base,
-        direct_complete=False,
-        skip_usage_guard=False,
-        run_discovery=True,
-        run_verifier=True,
-        resolve_agent=True,
-        enable_reasoning=True,
-        origin="heuristic",
-        confidence=0.7,
+    from agent_utilities.graph.routing.strategies.fast_path import (
+        orchestration_signal_strength,
     )
+
+    strength = orchestration_signal_strength(task or "")
+    if strength == 0:
+        # Clearly lean — a simple conversational/Q&A turn answered directly on a local model.
+        shape = replace(base, **_LEAN_FIELDS, origin="heuristic", confidence=0.9)
+    elif strength >= 2 or engine is None:
+        # Clearly a real task (or no engine to disambiguate): the full multi-agent graph.
+        shape = replace(
+            base,
+            **_FULL_FIELDS,
+            origin="heuristic",
+            confidence=0.9 if strength >= 2 else 0.6,
+        )
+    else:
+        # Stage 2 — the ambiguous middle (strength == 1): cheap, Rust-routed disambiguation.
+        shape = _refine_with_kg(engine, task, base)
+
+    _recipe_cache_put(sig, shape)
+    return shape

@@ -511,3 +511,163 @@ def test_memory_selection_doc_scan_pruned_and_capped(tmp_path) -> None:
     out = _scan_workspace_docs(str(tmp_path))
     assert len(out) <= _DOC_SCAN_CAP, "doc scan exceeded its cap"
     assert not any("IGNORED.md" in line for line in out), "node_modules was not pruned"
+
+
+# ───────── ORCH-1.69/1.70 — escalating cascade + Rust stage-2 + recipe cache ─────────
+
+
+class _FakeSearchEngine:
+    """Minimal engine exposing search_hybrid for the stage-2 path."""
+
+    def __init__(self, hits: Any) -> None:
+        self._hits = hits
+
+    def search_hybrid(self, query: str, top_k: int = 8) -> Any:
+        if isinstance(self._hits, Exception):
+            raise self._hits
+        return self._hits
+
+
+def test_signal_strength_grades() -> None:
+    """The graded classifier: 0 = trivial, 1 = ambiguous middle, 2+ = clearly complex."""
+    from agent_utilities.graph.routing.strategies.fast_path import (
+        orchestration_signal_strength as strength,
+    )
+
+    assert strength("hello") == 0
+    assert strength("what is 2 plus 2?") == 0
+    assert strength("search the docs") == 1  # one weak action keyword → ambiguous
+    assert (
+        strength("deploy the service and then restart it") >= 2
+    )  # multi-signal → complex
+    assert strength("/deploy foo") >= 2  # slash command
+
+
+def test_cascade_light_and_complex_skip_stage2() -> None:
+    """Strength 0 → confident lean; strength ≥2 → confident full. Neither touches the engine."""
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        reset_recipe_cache,
+    )
+
+    reset_recipe_cache()
+    boom = _FakeSearchEngine(
+        RuntimeError("engine must NOT be called for confident jobs")
+    )
+
+    light = plan_execution_shape("what is 2 plus 2?", profile_hint="chat", engine=boom)
+    assert light.direct_complete is True and light.origin == "heuristic"
+
+    reset_recipe_cache()
+    full = plan_execution_shape(
+        "deploy the service and then restart it", profile_hint="chat", engine=boom
+    )
+    assert full.direct_complete is False and full.origin == "heuristic"
+    assert full.confidence >= 0.9
+
+
+def test_cascade_stage2_hits_keep_full() -> None:
+    """An ambiguous turn whose KG search finds capabilities IS a tool task → full graph."""
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        reset_recipe_cache,
+    )
+
+    reset_recipe_cache()
+    eng = _FakeSearchEngine([{"name": "archive_search"}, {"name": "fetch"}])
+    shape = plan_execution_shape("search the archive", profile_hint="chat", engine=eng)
+    assert shape.direct_complete is False
+    assert shape.origin == "designate"
+
+
+def test_cascade_stage2_empty_downgrades_to_lean() -> None:
+    """An ambiguous turn whose KG search finds nothing is conversational → lean fast path."""
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        reset_recipe_cache,
+    )
+
+    reset_recipe_cache()
+    shape = plan_execution_shape(
+        "search the archive", profile_hint="chat", engine=_FakeSearchEngine([])
+    )
+    assert shape.direct_complete is True
+    assert shape.origin == "designate-empty"
+
+
+def test_cascade_stage2_unavailable_keeps_full() -> None:
+    """If KG search is unavailable, an action-shaped ambiguous turn keeps the safe full graph."""
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        reset_recipe_cache,
+    )
+
+    reset_recipe_cache()
+    eng = _FakeSearchEngine(RuntimeError("search down"))
+    shape = plan_execution_shape("search the archive", profile_hint="chat", engine=eng)
+    assert shape.direct_complete is False
+    assert (
+        shape.origin == "heuristic"
+    )  # unavailable → safe full default, not a downgrade
+
+
+def test_recipe_cache_reuses_and_resets() -> None:
+    """An identical job reuses the cached recipe (origin marked cache:…); reset clears it."""
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        reset_recipe_cache,
+    )
+
+    reset_recipe_cache()
+    # A stage-2 job: caching it means the second call must NOT hit the engine again.
+    eng = _FakeSearchEngine([{"name": "x"}])
+    first = plan_execution_shape("crawl the site", profile_hint="chat", engine=eng)
+    assert first.origin == "designate"
+    boom = _FakeSearchEngine(RuntimeError("cache must serve the 2nd call"))
+    second = plan_execution_shape("crawl the site", profile_hint="chat", engine=boom)
+    assert second.origin == "cache:designate"
+    assert second.direct_complete == first.direct_complete
+
+    reset_recipe_cache()
+    third = plan_execution_shape("crawl the site", profile_hint="chat", engine=eng)
+    assert third.origin == "designate"  # cache cleared → recomputed
+
+
+def test_recipe_outcome_evicts_on_failure_keeps_on_success() -> None:
+    """The cached recipe self-corrects: a failed run evicts it (re-plan next time); a
+    successful run keeps it (reuse next time) — CONCEPT:ORCH-1.70."""
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        record_shape_outcome,
+        reset_recipe_cache,
+    )
+
+    reset_recipe_cache()
+    eng = _FakeSearchEngine([{"name": "x"}])
+    cache_boom = _FakeSearchEngine(RuntimeError("must be served from cache"))
+
+    assert plan_execution_shape(
+        "crawl the site", profile_hint="chat", engine=eng
+    ).origin == ("designate")
+    # cached now
+    assert (
+        plan_execution_shape(
+            "crawl the site", profile_hint="chat", engine=cache_boom
+        ).origin
+        == "cache:designate"
+    )
+
+    # failure evicts -> next call re-plans (engine called again)
+    record_shape_outcome("crawl the site", "chat", success=False)
+    assert plan_execution_shape(
+        "crawl the site", profile_hint="chat", engine=eng
+    ).origin == ("designate")
+
+    # success keeps -> next call served from cache
+    record_shape_outcome("crawl the site", "chat", success=True)
+    assert (
+        plan_execution_shape(
+            "crawl the site", profile_hint="chat", engine=cache_boom
+        ).origin
+        == "cache:designate"
+    )
