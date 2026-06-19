@@ -639,6 +639,15 @@ class AgentOrchestrationEngine:
                     metadata={"run_id": run_id, "is_error": True},
                 ).model_dump()
 
+            # CONCEPT:ORCH-1.68 — a node may END the run directly with End[GraphResponse]
+            # (the router's direct-completion shape). pydantic-graph returns the End wrapper,
+            # so unwrap it to the GraphResponse here; otherwise the result handling below
+            # falls through to ``str(result)`` and the reply becomes "End(data=GraphResponse(…))".
+            from pydantic_graph import End
+
+            if isinstance(result, End):
+                result = result.data
+
             logger.info(
                 f"run_graph: graph.run finished. Result type: {type(result)}, Result: {result}"
             )
