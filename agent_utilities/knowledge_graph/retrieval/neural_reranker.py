@@ -178,6 +178,42 @@ class NeuralCrossEncoderReranker:
             return False
 
 
+class RemoteRerankScorer:
+    """RerankScorer that scores a (query, passage) pair on a REMOTE vLLM ``/v1/rerank``
+    endpoint — no local model, no torch/GPU baseline pinned (CONCEPT:KG-2.85). Keeps the
+    per-pair ``score`` Protocol; a transient endpoint error degrades to 0.0 so retrieval
+    never breaks (the caller still has the first-stage order)."""
+
+    def __init__(self, model: str, base_url: str) -> None:
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self._client: Any = None
+
+    def _http(self) -> Any:
+        if self._client is None:
+            import httpx
+
+            self._client = httpx.Client(timeout=15.0)
+        return self._client
+
+    def score(self, query: str, text: str, instruction: str | None = None) -> float:
+        q = f"{instruction}\n{query}" if instruction else query
+        try:
+            resp = self._http().post(
+                f"{self.base_url}/rerank",
+                json={"model": self.model, "query": q, "documents": [text]},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            results = payload.get("results") or payload.get("data") or []
+            if results:
+                r0 = results[0]
+                return float(r0.get("relevance_score", r0.get("score", 0.0)))
+        except Exception:  # noqa: BLE001 - endpoint down/unsupported -> neutral score
+            return 0.0
+        return 0.0
+
+
 def build_rerank_scorer(
     *,
     prefer_neural: bool = True,
