@@ -504,6 +504,70 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
             s.strip() for s in args.required_scopes.split(",") if s.strip()
         ]
 
+    # CONCEPT:OS-5.45 — native multi-realm JWT trust. FASTMCP_SERVER_AUTH_JWT_ISSUER and
+    # _JWKS_URI may each be a comma-separated, aligned-by-index list (one Keycloak realm per
+    # entry). FastMCP's JWTVerifier accepts an issuer list but only a SINGLE jwks_uri (one
+    # realm's signing keys), so during a realm migration the fleet must trust two realms'
+    # signing keys at once. Build one JWTVerifier per realm and accept a token if ANY verifies
+    # it — enabling a zero-downtime issuer cutover (add new realm → flip the minter → drop the
+    # old realm) with no signature gap and no auth lock-out window. A single value (the common
+    # case) falls through unchanged to the single-verifier path below.
+    _issuers = (
+        [s.strip() for s in str(issuer).split(",") if s.strip()] if issuer else []
+    )
+    _jwks_uris = (
+        [s.strip() for s in str(jwks_uri).split(",") if s.strip()] if jwks_uri else []
+    )
+    if len(_jwks_uris) > 1 or len(_issuers) > 1:
+        if len(_jwks_uris) != len(_issuers):
+            logger.error(
+                "Multi-realm JWT auth requires FASTMCP_SERVER_AUTH_JWT_ISSUER and "
+                "FASTMCP_SERVER_AUTH_JWT_JWKS_URI to be comma-separated lists of EQUAL length "
+                "(one entry per realm, aligned by index)."
+            )
+            _sys.exit(1)
+        from fastmcp.server.auth import TokenVerifier
+
+        class _MultiIssuerVerifier(TokenVerifier):
+            """Accept a JWT validated by ANY wrapped per-realm JWTVerifier (CONCEPT:OS-5.45)."""
+
+            def __init__(self, verifiers: list, *, required_scopes: Any = None) -> None:
+                super().__init__(required_scopes=required_scopes)
+                self._verifiers = list(verifiers)
+
+            async def verify_token(self, token: str) -> Any:
+                for _v in self._verifiers:
+                    try:
+                        _result = await _v.verify_token(token)
+                    except Exception:  # noqa: BLE001 - try the next realm
+                        _result = None
+                    if _result is not None:
+                        return _result
+                return None
+
+        try:
+            _verifiers = [
+                JWTVerifier(
+                    jwks_uri=_u,
+                    issuer=_i,
+                    audience=audience,
+                    algorithm=(
+                        algorithm if algorithm and algorithm.startswith("HS") else None
+                    ),
+                    required_scopes=required_scopes,
+                )
+                for _u, _i in zip(_jwks_uris, _issuers, strict=False)
+            ]
+            logger.info(
+                "JWT auth: native multi-realm trust across %d issuers: %s",
+                len(_issuers),
+                _issuers,
+            )
+            return _MultiIssuerVerifier(_verifiers, required_scopes=required_scopes)
+        except Exception as e:
+            logger.error(f"Failed to initialize multi-realm JWTVerifier: {e}")
+            _sys.exit(1)
+
     try:
         return JWTVerifier(
             jwks_uri=jwks_uri,
