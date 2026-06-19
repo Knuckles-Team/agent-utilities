@@ -230,6 +230,25 @@ def reset_recipe_cache() -> None:
     _RECIPE_CACHE.clear()
 
 
+def record_shape_outcome(
+    task: str, profile_hint: str | ExecutionProfile | None, *, success: bool
+) -> None:
+    """Close the learning loop on a planned recipe (CONCEPT:ORCH-1.70).
+
+    The planner caches a shape at plan-time; this folds the RUN RESULT back in. A successful
+    run leaves the recipe cached (it is reused for the next identical job — reinforcement); a
+    failed run EVICTS it, so the next identical job re-plans from scratch instead of blindly
+    repeating a shape that did not work. Cheap, in-process, and best-effort — never raises into
+    the caller's result path.
+    """
+    if success:
+        return  # the cached entry stays (reused next time)
+    try:
+        _RECIPE_CACHE.pop(_job_signature(task, profile_hint), None)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[ORCH-1.70] recipe outcome record skipped: %s", e)
+
+
 def _resolve_job_capabilities(
     engine: IntelligenceGraphEngine, task: str, *, top_k: int = 8
 ) -> list[dict[str, Any]] | None:

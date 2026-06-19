@@ -365,6 +365,11 @@ async def run_agent(
         # ARPO read-back (CONCEPT:AHE-3.15): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
         _write_step_credit(engine, run_id, agent_name, None, success=False)
+        # CONCEPT:ORCH-1.70 — fold the failure back into the planner: evict this job's cached
+        # recipe so the next identical job re-plans instead of repeating a shape that failed.
+        from agent_utilities.orchestration.execution_profile import record_shape_outcome
+
+        record_shape_outcome(task, execution_profile, success=False)
         return f"Agent execution failed: {err_msg}"
 
     # Step 5: Record success provenance
