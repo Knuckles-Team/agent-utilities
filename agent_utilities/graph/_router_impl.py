@@ -998,9 +998,14 @@ async def dispatcher_step(
                 )
         ctx.state.deferred_events.clear()
 
-    # Context enrichment: route to memory_selection on the first entry so
-    # historical context is available before any plan steps execute.
-    if ctx.state.step_cursor == 0 and not ctx.state.exploration_notes:
+    # Context enrichment: route to memory_selection on the first entry so historical context
+    # is available before any plan steps execute — UNLESS the job's shape says this is a lean
+    # turn that does not need pre-LLM context gathering (CONCEPT:ORCH-1.68). memory_selection
+    # gathers workspace/KG context; ``run_discovery`` is the shape's "gather context for this
+    # job" signal, so a job the planner shaped as not needing it skips the node entirely.
+    _shape = getattr(ctx.deps, "execution_shape", None)
+    _want_context = _shape is None or getattr(_shape, "run_discovery", True)
+    if ctx.state.step_cursor == 0 and not ctx.state.exploration_notes and _want_context:
         logger.info(
             "Dispatcher: First entry — routing to memory_selection for context enrichment."
         )
