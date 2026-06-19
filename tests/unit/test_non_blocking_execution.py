@@ -405,3 +405,79 @@ def test_refresh_session_memento_cache_populates(
     out = refresh_session_memento_cache(object(), "bg-sess")
     assert out == ["m-from-bg"]
     assert SessionMementoCache.instance().get("bg-sess") == ["m-from-bg"]
+
+
+# ───────────────── ORCH-1.67/1.68 — dynamic per-job execution shape ─────────────────
+
+
+def test_plan_shape_trivial_turn_is_lean() -> None:
+    """A trivial conversational/Q&A turn gets the lean shape: direct-completion on a local
+    model with NO KG agent resolution, NO usage-guard LLM round, NO discovery/verifier, and
+    reasoning OFF (CONCEPT:ORCH-1.67/1.68)."""
+    from agent_utilities.orchestration.execution_profile import plan_execution_shape
+
+    for q in ("what is 2 plus 2?", "hello", "what can you do?"):
+        s = plan_execution_shape(q, profile_hint="chat")
+        assert s.direct_complete is True, q
+        assert s.skip_usage_guard is True, q
+        assert s.resolve_agent is False, q
+        assert s.run_discovery is False, q
+        assert s.run_verifier is False, q
+        assert s.enable_reasoning is False, q
+        assert s.origin == "heuristic"
+        # The chat hint still bounds the node budget.
+        assert s.router_timeout is not None
+
+
+def test_plan_shape_real_task_keeps_full_graph() -> None:
+    """A tool/plan-shaped turn keeps the full graph: resolve the specialist, run the
+    usage-guard / discovery / verifier, reasoning ON (CONCEPT:ORCH-1.67/1.68)."""
+    from agent_utilities.orchestration.execution_profile import plan_execution_shape
+
+    for q in (
+        "deploy the service and then restart it",
+        "analyze this repo and create a migration plan",
+    ):
+        s = plan_execution_shape(q, profile_hint="chat")
+        assert s.direct_complete is False, q
+        assert s.resolve_agent is True, q
+        assert s.skip_usage_guard is False, q
+        assert s.run_discovery is True, q
+        assert s.run_verifier is True, q
+        assert s.enable_reasoning is True, q
+
+
+def test_plan_shape_defaults_preserve_full_behaviour() -> None:
+    """An ExecutionProfile built without the planner keeps the prior full-graph behaviour so
+    direct callers that plan no shape are unchanged (CONCEPT:ORCH-1.67)."""
+    from agent_utilities.orchestration.execution_profile import (
+        resolve_execution_profile,
+    )
+
+    for value in (None, "task", "chat"):
+        p = resolve_execution_profile(value)
+        assert p.direct_complete is False
+        assert p.skip_usage_guard is False
+        assert p.resolve_agent is True
+        assert p.run_discovery is True
+        assert p.run_verifier is True
+        assert p.enable_reasoning is True
+        assert p.origin == "preset"
+
+
+def test_graph_deps_carries_execution_shape() -> None:
+    """The shape threads onto GraphDeps so graph nodes can read it (CONCEPT:ORCH-1.68)."""
+    from agent_utilities.graph.state import GraphDeps
+    from agent_utilities.orchestration.execution_profile import plan_execution_shape
+
+    shape = plan_execution_shape("what is 2 plus 2?", profile_hint="chat")
+    deps = GraphDeps(
+        tag_prompts={}, tag_env_vars={}, mcp_toolsets=[], execution_shape=shape
+    )
+    assert deps.execution_shape is shape
+    assert deps.execution_shape.direct_complete is True
+    # The default (no shape planned) stays None so direct callers keep full-graph behaviour.
+    assert (
+        GraphDeps(tag_prompts={}, tag_env_vars={}, mcp_toolsets=[]).execution_shape
+        is None
+    )
