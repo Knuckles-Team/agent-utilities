@@ -126,6 +126,7 @@ nav:
       - Scaling the Gateway: architecture/gateway_scaling.md
       - Tenant-Partitioned Engine Sharding: architecture/engine_sharding.md
       - Queue-Driven Agent Dispatch: architecture/agent_dispatch.md
+      - Non-Blocking Hierarchical Execution: architecture/non-blocking-execution.md
       - Fleet Autonomy Control Plane: architecture/fleet_autonomy.md
       - Unattended Claude Code Harness: architecture/unattended_claude_harness.md
       - Messaging Reach (Telegram + agents): architecture/messaging_reach.md
