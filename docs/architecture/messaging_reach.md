@@ -108,6 +108,22 @@ channel, KG history ingest, loop-reply delivery, `/commands` — run per message
 agent reply (and its single reaction) coalesce. `BurstCoalescer` is a shared core primitive
 agent-terminal-ui reuses, so burst behavior is identical across surfaces.
 
+## Conversation history / continuity (ECO-4.76)
+
+Every reply is grounded in **bounded, fast conversation history** so multi-message tasks
+have continuity. Before drafting a reply the burst path (`_reply_to_burst` → `_recall_history`)
+recalls the last `MESSAGING_HISTORY_TURNS` (default 8) turns — both user and assistant — for
+**this** `(platform, channel_id)` and formats them into a compact `Recent conversation:` block
+passed as the reply context (`_model_routed_reply`).
+
+This is a cheap **exact-match recency query** (`kg_ingest.recall_recent_messages`) over a flat
+`channel_key` scalar stamped on each message at ingest — **not** the heavy semantic
+`recall_memory` (HNSW + cross-encoder), which was removed from the reply path because its
+CPU-bound rerank stalled replies. The fetch is wrapped in `asyncio.wait_for` bounded by
+`MESSAGING_RECALL_TIMEOUT`; on timeout/empty it degrades to no history rather than blocking
+the answer. Deeper semantic KG context is still pulled **on demand** by the agent's
+auto-approved `kg_search`/`kg_recall` tools when a question actually needs it.
+
 ## Universal commands (ECO-4.57)
 
 Commands are defined once in `agent_utilities/messaging/commands.py` (`COMMANDS`) — the
@@ -173,6 +189,11 @@ So the agent keeps a tiny context yet can reach any connector. Three things make
   (`graph_orchestrate`, `graph_search`, `find_tools`, `load_tools`) and read-only fleet tools
   from a chat message; mutating tools stay gated, and a spawned specialist's own fleet actions
   remain governed by the fail-closed ActionPolicy gate (OS-5.24).
+- **One delegation surface (ECO-4.77)** — `graph_orchestrate(action=execute_agent)` is the
+  single delegation entrypoint. The universal `invoke_specialized_agent` tool is a thin
+  wrapper over the **same** orchestration core (`Orchestrator.execute_agent` → `run_agent`),
+  not a parallel discovery/A2A/sub-agent-build path — so however the model phrases delegation
+  it converges on one core (and one governance/identity path).
 
 > The multiplexer is run as a stdio server today (debug); when it is deployed as a remote
 > MCP server (Portainer), point `MESSAGING_MCP_CONFIG`'s entry at its URL instead — no other

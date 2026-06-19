@@ -2804,6 +2804,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     tags=p.get("tags", []),
                     trust_score=p.get("trust_score", 0.8),
                     agent_id=p.get("agent_id", ""),
+                    extra_props=p.get("extra_props") or None,
                     _local=True,
                     _memory_id=p.get("memory_id"),
                 )
