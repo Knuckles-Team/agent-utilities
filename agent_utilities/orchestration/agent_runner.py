@@ -231,10 +231,25 @@ async def run_agent(
             e,
         )
 
-    # Step 2: Query KG for agent metadata.
+    # CONCEPT:ORCH-1.67 — construct the execution shape for THIS job ONCE, up front. The
+    # escalating planner decides how much graph the job needs from cheap signals; a trivial
+    # turn gets a lean shape that skips KG agent resolution, the usage-guard LLM round,
+    # discovery, and the verifier (CONCEPT:ORCH-1.68), so the heavy apparatus never runs for a
+    # simple chat reply.
+    from agent_utilities.orchestration.execution_profile import plan_execution_shape
+
+    shape = plan_execution_shape(task, profile_hint=execution_profile, engine=engine)
+
+    # Step 2: Query KG for agent metadata — ONLY when the shape targets a specific specialist.
     # CONCEPT:ORCH-1.65 — ``_resolve_agent_from_kg`` runs synchronous backend round-trips;
     # run them OFF the event loop via ``to_thread`` so they never stall the async reply path.
-    agent_meta = await asyncio.to_thread(_resolve_agent_from_kg, engine, agent_name)
+    # CONCEPT:ORCH-1.68 — a direct-completion / generic chat turn does not target a named
+    # specialist, so we skip the resolution entirely (it is a multi-second semantic-search
+    # round-trip that mis-resolves a prompt-only agent like ``messaging-assistant`` anyway).
+    if shape.resolve_agent:
+        agent_meta = await asyncio.to_thread(_resolve_agent_from_kg, engine, agent_name)
+    else:
+        agent_meta = _unresolved_agent_meta()
 
     # Step 2b: Prime the recent compressed mementos for this run OFF the event loop.
     # CONCEPT:KG-2.131 — read the per-session memento cache (zero I/O); only on a cold
@@ -245,15 +260,15 @@ async def run_agent(
     recent_mementos = await _prime_recent_mementos(engine, memento_source or agent_name)
 
     # Step 3: Build execution config from KG metadata.
-    # CONCEPT:ORCH-1.62 — the execution profile selects the per-node timeout budget
-    # (chat = tens of seconds, task = the long default) so a chat turn fails fast inside
-    # its budget on a degraded backend instead of stalling on a 300 s router round.
+    # CONCEPT:ORCH-1.62/1.67 — the constructed shape (already planned above) selects the
+    # per-node timeout budget and the dynamic graph shape; pass it through so the config
+    # carries it to the graph deps (ExecutionProfile instances are accepted as-is).
     config = _build_execution_config(
         engine,
         agent_name,
         agent_meta,
         memento_source=memento_source,
-        execution_profile=execution_profile,
+        execution_profile=shape,
         recent_mementos=recent_mementos,
     )
     # CONCEPT:ORCH-1.39 — carry the invoker's curated context + token budget into the spawn.
@@ -432,6 +447,25 @@ def _get_or_create_engine() -> IntelligenceGraphEngine:
 
     engine = IntelligenceGraphEngine(backend=backend, db_path=db_path)
     return engine
+
+
+def _unresolved_agent_meta() -> dict[str, Any]:
+    """The empty agent-metadata shape used when KG resolution is skipped (CONCEPT:ORCH-1.68).
+
+    A direct-completion / generic chat turn does not target a named specialist, so we skip the
+    (multi-second) semantic-search resolution and run with this neutral metadata. It matches
+    the default :func:`_resolve_agent_from_kg` returns on a miss, so every downstream consumer
+    (``_build_execution_config``, ``_is_single_server_agent``) behaves identically to a miss.
+    """
+    return {
+        "type": "unknown",
+        "server_id": "",
+        "tools": [],
+        "capabilities": [],
+        "mcp_command": "",
+        "url": "",
+        "system_prompt": "",
+    }
 
 
 def _resolve_agent_from_kg(
@@ -710,6 +744,9 @@ def _build_execution_config(
         "router_timeout": router_timeout,
         "verifier_timeout": verifier_timeout,
         "execution_profile": profile.name,
+        # CONCEPT:ORCH-1.67/1.68 — carry the constructed shape to the graph deps so each node
+        # can decide whether to run its work or pass through for this job.
+        "execution_shape": profile,
         "min_confidence": DEFAULT_MIN_CONFIDENCE,
         "valid_domains": tuple(tag_prompts.keys()),
         "provider": DEFAULT_LLM_PROVIDER,

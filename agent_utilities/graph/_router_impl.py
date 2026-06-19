@@ -101,46 +101,92 @@ async def router_step(
         logger.error("Router: Max planning loops exceeded. Aborting.")
         return "error_recovery"
 
-    # Fast-path: skip the full pipeline for trivial/conversational queries
-    # (e.g. "hello", "thanks", "what can you do?"). R1 detection is owned by the
-    # routing strategy — single source of truth (Plan 03 Step 3 / CONCEPT:KG-2.1).
-    from .routing.strategies.fast_path import is_trivial_query
+    # Direct-completion: skip the full pipeline for a job the planner shaped as a simple
+    # conversational/Q&A turn. CONCEPT:ORCH-1.68 — the decision lives in the per-job execution
+    # shape (``direct_complete``), constructed up front by ``plan_execution_shape`` from the
+    # single-source-of-truth structural classifier. When a direct caller planned no shape
+    # (``execution_shape is None``), fall back to that same classifier so behaviour is
+    # identical to before — one decision point, no dual path.
+    _shape = getattr(deps, "execution_shape", None)
+    if _shape is not None:
+        _direct = bool(getattr(_shape, "direct_complete", False))
+    else:
+        from .routing.strategies.fast_path import is_trivial_query
 
-    if is_trivial_query(ctx.state.query):
+        _direct = is_trivial_query(ctx.state.query)
+
+    if _direct:
         logger.info(
-            f"Router: Fast-path — trivial query detected ('{ctx.state.query[:40]}'). Generating direct response."
+            f"Router: Direct-completion shape — answering '{ctx.state.query[:40]}' on the "
+            "local model (CONCEPT:ORCH-1.68)."
         )
-        # CONCEPT:KG-2.1 — Adaptive Model Routing (Fast Path)
+        from pydantic_ai import ModelSettings
 
+        from ..core.config import DEFAULT_EXTRA_BODY
         from ..core.model_factory import create_model
 
-        _lite = config.lite_chat_model
-        lightweight_model = create_model(
-            model_id=(_lite.id if _lite else None) or "gpt-4o-mini"
+        # Per-job model override from the shape, else ``None`` → the local default model
+        # (``create_model`` resolves the served local model — never a hard-coded remote one).
+        _shape_model_id = (
+            getattr(_shape, "model_id", None) if _shape is not None else None
+        )
+        direct_model = create_model(model_id=_shape_model_id)
+
+        # CONCEPT:ORCH-1.68 — the model's reasoning capability is a DYNAMIC, per-job shape
+        # decision (``enable_reasoning``), not a hard-coded mode: a trivial Q&A runs with
+        # extended reasoning OFF (a chain-of-thought trace turns a 0.4 s answer into ~28 s of
+        # hidden reasoning tokens on the local qwen reasoning model), while a job the planner
+        # judged worth deliberation keeps it ON. The answer is token-bounded and the call is
+        # bounded to the chat node budget.
+        _reason_on = (
+            bool(getattr(_shape, "enable_reasoning", False))
+            if _shape is not None
+            else False
+        )
+        _extra = dict(DEFAULT_EXTRA_BODY or {})
+        _ctk = dict(_extra.get("chat_template_kwargs") or {})
+        _ctk["enable_thinking"] = _reason_on
+        _extra["chat_template_kwargs"] = _ctk
+        _node_budget = (
+            getattr(_shape, "router_timeout", None) if _shape is not None else None
+        )
+        direct_settings = ModelSettings(
+            extra_body=_extra,
+            max_tokens=1024,
+            timeout=_node_budget or 30.0,
         )
 
-        fast_agent = Agent(
-            model=lightweight_model,
+        direct_agent = Agent(
+            model=direct_model,
             system_prompt="You are a helpful assistant. Respond naturally and concisely.",
+            model_settings=direct_settings,
         )
         try:
-            res = await fast_agent.run(ctx.state.query)
+            res = await direct_agent.run(ctx.state.query)
             emit_graph_event(
                 deps.event_queue,
                 "routing_completed",
                 plan={},
-                reasoning="fast-path: trivial query",
+                reasoning="direct-completion shape",
             )
             return End(
                 GraphResponse(
                     status="completed",
                     results={"output": str(res.output)},
-                    metadata={"fast_path": True, "domain": "conversational"},
+                    metadata={"direct_complete": True, "domain": "conversational"},
                 )
             )
-        except Exception as e:
+        except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
+            raise
+        except BaseException as e:  # noqa: BLE001
+            # A remote/streamable model failure surfaces through anyio as a
+            # BaseExceptionGroup (a BaseException, not always an Exception), so catch
+            # BaseException to surface WHICH error sent us to the full pipeline — otherwise
+            # the direct-completion fails silently and the turn pays the full graph anyway.
             logger.warning(
-                f"Router: Fast-path failed ({e}). Falling back to full pipeline."
+                "Router: Direct-completion failed (%s: %s). Falling back to full pipeline.",
+                type(e).__name__,
+                e,
             )
 
     # Junction Pseudostate: Try static keyword routing first (saves LLM call)
@@ -155,9 +201,13 @@ async def router_step(
                 f"Router: tag_prompts is empty, falling back to registry tags ({len(routing_tags)} tags)"
             )
 
-    # Topological Pre-Routing: Check the Knowledge Graph for direct tool matches and context
+    # Topological Pre-Routing: Check the Knowledge Graph for direct tool matches and context.
+    # CONCEPT:ORCH-1.68 — run this several-round-trip discovery bundle only when the job's
+    # shape calls for it; a lean shape skips it.
     discovery_context = ""
-    if deps.knowledge_engine:
+    if deps.knowledge_engine and (
+        _shape is None or getattr(_shape, "run_discovery", True)
+    ):
         logger.info(
             "[LAYER:GRAPH:ROUTER] Performing topological and hybrid discovery..."
         )
@@ -662,10 +712,17 @@ async def router_step(
                 from ..core.model_factory import create_model
 
                 _super = config.super_chat_model
-                reasoning_model_id = (_super.id if _super else None) or "o3-mini"
-                logger.debug("Router: pinning reasoning model %s", reasoning_model_id)
+                # CONCEPT:ORCH-1.68 — no hard-coded remote model; an unset super-model falls
+                # back to the local default (``create_model(None)``), never an unreachable
+                # ``o3-mini`` the homelab cannot serve.
+                reasoning_model_id = _super.id if _super else None
+                logger.debug(
+                    "Router: pinning reasoning model %s",
+                    reasoning_model_id or "local-default",
+                )
                 adaptive_model = create_model(model_id=reasoning_model_id)
-                ctx.state.pinned_model_id = reasoning_model_id
+                if reasoning_model_id:
+                    ctx.state.pinned_model_id = reasoning_model_id
                 logger.info(
                     f"[LAYER:GRAPH:ROUTER] Selected Reasoning Model: {reasoning_model_id}"
                 )
@@ -673,9 +730,8 @@ async def router_step(
                 from ..core.model_factory import create_model
 
                 _lite2 = config.lite_chat_model
-                adaptive_model = create_model(
-                    model_id=(_lite2.id if _lite2 else None) or "gpt-4o-mini"
-                )
+                # CONCEPT:ORCH-1.68 — local default when no lite model is configured.
+                adaptive_model = create_model(model_id=_lite2.id if _lite2 else None)
                 logger.info(
                     "[LAYER:GRAPH:ROUTER] Adaptive Routing: Selected lightweight model for simple task."
                 )
