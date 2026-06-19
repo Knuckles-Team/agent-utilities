@@ -96,9 +96,18 @@ async def usage_guard_step(
             usage=usage.model_dump(),
         )
 
-    # Policy enforcement (Optional, based on tool_guard_mode)
-    if cast(GraphDeps, ctx.deps).tool_guard_mode == "off":
-        logger.info("UsageGuard: Tool guard mode is OFF. Bypassing policy check.")
+    # Policy enforcement (Optional, based on tool_guard_mode / the per-job shape).
+    # CONCEPT:ORCH-1.68 — the policy check is a full LLM round; a lean shape (a trivial chat
+    # turn) skips it so the turn never pays an extra LLM round before the router. Mutating
+    # fleet actions are still governed downstream by the fail-closed ActionPolicy gate, so a
+    # passed-through trivial Q&A is not ungoverned.
+    _shape = getattr(cast(GraphDeps, ctx.deps), "execution_shape", None)
+    _guard_off = cast(GraphDeps, ctx.deps).tool_guard_mode == "off"
+    if _guard_off or (_shape is not None and getattr(_shape, "skip_usage_guard", False)):
+        logger.info(
+            "UsageGuard: bypassing policy LLM round (%s).",
+            "tool guard off" if _guard_off else "lean shape — CONCEPT:ORCH-1.68",
+        )
         _emit_node_lifecycle(
             cast(GraphDeps, ctx.deps).event_queue,
             "usage_guard",
