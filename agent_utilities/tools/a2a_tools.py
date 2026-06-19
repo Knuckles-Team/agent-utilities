@@ -32,9 +32,7 @@ async def list_a2a_peers(ctx: RunContext[Any]) -> list[str]:
 
     """
     model = list_a2a_peers_util()
-    return [
-        f"{name} ({peer.url}): {peer.description}" for name, peer in model.peers.items()
-    ]
+    return [f"{peer.name} ({peer.url}): {peer.description}" for peer in model.peers]
 
 
 @trace(name="register_a2a_peer", trace_type="TOOL")
