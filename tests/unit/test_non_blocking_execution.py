@@ -270,7 +270,9 @@ async def test_resolve_agent_runs_off_the_event_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``run_agent`` must resolve the agent via ``to_thread`` so the sync KG round-trips never
-    stall the loop (CONCEPT:ORCH-1.65)."""
+    stall the loop (CONCEPT:ORCH-1.65). Uses a non-trivial (specialist-targeting) task because
+    CONCEPT:ORCH-1.68 skips KG resolution entirely for a trivial/direct-completion turn, so the
+    off-loop hop is only exercised when the shape sets ``resolve_agent=True``."""
     import asyncio
     import threading
 
@@ -300,7 +302,9 @@ async def test_resolve_agent_runs_off_the_event_loop(
     monkeypatch.setattr(agent_runner, "_write_step_credit", lambda *a, **k: None)
 
     out = await agent_runner.run_agent(
-        agent_name="messaging-assistant", task="hello there", engine=object()
+        agent_name="messaging-assistant",
+        task="deploy the service and restart the database now",
+        engine=object(),
     )
     assert out == "done"
     assert resolve_threads, "resolver was not called"
