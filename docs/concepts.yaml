@@ -3805,29 +3805,34 @@ concepts:
   - agent_utilities/orchestration/execution_profile.py
   doc: the profile is no longer a fixed per-entrypoint *preset*; it is the
 - id: ORCH-1.68
-  name: a direct-completion / generic chat turn does not target a named
+  name: the workspace-doc inventory is static within a process; cache it per
   pillar: ORCH-1
   status: live
   code_paths:
   - agent_utilities/graph/_router_impl.py
+  - agent_utilities/graph/builder.py
+  - agent_utilities/graph/hierarchical_planner.py
   - agent_utilities/graph/lifecycle.py
   - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/engine.py
   - agent_utilities/orchestration/execution_profile.py
-  doc: a direct-completion / generic chat turn does not target a named
+  doc: the workspace-doc inventory is static within a process; cache it per
 - id: ORCH-1.69
-  name: only for genuinely complex/uncertain
+  name: only the ambiguous
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/graph/routing/strategies/fast_path.py
   - agent_utilities/orchestration/execution_profile.py
-  doc: only for genuinely complex/uncertain
+  doc: only the ambiguous
 - id: ORCH-1.70
-  name: if a previously-constructed
+  name: ─────────────────────────────────────────────────
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/execution_profile.py
-  doc: if a previously-constructed
+  doc: ─────────────────────────────────────────────────
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
