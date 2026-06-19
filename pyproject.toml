@@ -177,7 +177,7 @@ serving = [
     # The serving plane (graph-os MCP, host daemon, messaging): NO heavy ML/native deps.
     # Heavy compute is remote (vLLM) or in the Rust engine; torch/transformers/AVX-ann are
     # excluded on purpose (they SIGILL on old CPUs + bloat the image). See AGENTS.md dep rule.
-    "agent-utilities[mcp,graph,embeddings,neo4j,falkordb,owl,documents,agent,auth,metrics]",
+    "agent-utilities[mcp,graph,embeddings,neo4j,falkordb,owl,documents,agent,auth,metrics,finance]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
