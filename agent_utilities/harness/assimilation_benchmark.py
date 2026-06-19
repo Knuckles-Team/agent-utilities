@@ -66,7 +66,6 @@ __all__ = [
     "bench_decentmem_bandit",
     "bench_mlevolve",
     "bench_sgs",
-    "bench_pauserec_trained",
     "run_all",
     "to_markdown",
 ]
@@ -651,47 +650,15 @@ def bench_sgs(*, seed: int = 0) -> BenchmarkResult:
 # ----------------------------------------------------------------------------
 # Aggregation + reporting
 # ----------------------------------------------------------------------------
-def bench_pauserec_trained(*, seed: int = 0) -> BenchmarkResult | None:
-    """Train REAL pause tokens (PauseRec's actual mechanism) and measure the lift.
-
-    Unlike :func:`bench_pauserec` (inference-time deterministic adaptation), this runs the
-    paper's literal trainable-``<pause>``-token mechanism via gradient descent (CONCEPT:KG-2.93
-    training track) and reports Recall@k WITH vs WITHOUT the trained pause tokens. Returns
-    ``None`` when torch is not installed (the bench is skipped, not failed).
-    """
-    from agent_utilities.knowledge_graph.retrieval import pause_token_trainer as ptt
-
-    if not ptt.is_available():
-        return None
-    # Toy task where next-item is a nonlinear interaction of the history (see the trainer).
-    rng = np.random.default_rng(seed)
-    n_items = 12
-    sequences = [[int(rng.integers(0, n_items)) for _ in range(3)] for _ in range(64)]
-    model = ptt.PauseTokenRecommender(
-        n_items=n_items, dim=6, n_pause_tokens=4, seed=seed
-    )
-    res = model.fit(sequences, epochs=200, lr=0.05, k=3)
-    return _make_result(
-        name="PauseRec-trained KG-2.93",
-        metric="Recall@3",
-        baseline=res.recall_at_k_without_pause,
-        ours=res.recall_at_k_with_pause,
-        higher_is_better=True,
-        detail={
-            "initial_loss": res.initial_loss,
-            "final_loss": res.final_loss,
-            "n_pause_tokens": res.n_pause_tokens,
-            "mechanism": "trained pause tokens (gradient descent), not inference adaptation",
-        },
-    )
-
-
+# NOTE: the trained-pause-token PauseRec benchmark (the literal
+# trainable-``<pause>``-token mechanism via gradient descent, CONCEPT:KG-2.93
+# training track) was re-homed to data-science-mcp
+# (data_science_mcp.training.pause_token_trainer) so agent-utilities core stays
+# torch-free — see AGENTS.md "Dependency discipline". The inference-time
+# deterministic adaptation (:func:`bench_pauserec`) stays here; it is torch-free.
 def run_all(*, seed: int = 0) -> list[BenchmarkResult]:
-    """Run every benchmark under one seed and return the results in order.
-
-    Includes the trained-pause-token bench only when torch is installed (CPU is fine).
-    """
-    results = [
+    """Run every (torch-free) benchmark under one seed and return them in order."""
+    return [
         bench_pauserec(seed=seed),
         bench_scoregate(seed=seed),
         bench_tasr(seed=seed),
@@ -700,10 +667,6 @@ def run_all(*, seed: int = 0) -> list[BenchmarkResult]:
         bench_mlevolve(seed=seed),
         bench_sgs(seed=seed),
     ]
-    trained = bench_pauserec_trained(seed=seed)
-    if trained is not None:
-        results.append(trained)
-    return results
 
 
 def to_markdown(results: list[BenchmarkResult]) -> str:

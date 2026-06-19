@@ -218,12 +218,14 @@ graph TD
 | KG-2.56 | Keyed Ingest Partitions | `kg_tasks` partition keys (tenant → repo/corpus → task type) for per-tenant/per-repo ordering |
 | KG-2.57 | Decoupled kg-ingest Consumer Group | `kg-ingest-worker` runs ingest as engine clients on any host; at-least-once, idempotent claims, lag metrics |
 | KG-2.58 | Tenant-Partitioned Engine Sharding | HRW graph→shard routing over `GRAPH_SERVICE_ENDPOINTS` with tenant→named-graph placement |
+| KG-2.65 | GPU-Slot-Scheduled Fact Extraction | A single shared GPU slot serializes LLM fact-extraction so long training/ingest runs cooperate (`knowledge_graph/ingestion/gpu_slot_scheduler.py`); data-science-mcp training jobs share the same slot |
 | KG-2.70 | Evidence-Subgraph Task Synthesis | Build a bounded evidence-graph workspace around an answer entity for shortcut-resistant deep-search task synthesis (`knowledge_graph/search_synthesis/evidence_subgraph.py`; distills FORT-Searcher arXiv:2606.12087) |
 | KG-2.71 | Shortcut-Risk Detectors | Four graph-query detectors — single-clue selectivity, evidence co-coverage, exposed constants, prior-knowledge binding — over the evidence graph (`knowledge_graph/search_synthesis/shortcut_risks.py`) |
 | KG-2.72 | Question Formulation & Adversarial Refinement | Render a clue subgraph as a verifiable question (name withholding) and adversarially refine until no shortcut trips (`knowledge_graph/search_synthesis/question_formulation.py`) |
 | KG-2.73 | Learned World-Model Backend + SAI Track | Parametric latent-dynamics backend for the world model that generalizes to unseen `(state, action)` (ridge map over embeddings), plus a `WorldModelVerifier` making prediction accuracy a SAI specialization domain (`knowledge_graph/core/world_model.py`, `harness/world_model_task.py`) |
 | KG-2.9 | Vendor-Neutral Enterprise Crosswalk | Bidirectional source connectors with each per-system class related to one canonical concept, making cross-vendor enterprise reasoning vendor-neutral (ServiceNow/ERPNext, LeanIX/Camunda/ARIS); risk-tier approval queue for high-stakes write-backs |
 | KG-2.81 | Finance Microstructure / Kyle-Surveillance Ontology | `MicrostructureSignal` and `SurveillanceSignal` OWL interfaces plus typed links (`grounded_in` Article / `relates_to` Concept) and promoted node types for insider/stealth surveillance signals (`knowledge_graph/ontology/finance_objects.py`) |
+| KG-2.93 | PauseRec Implicit-Reasoning Generative Recommender | Inference-time deterministic latent-refinement adaptation in core (`retrieval/generative_recommender.py`, torch-free); the trainable-`<pause>`-token TRAINING track is re-homed to data-science-mcp (`data_science_mcp/training/pause_token_trainer.py`) per the dependency-discipline rule |
 
 ### Pillar 3: Agentic Harness Engineering (AHE-3.0 – 3.21)
 

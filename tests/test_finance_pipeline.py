@@ -1,13 +1,16 @@
-"""CONCEPT:KG-2.6"""
+"""CONCEPT:KG-2.6
+
+Torch-free finance tests. The torch-backed TradingLSTM / prepare_sequences /
+evaluate_trading_signal / walk_forward_validation assertions were re-homed to
+data-science-mcp (``tests/test_trading_lstm.py``) so core stays torch-free —
+see AGENTS.md "Dependency discipline".
+"""
 
 import numpy as np
 import pandas as pd
 import pytest
 
 try:
-    import torch
-
-    from agent_utilities.domains.finance.evaluation import evaluate_trading_signal
     from agent_utilities.domains.finance.execution import (
         calculate_kelly_fraction,
         check_regime_shift,
@@ -15,7 +18,6 @@ try:
     from agent_utilities.domains.finance.features import (
         StationaryFeatureEngineer,
     )
-    from agent_utilities.domains.finance.models import TradingLSTM, prepare_sequences
 
     HAS_FINANCE = True
 except ImportError:
@@ -57,47 +59,6 @@ def test_stationary_feature_engineer():
     # Check that expected columns exist
     assert "return_1d" in features.columns
     assert "vol_ratio" in features.columns
-
-
-def test_trading_lstm_architecture():
-    input_size = 5
-    seq_length = 10
-    batch_size = 32
-
-    model = TradingLSTM(input_size=input_size, hidden_size=16, num_layers=1)
-
-    # Mock input: (batch_size, seq_length, input_size)
-    mock_input = torch.randn(batch_size, seq_length, input_size)
-
-    output = model(mock_input)
-    # Output should be (batch_size, 1) due to binary classification sigmoid
-    assert output.shape == (batch_size, 1)
-    # Sigmoid constraint
-    assert torch.all((output >= 0) & (output <= 1))
-
-
-def test_prepare_sequences():
-    features = np.random.randn(50, 5)
-    target = np.random.randint(0, 2, 50)
-    lookback = 10
-
-    X, y = prepare_sequences(features, target, lookback=lookback)
-
-    assert X.shape == (40, 10, 5)
-    assert y.shape == (40,)
-
-
-def test_evaluation_metrics():
-    # Mock predictions and actuals
-    predictions = np.array([0.9, 0.1, 0.8, 0.2, 0.6])
-    actuals = np.array([1, 0, 1, 0, 1])
-    returns = np.array([0.01, -0.01, 0.02, -0.02, 0.005])
-
-    accuracy, sharpe, max_dd = evaluate_trading_signal(predictions, actuals, returns)
-
-    assert accuracy == 1.0  # Perfect prediction
-    assert sharpe > 0  # Positive returns
-    assert max_dd <= 0  # Drawdown is zero or negative
 
 
 def test_kelly_criterion():
