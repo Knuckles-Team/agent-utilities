@@ -363,7 +363,6 @@ async def create_planner_handler(
             return
 
         svc = MessagingService.instance(knowledge_engine)
-        engine = svc._resolve_engine()
 
         # NOTE: last-active + KG ingest are NOT done here. They run AFTER the reply is sent
         # (in _reply_to_burst → _persist_and_enrich, CONCEPT:ECO-4.74) so no KG write or

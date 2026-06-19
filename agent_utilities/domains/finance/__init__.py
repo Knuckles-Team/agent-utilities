@@ -9,245 +9,227 @@ abstraction, x402 AI payments, profit attribution, and universal
 real-time streaming — all mapped to the Agent Intelligence Graph.
 """
 
-from .alpha_factors import (
-    FACTOR_REGISTRY,
-    AlphaFactorLibrary,
-    compute_factor_ic,
-    compute_factor_ir,
-    rank_factors,
-)
-from .calibration_tracker import (
-    CalibrationScore,
-    CalibrationTracker,
-    CallRecord,
-    apply_calibration_to_swarm,
-    brier_score,
-    calibrated_role_weights,
-)
-from .composite_backtest import (
-    CompositeBacktester,
-    CompositeBacktestResult,
-    MarketAttribution,
-    MarketSpec,
-    run_composite_backtest,
-)
-from .copy_trade import (
-    COPY_TRADE_AGENTS,
-    CopyTradeConfig,
-    CopyTradeIntent,
-    CopyTradePipeline,
-    aggregate_consensus,
-    build_copy_trade_workflow,
-    exit_check,
-    position_multiplier,
-    score_market,
-    seed_copy_trade_workflow,
-    size_position,
-)
-from .credit_quality import (
-    CreditDividendReport,
-    CreditQuality,
-    DividendQuality,
-    assess_credit_quality,
-    assess_dividend_quality,
-    attach_to_debate_context,
-    emit_credit_dividend_report,
-    merton_distance_to_default,
-    normal_cdf,
-)
-from .execution import calculate_kelly_fraction, check_regime_shift
-from .features import StationaryFeatureEngineer, check_stationarity
-from .filing_diff import (
-    FilingDiff,
-    FilingDiffAgent,
-    FilingDiffFinding,
-    FilingDiffResult,
-    diff_filing_sections,
-)
-from .forensic_screener import ForensicScreener, ForensicVerdict
-from .geopolitical_risk import (
-    AssetExposure,
-    GeopoliticalRiskFactor,
-    GeopoliticalRiskScore,
-    RiskCategory,
-    apply_geopolitical_stress,
-    asset_exposure_to_factor,
-    exposed_holdings,
-    geopolitical_facts_batch,
-    risk_to_regime_flag,
-    risk_to_stress_shocks,
-    score_portfolio,
-    seed_geopolitical_risk,
-)
-from .investor_debate import (
-    DEFAULT_BEAR_PERSONA,
-    DEFAULT_BULL_PERSONA,
-    INVESTOR_PERSONAS,
-    SPECIALIST_ROLES,
-    PersonaRole,
-    build_financial_debate_team,
-    load_persona_prompt,
-    persona_archetype,
-    persona_for_role,
-    persona_system_prompt,
-    seed_financial_debate_team,
-)
-from .kronos_forecaster import (
-    CandleType,
-    ForecastResult,
-    KLineToken,
-    KLineTokenizer,
-    KronosForecaster,
-    KronosPredictor,
-)
-from .market_data import (
-    DataFetchResult,
-    DataRegistry,
-    MarketDataProvider,
-    SyntheticProvider,
-    YFinanceProvider,
-    normalize_ohlcv,
-)
-from .market_feeds import (
-    FeedSubscription,
-    LiveBar,
-    MarketFeedBus,
-    Tick,
-    TickAggregator,
-)
-from .pattern_classifier import (
-    Candle,
-    EdgeLabel,
-    PatternClassification,
-    PatternClassifier,
-    PricePattern,
-)
-from .payments import (
-    BudgetLimits,
-    PaymentChallenge,
-    PaymentGuard,
-    PaymentProof,
-    PaymentRecord,
-    PaymentStatus,
-    X402PaymentClient,
-)
-from .persona_heuristics import (
-    PERSONA_HEURISTICS,
-    Heuristic,
-    HeuristicResult,
-    PersonaEvaluation,
-    evaluate_all,
-    evaluate_persona,
-    list_personas,
-    persona_heuristics_batch,
-    seed_persona_heuristics,
-)
-from .portfolio_optimizer import (
-    BlackLittermanOptimizer,
-    MeanVarianceOptimizer,
-    OptimizationResult,
-    RiskParityOptimizer,
-)
-from .profit_attribution import (
-    AttributionResult,
-    BenchmarkComparison,
-    PerformanceReport,
-    ProfitAttributor,
-    compare_to_benchmark,
-    compute_performance_report,
-)
-from .research_autopilot import (
-    AutopilotConfig,
-    BacktestMetrics,
-    Hypothesis,
-    HypothesisResult,
-    HypothesisStatus,
-    ResearchAutopilot,
-    ResearchReport,
-    SimpleBacktester,
-)
-from .risk_manager import (
-    PreTradeGuard,
-    PreTradeResult,
-    RiskLimits,
-    RiskManager,
-    StressTestEngine,
-    StressTestResult,
-    VaRCalculator,
-    VaRResult,
-)
-from .sentiment_fusion import (
-    FusedSentiment,
-    SentimentObservation,
-    SentimentSignal,
-    fuse_sentiment,
-    fused_sentiment_to_agent_signal,
-    fused_sentiment_to_fusion_direction,
-    ingest_and_fuse,
-    normalize_observation,
-    register_sentiment_source,
-    score_text_polarity,
-    seed_sentiment_facts,
-    sentiment_facts_batch,
-)
-from .strategy_export import (
-    ExportPlatform,
-    ExportResult,
-    MQL5Exporter,
-    PineScriptExporter,
-    StrategyCondition,
-    StrategyExporter,
-    StrategySpec,
-    TDXExporter,
-)
-from .strategy_sharing import (
-    PerformanceSummary,
-    StrategyCard,
-    StrategyCategory,
-    StrategyPreset,
-    StrategyRegistry,
-    StrategyVisibility,
-)
-from .streaming import (
-    CallbackSubscriber,
-    StreamBus,
-    StreamMessage,
-    StreamSubscriber,
-    WebSocketStreamAdapter,
-)
-from .trade_journal import (
-    BiasDiagnostic,
-    Roundtrip,
-    TradeJournalAuditor,
-    TraderProfile,
-    audit_trade_journal,
-)
-from .trading_swarm import (
-    AgentSignal,
-    SwarmAgent,
-    SwarmConfig,
-    SwarmConsensus,
-    SwarmDecision,
-    SwarmRole,
-    TradingSwarm,
-)
-from .versioned_orders import (
-    OrderCommit,
-    OrderHistory,
-    OrderStage,
-    OrderStatus,
-    PreCommitGuard,
-)
-from .visual_ta import (
-    DetectedPattern,
-    PatternDetector,
-    PatternType,
-    SupportResistanceDetector,
-    SupportResistanceLevel,
-    TrendAnalysis,
-    TrendDirection,
-    VisualTAEngine,
-)
+from __future__ import annotations
+
+import importlib
+from typing import Any
+
+# CONCEPT:KG-2.6 — Lazy symbol loading. The finance domain pulls heavy optional
+# deps (scipy/pandas/statsmodels via agent-utilities[finance]); importing this
+# package eagerly used to drag them onto every import path, including the lean
+# torch-free serving image which omits [finance]. Each symbol now resolves to its
+# submodule on first attribute access, so `import agent_utilities.domains.finance`
+# stays cheap and never fails for a missing extra — the ImportError only surfaces
+# when a caller actually touches a symbol whose submodule needs the absent dep.
+# Mirrors the torch-guard discipline in AGENTS.md "Dependency discipline".
+_SYMBOL_MODULES: dict[str, str] = {
+    "AgentSignal": "trading_swarm",
+    "AlphaFactorLibrary": "alpha_factors",
+    "AssetExposure": "geopolitical_risk",
+    "AttributionResult": "profit_attribution",
+    "AutopilotConfig": "research_autopilot",
+    "BacktestMetrics": "research_autopilot",
+    "BenchmarkComparison": "profit_attribution",
+    "BiasDiagnostic": "trade_journal",
+    "BlackLittermanOptimizer": "portfolio_optimizer",
+    "BudgetLimits": "payments",
+    "COPY_TRADE_AGENTS": "copy_trade",
+    "CalibrationScore": "calibration_tracker",
+    "CalibrationTracker": "calibration_tracker",
+    "CallRecord": "calibration_tracker",
+    "CallbackSubscriber": "streaming",
+    "Candle": "pattern_classifier",
+    "CandleType": "kronos_forecaster",
+    "CompositeBacktestResult": "composite_backtest",
+    "CompositeBacktester": "composite_backtest",
+    "CopyTradeConfig": "copy_trade",
+    "CopyTradeIntent": "copy_trade",
+    "CopyTradePipeline": "copy_trade",
+    "CreditDividendReport": "credit_quality",
+    "CreditQuality": "credit_quality",
+    "DEFAULT_BEAR_PERSONA": "investor_debate",
+    "DEFAULT_BULL_PERSONA": "investor_debate",
+    "DataFetchResult": "market_data",
+    "DataRegistry": "market_data",
+    "DetectedPattern": "visual_ta",
+    "DividendQuality": "credit_quality",
+    "EdgeLabel": "pattern_classifier",
+    "ExportPlatform": "strategy_export",
+    "ExportResult": "strategy_export",
+    "FACTOR_REGISTRY": "alpha_factors",
+    "FeedSubscription": "market_feeds",
+    "FilingDiff": "filing_diff",
+    "FilingDiffAgent": "filing_diff",
+    "FilingDiffFinding": "filing_diff",
+    "FilingDiffResult": "filing_diff",
+    "ForecastResult": "kronos_forecaster",
+    "ForensicScreener": "forensic_screener",
+    "ForensicVerdict": "forensic_screener",
+    "FusedSentiment": "sentiment_fusion",
+    "GeopoliticalRiskFactor": "geopolitical_risk",
+    "GeopoliticalRiskScore": "geopolitical_risk",
+    "Heuristic": "persona_heuristics",
+    "HeuristicResult": "persona_heuristics",
+    "Hypothesis": "research_autopilot",
+    "HypothesisResult": "research_autopilot",
+    "HypothesisStatus": "research_autopilot",
+    "INVESTOR_PERSONAS": "investor_debate",
+    "KLineToken": "kronos_forecaster",
+    "KLineTokenizer": "kronos_forecaster",
+    "KronosForecaster": "kronos_forecaster",
+    "KronosPredictor": "kronos_forecaster",
+    "LiveBar": "market_feeds",
+    "MQL5Exporter": "strategy_export",
+    "MarketAttribution": "composite_backtest",
+    "MarketDataProvider": "market_data",
+    "MarketFeedBus": "market_feeds",
+    "MarketSpec": "composite_backtest",
+    "MeanVarianceOptimizer": "portfolio_optimizer",
+    "OptimizationResult": "portfolio_optimizer",
+    "OrderCommit": "versioned_orders",
+    "OrderHistory": "versioned_orders",
+    "OrderStage": "versioned_orders",
+    "OrderStatus": "versioned_orders",
+    "PERSONA_HEURISTICS": "persona_heuristics",
+    "PatternClassification": "pattern_classifier",
+    "PatternClassifier": "pattern_classifier",
+    "PatternDetector": "visual_ta",
+    "PatternType": "visual_ta",
+    "PaymentChallenge": "payments",
+    "PaymentGuard": "payments",
+    "PaymentProof": "payments",
+    "PaymentRecord": "payments",
+    "PaymentStatus": "payments",
+    "PerformanceReport": "profit_attribution",
+    "PerformanceSummary": "strategy_sharing",
+    "PersonaEvaluation": "persona_heuristics",
+    "PersonaRole": "investor_debate",
+    "PineScriptExporter": "strategy_export",
+    "PreCommitGuard": "versioned_orders",
+    "PreTradeGuard": "risk_manager",
+    "PreTradeResult": "risk_manager",
+    "PricePattern": "pattern_classifier",
+    "ProfitAttributor": "profit_attribution",
+    "ResearchAutopilot": "research_autopilot",
+    "ResearchReport": "research_autopilot",
+    "RiskCategory": "geopolitical_risk",
+    "RiskLimits": "risk_manager",
+    "RiskManager": "risk_manager",
+    "RiskParityOptimizer": "portfolio_optimizer",
+    "Roundtrip": "trade_journal",
+    "SPECIALIST_ROLES": "investor_debate",
+    "SentimentObservation": "sentiment_fusion",
+    "SentimentSignal": "sentiment_fusion",
+    "SimpleBacktester": "research_autopilot",
+    "StationaryFeatureEngineer": "features",
+    "StrategyCard": "strategy_sharing",
+    "StrategyCategory": "strategy_sharing",
+    "StrategyCondition": "strategy_export",
+    "StrategyExporter": "strategy_export",
+    "StrategyPreset": "strategy_sharing",
+    "StrategyRegistry": "strategy_sharing",
+    "StrategySpec": "strategy_export",
+    "StrategyVisibility": "strategy_sharing",
+    "StreamBus": "streaming",
+    "StreamMessage": "streaming",
+    "StreamSubscriber": "streaming",
+    "StressTestEngine": "risk_manager",
+    "StressTestResult": "risk_manager",
+    "SupportResistanceDetector": "visual_ta",
+    "SupportResistanceLevel": "visual_ta",
+    "SwarmAgent": "trading_swarm",
+    "SwarmConfig": "trading_swarm",
+    "SwarmConsensus": "trading_swarm",
+    "SwarmDecision": "trading_swarm",
+    "SwarmRole": "trading_swarm",
+    "SyntheticProvider": "market_data",
+    "TDXExporter": "strategy_export",
+    "Tick": "market_feeds",
+    "TickAggregator": "market_feeds",
+    "TradeJournalAuditor": "trade_journal",
+    "TraderProfile": "trade_journal",
+    "TradingSwarm": "trading_swarm",
+    "TrendAnalysis": "visual_ta",
+    "TrendDirection": "visual_ta",
+    "VaRCalculator": "risk_manager",
+    "VaRResult": "risk_manager",
+    "VisualTAEngine": "visual_ta",
+    "WebSocketStreamAdapter": "streaming",
+    "X402PaymentClient": "payments",
+    "YFinanceProvider": "market_data",
+    "aggregate_consensus": "copy_trade",
+    "apply_calibration_to_swarm": "calibration_tracker",
+    "apply_geopolitical_stress": "geopolitical_risk",
+    "assess_credit_quality": "credit_quality",
+    "assess_dividend_quality": "credit_quality",
+    "asset_exposure_to_factor": "geopolitical_risk",
+    "attach_to_debate_context": "credit_quality",
+    "audit_trade_journal": "trade_journal",
+    "brier_score": "calibration_tracker",
+    "build_copy_trade_workflow": "copy_trade",
+    "build_financial_debate_team": "investor_debate",
+    "calculate_kelly_fraction": "execution",
+    "calibrated_role_weights": "calibration_tracker",
+    "check_regime_shift": "execution",
+    "check_stationarity": "features",
+    "compare_to_benchmark": "profit_attribution",
+    "compute_factor_ic": "alpha_factors",
+    "compute_factor_ir": "alpha_factors",
+    "compute_performance_report": "profit_attribution",
+    "diff_filing_sections": "filing_diff",
+    "emit_credit_dividend_report": "credit_quality",
+    "evaluate_all": "persona_heuristics",
+    "evaluate_persona": "persona_heuristics",
+    "exit_check": "copy_trade",
+    "exposed_holdings": "geopolitical_risk",
+    "fuse_sentiment": "sentiment_fusion",
+    "fused_sentiment_to_agent_signal": "sentiment_fusion",
+    "fused_sentiment_to_fusion_direction": "sentiment_fusion",
+    "geopolitical_facts_batch": "geopolitical_risk",
+    "ingest_and_fuse": "sentiment_fusion",
+    "list_personas": "persona_heuristics",
+    "load_persona_prompt": "investor_debate",
+    "merton_distance_to_default": "credit_quality",
+    "normal_cdf": "credit_quality",
+    "normalize_observation": "sentiment_fusion",
+    "normalize_ohlcv": "market_data",
+    "persona_archetype": "investor_debate",
+    "persona_for_role": "investor_debate",
+    "persona_heuristics_batch": "persona_heuristics",
+    "persona_system_prompt": "investor_debate",
+    "position_multiplier": "copy_trade",
+    "rank_factors": "alpha_factors",
+    "register_sentiment_source": "sentiment_fusion",
+    "risk_to_regime_flag": "geopolitical_risk",
+    "risk_to_stress_shocks": "geopolitical_risk",
+    "run_composite_backtest": "composite_backtest",
+    "score_market": "copy_trade",
+    "score_portfolio": "geopolitical_risk",
+    "score_text_polarity": "sentiment_fusion",
+    "seed_copy_trade_workflow": "copy_trade",
+    "seed_financial_debate_team": "investor_debate",
+    "seed_geopolitical_risk": "geopolitical_risk",
+    "seed_persona_heuristics": "persona_heuristics",
+    "seed_sentiment_facts": "sentiment_fusion",
+    "sentiment_facts_batch": "sentiment_fusion",
+    "size_position": "copy_trade",
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily import a finance symbol from its submodule on first access."""
+    module = _SYMBOL_MODULES.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    mod = importlib.import_module(f".{module}", __name__)
+    value = getattr(mod, name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_SYMBOL_MODULES))
+
 
 __all__ = [
     # Investor-persona debate wiring (KG-2.6)

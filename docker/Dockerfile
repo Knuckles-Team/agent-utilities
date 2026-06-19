@@ -23,6 +23,15 @@ RUN apt-get update \
 COPY . /src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --upgrade --break-system-packages --prerelease=allow "/src[serving]"
+# Prune build cruft from /usr/local so the final image carries only runtime files.
+# The uv cache is a mount (never shipped). Remove the build-only tooling (pip/wheel —
+# never imported at runtime) and any vendored test suites a dependency wheel bundled
+# under site-packages. setuptools/pkg_resources are intentionally KEPT (some libs
+# `import pkg_resources` at runtime). Bytecode is precompiled (UV_COMPILE_BYTECODE=1).
+RUN sp="$(python3 -c 'import site;print(site.getsitepackages()[0])')" \
+    && rm -rf "$sp"/pip "$sp"/pip-* "$sp"/wheel "$sp"/wheel-* \
+    && find "$sp" -mindepth 2 -type d \( -name tests -o -name test \) -prune -exec rm -rf {} + 2>/dev/null \
+    && true
 
 FROM python:3.11-slim
 

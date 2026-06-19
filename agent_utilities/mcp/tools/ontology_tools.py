@@ -7,11 +7,14 @@ modules without changing tool behavior or names.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+logger = logging.getLogger(__name__)
 
 
 def _run_coro(coro: Any) -> Any:
@@ -1336,9 +1339,20 @@ def register_ontology_tools(mcp):
     # Quant trading system tool (CONCEPT:ECO-4.0): debate/regime/data/execute/
     # portfolio over the finance engines. Registered onto the MCP server AND the
     # shared kg_server.REGISTERED_TOOLS map so the gateway REST twin (/quant) reaches it.
-    from agent_utilities.domains.finance.quant_mcp_tools import register_quant_tools
+    # The finance domain needs the optional `[finance]` extra (scipy/pandas/statsmodels);
+    # the lean serving image omits it, so guard the registration so kg_server still boots
+    # — the quant tool is simply absent there. See AGENTS.md "Dependency discipline".
+    try:
+        from agent_utilities.domains.finance.quant_mcp_tools import (
+            register_quant_tools,
+        )
 
-    kg_server.REGISTERED_TOOLS["quant"] = register_quant_tools(mcp, None)
+        kg_server.REGISTERED_TOOLS["quant"] = register_quant_tools(mcp, None)
+    except ImportError:
+        logger.info(
+            "quant tools skipped (finance extra not installed) — "
+            "install agent-utilities[finance] to enable the `quant` MCP tool"
+        )
 
     @mcp.tool(
         name="source_connector",
