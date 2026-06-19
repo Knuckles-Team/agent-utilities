@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 367
+total_concepts: 368
 total_pillars: 20
 pillars:
 - AHE-3
@@ -4241,6 +4241,13 @@ concepts:
   - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/server/routers/commands.py
   doc: Unified scheduling engine, one intelligent scheduler for all recurring work
+- id: OS-5.45
+  name: native multi-realm JWT trust. FASTMCP_SERVER_AUTH_JWT_ISSUER and
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/mcp/server_factory.py
+  doc: native multi-realm JWT trust. FASTMCP_SERVER_AUTH_JWT_ISSUER and
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
