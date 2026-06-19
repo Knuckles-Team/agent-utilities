@@ -359,8 +359,8 @@ class MemoryMixin(_Base):
                 quarantined from default recall. Default 0.8.
             agent_id: Source agent for provenance tracking.
             extra_props: Optional scalar node properties merged onto the stored
-                node (e.g. ``channel_key`` for cheap exact-match recency recall,
-                CONCEPT:ECO-4.76). Kept flat/indexable — not for nested data.
+                node for cheap exact-match filtering/recall. Kept flat/indexable —
+                not for nested data.
 
         Returns:
             Memory node ID.
@@ -434,8 +434,7 @@ class MemoryMixin(_Base):
         data["last_accessed"] = timestamp
         if agent_id:
             data["agent_id"] = agent_id
-        # CONCEPT:ECO-4.76 — flat, indexable scalars (e.g. channel_key) for cheap
-        # exact-match recency recall (messaging conversation history).
+        # Merge caller-supplied flat, indexable scalars for cheap exact-match filtering.
         for _k, _v in (extra_props or {}).items():
             if isinstance(_v, str | int | float | bool):
                 data[_k] = _v
