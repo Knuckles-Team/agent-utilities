@@ -81,6 +81,7 @@ class Orchestrator:
         cred_ref: str | None = None,
         session_id: str | None = None,
         open_channel: bool = False,
+        memento_source: str | None = None,
     ) -> str:
         """Execute a single agent against a task.
 
@@ -88,6 +89,9 @@ class Orchestrator:
         layer can surface the routed-graph diagram (off by default for internal callers).
         CONCEPT:ORCH-1.39 — ``context`` is the invoking agent's curated context, threaded to
         the spawned agent's prompt (budgeted to the model window).
+        CONCEPT:ECO-4.78 — ``memento_source`` scopes which compressed-memory stream primes
+        the run (defaults to ``agent_name``); a session-scoped caller passes its session key
+        so successive turns of one conversation share continuity through the core memory.
         """
         self._scan_task(task)
         logger.info(f"Executing agent {agent_name} for task: {task[:50]}...")
@@ -104,6 +108,7 @@ class Orchestrator:
             cred_ref=cred_ref,
             session_id=session_id,
             open_channel=open_channel,
+            memento_source=memento_source,
         )
         return result
 
