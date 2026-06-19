@@ -116,12 +116,20 @@ class LexicalRelevanceScorer:
 
 
 def _auto_scorer() -> RerankScorer:
-    """Default rerank scorer: a neural cross-encoder when one is installed AND loads,
-    else the deterministic lexical proxy (CONCEPT:KG-2.85). Auto-detection — no flag —
-    so the best available cross-encoder is used natively. The neural scorer is *probed*
-    once here; if the model can't load or score (offline / not cached / no GPU), we fall
-    back to the zero-infra lexical scorer so retrieval never breaks.
+    """Default rerank scorer: the dependency-free lexical scorer (CONCEPT:KG-2.85).
+
+    All heavy inference runs on the remote vllm endpoint (embeddings/LLM); the reranker does
+    NOT load a local model by default — a bundled cross-encoder both pins a GPU/CPU baseline
+    (it SIGILLs on hosts whose CPU lacks the build's instructions — uncatchable, so the probe's
+    try/except can't save us) and contradicts the "everything on vllm" rule. The local neural
+    cross-encoder stays available as an explicit opt-in (``KG_RERANK_LOCAL_NEURAL=1``) for a host
+    that genuinely wants it; even then it is probed and falls back to lexical if it can't load.
     """
+    from agent_utilities.core.config import setting
+
+    if not setting("KG_RERANK_LOCAL_NEURAL", False, cast=bool):
+        return LexicalRelevanceScorer()
+
     from .neural_reranker import build_rerank_scorer
 
     scorer = build_rerank_scorer()
