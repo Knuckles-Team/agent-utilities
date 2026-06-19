@@ -127,7 +127,9 @@ async def router_step(
 
         # Per-job model override from the shape, else ``None`` → the local default model
         # (``create_model`` resolves the served local model — never a hard-coded remote one).
-        _shape_model_id = getattr(_shape, "model_id", None) if _shape is not None else None
+        _shape_model_id = (
+            getattr(_shape, "model_id", None) if _shape is not None else None
+        )
         direct_model = create_model(model_id=_shape_model_id)
 
         # CONCEPT:ORCH-1.68 — the model's reasoning capability is a DYNAMIC, per-job shape

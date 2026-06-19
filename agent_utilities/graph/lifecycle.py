@@ -103,7 +103,9 @@ async def usage_guard_step(
     # passed-through trivial Q&A is not ungoverned.
     _shape = getattr(cast(GraphDeps, ctx.deps), "execution_shape", None)
     _guard_off = cast(GraphDeps, ctx.deps).tool_guard_mode == "off"
-    if _guard_off or (_shape is not None and getattr(_shape, "skip_usage_guard", False)):
+    if _guard_off or (
+        _shape is not None and getattr(_shape, "skip_usage_guard", False)
+    ):
         logger.info(
             "UsageGuard: bypassing policy LLM round (%s).",
             "tool guard off" if _guard_off else "lean shape — CONCEPT:ORCH-1.68",
