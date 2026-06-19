@@ -101,13 +101,17 @@ async def test_reply_routes_through_universal_execute_agent(
 
 
 @pytest.mark.asyncio
-async def test_reply_timeout_falls_back_to_plain_chat(
+async def test_reply_timeout_does_not_double_call_the_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A slow/hung graph run must still yield a reply: the universal run is wrapped in
-    MESSAGING_REPLY_TIMEOUT and degrades to a plain-chat completion (CONCEPT:ECO-4.74)."""
+    """A backend TIMEOUT must NOT trigger a second full LLM call (CONCEPT:ORCH-1.62).
+
+    The measured >90 s came from a stalled first round + a 45 s wall + ANOTHER slow plain-chat
+    call to the same degraded endpoint. When the universal run hits the reply-timeout wall we
+    now surface a graceful message and do NOT call ``_plain_chat_reply`` (no double-LLM tax)."""
     import time
 
+    from agent_utilities.messaging import router as router_mod
     from agent_utilities.orchestration import manager as mgr
 
     class _SlowOrch:
@@ -115,12 +119,18 @@ async def test_reply_timeout_falls_back_to_plain_chat(
             pass
 
         async def execute_agent(self, **kwargs: Any) -> str:
-            await asyncio.sleep(10)  # simulate a hung graph run
+            await asyncio.sleep(10)  # simulate a hung graph run on a degraded backend
             return "never reached"
 
+    plain_calls: list[str] = []
+
+    async def _spy_plain(content: str, **_: Any) -> str:
+        plain_calls.append(content)
+        return "[local] SHOULD NOT BE CALLED ON TIMEOUT"
+
     monkeypatch.setattr(mgr, "Orchestrator", _SlowOrch)
+    monkeypatch.setattr(router_mod, "_plain_chat_reply", _spy_plain)
     monkeypatch.setenv("MESSAGING_REPLY_TIMEOUT", "0.3")
-    # AGENT_UTILITIES_TESTING=true → create_model returns a TestModel for the plain path.
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
 
     start = time.monotonic()
@@ -128,9 +138,10 @@ async def test_reply_timeout_falls_back_to_plain_chat(
         object(), "hello there", session="messaging:telegram:42"
     )
     elapsed = time.monotonic() - start
-    assert elapsed < 5, f"timeout fallback did not fire promptly ({elapsed:.2f}s)"
-    assert reply.startswith("[local] ")  # plain-chat fallback tagged with responder
-    assert "couldn't draft a reply" not in reply
+    assert elapsed < 5, f"timeout did not fire promptly ({elapsed:.2f}s)"
+    # The double-LLM tax is removed: no second call to the (degraded) endpoint on timeout.
+    assert plain_calls == [], "timeout must NOT trigger a second plain-chat LLM call"
+    assert "slowly" in reply.lower() or "try again" in reply.lower()
 
 
 @pytest.mark.asyncio

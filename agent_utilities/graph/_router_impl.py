@@ -162,45 +162,56 @@ async def router_step(
             "[LAYER:GRAPH:ROUTER] Performing topological and hybrid discovery..."
         )
 
-        # 1. Direct tool lookup (keyword based)
-        words = re.findall(r"\b[a-z0-9_]{3,}\b", ctx.state.query.lower())
-        matched_agents = set()
-        for word in words:
-            agents = deps.knowledge_engine.find_agent_for_tool(word)
-            if agents:
-                matched_agents.update(agents)
-
-        # 1b. CONCEPT:KG-2.1 — KG-driven designation (Plan 08 Synergy 1).
-        # Augment the keyword scan with O(log n) capability-index designation
-        # (ANN similarity + capability filtering + reward-boosted ranking) when
-        # the KG carries embeddings; falls back silently to the scan otherwise.
-        try:
-            from .routing.enrichers.capability_designation import (
-                designate_specialists,
-            )
-
-            designated = designate_specialists(
-                deps.knowledge_engine, ctx.state.query, k=5
-            )
-            if designated:
-                matched_agents.update(designated)
-                logger.debug(
-                    "Router: KG capability-index designated %d specialist(s)",
-                    len(designated),
+        # CONCEPT:ORCH-1.65 — the pre-LLM discovery below is several SYNCHRONOUS engine
+        # round-trips (tool lookup, hybrid search, policy/process discovery). Running them
+        # directly on the event loop stalled the async reply path. Run the whole bundle ONCE
+        # in a worker thread via ``to_thread`` so the loop stays free. The keyword tool lookup
+        # was also an N+1 — ``find_agent_for_tool`` once PER query word — now collapsed to a
+        # single de-duplicated pass over the unique keyword set.
+        #
+        # TODO(CONCEPT:ORCH-1.62 P2): replace this whole bundle with a single engine
+        # ``discover(query, k)`` round-trip (see docs/architecture/non-blocking-execution.md
+        # §8) that returns matched agents + hybrid hits + policy/process matches in one Rust
+        # call, so the router's pre-LLM discovery is one async hop instead of a thread-offloaded
+        # fan-out. Until the engine surfaces ``discover()``, this dedupe/batch + ``to_thread`` is
+        # the Python-side mitigation.
+        def _run_discovery() -> dict[str, Any]:
+            ke = deps.knowledge_engine
+            # 1. Direct tool lookup — ONE pass over the unique keyword set (was N+1).
+            words = set(re.findall(r"\b[a-z0-9_]{3,}\b", ctx.state.query.lower()))
+            _matched: set[str] = set()
+            for word in words:
+                agents = ke.find_agent_for_tool(word)
+                if agents:
+                    _matched.update(agents)
+            # 1b. CONCEPT:KG-2.1 — KG-driven designation (ANN capability index).
+            try:
+                from .routing.enrichers.capability_designation import (
+                    designate_specialists,
                 )
-        except Exception as e:
-            logger.debug("Router: capability designation skipped: %s", e)
 
-        # 2. Hybrid Search (Semantic + Keyword)
-        hybrid_results = deps.knowledge_engine.search_hybrid(ctx.state.query, top_k=5)
+                designated = designate_specialists(ke, ctx.state.query, k=5)
+                if designated:
+                    _matched.update(designated)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Router: capability designation skipped: %s", e)
+            # 2. Hybrid Search (Semantic + Keyword)
+            _hybrid = ke.search_hybrid(ctx.state.query, top_k=5)
+            # 3. Policy and Process Discovery
+            _policies = ke.find_relevant_policies(ctx.state.query)
+            _processes = ke.find_relevant_processes(ctx.state.query)
+            return {
+                "matched": _matched,
+                "hybrid": _hybrid,
+                "policies": _policies,
+                "processes": _processes,
+            }
 
-        # 3. Policy and Process Discovery
-        relevant_policies = deps.knowledge_engine.find_relevant_policies(
-            ctx.state.query
-        )
-        relevant_processes = deps.knowledge_engine.find_relevant_processes(
-            ctx.state.query
-        )
+        _discovery = await asyncio.to_thread(_run_discovery)
+        matched_agents = _discovery["matched"]
+        hybrid_results = _discovery["hybrid"]
+        relevant_policies = _discovery["policies"]
+        relevant_processes = _discovery["processes"]
 
         discovery_sections = []
         if relevant_policies:
@@ -256,8 +267,11 @@ async def router_step(
                 if isinstance(deps.knowledge_engine, RegistryMixin) and hasattr(
                     deps.knowledge_engine, "find_matching_team_config"
                 ):
-                    matching_teams = deps.knowledge_engine.find_matching_team_config(
-                        ctx.state.query, top_k=1
+                    # CONCEPT:ORCH-1.65 — sync KG round-trip; run off the event loop.
+                    matching_teams = await asyncio.to_thread(
+                        deps.knowledge_engine.find_matching_team_config,
+                        ctx.state.query,
+                        1,
                     )
                     # R2 (CONCEPT:AHE-3.3): reuse decision owned by the team_reuse
                     # strategy (single source of truth).
@@ -337,9 +351,9 @@ async def router_step(
                         ctx.state.output_data, dict
                     ):
                         ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
-                        ctx.state.output_data[
-                            "kg_specialist_configs"
-                        ] = kg_result.specialist_configs
+                        ctx.state.output_data["kg_specialist_configs"] = (
+                            kg_result.specialist_configs
+                        )
 
                     emit_graph_event(
                         deps.event_queue,
