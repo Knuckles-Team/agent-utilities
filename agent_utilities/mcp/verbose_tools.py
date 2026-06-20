@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import keyword
 import logging
 import re
 from typing import Any
@@ -67,6 +68,27 @@ _DESTRUCTIVE_PREFIXES = (
     "drop_",
     "deactivate_",
 )
+
+
+#: Reserved parameter names a synthesized verbose signature already uses.
+_RESERVED_PARAM_NAMES = frozenset({"client", "ctx", "self"})
+
+
+def _is_typeable_param(param: dict) -> bool:
+    """Whether a manifest param can become a typed function argument.
+
+    A param name must be a real Python identifier, not a keyword, and not collide
+    with the injected ``client``/``ctx``. Specs sometimes carry field names with
+    colons/dots (e.g. SCIM ``urn:...`` keys) that fail this — such operations use
+    the params_json fallback instead.
+    """
+    name = param.get("name")
+    return (
+        isinstance(name, str)
+        and name.isidentifier()
+        and not keyword.iskeyword(name)
+        and name not in _RESERVED_PARAM_NAMES
+    )
 
 
 def _is_destructive(method_name: str, op: dict | None) -> bool:
@@ -356,7 +378,11 @@ def register_verbose_tools(
         params = (op or {}).get("params") or []
         destructive = _is_destructive(method_name, op)
 
-        if params:
+        # Typed tier only when every param name is a usable Python identifier — some
+        # specs carry body fields like ``urn:ietf:...:Group`` (SCIM) that cannot be a
+        # function parameter; those operations fall back to the params_json tool so
+        # the client still receives every field.
+        if params and all(_is_typeable_param(p) for p in params):
             tool_fn = _build_typed_tool(
                 method_name, params, get_client, destructive=destructive
             )
