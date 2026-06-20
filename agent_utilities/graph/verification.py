@@ -217,6 +217,21 @@ async def verifier_step(
     # LLM quality gate + re-plan machinery — which was scoring correct answers 0.00 for not
     # volunteering fields the query never asked for, then looping until context overflow.
     # Trust a non-empty result for low-risk runs and go straight to synthesis.
+    # CONCEPT:ORCH-1.74 — the dynamic shaper owns this decision: when the shape opts out of
+    # verification (``run_verifier=False``) and a result exists, skip the quality gate straight
+    # to synthesis. The proportional heuristic below stays as a floor for shape-less callers.
+    _shape = getattr(ctx.deps, "execution_shape", None)
+    if (
+        _shape is not None
+        and not getattr(_shape, "run_verifier", True)
+        and results_summary.strip()
+    ):
+        logger.info(
+            "[LAYER:GRAPH:VERIFIER] shape.run_verifier=False with results — skipping quality "
+            "gate, routing to synthesizer."
+        )
+        return "synthesizer"
+
     _plan = getattr(ctx.state, "plan", None)
     _plan_steps = len(_plan.steps) if _plan and getattr(_plan, "steps", None) else 0
     _direct = bool(getattr(ctx.state, "direct_dispatch", False))

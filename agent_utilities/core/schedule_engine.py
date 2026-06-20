@@ -16,7 +16,7 @@ the node carries live state (last-run, next-run, failure backoff). Triggers:
 
   * ``cron``     — standard 5-field ``min hour dom month dow`` (no third-party dep)
   * ``interval`` — every ``interval_s`` seconds (the former maintenance ticks)
-  * ``adaptive`` — interval that widens on repeated failure / can be retuned live
+  * ``adaptive`` — interval that widens on repeated failure / can be re-tuned live
 
 The payload describes WHAT to run (``kind``: skill / script / workflow / agent /
 maint / loop / research_feed); :func:`run_scheduled_job` is the single dispatcher

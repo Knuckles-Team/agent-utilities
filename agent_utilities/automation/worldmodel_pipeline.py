@@ -356,9 +356,13 @@ class WorldModelPipelineRunner:
         try:
             grade_and_enqueue_paper(self.engine, paper)
         except Exception as exc:  # noqa: BLE001 — one item never aborts the sweep
-            logger.warning("[KG-2.117] research grade/enqueue failed for %s: %s", aid, exc)
+            logger.warning(
+                "[KG-2.117] research grade/enqueue failed for %s: %s", aid, exc
+            )
 
-    def _link_feed_source(self, item_node_id: str, doc: Any, rec: dict[str, Any]) -> None:
+    def _link_feed_source(
+        self, item_node_id: str, doc: Any, rec: dict[str, Any]
+    ) -> None:
         """Best-effort ``:ingestedFrom`` edge item → its :FeedSource node (KG-2.122)."""
         engine = self.engine
         if engine is None or not hasattr(engine, "add_edge"):

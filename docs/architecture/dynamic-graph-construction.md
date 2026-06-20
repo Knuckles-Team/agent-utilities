@@ -41,10 +41,10 @@ structural check; a genuinely complex job earns the KG / LLM planning it needs.
 flowchart TD
     job([job / task]) --> s0{stage 0:\nrecipe cache hit?}
     s0 -- cache hit --> shape[ExecutionProfile shape]
-    s0 -- miss --> s1[stage 1: orchestration_signal_strength\nfree, no I/O — built]
+    s0 -- miss --> s1["stage 1: orchestration_signal_strength\nfree, no I/O — built"]
     s1 -- "strength 0 (confident lean)" --> shape
     s1 -- "strength >=2 (confident full)" --> shape
-    s1 -- "strength 1 (ambiguous middle)" --> s2[stage 2: Rust search_hybrid\n~4.5s, gated — built]
+    s1 -- "strength 1 (ambiguous middle)" --> s2["stage 2: Rust search_hybrid\n~4.5s, gated — built"]
     s2 -- "hit -> full" --> shape
     s2 -- "empty -> lean" --> shape
     s3[stage 3: LLM HTN — planned]
