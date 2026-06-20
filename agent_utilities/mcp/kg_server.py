@@ -2393,6 +2393,13 @@ def register_graphos_verbose_tools(mcp) -> None:
     from pydantic import Field
 
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
+    from agent_utilities.mcp.verbose_tools import tool_mode
+
+    # In ``both`` mode the condensed action tools are also registered; a single-op
+    # (action=None) verbose tool shares the condensed tool's NAME, so skip it to
+    # avoid overwriting the (untagged) condensed tool with a verbose-tagged
+    # duplicate. In verbose-only mode there is no condensed tool — keep them.
+    skip_single_op = tool_mode() == "both"
 
     def _make(tool_name: str, action: str | None):
         async def _verbose_op(
@@ -2410,6 +2417,8 @@ def register_graphos_verbose_tools(mcp) -> None:
         return _verbose_op
 
     for op in GRAPHOS_ACTIONS:
+        if op["action"] is None and skip_single_op:
+            continue
         fn = _make(op["tool"], op["action"])
         fn.__name__ = op["name"]
         fn.__doc__ = (

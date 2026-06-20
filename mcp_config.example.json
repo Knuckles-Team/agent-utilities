@@ -8,7 +8,8 @@
       ],
       "env": {
         "AGENT_ID": "local-developer",
-        "WORKSPACE_PATH": "${workspaceFolder}"
+        "WORKSPACE_PATH": "${workspaceFolder}",
+        "MCP_TOOL_MODE": "both"
       }
     },
     "egeria-mcp": {
