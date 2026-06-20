@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import time
+from datetime import UTC, datetime
 from typing import Any
 
 from agent_utilities.core.config import setting
@@ -72,7 +72,7 @@ def enrich_conversation(
                 "platform": platform,
                 "channel_id": channel_id,
                 "kind": "chat_turn",
-                "created_at": time.time(),
+                "created_at": datetime.now(UTC).isoformat(),
             },
         )
     except Exception as exc:  # noqa: BLE001
@@ -161,7 +161,7 @@ def _surface_intents(engine: Any, text: str, source_id: str, llm_fn: Any) -> Non
                     "description": desc,
                     "status": "surfaced",
                     "origin": "chat",
-                    "created_at": time.time(),
+                    "created_at": datetime.now(UTC).isoformat(),
                 },
             )
             engine.link_nodes(
