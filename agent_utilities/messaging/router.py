@@ -639,11 +639,30 @@ async def _fetch_image_parts(urls: list[str]) -> list[Any]:
             try:
                 resp = await client.get(url)
                 resp.raise_for_status()
-                media = resp.headers.get("content-type", "image/jpeg").split(";")[0]
+                media = resp.headers.get("content-type", "").split(";")[0].strip()
+                if not media or media == "application/octet-stream":
+                    # Telegram serves photos as application/octet-stream — sniff the real
+                    # image type from magic bytes so the vision model accepts it (it rejects
+                    # octet-stream). Falls back to JPEG (the Telegram photo default).
+                    media = _sniff_image_media_type(resp.content) or "image/jpeg"
                 parts.append(BinaryContent(data=resp.content, media_type=media))
             except Exception as e:  # noqa: BLE001
                 logger.debug("[ECO-4.67] image fetch failed (%s): %s", url, e)
     return parts
+
+
+def _sniff_image_media_type(data: bytes) -> str | None:
+    """Detect an image MIME type from magic bytes (CONCEPT:ECO-4.67) — used when the
+    transport gives a generic/absent content-type (Telegram serves octet-stream)."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"GIF8":
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def _is_backend_timeout(failure_text: str) -> bool:
