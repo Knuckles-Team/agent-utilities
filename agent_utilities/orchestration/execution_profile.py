@@ -65,12 +65,6 @@ class ExecutionProfile:
             timeouts derive from this + ``verifier_timeout``.
         verifier_timeout: Per-node timeout for the verifier (+repair) LLM round (seconds),
             or ``None`` for the long default.
-        fast_path_eligible: When True the router may short-circuit a simple turn onto the
-            single-round fast path (CONCEPT:ORCH-1.63) instead of the full graph.
-        cheap_fallback: When True a graph timeout/error must NOT trigger a second *full*
-            LLM call to the same (possibly degraded) endpoint; the fallback is a single
-            short bounded attempt and a graceful message (CONCEPT:ORCH-1.62, removes the
-            double-LLM tax).
 
     CONCEPT:ORCH-1.67 — the profile is no longer a fixed per-entrypoint *preset*; it is the
     **dynamically-constructed execution shape** for ONE job. ``plan_execution_shape`` builds
@@ -106,8 +100,6 @@ class ExecutionProfile:
     name: str
     router_timeout: float | None
     verifier_timeout: float | None
-    fast_path_eligible: bool
-    cheap_fallback: bool
     # CONCEPT:ORCH-1.67 — dynamic per-job shape (all default to the prior full-graph behaviour
     # so existing constructions are unchanged; the planner opts a job into the lean shape).
     direct_complete: bool = False
@@ -209,8 +201,6 @@ def resolve_execution_profile(
             name="chat",
             router_timeout=node_timeout,
             verifier_timeout=node_timeout,
-            fast_path_eligible=True,
-            cheap_fallback=True,
         )
 
     # Default: the long-timeout task profile (None timeouts → callers use the long defaults).
@@ -218,8 +208,6 @@ def resolve_execution_profile(
         name="task",
         router_timeout=None,
         verifier_timeout=None,
-        fast_path_eligible=True,
-        cheap_fallback=False,
     )
 
 
@@ -453,21 +441,15 @@ def _plan_base_shape(
     )
 
     strength = orchestration_signal_strength(task or "")
-    if strength >= 2:
-        # Clearly a real task (slash-command / over-length / multi-clause): the full graph.
-        shape = replace(base, **_FULL_FIELDS, origin="heuristic", confidence=0.9)
-    elif engine is None:
-        # No engine to consult the live ontology → structural-only: no strong signal ⇒ lean.
-        shape = replace(base, **_LEAN_FIELDS, origin="heuristic", confidence=0.9)
-    elif _names_capability(engine, task):
-        # Stage 1.5 — free ontology lexical gate (CONCEPT:EG-010): the turn names a real fleet
-        # capability ("list portainer stacks") → it IS a tool task. Escalate for ~µs, no vector
-        # search. This replaces the deleted escalation-keyword list (KG vocabulary, not a word list).
-        # CONCEPT:ORCH-1.74 — when the match names concrete fleet server(s), take the FOCUSED-TOOLS
-        # altitude: carry those servers so run_agent binds exactly their toolsets and runs ONE
-        # direct agent loop (parallel tool calls), skipping the planning graph's over-decomposition.
-        # A match with no server (e.g. a skill) keeps the plain full-graph shape (tool_servers=()).
-        servers = _lexical_capability_servers(engine, task)
+    # FOCUSED-TOOLS FIRST (CONCEPT:ORCH-1.74) — a turn that names concrete fleet server(s) IS a
+    # (possibly multi-) tool turn, so bind exactly those servers and run ONE direct loop that
+    # calls them in parallel. This takes precedence over the structural signal: a turn like
+    # "fetch my github issues AND list my portainer stacks" is multi-clause + over-length
+    # (strength≥2) yet is precisely the parallel tool case — sending it to the planning graph
+    # only over-decomposes it. (run_agent falls through to the full graph if the direct loop
+    # fails, so a genuine multi-step workflow that named a tool still degrades safely.)
+    servers = _lexical_capability_servers(engine, task) if engine is not None else []
+    if servers:
         shape = replace(
             base,
             **_FULL_FIELDS,
@@ -475,6 +457,17 @@ def _plan_base_shape(
             confidence=0.85,
             tool_servers=tuple(servers),
         )
+    elif strength >= 2:
+        # Names no concrete capability but is structurally strong (slash / over-length /
+        # multi-clause) → the full multi-agent graph.
+        shape = replace(base, **_FULL_FIELDS, origin="heuristic", confidence=0.9)
+    elif engine is None:
+        # No engine to consult the live ontology → structural-only: no strong signal ⇒ lean.
+        shape = replace(base, **_LEAN_FIELDS, origin="heuristic", confidence=0.9)
+    elif _names_capability(engine, task):
+        # A capability matched but it named no server (e.g. a skill) — keep the full-graph shape
+        # (tool_servers stays empty; there is no single toolset to bind for a direct loop).
+        shape = replace(base, **_FULL_FIELDS, origin="lexical", confidence=0.85)
     elif len((task or "").split()) > MAX_TRIVIAL_WORDS:
         # Stage 2 — a SUBSTANTIAL turn that named no capability lexically: it may be a paraphrased
         # tool task ("get my containers running again" — no literal "portainer"). Disambiguate with

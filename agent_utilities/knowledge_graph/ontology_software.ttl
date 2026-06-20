@@ -10,6 +10,16 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+:ConfluencePage a owl:Class ;
+    rdfs:label "Confluence Page" ;
+    rdfs:comment "A Confluence wiki page mirrored as a full-text Document (CONCEPT:KG-2.123)." ;
+    rdfs:subClassOf :Document .
+
+:JiraIssue a owl:Class ;
+    rdfs:label "Jira Issue" ;
+    rdfs:comment "A Jira issue ingested from an Atlassian site (CONCEPT:KG-2.124)." ;
+    rdfs:subClassOf :Issue .
+
 :assertCount a owl:DatatypeProperty ;
     rdfs:domain :Test ;
     rdfs:range xsd:integer .
@@ -150,17 +160,4 @@
 :Code a owl:Class ;
     rdfs:label "Code" ;
     rdfs:comment "An application code symbol: function, class, or method." .
-
-# Issue-tracker + wiki ingestion (CONCEPT:KG-2.123/2.124) — Jira/Plane issues
-# specialise the generic :Issue; Confluence pages specialise :Document so the wiki
-# mirror is both a Document (chunk/embed/retrieval) and a typed knowledge artifact.
-:JiraIssue a owl:Class ;
-    rdfs:label "Jira Issue" ;
-    rdfs:comment "A Jira issue ingested from an Atlassian site (CONCEPT:KG-2.124)." ;
-    rdfs:subClassOf :Issue .
-
-:ConfluencePage a owl:Class ;
-    rdfs:label "Confluence Page" ;
-    rdfs:comment "A Confluence wiki page mirrored as a full-text Document (CONCEPT:KG-2.123)." ;
-    rdfs:subClassOf :Document .
 

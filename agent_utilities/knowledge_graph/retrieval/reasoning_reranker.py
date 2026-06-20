@@ -133,9 +133,7 @@ def _auto_scorer() -> RerankScorer:
         from .neural_reranker import RemoteRerankScorer
 
         base = (
-            config.kg_rerank_base_url
-            or config.openai_base_url
-            or "http://vllm.arpa/v1"
+            config.kg_rerank_base_url or config.openai_base_url or "http://vllm.arpa/v1"
         )
         return RemoteRerankScorer(config.kg_rerank_model, base)
 
