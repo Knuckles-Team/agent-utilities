@@ -15,7 +15,9 @@ import pytest
 from agent_utilities.mcp.multiplexer import (
     MCPMultiplexer,
     SessionVisibilityMiddleware,
+    _register_forwarder,
     _register_meta_tools,
+    _tool_is_verbose,
     get_server_prefix,
 )
 
@@ -34,11 +36,18 @@ def _write_config(tmp_path, servers: dict) -> object:
     return path
 
 
-def _fake_tool(name: str, description: str = "", schema: dict | None = None):
+def _fake_tool(
+    name: str,
+    description: str = "",
+    schema: dict | None = None,
+    tags: list[str] | None = None,
+):
     tool = MagicMock()
     tool.name = name
     tool.description = description
     tool.inputSchema = schema if schema is not None else {}
+    # FastMCP propagates tags via _meta; the multiplexer reads tool.meta.
+    tool.meta = {"fastmcp": {"tags": list(tags)}} if tags is not None else None
     return tool
 
 
@@ -600,3 +609,46 @@ async def test_find_tools_meta_returns_structured(tmp_path):
 def test_prefix_sanity():
     # Guards the (server -> prefix) assumption the rest of the suite relies on.
     assert get_server_prefix(CNT) == "cm"
+
+
+# --------------------------------------------------------------------------- #
+# Verbose tools held in catalog (load on demand) — CONCEPT:ECO-4.82
+# --------------------------------------------------------------------------- #
+def test_tool_is_verbose_tag_detection():
+    assert _tool_is_verbose(_fake_tool("x", tags=["graph_write", "verbose"])) is True
+    assert _tool_is_verbose(_fake_tool("x", tags=["write"])) is False
+    assert _tool_is_verbose(_fake_tool("x")) is False  # no meta -> not verbose
+
+
+@pytest.mark.asyncio
+async def test_always_on_holds_verbose_tools_in_catalog(tmp_path):
+    """An always-on child's verbose tools are mounted (in the catalog, loadable)
+    but NOT auto-exposed at boot — only the condensed surface is."""
+    from fastmcp import FastMCP
+
+    mux = _mux_with_children(tmp_path, {"graph-os": []})
+
+    async def fake_start_child(server_name, cfg):
+        tools = [
+            _fake_tool("graph_write", "condensed", tags=["graph-os", "write"]),
+            _fake_tool("graph_write_add_node", "verbose", tags=["graph_write", "verbose"]),
+        ]
+        return server_name, AsyncMock(), tools, cfg
+
+    mux._start_child = AsyncMock(side_effect=fake_start_child)
+
+    mcp = FastMCP("mux")
+    tools = await mux.mount_child("graph-os")
+    # Replicate the dynamic always-on boot filter:
+    for tool in tools:
+        if _tool_is_verbose(tool):
+            continue
+        _register_forwarder(mcp, mux, tool)
+
+    prefixes = {t.name for t in mux.aggregated_tools}
+    # Both tools are mounted/aggregated (in the catalog → loadable on demand)
+    assert any("graph_write_add_node" in n for n in prefixes)
+    # …but only the condensed one is auto-exposed; the verbose one is held back.
+    exposed = mux._exposed
+    assert any(n.endswith("graph_write") for n in exposed)
+    assert not any("graph_write_add_node" in n for n in exposed)

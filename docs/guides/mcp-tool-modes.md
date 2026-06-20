@@ -93,4 +93,24 @@ def get_mcp_instance():
     ...
 ```
 
+> Agents now wire the whole surface with the single shared helper
+> `register_tool_surface(mcp, service=..., client_cls=..., get_client=..., tools_module=<pkg>.mcp)`
+> instead of the manual `if mode in (...)` branching shown above — it owns the mode
+> selection, per-domain `<DOMAIN>TOOL` gating, and the verbose surface. The manual
+> form above just illustrates what the helper does internally.
+
+## graph-os + the multiplexer: condensed by default, verbose on demand
+
+`graph-os` (the KG server — an action wrapper over the API gateway) runs in **`both`**
+mode (`MCP_TOOL_MODE=both` in its child env), so its full surface exists: the ~43
+condensed `graph_*` action tools **and** the ~300 verbose 1:1 tools
+(`graph_write_add_node`, …), the latter tagged `verbose`.
+
+The **mcp-multiplexer** (dynamic mode) keeps the resident context small: when it
+mounts an always-on child, `verbose`-tagged tools are **held in the catalog but not
+auto-exposed**. So a session (e.g. Claude Code) sees only the condensed action
+surface plus the meta-tools by default, and pulls granular verbose tools in on demand
+via `find_tools` / `load_tools`. Recommended for any context-sensitive client: full
+CRUD is *reachable*, but only the small action surface is *resident*.
+
 CONCEPT:ECO-4.82 — MCP tool-mode standardization.
