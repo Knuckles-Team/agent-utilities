@@ -229,5 +229,13 @@ class KGCoordinator:
         cls, host: str = DEFAULT_KG_HOST, port: int = DEFAULT_KG_PORT
     ) -> None:
         """Check server state, auto-heal if unhealthy, and coordinate connection."""
+        # A client-role process (KG_DAEMON_ROLE=client — the messaging daemon, the served
+        # graph-os MCP surface, spawned agents) reaches the KG through the shared engine /
+        # graph-os, NOT a self-spawned centralized HTTP KG server. Spawning one is both wrong
+        # (duplicate server) and noisy: a slim serving container has no ``uv`` on PATH, so the
+        # spawn fails every turn with "Failed to spawn ... No such file or directory: 'uv'".
+        # Only a host-role process owns that server. (task #8)
+        if str(setting("KG_DAEMON_ROLE", "")).strip().lower() == "client":
+            return
         if not cls.is_server_healthy(host, port):
             cls.spawn_server(host, port)
