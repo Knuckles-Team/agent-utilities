@@ -162,7 +162,7 @@ def _graph_cache_key(
         # custom nodes are uncacheable-shaped; only their presence matters to the topology.
         str(bool(custom_nodes)),
     ]
-    return hashlib.sha1("\x1e".join(parts).encode("utf-8")).hexdigest()  # noqa: S324
+    return hashlib.sha1("\x1e".join(parts).encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def build_tag_env_map(tag_names: list[str]) -> dict[str, str]:
