@@ -185,8 +185,7 @@ repos:
     # Relative path so the gate analyzes the tree being committed (its script
     # derives ROOT/baseline from its own location) instead of an unrelated
     # absolute checkout — required for the gate to see this repo's source and
-    # surface_parity_baseline.txt when run from a worktree.
-    entry: python3 scripts/check_surface_parity.py
+    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_surface_parity.py
     language: system
     pass_filenames: false
     always_run: true
