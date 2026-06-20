@@ -722,6 +722,25 @@ async def _graph_agent_reply(
             timeout=reply_timeout,
         )
         text = str(out).strip() if out else ""
+        # CONCEPT:ORCH-1.40/1.37 — when the run opened a native message channel (or carries a
+        # mermaid diagram), run_agent returns a JSON ENVELOPE string
+        # ``{"output", "channel_id"?, "mermaid"?}`` rather than the bare reply. The chat reply
+        # is the ``output`` field; unwrap it so the user sees the rendered text, not raw JSON.
+        # The membership check is exact (keys ⊆ the envelope's) so a genuine JSON reply from the
+        # agent is never mis-unwrapped.
+        if text.startswith("{") and '"output"' in text:
+            import json
+
+            try:
+                _env = json.loads(text)
+            except (ValueError, TypeError):
+                _env = None
+            if (
+                isinstance(_env, dict)
+                and "output" in _env
+                and set(_env) <= {"output", "channel_id", "mermaid"}
+            ):
+                text = str(_env["output"]).strip()
         if text and not text.startswith("Agent execution failed"):
             return text
         # The run completed but returned a failure string. If that failure was a backend

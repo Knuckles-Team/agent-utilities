@@ -101,6 +101,61 @@ async def test_reply_routes_through_universal_execute_agent(
 
 
 @pytest.mark.asyncio
+async def test_reply_unwraps_channel_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CONCEPT:ORCH-1.40 — when the run opened a native message channel, run_agent returns a
+    JSON envelope {"output", "channel_id"} (not the bare reply). The messaging layer must
+    deliver the ``output`` text, not the raw JSON (which rendered as literal JSON in Telegram)."""
+    import json
+
+    from agent_utilities.orchestration import manager as mgr
+
+    envelope = json.dumps(
+        {
+            "output": "Here are your portainer stacks:\n- **web** (running)",
+            "channel_id": "orch:messaging:telegram:42:run:abc",
+        }
+    )
+
+    class _Orch:
+        def __init__(self, _engine: Any) -> None:
+            pass
+
+        async def execute_agent(self, **_kwargs: Any) -> str:
+            return envelope
+
+    monkeypatch.setattr(mgr, "Orchestrator", _Orch)
+
+    reply = await _graph_agent_reply(
+        object(), "list my portainer stacks", session="messaging:telegram:42"
+    )
+    assert reply == "Here are your portainer stacks:\n- **web** (running)"
+    assert "channel_id" not in reply and not reply.startswith("{")
+
+
+@pytest.mark.asyncio
+async def test_reply_does_not_unwrap_a_genuine_json_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A real JSON reply from the agent (keys beyond the envelope's) is delivered verbatim —
+    the unwrap is exact-key so it never mis-extracts a legitimate JSON payload."""
+    from agent_utilities.orchestration import manager as mgr
+
+    genuine = '{"output": "x", "status": "ok", "items": [1, 2]}'
+
+    class _Orch:
+        def __init__(self, _engine: Any) -> None:
+            pass
+
+        async def execute_agent(self, **_kwargs: Any) -> str:
+            return genuine
+
+    monkeypatch.setattr(mgr, "Orchestrator", _Orch)
+
+    reply = await _graph_agent_reply(object(), "give me json", session="s:1")
+    assert reply == genuine  # untouched — has non-envelope keys
+
+
+@pytest.mark.asyncio
 async def test_reply_timeout_does_not_double_call_the_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
