@@ -555,6 +555,16 @@ class GraphComputeEngine:
         """Native HNSW vector search via the engine — returns (node_id, score)."""
         return self._client.graph.semantic_search(query_embedding, n_results) or []
 
+    def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
+        """Embedding-free lexical capability gate via the engine (CONCEPT:EG-010).
+
+        Returns the capability-node terms (Tool/Skill/MCPServer names+synonyms)
+        that appear as whole words in ``query``, each ``{term, node_type, label,
+        score}``. A non-empty result means the turn names a real fleet capability
+        — the "free" (~µs) tier between structural routing and ``semantic_search``.
+        """
+        return self._client.graph.match_ontology_terms(query) or []
+
     def get_nodes_by_label(
         self, label: str, limit: int = 0
     ) -> list[tuple[str, dict[str, Any]]]:
