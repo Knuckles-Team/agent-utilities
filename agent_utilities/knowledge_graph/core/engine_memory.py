@@ -291,7 +291,7 @@ class MemoryMixin(_Base):
         if self.backend:
             set_clause = self._get_set_clause(props, alias="r", label=rel_type)
             query = (
-                f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
+                f"MATCH (s {{id: $sid}}) MATCH (t {{id: $tid}}) "
                 f"MERGE (s)-[r:{rel_type}]->(t){set_clause}"
             )
             params = {"sid": source_id, "tid": target_id}
