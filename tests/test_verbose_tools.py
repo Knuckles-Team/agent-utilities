@@ -389,3 +389,23 @@ def test_surface_tool_registry(monkeypatch):
     )
     assert calls == []  # verbose-only mode does not run condensed registry
     assert "servicenow_get_cmdb_instance" in {t.name for t in _tools_list(mcp)}
+
+
+def test_surface_discovery_excludes_shared_helpers(monkeypatch):
+    """Auto-discovery must not treat imported register_verbose_tools/
+    register_tool_surface (which match register_*_tools) as connector registrars."""
+    monkeypatch.delenv("MCP_TOOL_MODE", raising=False)
+    mod = _surface_module()
+    # simulate the helpers being imported into the agent module namespace
+    mod.register_verbose_tools = register_verbose_tools
+    mod.register_tool_surface = register_tool_surface
+    mcp = FastMCP("t")
+    tags = register_tool_surface(
+        mcp,
+        client_cls=_Api,
+        get_client=_get_client,
+        service="servicenow-api",
+        tools_module=mod,
+    )
+    assert set(tags) == {"cmdb", "change_management"}  # helpers excluded
+    assert "verbose" not in tags and "tool_surface" not in tags
