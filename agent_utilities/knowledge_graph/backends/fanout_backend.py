@@ -54,7 +54,7 @@ from .tiered_backend import _is_write
 logger = logging.getLogger(__name__)
 
 # The engine's edge-write shape (IntelligenceGraphEngine._upsert_edge):
-# ``MATCH (s.. {id: $sid}), (t.. {id: $tid}) MERGE (s)-[r:REL]->(t) [SET ...]``.
+# ``MATCH (s.. {id: $sid}) MATCH (t.. {id: $tid}) MERGE (s)-[r:REL]->(t) [SET ...]``.
 # Matching it lets the fan-out replay edges STRUCTURALLY (src/dst/rel/props) so
 # each mirror gets a dialect-correct write — e.g. LadybugDB's strict REL schema
 # needs the props folded into its ``properties`` JSON column, which the raw
