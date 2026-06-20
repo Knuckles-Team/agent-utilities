@@ -19,6 +19,25 @@ from typing import Any
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _reset_shape_state() -> Any:
+    """Each test starts from a clean shape planner. The recipe cache and the learned shape
+    policy are process-global, so a test that runs a turn (recording an outcome via
+    ``record_shape_outcome``) must not bias another test's classification
+    (CONCEPT:ORCH-1.70/1.72)."""
+    from agent_utilities.orchestration.execution_profile import (
+        reset_recipe_cache,
+        reset_shape_policy,
+    )
+
+    reset_recipe_cache()
+    reset_shape_policy()
+    yield
+    reset_recipe_cache()
+    reset_shape_policy()
+
+
 # ─────────────────────────── ORCH-1.62 — chat profile ───────────────────────────
 
 
@@ -272,7 +291,9 @@ async def test_resolve_agent_runs_off_the_event_loop(
     """``run_agent`` must resolve the agent via ``to_thread`` so the sync KG round-trips never
     stall the loop (CONCEPT:ORCH-1.65). Uses a non-trivial (specialist-targeting) task because
     CONCEPT:ORCH-1.68 skips KG resolution entirely for a trivial/direct-completion turn, so the
-    off-loop hop is only exercised when the shape sets ``resolve_agent=True``."""
+    off-loop hop is only exercised when the shape sets ``resolve_agent=True``. Targets a named
+    specialist (NOT the universal ``messaging-assistant``, which CONCEPT:ORCH-1.72 exempts from
+    resolution as a pass-through identity)."""
     import asyncio
     import threading
 
@@ -302,7 +323,7 @@ async def test_resolve_agent_runs_off_the_event_loop(
     monkeypatch.setattr(agent_runner, "_write_step_credit", lambda *a, **k: None)
 
     out = await agent_runner.run_agent(
-        agent_name="messaging-assistant",
+        agent_name="portainer-agent",
         task="deploy the service and restart the database now",
         engine=object(),
     )
@@ -314,6 +335,66 @@ async def test_resolve_agent_runs_off_the_event_loop(
 
     # Sanity: to_thread really hands off.
     assert await asyncio.to_thread(threading.get_ident) != main_thread
+
+
+async def test_passthrough_agent_skips_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CONCEPT:ORCH-1.72 — the universal ``messaging-assistant`` is a pass-through identity:
+    even on a non-trivial (resolve_agent=True) turn it must NOT hit ``_resolve_agent_from_kg``
+    (that ~21 s semantic search both wastes time and mis-binds it to ``prepare_messages``)."""
+    from agent_utilities.orchestration import agent_runner
+
+    called: list[str] = []
+
+    def _resolver(engine: Any, name: str) -> dict[str, Any]:
+        called.append(name)
+        return {"type": "unknown", "capabilities": [], "tools": []}
+
+    monkeypatch.setattr(agent_runner, "_resolve_agent_from_kg", _resolver)
+    monkeypatch.setattr(agent_runner, "_get_or_create_engine", lambda: object())
+
+    async def _fake_prime(*_a: Any, **_k: Any) -> list[str]:
+        return []
+
+    monkeypatch.setattr(agent_runner, "_prime_recent_mementos", _fake_prime)
+
+    async def _fake_graph(**_kwargs: Any) -> dict[str, Any]:
+        return {"results": {"output": "done"}}
+
+    monkeypatch.setattr(agent_runner, "_execute_graph", _fake_graph)
+    monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
+    monkeypatch.setattr(agent_runner, "_write_step_credit", lambda *a, **k: None)
+
+    out = await agent_runner.run_agent(
+        agent_name="messaging-assistant",
+        task="deploy the service and restart the database now",
+        engine=object(),
+    )
+    assert out == "done"
+    assert called == [], "pass-through messaging-assistant must skip KG resolution"
+
+
+def test_reply_budget_scales_with_shape() -> None:
+    """CONCEPT:ORCH-1.72 — the reply budget is derived from the shape: a direct/lean turn is
+    short and answered inline; a full multi-agent tool turn earns a much larger budget and is
+    delivered as a deferred follow-up."""
+    import dataclasses
+
+    from agent_utilities.orchestration.execution_profile import (
+        _FULL_FIELDS,
+        _LEAN_FIELDS,
+        resolve_execution_profile,
+    )
+
+    base = resolve_execution_profile("chat")
+    lean = dataclasses.replace(base, **_LEAN_FIELDS)
+    full = dataclasses.replace(base, **_FULL_FIELDS)
+
+    assert lean.is_interactive and lean.reply_budget_s <= 30.0
+    assert not full.is_interactive and full.reply_budget_s >= 120.0
+    # A full turn must earn a strictly larger budget than a lean one.
+    assert full.reply_budget_s > lean.reply_budget_s
 
 
 # ─────────────────────────── KG-2.131 — memento cache ───────────────────────────
