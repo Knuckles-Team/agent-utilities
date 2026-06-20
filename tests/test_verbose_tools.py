@@ -409,3 +409,40 @@ def test_surface_discovery_excludes_shared_helpers(monkeypatch):
     )
     assert set(tags) == {"cmdb", "change_management"}  # helpers excluded
     assert "verbose" not in tags and "tool_surface" not in tags
+
+
+def test_surface_verbose_targets_multiclient(monkeypatch):
+    """A multi-client agent gets a verbose surface per target, all mode-gated centrally."""
+    monkeypatch.setenv("MCP_TOOL_MODE", "verbose")
+
+    class _Sonarr:
+        def get_series(self, **k):
+            "List series."
+            return k
+
+    class _Radarr:
+        def get_movies(self, **k):
+            "List movies."
+            return k
+
+    mcp = FastMCP("t")
+    register_tool_surface(
+        mcp,
+        service="arr-mcp",
+        verbose_targets=[
+            {"client_cls": _Sonarr, "get_client": lambda: _Sonarr(), "tool_prefix": "sonarr"},
+            {"client_cls": _Radarr, "get_client": lambda: _Radarr(), "tool_prefix": "radarr"},
+        ],
+    )
+    names = {t.name for t in _tools_list(mcp)}
+    assert "sonarr_get_series" in names
+    assert "radarr_get_movies" in names
+
+
+def test_surface_condensed_only_when_no_verbose_target(monkeypatch):
+    """Verbose mode with neither client_cls nor verbose_targets registers nothing extra."""
+    monkeypatch.setenv("MCP_TOOL_MODE", "verbose")
+    mcp = FastMCP("t")
+    tags = register_tool_surface(mcp, service="x", tools_module=_surface_module())
+    assert tags == []  # condensed skipped in verbose mode
+    assert {t.name for t in _tools_list(mcp)} == set()  # no verbose target -> nothing
