@@ -119,6 +119,12 @@ class ExecutionProfile:
     model_id: str | None = None
     origin: str = "preset"
     confidence: float = 1.0
+    # CONCEPT:ORCH-1.74 — the FOCUSED-TOOLS altitude (between lean and full): the fleet
+    # servers the ontology lexical gate named for this turn. Non-empty ⇒ the turn names
+    # concrete capabilities, so it skips the planning graph and runs ONE direct agent loop
+    # bound to exactly these servers' toolsets (least privilege), biased to call them in
+    # parallel. Empty ⇒ not a focused-tools turn (lean or full as the planner decides).
+    tool_servers: tuple[str, ...] = ()
 
     @property
     def is_chat(self) -> bool:
@@ -353,6 +359,36 @@ def _names_capability(engine: IntelligenceGraphEngine, task: str) -> bool:
         return False
 
 
+def _lexical_capability_servers(
+    engine: IntelligenceGraphEngine, task: str
+) -> list[str]:
+    """The distinct fleet servers the lexical gate named for this turn (CONCEPT:ORCH-1.74).
+
+    Returns the ``mcp_server`` of every matched capability, de-duplicated and ordered
+    by match score (most specific first) — so a turn naming "portainer" → ``["portainer-mcp"]``
+    and one naming both "portainer" and "github" → ``["portainer-mcp", "github-mcp"]``. These
+    are the toolsets the FOCUSED-TOOLS altitude binds directly. Empty when no match carries a
+    server (e.g. a skill-only match) or the gate is unavailable — the caller then keeps the
+    full-graph shape.
+    """
+    try:
+        gc = getattr(engine, "graph_compute", None)
+        if gc is None or not hasattr(gc, "match_ontology_terms"):
+            return []
+        hits = gc.match_ontology_terms(task or "") or []
+        seen: set[str] = set()
+        out: list[str] = []
+        for h in sorted(hits, key=lambda m: m.get("score", 0.0), reverse=True):
+            srv = str(h.get("mcp_server") or "").strip()
+            if srv and srv not in seen:
+                seen.add(srv)
+                out.append(srv)
+        return out
+    except Exception as e:  # noqa: BLE001 — the gate must never break planning
+        logger.debug("[ORCH-1.74] focused-tools server resolution unavailable: %s", e)
+        return []
+
+
 def _refine_with_kg(
     engine: IntelligenceGraphEngine, task: str, base: ExecutionProfile
 ) -> ExecutionProfile:
@@ -427,7 +463,18 @@ def _plan_base_shape(
         # Stage 1.5 — free ontology lexical gate (CONCEPT:EG-010): the turn names a real fleet
         # capability ("list portainer stacks") → it IS a tool task. Escalate for ~µs, no vector
         # search. This replaces the deleted escalation-keyword list (KG vocabulary, not a word list).
-        shape = replace(base, **_FULL_FIELDS, origin="lexical", confidence=0.85)
+        # CONCEPT:ORCH-1.74 — when the match names concrete fleet server(s), take the FOCUSED-TOOLS
+        # altitude: carry those servers so run_agent binds exactly their toolsets and runs ONE
+        # direct agent loop (parallel tool calls), skipping the planning graph's over-decomposition.
+        # A match with no server (e.g. a skill) keeps the plain full-graph shape (tool_servers=()).
+        servers = _lexical_capability_servers(engine, task)
+        shape = replace(
+            base,
+            **_FULL_FIELDS,
+            origin="lexical",
+            confidence=0.85,
+            tool_servers=tuple(servers),
+        )
     elif len((task or "").split()) > MAX_TRIVIAL_WORDS:
         # Stage 2 — a SUBSTANTIAL turn that named no capability lexically: it may be a paraphrased
         # tool task ("get my containers running again" — no literal "portainer"). Disambiguate with
