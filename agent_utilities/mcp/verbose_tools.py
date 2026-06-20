@@ -74,6 +74,25 @@ _DESTRUCTIVE_PREFIXES = (
 _RESERVED_PARAM_NAMES = frozenset({"client", "ctx", "self"})
 
 
+def _provider_tools(mcp: Any) -> dict[str, Any]:
+    """``{tool_name: tool_obj}`` from the FastMCP local provider (sync, best-effort).
+
+    Used to diff which tools a ``register_<domain>_tools`` call added, so the central
+    wiring can stamp the canonical domain tag and record the exact toggle. Returns
+    ``{}`` if the provider internals aren't available (older/newer FastMCP) — callers
+    then fall back to tag-based derivation.
+    """
+    provider = getattr(mcp, "_local_provider", None)
+    components = getattr(provider, "_components", None)
+    if not isinstance(components, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key, value in components.items():
+        if str(key).startswith("tool:") and getattr(value, "name", None):
+            out[value.name] = value
+    return out
+
+
 def _is_typeable_param(param: dict) -> bool:
     """Whether a manifest param can become a typed function argument.
 
@@ -527,12 +546,27 @@ def register_tool_surface(
     # agent has no verbose surface at all, so a condensed-only server is never
     # left empty by a deployment-wide MCP_TOOL_MODE=verbose meant for connectors.
     if mode in ("condensed", "both") or (mode == "verbose" and not has_verbose):
+        toggles: dict[str, str] = getattr(mcp, "_condensed_tool_toggles", {})
         for tag, env_var, register_fn in _condensed_entries(
             tool_registry, tools_module, registrars
         ):
-            if setting(env_var, True):
-                register_fn(mcp)
-                registered_tags.append(tag)
+            if not setting(env_var, True):
+                continue
+            before = set(_provider_tools(mcp))
+            register_fn(mcp)
+            # Tools this registrar just added belong to this domain: stamp the
+            # canonical domain tag (so every condensed tool carries the tag that
+            # matches its toggle — standardizing the ad-hoc per-author tags) and
+            # record the exact tool->toggle-env map for docs/introspection.
+            after = _provider_tools(mcp)
+            for name in set(after) - before:
+                tags_attr = getattr(after[name], "tags", None)
+                if isinstance(tags_attr, set):
+                    tags_attr.add(tag)
+                toggles[name] = env_var
+            registered_tags.append(tag)
+        if toggles:
+            mcp._condensed_tool_toggles = toggles
 
     if mode in ("verbose", "both"):
         for target in targets or []:
