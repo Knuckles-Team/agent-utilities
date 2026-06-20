@@ -179,7 +179,39 @@ becomes meaningful.
 
 ---
 
-## 4. Phase B — Engine-native lexical matcher + cascade rewire (after A checkpoint)
+## 4. Phase B — Engine-native lexical matcher + cascade rewire — **IMPLEMENTED 2026-06-20**
+
+> **Status:** built + tested + round-trip-validated against a real engine; **NOT merged/deployed**
+> (branches `feat/classify-b` in epistemic-graph, `feat/classify-a` in agent-utilities).
+> Concepts `EG-010` (engine lexical gate) + `ORCH-1.73` (keyword-free cascade).
+>
+> **What shipped (matches the plan below, with refinements):**
+> - **Engine (`EG-010`).** `GraphCore::match_ontology_terms(query)` — aho-corasick over capability
+>   names+synonyms (Tool/NativeTool/Skill/MCPServer/Server/BusinessCapability/Resource), **whole-word
+>   matched**, terms <3 chars dropped, deduped. **Cached** automaton on `GraphCore`, rebuilt only when
+>   the node count changes (so the "free tier" really is ~µs, not a full scan per turn — went beyond
+>   the "per-request build" the plan started with). `Method::MatchOntologyTerms` (read-only, flows
+>   through the dispatch catch-all, excluded from `requires_write` — no dispatch/access edits) +
+>   `GraphOperationsClient.match_ontology_terms` + `graph_compute.match_ontology_terms` wrappers. 3
+>   Rust unit tests + a real Python↔engine round-trip test (portainer/github cases). eg-core/eg-types
+>   green, clippy + check_no_pyo3 clean.
+> - **Cascade (`ORCH-1.73`).** `_plan_base_shape`: `strength≥2 → full`; else **engine lexical hit →
+>   full** (free); else a *substantial* (`> MAX_TRIVIAL_WORDS`) lexical-miss turn → `search_hybrid`
+>   (Stage 2, kept alive); else lean. Short trivial turns never pay semantic.
+> - **`_ESCALATION_KEYWORDS` DELETED.** `fast_path` is now purely structural (slash/length/multi-
+>   clause); `orchestration_signal_strength`/`needs_full_orchestration` no longer score domain words.
+>   Keyword-dependent tests rewritten to the structural+lexical contract.
+> - **Design note / refinement vs the plan:** with keywords gone the keyword-driven "strength 1"
+>   vanishes, so the semantic tier is now gated on a *structural length band* (substantial lexical-miss
+>   turns) instead of "every weak/none turn → search_hybrid" — otherwise trivial chat would pay 4.5 s
+>   every turn, violating "max free reasoning". Both §6 validation cases name their capability
+>   (portainer/github) so they escalate via the **free** lexical tier; semantic is the fallback for
+>   paraphrases that name no capability.
+>
+> **Deploy-gated (both phases together):** rebuild+restart the served engine with the new binary
+> (`match_ontology_terms`) AND graph-os with the new agent-utilities code, then run §6 live.
+
+### Original plan (for reference)
 
 - **B1. epistemic-graph (Rust) — `match_ontology_terms` (5 mapped edits):**
   - `crates/eg-core/src/graph.rs` — `GraphCore::match_ontology_terms(query)`: aho-corasick over
