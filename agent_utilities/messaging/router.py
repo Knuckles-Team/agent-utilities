@@ -337,25 +337,61 @@ async def create_planner_handler(
             event.user_name,
             session,
         )
-        reply = await _graph_agent_reply(
-            engine, combined, session=session, image_parts=image_parts
-        )
-        try:
-            if event.message and event.message.id:
-                await backend.reply_to(event.channel_id, event.message.id, reply)
-            else:
-                await backend.send_message(event.channel_id, reply)
-        except Exception as e:  # noqa: BLE001
-            logger.error("[CONCEPT:ECO-4.51] Sending reply failed: %s", e)
+        # CONCEPT:ORCH-1.72 — the per-job SHAPE decides BOTH how long this turn should take
+        # (its dynamic ``reply_budget_s``) and whether to answer INLINE or
+        # acknowledge-now / deliver-later. A direct or lean turn is answered within its short
+        # budget inline; a full multi-agent tool turn would blow any reasonable inline wait, so
+        # we ack immediately and send the result as a follow-up when it is ready. The transport
+        # stays thin — the core shape makes the call; here we only render it for this medium.
+        from agent_utilities.orchestration.execution_profile import plan_execution_shape
 
-        # Persist + enrich AFTER the reply is sent (CONCEPT:ECO-4.74). EVERY KG write and
-        # local-model encode (last-active, message ingest, episodic memory, and the
-        # per-session conversation memento that gives the NEXT turn its continuity) runs here
-        # — NEVER concurrently with reply generation, which otherwise contends with it on the
-        # GIL-bound local embedding model and stalls the answer (the root of "no reply").
-        _spawn_bg(
-            _persist_and_enrich(svc, engine, items, combined, reply, session=session)
-        )
+        shape = plan_execution_shape(combined, profile_hint="chat", engine=engine)
+
+        async def _send(text: str, *, threaded: bool) -> None:
+            try:
+                if threaded and event.message and event.message.id:
+                    await backend.reply_to(event.channel_id, event.message.id, text)
+                else:
+                    await backend.send_message(event.channel_id, text)
+            except Exception as e:  # noqa: BLE001
+                logger.error("[CONCEPT:ECO-4.51] Sending reply failed: %s", e)
+
+        async def _run_and_deliver(*, deferred: bool) -> None:
+            reply = await _graph_agent_reply(
+                engine,
+                combined,
+                session=session,
+                image_parts=image_parts,
+                budget=shape.reply_budget_s,
+            )
+            # An interactive turn threads its reply to the user's message; a deferred turn
+            # already acked there, so its result lands as a fresh follow-up message.
+            await _send(reply, threaded=not deferred)
+            # Persist + enrich AFTER the reply is sent (CONCEPT:ECO-4.74). EVERY KG write and
+            # local-model encode (last-active, message ingest, episodic memory, and the
+            # per-session conversation memento that gives the NEXT turn its continuity) runs
+            # here — NEVER concurrently with reply generation, which otherwise contends with it
+            # on the GIL-bound local embedding model and stalls the answer.
+            _spawn_bg(
+                _persist_and_enrich(
+                    svc, engine, items, combined, reply, session=session
+                )
+            )
+
+        if shape.is_interactive:
+            await _run_and_deliver(deferred=False)
+        else:
+            logger.info(
+                "[CONCEPT:ORCH-1.72] burst shaped as a full multi-agent turn (~%.0fs budget) "
+                "— acknowledging now, delivering the result as a follow-up.",
+                shape.reply_budget_s,
+            )
+            await _send(
+                "On it — this one needs the full toolset, so it'll take a little longer. "
+                "I'll reply here as soon as it's ready. ⏳",
+                threaded=True,
+            )
+            _spawn_bg(_run_and_deliver(deferred=True))
 
     coalescer = BurstCoalescer(
         _reply_to_burst,
@@ -611,7 +647,12 @@ def _is_backend_timeout(failure_text: str) -> bool:
 
 
 async def _graph_agent_reply(
-    engine: Any, content: str, *, session: str, image_parts: list[Any] | None = None
+    engine: Any,
+    content: str,
+    *,
+    session: str,
+    image_parts: list[Any] | None = None,
+    budget: float | None = None,
 ) -> str:
     """Draft a reply by running the UNIVERSAL graph agent (CONCEPT:ECO-4.78).
 
@@ -644,7 +685,15 @@ async def _graph_agent_reply(
     # through the full multi-agent orchestration graph (dynamic delegation) — which is what we
     # want — so the default is the dedicated messaging assistant identity.
     agent_name = str(setting("MESSAGING_AGENT", "")).strip() or "messaging-assistant"
-    reply_timeout = float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
+    # CONCEPT:ORCH-1.72 — the reply budget is DYNAMIC: the caller passes the per-job shape's
+    # ``reply_budget_s`` (how long a turn of this shape should reasonably take). A fixed 45 s
+    # wall both over-waits a trivial turn and prematurely cuts a legitimate multi-agent tool
+    # turn. ``MESSAGING_REPLY_TIMEOUT`` remains the fallback when no shape budget is supplied.
+    reply_timeout = (
+        float(budget)
+        if budget and budget > 0
+        else float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
+    )
     try:
         from agent_utilities.orchestration.manager import Orchestrator
 
