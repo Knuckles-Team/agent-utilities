@@ -413,6 +413,10 @@ def register_verbose_tools(
     return registered
 
 
+#: Shared ``register_*_tools``-shaped helpers excluded from module auto-discovery.
+_SURFACE_HELPER_NAMES = frozenset({"register_verbose_tools", "register_tool_surface"})
+
+
 def _condensed_entries(
     tool_registry: list | None,
     tools_module: Any,
@@ -438,7 +442,9 @@ def _condensed_entries(
         for name in sorted(vars(tools_module)):
             match = re.fullmatch(r"register_(.+)_tools", name)
             fn = getattr(tools_module, name)
-            if not match or not callable(fn):
+            # Skip the shared helpers (they match the pattern but are not a
+            # connector's domain registrars) and any non-callable.
+            if not match or not callable(fn) or name in _SURFACE_HELPER_NAMES:
                 continue
             tag = match.group(1)
             found.append((tag, f"{tag.upper()}TOOL", fn))
