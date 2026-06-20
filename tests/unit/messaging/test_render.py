@@ -36,3 +36,43 @@ def test_plain_text_html_specials_are_escaped() -> None:
 
 def test_empty_is_passthrough() -> None:
     assert render("") == ""
+
+
+# ── The two Telegram validation cases (docs/architecture/ontology-native-classification.md §6) ──
+# These capture the FORMATTING half of each case: a realistic tool-reply in Markdown must render
+# to valid Telegram HTML (no raw markers leak). The classification/routing half is the manual
+# runbook in §6 (needs the live KG/daemon).
+
+
+def test_case1_portainer_reply_renders() -> None:
+    """Case 1 — 'list my portainer stacks' → a stack listing with bold/bullets/code."""
+    reply = (
+        "**Your Portainer stacks:**\n"
+        "- `graph-os` — running\n"
+        "- `agent-utilities` — running\n"
+        "- *paradedb* — stopped"
+    )
+    out = render(reply)
+    assert "<b>Your Portainer stacks:</b>" in out
+    assert "• <code>graph-os</code> — running" in out
+    assert "<i>paradedb</i>" in out
+    # No raw markdown markers leak through.
+    assert "**" not in out and "`" not in out and "\n- " not in out
+
+
+def test_case2_github_reply_renders() -> None:
+    """Case 2 — 'github open issues' → a heading + bold repo + linked issue numbers."""
+    reply = (
+        "## Open issues — Knuckles-Team\n"
+        "**agent-utilities** (2 open):\n"
+        "- [#42](https://github.com/Knuckles-Team/agent-utilities/issues/42) dispatcher fix\n"
+        "- #43 add tests"
+    )
+    out = render(reply)
+    assert "<b>Open issues — Knuckles-Team</b>" in out  # header → bold
+    assert "<b>agent-utilities</b> (2 open):" in out
+    assert (
+        '<a href="https://github.com/Knuckles-Team/agent-utilities/issues/42">#42</a>' in out
+    )
+    assert "• #43 add tests" in out
+    assert "##" not in out and "](" not in out
