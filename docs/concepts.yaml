@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 384
+total_concepts: 386
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1307,6 +1307,14 @@ concepts:
   - agent_utilities/messaging/service.py
   - agent_utilities/orchestration/reactions.py
   doc: messaging is a RENDERER of the orchestrator
+- id: ECO-4.82
+  name: fleet XDG config standardization
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/mcp/verbose_tools.py
+  doc: fleet XDG config standardization
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -3371,6 +3379,7 @@ concepts:
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/graph/_router_impl.py
   - agent_utilities/orchestration/agent_runner.py
   doc: when a remote MCP child fails, anyio wraps the real cause
 - id: ORCH-1.22
@@ -3871,6 +3880,14 @@ concepts:
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/execution_profile.py
   doc: prompt-only universal entrypoints that must flow through the full
+- id: ORCH-1.74
+  name: when the match names concrete fleet server
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/execution_profile.py
+  doc: when the match names concrete fleet server
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
