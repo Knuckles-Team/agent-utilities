@@ -1,11 +1,35 @@
 # Ontology-native classification — full handoff (Phase A → checkpoint → Phase B)
 
-> **Status:** APPROVED 2026-06-20. Phase A1 done (injection point located); A2–A5 + B not
-> started. **Decisions:** (1) Phase-A capability source of truth = the **served multiplexer /
-> registry catalog** (not AST); (2) build **Phase A fully → checkpoint for review → then B**.
-> **Goal:** classify a chat turn (lean-chat vs full multi-agent graph) from the **live ontology**
-> — **zero hardcoded domain keywords** — following *maximize "free" reasoning, escalate only for
-> complexity*.
+> **Status:** Phase A **IMPLEMENTED** 2026-06-20 (`CONCEPT:KG-2.133`) — A2 (served-catalog
+> ingest step) + A3 (capability schema + two surfaces) landed; A4/A5 = live re-ingest + verify
+> (runbook §6). **B not started** (checkpoint here per decision 2). **Decisions:** (1) Phase-A
+> capability source of truth = the **served multiplexer / registry catalog** (not AST); (2) build
+> **Phase A fully → checkpoint for review → then B**. **Goal:** classify a chat turn (lean-chat vs
+> full multi-agent graph) from the **live ontology** — **zero hardcoded domain keywords** —
+> following *maximize "free" reasoning, escalate only for complexity*.
+>
+> **What Phase A shipped:** a `fleet` source handler
+> (`knowledge_graph/core/source_sync.py::_sync_fleet`) probes the multiplexer catalog
+> (`MCPMultiplexer.probe_catalog`) and writes every fleet tool as a `Tool` capability node
+> `{name, description, mcp_server, tags, relevance_score, requires_approval, synonyms, kind}`
+> linked to its `MCPServer` via `SERVES`. It runs at graph-os boot (`kg_server._ingest_capabilities`
+> step 4, native/default-on) and via `source_sync source=fleet` (MCP **and** REST `/source/sync`).
+> `MCPServer` nodes gained product `synonyms` (`portainer-agent` → `portainer`). This schema is the
+> one the dispatcher already reads (`config._fetch_tools` → `MATCH (t:Tool)`), so **the same data
+> fixes the classification gate *and* the "no fleet specialist" dispatcher hole**.
+>
+> ```mermaid
+> flowchart LR
+>   cfg["mcp_config.json (~62 fleet servers)"] --> mux["MCPMultiplexer.probe_catalog: connect→list_tools→release"]
+>   mux --> sync["_sync_fleet (source=fleet)"]
+>   boot["graph-os boot: _ingest_capabilities step 4"] --> sync
+>   rest["REST /source/sync + MCP source_sync"] --> sync
+>   sync --> tools[("Tool nodes: name/mcp_server/tags/synonyms")]
+>   sync --> srv[("MCPServer nodes +synonyms")]
+>   srv -- SERVES --> tools
+>   tools --> gate["ontology lexical gate (Phase B: match_ontology_terms)"]
+>   tools --> disp["dispatcher _fetch_tools: MATCH (t:Tool) → specialist"]
+> ```
 
 ---
 
@@ -95,19 +119,23 @@ no equivalent — so binding the gate to it would silently fail on other backend
   `__agentic_version__`) → `NativeTool` nodes (~2115–2143 — the `add_node(f"native_tool_{name}",
   "NativeTool", {name, description, version, module, disabled})` pattern to mirror); skills dir →
   `Skill` (~2147). **GAP:** it never enumerates each fleet server's TOOLS.
-- **A2. Add a served-catalog step** (Native-by-default, no flag) in that bootstrap (or a
-  dedicated connector): enumerate the multiplexer catalog (server → tools, via `list_catalog` /
-  MCP introspection of each server in `mcp_config`) and `engine.add_node` each tool as a `Tool`
-  capability node `{name, description, server}`, linked to its `MCPServer` (`SERVES` / `servedBy`)
-  and cross-linked to the existing `Code` node for provenance. Reuse
-  `physical_distiller.distill_mcp_tool` / `skill_synthesizer.classify` where they fit.
-  - *Catalog access:* prefer the multiplexer's aggregated catalog (it already lists every fleet
-    tool with name+description+server). Fallback: iterate `mcp_config` servers and MCP-introspect
-    each (`list_tools`). Handle unreachable servers gracefully (skip, log) — coverage = currently
-    registered servers (the accepted trade-off of the "served catalog" decision).
-- **A3. Standardize the capability node schema** (`name`, `description`, `server`, `kind`,
-  `synonyms`/aliases) + the ontology mapping (`owl_bridge`) so the **gate AND the dispatcher's
-  specialist routing** query it uniformly. Surface over `graph_*` MCP + REST (two-surface rule).
+- **A2 (DONE). Served-catalog step.** `knowledge_graph/core/source_sync.py::_sync_fleet` builds an
+  `MCPMultiplexer` from the fleet `mcp_config.json` and calls `probe_catalog()` (the cached
+  connect→`list_tools`→release sweep, bounded at 16, per-server timeout, unreachable servers
+  recorded not fatal). `_write_fleet_nodes` then `engine.add_node`s each tool as a `Tool` node and
+  `link_nodes(..., "SERVES", ...)` to its `MCPServer`. Wired native/default-on into the boot ingest
+  as **step 4** (`kg_server._ingest_capabilities`, via `sync_source(engine, "fleet", mode="full")`).
+  Excluded from the `*/20m` document sweep (capability vocab is slow-changing). *(We did not reuse
+  `physical_distiller.distill_mcp_tool` — it writes evolved descriptions back to source, not a
+  catalog enumerator; the multiplexer probe IS the served catalog the decision named.)*
+- **A3 (DONE). Schema + two surfaces.** The `Tool` node schema is the exact set the dispatcher
+  already reads — `name`, `description`, `mcp_server`, `tags`, `relevance_score`,
+  `requires_approval` (`config._fetch_tools`) — plus `synonyms` (product aliases for the gate) and
+  `kind="mcp_tool"`. `MCPServer` nodes also carry `synonyms` (`derive_capability_synonyms`). OWL:
+  `"tool"` is already in `owl_bridge.PROMOTABLE_NODE_TYPES`, so `Tool` nodes promote to class `Tool`
+  with no edit. **Two surfaces for free:** `source_sync source=fleet` (MCP) and `POST /source/sync
+  {"source":"fleet"}` (REST) both dispatch into `_sync_fleet` through the one `sync_source`
+  entrypoint — no new tool/route, inside the surface-parity contract.
 - **A4. Re-ingest the fleet.** Run the live E2E protocol (`ingestion-validation-protocol` memory):
   restart graph-os, `go__source_sync` (or the bootstrap), re-run to prove `skipped_unchanged`.
   **Needs a healthy engine/embeddings (GB10/vLLM).**
@@ -119,9 +147,71 @@ no equivalent — so binding the gate to it would silently fail on other backend
 **Done when:** portainer/github are capability nodes, and case 1 (§6) routes to the full graph
 AND the dispatcher reaches the portainer tool.
 
+### A4/A5 — live validation results (2026-06-20)
+
+Validated against the live durable KG + served read surface (engine + vLLM healthy;
+the GB10 power-fault memory is stale). **Branch `feat/classify-a`, NOT yet merged.**
+
+- **Baseline (the hole):** `MATCH (n) WHERE n.name CONTAINS 'portainer'|'github'` → **0** nodes;
+  `MATCH (t:Tool)` → only 3 stray nodes. Confirmed the missing fleet vocabulary.
+- **Served fleet:** the multiplexer sees **55 servers / 601 tools, all available** (incl.
+  `portainer-mcp` 10, `github-mcp` 11).
+- **Write path proven:** running `_sync_fleet(mode=full)` against the durable engine wrote **57
+  Tool nodes** for the reachable (stdio) servers (emerald-exchange 14 + graph-os 43), readable via
+  the served `graph_query`. The `*.arpa` HTTP servers returned **401** because the local debug
+  shell lacks the OIDC client-credentials the served multiplexer injects (expected — credential
+  access is human-gated by design).
+- **Case servers (portainer/github):** injecting their real catalog (from the served
+  `list_catalog`, which has creds) through `_write_fleet_nodes` produced correct `Tool` nodes —
+  `mcp_server=portainer-mcp/github-mcp`, `tags=["portainer"]/["github"]`,
+  `synonyms=["portainer","portainer-mcp"]/["github","github-mcp"]`, `relevance_score=0.5`,
+  `requires_approval=false` — verified via `graph_query`. Schema matches `config._fetch_tools`
+  exactly, so the dispatcher now synthesizes a portainer/github specialist from these nodes.
+- **Config-resolution fix:** the multiplexer's default `_resolve_config_path` picked an empty
+  0-byte `~/.gemini/antigravity/mcp_config.json` first → 0-server probe. `_resolve_fleet_config`
+  now validates a candidate parses to ≥1 `mcpServers` before use.
+
+**Deploy-gated remainder (for the merge step):** a **full-fleet** live re-ingest (all 55 servers,
+incl. the `*.arpa` ones) needs graph-os running this code **with** the injected OIDC creds — i.e.
+merge `feat/classify-a` → main and restart the served graph-os (boot step 4 re-ingests
+automatically, or call `source_sync source=fleet`). Then A5's profiling of the two slow turns (§6)
+becomes meaningful.
+
 ---
 
-## 4. Phase B — Engine-native lexical matcher + cascade rewire (after A checkpoint)
+## 4. Phase B — Engine-native lexical matcher + cascade rewire — **IMPLEMENTED 2026-06-20**
+
+> **Status:** built + tested + round-trip-validated against a real engine; **NOT merged/deployed**
+> (branches `feat/classify-b` in epistemic-graph, `feat/classify-a` in agent-utilities).
+> Concepts `EG-010` (engine lexical gate) + `ORCH-1.73` (keyword-free cascade).
+>
+> **What shipped (matches the plan below, with refinements):**
+> - **Engine (`EG-010`).** `GraphCore::match_ontology_terms(query)` — aho-corasick over capability
+>   names+synonyms (Tool/NativeTool/Skill/MCPServer/Server/BusinessCapability/Resource), **whole-word
+>   matched**, terms <3 chars dropped, deduped. **Cached** automaton on `GraphCore`, rebuilt only when
+>   the node count changes (so the "free tier" really is ~µs, not a full scan per turn — went beyond
+>   the "per-request build" the plan started with). `Method::MatchOntologyTerms` (read-only, flows
+>   through the dispatch catch-all, excluded from `requires_write` — no dispatch/access edits) +
+>   `GraphOperationsClient.match_ontology_terms` + `graph_compute.match_ontology_terms` wrappers. 3
+>   Rust unit tests + a real Python↔engine round-trip test (portainer/github cases). eg-core/eg-types
+>   green, clippy + check_no_pyo3 clean.
+> - **Cascade (`ORCH-1.73`).** `_plan_base_shape`: `strength≥2 → full`; else **engine lexical hit →
+>   full** (free); else a *substantial* (`> MAX_TRIVIAL_WORDS`) lexical-miss turn → `search_hybrid`
+>   (Stage 2, kept alive); else lean. Short trivial turns never pay semantic.
+> - **`_ESCALATION_KEYWORDS` DELETED.** `fast_path` is now purely structural (slash/length/multi-
+>   clause); `orchestration_signal_strength`/`needs_full_orchestration` no longer score domain words.
+>   Keyword-dependent tests rewritten to the structural+lexical contract.
+> - **Design note / refinement vs the plan:** with keywords gone the keyword-driven "strength 1"
+>   vanishes, so the semantic tier is now gated on a *structural length band* (substantial lexical-miss
+>   turns) instead of "every weak/none turn → search_hybrid" — otherwise trivial chat would pay 4.5 s
+>   every turn, violating "max free reasoning". Both §6 validation cases name their capability
+>   (portainer/github) so they escalate via the **free** lexical tier; semantic is the fallback for
+>   paraphrases that name no capability.
+>
+> **Deploy-gated (both phases together):** rebuild+restart the served engine with the new binary
+> (`match_ontology_terms`) AND graph-os with the new agent-utilities code, then run §6 live.
+
+### Original plan (for reference)
 
 - **B1. epistemic-graph (Rust) — `match_ontology_terms` (5 mapped edits):**
   - `crates/eg-core/src/graph.rs` — `GraphCore::match_ontology_terms(query)`: aho-corasick over

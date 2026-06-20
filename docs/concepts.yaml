@@ -2,8 +2,8 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 381
-total_pillars: 20
+total_concepts: 384
+total_pillars: 21
 pillars:
 - AHE-3
 - CE-038
@@ -15,6 +15,7 @@ pillars:
 - EE-037
 - EE-039
 - EG-009
+- EG-010
 - KG-1
 - KG-2
 - LGC-1
@@ -637,7 +638,7 @@ concepts:
   - agent_utilities/nested_context.py
   doc: Nested Subfolder Instructions
 - id: ECO-4.0
-  name: Register PlannerGraphSkill when graph_bundle is available
+  name: / Universal-capability — the orchestrator emits ONE Markdown answer; each
   pillar: ECO-4
   status: live
   code_paths:
@@ -699,6 +700,7 @@ concepts:
   - agent_utilities/messaging/kg_ingest.py
   - agent_utilities/messaging/models.py
   - agent_utilities/messaging/registry.py
+  - agent_utilities/messaging/render.py
   - agent_utilities/messaging/router.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_packs/finance.py
@@ -726,7 +728,7 @@ concepts:
   - agent_utilities/tools/tool_filtering.py
   - agent_utilities/tools/tool_registry.py
   - agent_utilities/tools/workspace_tools.py
-  doc: Register PlannerGraphSkill when graph_bundle is available
+  doc: / Universal-capability — the orchestrator emits ONE Markdown answer; each
 - id: ECO-4.1
   name: Live MCP server connection for tool metadata caching
   pillar: ECO-4
@@ -1353,6 +1355,15 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/standardization/standards.py
   doc: then by its node
+- id: EG-010
+  name: ORCH-1.73 — this module is now PURELY STRUCTURAL. The old hardcoded
+  pillar: EG-010
+  status: live
+  code_paths:
+  - agent_utilities/graph/routing/strategies/fast_path.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/orchestration/execution_profile.py
+  doc: ORCH-1.73 — this module is now PURELY STRUCTURAL. The old hardcoded
 - id: KG-1.0
   name: Centralized KG Coordination Protocol
   pillar: KG-1
@@ -3102,6 +3113,15 @@ concepts:
   - agent_utilities/messaging/router.py
   - agent_utilities/orchestration/agent_runner.py
   doc: refresh the per-session memento cache in this SAME background
+- id: KG-2.133
+  name: capability-node aliases the lexical gate matches;
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/mcp/kg_server.py
+  doc: capability-node aliases the lexical gate matches;
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -3805,7 +3825,7 @@ concepts:
   - agent_utilities/orchestration/execution_profile.py
   doc: the profile is no longer a fixed per-entrypoint *preset*; it is the
 - id: ORCH-1.68
-  name: the workspace-doc inventory is static within a process; cache it per
+  name: a direct-completion shape answers with one lean local-model round and
   pillar: ORCH-1
   status: live
   code_paths:
@@ -3816,15 +3836,15 @@ concepts:
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
   - agent_utilities/orchestration/execution_profile.py
-  doc: the workspace-doc inventory is static within a process; cache it per
+  doc: a direct-completion shape answers with one lean local-model round and
 - id: ORCH-1.69
-  name: only the ambiguous
+  name: the residual ambiguous
   pillar: ORCH-1
   status: live
   code_paths:
   - agent_utilities/graph/routing/strategies/fast_path.py
   - agent_utilities/orchestration/execution_profile.py
-  doc: only the ambiguous
+  doc: the residual ambiguous
 - id: ORCH-1.70
   name: ─────────────────────────────────────────────────
   pillar: ORCH-1
@@ -3842,6 +3862,15 @@ concepts:
   - agent_utilities/orchestration/execution_profile.py
   - agent_utilities/orchestration/outcome_router.py
   doc: teach the shape policy this archetype SUCCEEDED for this task-class
+- id: ORCH-1.72
+  name: prompt-only universal entrypoints that must flow through the full
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/messaging/router.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/execution_profile.py
+  doc: prompt-only universal entrypoints that must flow through the full
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
