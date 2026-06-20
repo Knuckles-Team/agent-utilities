@@ -504,7 +504,22 @@ def register_tool_surface(
     mode = tool_mode()
     registered_tags: list[str] = []
 
-    if mode in ("condensed", "both"):
+    targets = verbose_targets
+    if targets is None and client_cls is not None and get_client is not None:
+        targets = [
+            {
+                "client_cls": client_cls,
+                "get_client": get_client,
+                "tool_prefix": tool_prefix,
+                "manifest": manifest,
+            }
+        ]
+
+    # Condensed registers in condensed/both — and ALSO in verbose mode when the
+    # agent has no verbose target at all, so a condensed-only server (e.g. the
+    # core graph-os action wrapper) is never left empty by a deployment-wide
+    # MCP_TOOL_MODE=verbose meant for the connector fleet.
+    if mode in ("condensed", "both") or (mode == "verbose" and not targets):
         for tag, env_var, register_fn in _condensed_entries(
             tool_registry, tools_module, registrars
         ):
@@ -513,16 +528,6 @@ def register_tool_surface(
                 registered_tags.append(tag)
 
     if mode in ("verbose", "both"):
-        targets = verbose_targets
-        if targets is None and client_cls is not None and get_client is not None:
-            targets = [
-                {
-                    "client_cls": client_cls,
-                    "get_client": get_client,
-                    "tool_prefix": tool_prefix,
-                    "manifest": manifest,
-                }
-            ]
         for target in targets or []:
             register_verbose_tools(
                 mcp,
