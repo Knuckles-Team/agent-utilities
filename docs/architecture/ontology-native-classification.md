@@ -147,6 +147,36 @@ no equivalent — so binding the gate to it would silently fail on other backend
 **Done when:** portainer/github are capability nodes, and case 1 (§6) routes to the full graph
 AND the dispatcher reaches the portainer tool.
 
+### A4/A5 — live validation results (2026-06-20)
+
+Validated against the live durable KG + served read surface (engine + vLLM healthy;
+the GB10 power-fault memory is stale). **Branch `feat/classify-a`, NOT yet merged.**
+
+- **Baseline (the hole):** `MATCH (n) WHERE n.name CONTAINS 'portainer'|'github'` → **0** nodes;
+  `MATCH (t:Tool)` → only 3 stray nodes. Confirmed the missing fleet vocabulary.
+- **Served fleet:** the multiplexer sees **55 servers / 601 tools, all available** (incl.
+  `portainer-mcp` 10, `github-mcp` 11).
+- **Write path proven:** running `_sync_fleet(mode=full)` against the durable engine wrote **57
+  Tool nodes** for the reachable (stdio) servers (emerald-exchange 14 + graph-os 43), readable via
+  the served `graph_query`. The `*.arpa` HTTP servers returned **401** because the local debug
+  shell lacks the OIDC client-credentials the served multiplexer injects (expected — credential
+  access is human-gated by design).
+- **Case servers (portainer/github):** injecting their real catalog (from the served
+  `list_catalog`, which has creds) through `_write_fleet_nodes` produced correct `Tool` nodes —
+  `mcp_server=portainer-mcp/github-mcp`, `tags=["portainer"]/["github"]`,
+  `synonyms=["portainer","portainer-mcp"]/["github","github-mcp"]`, `relevance_score=0.5`,
+  `requires_approval=false` — verified via `graph_query`. Schema matches `config._fetch_tools`
+  exactly, so the dispatcher now synthesizes a portainer/github specialist from these nodes.
+- **Config-resolution fix:** the multiplexer's default `_resolve_config_path` picked an empty
+  0-byte `~/.gemini/antigravity/mcp_config.json` first → 0-server probe. `_resolve_fleet_config`
+  now validates a candidate parses to ≥1 `mcpServers` before use.
+
+**Deploy-gated remainder (for the merge step):** a **full-fleet** live re-ingest (all 55 servers,
+incl. the `*.arpa` ones) needs graph-os running this code **with** the injected OIDC creds — i.e.
+merge `feat/classify-a` → main and restart the served graph-os (boot step 4 re-ingests
+automatically, or call `source_sync source=fleet`). Then A5's profiling of the two slow turns (§6)
+becomes meaningful.
+
 ---
 
 ## 4. Phase B — Engine-native lexical matcher + cascade rewire (after A checkpoint)
