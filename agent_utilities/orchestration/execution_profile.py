@@ -138,6 +138,12 @@ class ExecutionProfile:
         """
         if self.direct_complete:
             return 25.0
+        if self.tool_servers:
+            # CONCEPT:ORCH-1.74 — the FOCUSED-TOOLS altitude is one agent loop that calls the
+            # bound servers' tools (in parallel), with NO planner / discovery / agent resolution
+            # / verifier / expert fan-out. So the budget grows mildly with the number of bound
+            # servers (each adds tool round-trips), not the full-graph apparatus (~190 s).
+            return min(35.0 + 20.0 * len(self.tool_servers), 190.0)
         budget = 45.0  # a single resolved-specialist turn
         if self.run_discovery:
             budget += 30.0  # the router's KG discovery + planning bundle
