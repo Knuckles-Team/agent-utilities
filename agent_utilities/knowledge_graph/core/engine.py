@@ -557,7 +557,7 @@ class IntelligenceGraphEngine(
                 else ""
             )
         query = (
-            f"MATCH (s{s_label} {{id: $sid}}), (t{t_label} {{id: $tid}}) "
+            f"MATCH (s{s_label} {{id: $sid}}) MATCH (t{t_label} {{id: $tid}}) "
             f"MERGE (s)-[r:{rel_type}]->(t){set_clause}"
         )
         params = {"sid": source_id, "tid": target_id}
