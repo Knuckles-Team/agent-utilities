@@ -99,6 +99,16 @@ def get_mcp_instance():
 > selection, per-domain `<DOMAIN>TOOL` gating, and the verbose surface. The manual
 > form above just illustrates what the helper does internally.
 
+## Tool tag standard
+
+`register_tool_surface` is the single source of truth for tool gating, so it also
+**standardizes tags**: as each `register_<domain>_tools` runs, the helper stamps the
+canonical **domain tag** (the `<DOMAIN>TOOL` stem) on every tool that registrar added,
+regardless of the ad-hoc tags the author wrote, and records the exact
+`tool -> <DOMAIN>TOOL` map on the server (`mcp._condensed_tool_toggles`). So a
+condensed tool always carries `{<domain>, …}` and a verbose tool `{verbose, <parent>}` —
+and the README generator reads the exact toggle map rather than guessing from tags.
+
 ## graph-os + the multiplexer: condensed by default, verbose on demand
 
 `graph-os` (the KG server — an action wrapper over the API gateway) runs in **`both`**
