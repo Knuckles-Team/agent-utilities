@@ -165,6 +165,42 @@ def is_host() -> bool:
     return effective_daemon_role() == "host"
 
 
+def host_daemon_running() -> bool:
+    """Read-only liveness probe for a container HEALTHCHECK: True iff a LIVE host daemon
+    currently holds the lock.
+
+    Unlike :func:`effective_daemon_role`, this NEVER tries to acquire the lock. A
+    healthcheck runs in a FRESH subprocess where the cached role is unset, so calling
+    ``effective_daemon_role()`` re-runs ``resolve_daemon_role()`` which, with
+    ``KG_DAEMON_ROLE=host``, tries to ACQUIRE the lock — and raises
+    :class:`KGHostAlreadyRunning` because the real daemon already holds it. The old
+    healthcheck mis-read that raise as failure and crash-looped the container every
+    ~3.5 min (start-period grace + 3 failed probes). Here we instead READ the lock
+    holder and verify its pid is alive — which is exactly the healthy state.
+    """
+    path = _lock_path()
+    if not path.exists():
+        return False
+    # Probe the flock itself rather than the file's recorded pid: the daemon holds a
+    # non-blocking EXCLUSIVE flock (see _try_acquire), so a non-blocking SHARED acquire
+    # FAILS while it runs and SUCCEEDS once it's gone. This neither blocks nor steals the
+    # lock (LOCK_SH is incompatible with the held LOCK_EX), and it's immune to a stale
+    # lockfile left by a released-but-not-deleted lock (no exclusive holder ⇒ SH succeeds).
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except OSError:
+        return True  # an exclusive lock is held → a live host daemon is running
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)  # nobody holds it → no host
+        return False
+    finally:
+        os.close(fd)
+
+
 def host_lock_holder() -> dict[str, Any] | None:
     """Return the recorded host identity metadata, or None if no lockfile yet."""
     return _read_holder(_lock_path()) or None
