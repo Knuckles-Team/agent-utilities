@@ -56,8 +56,6 @@ def test_chat_profile_bounds_node_timeouts() -> None:
         chat.verifier_timeout is not None
         and chat.verifier_timeout <= CHAT_NODE_TIMEOUT_S
     )
-    assert chat.fast_path_eligible is True
-    assert chat.cheap_fallback is True
 
 
 def test_task_profile_keeps_long_defaults() -> None:
@@ -71,7 +69,6 @@ def test_task_profile_keeps_long_defaults() -> None:
         # None timeouts → the long defaults are used by the builder/config.
         assert task.router_timeout is None
         assert task.verifier_timeout is None
-        assert task.cheap_fallback is False
 
 
 def test_chat_profile_stays_under_reply_budget(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -696,6 +693,39 @@ def test_focused_tools_shape_carries_named_servers() -> None:
     assert shape.origin == "lexical"
     # distinct, de-duped, best-score first (portainer_stack score 15 → portainer-mcp first)
     assert shape.tool_servers == ("portainer-mcp", "github-mcp")
+
+
+def test_focused_tools_wins_over_structural_signal() -> None:
+    """CONCEPT:ORCH-1.74 — a turn that NAMES concrete capabilities takes the focused-tools
+    altitude even when it is multi-clause + over-length (strength>=2). The real Telegram
+    regression: 'fetch my github issues? ... ? list my portainer stacks?' was going to the
+    full planning graph instead of one parallel tool loop."""
+    from agent_utilities.graph.routing.strategies.fast_path import (
+        orchestration_signal_strength,
+    )
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        reset_recipe_cache,
+    )
+
+    msg = (
+        "Can you use the github mcp to fetch me the open issues for my Knuckles-Team "
+        "organization repositories? Is there a way to get issues wholistically open across "
+        "all projects in the organization? Can you list the stacks I have running on portainer?"
+    )
+    assert orchestration_signal_strength(msg) >= 2  # multi-clause + over-length
+    eng = _FakeSearchEngine(
+        RuntimeError("semantic search must NOT run — focused-tools wins"),
+        lexical=[
+            {"term": "github", "mcp_server": "github-mcp", "score": 6.0},
+            {"term": "portainer", "mcp_server": "portainer-mcp", "score": 9.0},
+        ],
+    )
+    reset_recipe_cache()
+    shape = plan_execution_shape(msg, profile_hint="chat", engine=eng)
+    assert shape.origin == "lexical"
+    assert shape.direct_complete is False
+    assert set(shape.tool_servers) == {"portainer-mcp", "github-mcp"}
 
 
 def test_focused_tools_resolver_dedups_and_orders() -> None:

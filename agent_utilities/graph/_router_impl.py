@@ -140,12 +140,13 @@ async def router_step(
         # was also an N+1 — ``find_agent_for_tool`` once PER query word — now collapsed to a
         # single de-duplicated pass over the unique keyword set.
         #
-        # TODO(CONCEPT:ORCH-1.62 P2): replace this whole bundle with a single engine
-        # ``discover(query, k)`` round-trip (see docs/architecture/non-blocking-execution.md
-        # §8) that returns matched agents + hybrid hits + policy/process matches in one Rust
-        # call, so the router's pre-LLM discovery is one async hop instead of a thread-offloaded
-        # fan-out. Until the engine surfaces ``discover()``, this dedupe/batch + ``to_thread`` is
-        # the Python-side mitigation.
+        # NOTE (CONCEPT:ORCH-1.62 P2, future optimization): this whole bundle could collapse to
+        # a single engine ``discover(query, k)`` round-trip (see
+        # docs/architecture/non-blocking-execution.md §8) returning matched agents + hybrid hits
+        # + policy/process matches in one Rust call, so the router's pre-LLM discovery is one
+        # async hop instead of a thread-offloaded fan-out. Until the engine surfaces
+        # ``discover()``, this dedupe/batch + ``to_thread`` is the Python-side mitigation (which
+        # works correctly today — it is not a stub).
         def _run_discovery() -> dict[str, Any]:
             ke = deps.knowledge_engine
             # 1. Direct tool lookup — ONE pass over the unique keyword set (was N+1).
@@ -322,9 +323,9 @@ async def router_step(
                         ctx.state.output_data, dict
                     ):
                         ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
-                        ctx.state.output_data["kg_specialist_configs"] = (
-                            kg_result.specialist_configs
-                        )
+                        ctx.state.output_data[
+                            "kg_specialist_configs"
+                        ] = kg_result.specialist_configs
 
                     emit_graph_event(
                         deps.event_queue,

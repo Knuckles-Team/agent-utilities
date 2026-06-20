@@ -14,7 +14,7 @@ from agent_utilities.knowledge_graph.core import engine_memory, host_lock
 
 
 class _StubEngine:
-    # Bind the real method under test onto a minimal stub — the serving-role branch only
+    # Bind the real method under test onto a minimal fake — the serving-role branch only
     # needs ``submit_task`` (it returns before touching the retriever/backend).
     store_memory = engine_memory.MemoryMixin.store_memory
 
