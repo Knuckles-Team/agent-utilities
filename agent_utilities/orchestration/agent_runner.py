@@ -365,11 +365,17 @@ async def run_agent(
         # ARPO read-back (CONCEPT:AHE-3.15): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
         _write_step_credit(engine, run_id, agent_name, None, success=False)
-        # CONCEPT:ORCH-1.70 — fold the failure back into the planner: evict this job's cached
-        # recipe so the next identical job re-plans instead of repeating a shape that failed.
+        # CONCEPT:ORCH-1.70/1.71 — fold the failure back into the planner: evict this job's
+        # cached recipe AND teach the shape policy (this archetype failed for this task-class).
         from agent_utilities.orchestration.execution_profile import record_shape_outcome
 
-        record_shape_outcome(task, execution_profile, success=False)
+        record_shape_outcome(
+            task,
+            execution_profile,
+            success=False,
+            latency_s=time.monotonic() - start_time,
+            shape=shape,
+        )
         return f"Agent execution failed: {err_msg}"
 
     # Step 5: Record success provenance
@@ -387,6 +393,17 @@ async def run_agent(
     # this run into the capability reward-EMA so routing learns from the steps,
     # not only the final answer. Guarded — never breaks the run path.
     _write_step_credit(engine, run_id, agent_name, result, success=True)
+    # CONCEPT:ORCH-1.71 — teach the shape policy this archetype SUCCEEDED for this task-class,
+    # rewarded by speed (success × how little of the budget it spent).
+    from agent_utilities.orchestration.execution_profile import record_shape_outcome
+
+    record_shape_outcome(
+        task,
+        execution_profile,
+        success=True,
+        latency_s=duration_ms / 1000.0,
+        shape=shape,
+    )
     # CONCEPT:ORCH-1.40 — anchor this run to its Session (id-addressable) so "list runs by
     # session" is a reliable single-hop traversal, mirroring HAS_CONTEXT/HAS_MESSAGE.
     if session_id:

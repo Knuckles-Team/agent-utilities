@@ -231,22 +231,41 @@ def reset_recipe_cache() -> None:
 
 
 def record_shape_outcome(
-    task: str, profile_hint: str | ExecutionProfile | None, *, success: bool
+    task: str,
+    profile_hint: str | ExecutionProfile | None,
+    *,
+    success: bool,
+    latency_s: float | None = None,
+    shape: ExecutionProfile | None = None,
 ) -> None:
-    """Close the learning loop on a planned recipe (CONCEPT:ORCH-1.70).
+    """Close the learning loop on a planned shape (CONCEPT:ORCH-1.70/1.71).
 
-    The planner caches a shape at plan-time; this folds the RUN RESULT back in. A successful
-    run leaves the recipe cached (it is reused for the next identical job — reinforcement); a
-    failed run EVICTS it, so the next identical job re-plans from scratch instead of blindly
-    repeating a shape that did not work. Cheap, in-process, and best-effort — never raises into
-    the caller's result path.
+    Folds the RUN RESULT back into both layers:
+
+    * **Recipe cache (ORCH-1.70)** — a failed run EVICTS the cached recipe so the next identical
+      job re-plans instead of repeating a shape that failed; a success leaves it cached.
+    * **Learned shape policy (ORCH-1.71)** — when the run's ``shape`` and ``latency_s`` are known,
+      reward that shape's archetype for the task-class by ``success × speed`` (``outcome_reward``)
+      via the shared ``OutcomeRouter``/``CapabilityIndex`` reward-EMA, so the policy learns which
+      shape wins per task-class.
+
+    Cheap, in-process, best-effort — never raises into the caller's result path.
     """
-    if success:
-        return  # the cached entry stays (reused next time)
-    try:
-        _RECIPE_CACHE.pop(_job_signature(task, profile_hint), None)
-    except Exception as e:  # noqa: BLE001
-        logger.debug("[ORCH-1.70] recipe outcome record skipped: %s", e)
+    if not success:
+        try:
+            _RECIPE_CACHE.pop(_job_signature(task, profile_hint), None)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[ORCH-1.70] recipe outcome record skipped: %s", e)
+
+    if shape is not None and latency_s is not None:
+        try:
+            from agent_utilities.agent.sampling_profile import classify_task
+            from agent_utilities.orchestration.outcome_router import outcome_reward
+
+            reward = outcome_reward(success=success, latency_s=latency_s)
+            _shape_router().record(classify_task(task), _archetype_of(shape), reward)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[ORCH-1.71] shape policy learn skipped: %s", e)
 
 
 def _resolve_job_capabilities(
@@ -284,13 +303,13 @@ def _refine_with_kg(
     return replace(base, **_LEAN_FIELDS, origin="designate-empty", confidence=0.7)
 
 
-def plan_execution_shape(
+def _plan_base_shape(
     task: str,
     *,
     profile_hint: str | ExecutionProfile | None = None,
     engine: IntelligenceGraphEngine | None = None,
 ) -> ExecutionProfile:
-    """Construct the execution shape for ONE job (CONCEPT:ORCH-1.67/1.69/1.70).
+    """Construct the BASE (structural) execution shape for ONE job (CONCEPT:ORCH-1.67/1.69/1.70).
 
     The single, dynamic entry the orchestrator uses to decide *how much graph* a job needs —
     replacing the static ``"chat"``/``"task"`` preset. It runs an **escalating planner** (a
@@ -343,3 +362,75 @@ def plan_execution_shape(
 
     _recipe_cache_put(sig, shape)
     return shape
+
+
+# ── Learned shape policy (CONCEPT:ORCH-1.71) ─────────────────────────────────────────
+# The heuristic cascade above is a PRIOR; an outcome-learned policy refines which shape
+# (lean direct-completion vs full graph) actually wins per task-class, learned from real run
+# outcomes (success × speed). It collapses into the ONE shared reward-EMA spine
+# (``OutcomeRouter`` → ``CapabilityIndex``) that the KG-2.68 reasoner router and AHE-3.38
+# profile evolution already use — not a new bandit — and adds ~zero per-call overhead (a free
+# task-class classify + two O(1) reward reads; NO per-turn embedding).
+_SHAPE_LEAN = "lean"
+_SHAPE_FULL = "full"
+_SHAPE_ARCHETYPES = (_SHAPE_LEAN, _SHAPE_FULL)
+_SHAPE_ROUTER: Any = None
+
+
+def _shape_router() -> Any:
+    """Lazily build the shared shape ``OutcomeRouter`` (keeps this module import-light)."""
+    global _SHAPE_ROUTER
+    if _SHAPE_ROUTER is None:
+        from agent_utilities.orchestration.outcome_router import OutcomeRouter
+
+        _SHAPE_ROUTER = OutcomeRouter("shape")
+    return _SHAPE_ROUTER
+
+
+def reset_shape_policy() -> None:
+    """Reset the learned shape policy (tests; a deployment wanting a cold policy)."""
+    global _SHAPE_ROUTER
+    _SHAPE_ROUTER = None
+
+
+def _archetype_of(shape: ExecutionProfile) -> str:
+    return _SHAPE_LEAN if shape.direct_complete else _SHAPE_FULL
+
+
+def _apply_shape_policy(task: str, base: ExecutionProfile) -> ExecutionProfile:
+    """Refine the heuristic base shape with the learned per-task-class policy (CONCEPT:ORCH-1.71).
+
+    A fresh, dynamic overlay on every call (NOT cached) so it reflects the latest learning: the
+    base archetype is the prior; the policy flips it only when the learned reward-EMA for the
+    alternative exceeds the prior's for this task-class. Free task-class classify + O(1) reads.
+    """
+    try:
+        from agent_utilities.agent.sampling_profile import classify_task
+
+        task_class = classify_task(task)
+        prior = _archetype_of(base)
+        chosen = _shape_router().select(task_class, prior, _SHAPE_ARCHETYPES)
+        if chosen == prior:
+            return base
+        fields = _LEAN_FIELDS if chosen == _SHAPE_LEAN else _FULL_FIELDS
+        return replace(base, **fields, origin=f"policy:{chosen}")
+    except Exception as e:  # noqa: BLE001 — the policy must never break planning
+        logger.debug("[ORCH-1.71] shape policy overlay skipped: %s", e)
+        return base
+
+
+def plan_execution_shape(
+    task: str,
+    *,
+    profile_hint: str | ExecutionProfile | None = None,
+    engine: IntelligenceGraphEngine | None = None,
+) -> ExecutionProfile:
+    """Construct the execution shape for ONE job — heuristic cascade refined by the learned policy.
+
+    CONCEPT:ORCH-1.67/1.69/1.70/1.71. The base shape comes from the escalating cascade (cache →
+    structural strength → Rust-routed KG search); the learned per-task-class policy then refines
+    which archetype actually wins, from real run outcomes. ``profile_hint`` (the entrypoint
+    altitude) seeds the timeout budget.
+    """
+    base = _plan_base_shape(task, profile_hint=profile_hint, engine=engine)
+    return _apply_shape_policy(task, base)

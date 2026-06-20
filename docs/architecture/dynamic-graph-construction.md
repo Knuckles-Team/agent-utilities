@@ -71,6 +71,27 @@ flowchart TD
   decomposition (`graph/planning/Planner.decompose`).
 - **Learning loop** (ORCH-1.70, **built**): `record_shape_outcome`, wired into `run_agent`, evicts a
   recipe whose run **failed** (re-plan next time) and keeps one whose run **succeeded** (reinforce).
+- **Learned shape policy** (ORCH-1.71, **built**): the heuristic cascade is a *prior*; an
+  outcome-learned policy (`orchestration/outcome_router.OutcomeRouter`) refines which archetype
+  (lean vs full) actually wins **per task-class**, learned from real outcomes (`success × speed`,
+  `outcome_reward`). Applied as a fresh dynamic overlay on every plan (`_apply_shape_policy`) so it
+  reflects the latest learning and **flips** the heuristic only once the alternative's reward-EMA
+  exceeds the prior's.
+
+## Collapsing into the one reward spine (no parallel bandit)
+
+The shape policy deliberately **does not** add a new learner. `OutcomeRouter` is a thin,
+**embedding-free** wrapper over the *same* `CapabilityIndex` reward-EMA (`record_outcome`/`reward_of`)
+that the **KG-2.68 `ReasonerRouter`** (paradigm routing) and the **AHE-3.38** sampling-profile
+EMA-tournament already use — keyed like `_profile_id(task_class, choice)`, with the task-class from the
+*same* `agent/sampling_profile.classify_task`. So shape, paradigm, and profile selection are all
+instances of **one** *"pick per task-class, learn from outcome"* mechanism, not N. (DSPy stays for
+offline *text-artifact* optimization; the live learner is the reward spine. Langfuse is export-only.)
+
+**Overhead is ~zero:** selection is a free keyword `classify_task` + two O(1) reward reads — **no
+per-turn embedding** — so it never reintroduces the latency the lean fast path removed. Durable
+cross-process persistence of the reward map (fleet-wide, survives restart) is the next layer; the
+in-process router mirrors `ReasonerRouter`'s own index.
 
 ## Performance: routing vector search through the Rust engine
 
