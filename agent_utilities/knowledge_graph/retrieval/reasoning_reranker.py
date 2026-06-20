@@ -135,7 +135,8 @@ def _auto_scorer() -> RerankScorer:
         base = (
             config.kg_rerank_base_url or config.openai_base_url or "http://vllm.arpa/v1"
         )
-        return RemoteRerankScorer(config.kg_rerank_model, base)
+        # RemoteRerankScorer implements the RerankScorer scoring interface at runtime.
+        return RemoteRerankScorer(config.kg_rerank_model, base)  # type: ignore[return-value]
 
     # 2) No remote model → the dependency-free lexical scorer, unless a host explicitly
     # opts into the local neural cross-encoder.

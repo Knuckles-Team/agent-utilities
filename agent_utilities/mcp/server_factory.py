@@ -487,7 +487,7 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
             jwks_uri_for(i.strip()) for i in str(issuer).split(",") if i.strip()
         ]
         if _resolved and all(_resolved):
-            jwks_uri = ",".join(_resolved)
+            jwks_uri = ",".join(u for u in _resolved if u)
         elif any(_resolved):
             logger.warning(
                 "OIDC discovery resolved JWKS for only some of issuer(s) '%s'; "

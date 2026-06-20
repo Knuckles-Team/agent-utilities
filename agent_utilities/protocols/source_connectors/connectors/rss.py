@@ -111,7 +111,7 @@ class RssConnector(LoadConnector, PollConnector):
     def configure(
         self,
         *,
-        feed_urls: list[str] | str = (),
+        feed_urls: list[str] | str | tuple[str, ...] = (),
         max_items: int = 200,
         doc_type: str = "feed_item",
         source_name: str = "rss",
