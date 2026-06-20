@@ -122,6 +122,30 @@ def _ensure_env_loaded():
     _load_xdg_json_config()
 
 
+def load_config(*, reload: bool = False) -> None:
+    """Load the agent-utilities configuration into the process environment.
+
+    Public, idempotent entry point for the shared dotenv + XDG ``config.json``
+    injection. Calling it makes ``~/.config/agent-utilities/config.json`` (or
+    ``$AGENT_UTILITIES_CONFIG_DIR``) the single source of truth for every agent
+    package: each key is upper-cased and written into ``os.environ`` (a real env
+    var always wins), after which any ``config.setting(...)`` or ``os.getenv(...)``
+    read sees it.
+
+    Agent MCP entry points call this in place of ``load_dotenv(find_dotenv())``
+    so the whole fleet resolves settings through one shared config rather than a
+    per-package ``.env`` + scattered bare reads. Idempotent and safe to call
+    repeatedly; pass ``reload=True`` to re-read after the file changed. Under the
+    test harness it is a deliberate no-op (hermetic tests set their own env).
+
+    CONCEPT:ECO-4.82 — fleet XDG config standardization
+    """
+    global _env_loaded
+    if reload:
+        _env_loaded = False
+    _ensure_env_loaded()
+
+
 def _under_pytest() -> bool:
     """True during a pytest session.
 

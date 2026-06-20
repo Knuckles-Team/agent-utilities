@@ -98,6 +98,20 @@ def __getattr__(name: str):
 
         return concurrency_mod.run_blocking
 
+    # Verbose 1:1 tool surface + the MCP_TOOL_MODE knob
+    if name in ("tool_mode", "register_verbose_tools", "VALID_TOOL_MODES"):
+        import agent_utilities.mcp.verbose_tools as verbose_mod
+
+        return getattr(verbose_mod, name)
+
+    # Shared config loader — agents call this in place of load_dotenv(find_dotenv())
+    if name == "load_config":
+        import importlib
+
+        config_mod = importlib.import_module("agent_utilities.core.config")
+
+        return config_mod.load_config
+
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -138,4 +152,9 @@ __all__ = [
     "dispatch",
     # concurrency
     "run_blocking",
+    # tool-mode surface + config loader
+    "tool_mode",
+    "register_verbose_tools",
+    "VALID_TOOL_MODES",
+    "load_config",
 ]
