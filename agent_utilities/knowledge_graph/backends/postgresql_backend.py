@@ -104,11 +104,21 @@ class PostgreSQLBackend(GraphBackend):
         """Get a connection from the pool."""
         pool = self._ensure_pool()
         if isinstance(pool, _SingleConnPool):
-            yield pool.conn
+            # A failed statement leaves the SHARED single connection in an aborted
+            # transaction. The commit/rollback MUST bracket the yield (try/except),
+            # not follow it: an exception in the ``with`` body is raised AT the yield,
+            # so post-yield statements never run — previously the connection was left
+            # aborted and EVERY subsequent write (incl. the auto-DDL self-heal's
+            # CREATE TABLE + its retry) cascaded "current transaction is aborted".
             try:
+                yield pool.conn
                 pool.conn.commit()
             except Exception:
-                pool.conn.rollback()
+                try:
+                    pool.conn.rollback()
+                except Exception:  # noqa: BLE001 — rollback is best-effort
+                    pass
+                raise
         else:
             with pool.connection() as conn:
                 yield conn
