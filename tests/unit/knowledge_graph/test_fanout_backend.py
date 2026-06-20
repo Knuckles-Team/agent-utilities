@@ -218,7 +218,7 @@ def test_edge_write_replays_structurally_per_dialect(tmp_path):
     try:
         # The engine's edge-write shape (IntelligenceGraphEngine._upsert_edge).
         fan.execute(
-            "MATCH (s {id: $sid}), (t {id: $tid}) "
+            "MATCH (s {id: $sid}) MATCH (t {id: $tid}) "
             "MERGE (s)-[r:DEPENDS_ON]->(t) SET r.`confidence` = $confidence",
             {"sid": "a", "tid": "b", "confidence": 0.9},
             is_write=True,
