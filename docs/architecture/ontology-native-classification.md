@@ -1,11 +1,35 @@
 # Ontology-native classification — full handoff (Phase A → checkpoint → Phase B)
 
-> **Status:** APPROVED 2026-06-20. Phase A1 done (injection point located); A2–A5 + B not
-> started. **Decisions:** (1) Phase-A capability source of truth = the **served multiplexer /
-> registry catalog** (not AST); (2) build **Phase A fully → checkpoint for review → then B**.
-> **Goal:** classify a chat turn (lean-chat vs full multi-agent graph) from the **live ontology**
-> — **zero hardcoded domain keywords** — following *maximize "free" reasoning, escalate only for
-> complexity*.
+> **Status:** Phase A **IMPLEMENTED** 2026-06-20 (`CONCEPT:KG-2.133`) — A2 (served-catalog
+> ingest step) + A3 (capability schema + two surfaces) landed; A4/A5 = live re-ingest + verify
+> (runbook §6). **B not started** (checkpoint here per decision 2). **Decisions:** (1) Phase-A
+> capability source of truth = the **served multiplexer / registry catalog** (not AST); (2) build
+> **Phase A fully → checkpoint for review → then B**. **Goal:** classify a chat turn (lean-chat vs
+> full multi-agent graph) from the **live ontology** — **zero hardcoded domain keywords** —
+> following *maximize "free" reasoning, escalate only for complexity*.
+>
+> **What Phase A shipped:** a `fleet` source handler
+> (`knowledge_graph/core/source_sync.py::_sync_fleet`) probes the multiplexer catalog
+> (`MCPMultiplexer.probe_catalog`) and writes every fleet tool as a `Tool` capability node
+> `{name, description, mcp_server, tags, relevance_score, requires_approval, synonyms, kind}`
+> linked to its `MCPServer` via `SERVES`. It runs at graph-os boot (`kg_server._ingest_capabilities`
+> step 4, native/default-on) and via `source_sync source=fleet` (MCP **and** REST `/source/sync`).
+> `MCPServer` nodes gained product `synonyms` (`portainer-agent` → `portainer`). This schema is the
+> one the dispatcher already reads (`config._fetch_tools` → `MATCH (t:Tool)`), so **the same data
+> fixes the classification gate *and* the "no fleet specialist" dispatcher hole**.
+>
+> ```mermaid
+> flowchart LR
+>   cfg["mcp_config.json (~62 fleet servers)"] --> mux["MCPMultiplexer.probe_catalog: connect→list_tools→release"]
+>   mux --> sync["_sync_fleet (source=fleet)"]
+>   boot["graph-os boot: _ingest_capabilities step 4"] --> sync
+>   rest["REST /source/sync + MCP source_sync"] --> sync
+>   sync --> tools[("Tool nodes: name/mcp_server/tags/synonyms")]
+>   sync --> srv[("MCPServer nodes +synonyms")]
+>   srv -- SERVES --> tools
+>   tools --> gate["ontology lexical gate (Phase B: match_ontology_terms)"]
+>   tools --> disp["dispatcher _fetch_tools: MATCH (t:Tool) → specialist"]
+> ```
 
 ---
 
@@ -95,19 +119,23 @@ no equivalent — so binding the gate to it would silently fail on other backend
   `__agentic_version__`) → `NativeTool` nodes (~2115–2143 — the `add_node(f"native_tool_{name}",
   "NativeTool", {name, description, version, module, disabled})` pattern to mirror); skills dir →
   `Skill` (~2147). **GAP:** it never enumerates each fleet server's TOOLS.
-- **A2. Add a served-catalog step** (Native-by-default, no flag) in that bootstrap (or a
-  dedicated connector): enumerate the multiplexer catalog (server → tools, via `list_catalog` /
-  MCP introspection of each server in `mcp_config`) and `engine.add_node` each tool as a `Tool`
-  capability node `{name, description, server}`, linked to its `MCPServer` (`SERVES` / `servedBy`)
-  and cross-linked to the existing `Code` node for provenance. Reuse
-  `physical_distiller.distill_mcp_tool` / `skill_synthesizer.classify` where they fit.
-  - *Catalog access:* prefer the multiplexer's aggregated catalog (it already lists every fleet
-    tool with name+description+server). Fallback: iterate `mcp_config` servers and MCP-introspect
-    each (`list_tools`). Handle unreachable servers gracefully (skip, log) — coverage = currently
-    registered servers (the accepted trade-off of the "served catalog" decision).
-- **A3. Standardize the capability node schema** (`name`, `description`, `server`, `kind`,
-  `synonyms`/aliases) + the ontology mapping (`owl_bridge`) so the **gate AND the dispatcher's
-  specialist routing** query it uniformly. Surface over `graph_*` MCP + REST (two-surface rule).
+- **A2 (DONE). Served-catalog step.** `knowledge_graph/core/source_sync.py::_sync_fleet` builds an
+  `MCPMultiplexer` from the fleet `mcp_config.json` and calls `probe_catalog()` (the cached
+  connect→`list_tools`→release sweep, bounded at 16, per-server timeout, unreachable servers
+  recorded not fatal). `_write_fleet_nodes` then `engine.add_node`s each tool as a `Tool` node and
+  `link_nodes(..., "SERVES", ...)` to its `MCPServer`. Wired native/default-on into the boot ingest
+  as **step 4** (`kg_server._ingest_capabilities`, via `sync_source(engine, "fleet", mode="full")`).
+  Excluded from the `*/20m` document sweep (capability vocab is slow-changing). *(We did not reuse
+  `physical_distiller.distill_mcp_tool` — it writes evolved descriptions back to source, not a
+  catalog enumerator; the multiplexer probe IS the served catalog the decision named.)*
+- **A3 (DONE). Schema + two surfaces.** The `Tool` node schema is the exact set the dispatcher
+  already reads — `name`, `description`, `mcp_server`, `tags`, `relevance_score`,
+  `requires_approval` (`config._fetch_tools`) — plus `synonyms` (product aliases for the gate) and
+  `kind="mcp_tool"`. `MCPServer` nodes also carry `synonyms` (`derive_capability_synonyms`). OWL:
+  `"tool"` is already in `owl_bridge.PROMOTABLE_NODE_TYPES`, so `Tool` nodes promote to class `Tool`
+  with no edit. **Two surfaces for free:** `source_sync source=fleet` (MCP) and `POST /source/sync
+  {"source":"fleet"}` (REST) both dispatch into `_sync_fleet` through the one `sync_source`
+  entrypoint — no new tool/route, inside the surface-parity contract.
 - **A4. Re-ingest the fleet.** Run the live E2E protocol (`ingestion-validation-protocol` memory):
   restart graph-os, `go__source_sync` (or the bootstrap), re-run to prove `skipped_unchanged`.
   **Needs a healthy engine/embeddings (GB10/vLLM).**

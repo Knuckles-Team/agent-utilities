@@ -251,4 +251,8 @@ def test_sweep_all_sources_classifies_results(monkeypatch):
     assert "archivebox" in out["skipped"]
     assert "servicenow" in out["errors"]
     assert "jira" not in out["synced"] and "jira" not in out["errors"]
-    assert out["counts"] == {"synced": 2, "skipped": 1, "errors": 1}
+    # synced: leanix + gitlab; errors: servicenow; skipped: archivebox (no new
+    # snapshots) + the unconfigured delta handlers (rss/freshrss/jira/confluence
+    # /plane) whose fake_sync raises "not configured". ``fleet`` is excluded from
+    # the sweep, so it never enters any bucket.
+    assert out["counts"] == {"synced": 2, "skipped": 6, "errors": 1}

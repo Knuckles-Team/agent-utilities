@@ -111,12 +111,33 @@ def _reconcile(engine: Any, source: str, live_ids: set[str]) -> dict[str, Any]:
 # (``portainer-agent`` → ``portainer``), mirroring how ``config.py``'s
 # ``_synthesize_partition_agents`` derives its ``server_tag``.
 _CAPABILITY_GENERIC_TOKENS = frozenset(
-    {"mcp", "agent", "api", "server", "service", "manager", "tool", "tools",
-     "client", "connector", "package"}
+    {
+        "mcp",
+        "agent",
+        "api",
+        "server",
+        "service",
+        "manager",
+        "tool",
+        "tools",
+        "client",
+        "connector",
+        "package",
+    }
 )
 _CAPABILITY_NAME_SUFFIXES = (
-    "-mcp", "_mcp", "-agent", "_agent", "-api", "_api", "-server", "_server",
-    "-manager", "_manager", "-service", "_service",
+    "-mcp",
+    "_mcp",
+    "-agent",
+    "_agent",
+    "-api",
+    "_api",
+    "-server",
+    "_server",
+    "-manager",
+    "_manager",
+    "-service",
+    "_service",
 )
 
 
@@ -224,7 +245,9 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
             )
             servers_written += 1
         except Exception:  # noqa: BLE001 — one bad server never aborts the sweep
-            logger.debug("fleet: server upsert failed for %s", server_name, exc_info=True)
+            logger.debug(
+                "fleet: server upsert failed for %s", server_name, exc_info=True
+            )
 
         for entry in tools:
             if not isinstance(entry, dict):
@@ -253,7 +276,9 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                 tools_written += 1
             except Exception:  # noqa: BLE001 — isolate per-tool failures
                 logger.debug(
-                    "fleet: tool write failed for %s/%s", server_name, tool_name,
+                    "fleet: tool write failed for %s/%s",
+                    server_name,
+                    tool_name,
                     exc_info=True,
                 )
 
@@ -282,11 +307,19 @@ def _sync_fleet(
             from ...mcp.multiplexer import MCPMultiplexer, _resolve_config_path
             from ...protocols.source_connectors.connectors.mcp_package import _run_async
         except Exception as exc:  # noqa: BLE001 — multiplexer optional at import
-            return {"status": "skipped", "source": "fleet", "reason": f"multiplexer unavailable: {exc}"}
+            return {
+                "status": "skipped",
+                "source": "fleet",
+                "reason": f"multiplexer unavailable: {exc}",
+            }
 
         config_path = _resolve_config_path(None)
         if config_path is None or not config_path.exists():
-            return {"status": "skipped", "source": "fleet", "reason": "no mcp_config.json found"}
+            return {
+                "status": "skipped",
+                "source": "fleet",
+                "reason": "no mcp_config.json found",
+            }
         try:
             mux = MCPMultiplexer(config_path)
             catalog = _run_async(mux.probe_catalog())
