@@ -652,3 +652,29 @@ async def test_always_on_holds_verbose_tools_in_catalog(tmp_path):
     exposed = mux._exposed
     assert any(n.endswith("graph_write") for n in exposed)
     assert not any("graph_write_add_node" in n for n in exposed)
+
+
+async def test_server_load_holds_verbose(tmp_path):
+    """CONCEPT:ECO-4.82 — load_tools(servers=[X]) exposes only X's condensed tools; verbose
+    1:1 tools stay loadable only by EXPLICIT name, so a server-load never floods context."""
+    servers = {"svc": {"command": "python", "args": ["-m", "svc"]}}
+    mux = MCPMultiplexer(_write_config(tmp_path, servers))
+
+    async def fake_start_child(server_name, cfg):
+        tools = [
+            _fake_tool("svc_action", "condensed action-routed"),
+            _fake_tool("svc_get_thing", "verbose 1:1", tags=["verbose"]),
+        ]
+        return server_name, AsyncMock(), tools, cfg
+
+    mux._start_child = AsyncMock(side_effect=fake_start_child)
+
+    _s, to_expose, _f = await mux.resolve_and_mount(servers=["svc"])
+    cond = [n for n in to_expose if n.endswith("action")]
+    verb = [n for n in to_expose if n.endswith("get_thing")]
+    assert cond and not verb  # condensed exposed, verbose held
+
+    # verbose IS loadable by explicit name
+    verbose_name = next(n for n in mux.tool_to_server if n.endswith("get_thing"))
+    _s2, to_expose2, _f2 = await mux.resolve_and_mount(tools=[verbose_name])
+    assert verbose_name in to_expose2

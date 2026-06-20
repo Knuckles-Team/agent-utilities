@@ -1063,9 +1063,16 @@ class MCPMultiplexer:
         if requested_tools:
             wanted = set(requested_tools)
         else:
+            # CONCEPT:ECO-4.82 — a SERVER-level load exposes only the condensed action
+            # surface; verbose 1:1 tools stay loadable by EXPLICIT name (via requested_tools)
+            # so ``load_tools(servers=[X])`` never floods a session's context with X's whole
+            # granular surface. Mirrors the always-on mount's verbose-hold.
             wanted = set()
             for server in mounted:
-                wanted.update(t.name for t in self.prefixed_tools_for_server(server))
+                for t in self.prefixed_tools_for_server(server):
+                    if _tool_is_verbose(t):
+                        continue
+                    wanted.add(t.name)
 
         to_expose = [
             name

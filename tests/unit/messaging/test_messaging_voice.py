@@ -83,3 +83,14 @@ def test_get_backend_falls_back_to_faster_whisper(
         assert backend.transcribe("x.ogg")["text"] == "hello world"
     finally:
         voice._backend = None
+
+
+def test_sniff_image_media_type() -> None:
+    """CONCEPT:ECO-4.67 — magic-byte sniff for generic/absent content-types (Telegram)."""
+    from agent_utilities.messaging.router import _sniff_image_media_type
+
+    assert _sniff_image_media_type(b"\xff\xd8\xff\xe0junk") == "image/jpeg"
+    assert _sniff_image_media_type(b"\x89PNG\r\n\x1a\nrest") == "image/png"
+    assert _sniff_image_media_type(b"GIF89a...") == "image/gif"
+    assert _sniff_image_media_type(b"RIFF\x00\x00\x00\x00WEBPxx") == "image/webp"
+    assert _sniff_image_media_type(b"not-an-image") is None
