@@ -59,6 +59,25 @@ def test_host_acquires_then_releases():
         hl.release_host_lock()
 
 
+def test_host_daemon_running_is_a_readonly_liveness_probe():
+    """The container HEALTHCHECK uses host_daemon_running(): it PROBES the flock (a held
+    exclusive lock ⇒ a live host) without trying to acquire it — the crash-loop bug was
+    acquiring → raising KGHostAlreadyRunning. False when no host holds the lock; True while
+    one does; False again after release (immune to a released-but-undeleted lockfile)."""
+    hl = _fresh_module()
+    try:
+        # no exclusive holder yet → not running
+        assert hl.host_daemon_running() is False
+        # become host (holds the exclusive flock) → running
+        assert hl.resolve_daemon_role("host") == "host"
+        assert hl.host_daemon_running() is True
+        # release → the exclusive lock is gone → not running (even though the file remains)
+        hl.release_host_lock()
+        assert hl.host_daemon_running() is False
+    finally:
+        hl.release_host_lock()
+
+
 def test_second_host_blocks_and_auto_becomes_client():
     """A held lock makes an explicit host raise and an auto fall back to client."""
     # Hold the lock in a separate process for a few seconds.
