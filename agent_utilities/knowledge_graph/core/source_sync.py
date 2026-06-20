@@ -95,6 +95,291 @@ def _reconcile(engine: Any, source: str, live_ids: set[str]) -> dict[str, Any]:
     return {"status": "completed", "live": len(live_ids), "tombstoned": tombstoned}
 
 
+# ── Fleet capability elevation (CONCEPT:KG-2.133) ────────────────────────────
+#
+# The ~62 fleet MCP servers' tools were AST-ingested as generic ``Code`` symbols
+# and never elevated to capability nodes, so the KG lacked the fleet capability
+# vocabulary: a query naming "portainer"/"github" matched no ``Tool`` node, so
+# neither the ontology classification gate nor the dispatcher's specialist
+# routing (``config._fetch_tools`` → ``MATCH (t:Tool)``) could act on it. This
+# handler enumerates the **served multiplexer catalog** (the source of truth that
+# already lists every fleet tool with name+description+owning server) and writes
+# each tool as a ``Tool`` capability node linked to its ``MCPServer`` — fixing the
+# classification gate AND the "no fleet specialist registered" hole with one pass.
+
+# Suffix tokens stripped to recover a product/brand synonym from a server name
+# (``portainer-agent`` → ``portainer``), mirroring how ``config.py``'s
+# ``_synthesize_partition_agents`` derives its ``server_tag``.
+_CAPABILITY_GENERIC_TOKENS = frozenset(
+    {
+        "mcp",
+        "agent",
+        "api",
+        "server",
+        "service",
+        "manager",
+        "tool",
+        "tools",
+        "client",
+        "connector",
+        "package",
+    }
+)
+_CAPABILITY_NAME_SUFFIXES = (
+    "-mcp",
+    "_mcp",
+    "-agent",
+    "_agent",
+    "-api",
+    "_api",
+    "-server",
+    "_server",
+    "-manager",
+    "_manager",
+    "-service",
+    "_service",
+)
+
+
+def derive_capability_synonyms(server_name: str) -> list[str]:
+    """Matchable terms for a fleet server, for the ontology lexical gate.
+
+    Returns the full server name, its de-suffixed product name, and each
+    non-generic token — so a chat turn naming the product ("portainer") matches
+    the capability node even though the server is registered as
+    ``portainer-agent``. Deterministic and embedding-free.
+    """
+    import re
+
+    base = (server_name or "").lower().strip()
+    if not base:
+        return []
+    product = base
+    for suf in _CAPABILITY_NAME_SUFFIXES:
+        if product.endswith(suf):
+            product = product[: -len(suf)]
+            break
+    syns = {base}
+    if product:
+        syns.add(product)
+    for tok in re.split(r"[-_\s]+", base):
+        if len(tok) > 1 and tok not in _CAPABILITY_GENERIC_TOKENS:
+            syns.add(tok)
+    return sorted(syns)
+
+
+def _capability_product(server_name: str) -> str:
+    """The de-suffixed product tag (``portainer-agent`` → ``portainer``)."""
+    syns = derive_capability_synonyms(server_name)
+    base = (server_name or "").lower().strip()
+    # prefer the de-suffixed product (the shortest synonym that is a prefix of base)
+    for s in syns:
+        if s != base and base.startswith(s):
+            return s
+    return base
+
+
+def _existing_disabled(engine: Any, node_id: str) -> bool:
+    """Best-effort read of a node's ``disabled`` flag so a re-sync preserves an
+    operator's manual disable (mirrors ``kg_server.get_existing_disabled`` without
+    creating a knowledge_graph → mcp import inversion)."""
+    try:
+        gc = getattr(engine, "graph_compute", None)
+        graph = getattr(gc, "graph", None)
+        if graph is not None and node_id in graph:
+            return bool(graph.nodes[node_id].get("disabled", False))
+        rows = engine.query_cypher(
+            "MATCH (n) WHERE n.id = $id RETURN n.disabled AS disabled", {"id": node_id}
+        )
+        if rows and isinstance(rows, list):
+            return bool(rows[0].get("disabled", False))
+    except Exception:  # noqa: BLE001 — disabled is best-effort; default enabled
+        pass
+    return False
+
+
+def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
+    """Write a probed multiplexer catalog into the KG as capability nodes.
+
+    ``catalog`` is the ``{server: {"tools": [{name, description, ...}], "error":
+    str|None}}`` map returned by :meth:`MCPMultiplexer.probe_catalog`. For each
+    reachable server every tool becomes a ``Tool`` node carrying the schema the
+    dispatcher reads (``name``, ``description``, ``mcp_server``, ``tags``,
+    ``relevance_score``, ``requires_approval``) plus ``synonyms`` for the lexical
+    gate, linked to its (defensively upserted) ``MCPServer`` via ``SERVES``.
+    Idempotent: stable node ids + the write-layer content-hash delta skip
+    unchanged tools on re-sync. Factored out of :func:`_sync_fleet` so it is
+    testable without spawning any servers.
+    """
+    servers_written = 0
+    tools_written = 0
+    unreachable: dict[str, str] = {}
+
+    for server_name, info in (catalog or {}).items():
+        if not isinstance(info, dict):
+            continue
+        err = info.get("error")
+        if err:
+            unreachable[server_name] = str(err)
+            continue
+        tools = info.get("tools") or []
+        if not tools:
+            continue
+
+        synonyms = derive_capability_synonyms(server_name)
+        product = _capability_product(server_name)
+        server_node_id = f"mcp_server_{server_name}"
+        # Defensively upsert the server node so the SERVES edge always resolves
+        # even when this runs via the MCP/REST surface (not the boot ingest that
+        # writes command/args). MERGE+SET only touches the keys we pass, so a
+        # prior richer write (command/args) is preserved.
+        try:
+            engine.add_node(
+                server_node_id,
+                "MCPServer",
+                {
+                    "name": server_name,
+                    "synonyms": synonyms,
+                    "disabled": _existing_disabled(engine, server_node_id),
+                },
+            )
+            servers_written += 1
+        except Exception:  # noqa: BLE001 — one bad server never aborts the sweep
+            logger.debug(
+                "fleet: server upsert failed for %s", server_name, exc_info=True
+            )
+
+        for entry in tools:
+            if not isinstance(entry, dict):
+                continue
+            tool_name = entry.get("name")
+            if not tool_name:
+                continue
+            tool_node_id = f"tool_{server_name}_{tool_name}"
+            try:
+                engine.add_node(
+                    tool_node_id,
+                    "Tool",
+                    {
+                        "name": tool_name,
+                        "description": entry.get("description", "") or "",
+                        "mcp_server": server_name,
+                        "tags": [product] if product else [],
+                        "relevance_score": 0.5,
+                        "requires_approval": False,
+                        "synonyms": synonyms,
+                        "kind": "mcp_tool",
+                        "disabled": _existing_disabled(engine, tool_node_id),
+                    },
+                )
+                engine.link_nodes(server_node_id, tool_node_id, "SERVES", {})
+                tools_written += 1
+            except Exception:  # noqa: BLE001 — isolate per-tool failures
+                logger.debug(
+                    "fleet: tool write failed for %s/%s",
+                    server_name,
+                    tool_name,
+                    exc_info=True,
+                )
+
+    return {
+        "servers_written": servers_written,
+        "tools_written": tools_written,
+        "unreachable": unreachable,
+    }
+
+
+def _resolve_fleet_config():
+    """Resolve the fleet ``mcp_config.json`` — the one the multiplexer serves.
+
+    Returns the first candidate that actually parses to ≥1 ``mcpServers`` entry,
+    so an empty/placeholder file (e.g. a 0-byte ``~/.gemini/antigravity/
+    mcp_config.json``) is skipped rather than silently yielding a 0-server probe.
+    Order follows the connector convention (``MCP_CONFIG_PATH``/``MCP_CONFIG`` env
+    → ``WORKSPACE_PATH/mcp_config.json``) before the multiplexer's own default
+    search, so it stays deployment-agnostic (genesis sets the env).
+    """
+    import json
+    from pathlib import Path
+
+    from ...core.config import setting
+
+    candidates: list[Path] = []
+    for key in ("MCP_CONFIG_PATH", "MCP_CONFIG"):
+        val = (setting(key, default="") or "").strip()
+        if val:
+            candidates.append(Path(val))
+    ws = (setting("WORKSPACE_PATH", default="/home/apps/workspace") or "").strip()
+    if ws:
+        candidates.append(Path(ws) / "mcp_config.json")
+    try:
+        from ...mcp.multiplexer import _resolve_config_path
+
+        rp = _resolve_config_path(None)
+        if rp is not None:
+            candidates.append(rp)
+    except Exception:  # noqa: BLE001 — multiplexer default search is a fallback
+        pass
+
+    for path in candidates:
+        try:
+            if path.exists() and path.stat().st_size > 0:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if data.get("mcpServers"):
+                    return path
+        except Exception:  # noqa: BLE001 — skip unreadable/invalid candidates
+            continue
+    return None
+
+
+def _sync_fleet(
+    engine: Any, *, mode: str = "full", ids: list[str] | None = None, client: Any = None
+) -> dict[str, Any]:
+    """Elevate fleet MCP-server tools to KG capability nodes (CONCEPT:KG-2.133).
+
+    Probes the served multiplexer catalog (each fleet server's real tools, via a
+    bounded connect→list_tools→release sweep) and writes them as ``Tool``
+    capability nodes. ``client`` may inject a pre-probed catalog dict (tests /
+    callers that already hold one); otherwise the multiplexer is built from the
+    fleet ``mcp_config.json`` and probed. Unreachable servers are recorded, never
+    fatal — coverage is "the currently registered + reachable fleet".
+    """
+    catalog = client if isinstance(client, dict) else None
+    if catalog is None:
+        try:
+            from ...mcp.multiplexer import MCPMultiplexer
+            from ...protocols.source_connectors.connectors.mcp_package import _run_async
+        except Exception as exc:  # noqa: BLE001 — multiplexer optional at import
+            return {
+                "status": "skipped",
+                "source": "fleet",
+                "reason": f"multiplexer unavailable: {exc}",
+            }
+
+        config_path = _resolve_fleet_config()
+        if config_path is None:
+            return {
+                "status": "skipped",
+                "source": "fleet",
+                "reason": "no mcp_config.json with servers found",
+            }
+        try:
+            mux = MCPMultiplexer(config_path)
+            catalog = _run_async(mux.probe_catalog())
+        except Exception as exc:  # noqa: BLE001 — probe is best-effort
+            return {"status": "error", "source": "fleet", "reason": str(exc)}
+
+    counts = _write_fleet_nodes(engine, catalog)
+    return {
+        "status": "ok",
+        "source": "fleet",
+        "mode": mode,
+        "delta_capable": True,
+        "servers_seen": len(catalog or {}),
+        **counts,
+    }
+
+
 # ── LeanIX delta handler (the first delta-capable source) ────────────────────
 
 
@@ -948,6 +1233,7 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "jira": _sync_jira,
     "confluence": _sync_confluence,
     "plane": _sync_plane,
+    "fleet": _sync_fleet,
 }
 
 
@@ -1022,6 +1308,10 @@ def sweep_all_sources(
     are reported as *skipped*, not *errored*.
     """
     candidates: set[str] = set(_DELTA_HANDLERS)
+    # ``fleet`` capability elevation re-probes ~62 MCP servers; the capability
+    # vocabulary is slow-changing, so it runs at boot + on explicit refresh
+    # (``source_sync source=fleet``), not on every */20m document sweep.
+    candidates.discard("fleet")
 
     from .hydration import HydrationManager
 

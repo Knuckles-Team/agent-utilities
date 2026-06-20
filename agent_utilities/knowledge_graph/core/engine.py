@@ -334,6 +334,10 @@ class IntelligenceGraphEngine(
             "success_criteria_met",
             "embedding",
             "issues",
+            # CONCEPT:KG-2.133 — capability-node aliases the lexical gate matches;
+            # kept native (not JSON-encoded) so it round-trips as a list on every
+            # backend, including the nested-unsafe ones (neo4j/falkordb).
+            "synonyms",
         }
     )
 

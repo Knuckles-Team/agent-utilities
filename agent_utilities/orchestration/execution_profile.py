@@ -332,6 +332,27 @@ def _resolve_job_capabilities(
         return None
 
 
+def _names_capability(engine: IntelligenceGraphEngine, task: str) -> bool:
+    """Free lexical capability gate (CONCEPT:EG-010, ORCH-1.73).
+
+    Does the turn name a real fleet capability? Runs the engine's embedding-free
+    aho-corasick match over capability-node names+synonyms (~µs, cached) — the
+    "free" tier that replaces the old hardcoded escalation-keyword list: the
+    domain vocabulary now lives in the KG (a `Tool` node named `portainer`),
+    queried live, not a frozen word list. Errors / unavailability → ``False`` so
+    the planner falls back to the structural/semantic stages rather than
+    over-escalating a turn the gate could not classify.
+    """
+    try:
+        gc = getattr(engine, "graph_compute", None)
+        if gc is None or not hasattr(gc, "match_ontology_terms"):
+            return False
+        return bool(gc.match_ontology_terms(task or ""))
+    except Exception as e:  # noqa: BLE001 — the gate must never break planning
+        logger.debug("[EG-010] lexical capability gate unavailable: %s", e)
+        return False
+
+
 def _refine_with_kg(
     engine: IntelligenceGraphEngine, task: str, base: ExecutionProfile
 ) -> ExecutionProfile:
@@ -365,9 +386,14 @@ def _plan_base_shape(
       * **Stage 0 — reuse a cached recipe** (CONCEPT:ORCH-1.70): an identical job returns its
         cached shape, skipping all resolution. (Durable cross-process reuse = the learning loop.)
       * **Stage 1 — free structural signals**: the graded ``orchestration_signal_strength``
-        (single source of truth in ``fast_path``). Strength 0 → confident lean; ≥2 → confident
-        full; **1 → the ambiguous middle**, escalated to stage 2.
-      * **Stage 2 — cheap, Rust-routed KG search** (CONCEPT:ORCH-1.69): only the ambiguous
+        (single source of truth in ``fast_path``, now keyword-free / purely structural —
+        slash-command, length, multi-clause). Strength ≥2 → confident full.
+      * **Stage 1.5 — free ontology lexical gate** (CONCEPT:EG-010, ORCH-1.73): for anything
+        not structurally-strong, ask the live KG whether the turn names a real fleet capability
+        (``engine.match_ontology_terms`` — embedding-free aho-corasick, ~µs). A hit → full. This
+        is what replaces the old hardcoded escalation-keyword list: the domain vocabulary lives
+        in the KG, not a frozen word list.
+      * **Stage 2 — cheap, Rust-routed KG search** (CONCEPT:ORCH-1.69): the residual ambiguous
         middle pays this — ``search_hybrid`` disambiguates tool-task vs. conversational.
       * **Stage 3 — LLM planning** (CONCEPT:ORCH-1.69, planned): genuinely complex/uncertain
         jobs earn an HTN decomposition.
@@ -386,24 +412,30 @@ def _plan_base_shape(
     # Stage 1 — free, deterministic structural classifier (single source of truth in
     # ``fast_path``). Imported lazily to keep this module dependency-light.
     from agent_utilities.graph.routing.strategies.fast_path import (
+        MAX_TRIVIAL_WORDS,
         orchestration_signal_strength,
     )
 
     strength = orchestration_signal_strength(task or "")
-    if strength == 0:
-        # Clearly lean — a simple conversational/Q&A turn answered directly on a local model.
+    if strength >= 2:
+        # Clearly a real task (slash-command / over-length / multi-clause): the full graph.
+        shape = replace(base, **_FULL_FIELDS, origin="heuristic", confidence=0.9)
+    elif engine is None:
+        # No engine to consult the live ontology → structural-only: no strong signal ⇒ lean.
         shape = replace(base, **_LEAN_FIELDS, origin="heuristic", confidence=0.9)
-    elif strength >= 2 or engine is None:
-        # Clearly a real task (or no engine to disambiguate): the full multi-agent graph.
-        shape = replace(
-            base,
-            **_FULL_FIELDS,
-            origin="heuristic",
-            confidence=0.9 if strength >= 2 else 0.6,
-        )
-    else:
-        # Stage 2 — the ambiguous middle (strength == 1): cheap, Rust-routed disambiguation.
+    elif _names_capability(engine, task):
+        # Stage 1.5 — free ontology lexical gate (CONCEPT:EG-010): the turn names a real fleet
+        # capability ("list portainer stacks") → it IS a tool task. Escalate for ~µs, no vector
+        # search. This replaces the deleted escalation-keyword list (KG vocabulary, not a word list).
+        shape = replace(base, **_FULL_FIELDS, origin="lexical", confidence=0.85)
+    elif len((task or "").split()) > MAX_TRIVIAL_WORDS:
+        # Stage 2 — a SUBSTANTIAL turn that named no capability lexically: it may be a paraphrased
+        # tool task ("get my containers running again" — no literal "portainer"). Disambiguate with
+        # the cheap Rust-routed semantic search. Short turns skip this so trivial chat never pays it.
         shape = _refine_with_kg(engine, task, base)
+    else:
+        # Short, structurally-trivial, named no capability → a simple conversational/Q&A turn.
+        shape = replace(base, **_LEAN_FIELDS, origin="heuristic", confidence=0.9)
 
     _recipe_cache_put(sig, shape)
     return shape
