@@ -87,7 +87,7 @@ def _load_fleet_auth() -> None:
                 f"{vurl}/v1/apps/data/mcp-multiplexer",
                 headers={"X-Vault-Token": vtok},
             )
-            with urllib.request.urlopen(req, timeout=6) as r:
+            with urllib.request.urlopen(req, timeout=6) as r:  # nosec B310 — controlled https fleet/telegram URL
                 data = _json.loads(r.read()).get("data", {}).get("data", {})
             got = [k for k in _FLEET_AUTH_KEYS if data.get(k)]
             for k in got:

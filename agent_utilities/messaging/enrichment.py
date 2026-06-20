@@ -61,7 +61,7 @@ def enrich_conversation(
     if llm_fn is None:
         return 0
 
-    digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]  # noqa: S324 — id only
+    digest = hashlib.sha1(text.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
     source_id = f"chatturn:{platform}:{channel_id}:{digest}"
     try:
         add_node(
@@ -150,7 +150,7 @@ def _surface_intents(engine: Any, text: str, source_id: str, llm_fn: Any) -> Non
         desc = str((data or {}).get(key, "") or "").strip()
         if not desc:
             continue
-        nid = f"{label.lower()}:{hashlib.sha1((source_id + desc).encode()).hexdigest()[:10]}"  # noqa: S324
+        nid = f"{label.lower()}:{hashlib.sha1((source_id + desc).encode(), usedforsecurity=False).hexdigest()[:10]}"
         try:
             engine.add_node(
                 node_id=nid,

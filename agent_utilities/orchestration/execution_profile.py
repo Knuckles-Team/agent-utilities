@@ -247,7 +247,7 @@ _FULL_FIELDS: dict[str, Any] = dict(
 def _job_signature(task: str, profile_hint: str | ExecutionProfile | None) -> str:
     """A stable cache key for a job: its normalized word-set + the entrypoint altitude."""
     words = sorted(set(re.findall(r"[a-z0-9]+", (task or "").lower())))
-    digest = hashlib.sha1(" ".join(words).encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha1(" ".join(words).encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
     hint = (
         profile_hint.name
         if isinstance(profile_hint, ExecutionProfile)
