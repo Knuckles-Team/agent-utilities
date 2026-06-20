@@ -439,10 +439,29 @@ def test_surface_verbose_targets_multiclient(monkeypatch):
     assert "radarr_get_movies" in names
 
 
-def test_surface_condensed_only_when_no_verbose_target(monkeypatch):
-    """Verbose mode with neither client_cls nor verbose_targets registers nothing extra."""
+def test_surface_condensed_fallback_when_no_verbose_target(monkeypatch):
+    """Verbose mode with no verbose target falls back to condensed (never empty)."""
     monkeypatch.setenv("MCP_TOOL_MODE", "verbose")
     mcp = FastMCP("t")
     tags = register_tool_surface(mcp, service="x", tools_module=_surface_module())
-    assert tags == []  # condensed skipped in verbose mode
-    assert {t.name for t in _tools_list(mcp)} == set()  # no verbose target -> nothing
+    # No client/verbose_targets -> condensed registers so the server isn't empty.
+    assert set(tags) == {"cmdb", "change_management"}
+    assert {t.name for t in _tools_list(mcp)} == {"svc_cmdb", "svc_change_management"}
+
+
+def test_surface_condensed_only_server_survives_global_verbose(monkeypatch):
+    """A condensed-only server (no verbose target) keeps its tools under a
+    deployment-wide MCP_TOOL_MODE=verbose — never left empty (graph-os case)."""
+    monkeypatch.setenv("MCP_TOOL_MODE", "verbose")
+    calls = []
+    mcp = FastMCP("t")
+    tags = register_tool_surface(
+        mcp,
+        service="graph-os",
+        registrars=[
+            ("query", "QUERYTOOL", lambda m: calls.append("query")),
+            ("ontology", "ONTOLOGYTOOL", lambda m: calls.append("ontology")),
+        ],
+    )
+    assert set(tags) == {"query", "ontology"}  # condensed fell back on (no verbose target)
+    assert calls == ["query", "ontology"]
