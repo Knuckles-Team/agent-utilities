@@ -496,3 +496,26 @@ def test_surface_verbose_register_hook(monkeypatch):
     )
     assert set(tags2) == {"cmdb", "change_management"}
     assert seen.get("called") is True
+
+
+def test_surface_stamps_domain_tag_and_records_exact_toggle(monkeypatch):
+    """register_tool_surface stamps the canonical domain tag on each condensed tool
+    (standardizing ad-hoc author tags) and records the exact tool->toggle map."""
+    import types
+
+    monkeypatch.delenv("MCP_TOOL_MODE", raising=False)
+    mod = types.ModuleType("fake_mcp_mod")
+
+    def register_observability_tools(mcp):
+        # author mis-tagged by service name, not domain
+        mcp.tool(name="langfuse_observability", tags={"langfuse"})(lambda: None)
+
+    mod.register_observability_tools = register_observability_tools
+
+    mcp = FastMCP("t")
+    register_tool_surface(mcp, service="langfuse-agent", tools_module=mod)
+
+    tool = asyncio.run(mcp.get_tool("langfuse_observability"))
+    assert "observability" in tool.tags  # canonical domain tag stamped
+    # exact toggle map matches the gating env var (not the service-name guess)
+    assert mcp._condensed_tool_toggles["langfuse_observability"] == "OBSERVABILITYTOOL"

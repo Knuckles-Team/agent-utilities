@@ -66,15 +66,20 @@ async def _list_tools(mcp: Any) -> list[Any]:
 def render_tools_table(mcp: Any) -> str:
     """Render the live condensed tool surface as a Markdown table."""
     tools = asyncio.run(_list_tools(mcp))
+    # Exact tool->toggle map recorded by register_tool_surface (authoritative — it is
+    # the env var that actually gates the tool). Falls back to tag-derivation only
+    # for tools registered outside the central wiring.
+    toggles = getattr(mcp, "_condensed_tool_toggles", None) or {}
     # The README documents the default (condensed) surface — skip verbose 1:1 tools.
     rows = []
     for tool in tools:
         tags = set(getattr(tool, "tags", None) or [])
         if "verbose" in tags:
             continue
-        rows.append(
-            (getattr(tool, "name", "?"), _toggle_env(tags), _first_line(getattr(tool, "description", "")))
-        )
+        name = getattr(tool, "name", "?")
+        env = toggles.get(name)
+        toggle = f"`{env}`" if env else _toggle_env(tags)
+        rows.append((name, toggle, _first_line(getattr(tool, "description", ""))))
     rows.sort(key=lambda r: r[0])
     lines = [
         START,
