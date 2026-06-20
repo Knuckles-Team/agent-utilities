@@ -465,14 +465,15 @@ def _condensed_entries(
 def register_tool_surface(
     mcp: Any,
     *,
-    client_cls: type,
-    get_client: Any,
     service: str,
+    client_cls: type | None = None,
+    get_client: Any = None,
     tool_registry: list | None = None,
     tools_module: Any = None,
     registrars: list | None = None,
     manifest: list[dict] | None = None,
     tool_prefix: str | None = None,
+    verbose_targets: list[dict] | None = None,
 ) -> list[str]:
     """Register an agent's MCP tool surface per ``MCP_TOOL_MODE`` — the one place.
 
@@ -488,6 +489,13 @@ def register_tool_surface(
     Declare the condensed registrars via exactly one of ``tool_registry`` /
     ``tools_module`` / ``registrars`` (see :func:`_condensed_entries`). Returns the
     list of registered condensed tags (mirrors the fleet's ``registered_tags``).
+
+    **Verbose targets.** Single-client agents pass ``client_cls`` + ``get_client``
+    (the common case). A **multi-client** agent (e.g. arr-mcp fronting Sonarr,
+    Radarr, … — each its own client) instead passes ``verbose_targets``: a list of
+    ``{"client_cls", "get_client", "tool_prefix"?, "service"?, "manifest"?}`` dicts,
+    one per client; the verbose surface is built for each, all gated by the one
+    ``MCP_TOOL_MODE`` here so the mode logic stays central.
 
     CONCEPT:ECO-4.82 — MCP tool-mode standardization (central surface wiring)
     """
@@ -505,13 +513,24 @@ def register_tool_surface(
                 registered_tags.append(tag)
 
     if mode in ("verbose", "both"):
-        register_verbose_tools(
-            mcp,
-            client_cls,
-            get_client,
-            service=service,
-            tool_prefix=tool_prefix,
-            manifest=manifest,
-        )
+        targets = verbose_targets
+        if targets is None and client_cls is not None and get_client is not None:
+            targets = [
+                {
+                    "client_cls": client_cls,
+                    "get_client": get_client,
+                    "tool_prefix": tool_prefix,
+                    "manifest": manifest,
+                }
+            ]
+        for target in targets or []:
+            register_verbose_tools(
+                mcp,
+                target["client_cls"],
+                target["get_client"],
+                service=target.get("service", service),
+                tool_prefix=target.get("tool_prefix"),
+                manifest=target.get("manifest"),
+            )
 
     return registered_tags
