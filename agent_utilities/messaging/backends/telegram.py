@@ -166,17 +166,33 @@ class TelegramBackend(MessagingBackend):
         reply_to_id: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
-        """Send a Telegram message. CONCEPT:ECO-4.0"""
-        try:
-            kwargs: dict[str, Any] = {"chat_id": int(channel_id), "text": text}
-            if thread_id:
-                kwargs["message_thread_id"] = int(thread_id)
-            if reply_to_id:
-                kwargs["reply_to_message_id"] = int(reply_to_id)
-            parse_mode = (metadata or {}).get("parse_mode", "HTML")
-            kwargs["parse_mode"] = parse_mode
+        """Send a Telegram message. CONCEPT:ECO-4.0
 
-            msg = await self._app.bot.send_message(**kwargs)
+        The universal agent replies in Markdown; Telegram renders only a small HTML subset, so
+        by default we convert Markdown → that subset and send with ``parse_mode=HTML`` —
+        otherwise ``**bold**`` / ``## heading`` / `` `code` `` arrive as raw markers (the
+        "markdown didn't render" bug). A caller may pass ``metadata={"preformatted": True}`` or a
+        different ``parse_mode`` to send the text as-is. If Telegram rejects the formatted HTML,
+        we retry once as plain text so a render edge-case never drops the reply.
+        """
+        base: dict[str, Any] = {"chat_id": int(channel_id)}
+        if thread_id:
+            base["message_thread_id"] = int(thread_id)
+        if reply_to_id:
+            base["reply_to_message_id"] = int(reply_to_id)
+
+        parse_mode = (metadata or {}).get("parse_mode", "HTML")
+        if parse_mode == "HTML" and not (metadata or {}).get("preformatted"):
+            from agent_utilities.messaging.render import markdown_to_telegram_html
+
+            send_text = markdown_to_telegram_html(text)
+        else:
+            send_text = text
+
+        try:
+            msg = await self._app.bot.send_message(
+                text=send_text, parse_mode=parse_mode, **base
+            )
             return SendResult(
                 success=True,
                 message_id=str(msg.message_id),
@@ -184,8 +200,25 @@ class TelegramBackend(MessagingBackend):
                 channel_id=channel_id,
             )
         except Exception as e:
-            logger.error("[CONCEPT:ECO-4.0] Telegram send failed: %s", e)
-            return SendResult(success=False, platform=PlatformId.TELEGRAM, error=str(e))
+            # A formatting parse error must never lose the message — resend as plain text.
+            logger.warning(
+                "[CONCEPT:ECO-4.0] Telegram %s send failed (%s); retrying as plain text.",
+                parse_mode,
+                e,
+            )
+            try:
+                msg = await self._app.bot.send_message(text=text, **base)
+                return SendResult(
+                    success=True,
+                    message_id=str(msg.message_id),
+                    platform=PlatformId.TELEGRAM,
+                    channel_id=channel_id,
+                )
+            except Exception as e2:  # noqa: BLE001
+                logger.error("[CONCEPT:ECO-4.0] Telegram send failed: %s", e2)
+                return SendResult(
+                    success=False, platform=PlatformId.TELEGRAM, error=str(e2)
+                )
 
     async def send_media(
         self,
