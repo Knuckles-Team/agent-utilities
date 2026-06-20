@@ -32,14 +32,39 @@ def _enabled() -> bool:
     )
 
 
+class _FasterWhisper:
+    """Thin in-process faster-whisper transcriber — the lean path when the full
+    ``audio-transcriber`` package (which hard-deps pyaudio/portaudio) isn't installed.
+    The messaging container ships only ``faster-whisper``."""
+
+    def __init__(self, model_name: str) -> None:
+        from faster_whisper import WhisperModel
+
+        # CPU-safe defaults: the messaging host has no GPU allocated; int8 is the
+        # fastest CPU compute type. The model downloads + caches on first use.
+        self.model = WhisperModel(model_name, device="cpu", compute_type="int8")
+
+    def transcribe(self, path: str) -> dict:
+        # faster-whisper segments already carry their own leading space, so concatenate
+        # directly (joining with a space would double them).
+        segments, _info = self.model.transcribe(path)
+        return {"text": "".join(seg.text for seg in segments).strip()}
+
+
 def _get_backend() -> Any:
     global _backend
     if _backend is not None:
         return _backend
-    from audio_transcriber.audio_transcriber import FasterWhisperBackend
+    model_name = str(setting("MESSAGING_VOICE_MODEL", "base"))
+    try:
+        # Prefer the full audio-transcriber backend when the package is present.
+        from audio_transcriber.audio_transcriber import FasterWhisperBackend
 
-    backend = FasterWhisperBackend(logger)
-    backend.load_model(str(setting("MESSAGING_VOICE_MODEL", "base")))
+        backend: Any = FasterWhisperBackend(logger)
+        backend.load_model(model_name)
+    except ImportError:
+        # Lean path: faster-whisper directly (no pyaudio-bound full package).
+        backend = _FasterWhisper(model_name)
     _backend = backend
     return backend
 
