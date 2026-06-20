@@ -1340,10 +1340,20 @@ async def expert_executor_step(
             break
 
         except Exception as e:
-            logger.error(
-                f"Execution failed for node '{node_id}' (Attempt {ctx.state.current_node_retries + 1}): {e}"
+            # CONCEPT:ORCH-1.21 — an expert step that fails by calling a remote MCP tool
+            # raises an anyio ``BaseExceptionGroup`` whose ``str()`` is the opaque
+            # "unhandled errors in a TaskGroup" (or empty). Flatten to the real leaf
+            # cause(s) so the node-failure log is actionable (e.g. the portainer 401 /
+            # connect error behind a research-step retry storm) instead of blank.
+            from agent_utilities.orchestration.agent_runner import (
+                _flatten_exception_group,
             )
-            ctx.state.error = f"Node {node_id} failed: {e}"
+
+            detail = _flatten_exception_group(e)
+            logger.error(
+                f"Execution failed for node '{node_id}' (Attempt {ctx.state.current_node_retries + 1}): {detail}"
+            )
+            ctx.state.error = f"Node {node_id} failed: {detail}"
             ctx.state.current_node_retries += 1
 
             if ctx.state.current_node_retries > max_retries:
