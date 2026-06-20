@@ -465,3 +465,34 @@ def test_surface_condensed_only_server_survives_global_verbose(monkeypatch):
     )
     assert set(tags) == {"query", "ontology"}  # condensed fell back on (no verbose target)
     assert calls == ["query", "ontology"]
+
+
+def test_surface_verbose_register_hook(monkeypatch):
+    """verbose_register builds a custom 1:1 surface (graph-os action-core case)."""
+    seen = {}
+
+    def _custom_verbose(mcp):
+        seen["called"] = True
+        mcp.tool(name="gx_write_add_node", tags={"verbose", "graph_write"})(lambda: None)
+
+    # verbose mode: condensed skipped, custom verbose runs (not left empty)
+    monkeypatch.setenv("MCP_TOOL_MODE", "verbose")
+    mcp = FastMCP("t")
+    tags = register_tool_surface(
+        mcp, service="graph-os", tools_module=_surface_module(),
+        verbose_register=_custom_verbose,
+    )
+    assert tags == []  # condensed NOT force-added — a verbose surface exists
+    assert seen.get("called") is True
+    assert "gx_write_add_node" in {t.name for t in _tools_list(mcp)}
+
+    # both mode: condensed AND custom verbose
+    seen.clear()
+    monkeypatch.setenv("MCP_TOOL_MODE", "both")
+    mcp2 = FastMCP("t")
+    tags2 = register_tool_surface(
+        mcp2, service="graph-os", tools_module=_surface_module(),
+        verbose_register=_custom_verbose,
+    )
+    assert set(tags2) == {"cmdb", "change_management"}
+    assert seen.get("called") is True

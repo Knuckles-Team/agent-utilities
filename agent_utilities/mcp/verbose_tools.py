@@ -474,6 +474,7 @@ def register_tool_surface(
     manifest: list[dict] | None = None,
     tool_prefix: str | None = None,
     verbose_targets: list[dict] | None = None,
+    verbose_register: Any = None,
 ) -> list[str]:
     """Register an agent's MCP tool surface per ``MCP_TOOL_MODE`` — the one place.
 
@@ -497,6 +498,12 @@ def register_tool_surface(
     one per client; the verbose surface is built for each, all gated by the one
     ``MCP_TOOL_MODE`` here so the mode logic stays central.
 
+    **Custom verbose builder.** An agent whose verbose surface isn't client-method
+    based (e.g. graph-os, which dispatches actions into the API-gateway action core
+    rather than a per-method client) passes ``verbose_register`` — a callable
+    ``(mcp) -> None`` that registers its own 1:1 tools. It runs in verbose/both and
+    counts as a verbose target for the empty-server guard.
+
     CONCEPT:ECO-4.82 — MCP tool-mode standardization (central surface wiring)
     """
     from agent_utilities.core.config import setting
@@ -514,12 +521,12 @@ def register_tool_surface(
                 "manifest": manifest,
             }
         ]
+    has_verbose = bool(targets) or verbose_register is not None
 
     # Condensed registers in condensed/both — and ALSO in verbose mode when the
-    # agent has no verbose target at all, so a condensed-only server (e.g. the
-    # core graph-os action wrapper) is never left empty by a deployment-wide
-    # MCP_TOOL_MODE=verbose meant for the connector fleet.
-    if mode in ("condensed", "both") or (mode == "verbose" and not targets):
+    # agent has no verbose surface at all, so a condensed-only server is never
+    # left empty by a deployment-wide MCP_TOOL_MODE=verbose meant for connectors.
+    if mode in ("condensed", "both") or (mode == "verbose" and not has_verbose):
         for tag, env_var, register_fn in _condensed_entries(
             tool_registry, tools_module, registrars
         ):
@@ -537,5 +544,7 @@ def register_tool_surface(
                 tool_prefix=target.get("tool_prefix"),
                 manifest=target.get("manifest"),
             )
+        if verbose_register is not None:
+            verbose_register(mcp)
 
     return registered_tags

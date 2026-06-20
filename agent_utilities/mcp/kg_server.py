@@ -2357,11 +2357,11 @@ def _build_server(bootstrap: bool = True):
     )
     from agent_utilities.mcp.verbose_tools import register_tool_surface
 
-    # graph-os is an action-routed wrapper over the API gateway's action core
-    # (no per-method client), so it has no verbose 1:1 surface — register_tool_surface
-    # gives it the same central, per-domain-toggled (`<DOMAIN>TOOL`) condensed wiring
-    # as the connector fleet. The empty-server guard keeps every domain registered
-    # even if a deployment sets MCP_TOOL_MODE=verbose for the connector fleet.
+    # graph-os is an action-routed wrapper over the API gateway's action core. The
+    # condensed surface is the per-domain action tools (gated by `<DOMAIN>TOOL`); the
+    # verbose surface is one 1:1 tool per gateway CRUD action, both dispatching through
+    # the same `_execute_tool` core. register_tool_surface owns the MCP_TOOL_MODE
+    # selection (condensed default / verbose / both) for both.
     register_tool_surface(
         mcp,
         service="graph-os",
@@ -2373,9 +2373,52 @@ def _build_server(bootstrap: bool = True):
             register_ontology_tools,
             register_reach_tools,
         ],
+        verbose_register=register_graphos_verbose_tools,
     )
 
     return args, mcp, middlewares
+
+
+def register_graphos_verbose_tools(mcp) -> None:
+    """Register graph-os's verbose 1:1 surface — one tool per gateway CRUD action.
+
+    Each tool is a thin 1:1 alias that dispatches through the same ``_execute_tool``
+    action core as the condensed ``graph_*`` tools and the REST gateway (no second
+    implementation). Operations come from the generated
+    ``_graphos_action_manifest.GRAPHOS_ACTIONS``; each is tagged ``{"verbose", <tool>}``
+    so the visibility transform can slice them. CONCEPT:ECO-4.82.
+    """
+    import json as _json
+
+    from pydantic import Field
+
+    from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
+
+    def _make(tool_name: str, action: str | None):
+        async def _verbose_op(
+            params_json: str = Field(
+                default="{}",
+                description="JSON object of arguments for this operation.",
+            ),
+        ) -> Any:
+            kwargs = _json.loads(params_json) if params_json else {}
+            kwargs = {k: v for k, v in kwargs.items() if v is not None}
+            if action is not None:
+                kwargs.setdefault("action", action)
+            return await _execute_tool(tool_name, **kwargs)
+
+        return _verbose_op
+
+    for op in GRAPHOS_ACTIONS:
+        fn = _make(op["tool"], op["action"])
+        fn.__name__ = op["name"]
+        fn.__doc__ = (
+            f"graph-os {op['tool']} — action '{op['action']}' "
+            "(1:1 over the action core)."
+            if op["action"]
+            else f"graph-os {op['tool']} (single operation)."
+        )
+        mcp.tool(name=op["name"], tags={"verbose", op["tool"]})(fn)
 
 
 # ══════════════════════════════════════════════════════════════════
