@@ -98,8 +98,13 @@ def __getattr__(name: str):
 
         return concurrency_mod.run_blocking
 
-    # Verbose 1:1 tool surface + the MCP_TOOL_MODE knob
-    if name in ("tool_mode", "register_verbose_tools", "VALID_TOOL_MODES"):
+    # Verbose 1:1 tool surface + the MCP_TOOL_MODE knob + central surface wiring
+    if name in (
+        "tool_mode",
+        "register_verbose_tools",
+        "register_tool_surface",
+        "VALID_TOOL_MODES",
+    ):
         import agent_utilities.mcp.verbose_tools as verbose_mod
 
         return getattr(verbose_mod, name)
@@ -155,6 +160,7 @@ __all__ = [
     # tool-mode surface + config loader
     "tool_mode",
     "register_verbose_tools",
+    "register_tool_surface",
     "VALID_TOOL_MODES",
     "load_config",
 ]

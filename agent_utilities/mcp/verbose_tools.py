@@ -411,3 +411,101 @@ def register_verbose_tools(
         sum(1 for m in method_names if (manifest_by_method.get(m) or {}).get("params")),
     )
     return registered
+
+
+def _condensed_entries(
+    tool_registry: list | None,
+    tools_module: Any,
+    registrars: list | None,
+) -> list[tuple[str, str, Any]]:
+    """Normalize a condensed-tool declaration into ``[(tag, env_var, fn), ...]``.
+
+    Three input shapes are accepted, in priority order:
+
+    - ``tool_registry`` — an explicit ``[(tag, env_var, register_fn), ...]`` list
+      (e.g. a codegen'd ``TOOL_REGISTRY``).
+    - ``tools_module`` — a module/namespace to **auto-discover** every
+      ``register_<tag>_tools`` callable; the per-domain toggle env var is derived
+      as ``<TAG>TOOL`` (matching the fleet's existing names).
+    - ``registrars`` — a list whose items are either a bare ``register_fn`` or a
+      ``(tag, env_var, fn)`` tuple.
+    """
+    if tool_registry:
+        return [tuple(e) for e in tool_registry]  # type: ignore[misc]
+
+    if tools_module is not None:
+        found: list[tuple[str, str, Any]] = []
+        for name in sorted(vars(tools_module)):
+            match = re.fullmatch(r"register_(.+)_tools", name)
+            fn = getattr(tools_module, name)
+            if not match or not callable(fn):
+                continue
+            tag = match.group(1)
+            found.append((tag, f"{tag.upper()}TOOL", fn))
+        return found
+
+    entries: list[tuple[str, str, Any]] = []
+    for item in registrars or []:
+        if isinstance(item, tuple):
+            entries.append(item)  # type: ignore[arg-type]
+            continue
+        name = getattr(item, "__name__", "")
+        match = re.fullmatch(r"register_(.+)_tools", name)
+        tag = match.group(1) if match else name
+        entries.append((tag, f"{tag.upper()}TOOL", item))
+    return entries
+
+
+def register_tool_surface(
+    mcp: Any,
+    *,
+    client_cls: type,
+    get_client: Any,
+    service: str,
+    tool_registry: list | None = None,
+    tools_module: Any = None,
+    registrars: list | None = None,
+    manifest: list[dict] | None = None,
+    tool_prefix: str | None = None,
+) -> list[str]:
+    """Register an agent's MCP tool surface per ``MCP_TOOL_MODE`` — the one place.
+
+    This is the single fleet-wide entry point an agent's ``get_mcp_instance`` calls
+    to wire its tools. It owns the whole selection so every connector inherits it
+    with no per-agent branching:
+
+    - ``condensed`` / ``both``: each discovered/declared ``register_<tag>_tools`` is
+      gated by ``setting("<TAG>TOOL", True)`` (config.json-driven) and registered.
+    - ``verbose`` / ``both``: :func:`register_verbose_tools` adds the 1:1 surface
+      (typed from ``manifest`` where available, else ``params_json``).
+
+    Declare the condensed registrars via exactly one of ``tool_registry`` /
+    ``tools_module`` / ``registrars`` (see :func:`_condensed_entries`). Returns the
+    list of registered condensed tags (mirrors the fleet's ``registered_tags``).
+
+    CONCEPT:ECO-4.82 — MCP tool-mode standardization (central surface wiring)
+    """
+    from agent_utilities.core.config import setting
+
+    mode = tool_mode()
+    registered_tags: list[str] = []
+
+    if mode in ("condensed", "both"):
+        for tag, env_var, register_fn in _condensed_entries(
+            tool_registry, tools_module, registrars
+        ):
+            if setting(env_var, True):
+                register_fn(mcp)
+                registered_tags.append(tag)
+
+    if mode in ("verbose", "both"):
+        register_verbose_tools(
+            mcp,
+            client_cls,
+            get_client,
+            service=service,
+            tool_prefix=tool_prefix,
+            manifest=manifest,
+        )
+
+    return registered_tags
