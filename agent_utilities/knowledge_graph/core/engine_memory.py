@@ -374,7 +374,7 @@ class MemoryMixin(_Base):
 
             if effective_daemon_role() != "host":
                 try:
-                    self.submit_task(
+                    self.submit_task(  # type: ignore[attr-defined]  # TaskManagerMixin, composed onto the engine
                         target_path=memory_id,
                         is_codebase=False,
                         provenance={"source": "store_memory", "agent_id": agent_id},

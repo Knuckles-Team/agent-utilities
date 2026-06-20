@@ -2766,7 +2766,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
                 meta = _decode_metadata(rows[0]["m"]) if rows else {}
                 paper = meta.get("paper", {})
-                runner = ResearchPipelineRunner(engine=self)
+                runner = ResearchPipelineRunner(engine=self)  # type: ignore[arg-type]  # self is the engine
                 article_id = await runner.ingest_paper_full(
                     paper.get("id", ""),
                     paper.get("title", ""),
@@ -2797,7 +2797,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
                 meta = _decode_metadata(rows[0]["m"]) if rows else {}
                 p = meta.get("payload", {})
-                mid = self.store_memory(
+                mid = self.store_memory(  # type: ignore[attr-defined]  # MemoryMixin, composed onto the engine
                     content=p.get("content", ""),
                     memory_type=p.get("memory_type", "episodic"),
                     name=p.get("name", ""),
@@ -2875,7 +2875,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 if not url:
                     # Fallback: repair the Path()-mangled scheme separator.
                     url = re.sub(r"^(https?):/(?!/)", r"\1://", str(target))
-                meta: dict[str, Any] = {}
+                meta = {}
                 ep = tprops.get("extract_papers")
                 if ep is not None:
                     meta["extract_papers"] = (

@@ -386,7 +386,7 @@ def register_verbose_tools(
             tool_fn = _build_typed_tool(
                 method_name, params, get_client, destructive=destructive
             )
-            doc = (op.get("summary") or op.get("description") or "").strip()
+            doc = ((op or {}).get("summary") or (op or {}).get("description") or "").strip()
         else:
             tool_fn = _build_params_json_tool(
                 method_name, get_client, destructive=destructive
