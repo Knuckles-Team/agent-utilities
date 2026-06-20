@@ -998,3 +998,23 @@ def test_shape_policy_overlay_flips_after_learning() -> None:
     p2 = plan_execution_shape(q, profile_hint="chat")
     assert p2.direct_complete is True and p2.origin == "heuristic"
     reset_shape_policy()  # clean up so later tests see a neutral policy
+
+
+def test_focused_tools_reply_budget_is_tighter_than_full() -> None:
+    """CONCEPT:ORCH-1.74 — a focused-tools turn (one parallel tool loop) gets a much tighter
+    reply budget than a full multi-agent turn (~190s); it grows mildly per bound server."""
+    from dataclasses import replace
+
+    from agent_utilities.orchestration.execution_profile import (
+        _FULL_FIELDS,
+        resolve_execution_profile,
+    )
+
+    base = resolve_execution_profile("chat")
+    full = replace(base, **_FULL_FIELDS)
+    one = replace(full, tool_servers=("portainer-mcp",))
+    two = replace(full, tool_servers=("portainer-mcp", "github-mcp"))
+    assert full.reply_budget_s >= 150.0  # full apparatus
+    assert one.reply_budget_s == 55.0  # 35 + 20*1
+    assert two.reply_budget_s == 75.0  # 35 + 20*2
+    assert two.reply_budget_s < full.reply_budget_s
