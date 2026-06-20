@@ -61,6 +61,10 @@ def _get(mcp: FastMCP, name: str):
     return asyncio.run(mcp.get_tool(name))
 
 
+def _tools_list(mcp: FastMCP):
+    return asyncio.run(mcp._list_tools())
+
+
 # --- helpers ----------------------------------------------------------------
 def test_camel_to_snake():
     assert _camel_to_snake("ChangeManagement") == "change_management"
@@ -302,3 +306,86 @@ def test_destructive_typed_tool_confirms():
         "operation": "delete_record",
     }
     assert asyncio.run(_run(_FakeCtx("accept"))) == {"deleted": {"id": "x"}}
+
+
+# --- register_tool_surface (central wiring) ---------------------------------
+import types as _types  # noqa: E402
+
+from agent_utilities.mcp.verbose_tools import register_tool_surface  # noqa: E402
+
+
+def _surface_module():
+    """A fake <pkg>.mcp module exposing register_<tag>_tools callables."""
+    mod = _types.ModuleType("fake_pkg_mcp")
+
+    def register_cmdb_tools(mcp):
+        mcp.tool(name="svc_cmdb", tags={"cmdb"})(lambda: None)
+
+    def register_change_management_tools(mcp):
+        mcp.tool(name="svc_change_management", tags={"change_management"})(lambda: None)
+
+    mod.register_cmdb_tools = register_cmdb_tools
+    mod.register_change_management_tools = register_change_management_tools
+    return mod
+
+
+def test_surface_condensed_via_tools_module(monkeypatch):
+    monkeypatch.delenv("MCP_TOOL_MODE", raising=False)  # condensed default
+    mcp = FastMCP("t")
+    tags = register_tool_surface(
+        mcp,
+        client_cls=_Api,
+        get_client=_get_client,
+        service="servicenow-api",
+        tools_module=_surface_module(),
+    )
+    assert set(tags) == {"cmdb", "change_management"}
+    names = {t.name for t in _tools_list(mcp)}
+    assert "svc_cmdb" in names
+    assert "servicenow_get_cmdb_instance" not in names  # no verbose in condensed
+
+
+def test_surface_env_var_derivation_gates(monkeypatch):
+    # <TAG>TOOL derived from register_<tag>_tools; CHANGE_MANAGEMENTTOOL=False disables it
+    monkeypatch.delenv("MCP_TOOL_MODE", raising=False)
+    monkeypatch.setenv("CHANGE_MANAGEMENTTOOL", "False")
+    mcp = FastMCP("t")
+    tags = register_tool_surface(
+        mcp,
+        client_cls=_Api,
+        get_client=_get_client,
+        service="servicenow-api",
+        tools_module=_surface_module(),
+    )
+    assert tags == ["cmdb"]
+
+
+def test_surface_both_adds_verbose(monkeypatch):
+    monkeypatch.setenv("MCP_TOOL_MODE", "both")
+    mcp = FastMCP("t")
+    register_tool_surface(
+        mcp,
+        client_cls=_Api,
+        get_client=_get_client,
+        service="servicenow-api",
+        tools_module=_surface_module(),
+    )
+    names = {t.name for t in _tools_list(mcp)}
+    assert "svc_cmdb" in names  # condensed
+    assert "servicenow_get_cmdb_instance" in names  # verbose
+
+
+def test_surface_tool_registry(monkeypatch):
+    monkeypatch.setenv("MCP_TOOL_MODE", "verbose")  # condensed registry skipped
+    calls = []
+    registry = [("a", "ATOOL", lambda mcp: calls.append("a"))]
+    mcp = FastMCP("t")
+    register_tool_surface(
+        mcp,
+        client_cls=_Api,
+        get_client=_get_client,
+        service="servicenow-api",
+        tool_registry=registry,
+    )
+    assert calls == []  # verbose-only mode does not run condensed registry
+    assert "servicenow_get_cmdb_instance" in {t.name for t in _tools_list(mcp)}
