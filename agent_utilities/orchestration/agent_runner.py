@@ -1008,6 +1008,44 @@ async def _execute_single_server(
     return {"results": {"output": str(output)}}
 
 
+async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
+    """Answer a lean turn with ONE local-model round, OUTSIDE the multi-agent graph
+    (CONCEPT:ORCH-1.68). A ``direct_complete`` shape must NOT enter the graph: a functional
+    router step cannot terminate the graph mid-flow without an extra edge that pydantic-graph
+    turns into a BROADCAST FORK (router → {end, dispatcher}), which silently killed every
+    full-graph / tool task. So the lean answer is produced here and the graph is reserved for
+    real multi-step work. Reasoning is off by default (fast); the model/timeout come from the
+    shape. Returns a GraphResponse-shaped dict.
+    """
+    from pydantic_ai import Agent, ModelSettings
+
+    from agent_utilities.core.config import DEFAULT_EXTRA_BODY
+    from agent_utilities.core.model_factory import create_model
+
+    model_id = getattr(shape, "model_id", None) if shape is not None else None
+    reason_on = (
+        bool(getattr(shape, "enable_reasoning", False)) if shape is not None else False
+    )
+    budget = getattr(shape, "router_timeout", None) if shape is not None else None
+    extra = dict(DEFAULT_EXTRA_BODY or {})
+    ctk = dict(extra.get("chat_template_kwargs") or {})
+    ctk["enable_thinking"] = reason_on
+    extra["chat_template_kwargs"] = ctk
+    agent = Agent(
+        model=create_model(model_id=model_id),
+        system_prompt="You are a helpful assistant. Respond naturally and concisely.",
+        model_settings=ModelSettings(
+            extra_body=extra, max_tokens=1024, timeout=budget or 30.0
+        ),
+    )
+    res = await agent.run(query)
+    return {
+        "status": "completed",
+        "results": {"output": str(res.output)},
+        "metadata": {"direct_complete": True, "domain": "conversational"},
+    }
+
+
 async def _execute_graph(
     config: dict[str, Any],
     query: str,
@@ -1023,6 +1061,27 @@ async def _execute_graph(
     """
     from agent_utilities.graph.builder import create_graph_agent
     from agent_utilities.orchestration.engine import AgentOrchestrationEngine
+
+    # CONCEPT:ORCH-1.68 — a direct-completion shape answers with one lean local-model round and
+    # NEVER enters the multi-agent graph (see _run_direct_completion: the in-graph router
+    # variant created a broadcast fork that broke full-graph tool tasks). Decide once, here; a
+    # genuine failure falls through to the full graph.
+    _shape = config.get("execution_shape")
+    _direct = (
+        bool(getattr(_shape, "direct_complete", False)) if _shape is not None else False
+    )
+    if _shape is None:
+        from agent_utilities.graph.routing.strategies.fast_path import is_trivial_query
+
+        _direct = is_trivial_query(query)
+    if _direct:
+        try:
+            return await _run_direct_completion(query, _shape)
+        except Exception as e:  # noqa: BLE001 — a failed lean answer falls through to the graph
+            logger.warning(
+                "[ORCH-1.68] direct completion failed (%s); falling through to the graph.",
+                e,
+            )
 
     # Build graph from config
     graph, full_config = create_graph_agent(
