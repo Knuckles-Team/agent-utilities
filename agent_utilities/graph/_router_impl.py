@@ -101,93 +101,13 @@ async def router_step(
         logger.error("Router: Max planning loops exceeded. Aborting.")
         return "error_recovery"
 
-    # Direct-completion: skip the full pipeline for a job the planner shaped as a simple
-    # conversational/Q&A turn. CONCEPT:ORCH-1.68 — the decision lives in the per-job execution
-    # shape (``direct_complete``), constructed up front by ``plan_execution_shape`` from the
-    # single-source-of-truth structural classifier. When a direct caller planned no shape
-    # (``execution_shape is None``), fall back to that same classifier so behaviour is
-    # identical to before — one decision point, no dual path.
-    _shape = getattr(deps, "execution_shape", None)
-    if _shape is not None:
-        _direct = bool(getattr(_shape, "direct_complete", False))
-    else:
-        from .routing.strategies.fast_path import is_trivial_query
-
-        _direct = is_trivial_query(ctx.state.query)
-
-    if _direct:
-        logger.info(
-            f"Router: Direct-completion shape — answering '{ctx.state.query[:40]}' on the "
-            "local model (CONCEPT:ORCH-1.68)."
-        )
-        from pydantic_ai import ModelSettings
-
-        from ..core.config import DEFAULT_EXTRA_BODY
-        from ..core.model_factory import create_model
-
-        # Per-job model override from the shape, else ``None`` → the local default model
-        # (``create_model`` resolves the served local model — never a hard-coded remote one).
-        _shape_model_id = (
-            getattr(_shape, "model_id", None) if _shape is not None else None
-        )
-        direct_model = create_model(model_id=_shape_model_id)
-
-        # CONCEPT:ORCH-1.68 — the model's reasoning capability is a DYNAMIC, per-job shape
-        # decision (``enable_reasoning``), not a hard-coded mode: a trivial Q&A runs with
-        # extended reasoning OFF (a chain-of-thought trace turns a 0.4 s answer into ~28 s of
-        # hidden reasoning tokens on the local qwen reasoning model), while a job the planner
-        # judged worth deliberation keeps it ON. The answer is token-bounded and the call is
-        # bounded to the chat node budget.
-        _reason_on = (
-            bool(getattr(_shape, "enable_reasoning", False))
-            if _shape is not None
-            else False
-        )
-        _extra = dict(DEFAULT_EXTRA_BODY or {})
-        _ctk = dict(_extra.get("chat_template_kwargs") or {})
-        _ctk["enable_thinking"] = _reason_on
-        _extra["chat_template_kwargs"] = _ctk
-        _node_budget = (
-            getattr(_shape, "router_timeout", None) if _shape is not None else None
-        )
-        direct_settings = ModelSettings(
-            extra_body=_extra,
-            max_tokens=1024,
-            timeout=_node_budget or 30.0,
-        )
-
-        direct_agent = Agent(
-            model=direct_model,
-            system_prompt="You are a helpful assistant. Respond naturally and concisely.",
-            model_settings=direct_settings,
-        )
-        try:
-            res = await direct_agent.run(ctx.state.query)
-            emit_graph_event(
-                deps.event_queue,
-                "routing_completed",
-                plan={},
-                reasoning="direct-completion shape",
-            )
-            return End(
-                GraphResponse(
-                    status="completed",
-                    results={"output": str(res.output)},
-                    metadata={"direct_complete": True, "domain": "conversational"},
-                )
-            )
-        except (KeyboardInterrupt, SystemExit, asyncio.CancelledError):
-            raise
-        except BaseException as e:  # noqa: BLE001
-            # A remote/streamable model failure surfaces through anyio as a
-            # BaseExceptionGroup (a BaseException, not always an Exception), so catch
-            # BaseException to surface WHICH error sent us to the full pipeline — otherwise
-            # the direct-completion fails silently and the turn pays the full graph anyway.
-            logger.warning(
-                "Router: Direct-completion failed (%s: %s). Falling back to full pipeline.",
-                type(e).__name__,
-                e,
-            )
+    # CONCEPT:ORCH-1.68 — a direct-completion / lean turn is answered OUTSIDE this graph by
+    # ``agent_runner._run_direct_completion`` (the planner's ``direct_complete`` shape, or the
+    # structural classifier for a shape-less caller, short-circuits _execute_graph before the
+    # graph is even built). The router therefore only ever runs for a real multi-step turn and
+    # has a SINGLE outgoing edge to the dispatcher — it must NOT return ``End`` here, because a
+    # second router edge to the end node makes pydantic-graph broadcast-fork the router output
+    # to BOTH end and dispatcher, terminating every full-graph turn.
 
     # Junction Pseudostate: Try static keyword routing first (saves LLM call)
     # If tag_prompts is empty (e.g. toolset loading failed due to missing env vars),
@@ -204,6 +124,7 @@ async def router_step(
     # Topological Pre-Routing: Check the Knowledge Graph for direct tool matches and context.
     # CONCEPT:ORCH-1.68 — run this several-round-trip discovery bundle only when the job's
     # shape calls for it; a lean shape skips it.
+    _shape = getattr(deps, "execution_shape", None)
     discovery_context = ""
     if deps.knowledge_engine and (
         _shape is None or getattr(_shape, "run_discovery", True)
