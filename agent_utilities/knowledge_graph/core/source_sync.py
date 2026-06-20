@@ -198,6 +198,21 @@ def _existing_disabled(engine: Any, node_id: str) -> bool:
     return False
 
 
+def _derive_tool_mode(input_schema: dict | None) -> str:
+    """Classify a served tool as ``condensed`` or ``verbose`` (CONCEPT:KG-2.133).
+
+    The fleet exposes two surfaces per server (MCP_TOOL_MODE=both, ECO-4.82): a *condensed*
+    action-routed tool (one tool with ``action`` + ``params_json``) and *verbose* 1:1 tools
+    (one typed tool per operation). Both are ingested as distinct ``Tool`` nodes; tagging the
+    variant lets selection/analytics prefer the right altitude (condensed for broad, verbose
+    for a specific operation) instead of guessing from the name.
+    """
+    props = (input_schema or {}).get("properties")
+    if isinstance(props, dict) and "action" in props and "params_json" in props:
+        return "condensed"
+    return "verbose"
+
+
 def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
     """Write a probed multiplexer catalog into the KG as capability nodes.
 
@@ -269,6 +284,7 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                         "requires_approval": False,
                         "synonyms": synonyms,
                         "kind": "mcp_tool",
+                        "tool_mode": _derive_tool_mode(entry.get("inputSchema")),
                         "disabled": _existing_disabled(engine, tool_node_id),
                     },
                 )

@@ -708,6 +708,19 @@ async def _graph_agent_reply(
         if budget and budget > 0
         else float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
     )
+
+    # CONCEPT:ECO-4.67 — the universal graph path (execute_agent → run_agent) does NOT carry
+    # image attachments to the model: it answers text-only, "succeeds", and so never reaches
+    # the vision-capable fallback. Route image turns straight to the vision responder so
+    # "what is this photo of?" actually sees the image. (Pure-vision Q&A; tool/graph turns
+    # with images would need image plumbing through run_agent — tracked separately.)
+    if image_parts:
+        logger.info(
+            "[CONCEPT:ECO-4.67] %d image(s) attached — routing to the vision responder.",
+            len(image_parts),
+        )
+        return await _plain_chat_reply(content, image_parts=image_parts)
+
     try:
         from agent_utilities.orchestration.manager import Orchestrator
 

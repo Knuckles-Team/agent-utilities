@@ -50,3 +50,36 @@ async def test_transcribe_attachments_none_without_audio() -> None:
 async def test_transcribe_voice_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MESSAGING_VOICE", "0")
     assert await voice.transcribe_voice("http://x/a.ogg") == ""
+
+
+def test_get_backend_falls_back_to_faster_whisper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CONCEPT:ECO-4.68 — when the full audio-transcriber package (pyaudio-bound) is absent,
+    _get_backend uses faster-whisper's WhisperModel directly: the lean messaging path."""
+    import sys
+    import types
+
+    from agent_utilities.messaging import voice
+
+    voice._backend = None
+    # Force `from audio_transcriber.audio_transcriber import ...` to ImportError.
+    monkeypatch.setitem(sys.modules, "audio_transcriber", None)
+    # Fake faster_whisper.WhisperModel returning two segments.
+    segs = [types.SimpleNamespace(text=" hello"), types.SimpleNamespace(text=" world")]
+
+    class _Model:
+        def __init__(self, *a: object, **k: object) -> None: ...
+        def transcribe(self, path: str):
+            return (segs, object())
+
+    fw = types.ModuleType("faster_whisper")
+    fw.WhisperModel = _Model  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "faster_whisper", fw)
+
+    backend = voice._get_backend()
+    try:
+        assert isinstance(backend, voice._FasterWhisper)
+        assert backend.transcribe("x.ogg")["text"] == "hello world"
+    finally:
+        voice._backend = None
