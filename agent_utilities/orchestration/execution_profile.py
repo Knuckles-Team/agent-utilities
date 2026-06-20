@@ -124,6 +124,51 @@ class ExecutionProfile:
     def is_chat(self) -> bool:
         return self.name == "chat"
 
+    @property
+    def reply_budget_s(self) -> float:
+        """How long a turn of THIS shape should reasonably take — the dynamic reply budget
+        (CONCEPT:ORCH-1.72).
+
+        A fixed 45 s reply timeout is wrong in both directions: it makes a trivial chat wait
+        too long on a degraded backend, and it cuts off a legitimate multi-agent tool turn
+        (KG discovery + planning + expert execution + external tool latency + verify) that
+        simply needs longer. So the budget is derived from the shape the planner already
+        produced: a direct/lean turn is one local round; each heavyweight stage the shape
+        enables adds the time that stage costs; a full turn that runs experts also pays for
+        external tool round-trips, which dominate. Used to bound the messaging reply and to
+        decide inline-vs-deferred delivery (see ``is_interactive``).
+        """
+        if self.direct_complete:
+            return 25.0
+        budget = 45.0  # a single resolved-specialist turn
+        if self.run_discovery:
+            budget += 30.0  # the router's KG discovery + planning bundle
+        if self.resolve_agent:
+            budget += 25.0  # semantic agent resolution round-trip
+        if self.run_verifier:
+            budget += 30.0  # verify (+ repair) round
+        if self.run_discovery or self.run_verifier:
+            budget += (
+                60.0  # expert execution + external tool calls dominate a full turn
+            )
+        return budget
+
+    @property
+    def is_interactive(self) -> bool:
+        """True when a turn of this shape is fast enough to answer INLINE (block on it).
+
+        A heavier turn (full multi-agent tool work) would blow any reasonable inline wait, so
+        the transport should acknowledge it immediately and deliver the result as a follow-up
+        (CONCEPT:ORCH-1.72) rather than make the user stare at a typing indicator for minutes.
+        """
+        return self.reply_budget_s <= _INTERACTIVE_REPLY_BUDGET_S
+
+
+# The longest a turn may take while still being answered INLINE (block-and-wait). Above this,
+# the messaging transport acks now and delivers later (CONCEPT:ORCH-1.72). A direct (25 s) and
+# a lean single-specialist (45 s) turn answer inline; a full multi-agent tool turn defers.
+_INTERACTIVE_REPLY_BUDGET_S = 50.0
+
 
 def _messaging_reply_timeout() -> float:
     """The configured messaging reply budget (live), default 45 s."""

@@ -36,6 +36,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# CONCEPT:ORCH-1.72 — prompt-only universal entrypoints that must flow through the full
+# multi-agent graph AS THEMSELVES, never resolved to a KG specialist. Resolving one is pure
+# waste (a multi-second semantic search) and actively wrong (it mis-binds the universal
+# messaging assistant to an unrelated tag). Keep this to genuine pass-through identities.
+_PASSTHROUGH_AGENTS = frozenset({"messaging-assistant"})
+
 
 def _flatten_exception_group(exc: BaseException) -> str:
     """Flatten a (possibly nested) ExceptionGroup into an actionable message.
@@ -246,7 +252,11 @@ async def run_agent(
     # CONCEPT:ORCH-1.68 — a direct-completion / generic chat turn does not target a named
     # specialist, so we skip the resolution entirely (it is a multi-second semantic-search
     # round-trip that mis-resolves a prompt-only agent like ``messaging-assistant`` anyway).
-    if shape.resolve_agent:
+    # CONCEPT:ORCH-1.72 — and a PASS-THROUGH identity (the universal messaging assistant) is
+    # resolution-exempt regardless of the shape: it is a prompt-only universal entrypoint that
+    # is MEANT to flow through the full multi-agent graph as itself, and resolving it both
+    # wastes a ~21 s semantic search and mis-binds it to an unrelated tag (``prepare_messages``).
+    if shape.resolve_agent and agent_name.strip().lower() not in _PASSTHROUGH_AGENTS:
         agent_meta = await asyncio.to_thread(_resolve_agent_from_kg, engine, agent_name)
     else:
         agent_meta = _unresolved_agent_meta()
