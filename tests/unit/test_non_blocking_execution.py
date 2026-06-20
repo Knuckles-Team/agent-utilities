@@ -671,3 +671,76 @@ def test_recipe_outcome_evicts_on_failure_keeps_on_success() -> None:
         ).origin
         == "cache:designate"
     )
+
+
+# ───────── ORCH-1.71 — learned shape policy (OutcomeRouter over the reward-EMA spine) ─────────
+
+
+def test_outcome_router_prior_until_learned() -> None:
+    """Neutral → return the heuristic prior; once an alternative's reward-EMA exceeds the
+    prior's, select flips. outcome_reward ranks fast-success > slow-success > failure."""
+    from agent_utilities.orchestration.outcome_router import (
+        OutcomeRouter,
+        outcome_reward,
+    )
+
+    r = OutcomeRouter("test")
+    assert r.select("cls", "lean", ("lean", "full")) == "lean"
+    assert r.select("cls", "full", ("lean", "full")) == "full"
+    for _ in range(10):
+        r.record("cls", "full", 1.0)
+        r.record("cls", "lean", 0.0)
+    assert r.select("cls", "lean", ("lean", "full")) == "full"  # learned override
+
+    assert (
+        outcome_reward(success=True, latency_s=1.0)
+        > outcome_reward(success=True, latency_s=25.0)
+        > outcome_reward(success=False, latency_s=1.0)
+    )
+
+
+def test_outcome_router_is_per_task_class() -> None:
+    """Learning for one task-class must not leak into another."""
+    from agent_utilities.orchestration.outcome_router import OutcomeRouter
+
+    r = OutcomeRouter("test")
+    for _ in range(10):
+        r.record("A", "full", 1.0)
+        r.record("A", "lean", 0.0)
+    assert r.select("A", "lean", ("lean", "full")) == "full"  # learned for A
+    assert r.select("B", "lean", ("lean", "full")) == "lean"  # B untouched → prior
+
+
+def test_shape_policy_overlay_flips_after_learning() -> None:
+    """The planner's heuristic shape is a prior the learned policy refines per task-class
+    (CONCEPT:ORCH-1.71); a reset restores the pure heuristic."""
+    from dataclasses import replace
+
+    from agent_utilities.orchestration.execution_profile import (
+        _FULL_FIELDS,
+        plan_execution_shape,
+        record_shape_outcome,
+        reset_recipe_cache,
+        reset_shape_policy,
+    )
+
+    reset_shape_policy()
+    reset_recipe_cache()
+    q = "tell me what you think about this"  # strength 0 → heuristic prior = lean
+    p0 = plan_execution_shape(q, profile_hint="chat")
+    assert p0.direct_complete is True and p0.origin == "heuristic"
+
+    full = replace(p0, **_FULL_FIELDS)
+    lean = replace(p0)  # the lean shape actually planned
+    for _ in range(8):
+        record_shape_outcome(q, "chat", success=True, latency_s=2.0, shape=full)
+        record_shape_outcome(q, "chat", success=False, latency_s=30.0, shape=lean)
+
+    p1 = plan_execution_shape(q, profile_hint="chat")
+    assert p1.direct_complete is False and p1.origin == "policy:full"
+
+    reset_shape_policy()
+    reset_recipe_cache()
+    p2 = plan_execution_shape(q, profile_hint="chat")
+    assert p2.direct_complete is True and p2.origin == "heuristic"
+    reset_shape_policy()  # clean up so later tests see a neutral policy
