@@ -208,21 +208,32 @@ def test_fast_path_catches_normal_simple_questions() -> None:
         assert is_trivial_query(q), f"expected fast path for {q!r}"
 
 
-def test_fast_path_escalates_tool_and_plan_turns() -> None:
+def test_fast_path_escalates_structural_turns() -> None:
+    """Structural escalation only (CONCEPT:EG-010/ORCH-1.73): slash-command, multi-clause, or
+    over-length. Capability/action turns are NOT escalated here anymore — the engine lexical
+    gate handles them against the live KG (see test_cascade_lexical_gate_hit_escalates)."""
     from agent_utilities.graph.routing.strategies.fast_path import (
         is_trivial_query,
         needs_full_orchestration,
     )
 
     for q in (
+        "/skill code-enhancer",  # slash command
+        "search the KG for recent papers and then ingest them",  # multi-clause ("and then")
+        "please " + "really " * 45 + "do it",  # over-length
+    ):
+        assert needs_full_orchestration(q), f"expected structural escalation for {q!r}"
+        assert not is_trivial_query(q), f"expected NOT fast-path for {q!r}"
+
+    # A bare action/capability turn no longer trips the STRUCTURAL gate — it is structurally
+    # trivial and escalates (if at all) via the KG lexical gate, not this module.
+    for q in (
         "deploy the freshrss stack to r710",
         "restart the graph-os service",
-        "/skill code-enhancer",
-        "search the KG for recent papers and then ingest them",
-        "fix the failing test in agent_runner and run the suite",
     ):
-        assert needs_full_orchestration(q), f"expected escalation for {q!r}"
-        assert not is_trivial_query(q), f"expected NOT fast-path for {q!r}"
+        assert not needs_full_orchestration(q), (
+            f"expected NO structural escalation for {q!r}"
+        )
 
 
 # ─────────────────────────── ORCH-1.64 — graph cache ───────────────────────────
@@ -521,7 +532,7 @@ def test_plan_shape_real_task_keeps_full_graph() -> None:
 
     for q in (
         "deploy the service and then restart it",
-        "analyze this repo and create a migration plan",
+        "analyze this repo and then create a migration plan",
     ):
         s = plan_execution_shape(q, profile_hint="chat")
         assert s.direct_complete is False, q
@@ -597,11 +608,29 @@ def test_memory_selection_doc_scan_pruned_and_capped(tmp_path) -> None:
 # ───────── ORCH-1.69/1.70 — escalating cascade + Rust stage-2 + recipe cache ─────────
 
 
-class _FakeSearchEngine:
-    """Minimal engine exposing search_hybrid for the stage-2 path."""
+class _FakeGraphCompute:
+    """Stand-in for engine.graph_compute exposing the lexical gate (CONCEPT:EG-010)."""
 
-    def __init__(self, hits: Any) -> None:
+    def __init__(self, terms: Any) -> None:
+        self._terms = terms
+
+    def match_ontology_terms(self, query: str) -> Any:
+        if isinstance(self._terms, Exception):
+            raise self._terms
+        return self._terms
+
+
+class _FakeSearchEngine:
+    """Minimal engine exposing search_hybrid (stage 2) and, optionally, the lexical gate.
+
+    ``lexical`` (when given) is the list of capability terms the ontology gate returns for
+    any query; absent → no ``graph_compute`` attribute, so the gate reports "no capability".
+    """
+
+    def __init__(self, hits: Any, lexical: Any = None) -> None:
         self._hits = hits
+        if lexical is not None:
+            self.graph_compute = _FakeGraphCompute(lexical)
 
     def search_hybrid(self, query: str, top_k: int = 8) -> Any:
         if isinstance(self._hits, Exception):
@@ -610,17 +639,20 @@ class _FakeSearchEngine:
 
 
 def test_signal_strength_grades() -> None:
-    """The graded classifier: 0 = trivial, 1 = ambiguous middle, 2+ = clearly complex."""
+    """The graded classifier is now PURELY STRUCTURAL (CONCEPT:EG-010/ORCH-1.73): 0 = no
+    structural signal (domain escalation is the lexical gate's job), 2+ = clearly complex."""
     from agent_utilities.graph.routing.strategies.fast_path import (
         orchestration_signal_strength as strength,
     )
 
     assert strength("hello") == 0
     assert strength("what is 2 plus 2?") == 0
-    assert strength("search the docs") == 1  # one weak action keyword → ambiguous
+    # Action vocabulary no longer scores here — it lives in the KG lexical gate.
+    assert strength("search the docs") == 0
+    assert strength("deploy the freshrss stack") == 0
     assert (
         strength("deploy the service and then restart it") >= 2
-    )  # multi-signal → complex
+    )  # multi-clause ("and then") → complex
     assert strength("/deploy foo") >= 2  # slash command
 
 
@@ -647,22 +679,51 @@ def test_cascade_light_and_complex_skip_stage2() -> None:
     assert full.confidence >= 0.9
 
 
-def test_cascade_stage2_hits_keep_full() -> None:
-    """An ambiguous turn whose KG search finds capabilities IS a tool task → full graph."""
+# A substantial turn (> MAX_TRIVIAL_WORDS) that names no capability lexically — reaches stage 2.
+_SUBSTANTIAL = "can you find everything related to the archived revenue records please"
+
+
+def test_cascade_lexical_gate_hit_escalates() -> None:
+    """CONCEPT:EG-010 — a turn naming a real fleet capability escalates via the FREE lexical
+    gate (no vector search), the path that fixes the portainer/github classification bug."""
     from agent_utilities.orchestration.execution_profile import (
         plan_execution_shape,
         reset_recipe_cache,
     )
 
     reset_recipe_cache()
-    eng = _FakeSearchEngine([{"name": "archive_search"}, {"name": "fetch"}])
-    shape = plan_execution_shape("search the archive", profile_hint="chat", engine=eng)
+    # search_hybrid must NOT be consulted when the lexical gate already matched.
+    eng = _FakeSearchEngine(
+        RuntimeError("semantic search must NOT run after a lexical hit"),
+        lexical=[
+            {"term": "portainer", "node_type": "Tool", "label": "portainer_stack"}
+        ],
+    )
+    shape = plan_execution_shape(
+        "list the stacks I have on portainer", profile_hint="chat", engine=eng
+    )
+    assert shape.direct_complete is False
+    assert shape.origin == "lexical"
+
+
+def test_cascade_stage2_hits_keep_full() -> None:
+    """A substantial turn that named no capability but whose KG search finds some IS a tool task."""
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        reset_recipe_cache,
+    )
+
+    reset_recipe_cache()
+    eng = _FakeSearchEngine(
+        [{"name": "archive_search"}, {"name": "fetch"}], lexical=[]
+    )  # lexical miss → falls to stage 2
+    shape = plan_execution_shape(_SUBSTANTIAL, profile_hint="chat", engine=eng)
     assert shape.direct_complete is False
     assert shape.origin == "designate"
 
 
 def test_cascade_stage2_empty_downgrades_to_lean() -> None:
-    """An ambiguous turn whose KG search finds nothing is conversational → lean fast path."""
+    """A substantial turn whose lexical gate AND KG search find nothing is conversational → lean."""
     from agent_utilities.orchestration.execution_profile import (
         plan_execution_shape,
         reset_recipe_cache,
@@ -670,22 +731,39 @@ def test_cascade_stage2_empty_downgrades_to_lean() -> None:
 
     reset_recipe_cache()
     shape = plan_execution_shape(
-        "search the archive", profile_hint="chat", engine=_FakeSearchEngine([])
+        _SUBSTANTIAL, profile_hint="chat", engine=_FakeSearchEngine([], lexical=[])
     )
     assert shape.direct_complete is True
     assert shape.origin == "designate-empty"
 
 
-def test_cascade_stage2_unavailable_keeps_full() -> None:
-    """If KG search is unavailable, an action-shaped ambiguous turn keeps the safe full graph."""
+def test_cascade_short_turn_skips_stage2() -> None:
+    """A SHORT turn that names no capability never pays the semantic tier — it leans (free)."""
     from agent_utilities.orchestration.execution_profile import (
         plan_execution_shape,
         reset_recipe_cache,
     )
 
     reset_recipe_cache()
-    eng = _FakeSearchEngine(RuntimeError("search down"))
-    shape = plan_execution_shape("search the archive", profile_hint="chat", engine=eng)
+    # search_hybrid raising would surface if stage 2 were (wrongly) reached for a short turn.
+    eng = _FakeSearchEngine(
+        RuntimeError("stage 2 must NOT run for a short turn"), lexical=[]
+    )
+    shape = plan_execution_shape("list my stacks", profile_hint="chat", engine=eng)
+    assert shape.direct_complete is True
+    assert shape.origin == "heuristic"
+
+
+def test_cascade_stage2_unavailable_keeps_full() -> None:
+    """If KG search is unavailable, a substantial ambiguous turn keeps the safe full graph."""
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        reset_recipe_cache,
+    )
+
+    reset_recipe_cache()
+    eng = _FakeSearchEngine(RuntimeError("search down"), lexical=[])
+    shape = plan_execution_shape(_SUBSTANTIAL, profile_hint="chat", engine=eng)
     assert shape.direct_complete is False
     assert (
         shape.origin == "heuristic"
@@ -700,17 +778,18 @@ def test_recipe_cache_reuses_and_resets() -> None:
     )
 
     reset_recipe_cache()
-    # A stage-2 job: caching it means the second call must NOT hit the engine again.
-    eng = _FakeSearchEngine([{"name": "x"}])
-    first = plan_execution_shape("crawl the site", profile_hint="chat", engine=eng)
+    # A stage-2 job (substantial, lexical miss): caching it means the second call must NOT
+    # hit the engine again.
+    eng = _FakeSearchEngine([{"name": "x"}], lexical=[])
+    first = plan_execution_shape(_SUBSTANTIAL, profile_hint="chat", engine=eng)
     assert first.origin == "designate"
-    boom = _FakeSearchEngine(RuntimeError("cache must serve the 2nd call"))
-    second = plan_execution_shape("crawl the site", profile_hint="chat", engine=boom)
+    boom = _FakeSearchEngine(RuntimeError("cache must serve the 2nd call"), lexical=[])
+    second = plan_execution_shape(_SUBSTANTIAL, profile_hint="chat", engine=boom)
     assert second.origin == "cache:designate"
     assert second.direct_complete == first.direct_complete
 
     reset_recipe_cache()
-    third = plan_execution_shape("crawl the site", profile_hint="chat", engine=eng)
+    third = plan_execution_shape(_SUBSTANTIAL, profile_hint="chat", engine=eng)
     assert third.origin == "designate"  # cache cleared → recomputed
 
 
@@ -724,31 +803,33 @@ def test_recipe_outcome_evicts_on_failure_keeps_on_success() -> None:
     )
 
     reset_recipe_cache()
-    eng = _FakeSearchEngine([{"name": "x"}])
-    cache_boom = _FakeSearchEngine(RuntimeError("must be served from cache"))
+    eng = _FakeSearchEngine([{"name": "x"}], lexical=[])
+    cache_boom = _FakeSearchEngine(
+        RuntimeError("must be served from cache"), lexical=[]
+    )
 
     assert plan_execution_shape(
-        "crawl the site", profile_hint="chat", engine=eng
+        _SUBSTANTIAL, profile_hint="chat", engine=eng
     ).origin == ("designate")
     # cached now
     assert (
         plan_execution_shape(
-            "crawl the site", profile_hint="chat", engine=cache_boom
+            _SUBSTANTIAL, profile_hint="chat", engine=cache_boom
         ).origin
         == "cache:designate"
     )
 
     # failure evicts -> next call re-plans (engine called again)
-    record_shape_outcome("crawl the site", "chat", success=False)
+    record_shape_outcome(_SUBSTANTIAL, "chat", success=False)
     assert plan_execution_shape(
-        "crawl the site", profile_hint="chat", engine=eng
+        _SUBSTANTIAL, profile_hint="chat", engine=eng
     ).origin == ("designate")
 
     # success keeps -> next call served from cache
-    record_shape_outcome("crawl the site", "chat", success=True)
+    record_shape_outcome(_SUBSTANTIAL, "chat", success=True)
     assert (
         plan_execution_shape(
-            "crawl the site", profile_hint="chat", engine=cache_boom
+            _SUBSTANTIAL, profile_hint="chat", engine=cache_boom
         ).origin
         == "cache:designate"
     )

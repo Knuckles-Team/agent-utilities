@@ -10,15 +10,18 @@ It is universal — used by every entrypoint through the router, not a messaging
 CONCEPT:ORCH-1.63 — the original rule was far too narrow: ≤6 words AND starting with a
 fixed greeting prefix. So a normal simple question ("what's the status of X?", "can you
 summarise this?") did NOT qualify and paid for the full graph. The widened classifier is
-**rules-first**: a turn is simple unless it shows a concrete signal that it needs tools,
-specialists, or multi-step planning (an imperative/tool keyword, an explicit ``/``-command,
-multiple clauses, or sheer length). Greetings remain trivial; normal short questions now
-also take the one-round fast path. Only genuinely tool/plan-shaped turns escalate.
+**rules-first**: a turn is simple unless it shows a concrete STRUCTURAL signal that it needs
+tools, specialists, or multi-step planning (an explicit ``/``-command, multiple clauses, or
+sheer length). Greetings remain trivial; normal short questions now also take the one-round
+fast path.
+
+CONCEPT:EG-010, ORCH-1.73 — this module is now PURELY STRUCTURAL. The old hardcoded
+``_ESCALATION_KEYWORDS`` list was deleted: domain/capability vocabulary lives in the KG, and a
+turn that names a real fleet capability escalates via the engine's ``match_ontology_terms``
+lexical gate (in ``orchestration.execution_profile``), not a frozen word list here.
 """
 
 from __future__ import annotations
-
-import re
 
 # Conversational openers that, in a short utterance, do not require specialist tools or
 # planning. Kept for the explicit "definitely trivial" shortcut.
@@ -40,63 +43,12 @@ MAX_TRIVIAL_WORDS = 6
 # (long asks tend to bundle several requirements / multi-step work).
 MAX_SIMPLE_WORDS = 40
 
-# Tokens that signal the turn wants the agent to *do* something with tools, specialists, or a
-# multi-step plan — escalate these to the full orchestration graph rather than answer on the
-# single-round fast path. Word-boundary matched so "deploy" matches but "redeployment" prose
-# in a question still has to clear the other gates.
-_ESCALATION_KEYWORDS: tuple[str, ...] = (
-    # tool / fleet actions
-    "deploy",
-    "provision",
-    "restart",
-    "build",
-    "install",
-    "configure",
-    "run",
-    "execute",
-    "create",
-    "delete",
-    "remove",
-    "update",
-    "migrate",
-    "refactor",
-    "implement",
-    "fix",
-    "debug",
-    "patch",
-    "merge",
-    "commit",
-    "push",
-    "ingest",
-    "scan",
-    "search",
-    "query",
-    "fetch",
-    "scrape",
-    "crawl",
-    "analyze",
-    "analyse",
-    "orchestrate",
-    "schedule",
-    "trigger",
-    "compute",
-    "calculate",
-    "optimize",
-    "optimise",
-    "design",
-    "generate",
-    "forecast",
-    "simulate",
-    "train",
-    "evaluate",
-    # multi-step / specialist asks
-    "step by step",
-    "step-by-step",
-    "plan",
-    "workflow",
-    "pipeline",
-    "and then",
-)
+# NOTE: domain/action vocabulary used to live here as a hardcoded ``_ESCALATION_KEYWORDS``
+# list (deploy/restart/list/…). It was deleted (CONCEPT:EG-010, ORCH-1.73): an unbounded word
+# list is the wrong gate — it both missed real capabilities (no read verbs) and could not name
+# the fleet ("portainer"). The domain vocabulary now lives in the KG as capability nodes, and a
+# turn that names one escalates via the engine's ``match_ontology_terms`` lexical gate
+# (``orchestration.execution_profile``). This module stays PURELY STRUCTURAL.
 
 
 def _looks_multi_clause(query_lower: str) -> bool:
@@ -109,9 +61,13 @@ def _looks_multi_clause(query_lower: str) -> bool:
 
 
 def needs_full_orchestration(query: str) -> bool:
-    """True when a turn genuinely needs tools / specialists / multi-step planning.
+    """True when a turn shows a STRUCTURAL signal that it needs the full graph.
 
-    This is the escalation gate: the fast path handles everything that does NOT trip it.
+    Purely structural (CONCEPT:EG-010, ORCH-1.73): slash-command, over-length, or multiple
+    clauses. Domain/capability escalation (a turn that names a real fleet tool) is no longer
+    decided here from a hardcoded word list — it is decided by the engine's ontology lexical
+    gate in ``orchestration.execution_profile`` against the live KG. This is the escalation
+    gate's structural half: the fast path handles everything that does NOT trip it.
     """
     if not query:
         return False
@@ -130,31 +86,22 @@ def needs_full_orchestration(query: str) -> bool:
     if _looks_multi_clause(query_lower):
         return True
 
-    # A tool/action/plan keyword (word-boundary matched for single words; substring for the
-    # multi-word phrases which are already specific).
-    for kw in _ESCALATION_KEYWORDS:
-        if " " in kw or "-" in kw:
-            if kw in query_lower:
-                return True
-        elif re.search(rf"\b{re.escape(kw)}\b", query_lower):
-            return True
-
     return False
 
 
 def orchestration_signal_strength(query: str) -> int:
-    """Count how STRONGLY a turn signals a need for full orchestration (CONCEPT:ORCH-1.69).
+    """Graded STRUCTURAL signal that a turn needs full orchestration (CONCEPT:ORCH-1.69/1.73).
 
-    Built from the same signals as :func:`needs_full_orchestration` so the rule stays
-    single-sourced, but graded instead of boolean:
+    Built from the same structural signals as :func:`needs_full_orchestration` so the rule
+    stays single-sourced, but graded:
 
-    * ``0`` — no signal: a trivial/conversational turn (take the lean direct-completion shape).
-    * ``1`` — a single weak signal: the *ambiguous middle* the escalating planner sends to the
-      KG capability stage to disambiguate (is it a real tool task, or just conversational?).
-    * ``2+`` — a strong, unambiguous need for the full multi-agent graph.
+    * ``0`` — no structural signal: hand off to the ontology lexical gate, which escalates if
+      the turn names a real fleet capability and otherwise leaves it lean.
+    * ``2+`` — a strong, unambiguous structural need for the full multi-agent graph.
 
-    A slash-command, an over-length turn, or multiple clauses each count as strong on their own;
-    each distinct action keyword counts as one.
+    A slash-command, an over-length turn, or multiple clauses each count as strong on their
+    own. Domain/action vocabulary is intentionally NOT scored here (it lives in the KG); the
+    keyword-driven "strength 1" middle is gone — the lexical gate replaces it.
     """
     if not query:
         return 0
@@ -167,12 +114,6 @@ def orchestration_signal_strength(query: str) -> int:
         strength += 2
     if _looks_multi_clause(ql):
         strength += 2
-    for kw in _ESCALATION_KEYWORDS:
-        if " " in kw or "-" in kw:
-            if kw in ql:
-                strength += 1
-        elif re.search(rf"\b{re.escape(kw)}\b", ql):
-            strength += 1
     return strength
 
 

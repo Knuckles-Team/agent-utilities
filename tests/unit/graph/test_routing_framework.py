@@ -35,12 +35,11 @@ def test_is_trivial_query_rules():
     assert is_trivial_query("hello") is True
     assert is_trivial_query("hi there") is True
     assert is_trivial_query("thanks a lot") is True
-    # Long or non-conversational queries are not trivial.
-    assert (
-        is_trivial_query("hello, please optimize my portfolio under constraints")
-        is False
-    )
-    assert is_trivial_query("compute the efficient frontier") is False
+    # Structural escalators are NOT trivial (slash-command / multi-clause / over-length).
+    # Domain/action vocabulary is no longer scored here — escalation for a turn that names a
+    # real capability is the KG lexical gate's job (CONCEPT:EG-010/ORCH-1.73).
+    assert is_trivial_query("/optimize my portfolio") is False
+    assert is_trivial_query("compute the frontier and then plot the results") is False
     assert is_trivial_query("") is False
 
 
@@ -52,7 +51,8 @@ def test_fast_path_strategy_is_protocol_member():
 async def test_fast_path_strategy_decides():
     s = FastPathStrategy()
     assert await s.decide(_ctx("hello")) == "fast_path"
-    assert await s.decide(_ctx("design a distributed scheduler")) is None
+    # Multi-clause → structural escalation → the fast path defers.
+    assert await s.decide(_ctx("design the schema and then build the scheduler")) is None
 
 
 @pytest.mark.asyncio
@@ -84,5 +84,5 @@ async def test_router_returns_none_when_all_defer():
         strategies=[FastPathStrategy()],
         config=RoutingConfig(pipeline=["fast_path"]),
     )
-    # Non-trivial query -> fast_path defers -> no decision (caller falls back).
-    assert await router.route(_ctx("build an OWL reasoner")) is None
+    # Non-trivial (structural) query -> fast_path defers -> no decision (caller falls back).
+    assert await router.route(_ctx("/build an OWL reasoner")) is None
