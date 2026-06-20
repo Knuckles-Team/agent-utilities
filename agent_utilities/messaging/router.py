@@ -381,14 +381,28 @@ async def create_planner_handler(
         if shape.is_interactive:
             await _run_and_deliver(deferred=False)
         else:
+            # CONCEPT:ORCH-1.74 — describe the actual altitude: a focused-tools turn runs the
+            # named servers' tools (in parallel), not the full planning graph.
+            _n = len(shape.tool_servers)
+            _kind = (
+                f"focused-tools turn ({_n} tool{'s' if _n != 1 else ''} in parallel)"
+                if shape.tool_servers
+                else "full multi-agent turn"
+            )
             logger.info(
-                "[CONCEPT:ORCH-1.72] burst shaped as a full multi-agent turn (~%.0fs budget) "
+                "[CONCEPT:ORCH-1.72] burst shaped as a %s (~%.0fs budget) "
                 "— acknowledging now, delivering the result as a follow-up.",
+                _kind,
                 shape.reply_budget_s,
             )
+            _ack = (
+                "On it — running those tools now, I'll reply here as soon as they're back. ⏳"
+                if shape.tool_servers
+                else "On it — this one needs the full toolset, so it'll take a little longer. "
+                "I'll reply here as soon as it's ready. ⏳"
+            )
             await _send(
-                "On it — this one needs the full toolset, so it'll take a little longer. "
-                "I'll reply here as soon as it's ready. ⏳",
+                _ack,
                 threaded=True,
             )
             _spawn_bg(_run_and_deliver(deferred=True))

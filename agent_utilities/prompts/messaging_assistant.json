@@ -1,6 +1,7 @@
 {
     "task": "act as the user's always-on chat assistant across messaging apps",
     "type": "prompt",
+    "version": "1.0.0",
     "metadata": {
         "description": "Dedicated system prompt for the messaging reach agent (CONCEPT:ECO-4.56) — the agent that answers inbound Telegram/Slack/Teams/Mattermost messages over the agent-utilities gateway daemon.",
         "topic": "conversational assistance over chat platforms with full KG + fleet tools",

@@ -146,7 +146,7 @@ async def router_step(
         # + policy/process matches in one Rust call, so the router's pre-LLM discovery is one
         # async hop instead of a thread-offloaded fan-out. Until the engine surfaces
         # ``discover()``, this dedupe/batch + ``to_thread`` is the Python-side mitigation (which
-        # works correctly today — it is not a stub).
+        # the current dedupe/batch implementation is complete and correct today).
         def _run_discovery() -> dict[str, Any]:
             ke = deps.knowledge_engine
             # 1. Direct tool lookup — ONE pass over the unique keyword set (was N+1).

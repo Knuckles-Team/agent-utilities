@@ -33,6 +33,7 @@ from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.orchestration.execution_profile import ExecutionProfile
 
 logger = logging.getLogger(__name__)
 
@@ -703,7 +704,7 @@ def _build_execution_config(
     agent_name: str,
     agent_meta: dict[str, Any],
     memento_source: str | None = None,
-    execution_profile: str | None = None,
+    execution_profile: "str | ExecutionProfile | None" = None,
     recent_mementos: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build a graph execution config dict from KG-resolved agent metadata.
