@@ -2355,13 +2355,25 @@ def _build_server(bootstrap: bool = True):
         register_state_tools,
         register_write_ingest_tools,
     )
+    from agent_utilities.mcp.verbose_tools import register_tool_surface
 
-    register_query_tools(mcp)
-    register_write_ingest_tools(mcp)
-    register_analysis_tools(mcp)
-    register_state_tools(mcp)
-    register_ontology_tools(mcp)
-    register_reach_tools(mcp)
+    # graph-os is an action-routed wrapper over the API gateway's action core
+    # (no per-method client), so it has no verbose 1:1 surface — register_tool_surface
+    # gives it the same central, per-domain-toggled (`<DOMAIN>TOOL`) condensed wiring
+    # as the connector fleet. The empty-server guard keeps every domain registered
+    # even if a deployment sets MCP_TOOL_MODE=verbose for the connector fleet.
+    register_tool_surface(
+        mcp,
+        service="graph-os",
+        registrars=[
+            register_query_tools,
+            register_write_ingest_tools,
+            register_analysis_tools,
+            register_state_tools,
+            register_ontology_tools,
+            register_reach_tools,
+        ],
+    )
 
     return args, mcp, middlewares
 
@@ -2865,6 +2877,9 @@ def mcp_server() -> None:
     ``/goals``, ``/tools``) is centralized in the API gateway
     (``agent_utilities.gateway``) — see :func:`_mount_rest_routes`.
     """
+    from agent_utilities.core.config import load_config
+
+    load_config()  # resolve settings through the one shared XDG config.json
     os.environ["IS_KG_SERVER"] = "true"
     args, mcp, middlewares = _build_server()
 

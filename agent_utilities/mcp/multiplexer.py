@@ -1496,7 +1496,10 @@ def get_mcp_instance():
     Child servers are started (and their tools registered) later, inside the
     serving event loop, by :func:`mcp_server`.
     """
+    from agent_utilities.core.config import load_config
     from agent_utilities.mcp.server_factory import create_mcp_server
+
+    load_config()  # resolve settings through the one shared XDG config.json
 
     # Parse --config without disturbing the factory's own argv parsing.
     cfg_parser = argparse.ArgumentParser(add_help=False)
