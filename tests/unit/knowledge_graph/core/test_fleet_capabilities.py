@@ -131,3 +131,39 @@ def test_sync_source_routes_fleet_to_handler():
     res = sync_source(engine, "fleet", mode="full", client=CATALOG)
     assert res["status"] == "ok"
     assert res["tools_written"] == 3
+
+
+def test_derive_tool_mode_classifies_variant():
+    """CONCEPT:KG-2.133 — condensed = action+params_json schema; verbose = typed params."""
+    from agent_utilities.knowledge_graph.core.source_sync import _derive_tool_mode
+
+    assert _derive_tool_mode({"properties": {"action": {}, "params_json": {}}}) == "condensed"
+    assert _derive_tool_mode({"properties": {"owner": {}, "repo": {}}}) == "verbose"
+    assert _derive_tool_mode({}) == "verbose"
+    assert _derive_tool_mode(None) == "verbose"
+
+
+def test_both_tool_variants_ingested_with_mode():
+    """A server serving BOTH a condensed (action-routed) and a verbose (1:1 typed) tool
+    ingests BOTH as distinct Tool nodes, each tagged with its variant."""
+    catalog = {
+        "github-mcp": {
+            "tools": [
+                {
+                    "name": "github_issues",
+                    "description": "Manage GitHub issues",
+                    "inputSchema": {"properties": {"action": {}, "params_json": {}}},
+                },
+                {
+                    "name": "github_search_issues",
+                    "description": "Search issues",
+                    "inputSchema": {"properties": {"q": {}, "sort": {}}},
+                },
+            ],
+            "error": None,
+        }
+    }
+    eng = FakeEngine()
+    _write_fleet_nodes(eng, catalog)
+    assert eng.nodes["tool_github-mcp_github_issues"][1]["tool_mode"] == "condensed"
+    assert eng.nodes["tool_github-mcp_github_search_issues"][1]["tool_mode"] == "verbose"
