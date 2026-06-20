@@ -188,6 +188,43 @@ def test_register_typed_from_manifest():
     ]
 
 
+def test_invalid_param_name_falls_back_to_params_json():
+    """A param name that isn't a Python identifier (e.g. SCIM urn:) -> params_json."""
+
+    class _ScimClient:
+        def patch_group(self, **kwargs):
+            "Patch a group."
+            return {"patched": kwargs}
+
+    manifest = [
+        {
+            "method": "patch_group",
+            "domain": "scim",
+            "summary": "Patch a SCIM group.",
+            "params": [
+                {"name": "id", "type": "string", "required": True},
+                {
+                    "name": "urn:ietf:params:scim:schemas:onetrust:Group",
+                    "type": "object",
+                    "required": False,
+                },
+            ],
+        }
+    ]
+    mcp = FastMCP("t")
+    register_verbose_tools(
+        mcp,
+        _ScimClient,
+        lambda: _ScimClient(),
+        service="onetrust-api",
+        manifest=manifest,
+    )
+    tool = _get(mcp, "onetrust_patch_group")
+    # falls back to params_json rather than crashing on the invalid identifier
+    assert list(tool.parameters["properties"]) == ["params_json"]
+    assert tool.description == "Patch a SCIM group."
+
+
 def test_typed_live_dispatch():
     """LIVE-PATH: typed tool dispatches by-name to the client method."""
     mcp = FastMCP("t")
