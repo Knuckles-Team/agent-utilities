@@ -22,25 +22,29 @@ async def test_usage_guard_step():
 
 
 @pytest.mark.asyncio
-async def test_router_step_fast_path():
+async def test_router_step_never_returns_end():
+    """CONCEPT:ORCH-1.68 — the router must NEVER terminate the graph with ``End``: a second
+    router→end edge made pydantic-graph BROADCAST-FORK the router to {__end__, dispatcher},
+    killing every full-graph turn at __end__. Trivial turns are now answered OUTSIDE the graph
+    (``_run_direct_completion``), so they never reach router_step; when it does run it always
+    routes ONWARD (a node-id str or a GraphPlan), never End."""
+    from pydantic_graph import End
+
     ctx = MagicMock()
     ctx.state = GraphState(query="hello")
     ctx.deps = MagicMock()
     ctx.deps.event_queue = None
 
-    # Mock fast_agent.run
     mock_resp = MagicMock()
     mock_resp.output = "hi there"
 
-    # Mock Agent class (router_step's Agent lives in the impl module)
     with patch("agent_utilities.graph._router_impl.Agent") as mock_agent_class:
         mock_agent = mock_agent_class.return_value
         mock_agent.run = AsyncMock(return_value=mock_resp)
 
         result = await steps.router_step(ctx)
 
-    assert type(result).__name__ == "End"
-    assert result.data.results["output"] == "hi there"  # type: ignore[union-attr]
+    assert not isinstance(result, End)  # routes onward, never terminates the graph
 
 
 @pytest.mark.asyncio
