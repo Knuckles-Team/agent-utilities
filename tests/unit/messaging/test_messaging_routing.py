@@ -440,3 +440,37 @@ def test_load_fleet_auth_noop_when_already_set(monkeypatch) -> None:
     monkeypatch.setenv("OIDC_CLIENT_ID", "preset")
     daemon._load_fleet_auth()
     assert os.environ["OIDC_CLIENT_ID"] == "preset"
+
+
+@pytest.mark.asyncio
+async def test_image_turn_routes_to_vision_responder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CONCEPT:ECO-4.67 — a turn with image attachments goes straight to the vision-capable
+    responder, NOT the universal graph (which drops images and would answer text-only)."""
+    from agent_utilities.messaging import router as rt
+    from agent_utilities.orchestration import manager as mgr
+
+    called = {"execute": 0, "vision": 0}
+
+    class _Orch:
+        def __init__(self, _engine: Any) -> None: ...
+        async def execute_agent(self, **_k: Any) -> str:
+            called["execute"] += 1
+            return "graph (should not run for an image turn)"
+
+    async def _fake_vision(content: str, *, image_parts: Any = None) -> str:
+        called["vision"] += 1
+        return f"[local] I can see {len(image_parts)} image(s)"
+
+    monkeypatch.setattr(mgr, "Orchestrator", _Orch)
+    monkeypatch.setattr(rt, "_plain_chat_reply", _fake_vision)
+
+    reply = await _graph_agent_reply(
+        object(),
+        "what is this photo of?",
+        session="messaging:telegram:1",
+        image_parts=["img"],
+    )
+    assert called["vision"] == 1 and called["execute"] == 0
+    assert "1 image" in reply
