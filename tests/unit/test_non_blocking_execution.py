@@ -656,6 +656,68 @@ def test_signal_strength_grades() -> None:
     assert strength("/deploy foo") >= 2  # slash command
 
 
+def test_focused_tools_shape_carries_named_servers() -> None:
+    """CONCEPT:ORCH-1.74 — a lexical hit naming concrete server(s) yields the FOCUSED-TOOLS
+    altitude: origin='lexical' + tool_servers = the distinct matched servers, best-score first."""
+    from agent_utilities.orchestration.execution_profile import (
+        plan_execution_shape,
+        reset_recipe_cache,
+    )
+
+    # A turn naming BOTH portainer and github → bind both, github lower score sorts after.
+    matches = [
+        {
+            "term": "github",
+            "node_type": "Tool",
+            "mcp_server": "github-mcp",
+            "score": 6.0,
+        },
+        {
+            "term": "portainer",
+            "node_type": "Tool",
+            "mcp_server": "portainer-mcp",
+            "score": 9.0,
+        },
+        {
+            "term": "portainer_stack",
+            "node_type": "Tool",
+            "mcp_server": "portainer-mcp",
+            "score": 15.0,
+        },
+    ]
+    eng = _FakeSearchEngine([], lexical=matches)
+    reset_recipe_cache()
+    shape = plan_execution_shape(
+        "list my portainer stacks and the github issues",
+        profile_hint="chat",
+        engine=eng,
+    )
+    assert shape.direct_complete is False
+    assert shape.origin == "lexical"
+    # distinct, de-duped, best-score first (portainer_stack score 15 → portainer-mcp first)
+    assert shape.tool_servers == ("portainer-mcp", "github-mcp")
+
+
+def test_focused_tools_resolver_dedups_and_orders() -> None:
+    from agent_utilities.orchestration.execution_profile import (
+        _lexical_capability_servers,
+    )
+
+    eng = _FakeSearchEngine(
+        [],
+        lexical=[
+            {"term": "github", "mcp_server": "github-mcp", "score": 6.0},
+            {"term": "portainer", "mcp_server": "portainer-mcp", "score": 9.0},
+            {
+                "term": "skillonly",
+                "mcp_server": "",
+                "score": 4.0,
+            },  # no server → dropped
+        ],
+    )
+    assert _lexical_capability_servers(eng, "x") == ["portainer-mcp", "github-mcp"]
+
+
 def test_cascade_light_and_complex_skip_stage2() -> None:
     """Strength 0 → confident lean; strength ≥2 → confident full. Neither touches the engine."""
     from agent_utilities.orchestration.execution_profile import (

@@ -327,7 +327,33 @@ async def run_agent(
     # task through the graph let the LLM router/dispatcher mis-route it (e.g. to a
     # verifier that ran on empty results), so the server's tools were never called.
     try:
-        if _is_single_server_agent(agent_meta, config):
+        if getattr(shape, "tool_servers", ()):
+            # CONCEPT:ORCH-1.74 — FOCUSED-TOOLS altitude: the lexical gate named concrete fleet
+            # server(s), so bind exactly those toolsets and run ONE direct agent loop (parallel
+            # tool calls) instead of the planning graph, which over-decomposes a named-tool ask
+            # into a multi-step plan + expert fan-out. A failure (e.g. a server unreachable)
+            # falls through to the full graph rather than erroring the turn.
+            try:
+                result = await _execute_focused_tools(
+                    task=task,
+                    shape=shape,
+                    config=config,
+                    agent_name=agent_name,
+                    max_steps=max_steps,
+                )
+            except Exception as e:  # noqa: BLE001 — degrade to the graph, never drop the turn
+                logger.warning(
+                    "[ORCH-1.74] focused-tools path failed (%s); falling through to the full graph.",
+                    _flatten_exception_group(e),
+                )
+                result = await _execute_graph(
+                    config=config,
+                    query=task,
+                    run_id=run_id,
+                    max_steps=max_steps,
+                    agent_meta=agent_meta,
+                )
+        elif _is_single_server_agent(agent_meta, config):
             result = await _execute_single_server(
                 config=config,
                 task=task,
@@ -1016,6 +1042,100 @@ async def _execute_single_server(
         else getattr(result, "data", None) or getattr(result, "content", None) or result
     )
     return {"results": {"output": str(output)}}
+
+
+# Generic suffixes stripped to show the product name in the focused-tools prompt.
+_FLEET_PRODUCT_SUFFIXES = ("-mcp", "_mcp", "-agent", "_agent", "-api", "_api")
+
+
+def _fleet_product(server: str) -> str:
+    """Human product name for a fleet server (``portainer-mcp`` → ``portainer``)."""
+    s = (server or "").strip()
+    for suf in _FLEET_PRODUCT_SUFFIXES:
+        if s.endswith(suf):
+            return s[: -len(suf)]
+    return s
+
+
+def _fleet_server_url(server: str) -> str:
+    """Served MCP URL for a fleet server. Homelab convention is
+    ``http://<server>.<domain>/mcp`` (streamable-http); the domain is overridable for
+    other deployments via ``FLEET_MCP_DOMAIN`` (CONCEPT:ORCH-1.74)."""
+    domain = (setting("FLEET_MCP_DOMAIN", "arpa") or "arpa").strip().strip(".")
+    return f"http://{server}.{domain}/mcp"
+
+
+def _focused_tools_prompt(servers: list[str], config: dict[str, Any]) -> str:
+    """System prompt for the focused-tools agent: keep any conversational persona the
+    config carries, name the bound capabilities, and BIAS toward parallel tool calls
+    (CONCEPT:ORCH-1.74)."""
+    products = ", ".join(_fleet_product(s) for s in servers) or "the bound"
+    persona = str(config.get("system_prompt") or "").strip()
+    directive = (
+        f"You have direct access to the {products} tools. Call the appropriate tool(s) to "
+        "fulfil the user's request. When the request involves SEVERAL independent tools or "
+        "services, call them IN PARALLEL — emit all the independent tool calls together in a "
+        "single step rather than one after another — then give a concise, natural, friendly "
+        "answer grounded in the tool results."
+    )
+    return f"{persona}\n\n{directive}".strip() if persona else directive
+
+
+async def _execute_focused_tools(
+    *,
+    task: str,
+    shape: Any,
+    config: dict[str, Any],
+    agent_name: str,
+    max_steps: int,
+) -> dict[str, Any]:
+    """FOCUSED-TOOLS altitude (CONCEPT:ORCH-1.74): the ontology lexical gate named concrete
+    fleet server(s), so bind ONLY those servers' toolsets (least privilege) and run ONE direct
+    agent loop — no planner, no usage_guard / memory_selection / expert fan-out / verifier. The
+    agent is biased to call independent tools in parallel; ActionPolicy still governs each call.
+    Reuses :func:`_execute_single_server` (which binds a LIST of toolsets) for the loop itself.
+    """
+    import httpx
+    from pydantic_ai.mcp import MCPServerSSE, MCPServerStreamableHTTP
+
+    from agent_utilities.core.config import DEFAULT_SSL_VERIFY
+
+    servers = [s for s in (getattr(shape, "tool_servers", ()) or ()) if s]
+    if not servers:
+        raise RuntimeError("focused-tools shape carried no servers")
+
+    toolsets: list[Any] = []
+    for srv in servers:
+        url = _fleet_server_url(srv)
+        client = httpx.AsyncClient(
+            verify=DEFAULT_SSL_VERIFY,
+            timeout=60,
+            headers=_spawn_auth_headers() or None,
+        )
+        toolsets.append(
+            MCPServerSSE(url, http_client=client)
+            if url.lower().endswith("/sse")
+            else MCPServerStreamableHTTP(url, http_client=client)
+        )
+
+    focused_config = dict(config)
+    focused_config["mcp_toolsets"] = toolsets
+    agent_meta = {
+        "type": "server",
+        "system_prompt": _focused_tools_prompt(servers, config),
+    }
+    logger.info(
+        "[ORCH-1.74] focused-tools: binding %d server(s) %s for a direct parallel tool loop",
+        len(servers),
+        servers,
+    )
+    return await _execute_single_server(
+        config=focused_config,
+        task=task,
+        max_steps=max_steps,
+        agent_meta=agent_meta,
+        agent_name=agent_name,
+    )
 
 
 async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
