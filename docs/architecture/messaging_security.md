@@ -19,7 +19,7 @@ flowchart LR
     TG([Telegram / Slack cloud]) -->|signed webhook over HTTPS| EDGE
     subgraph EDGE["Edge (no homelab ports opened)"]
         T[Tunnel terminator\npangolin / Cloudflare Tunnel]
-        AUTH[Keycloak forward-auth\n(human surfaces only)]
+        AUTH["Keycloak forward-auth\n(human surfaces only)"]
         CS[CrowdSec WAF / rate-limit]
     end
     T -. outbound WireGuard/QUIC .-> GW
