@@ -2084,6 +2084,11 @@ def _ingest_capabilities(engine):
     import platformdirs
     import yaml
 
+    from agent_utilities.knowledge_graph.core.source_sync import (
+        derive_capability_synonyms,
+        sync_source,
+    )
+
     # 1. mcp_config.json
     try:
         APP_NAME = "agent-utilities"
@@ -2105,6 +2110,7 @@ def _ingest_capabilities(engine):
                             "name": server_name,
                             "command": server_details.get("command"),
                             "args": json.dumps(server_details.get("args", [])),
+                            "synonyms": derive_capability_synonyms(server_name),
                             "disabled": disabled,
                         },
                     )
@@ -2188,6 +2194,19 @@ def _ingest_capabilities(engine):
             logger.info("Ingested Skills")
     except Exception as e:
         logger.error(f"Failed to ingest skills: {e}")
+
+    # 4. Fleet MCP-server tools → Tool capability nodes (CONCEPT:KG-2.133).
+    # Steps 1-3 ingest graph-os's OWN servers/native-tools/skills; the ~62 fleet
+    # MCP servers' tools were never elevated, so the KG lacked the fleet
+    # capability vocabulary the classification gate and dispatcher specialist
+    # routing query. This probes the served multiplexer catalog and writes each
+    # fleet tool as a Tool node. Native/default-on; unreachable servers are
+    # skipped. Goes through the same `source_sync` path as the MCP/REST surface.
+    try:
+        result = sync_source(engine, "fleet", mode="full")
+        logger.info("Ingested fleet capabilities: %s", result)
+    except Exception as e:
+        logger.error(f"Failed to ingest fleet capabilities: {e}")
 
 
 def _mint_stdio_identity() -> None:
