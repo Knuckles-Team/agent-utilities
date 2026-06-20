@@ -800,12 +800,12 @@ def create_agent(
         g.edge_from(g.start_node).label("Query").to(_usage_guard),
         g.edge_from(_usage_guard).label("Policy OK").to(_router),
         g.edge_from(_router).label("Plan").to(_dispatcher),
-        # CONCEPT:ORCH-1.68 — the router may END the run directly (a direct-completion shape /
-        # fast-path returns End[GraphResponse]). A functional step's End is only honored when a
-        # terminal edge to the end node is declared; without this the End fell through the
-        # "Plan"→dispatcher edge and a trivial turn paid the full graph (incl. the blocking
-        # memory_selection scan). This terminal edge makes the router's End actually end.
-        g.edge_from(_router).label("Direct answer").to(g.end_node),
+        # CONCEPT:ORCH-1.68 — the router has a SINGLE outgoing edge (→ dispatcher). It must NOT
+        # have a second edge to the end node: pydantic-graph turns two edges from one node into
+        # a BROADCAST FORK (router → {end, dispatcher}), which terminated every full-graph turn
+        # via the end branch. A direct-completion turn never reaches the router — it is answered
+        # outside the graph by ``_run_direct_completion`` (agent_runner) — so the router never
+        # needs to end the run itself.
         # Edge to the decision node for experts
         g.edge_from(_dispatcher).to(_dispatcher_route),
         # Dead-end elimination for unused but registered nodes
