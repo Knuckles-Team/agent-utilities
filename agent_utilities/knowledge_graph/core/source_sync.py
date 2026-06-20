@@ -289,6 +289,49 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
     }
 
 
+def _resolve_fleet_config():
+    """Resolve the fleet ``mcp_config.json`` — the one the multiplexer serves.
+
+    Returns the first candidate that actually parses to ≥1 ``mcpServers`` entry,
+    so an empty/placeholder file (e.g. a 0-byte ``~/.gemini/antigravity/
+    mcp_config.json``) is skipped rather than silently yielding a 0-server probe.
+    Order follows the connector convention (``MCP_CONFIG_PATH``/``MCP_CONFIG`` env
+    → ``WORKSPACE_PATH/mcp_config.json``) before the multiplexer's own default
+    search, so it stays deployment-agnostic (genesis sets the env).
+    """
+    import json
+    from pathlib import Path
+
+    from ...core.config import setting
+
+    candidates: list[Path] = []
+    for key in ("MCP_CONFIG_PATH", "MCP_CONFIG"):
+        val = (setting(key, default="") or "").strip()
+        if val:
+            candidates.append(Path(val))
+    ws = (setting("WORKSPACE_PATH", default="/home/apps/workspace") or "").strip()
+    if ws:
+        candidates.append(Path(ws) / "mcp_config.json")
+    try:
+        from ...mcp.multiplexer import _resolve_config_path
+
+        rp = _resolve_config_path(None)
+        if rp is not None:
+            candidates.append(rp)
+    except Exception:  # noqa: BLE001 — multiplexer default search is a fallback
+        pass
+
+    for path in candidates:
+        try:
+            if path.exists() and path.stat().st_size > 0:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if data.get("mcpServers"):
+                    return path
+        except Exception:  # noqa: BLE001 — skip unreadable/invalid candidates
+            continue
+    return None
+
+
 def _sync_fleet(
     engine: Any, *, mode: str = "full", ids: list[str] | None = None, client: Any = None
 ) -> dict[str, Any]:
@@ -304,7 +347,7 @@ def _sync_fleet(
     catalog = client if isinstance(client, dict) else None
     if catalog is None:
         try:
-            from ...mcp.multiplexer import MCPMultiplexer, _resolve_config_path
+            from ...mcp.multiplexer import MCPMultiplexer
             from ...protocols.source_connectors.connectors.mcp_package import _run_async
         except Exception as exc:  # noqa: BLE001 — multiplexer optional at import
             return {
@@ -313,12 +356,12 @@ def _sync_fleet(
                 "reason": f"multiplexer unavailable: {exc}",
             }
 
-        config_path = _resolve_config_path(None)
-        if config_path is None or not config_path.exists():
+        config_path = _resolve_fleet_config()
+        if config_path is None:
             return {
                 "status": "skipped",
                 "source": "fleet",
-                "reason": "no mcp_config.json found",
+                "reason": "no mcp_config.json with servers found",
             }
         try:
             mux = MCPMultiplexer(config_path)
