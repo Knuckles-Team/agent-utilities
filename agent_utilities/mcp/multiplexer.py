@@ -626,10 +626,14 @@ class MCPMultiplexer:
             prefixed_name = clean_tool_name(prefix, server_name, tool.name)
             self.tool_to_server[prefixed_name] = (server_name, tool.name)
 
+            # Preserve _meta (carries FastMCP tags) so downstream consumers — the
+            # verbose-tool hold-back, visibility filtering — can read the child's
+            # tags off the aggregated tool. (CONCEPT:ECO-4.82)
             prefixed_tool = mcp.types.Tool(
                 name=prefixed_name,
                 description=tool.description or "",
                 inputSchema=tool.inputSchema,
+                _meta=getattr(tool, "meta", None),
             )
             self.aggregated_tools.append(prefixed_tool)
             registered.append(prefixed_tool)
@@ -1160,6 +1164,19 @@ def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
     return _forward
 
 
+def _tool_is_verbose(tool: mcp.types.Tool) -> bool:
+    """Whether a child tool is tagged ``verbose`` (FastMCP propagates tags in
+    ``_meta``). Verbose 1:1 tools (e.g. graph-os's granular per-action surface)
+    are kept in the catalog but NOT auto-exposed by an always-on child — they
+    load on demand via ``find_tools``/``load_tools`` to conserve context
+    (CONCEPT:ECO-4.82)."""
+    meta = getattr(tool, "meta", None)
+    if not isinstance(meta, dict):
+        return False
+    tags = (meta.get("fastmcp") or {}).get("tags") or []
+    return "verbose" in tags
+
+
 def _register_forwarder(mcp, mux: MCPMultiplexer, tool: mcp.types.Tool) -> bool:
     """Register ONE aggregated child tool as a live FastMCP forwarding tool.
 
@@ -1552,9 +1569,17 @@ async def _serve(args, mcp, mux: MCPMultiplexer) -> None:
             # children at boot; everything else is mounted on demand.
             mux.load_catalog()
             always_on = agent_config.mcp_dynamic_always_on or []
+            verbose_held = 0
             for server_name in always_on:
                 tools = await mux.mount_child(server_name)
                 for tool in tools:
+                    # Verbose 1:1 tools stay mounted (in the catalog, loadable via
+                    # find_tools/load_tools) but are NOT auto-exposed — so a session
+                    # sees only the condensed action surface by default and pulls
+                    # granular tools on demand. (CONCEPT:ECO-4.82)
+                    if _tool_is_verbose(tool):
+                        verbose_held += 1
+                        continue
                     _register_forwarder(mcp, mux, tool)
             _register_meta_tools(mcp, mux)
             # Tools every session always sees: the meta-tools + any always-on
@@ -1571,11 +1596,12 @@ async def _serve(args, mcp, mux: MCPMultiplexer) -> None:
             mcp.add_middleware(SessionVisibilityMiddleware(mux))
             logger.info(
                 "Dynamic gateway: %d always-on tools from %d child(ren) "
-                "(%s) + meta-tools; %d more servers mountable on demand. "
-                "Serving over %s.",
-                len(mux.aggregated_tools),
+                "(%s) + meta-tools; %d verbose tools held in catalog (load on "
+                "demand); %d more servers mountable on demand. Serving over %s.",
+                len(mux._exposed),
                 len(mux.children),
                 ", ".join(always_on) or "none",
+                verbose_held,
                 max(0, len(mux.load_catalog()) - len(mux.children)),
                 getattr(args, "transport", "stdio"),
             )
