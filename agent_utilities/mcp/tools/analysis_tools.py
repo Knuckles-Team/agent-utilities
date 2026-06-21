@@ -1723,6 +1723,27 @@ def register_analysis_tools(mcp):
                         if manifest.context
                         else _swarm_ctx
                     )
+                # CONCEPT:ECO-4.88 — give the swarm a shared AgentBus topic so peers can
+                # coordinate (announce what they're taking, share findings, ask before
+                # duplicating) instead of only fanning in at synthesis. Injected into every
+                # wave agent via manifest.context; the bus_* tools are universal.
+                import hashlib as _hl
+
+                from agent_utilities.messaging.bus import swarm_topic as _swarm_topic
+
+                _btopic = _swarm_topic(
+                    _hl.sha1((task or "swarm").encode()).hexdigest()[:8]
+                )
+                _coord = (
+                    f"You are one agent in a swarm on the same overall task. Coordinate with "
+                    f"your peers over the AgentBus topic '{_btopic}': use "
+                    f"bus_send(topic='{_btopic}', message='...') to announce what you are taking "
+                    f"and to share findings, and bus_check() to read peers — ask before "
+                    f"duplicating another agent's work."
+                )
+                manifest.context = (
+                    f"{manifest.context}\n\n{_coord}" if manifest.context else _coord
+                )
                 # default governance ON: verify each leaf + retry transient failures.
                 manifest.metadata["verify"] = True
                 manifest.metadata["max_retries"] = 2
