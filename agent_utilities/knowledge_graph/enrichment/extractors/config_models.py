@@ -71,6 +71,7 @@ def extract(config: Any = None) -> ExtractionBatch:
                     "vision": bool(m.get("vision", False)),
                     "context_window": m.get("context_window", 0),
                     "parallel_instances": m.get("parallel_instances", 1),
+                    "max_parallel_calls": m.get("max_parallel_calls", 1),
                 },
             )
         )
@@ -89,6 +90,7 @@ def extract(config: Any = None) -> ExtractionBatch:
                     "base_url": m.get("base_url", ""),
                     "context_window": m.get("context_window", 0),
                     "parallel_instances": m.get("parallel_instances", 1),
+                    "max_parallel_calls": m.get("max_parallel_calls", 1),
                 },
             )
         )
