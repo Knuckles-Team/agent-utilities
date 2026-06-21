@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 394
+total_concepts: 397
 total_pillars: 21
 pillars:
 - AHE-3
@@ -632,6 +632,14 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/code_context.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: via
+- id: AHE-3.62
+  name: This is how
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: This is how
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -3171,6 +3179,23 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: every usage of a published symbol across the
+- id: KG-2.136
+  name: the universal context plane
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/source_paths.py
+  - agent_utilities/knowledge_graph/retrieval/context_plane.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: the universal context plane
+- id: KG-2.137
+  name: KG-2.137
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/ops_context.py
+  doc: KG-2.137
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -3938,6 +3963,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/knowledge_graph/retrieval/ops_context.py
   doc: /1.76 — TWO-LEVEL fair rotation
 - id: ORCH-1.76
   name: stamp the task TYPE top-level too, so claiming can rotate

@@ -122,6 +122,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "evolve_variants",
         "name": "graph_analyze_evolve_variants",
     },
+    {"tool": "graph_analyze", "action": "explain", "name": "graph_analyze_explain"},
     {
         "tool": "graph_analyze",
         "action": "extract_claims",

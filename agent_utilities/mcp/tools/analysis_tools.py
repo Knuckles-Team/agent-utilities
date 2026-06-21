@@ -28,7 +28,7 @@ def register_analysis_tools(mcp):
     async def graph_analyze(
         action: str = Field(
             default="synthesize",
-            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100). 'similar_code' = model-free similar-code lookup for a symbol (node_id=symbol id): its MinHash/LSH near-clone neighbours with scores, working with the embedder OFFLINE (CONCEPT:KG-2.101). 'routes' = the HTTP route graph: each Route (method+path), its handler Code symbol, and the deployed Service that serves it — Code serves Route servedBy Service (CONCEPT:KG-2.102). 'change_coupling' = mine a repo's git history (target=repo path) for files that change together and persist FILE_CHANGES_WITH edges (CONCEPT:KG-2.104). 'adr' = Architecture Decision Record CRUD: query=title creates (target=status, node_id=decision text), empty query lists (CONCEPT:KG-2.105). 'harness_gate' = the formal harness-evolution gate (query=JSON {edits,variants?,pathologies?}): validates a candidate harness-evolution state against the concentration/no-regression/pathology SHACL shapes — the seesaw HarnessX (arXiv:2606.14249) lacks (CONCEPT:AHE-3.53). 'code_context' = the synthesized, cited \"how does this code work / where is it used / what breaks if I change it\" answer: composes the call graph, similar-code, routes, change-coupling, CONCEPT: markers and docs into ONE grounded explanation with file:line citations — query the KG instead of grep-then-read (query=question/area/symbol, target=how|usage|impact, node_id=optional :Code anchor) (CONCEPT:KG-2.134). 'cross_repo_usages' = every usage of a published symbol across the whole fleet in one name-anchored query, grouped by repo (query=symbol name) (CONCEPT:KG-2.135).",
+            description="Analysis action (synthesize, deep_extract, background_research, relevance_sweep, blast_radius, inspect, context, enrichment_coverage, process_writeback, evaluate, evaluate_alpha, evolve_model, forecast, causal, invariant, security_scan, placement_plan, infra_sweep, specialize). 'process_writeback' pushes KG-derived intelligence (capability/code lineage, OWL inferences, operational signals, glossary/data lineage) back INTO Camunda instances + ARIS models (target=camunda|aris|both; query=optional comma-separated process ids). 'placement_plan' = multi-objective workload placement over the infra subgraph (CONCEPT:KG-2.9). 'specialize' = run one SAI-factory specialization cycle over a learned world model grounded in persisted transition history, returning adaptation-speed metrics + superhuman certification (CONCEPT:AHE-3.29). 'world_model_rollout' = forward-simulate the learned world model from a start state (query) for `top_k` steps with persistent latent rollout memory, returning the imagined trajectory + per-step drift and persisting it as a WorldModelRollout node (CONCEPT:KG-2.73b). 'latent_efficiency_benchmark' = measured lift of the latent-native memory mechanisms (rollout drift KG-2.73b, retrieval type-coherence KG-2.44b) vs their round-tripped/flat baselines (CONCEPT:AHE-3.48). 'call_graph' = the type/scope-resolved call/inheritance graph for a symbol (node_id=symbol id, target=callees|callers|inherits), returning the resolved edges with their strategy+confidence the Rust resolver bound (CONCEPT:KG-2.100). 'similar_code' = model-free similar-code lookup for a symbol (node_id=symbol id): its MinHash/LSH near-clone neighbours with scores, working with the embedder OFFLINE (CONCEPT:KG-2.101). 'routes' = the HTTP route graph: each Route (method+path), its handler Code symbol, and the deployed Service that serves it — Code serves Route servedBy Service (CONCEPT:KG-2.102). 'change_coupling' = mine a repo's git history (target=repo path) for files that change together and persist FILE_CHANGES_WITH edges (CONCEPT:KG-2.104). 'adr' = Architecture Decision Record CRUD: query=title creates (target=status, node_id=decision text), empty query lists (CONCEPT:KG-2.105). 'harness_gate' = the formal harness-evolution gate (query=JSON {edits,variants?,pathologies?}): validates a candidate harness-evolution state against the concentration/no-regression/pathology SHACL shapes — the seesaw HarnessX (arXiv:2606.14249) lacks (CONCEPT:AHE-3.53). 'code_context' = the synthesized, cited \"how does this code work / where is it used / what breaks if I change it\" answer: composes the call graph, similar-code, routes, change-coupling, CONCEPT: markers and docs into ONE grounded explanation with file:line citations — query the KG instead of grep-then-read (query=question/area/symbol, target=how|usage|impact, node_id=optional :Code anchor) (CONCEPT:KG-2.134). 'cross_repo_usages' = every usage of a published symbol across the whole fleet in one name-anchored query, grouped by repo (query=symbol name) (CONCEPT:KG-2.135). 'explain' = the UNIVERSAL context plane: route a question to its domain provider and return one grounded, cited answer (query=question, target='domain:intent' e.g. 'ops:why'|'code:usage', or a bare intent with domain inferred, or target='domains' to list providers). Domains: code (how/usage/impact) + ops (health/why/impact over the live task-queue) today; the enterprise cockpit is just more providers here (CONCEPT:KG-2.136).",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(
@@ -1458,6 +1458,43 @@ def register_analysis_tools(mcp):
                     return "Error: cross_repo_usages needs a symbol name in `query`."
                 return _json.dumps(
                     cross_repo_usages(engine, symbol, limit=top_k or 200),
+                    default=str,
+                )
+            elif action == "explain":
+                # CONCEPT:KG-2.136 — the universal context plane: route a question
+                # to its DOMAIN provider (code | ops | …) and return one grounded,
+                # cited answer. `query` = the question; `target` = "domain:intent"
+                # (e.g. "ops:why", "code:usage") or just an intent (domain inferred);
+                # empty target/domain infers both. This is the cockpit: more domains
+                # = more providers on this one plane, not new subsystems.
+                import json as _json
+
+                from agent_utilities.knowledge_graph.retrieval.context_plane import (
+                    list_context_domains,
+                    synthesize_context,
+                )
+
+                spec = (target or "").strip()
+                if spec in ("", "domains", "list"):
+                    domain, intent = "", ""
+                    if spec in ("domains", "list"):
+                        return _json.dumps(
+                            {"status": "ok", "domains": list_context_domains()}
+                        )
+                elif ":" in spec:
+                    domain, _, intent = spec.partition(":")
+                else:
+                    domain, intent = "", spec  # treat a bare target as the intent
+                return _json.dumps(
+                    synthesize_context(
+                        engine,
+                        domain=domain,
+                        query=query,
+                        intent=intent,
+                        node_id=node_id,
+                        top_k=top_k,
+                        depth=depth,
+                    ),
                     default=str,
                 )
             else:
