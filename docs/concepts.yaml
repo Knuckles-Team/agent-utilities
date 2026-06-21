@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 400
+total_concepts: 412
 total_pillars: 21
 pillars:
 - AHE-3
@@ -633,13 +633,13 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: via
 - id: AHE-3.62
-  name: This is how
+  name: AHE-3.62
   pillar: AHE-3
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
-  doc: This is how
+  doc: AHE-3.62
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -1344,6 +1344,39 @@ concepts:
   - agent_utilities/messaging/inbox.py
   - agent_utilities/messaging/router.py
   doc: record the inbound turn DURABLY as pending BEFORE we attempt the
+- id: ECO-4.84
+  name: AgentBus federated agent-to-agent communication bus over the KG
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/bus.py
+  - agent_utilities/orchestration/action_policy.py
+  doc: AgentBus federated agent-to-agent communication bus over the KG
+- id: ECO-4.85
+  name: graph_bus MCP tool and REST twin for agent-to-agent messaging
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/bus_tools.py
+  doc: graph_bus MCP tool and REST twin for agent-to-agent messaging
+- id: ECO-4.86
+  name: ────────────────────────
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/bus_tools.py
+  - agent_utilities/messaging/bus.py
+  - agent_utilities/messaging/federation.py
+  doc: ────────────────────────
+- id: ECO-4.87
+  name: the operator view of the AgentBus
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  - agent_utilities/messaging/bus.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: the operator view of the AgentBus
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -3016,7 +3049,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
-  - agent_utilities/knowledge_graph/core/postgres_queue_backend.py
   - agent_utilities/knowledge_graph/research/loops.py
   doc: Hardened priority and scheduled task queue with retry and dead-letter
 - id: KG-2.114
@@ -3198,6 +3230,30 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/ops_context.py
   doc: KG-2.137
+- id: KG-2.138
+  name: KG-2.138
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/deploy_context.py
+  doc: KG-2.138
+- id: KG-2.139
+  name: KG-2.139
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/context_plane.py
+  - agent_utilities/knowledge_graph/retrieval/entity_context.py
+  doc: KG-2.139
+- id: KG-2.140
+  name: This is how
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/knowledge_graph/retrieval/code_context.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: This is how
 - id: KG-2.141
   name: the user-override layer of the prompt library, mirroring
   pillar: KG-2
@@ -3205,6 +3261,12 @@ concepts:
   code_paths:
   - agent_utilities/agent/registry_builder.py
   - agent_utilities/core/paths.py
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/backends/tiered_backend.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/messaging/bus.py
   doc: the user-override layer of the prompt library, mirroring
 - id: LGC-1.0
   name: LGC-1.0
@@ -3286,6 +3348,7 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/core/default_catalog.py
   - agent_utilities/core/model_factory.py
+  - agent_utilities/core/model_router.py
   - agent_utilities/core/registry/kg_adapter.py
   - agent_utilities/core/registry/package_adapter.py
   - agent_utilities/core/resource_optimizer.py
@@ -3992,6 +4055,24 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   doc: external connector delta syncs
+- id: ORCH-1.78
+  name: escalate breached goals
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/goal_sla.py
+  - agent_utilities/core/sessions.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: escalate breached goals
+- id: ORCH-1.79
+  name: route adaptively from the learned per-role confidence
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/model_factory.py
+  - agent_utilities/core/model_router.py
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  doc: route adaptively from the learned per-role confidence
 - id: ORCH-1.80
   name: resolve the body via the single canonical resolver so
   pillar: ORCH-1
@@ -3999,6 +4080,8 @@ concepts:
   code_paths:
   - agent_utilities/agent/registry_builder.py
   - agent_utilities/core/workspace.py
+  - agent_utilities/messaging/bus.py
+  - agent_utilities/orchestration/action_policy.py
   - agent_utilities/prompting/builder.py
   - agent_utilities/prompting/structured.py
   doc: resolve the body via the single canonical resolver so
@@ -4538,6 +4621,31 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/coverage.py
   - agent_utilities/knowledge_graph/ingestion/manifest.py
   doc: flagging repos
+- id: OS-5.48
+  name: OS-5.48
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  - agent_utilities/knowledge_graph/ingestion/connector_coverage.py
+  doc: OS-5.48
+- id: OS-5.49
+  name: earned-autonomy ramp
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/orchestration/autonomy_ramp.py
+  doc: earned-autonomy ramp
+- id: OS-5.50
+  name: OS-5.50
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/deployment/self_deploy.py
+  - agent_utilities/knowledge_graph/retrieval/deploy_context.py
+  doc: OS-5.50
 - id: OS-5.52
   name: Modular skill/prompt contribution
   pillar: OS-5

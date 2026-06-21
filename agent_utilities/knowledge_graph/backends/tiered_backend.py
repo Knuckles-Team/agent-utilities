@@ -259,6 +259,34 @@ class TieredGraphBackend(GraphBackend):
         self.l1.create_schema()
         self._mirror("create_schema", self.l3.create_schema)
 
+    def compare_and_set_node_fields(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> bool:
+        """Atomic compare-and-set on a node's fields (CONCEPT:KG-2.141).
+
+        Runs on L1 (the authoritative engine) and returns its bool. Only when
+        the CAS won (``True``) is the resulting node state mirrored to L3 —
+        best-effort, never raising — so a loser leaves L3 untouched. The mirror
+        re-applies the won updates via a guarded Cypher ``SET`` keyed on the
+        node id so the durable tier converges to L1.
+        """
+        won = self.l1.compare_and_set_node_fields(node_id, conditions, updates)
+        if won:
+
+            def _mirror_cas() -> None:
+                set_clause = ", ".join(f"n.{k} = ${k}" for k in updates)
+                params: dict[str, Any] = {"_casid": node_id, **updates}
+                self.l3.execute(
+                    f"MATCH (n {{id: $_casid}}) SET {set_clause}",
+                    params,
+                )
+
+            self._mirror("compare_and_set_node_fields", _mirror_cas)
+        return won
+
     # ------------------------------------------------------------------
     # Vector / Embedding Support
     # ------------------------------------------------------------------

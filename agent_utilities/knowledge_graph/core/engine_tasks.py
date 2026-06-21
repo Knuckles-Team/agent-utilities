@@ -271,6 +271,12 @@ _USAGE_PRICING_REFRESH_INTERVAL = 86400.0
 _PRIORITY_BUCKETS: tuple[int, ...] = (0, 1, 2, 3)
 _PRIO_CRITICAL, _PRIO_HIGH, _PRIO_NORMAL, _PRIO_BACKGROUND = 0, 1, 2, 3
 _DEFAULT_PRIO_BUCKET = _PRIO_NORMAL
+
+# Max candidate rows a single claim attempt will CAS before giving up (returning
+# idle). Each miss means a peer host won that row via the engine CAS, so we re-
+# select and try the next pending candidate. Bounds the contention sweep so a
+# burst of competing workers can't spin. (CONCEPT:KG-2.141)
+_CLAIM_MAX_RETRIES = 8
 # App-level retry: a task that *raises* (vs. a host crash, handled by the reaper)
 # is retried with exponential backoff by re-scheduling it for a future minute,
 # then dead-lettered past the cap. Distinct from the reaper's crash-requeue
@@ -461,7 +467,10 @@ class TaskManagerMixin(GraphEngineProtocol):
         super().__init__(*args, **kwargs)
         self._workers_running = False
         self._worker_lock = threading.Lock()
-        self._claim_lock = threading.Lock()
+        # Task claiming is now arbitrated by the engine compare-and-set (it holds
+        # the graph write lock for the flip), so the former in-process
+        # ``_claim_lock`` and the Postgres advisory ``state_claim_guard`` are no
+        # longer needed to serialize the claim. (CONCEPT:KG-2.141)
 
         # Pre-import LlamaIndex components in main thread to avoid parallel worker import race conditions
         try:
@@ -888,6 +897,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         _maint("hygiene", "hygiene", _HYGIENE_INTERVAL)
         _maint("tenant_gc", "tenant_gc", _cfg.kg_tenant_gc_interval)
+        # Goals-as-contracts SLA watch (CONCEPT:ORCH-1.78): escalate breached goals.
+        # Default-on; no-ops when no goals carry an sla_seconds.
+        _maint("goal_sla", "goal_sla", 300.0)
 
         for spec in specs:
             try:
@@ -896,6 +908,22 @@ class TaskManagerMixin(GraphEngineProtocol):
                 logger.debug(
                     "register maintenance schedule %s failed: %s", spec.name, e
                 )
+
+    def _tick_goal_sla(self) -> None:
+        """Evaluate open goals against their SLA + escalate breaches (ORCH-1.78)."""
+        try:
+            from agent_utilities.core.goal_sla import evaluate_goal_slas
+
+            report = evaluate_goal_slas(self)
+            if report.get("breached") or report.get("at_risk"):
+                logger.info(
+                    "goal_sla: %d breached, %d at-risk (of %d open)",
+                    len(report["breached"]),
+                    len(report["at_risk"]),
+                    report["checked"],
+                )
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("goal_sla tick error: %s", e)
 
     def _tick_usage_log_sync(self) -> None:
         """Auto-detect + sync local agent logs into the usage store (ECO-4.42).
@@ -2662,36 +2690,42 @@ class TaskManagerMixin(GraphEngineProtocol):
         return out
 
     def _claim_next_task(self) -> tuple[str, dict[str, Any]] | None:
-        """Claim the next runnable Task and stamp ownership (CONCEPT:KG-2.113).
+        """Claim the next runnable Task and stamp ownership (CONCEPT:KG-2.141).
 
-        Serialized in-process by ``_claim_lock`` and across hosts by
-        ``state_claim_guard`` (CONCEPT:KG-2.54); the SET is status-guarded so a
-        row is claimed exactly once. The ownership stamp (live host token +
-        claim_unix) is what the zombie reaper uses to requeue a dead host's
-        work. Returns ``(job_id, stamped_meta)`` or ``None`` when idle.
+        Atomicity is now arbitrated by the engine's compare-and-set, which holds
+        the graph write lock for the flip — so a row is claimed exactly once
+        *across hosts*, backend-agnostically, without the former Postgres
+        advisory lock (``state_claim_guard``) or in-process ``threading.Lock``.
+        The bucket-ascending candidate selection is unchanged; for each
+        candidate we CAS ``status: pending → running`` and stamp ownership. A
+        CAS that returns ``False`` means another worker won that row — we skip to
+        the next candidate. The ownership stamp (live host token + claim_unix)
+        is what the zombie reaper uses to requeue a dead host's work. Returns
+        ``(job_id, stamped_meta)`` or ``None`` when idle. (CONCEPT:KG-2.113)
         """
-        from agent_utilities.core.state_store import state_claim_guard
-
-        if not hasattr(self, "_claim_lock"):
-            self._claim_lock = threading.Lock()
-        with self._claim_lock, state_claim_guard("kg-task-claim"):
+        # Bound the retry sweep so a burst of contending workers can't spin
+        # forever; each miss means a peer claimed that candidate, so the next
+        # selection returns a different pending row (the claimed one is now
+        # 'running' and no longer matches the pending filter).
+        for _ in range(_CLAIM_MAX_RETRIES):
             row = self._select_pending_task()
             if not row:
                 return None
             job_id = row["id"]
             meta = _decode_metadata(row.get("meta"))
-            encoded_meta = ""
-            if meta:
-                meta["started_at"] = datetime.now(UTC).isoformat()
-                meta["claimed_by"] = self._get_host_token()
-                meta["claim_unix"] = time.time()
-                encoded_meta = _encode_metadata(meta)
-            self.backend.execute(
-                "MATCH (t:Task {id: $id, status: 'pending'}) "
-                "SET t.status = 'running', t.metadata = $meta",
-                {"id": job_id, "meta": encoded_meta},
+            meta["started_at"] = datetime.now(UTC).isoformat()
+            meta["claimed_by"] = self._get_host_token()
+            meta["claim_unix"] = time.time()
+            encoded_meta = _encode_metadata(meta)
+            won = self.backend.compare_and_set_node_fields(
+                job_id,
+                {"status": "pending"},
+                {"status": "running", "metadata": encoded_meta},
             )
-            return job_id, meta
+            if won:
+                return job_id, meta
+            # Lost the race for this row — try the next candidate.
+        return None
 
     def _task_worker_loop(self):
         """Distributed polling loop that picks up pending tasks natively."""
@@ -3195,7 +3229,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                     {
                         "target": str(target),
                         "type": task_type,
-                        **(sync_res if isinstance(sync_res, dict) else {"result": sync_res}),
+                        **(
+                            sync_res
+                            if isinstance(sync_res, dict)
+                            else {"result": sync_res}
+                        ),
                     },
                 )
             elif task_type == "fleet_event_triage":

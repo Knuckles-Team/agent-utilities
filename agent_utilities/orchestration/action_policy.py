@@ -95,6 +95,13 @@ DEFAULT_POLICY: dict[str, Any] = {
         # entrypoint may render — auto by default. Tighten to forbidden to disable
         # reactions for a principal/context, or scope by target (the channel/surface).
         {"kind": "reaction", "target": "*", "tier": TIER_AUTO},
+        # Agent-to-agent bus traffic (CONCEPT:ECO-4.84): a message between sessions is
+        # auto+notify so it's auditable but frictionless; a dispatch (CONCEPT:ORCH-1.80)
+        # hands an objective to the fleet — also auto+notify, since the Loop's own mutating
+        # steps re-enter this gate individually (same posture as run_playbook). Tighten a
+        # ``bus.send``/``bus.dispatch`` rule to approval_required for a stricter posture.
+        {"kind": "bus.send", "target": "*", "tier": TIER_AUTO_NOTIFY},
+        {"kind": "bus.dispatch", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "record_dry_run", "target": "*", "tier": TIER_AUTO},
         # Sandboxed developer-workspace actions (CONCEPT:OS-5.33) default to
         # auto: the workspace container/process IS the containment boundary.
@@ -134,6 +141,7 @@ class ActionRequest:
     params: dict[str, Any] = field(default_factory=dict)
     source: str = "manual"  # reconciler | playbook | deploy_watch | manual | ...
     reason: str = ""
+    actor_id: str = ""  # CONCEPT:OS-5.49 — who proposes it (for the autonomy ramp)
 
     def summary(self) -> str:
         return f"{self.kind}({self.target})" + (
@@ -420,6 +428,28 @@ class ActionPolicy:
 
     # ── the decision ────────────────────────────────────────────────
 
+    def _graduates(self, request: ActionRequest) -> bool:
+        """Whether the autonomy ramp lifts this ask→allow (CONCEPT:OS-5.49).
+
+        Requires (1) an actor, (2) the action kind on the policy's ``ramp_eligible``
+        allowlist (empty by default → never graduates), and (3) an earned trust
+        record. All best-effort; any failure leaves the tier unchanged."""
+        if not request.actor_id:
+            return False
+        try:
+            import fnmatch
+
+            policy = self._load_file_policy()
+            eligible = policy.get("ramp_eligible") or []
+            if not any(fnmatch.fnmatch(request.kind, pat) for pat in eligible):
+                return False
+            from agent_utilities.orchestration.autonomy_ramp import clears_ramp
+
+            backend = getattr(self.engine, "backend", None)
+            return clears_ramp(backend, request.actor_id, request.kind)
+        except Exception:  # noqa: BLE001 — ramp never widens scope on error
+            return False
+
     def classify(self, request: ActionRequest) -> str:
         """Return the policy *tier* for ``request`` with NO side effects.
 
@@ -436,7 +466,14 @@ class ActionPolicy:
         """
         try:
             rule, _defaults = self._match(request)
-            return rule.tier
+            tier = rule.tier
+            # CONCEPT:OS-5.49 — earned-autonomy ramp: an allowlisted action kind the
+            # actor has performed verifiably correctly enough times graduates one rung
+            # (ask → auto_notify). Safe by default: the allowlist is empty unless an
+            # operator opts a kind in, and forbidden is never graduated.
+            if tier == TIER_APPROVAL and self._graduates(request):
+                return TIER_AUTO_NOTIFY
+            return tier
         except Exception as e:  # noqa: BLE001 — classification fails CLOSED
             logger.warning(
                 "action_policy: classify error for %s: %s", request.summary(), e

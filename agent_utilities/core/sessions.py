@@ -289,6 +289,19 @@ def _persist_goal(goal_id: str) -> None:
         "created_at": float(entry.get("created_at", now)),
         "updated_at": now,
     }
+    # CONCEPT:ORCH-1.78 — goals-as-contracts: carry the SLA + escalation target so
+    # the goal_sla maintenance tick can enforce a deadline. Sourced from the goal's
+    # constraints (e.g. constraints={"sla_seconds": 3600, "escalate_to": "user"}).
+    _constraints = entry.get("constraints") or {}
+    _sla = entry.get("sla_seconds") or _constraints.get("sla_seconds")
+    if _sla:
+        try:
+            props["sla_seconds"] = float(_sla)
+        except (TypeError, ValueError):
+            pass
+    _esc = entry.get("escalate_to") or _constraints.get("escalate_to")
+    if _esc:
+        props["escalate_to"] = str(_esc)
     try:
         engine.add_node(goal_id, "Concept", properties=props)
     except Exception as e:  # noqa: BLE001 — best-effort persist
