@@ -139,10 +139,23 @@ async def retry_unanswered(
             mark_answered(engine, m["id"])
             answered += 1
         else:
+            # Re-pass the FULL record (not just the counter): the durable backend replaces a
+            # node's property blob on upsert, so a bare {attempts} write would wipe the
+            # platform/channel/text the NEXT retry needs to re-send. (CONCEPT:ECO-4.83)
             _set(
                 engine,
                 m["id"],
-                {"attempts": attempts + 1, "last_retry_at": datetime.now(UTC).isoformat()},
+                {
+                    "platform": m.get("platform"),
+                    "channel_id": m.get("channel_id"),
+                    "message_id": m.get("message_id"),
+                    "text": m.get("text"),
+                    "session": m.get("session"),
+                    "received_at": m.get("received_at"),
+                    "status": "pending",
+                    "attempts": attempts + 1,
+                    "last_retry_at": datetime.now(UTC).isoformat(),
+                },
             )
     if answered:
         logger.info("[CONCEPT:ECO-4.83] inbox reaper answered %d previously-unanswered turn(s).", answered)
