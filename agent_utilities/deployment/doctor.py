@@ -353,6 +353,77 @@ def _check_graph_connections() -> dict[str, Any]:
     return _result("graph_connections", "ok", detail, data={"connections": conns})
 
 
+def _check_ingestion_coverage() -> dict[str, Any]:
+    """Assert the agent-packages repos are ingested + fresh (CONCEPT:OS-5.47).
+
+    Native codebase-context-via-KG requires the index to be reliably populated:
+    if a repo has no ``:Code`` symbols (or its last delta sync is stale) a KG code
+    query returns nothing and the agent silently falls back to grep. This compares
+    ``workspace.yml``'s agent-packages subtree against the live KG + DeltaManifest
+    freshness, so coverage gaps are visible rather than silent (GAP 1)."""
+    try:
+        from agent_utilities.knowledge_graph.ingestion.coverage import (
+            assess_coverage,
+            enumerate_agent_packages_repos,
+            find_workspace_manifest,
+            repo_symbol_counts,
+        )
+
+        manifest = find_workspace_manifest()
+        if manifest is None:
+            return _result(
+                "ingestion_coverage",
+                "skip",
+                "workspace.yml not found (not a workspace checkout)",
+            )
+        repos = enumerate_agent_packages_repos(manifest)
+        if not repos:
+            return _result(
+                "ingestion_coverage", "skip", "no agent-packages repos in workspace.yml"
+            )
+        from agent_utilities.knowledge_graph.backends import get_active_backend
+
+        backend = get_active_backend()
+        counts = repo_symbol_counts(backend, repos)
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "ingestion_coverage", "skip", f"coverage probe unavailable: {exc}"
+        )
+
+    freshness: dict[str, str] = {}
+    try:
+        from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
+
+        dm = DeltaManifest(backend=backend)
+        for cat in ("codebase", "codebase_file"):
+            freshness.update(dm.freshness("agent_graph", cat))
+    except Exception:  # noqa: BLE001 — freshness is best-effort
+        freshness = {}
+
+    rep = assess_coverage(repos, counts, freshness)
+    detail = (
+        f"{rep['covered']}/{rep['total']} agent-packages repos ingested "
+        f"({rep['coverage_pct']}%), {rep['total_symbols']} symbols"
+    )
+    if rep["stale"]:
+        detail += f", {len(rep['stale'])} stale (>{rep['sla_days']}d)"
+    if rep["missing"] or rep["stale"]:
+        status = "fail" if rep["coverage_pct"] < 75 else "warn"
+        miss = ", ".join(rep["missing"][:8]) + ("…" if len(rep["missing"]) > 8 else "")
+        return _result(
+            "ingestion_coverage",
+            status,
+            detail + (f"; missing: {miss}" if rep["missing"] else ""),
+            remediation=(
+                "`source_sync source=all mode=delta` (or `graph_ingest "
+                "action=ingest target_path=<repo>`) to ingest/refresh the gaps"
+            ),
+            skill="knowledge-graph-ingest",
+            data=rep,
+        )
+    return _result("ingestion_coverage", "ok", detail, data=rep)
+
+
 # Registry: name -> callable. Order is the report order.
 CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
@@ -360,6 +431,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "engine": _check_engine,
     "graph_backend": _check_graph_backend,
     "graph_connections": _check_graph_connections,
+    "ingestion_coverage": _check_ingestion_coverage,
     "secrets": _check_secrets,
     "auth": _check_auth,
     "mcp_fleet": _check_mcp_fleet,

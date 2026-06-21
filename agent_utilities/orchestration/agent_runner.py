@@ -270,6 +270,13 @@ async def run_agent(
     # the cache after each turn, so turn N+1 reads turn N's memento from memory.
     recent_mementos = await _prime_recent_mementos(engine, memento_source or agent_name)
 
+    # Step 2c: Prime the KG's synthesized view of the task's code area (CONCEPT:KG-2.134)
+    # — the task-start "query the code KG before you grep" default. Off the loop,
+    # best-effort, skipped on the chat profile.
+    code_context_prime = await _prime_code_context(
+        engine, task, execution_profile=execution_profile
+    )
+
     # Step 3: Build execution config from KG metadata.
     # CONCEPT:ORCH-1.62/1.67 — the constructed shape (already planned above) selects the
     # per-node timeout budget and the dynamic graph shape; pass it through so the config
@@ -281,6 +288,7 @@ async def run_agent(
         memento_source=memento_source,
         execution_profile=shape,
         recent_mementos=recent_mementos,
+        code_context_prime=code_context_prime,
     )
     # CONCEPT:ORCH-1.39 — carry the invoker's curated context + token budget into the spawn.
     # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
@@ -699,13 +707,59 @@ async def _prime_recent_mementos(
     return mementos
 
 
+async def _prime_code_context(
+    engine: IntelligenceGraphEngine,
+    task: str,
+    *,
+    execution_profile: str | None = None,
+) -> str | None:
+    """Prime the KG's synthesized view of the task's code area (CONCEPT:KG-2.134).
+
+    The task-start half of "query the code KG before you grep": when a run's task
+    references a code symbol/area, inject the ``code_context`` answer (definition +
+    call chain + concept + citations) into the run's context the way mementos prime
+    a chat turn — so the agent inherits how the area works instead of opening with
+    grep. Best-effort and run off the event loop; skipped on the latency-sensitive
+    chat profile and when no real ``:Code`` anchor matches.
+    """
+    if (execution_profile or "").strip().lower() == "chat":
+        return None
+    if not task or len(task) < 8:
+        return None
+    try:
+        from agent_utilities.knowledge_graph.retrieval.code_context import (
+            build_code_context,
+        )
+
+        result = await asyncio.to_thread(
+            build_code_context, engine, query=task, intent="how", top_k=6
+        )
+    except Exception as e:  # noqa: BLE001 — priming is best-effort
+        logger.debug("Failed to prime code_context: %s", e)
+        return None
+    if not result or not result.get("anchors"):
+        return None
+    answer = str(result.get("answer", "")).strip()
+    cites = result.get("citations", [])[:6]
+    cite_lines = "\n".join(
+        f"- {c.get('symbol')} @ {c.get('file')}:{c.get('line')}" for c in cites
+    )
+    cap = result.get("capability_id", "")
+    return (
+        f"{answer}\n\nCited (read only what you must edit):\n{cite_lines}\n"
+        f"[code_context capability_id={cap} — after the task, report reads_avoided "
+        f"via graph_feedback]"
+    )
+
+
 def _build_execution_config(
     engine: IntelligenceGraphEngine,
     agent_name: str,
     agent_meta: dict[str, Any],
     memento_source: str | None = None,
-    execution_profile: "str | ExecutionProfile | None" = None,
+    execution_profile: str | ExecutionProfile | None = None,
     recent_mementos: list[str] | None = None,
+    code_context_prime: str | None = None,
 ) -> dict[str, Any]:
     """Build a graph execution config dict from KG-resolved agent metadata.
 
@@ -769,9 +823,17 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts[
-            "mementos"
-        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
+
+    # CONCEPT:KG-2.134 — prime the KG's synthesized view of the task's code area so the
+    # run learns how it works (with file:line citations) before reaching for grep.
+    if code_context_prime:
+        tag_prompts["code_context"] = (
+            "How this code area works (from the KG — read only the cited "
+            f"file:line you must edit):\n{code_context_prime}"
+        )
 
     # Tool descriptions from KG
     for tool in agent_meta.get("tools", []):

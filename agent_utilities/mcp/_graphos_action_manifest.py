@@ -5,7 +5,16 @@ action over the API gateway action core. Each becomes an MCP tool ``name`` that
 dispatches ``_execute_tool(tool, action=action, **params)``. ``action=None`` is a
 single-operation tool. Regenerate after changing the graph-os tool surface."""
 
-GRAPHOS_ACTIONS = [
+from typing import TypedDict
+
+
+class GraphosAction(TypedDict):
+    tool: str
+    action: str | None
+    name: str
+
+
+GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "concept_registry", "action": None, "name": "concept_registry"},
     {"tool": "document_process", "action": None, "name": "document_process"},
     {"tool": "graph_analyze", "action": "adr", "name": "graph_analyze_adr"},
@@ -46,11 +55,21 @@ GRAPHOS_ACTIONS = [
         "name": "graph_analyze_cleanup_documents",
     },
     {"tool": "graph_analyze", "action": "close", "name": "graph_analyze_close"},
+    {
+        "tool": "graph_analyze",
+        "action": "code_context",
+        "name": "graph_analyze_code_context",
+    },
     {"tool": "graph_analyze", "action": "context", "name": "graph_analyze_context"},
     {
         "tool": "graph_analyze",
         "action": "contradictions",
         "name": "graph_analyze_contradictions",
+    },
+    {
+        "tool": "graph_analyze",
+        "action": "cross_repo_usages",
+        "name": "graph_analyze_cross_repo_usages",
     },
     {
         "tool": "graph_analyze",
