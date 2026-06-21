@@ -543,6 +543,16 @@ def create_agent(
         logger.debug(f"Custom Agent System Prompt provided: {system_prompt[:100]}...")
         system_prompt_str = system_prompt
 
+    # CONCEPT:ECO-4.88 — weave AgentBus awareness into EVERY agent's prompt at the one
+    # choke point, so the orchestrator and every spawned swarm/sub-agent natively know they
+    # can coordinate with peers (the bus_* tools are registered just below when universal
+    # tools are on). Native-by-default: not a separate persona, just how agents work together.
+    if enable_universal_tools:
+        from agent_utilities.messaging.bus import bus_capability_prompt
+
+        if "AgentBus" not in system_prompt_str:
+            system_prompt_str = f"{system_prompt_str}\n\n{bus_capability_prompt()}"
+
     # Initialize Capabilities
     agent_capabilities: list[Any] = []
 
