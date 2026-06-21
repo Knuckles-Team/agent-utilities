@@ -208,6 +208,40 @@
     rdfs:label "AgentMessage" ;
     rdfs:comment "CONCEPT:ORCH-1.40 — a durable, replayable record of one message exchanged on an invoker↔spawned-agent channel (the live channel is in-RAM; this node is the durable record)." .
 
+:BusMessage a owl:Class ;
+    rdfs:label "BusMessage" ;
+    rdfs:comment """CONCEPT:KG-2.141 — a durable agent-to-agent bus message delivered to one
+    recipient Agent (the AgentBus mailbox record, ECO-4.84). A topic fan-out writes one
+    BusMessage per recipient sharing a msg_group, so a federation relay can dedup across hubs.""" .
+
+:Topic a owl:Class ;
+    rdfs:label "Topic" ;
+    rdfs:comment "CONCEPT:KG-2.141 — a named pub/sub channel on the AgentBus that Agents subscribe to (ECO-4.84)." .
+
+:hasBusMessage a owl:ObjectProperty ;
+    rdfs:label "hasBusMessage" ;
+    rdfs:comment "CONCEPT:KG-2.141 — Agent -[:HAS_BUS_MESSAGE]-> BusMessage: a participant's durable bus inbox edge (ECO-4.84)." ;
+    rdfs:domain :Agent ;
+    rdfs:range :BusMessage .
+
+:subscribesTo a owl:ObjectProperty ;
+    rdfs:label "subscribesTo" ;
+    rdfs:comment "CONCEPT:KG-2.141 — Agent -[:SUBSCRIBES_TO]-> Topic: a pub/sub subscription on the AgentBus (ECO-4.84)." ;
+    rdfs:domain :Agent ;
+    rdfs:range :Topic .
+
+:presenceStatus a owl:DatatypeProperty ;
+    rdfs:label "presence status" ;
+    rdfs:comment "CONCEPT:KG-2.141 — an Agent's bus presence (online|offline), computed from lastSeen vs a staleness window (ECO-4.84)." ;
+    rdfs:domain :Agent ;
+    rdfs:range xsd:string .
+
+:lastSeen a owl:DatatypeProperty ;
+    rdfs:label "last seen" ;
+    rdfs:comment "CONCEPT:KG-2.141 — unix timestamp of an Agent's most recent heartbeat on the bus (ECO-4.84)." ;
+    rdfs:domain :Agent ;
+    rdfs:range xsd:double .
+
 :DeadLetterTask a owl:Class ;
     rdfs:label "Dead-Letter Task" ;
     rdfs:comment """CONCEPT:KG-2.113 — a Task that exhausted its application-level
