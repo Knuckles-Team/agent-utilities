@@ -1019,8 +1019,9 @@ def register_ontology_tools(mcp):
     ) -> str:
         """Record / revert object edits and read per-object edit history or an as_of snapshot.
 
+        CONCEPT:KG-2.142 optimistic-concurrency for object property edits.
         ``action='record'`` with a non-empty ``expect`` is the object-layer
-        optimistic-concurrency primitive (CONCEPT:KG-2.142): the property_set is
+        optimistic-concurrency primitive: the property_set is
         applied through the engine's atomic ``compare_and_set_node_fields`` and the
         ledger edit is recorded **only if the precondition still holds** — use it
         when concurrent agents shape the same object so one never clobbers another.
