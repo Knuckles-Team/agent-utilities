@@ -409,6 +409,60 @@ class AgentBus:
         props.pop("id", None)
         return self._add_node(message_id, "BusMessage", props)
 
+    # ── Federation support (CONCEPT:ECO-4.86) ────────────────────────
+    def group_messages(self, group: str) -> list[dict[str, Any]]:
+        """All :BusMessage rows of one ``msg_group`` (the unit a relay forwards)."""
+        rows = self._query(
+            "MATCH (m:BusMessage {msg_group: $g}) RETURN m", {"g": group}
+        )
+        return [self._props(r, "m") for r in rows]
+
+    def group_exists(self, group: str) -> bool:
+        """Has this hub already seen ``group`` (cross-hub delivery dedup)?"""
+        return bool(self.group_messages(group))
+
+    def deliver_federated(
+        self,
+        *,
+        group: str,
+        sender: str,
+        recipients: list[str],
+        payload: str,
+        topic: str,
+        origin: str,
+    ) -> list[str]:
+        """Apply a message forwarded from a peer hub (CONCEPT:ECO-4.86), idempotently.
+
+        Reuses the origin ``msg_group`` for deterministic node ids, so a re-forward is a no-op
+        upsert (dedup), and stamps ``federated_from`` so the local relay never re-forwards it
+        (loop break). Skips the gate — the message was already governed at its origin hub.
+        """
+        now = time.time()
+        meta_json = json.dumps({"federated_from": origin}, default=str)
+        delivered: list[str] = []
+        for rcpt in recipients:
+            if not rcpt:
+                continue
+            mid = f"{_MSG_PREFIX}{group}:{rcpt}"
+            if self._add_node(
+                mid,
+                "BusMessage",
+                {
+                    "msg_group": group,
+                    "sender": sender,
+                    "recipient": rcpt,
+                    "topic": topic,
+                    "payload": payload,
+                    "meta": meta_json,
+                    "federated_from": origin,
+                    "status": "sent",
+                    "created_at": now,
+                },
+            ):
+                self._add_edge(f"{_AGENT_PREFIX}{rcpt}", mid, "HAS_BUS_MESSAGE")
+                delivered.append(rcpt)
+        return delivered
+
     # ── Dispatch: message → fleet work (CONCEPT:ORCH-1.80) ───────────
     def dispatch(
         self,

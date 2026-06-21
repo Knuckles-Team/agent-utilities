@@ -33,7 +33,9 @@ def register_bus_tools(mcp):
             "new messages + cursor), 'subscribe'/'unsubscribe' (agent_id + topic), 'ack' "
             "(agent_id + message_id), 'dispatch' (sender + objective [+kind,priority] → hand an "
             "objective to the fleet as a Loop, governed by bus.dispatch), 'leave' (agent_id), "
-            "'status'. Durable + cross-host: state lives in the KG."
+            "'status'. Mesh/federation (ECO-4.86): 'register_hub' (agent_id=name + url), "
+            "'list_hubs', 'federate' (group [+scope] → forward a message group to peer hubs), "
+            "'federate_in' (apply a forwarded group). Durable + cross-host: state lives in the KG."
         ),
         tags=["graph-os", "messaging", "bus", "a2a"],
     )
@@ -85,6 +87,15 @@ def register_bus_tools(mcp):
             default=False, description="Roster: only online peers."
         ),
         reason: str = Field(default="", description="Audit reason (send/dispatch)."),
+        url: str = Field(default="", description="Peer hub base URL (register_hub)."),
+        group: str = Field(
+            default="", description="Message group to forward (federate)."
+        ),
+        origin: str = Field(default="", description="Origin hub id (federate_in)."),
+        scope: str = Field(
+            default="commons",
+            description="Marking scope for federation: commons|org|private (federate).",
+        ),
     ) -> str:
         from agent_utilities.messaging.bus import AgentBus
 
@@ -150,6 +161,34 @@ def register_bus_tools(mcp):
             )
         if action == "status":
             return json.dumps(bus.status(), default=str)
+        # ── Federation / mesh (CONCEPT:ECO-4.86) ──
+        if action in ("register_hub", "list_hubs", "federate", "federate_in"):
+            from agent_utilities.messaging.federation import BusFederationRelay
+
+            relay = BusFederationRelay.instance(engine)
+            if action == "register_hub":
+                if not (agent_id and url):
+                    return json.dumps(
+                        {"error": "register_hub needs agent_id (hub name) and url"}
+                    )
+                return json.dumps({"result": relay.register_hub(agent_id, url)})
+            if action == "list_hubs":
+                return json.dumps({"hubs": relay.list_hubs()}, default=str)
+            if action == "federate":
+                return json.dumps(relay.forward(group, scope=scope), default=str)
+            if action == "federate_in":
+                recipients = [r.strip() for r in to.split(",") if r.strip()]
+                return json.dumps(
+                    relay.apply_inbound(
+                        group=group,
+                        sender=sender,
+                        recipients=recipients,
+                        payload=payload,
+                        topic=topic,
+                        origin=origin,
+                    ),
+                    default=str,
+                )
         return json.dumps({"error": f"unknown action: {action}"})
 
     kg_server.REGISTERED_TOOLS["graph_bus"] = graph_bus

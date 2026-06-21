@@ -37,8 +37,17 @@ class _FakeGraph:
         params = params or {}
         if "HAS_BUS_MESSAGE]->(m:BusMessage)" in cypher:
             src = f"agent:{params.get('aid')}"
-            mids = [d for (s, d, r) in self.edges if s == src and r == "HAS_BUS_MESSAGE"]
+            mids = [
+                d for (s, d, r) in self.edges if s == src and r == "HAS_BUS_MESSAGE"
+            ]
             return [{"m": self.nodes[m]} for m in mids if m in self.nodes]
+        if "BusMessage {msg_group:" in cypher:
+            g = params.get("g")
+            return [
+                {"m": n}
+                for n in self.nodes.values()
+                if n.get("type") == "BusMessage" and n.get("msg_group") == g
+            ]
         if "BusMessage {id:" in cypher:
             node = self.nodes.get(params.get("mid"))
             if node and node.get("recipient") == params.get("aid"):
@@ -79,7 +88,9 @@ def bus():
 
 
 def test_register_and_roster_presence(bus):
-    bus.register("claude-a", provider="anthropic", host="h1", capabilities=["code", "review"])
+    bus.register(
+        "claude-a", provider="anthropic", host="h1", capabilities=["code", "review"]
+    )
     bus.register("gpt-b", provider="openai", host="h2", capabilities=["search"])
     roster = bus.roster()
     ids = {a["agent_id"]: a for a in roster}
@@ -184,7 +195,9 @@ def test_dispatch_submits_loop(monkeypatch, bus):
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.research.loops.submit_loop", fake_submit_loop
     )
-    out = bus.dispatch(sender="a", objective="audit the repo", kind="develop", priority="high")
+    out = bus.dispatch(
+        sender="a", objective="audit the repo", kind="develop", priority="high"
+    )
     assert out["ok"] and out["loop"]["id"] == "loop:1"
     assert captured["objective"] == "audit the repo" and captured["kind"] == "develop"
     assert captured["prio_bucket"] == 1  # 'high' -> bucket 1
@@ -227,9 +240,22 @@ async def test_graph_bus_tool_live_path(monkeypatch):
     # passing the params each action reads explicitly.
     async def call(**kw):
         base = dict(
-            agent_id="", sender="", to="", topic="", payload="", objective="",
-            kind="develop", priority="normal", provider="", host="", capabilities="",
-            session_id="", message_id="", since=0, online_only=False, reason="",
+            agent_id="",
+            sender="",
+            to="",
+            topic="",
+            payload="",
+            objective="",
+            kind="develop",
+            priority="normal",
+            provider="",
+            host="",
+            capabilities="",
+            session_id="",
+            message_id="",
+            since=0,
+            online_only=False,
+            reason="",
         )
         base.update(kw)
         return json.loads(await graph_bus(**base))
