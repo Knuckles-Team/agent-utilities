@@ -51,7 +51,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +85,33 @@ class AgentTurnEnvelope(BaseModel):
     payload_ref: str = ""
     agent_name: str = ""
     tenant: str = ""
-    priority: str = "normal"
+    #: Claim priority as the ONE discrete bucket (0=critical .. 3=background),
+    #: identical to a ``:Task``'s ``prio_bucket`` (CONCEPT:KG-2.113). Replaces
+    #: the former bespoke ``priority: str = "normal"``; the validator coerces an
+    #: int, a numeric string, or the legacy ``critical``/``high``/``normal``/
+    #: ``background``/``low`` strings through the single shared normalizer, so a
+    #: dispatched turn and an ingest task speak the same priority language and a
+    #: turn promoted to a ``:Task`` (e.g. an orchestrator job) carries the bucket
+    #: straight into the engine-CAS claim. No string-only path remains.
+    prio_bucket: int = 2
     deadline_unix: float | None = None
     attempt: int = 0
     enqueued_at: float = Field(default_factory=time.time)
+
+    @field_validator("prio_bucket", mode="before")
+    @classmethod
+    def _coerce_prio(cls, v: Any) -> int:
+        """Normalize any priority spec to the shared 0..3 bucket.
+
+        Lazy-imports ``_coerce_prio_bucket`` (the single normalizer) to avoid a
+        construction-time import cycle with the engine module — the same pattern
+        ``state_tools`` / ``schedule_engine`` / ``bus`` use to reach it.
+        """
+        from agent_utilities.knowledge_graph.core.engine_tasks import (
+            _coerce_prio_bucket,
+        )
+
+        return _coerce_prio_bucket(v)
 
     def to_item(self) -> dict[str, Any]:
         """Serialize for the queue. ``session_id`` stays top-level so
