@@ -31,6 +31,28 @@ _BUILTIN_PROVIDERS: dict[str, tuple[str, str]] = {
         "build_code_context",
     ),
     "ops": ("agent_utilities.knowledge_graph.retrieval.ops_context", "diagnose_ops"),
+    "deploy": (
+        "agent_utilities.knowledge_graph.retrieval.deploy_context",
+        "deploy_status",
+    ),
+    "entity": (
+        "agent_utilities.knowledge_graph.retrieval.entity_context",
+        "entity_context",
+    ),
+    # Enterprise domains are the entity provider with a label filter — registered
+    # here so the cockpit grows with ingested data (CONCEPT:KG-2.139).
+    "tickets": (
+        "agent_utilities.knowledge_graph.retrieval.entity_context",
+        "entity_context",
+    ),
+    "deploys": (
+        "agent_utilities.knowledge_graph.retrieval.entity_context",
+        "entity_context",
+    ),
+    "process": (
+        "agent_utilities.knowledge_graph.retrieval.entity_context",
+        "entity_context",
+    ),
 }
 
 #: Registered (dynamic) providers win over built-ins.
@@ -158,6 +180,10 @@ def synthesize_context(
             "answer": f"No context provider for domain '{resolved}'.",
             "available_domains": [d["domain"] for d in list_context_domains()],
         }
+    # Pass the resolved domain so a parameterized provider (e.g. ``entity`` serving
+    # tickets/deploys/process) knows which slice it was asked for; single-domain
+    # providers accept and ignore it via **opts.
+    opts.setdefault("domain", resolved)
     result = provider(engine, query=query, intent=intent or "how", **opts)
     if not isinstance(result, dict):  # pragma: no cover - provider contract
         result = {"status": "error", "answer": str(result)}
