@@ -108,6 +108,8 @@ def _write(path: Path, content: str, changes: list[str], check: bool) -> None:
 
 
 def _patch_pyproject(text: str, repo_name: str, module: str) -> tuple[str, list[str]]:
+    import re
+
     changes: list[str] = []
     out = text
 
@@ -124,6 +126,21 @@ def _patch_pyproject(text: str, repo_name: str, module: str) -> tuple[str, list[
             changes.append("added entry-points")
         else:
             return text, ["ERROR: no [tool.setuptools] anchor for entry-points"]
+    else:
+        # Corrective: ensure the provider NAME is the package name (an earlier
+        # pass mistakenly used the worktree dir name). The value is unchanged.
+        for grp, sub in (
+            ("skill_providers", "skills"),
+            ("prompt_providers", "prompts"),
+        ):
+            pat = (
+                rf'(\[project\.entry-points\."agent_utilities\.{grp}"\]\n)'
+                rf'\S+ = "{module}\.{sub}"'
+            )
+            new = re.sub(pat, rf'\1{repo_name} = "{module}.{sub}"', out)
+            if new != out:
+                out = new
+                changes.append(f"corrected {grp} name -> {repo_name}")
 
     # package-data globs
     if "[tool.setuptools.package-data]" in out:
@@ -162,17 +179,36 @@ def retrofit(repo: Path, check: bool) -> int:
         print(f"SKIP {repo.name}: could not find package module dir", file=sys.stderr)
         return 2
     module = module_dir.name
-    repo_name = repo.name
+    # Derive the package name from the MODULE dir, never from the path passed in
+    # (a worktree dir like '.../modular-contrib' would otherwise poison the
+    # provider name / prompt source for every package).
+    repo_name = module.replace("_", "-")
     display = _display(repo_name)
     description = f"{display} API + MCP Server + A2A Server"
     changes: list[str] = []
 
-    # 1. canonical prompt (migrate existing root main_agent.json if present)
+    # Detect contamination from the earlier worktree-name bug (generic
+    # "modular-contrib" / "Modular Contrib" baked into prompt + starter).
+    contaminated = False
+    for cand in (
+        module_dir / "prompts" / "main_agent.json",
+        module_dir / "main_agent.json",
+    ):
+        if cand.exists() and (
+            "modular-contrib" in (blob := cand.read_text(encoding="utf-8"))
+            or "Modular Contrib" in blob
+        ):
+            contaminated = True
+            break
+
+    # 1. canonical prompt — preserve a real existing prompt; regenerate fresh
+    # when missing or contaminated. Always force-correct the source provenance.
     root_main = module_dir / "main_agent.json"
-    if root_main.exists():
+    if root_main.exists() and not contaminated:
         try:
             data = json.loads(root_main.read_text(encoding="utf-8"))
             data, _ = migrate_data(data, source=repo_name)
+            data["source"] = repo_name
         except (OSError, json.JSONDecodeError):
             data = _canonical_main_agent(display, description, repo_name)
     else:
@@ -182,12 +218,24 @@ def retrofit(repo: Path, check: bool) -> int:
     _write(module_dir / "prompts" / "__init__.py", "", changes, check)
     _write(module_dir / "prompts" / "main_agent.json", blob, changes, check)
 
-    # 2. starter skill (only if no skill exists)
+    # 2. starter skill (only if no real skill exists)
     skills_dir = module_dir / "skills"
-    existing = list(skills_dir.rglob("SKILL.md")) if skills_dir.exists() else []
+    short = repo_name.rsplit("-", 1)[0] if "-" in repo_name else repo_name
+    # Remove the contaminated generic starter from the buggy first pass.
+    bad_starter = skills_dir / "modular-starter"
+    if bad_starter.exists():
+        changes.append("removed modular-starter")
+        if not check:
+            import shutil
+
+            shutil.rmtree(bad_starter)
+    existing = [
+        p
+        for p in (skills_dir.rglob("SKILL.md") if skills_dir.exists() else [])
+        if "modular-starter" not in p.parts
+    ]
     _write(skills_dir / "__init__.py", "", changes, check)
     if not existing:
-        short = repo_name.rsplit("-", 1)[0] if "-" in repo_name else repo_name
         _write(
             skills_dir / f"{short}-starter" / "SKILL.md",
             _starter_skill(display, f"{short}-starter", description),
