@@ -698,13 +698,30 @@ def _find_id_param(cypher: str, alias: str, params: dict[str, Any]) -> str:
     return "id"
 
 
+# Columns guaranteed present and identically-typed on EVERY durable node table
+# (see PostgreSQLBackend.ensure_label_table). A bare ``SELECT *`` is unsafe across
+# a UNION: per-label schema drift (ensure_column / the pgvector ``embedding`` /
+# ``tenant_id``) gives tables different widths, so the branches' column counts
+# mismatch and Postgres rejects the whole query ("each UNION query must have the
+# same number of columns"). Projecting the fixed base set keeps every branch the
+# same arity. The full node props still live in the ``properties`` JSONB column.
+_UNION_BASE_COLS = '"id", "name", "type", "properties", "created_at"'
+
+
 def _union_all_tables(tables: set[str], cols: str = "*", where: str = "") -> str:
-    """Build a UNION ALL query across all known tables."""
+    """Build a UNION ALL query across all known tables.
+
+    A label-less fan-out (``cols == "*"``) projects the uniform base column set so
+    every UNION branch has identical arity across heterogeneous node tables; an
+    explicit ``cols`` (specific properties / aggregates) is assumed uniform and
+    passes through unchanged.
+    """
     if not tables:
         return "SELECT 1 WHERE false"
+    select_cols = _UNION_BASE_COLS if cols == "*" else cols
     parts = []
     for tbl in sorted(tables):
-        q = f"SELECT {cols}, '{tbl}' AS _table_label FROM \"{tbl}\""
+        q = f"SELECT {select_cols}, '{tbl}' AS _table_label FROM \"{tbl}\""
         if where:
             q += f" WHERE {where}"
         parts.append(q)

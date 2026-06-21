@@ -210,6 +210,25 @@ class TestUnlabeledIdLookupPlaceholderParity:
         # trailing LIMIT param sits after the repeated id binds
         assert tq.params == ["abc"] * len(KNOWN_TABLES) + [7]
 
+    def test_union_branches_have_uniform_column_count(self):
+        # Regression (CONCEPT:KG-2.7): a label-less ``RETURN n`` previously
+        # projected ``SELECT *`` per branch. Heterogeneous node tables have
+        # different widths (per-label schema drift / pgvector ``embedding`` /
+        # ``tenant_id``), so the UNION branches mismatched and Postgres rejected
+        # the whole query ("each UNION query must have the same number of
+        # columns"), poisoning the connection's transaction. Every branch must
+        # now project the SAME fixed base column set.
+        tq = transpile(
+            "MATCH (n) WHERE n.id = $id RETURN n", {"id": "abc"}, KNOWN_TABLES
+        )
+        # the unsafe star projection must be gone
+        assert "SELECT *," not in tq.sql
+        branches = tq.sql.split("UNION ALL")
+        assert len(branches) == len(KNOWN_TABLES)
+        # every branch must select the same number of columns (commas before FROM)
+        col_counts = {b.upper().split("FROM")[0].count(",") for b in branches}
+        assert len(col_counts) == 1, f"non-uniform UNION arity: {col_counts}"
+
 
 class TestUnknownPattern:
     def test_unsupported_cypher(self):
