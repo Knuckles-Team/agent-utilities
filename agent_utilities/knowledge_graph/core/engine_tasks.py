@@ -2808,6 +2808,18 @@ class TaskManagerMixin(GraphEngineProtocol):
             ),
             "model_role": None,
         }
+        # KG-2.145: surface the adaptive LLM/embedding concurrency targets next to
+        # lane congestion, so over/under-utilisation of the vLLM serving tier is
+        # visible in the same snapshot. Throttled internally; best-effort.
+        try:
+            from agent_utilities.core.model_capacity_autoscale import get_utilization
+
+            out["model_concurrency"] = {
+                role: get_utilization(role) for role in ("embedding", "lite", "default")
+            }
+        except Exception:  # noqa: BLE001 — observability is best-effort, never fatal
+            out["model_concurrency"] = {}
+
         # ORCH-1.81: surface the scheduler's pool/reservation picture for ops.
         cfg = getattr(self, "_sched_config", None)
         out["scheduler"] = {
