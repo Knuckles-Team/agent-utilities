@@ -33,10 +33,10 @@ def enumerate_expected_connectors() -> list[str]:
         pass
     try:
         from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
-            list_presets,
+            list_tool_presets,
         )
 
-        expected |= set(list_presets())
+        expected |= set(list_tool_presets())
     except Exception:  # pragma: no cover
         pass
     return sorted(expected)

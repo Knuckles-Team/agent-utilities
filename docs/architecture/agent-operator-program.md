@@ -10,9 +10,17 @@
 
 Status legend: ✅ shipped · 🔧 designed (next phase) · 🔭 future.
 
+> **Update — Phases 1–4 shipped.** The keystones (Phase 1) plus Phases 2–4 are now
+> built, tested, and merged to local main. Concepts: KG-2.136 (context plane),
+> KG-2.137 (ops), KG-2.138 (deploy), KG-2.139 (entity), KG-2.140 (gotchas), AHE-3.62
+> (action-outcome), OS-5.48 (connector coverage), OS-5.49 (autonomy ramp), OS-5.50
+> (self-deploy + DX scripts), OS-5.51 (invisible coordination), ORCH-1.78 (goals-as-
+> contracts), ORCH-1.79 (adaptive model router). Items still marked 🔭 below are
+> deliberately deferred (they need live connector data or a frontier-model pool).
+
 ---
 
-## Phase 1 — the keystones (✅ shipped this change)
+## Phase 1 — the keystones (✅ shipped)
 
 | Item | Concept | What |
 |---|---|---|
@@ -24,7 +32,7 @@ Status legend: ✅ shipped · 🔧 designed (next phase) · 🔭 future.
 
 ---
 
-## Phase 2 — finish the operating loop (🔧)
+## Phase 2 — finish the operating loop (✅ shipped)
 
 ### 2.1 `deployment_status` provider — "where does this run / is my change live?"
 **Problem:** the #1 build-loop papercut — which code actually executes (worktree vs
@@ -68,7 +76,7 @@ without approval."
 
 ---
 
-## Phase 3 — economics & enterprise breadth (🔧/🔭)
+## Phase 3 — economics & enterprise breadth (✅ 3.1 shipped · 🔭 3.2/3.3 await data)
 
 ### 3.1 Local-LLM adaptive routing with a quality floor
 **Problem:** lane→model routing is a no-op under one model; running an enterprise on
@@ -92,7 +100,7 @@ causal explanation grounded in the KG lineage (the data is already there).
 
 ---
 
-## Phase 4 — developer experience for the agent (🔧)
+## Phase 4 — developer experience for the agent (✅ shipped)
 
 ### 4.1 Dogfood onboarding + gotchas-in-KG
 Make the KG the reliable first stop (freshness SLA green + the task-start prime

@@ -64,7 +64,7 @@ def entity_context(
     ]
     # Focus: a label named in the query, or the domain's candidate labels.
     focus_labels = [
-        t["type"] for t in by_type if t["type"].lower() in (query or "").lower()
+        t["type"] for t in by_type if str(t["type"]).lower() in (query or "").lower()
     ]
     if not focus_labels and labels:
         focus_labels = [t["type"] for t in by_type if t["type"] in labels]
