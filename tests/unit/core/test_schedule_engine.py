@@ -32,6 +32,18 @@ class _FakeEngine:
         self.submitted.append(kw)
         return kw.get("job_id", "job-x")
 
+    def query_cypher(self, _q, params=None):
+        # Emulate the coalesce probe: count un-consumed ticks for a schedule.
+        # The fake never completes tasks, so every submitted tick counts as
+        # pending until a test clears ``submitted`` to simulate consumption.
+        name = (params or {}).get("name")
+        n = sum(
+            1
+            for s in self.submitted
+            if (s.get("extra_meta") or {}).get("schedule") == name
+        )
+        return [{"n": n}]
+
     def _tick_demo(self):
         self.ticked.append("demo")
 
@@ -93,6 +105,32 @@ def test_interval_schedule_fires_then_waits() -> None:
     assert se.run_scheduler_tick(eng)["fired"] == ["ivl"]
     # next_run_unix advanced ~1h → not due again right away
     assert se.run_scheduler_tick(eng)["fired"] == []
+
+
+def test_tick_coalesces_unconsumed_prior() -> None:
+    # CONCEPT:OS-5.44 — an interval/cron tick must NOT pile a new task while the
+    # previous tick for the same schedule is still un-consumed. Otherwise a slow
+    # or stalled consumer (e.g. an engine outage) accumulates an unbounded
+    # backlog of stale ticks (the file_watch/enrichment/analysis backlog leak).
+    eng = _FakeEngine()
+    se.register_schedule(
+        eng,
+        se.ScheduleSpec(
+            name="cw",
+            payload={"kind": "maint", "ref": "demo"},
+            trigger="cron",
+            cron="* * * * *",  # due every minute
+        ),
+    )
+    assert se.run_scheduler_tick(eng, now=_at(4, 0))["fired"] == ["cw"]
+    assert len(eng.submitted) == 1
+    # next minute: due again, but the 04:00 tick is still pending → coalesced
+    assert se.run_scheduler_tick(eng, now=_at(4, 1))["fired"] == []
+    assert len(eng.submitted) == 1
+    # once the prior tick is consumed, the schedule fires again
+    eng.submitted.clear()
+    assert se.run_scheduler_tick(eng, now=_at(4, 2))["fired"] == ["cw"]
+    assert len(eng.submitted) == 1
 
 
 def test_disabled_schedule_does_not_fire() -> None:

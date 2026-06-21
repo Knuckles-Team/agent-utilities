@@ -114,12 +114,20 @@ async def execute_embedding(
         content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
         data["content_hash"] = content_hash
 
-        # Check if backend already has this exact embedding
+        # Check if backend already has this exact embedding. Scope the lookup to
+        # the node's own label so it hits ONE table instead of fanning a UNION ALL
+        # across every known node table (~100 tables) per node — and so the row
+        # carries the table's full columns (content_hash + embedding), letting the
+        # cache actually hit and skip a redundant re-embed. Falls back to the
+        # label-less form only when the type is unknown. (CONCEPT:KG-2.7)
         if ctx.backend:
             try:
-                result = ctx.backend.execute(
-                    "MATCH (n) WHERE n.id = $id RETURN n", {"id": node_id}
-                )
+                label = data.get("type")
+                if label and str(label).isidentifier():
+                    cache_q = f"MATCH (n:{label}) WHERE n.id = $id RETURN n"
+                else:
+                    cache_q = "MATCH (n) WHERE n.id = $id RETURN n"
+                result = ctx.backend.execute(cache_q, {"id": node_id})
                 if result and len(result) > 0:
                     existing_node = result[0].get("n")
                     if (
