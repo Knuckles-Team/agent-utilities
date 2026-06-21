@@ -3177,6 +3177,27 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # Score all ingested papers and codebases against a target
                 result = await self._run_relevance_sweep(job_id, str(target))
                 self._update_task_status(job_id, "completed", result)
+            elif task_type == "connector_sync":
+                # CONCEPT:ORCH-1.77 — one external connector's delta sync, run as a LANED task
+                # (the 'connectors' lane). The */20m fleet sweep enqueues one of these per
+                # connector so they fan out in PARALLEL instead of one slow connector
+                # (gitlab/servicenow) blocking the rest in a sequential inline loop.
+                from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+                res = self.query_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t.sync_mode as m", {"id": job_id}
+                )
+                mode = str((res[0].get("m") if res else None) or "delta")
+                sync_res = sync_source(self, str(target), mode=mode)
+                self._update_task_status(
+                    job_id,
+                    "completed",
+                    {
+                        "target": str(target),
+                        "type": task_type,
+                        **(sync_res if isinstance(sync_res, dict) else {"result": sync_res}),
+                    },
+                )
             elif task_type == "fleet_event_triage":
                 # Fleet-event triage (CONCEPT:OS-5.15): 'target' is the
                 # FleetEvent node id enqueued by the gateway's

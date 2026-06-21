@@ -33,6 +33,14 @@ TASK_LANES: dict[str, dict] = {
         ),
         "model_role": "lite",
     },
+    # CONCEPT:ORCH-1.77 — external connector delta syncs (gitlab/servicenow/atlassian/egeria/…)
+    # as their OWN lane: the */20m fleet sweep enqueues one connector_sync task per connector,
+    # so they fan out in parallel here instead of one slow connector blocking the rest inline,
+    # and never contend with codebase/document indexing in the ingestion lane.
+    "connectors": {
+        "task_types": frozenset({"connector_sync"}),
+        "model_role": "lite",
+    },
     "research": {
         "task_types": frozenset({"research_paper_fetch", "background_research"}),
         "model_role": "learner",

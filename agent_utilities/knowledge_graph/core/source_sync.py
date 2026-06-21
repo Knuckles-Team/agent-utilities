@@ -1306,7 +1306,11 @@ def sync_source(
 
 
 def sweep_all_sources(
-    engine: Any, *, mode: str = "delta", include_materialize: bool = True
+    engine: Any,
+    *,
+    mode: str = "delta",
+    include_materialize: bool = True,
+    enqueue: bool = True,
 ) -> dict[str, Any]:
     """Ingest every *configured* connector in one background sweep (CONCEPT:KG-2.9).
 
@@ -1345,6 +1349,31 @@ def sweep_all_sources(
             candidates |= set(MATERIALIZE_SOURCES)
         except Exception:  # noqa: BLE001
             logger.debug("materialize source list unavailable", exc_info=True)
+
+    # CONCEPT:ORCH-1.77 — fan the sweep out as LANED ``connector_sync`` tasks (the 'connectors'
+    # lane) so every connector syncs in PARALLEL instead of one slow connector (gitlab/
+    # servicenow) head-of-line-blocking the rest in the sequential inline loop below. Each task
+    # runs ``sync_source(src, mode)`` → the same watermark/delta machinery + content-hash delta.
+    if enqueue and hasattr(engine, "submit_task"):
+        jobs: list[str] = []
+        for src in sorted(candidates):
+            try:
+                jobs.append(
+                    engine.submit_task(
+                        target_path=src,
+                        provenance={"sync_mode": mode},
+                        task_type="connector_sync",
+                    )
+                )
+            except Exception:  # noqa: BLE001 — one bad enqueue never aborts the sweep
+                logger.debug("enqueue connector_sync failed for %s", src, exc_info=True)
+        return {
+            "status": "enqueued",
+            "enqueued": len(jobs),
+            "candidates": len(candidates),
+            "mode": mode,
+            "jobs": jobs,
+        }
 
     synced: dict[str, Any] = {}
     skipped: dict[str, str] = {}

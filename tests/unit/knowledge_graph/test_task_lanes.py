@@ -17,9 +17,29 @@ def test_lane_for_task_type_maps_functional_domains():
     assert lane_for_task_type("conversation") == "queries"
     assert lane_for_task_type("research_paper_fetch") == "research"
     assert lane_for_task_type("deep_extract") == "extraction"  # ORCH-1.76 own lane
+    assert lane_for_task_type("connector_sync") == "connectors"  # ORCH-1.77 own lane
     assert lane_for_task_type("scheduled_job") == "maint"
     assert lane_for_task_type("totally_unknown") == DEFAULT_LANE
     assert lane_model_role("ingestion") == "lite"
+
+
+def test_sweep_all_sources_enqueues_laned_connector_tasks():
+    """ORCH-1.77 — the fleet sweep enqueues one connector_sync task per connector (parallel,
+    laned) instead of syncing them sequentially inline."""
+    from agent_utilities.knowledge_graph.core.source_sync import sweep_all_sources
+
+    calls: list[tuple] = []
+
+    class _Eng:
+        def submit_task(self, target_path, provenance, task_type=None, **kw):
+            calls.append((target_path, task_type, provenance))
+            return f"job-{target_path}"
+
+    res = sweep_all_sources(_Eng(), mode="delta", include_materialize=False)
+    assert res["status"] == "enqueued"
+    assert res["enqueued"] == len(calls) > 0
+    assert all(t == "connector_sync" for (_, t, _) in calls)
+    assert all(p == {"sync_mode": "delta"} for (_, _, p) in calls)
 
 
 def test_select_pending_task_is_type_fair_within_lane():
