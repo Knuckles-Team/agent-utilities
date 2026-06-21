@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 386
+total_concepts: 387
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1308,13 +1308,17 @@ concepts:
   - agent_utilities/orchestration/reactions.py
   doc: messaging is a RENDERER of the orchestrator
 - id: ECO-4.82
-  name: fleet XDG config standardization
+  name: a SERVER-level load exposes only the condensed action
   pillar: ECO-4
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/mcp/_graphos_action_manifest.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/mcp/readme_tools.py
   - agent_utilities/mcp/verbose_tools.py
-  doc: fleet XDG config standardization
+  doc: a SERVER-level load exposes only the condensed action
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -1818,6 +1822,7 @@ concepts:
   code_paths:
   - agent_utilities/ecosystem/ea_clients.py
   - agent_utilities/gateway/ontology_api.py
+  - agent_utilities/knowledge_graph/backends/cypher_transpiler.py
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/hydration.py
   - agent_utilities/knowledge_graph/core/materialization.py
@@ -3587,6 +3592,7 @@ concepts:
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/messaging/agent_channel.py
+  - agent_utilities/messaging/router.py
   - agent_utilities/models/agent.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
@@ -3807,7 +3813,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/graph/routing/strategies/fast_path.py
-  - agent_utilities/orchestration/execution_profile.py
   doc: the original rule was far too narrow
 - id: ORCH-1.64
   name: cache the built graph TOPOLOGY per routing-config. The topology +
@@ -3881,13 +3886,23 @@ concepts:
   - agent_utilities/orchestration/execution_profile.py
   doc: prompt-only universal entrypoints that must flow through the full
 - id: ORCH-1.74
-  name: when the match names concrete fleet server
+  name: the FOCUSED-TOOLS altitude is one agent loop that calls the
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/graph/verification.py
+  - agent_utilities/messaging/router.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/execution_profile.py
-  doc: when the match names concrete fleet server
+  doc: the FOCUSED-TOOLS altitude is one agent loop that calls the
+- id: ORCH-1.75
+  name: pending depth + in-flight per
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  doc: pending depth + in-flight per
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
