@@ -138,3 +138,94 @@ async def reach_user(
     if result.success:
         return f"sent via {result.platform}"
     return f"send failed: {result.error}"
+
+
+# ── AgentBus native tools (CONCEPT:ECO-4.88) ─────────────────────────────────
+# Universal, in-process tools so EVERY agent (orchestrator + every spawned swarm
+# sub-agent) can coordinate over the AgentBus without needing the graph-os MCP bound.
+# Thin wrappers over agent_utilities.messaging.bus.AgentBus (the one core).
+
+
+def _bus_self_id(ctx: RunContext[Any], override: str = "") -> str:
+    """Resolve this agent's stable bus id from the run context (or an explicit override)."""
+    if override:
+        return override
+    deps = getattr(ctx, "deps", None)
+    for attr in ("session_id", "request_id", "user_id"):
+        val = getattr(deps, attr, None)
+        if val:
+            return str(val)
+    return "agent"
+
+
+async def bus_join(
+    ctx: RunContext[Any], capabilities: str = "", agent_id: str = ""
+) -> str:
+    """Announce yourself on the AgentBus so other agents can discover and message you.
+
+    CONCEPT:ECO-4.88 — call this once before sending/receiving. ``capabilities`` is a
+    comma-separated list of what you can do (helps peers route work to you).
+    """
+    from agent_utilities.messaging.bus import AgentBus
+
+    me = _bus_self_id(ctx, agent_id)
+    provider = getattr(getattr(ctx, "deps", None), "provider", None) or ""
+    caps = [c.strip() for c in capabilities.split(",") if c.strip()]
+    out = AgentBus.instance().register(me, provider=str(provider), capabilities=caps)
+    return f"joined the bus as '{me}'" if out.get("ok") else f"join failed: {out}"
+
+
+async def bus_peers(ctx: RunContext[Any], capability: str = "") -> str:
+    """List other agents on the bus and their presence (optionally filtered by capability)."""
+    from agent_utilities.messaging.bus import AgentBus
+
+    roster = AgentBus.instance().roster(capability=capability)
+    me = _bus_self_id(ctx)
+    peers = [
+        f"{a['agent_id']} ({a['presence']}; {','.join(a['capabilities']) or '-'})"
+        for a in roster
+        if a["agent_id"] != me
+    ]
+    return "peers: " + ("; ".join(peers) if peers else "(none online)")
+
+
+async def bus_send(
+    ctx: RunContext[Any],
+    message: str,
+    to: str = "",
+    topic: str = "",
+    agent_id: str = "",
+) -> str:
+    """Send a message to one peer (``to=``) or every subscriber of a ``topic=`` on the bus.
+
+    CONCEPT:ECO-4.88 — agent-to-agent messaging. Governed by the ActionPolicy ``bus.send`` gate.
+    """
+    from agent_utilities.messaging.bus import AgentBus
+
+    me = _bus_self_id(ctx, agent_id)
+    bus = AgentBus.instance()
+    bus.register(me)  # idempotent self-presence
+    if topic:
+        bus.subscribe(me, topic)  # so you also hear replies on the topic
+    out = bus.send(
+        sender=me, payload=message, to=to, topic=topic, reason="agent coordination"
+    )
+    if not out.get("ok"):
+        return f"send failed: {out.get('error')}"
+    return f"delivered to {out.get('delivered') or '(no recipients)'}"
+
+
+async def bus_check(ctx: RunContext[Any], since: int = 0, agent_id: str = "") -> str:
+    """Read your AgentBus inbox. Pass back the returned cursor next time for only-new messages."""
+    from agent_utilities.messaging.bus import AgentBus
+
+    me = _bus_self_id(ctx, agent_id)
+    out = AgentBus.instance().receive(me, since=since)
+    msgs = out.get("messages", [])
+    if not msgs:
+        return f"(no new messages) cursor={out.get('cursor', since)}"
+    lines = [
+        f"- {m['sender']}{(' @' + m['topic']) if m.get('topic') else ''}: {m['payload']}"
+        for m in msgs
+    ]
+    return f"cursor={out.get('cursor')}\n" + "\n".join(lines)

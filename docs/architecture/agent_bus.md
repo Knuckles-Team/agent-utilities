@@ -74,19 +74,66 @@ sequenceDiagram
     Bus->>Fleet: submit_loop(objective)
 ```
 
+## Native capability — every agent knows the bus (CONCEPT:ECO-4.88)
+
+The bus is **not** an opt-in persona you must select; it is a native capability the *graph
+shaper* (the core orchestrator) and **every spawned swarm/sub-agent** inherit, per the
+*Universal capability* rule. Three seams make that true, all bottoming out at the one
+`create_agent` choke point (`agent/factory.py`):
+
+1. **Awareness in the prompt.** `bus_capability_prompt()` (`messaging/bus.py`, single source) is
+   appended to every agent's system prompt when universal tools are on — so each agent knows it
+   can `bus_join`/`bus_peers`/`bus_send`/`bus_check` and `dispatch`, and that it should set up
+   agent-to-agent comms whenever more than one agent is involved.
+2. **Actionable native tools.** `bus_join` / `bus_peers` / `bus_send` / `bus_check`
+   (`tools/agent_tools.py`, registered in `tools/tool_registry.py` alongside `reach_user`) wrap
+   `AgentBus` in-process, so an agent uses the bus **without** needing the graph-os MCP bound.
+3. **Swarms coordinate by default.** The swarm path (`graph_orchestrate action=swarm`) stamps a
+   shared topic `swarm:<hash>` into `manifest.context`, so every wave agent is told to broadcast
+   progress and ask peers on that topic instead of fanning in only at synthesis.
+
+For a deeper, focused profile there is also a standalone blueprint
+`prompts/bus_coordinator.json` (+ the `mcp_config.bus.json` preset that trims graph-os to just
+`graph_bus`+`graph_reach`) — used when you want a dedicated bus-first session on a small model.
+
+```mermaid
+flowchart TD
+    ORC["Orchestrator (graph shaper)\nknows the bus natively"] -->|"action=swarm"| SW{{"swarm: shared topic swarm:abc123"}}
+    SW --> A1["sub-agent 1\n(bus_* tools)"]
+    SW --> A2["sub-agent 2\n(bus_* tools)"]
+    SW --> A3["sub-agent 3\n(bus_* tools)"]
+    A1 <-->|"bus_send/bus_check on swarm:abc123"| BUS["AgentBus"]
+    A2 <-->|"coordinate, don't duplicate"| BUS
+    A3 <-->|"share findings"| BUS
+    ORC -->|"dispatch heavy work"| FLEET["Loop / task lanes"]
+```
+
 ## Surfaces & files
 
 | Concern | Where |
 |---|---|
 | Core service | `agent_utilities/messaging/bus.py` (`AgentBus`) |
 | MCP tool + REST twin | `agent_utilities/mcp/tools/bus_tools.py` (`graph_bus`) → `/graph/bus` |
+| Native agent tools (universal) | `tools/agent_tools.py` (`bus_join`/`bus_peers`/`bus_send`/`bus_check`) + `tools/tool_registry.py` |
+| Capability awareness | `bus_capability_prompt()` (`messaging/bus.py`) injected at `agent/factory.py` |
+| Swarm coordination | shared `swarm_topic()` in `mcp/tools/analysis_tools.py` (`action=swarm`) |
+| Standalone preset | `prompts/bus_coordinator.json` + `mcp_config.bus.json` (2-tool focused surface) |
 | Federation relay | `agent_utilities/messaging/federation.py` (`BusFederationRelay`) |
-| Ontology | `:Agent`/`:Topic`/`:BusMessage` in `knowledge_graph/ontology_orchestration.ttl` |
+| Ontology | `:BusAgent`/`:Topic`/`:BusSubscription`/`:BusMessage` in `knowledge_graph/ontology_orchestration.ttl` |
 | Governance | `bus.send`/`bus.dispatch` in `orchestration/action_policy.py` + `deploy/action-policy.default.yml` |
 | Observability | `agent_utilities_bus_*` in `observability/gateway_metrics.py`; Grafana `agent-bus.json` |
 | Load harness | `scripts/bench_bus.py` |
 | Capacity model | `docs/scaling/capacity_model.py` (`bus_plan_for`) |
 | Health | `system_doctor` `bus` check (`deployment/doctor.py`) |
+
+## Backend note (live-validated)
+
+Reads resolve via the epistemic-graph **L0** compute engine (schema-less, source of truth);
+durable rows mirror to **L1** Postgres/pg-age. So bus state uses a dedicated `:BusAgent` label
+(not the platform's typed `:Agent` table), a `created` timestamp (the per-table `created_at`
+column is reserved `TIMESTAMPTZ`), and **1-hop** property reads with subscriptions as
+first-class `:BusSubscription` nodes (AGE multi-hop traversals are unreliable). These were found
+and fixed via a live E2E (`reports/agent-bus-live-e2e-findings-2026-06-21.md`).
 
 ## Scale & profiling
 
