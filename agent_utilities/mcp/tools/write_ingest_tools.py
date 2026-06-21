@@ -221,17 +221,20 @@ def register_write_ingest_tools(mcp):
             "'outcome' adjusts an entity's reward, 'rule' persists a durable "
             "governance/voice/source rule consulted at retrieval time, 'eval' "
             "adds a regression case, 'reads_avoided' closes the code_context "
-            "reads-avoided loop (target_id=the answer's capability_id, "
-            "corrected_value=JSON {reads_avoided,files_read,correct,query}) so the "
-            "code retriever learns which answers replace a file read (CONCEPT:AHE-3.61). "
-            "This is how 'this was wrong, here's the fix' becomes future behaviour "
-            "(CONCEPT:KG-2.8)."
+            "reads-avoided loop (target_id=capability_id, corrected_value=JSON "
+            "{reads_avoided,files_read,correct,query}) (CONCEPT:AHE-3.61), "
+            "'action_outcome' closes the loop on ANY autonomous action — a context "
+            "answer, a deploy, a ticket close, a routing choice (target_id=action/"
+            "capability id, corrected_value=JSON {success,reward?,expected?,observed?,"
+            "query?}) so routing/playbooks prefer actions that achieve their goal "
+            "(CONCEPT:AHE-3.62). This is how 'this was wrong, here's the fix' becomes "
+            "future behaviour (CONCEPT:KG-2.8)."
         ),
         tags=["graph-os", "feedback", "learning"],
     )
     def graph_feedback(
         correction_type: str = Field(
-            description="One of: outcome | rule | eval | reads_avoided."
+            description="One of: outcome | rule | eval | reads_avoided | action_outcome."
         ),
         target_id: str = Field(
             description="Entity/episode/query the correction is about."

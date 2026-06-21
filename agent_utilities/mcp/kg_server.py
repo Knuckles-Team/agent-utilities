@@ -1423,6 +1423,32 @@ async def graph_analyze_code_context_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_analyze_explain_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=explain (CONCEPT:KG-2.136): the universal
+    context plane. Body: ``{query, domain?, intent?, node_id?, top_k?, depth?}`` —
+    routes to the domain provider (code | ops | …) and returns the cited answer."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        domain = str(body.get("domain", ""))
+        intent = str(body.get("intent", ""))
+        target = f"{domain}:{intent}" if domain else intent
+        res = await _execute_tool(
+            "graph_analyze",
+            action="explain",
+            query=body.get("query", ""),
+            target=target,
+            node_id=body.get("node_id", ""),
+            top_k=int(body.get("top_k", 10)),
+            depth=int(body.get("depth", 2)),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResponse:
     """REST twin of graph_analyze action=cross_repo_usages (CONCEPT:KG-2.135): every
     usage of a published symbol across the fleet, grouped by repo. ``symbol`` /
@@ -2825,6 +2851,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/analyze/adr", graph_analyze_adr_endpoint, ["POST"])
     route("/graph/analyze/harness-gate", graph_analyze_harness_gate_endpoint, ["POST"])
     route("/graph/analyze/code-context", graph_analyze_code_context_endpoint, ["POST"])
+    route("/graph/analyze/explain", graph_analyze_explain_endpoint, ["POST"])
     route(
         "/graph/analyze/cross-repo-usages",
         graph_analyze_cross_repo_usages_endpoint,

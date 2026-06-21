@@ -154,6 +154,48 @@ def test_reads_avoided_accepts_json_string_payload():
     assert idx.rewards["cap:json"] == 1.0
 
 
+# ── FeedbackService: universal action_outcome (CONCEPT:AHE-3.62) ──────────────
+def test_action_outcome_success_rewards_high_and_grades():
+    idx = FakeIndex()
+    corpus = EvalCorpus()
+    svc = FeedbackService(capability_index=idx, eval_corpus=corpus)
+    res = svc.record_correction(
+        "action_outcome",
+        "deploy:graph-os",
+        corrected_value={
+            "success": True,
+            "expected": "healthy",
+            "query": "deploy graph-os",
+        },
+    )
+    assert res.applied
+    assert idx.rewards["deploy:graph-os"] == 1.0
+    assert corpus.size == 1  # expected + query -> graded case
+
+
+def test_action_outcome_failure_and_explicit_reward():
+    idx = FakeIndex()
+    svc = FeedbackService(capability_index=idx)
+    svc.record_action_outcome("a", success=False)
+    assert idx.rewards["a"] == 0.0
+    svc.record_action_outcome("b", reward=0.6)  # explicit reward overrides success
+    assert idx.rewards["b"] == 0.6
+    svc.record_action_outcome("c", reward=5.0)  # clamped to [0,1]
+    assert idx.rewards["c"] == 1.0
+
+
+def test_action_outcome_accepts_json_string_payload():
+    idx = FakeIndex()
+    svc = FeedbackService(capability_index=idx)
+    res = svc.record_correction(
+        "action_outcome",
+        "route:qwen-local",
+        corrected_value='{"success": true, "reward": 0.8}',
+    )
+    assert res.applied
+    assert idx.rewards["route:qwen-local"] == 0.8
+
+
 # ── EvalCorpus run ────────────────────────────────────────────────────────────
 def test_eval_corpus_runs_cases():
     corpus = EvalCorpus()
