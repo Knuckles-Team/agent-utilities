@@ -127,6 +127,11 @@ else
 fi
 
 # 4. Install the skill toolkit into EVERY agent tool present, and wire graph-os MCP.
+#    This sweep also picks up skills contributed by any installed agent-package
+#    via its `agent_utilities.skill_providers` entry-point (CONCEPT:OS-5.52), so
+#    re-run `install-skills --all-detected --symlink` after the *-mcp fleet is
+#    deployed to wire in the freshly-installed providers' skills. Contributed
+#    prompts enter the KG automatically on the next registry build.
 if [ "$DO_SKILLS" = 1 ]; then
   c_info "Installing skills into every detected agent tool (--all-detected)…"
   if command -v install-skills >/dev/null 2>&1; then
