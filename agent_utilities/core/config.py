@@ -120,6 +120,40 @@ def _ensure_env_loaded():
         pass
 
     _load_xdg_json_config()
+    _load_docker_secrets()
+
+
+def _load_docker_secrets(secrets_dir: str = "/run/secrets") -> None:
+    """Bridge docker/swarm secrets (``/run/secrets/<NAME>``) into ``os.environ``.
+
+    Swarm/compose secrets mount each secret as a file under ``/run/secrets``.
+    pydantic reads them for typed ``AgentConfig`` fields (``secrets_dir``), but
+    :func:`agent_utilities.core._env.setting` and bare reads see only
+    ``os.environ`` — so a docker-secret-injected ``OIDC_CLIENT_SECRET`` would be
+    invisible to the client-credentials minter. Mirror each secret file into
+    ``os.environ`` (``setdefault`` — an explicit spec/config env always wins) so a
+    secret is read everywhere WITHOUT ever appearing as a literal in the
+    inspectable service spec. CONCEPT:ECO-4.82 — fleet config single-source.
+    """
+    if not os.path.isdir(secrets_dir):
+        return
+    try:
+        names = os.listdir(secrets_dir)
+    except OSError:
+        return
+    for name in names:
+        if name in os.environ:  # explicit spec env / config.json already set it → wins
+            continue
+        path = os.path.join(secrets_dir, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                value = fh.read().strip()
+        except OSError:
+            continue
+        if value:
+            os.environ[name] = value
 
 
 def load_config(*, reload: bool = False) -> None:
