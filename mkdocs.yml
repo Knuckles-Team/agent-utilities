@@ -130,6 +130,7 @@ nav:
       - Task-Aware Sampling Profiles: architecture/sampling_profiles.md
       - Edit-Application Engine: architecture/edit_application_engine.md
       - Durable-State Externalization: architecture/state_externalization.md
+      - Adaptive Model Concurrency (vLLM auto-scale): architecture/adaptive_model_concurrency.md
       - Scaling the Gateway: architecture/gateway_scaling.md
       - Tenant-Partitioned Engine Sharding: architecture/engine_sharding.md
       - Queue-Driven Agent Dispatch: architecture/agent_dispatch.md

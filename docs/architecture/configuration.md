@@ -402,6 +402,8 @@ therefore environment-settable; none are internal-only.
 | `KG_EMBEDDING_DIM` | `768` | Must match the embedding model's output dimension; the schema vector column size derives from it |
 | `KG_BACKUPS` | `3` | KG backup retention count |
 | `KG_INGESTION_WORKERS` | `None` (auto) | Ingestion worker count override; unset auto-sizes |
+| `KG_ADAPTIVE_CONCURRENCY` | `true` | Auto-scale per-model LLM/embedding fan-out to real vLLM serving capacity (CONCEPT:KG-2.145). Off → static `model_capacity` only. See `architecture/adaptive_model_concurrency.md` |
+| `MODEL_MAX_CONCURRENCY` | `512` | Ceiling the adaptive per-model concurrency target can ramp to (no hardcoded small cap; static `model_capacity` is the floor) |
 | `KG_ANALYSIS_MAX_DEPTH` | `2` | Max recursion depth for background research daemons |
 | `MAX_RECURSION_DEPTH` | `2` | Graph recursion depth tunable |
 | `KNOWLEDGE_GRAPH_SYNC_BACKGROUND` | `true` | Background task workers for the KG pipeline |
