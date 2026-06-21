@@ -120,12 +120,18 @@ def _patch_pyproject(text: str, repo_name: str, module: str) -> tuple[str, list[
             f'[project.entry-points."agent_utilities.prompt_providers"]\n'
             f'{repo_name} = "{module}.prompts"\n\n'
         )
-        anchor = "[tool.setuptools]"
-        if anchor in out:
-            out = out.replace(anchor, block + anchor, 1)
-            changes.append("added entry-points")
+        for anchor in (
+            "[tool.setuptools]",
+            "[tool.setuptools.packages.find]",
+            "[tool.ruff]",
+            "[build-system]",
+        ):
+            if anchor in out:
+                out = out.replace(anchor, block + anchor, 1)
+                changes.append("added entry-points")
+                break
         else:
-            return text, ["ERROR: no [tool.setuptools] anchor for entry-points"]
+            return text, ["ERROR: no anchor section for entry-points"]
     else:
         # Corrective: ensure the provider NAME is the package name (an earlier
         # pass mistakenly used the worktree dir name). The value is unchanged.
