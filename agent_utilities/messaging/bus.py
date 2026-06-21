@@ -45,8 +45,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Node id prefixes for the durable bus model (CONCEPT:KG-2.141).
-_AGENT_PREFIX = "agent:"
+# NOTE: a dedicated ``:BusAgent`` label (not the platform's typed ``:Agent`` table) — the live
+# Postgres backend gives ``:Agent`` a typed schema (capabilities ARRAY, no agent_id) that bus
+# props don't fit. ``:BusAgent`` lands in the generic JSONB node table. (Found in live E2E.)
+_AGENT_PREFIX = "busagent:"
+_AGENT_LABEL = "BusAgent"
 _TOPIC_PREFIX = "topic:"
+_SUB_PREFIX = "bussub:"
 _MSG_PREFIX = "busmsg:"
 
 # A registered agent is "online" if it heartbeat within this many seconds; the roster
@@ -159,7 +164,7 @@ class AgentBus:
         node_id = f"{_AGENT_PREFIX}{agent_id}"
         ok = self._add_node(
             node_id,
-            "Agent",
+            _AGENT_LABEL,
             {
                 "agent_id": agent_id,
                 "provider": provider,
@@ -184,26 +189,26 @@ class AgentBus:
         if not agent_id:
             return False
         rows = self._query(
-            "MATCH (a:Agent {agent_id: $aid}) RETURN a", {"aid": agent_id}
+            f"MATCH (a:{_AGENT_LABEL} {{agent_id: $aid}}) RETURN a", {"aid": agent_id}
         )
         if not rows:
             return False
         props = dict(self._props(rows[0], "a"))
         props.update(status="online", last_seen=time.time())
         props.pop("id", None)
-        return self._add_node(f"{_AGENT_PREFIX}{agent_id}", "Agent", props)
+        return self._add_node(f"{_AGENT_PREFIX}{agent_id}", _AGENT_LABEL, props)
 
     def deregister(self, agent_id: str) -> bool:
         """Mark a participant ``offline`` (graceful leave)."""
         rows = self._query(
-            "MATCH (a:Agent {agent_id: $aid}) RETURN a", {"aid": agent_id}
+            f"MATCH (a:{_AGENT_LABEL} {{agent_id: $aid}}) RETURN a", {"aid": agent_id}
         )
         if not rows:
             return False
         props = dict(self._props(rows[0], "a"))
         props.update(status="offline", last_seen=time.time())
         props.pop("id", None)
-        return self._add_node(f"{_AGENT_PREFIX}{agent_id}", "Agent", props)
+        return self._add_node(f"{_AGENT_PREFIX}{agent_id}", _AGENT_LABEL, props)
 
     def roster(
         self,
@@ -218,7 +223,7 @@ class AgentBus:
         Presence is derived from ``last_seen`` vs ``stale_after_s`` at read time, so a crashed
         session shows ``offline`` without any reaper writing to it.
         """
-        rows = self._query("MATCH (a:Agent) RETURN a", {})
+        rows = self._query(f"MATCH (a:{_AGENT_LABEL}) RETURN a", {})
         now = time.time()
         out: list[dict[str, Any]] = []
         for row in rows:
@@ -251,53 +256,41 @@ class AgentBus:
         out.sort(key=lambda a: a["agent_id"])
         return out
 
-    # ── Topics & subscriptions (:Topic, :SUBSCRIBES_TO) ──────────────
+    # ── Topics & subscriptions (:Topic + :BusSubscription nodes) ─────
+    # Subscriptions are first-class nodes (not edges): the live AGE backend doesn't reliably
+    # resolve 2-hop edge traversals with a node-property filter, so a 1-hop ``:BusSubscription``
+    # read is the robust model. (Found in live E2E.)
     def subscribe(self, agent_id: str, topic: str) -> bool:
-        """Subscribe a participant to a topic (creates the topic if new)."""
+        """Subscribe a participant to a topic (idempotent; creates the topic if new)."""
         if not (agent_id and topic):
             return False
         self._add_node(f"{_TOPIC_PREFIX}{topic}", "Topic", {"name": topic})
-        self._add_edge(
-            f"{_AGENT_PREFIX}{agent_id}", f"{_TOPIC_PREFIX}{topic}", "SUBSCRIBES_TO"
+        return self._add_node(
+            f"{_SUB_PREFIX}{agent_id}:{topic}",
+            "BusSubscription",
+            {"agent_id": agent_id, "topic": topic, "status": "active"},
         )
-        return True
 
     def unsubscribe(self, agent_id: str, topic: str) -> bool:
-        """Remove a topic subscription edge."""
-        engine = self._resolve_engine()
-        remove = getattr(engine, "remove_edge", None) or getattr(
-            engine, "delete_edge", None
+        """Mark a subscription inactive (upsert on the same node id — survives no edge-delete)."""
+        if not (agent_id and topic):
+            return False
+        return self._add_node(
+            f"{_SUB_PREFIX}{agent_id}:{topic}",
+            "BusSubscription",
+            {"agent_id": agent_id, "topic": topic, "status": "inactive"},
         )
-        if callable(remove):
-            try:
-                remove(
-                    f"{_AGENT_PREFIX}{agent_id}",
-                    f"{_TOPIC_PREFIX}{topic}",
-                    "SUBSCRIBES_TO",
-                )
-                return True
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("[ECO-4.84] unsubscribe failed: %s", exc)
-        # No edge-delete primitive: fall back to a tombstone the resolver honors.
-        self._add_edge(
-            f"{_AGENT_PREFIX}{agent_id}", f"{_TOPIC_PREFIX}{topic}", "UNSUBSCRIBED"
-        )
-        return True
 
     def _subscribers(self, topic: str) -> list[str]:
         rows = self._query(
-            "MATCH (a:Agent)-[:SUBSCRIBES_TO]->(:Topic {name: $t}) RETURN a.agent_id as aid",
-            {"t": topic},
+            "MATCH (s:BusSubscription {topic: $t}) RETURN s", {"t": topic}
         )
-        subs = {r.get("aid") for r in rows if r.get("aid")}
-        # Honor unsubscribe tombstones when no native edge delete exists.
-        tomb = self._query(
-            "MATCH (a:Agent)-[:UNSUBSCRIBED]->(:Topic {name: $t}) RETURN a.agent_id as aid",
-            {"t": topic},
-        )
-        for r in tomb:
-            subs.discard(r.get("aid"))
-        return sorted(s for s in subs if s)
+        subs = {
+            p.get("agent_id")
+            for p in (self._props(r, "s") for r in rows)
+            if p.get("status", "active") == "active" and p.get("agent_id")
+        }
+        return sorted(subs)
 
     # ── Messaging (governed; :BusMessage durable mailbox) ────────────
     def send(
@@ -354,7 +347,7 @@ class AgentBus:
                     "payload": payload,
                     "meta": meta_json,
                     "status": "sent",
-                    "created_at": now,
+                    "created": now,
                 },
             ):
                 self._add_edge(f"{_AGENT_PREFIX}{rcpt}", mid, "HAS_BUS_MESSAGE")
@@ -372,14 +365,12 @@ class AgentBus:
         """
         if not agent_id:
             return {"messages": [], "cursor": since}
+        # 1-hop property match (not a 2-hop edge traversal) — robust on the AGE backend.
         rows = self._query(
-            "MATCH (a:Agent {agent_id: $aid})-[:HAS_BUS_MESSAGE]->(m:BusMessage) RETURN m",
-            {"aid": agent_id},
+            "MATCH (m:BusMessage {recipient: $aid}) RETURN m", {"aid": agent_id}
         )
         msgs = [self._props(r, "m") for r in rows]
-        msgs.sort(
-            key=lambda m: (float(m.get("created_at", 0) or 0), str(m.get("id", "")))
-        )
+        msgs.sort(key=lambda m: (float(m.get("created", 0) or 0), str(m.get("id", ""))))
         new = msgs[since:] if since < len(msgs) else []
         shaped = [
             {
@@ -390,7 +381,7 @@ class AgentBus:
                 "payload": m.get("payload", ""),
                 "meta": _safe_json(m.get("meta")),
                 "status": m.get("status", "sent"),
-                "created_at": float(m.get("created_at", 0) or 0),
+                "created": float(m.get("created", 0) or 0),
             }
             for m in new
         ]
@@ -405,7 +396,7 @@ class AgentBus:
         if not rows:
             return False
         props = dict(self._props(rows[0], "m"))
-        props.update(status="acked", acked_at=time.time())
+        props.update(status="acked", acked=time.time())
         props.pop("id", None)
         return self._add_node(message_id, "BusMessage", props)
 
@@ -456,7 +447,7 @@ class AgentBus:
                     "meta": meta_json,
                     "federated_from": origin,
                     "status": "sent",
-                    "created_at": now,
+                    "created": now,
                 },
             ):
                 self._add_edge(f"{_AGENT_PREFIX}{rcpt}", mid, "HAS_BUS_MESSAGE")

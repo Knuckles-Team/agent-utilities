@@ -216,30 +216,41 @@
 
 :Topic a owl:Class ;
     rdfs:label "Topic" ;
-    rdfs:comment "CONCEPT:KG-2.141 — a named pub/sub channel on the AgentBus that Agents subscribe to (ECO-4.84)." .
+    rdfs:comment "CONCEPT:KG-2.141 — a named pub/sub channel on the AgentBus that BusAgents subscribe to (ECO-4.84)." .
+
+:BusAgent a owl:Class ;
+    rdfs:label "BusAgent" ;
+    rdfs:comment """CONCEPT:KG-2.141 — a participant on the AgentBus (a session: Claude/other-LLM/
+    any provider, any host), with presence + capabilities (ECO-4.84). A dedicated class (not the
+    typed orchestration :Agent) so bus props land in the generic node store across backends.""" .
+
+:BusSubscription a owl:Class ;
+    rdfs:label "BusSubscription" ;
+    rdfs:comment """CONCEPT:KG-2.141 — a BusAgent's subscription to a Topic, modeled as a node
+    (not an edge) so membership resolves in one hop on every backend (ECO-4.84).""" .
 
 :hasBusMessage a owl:ObjectProperty ;
     rdfs:label "hasBusMessage" ;
-    rdfs:comment "CONCEPT:KG-2.141 — Agent -[:HAS_BUS_MESSAGE]-> BusMessage: a participant's durable bus inbox edge (ECO-4.84)." ;
-    rdfs:domain :Agent ;
+    rdfs:comment "CONCEPT:KG-2.141 — BusAgent -[:HAS_BUS_MESSAGE]-> BusMessage: a participant's durable bus inbox edge (ECO-4.84)." ;
+    rdfs:domain :BusAgent ;
     rdfs:range :BusMessage .
 
-:subscribesTo a owl:ObjectProperty ;
-    rdfs:label "subscribesTo" ;
-    rdfs:comment "CONCEPT:KG-2.141 — Agent -[:SUBSCRIBES_TO]-> Topic: a pub/sub subscription on the AgentBus (ECO-4.84)." ;
-    rdfs:domain :Agent ;
+:subscribesToTopic a owl:ObjectProperty ;
+    rdfs:label "subscribesToTopic" ;
+    rdfs:comment "CONCEPT:KG-2.141 — BusSubscription -> the Topic it subscribes a BusAgent to (ECO-4.84)." ;
+    rdfs:domain :BusSubscription ;
     rdfs:range :Topic .
 
 :presenceStatus a owl:DatatypeProperty ;
     rdfs:label "presence status" ;
-    rdfs:comment "CONCEPT:KG-2.141 — an Agent's bus presence (online|offline), computed from lastSeen vs a staleness window (ECO-4.84)." ;
-    rdfs:domain :Agent ;
+    rdfs:comment "CONCEPT:KG-2.141 — a BusAgent's bus presence (online|offline), computed from lastSeen vs a staleness window (ECO-4.84)." ;
+    rdfs:domain :BusAgent ;
     rdfs:range xsd:string .
 
 :lastSeen a owl:DatatypeProperty ;
     rdfs:label "last seen" ;
-    rdfs:comment "CONCEPT:KG-2.141 — unix timestamp of an Agent's most recent heartbeat on the bus (ECO-4.84)." ;
-    rdfs:domain :Agent ;
+    rdfs:comment "CONCEPT:KG-2.141 — unix timestamp of a BusAgent's most recent heartbeat on the bus (ECO-4.84)." ;
+    rdfs:domain :BusAgent ;
     rdfs:range xsd:double .
 
 :DeadLetterTask a owl:Class ;
