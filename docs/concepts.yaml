@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 409
+total_concepts: 411
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1359,6 +1359,24 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/bus_tools.py
   doc: graph_bus MCP tool and REST twin for agent-to-agent messaging
+- id: ECO-4.86
+  name: ────────────────────────
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/bus_tools.py
+  - agent_utilities/messaging/bus.py
+  - agent_utilities/messaging/federation.py
+  doc: ────────────────────────
+- id: ECO-4.87
+  name: the operator view of the AgentBus
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  - agent_utilities/messaging/bus.py
+  - agent_utilities/observability/gateway_metrics.py
+  doc: the operator view of the AgentBus
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
