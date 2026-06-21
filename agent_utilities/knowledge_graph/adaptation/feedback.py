@@ -309,6 +309,25 @@ class FeedbackService:
         r = max(0.0, min(1.0, r))
         outcome = self._apply_outcome(action_id, r, None, reason or "action_outcome")
         created = list(outcome.created_ids)
+        # CONCEPT:ORCH-1.79 — a model-route outcome also trains the adaptive router's
+        # per-role confidence so the cheapest model that keeps working wins next time.
+        if action_id.startswith("model_route:"):
+            try:
+                from agent_utilities.core.model_router import record_model_outcome
+
+                record_model_outcome(action_id, reward=r)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("model-route outcome update failed: %s", exc)
+        # CONCEPT:OS-5.49 — a "trust:<actor>:<kind>" outcome trains the autonomy ramp
+        # so a consistently-correct actor earns wider governance scope for that kind.
+        elif action_id.startswith("trust:"):
+            try:
+                from agent_utilities.orchestration.autonomy_ramp import record_trust
+
+                _, actor, kind = (action_id.split(":", 2) + ["", ""])[:3]
+                record_trust(self.backend, actor, kind, success=s)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("trust outcome update failed: %s", exc)
         if (
             q
             and exp

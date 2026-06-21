@@ -888,6 +888,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         _maint("hygiene", "hygiene", _HYGIENE_INTERVAL)
         _maint("tenant_gc", "tenant_gc", _cfg.kg_tenant_gc_interval)
+        # Goals-as-contracts SLA watch (CONCEPT:ORCH-1.78): escalate breached goals.
+        # Default-on; no-ops when no goals carry an sla_seconds.
+        _maint("goal_sla", "goal_sla", 300.0)
 
         for spec in specs:
             try:
@@ -896,6 +899,22 @@ class TaskManagerMixin(GraphEngineProtocol):
                 logger.debug(
                     "register maintenance schedule %s failed: %s", spec.name, e
                 )
+
+    def _tick_goal_sla(self) -> None:
+        """Evaluate open goals against their SLA + escalate breaches (ORCH-1.78)."""
+        try:
+            from agent_utilities.core.goal_sla import evaluate_goal_slas
+
+            report = evaluate_goal_slas(self)
+            if report.get("breached") or report.get("at_risk"):
+                logger.info(
+                    "goal_sla: %d breached, %d at-risk (of %d open)",
+                    len(report["breached"]),
+                    len(report["at_risk"]),
+                    report["checked"],
+                )
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("goal_sla tick error: %s", e)
 
     def _tick_usage_log_sync(self) -> None:
         """Auto-detect + sync local agent logs into the usage store (ECO-4.42).
@@ -3195,7 +3214,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                     {
                         "target": str(target),
                         "type": task_type,
-                        **(sync_res if isinstance(sync_res, dict) else {"result": sync_res}),
+                        **(
+                            sync_res
+                            if isinstance(sync_res, dict)
+                            else {"result": sync_res}
+                        ),
                     },
                 )
             elif task_type == "fleet_event_triage":
