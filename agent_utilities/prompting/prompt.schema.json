@@ -1,0 +1,774 @@
+{
+  "$defs": {
+    "EngineeringRulesSection": {
+      "additionalProperties": true,
+      "description": "Task-scoped engineering rules from agent-rules-books.\n\nCONCEPT:KG-2.2 — Engineering Rules Engine\n\nDefines which engineering rules are injected into the agent's prompt\nbased on task context. Supports three loading patterns:\n  - ``always_on``: Rule IDs always included (nano tier recommended)\n  - ``on_demand``: task_type → rule IDs mapping\n  - ``trigger_rules``: Conditional rules activated by context",
+      "properties": {
+        "always_on": {
+          "description": "Rule set IDs always included (e.g., 'clean-code.nano')",
+          "items": {
+            "type": "string"
+          },
+          "title": "Always On",
+          "type": "array"
+        },
+        "context_budget": {
+          "default": "mini",
+          "description": "Maximum tier to use: nano, mini, or full",
+          "title": "Context Budget",
+          "type": "string"
+        },
+        "on_demand": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "Task type → rule set IDs (e.g., {'refactoring': ['refactoring.mini']})",
+          "title": "On Demand",
+          "type": "object"
+        },
+        "trigger_rules": {
+          "description": "Conditional rules activated by task context",
+          "items": {
+            "$ref": "#/$defs/TriggerRule"
+          },
+          "title": "Trigger Rules",
+          "type": "array"
+        }
+      },
+      "title": "EngineeringRulesSection",
+      "type": "object"
+    },
+    "NestedStructure": {
+      "additionalProperties": true,
+      "description": "Reusable nested blueprint for structured content (hook/body/cta, etc.).",
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "e.g., 3 insights with examples",
+          "title": "Body"
+        },
+        "cta": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "e.g., question that sparks replies",
+          "title": "Cta"
+        },
+        "hook": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "e.g., curiosity-driven, under 10 words",
+          "title": "Hook"
+        }
+      },
+      "title": "NestedStructure",
+      "type": "object"
+    },
+    "PromptIdentity": {
+      "additionalProperties": true,
+      "description": "Agent identity and persona definition.",
+      "properties": {
+        "goal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the agent aims to achieve",
+          "title": "Goal"
+        },
+        "personality": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Personality traits for the agent persona",
+          "title": "Personality"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary role title (e.g., 'Python Systems Wizard')",
+          "title": "Role"
+        }
+      },
+      "title": "PromptIdentity",
+      "type": "object"
+    },
+    "PromptInstructions": {
+      "additionalProperties": true,
+      "description": "Structured behavioral instructions for the agent.\n\nDecomposes the monolithic prompt body into typed sections that can be\nindependently validated, merged, and rendered.",
+      "properties": {
+        "capabilities": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Categorized capability lists (e.g., {'testing': ['pytest', 'fixtures']})",
+          "title": "Capabilities"
+        },
+        "core_directive": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary behavioral instruction / full prompt body",
+          "title": "Core Directive"
+        },
+        "methodology": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Detailed methodology description",
+          "title": "Methodology"
+        },
+        "output_format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Expected output structure",
+          "title": "Output Format"
+        },
+        "quality_checklist": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Quality verification items",
+          "title": "Quality Checklist"
+        },
+        "responsibilities": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Key responsibility areas",
+          "title": "Responsibilities"
+        },
+        "workflow": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ordered workflow steps",
+          "title": "Workflow"
+        }
+      },
+      "title": "PromptInstructions",
+      "type": "object"
+    },
+    "PromptMetadata": {
+      "additionalProperties": true,
+      "description": "Descriptive metadata about the prompt (topic, tone, style, audience).",
+      "properties": {
+        "audience": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target audience for the output",
+          "title": "Audience"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable summary of the prompt's purpose",
+          "title": "Description"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Response style (e.g., 'professional assistant')",
+          "title": "Style"
+        },
+        "tone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Communication tone (e.g., 'technical', 'conversational')",
+          "title": "Tone"
+        },
+        "topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary subject domain",
+          "title": "Topic"
+        }
+      },
+      "title": "PromptMetadata",
+      "type": "object"
+    },
+    "TriggerRule": {
+      "additionalProperties": true,
+      "description": "A conditional rule that activates based on task context.",
+      "properties": {
+        "apply": {
+          "description": "Rule set or rule ID to apply (e.g., 'release-it.mini#trigger-rules')",
+          "title": "Apply",
+          "type": "string"
+        },
+        "when": {
+          "description": "Trigger condition (e.g., 'adding external dependency')",
+          "title": "When",
+          "type": "string"
+        }
+      },
+      "required": [
+        "when",
+        "apply"
+      ],
+      "title": "TriggerRule",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Core standardized model for JSON prompting.\n\nDefines agent system prompts as structured JSON with decomposed sections::\n\n    {\n        \"task\": \"python_programmer\",\n        \"type\": \"prompt\",\n        \"metadata\": {\"topic\": \"...\", \"tone\": \"...\", \"style\": \"...\"},\n        \"identity\": {\"role\": \"...\", \"goal\": \"...\"},\n        \"instructions\": {\"core_directive\": \"...\", \"capabilities\": {...}},\n        \"tools\": [...]\n    }",
+  "examples": [
+    {
+      "identity": {
+        "goal": "Craft production-ready Python solutions",
+        "role": "Python Systems Wizard"
+      },
+      "instructions": {
+        "capabilities": {
+          "modern_python": [
+            "decorators",
+            "dataclasses",
+            "protocols"
+          ],
+          "testing": [
+            "pytest",
+            "fixtures",
+            "coverage"
+          ]
+        },
+        "core_directive": "Write idiomatic, high-performance Python code."
+      },
+      "metadata": {
+        "description": "Python specialist agent",
+        "style": "professional assistant",
+        "tone": "technical and precise",
+        "topic": "Python Development"
+      },
+      "task": "python_programmer",
+      "tools": [
+        "agent-builder",
+        "tdd-methodology"
+      ],
+      "type": "prompt"
+    }
+  ],
+  "properties": {
+    "audience": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Target audience",
+      "title": "Audience"
+    },
+    "compose": {
+      "default": "append",
+      "description": "How to merge this body onto ``extends``: append | prepend | replace.",
+      "title": "Compose",
+      "type": "string"
+    },
+    "constraints": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Specific constraints",
+      "title": "Constraints"
+    },
+    "deliverables": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Expected deliverables",
+      "title": "Deliverables"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Human-readable description",
+      "title": "Description"
+    },
+    "engineering_rules": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EngineeringRulesSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Task-scoped engineering rules from agent-rules-books"
+    },
+    "extends": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Base prompt to compose onto, e.g. 'agent-utilities:base' or a '@base_agent.json' workspace reference. Render-time composition.",
+      "title": "Extends"
+    },
+    "goal": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "What the task aims to achieve",
+      "title": "Goal"
+    },
+    "identity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PromptIdentity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Agent persona definition"
+    },
+    "input": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Legacy: monolithic system prompt text",
+      "title": "Input"
+    },
+    "instructions": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PromptInstructions"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Behavioral instructions"
+    },
+    "language": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Programming language (for code)",
+      "title": "Language"
+    },
+    "length": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Length constraints",
+      "title": "Length"
+    },
+    "metadata": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PromptMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Descriptive metadata"
+    },
+    "output_format": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Desired output format",
+      "title": "Output Format"
+    },
+    "platform": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Target platform",
+      "title": "Platform"
+    },
+    "prompt_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Semver of THIS prompt's content (a bumpversion sync point).",
+      "title": "Prompt Version"
+    },
+    "rules": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "KG-ingestible engineering rules. Supports simple list or categorized dict.",
+      "title": "Rules"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "description": "Canonical prompt-schema version this blueprint conforms to.",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "skills": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Skill slugs this prompt expects installed (resolved by check_prompt_refs). Companion to ``tools``.",
+      "title": "Skills"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Provenance / KG namespace for this prompt, e.g. 'gitlab-api' or 'agent-utilities:base'. Used to namespace the PromptNode id so fleet-contributed prompts never collide.",
+      "title": "Source"
+    },
+    "structure": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NestedStructure"
+        },
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Nested structure for content generation",
+      "title": "Structure"
+    },
+    "style": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Specific style requirements",
+      "title": "Style"
+    },
+    "task": {
+      "description": "The primary action — e.g., 'python_programmer', 'write a tweet'",
+      "title": "Task",
+      "type": "string"
+    },
+    "tone": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Tone of the output",
+      "title": "Tone"
+    },
+    "tools": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "List of tool/skill names",
+      "title": "Tools"
+    },
+    "topic": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Main subject of the task",
+      "title": "Topic"
+    },
+    "type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Prompt type (e.g., 'prompt')",
+      "title": "Type"
+    },
+    "visual_style": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Visual style (e.g., for video)",
+      "title": "Visual Style"
+    }
+  },
+  "required": [
+    "task"
+  ],
+  "title": "StructuredPrompt",
+  "type": "object"
+}
