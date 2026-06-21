@@ -1361,6 +1361,7 @@ def sweep_all_sources(
                 jobs.append(
                     engine.submit_task(
                         target_path=src,
+                        is_codebase=False,
                         provenance={"sync_mode": mode},
                         task_type="connector_sync",
                     )
