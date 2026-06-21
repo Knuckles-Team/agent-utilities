@@ -581,6 +581,48 @@ def _register_gpu_member(
         return
 
 
+def _register_gpu_group_peers(gpu_group: str | None) -> None:
+    """Proactively register EVERY configured model sharing ``gpu_group`` (CONCEPT:KG-2.146).
+
+    The shared-GPU budget reserves a *priority* peer's floor off the top of every
+    member's allowance — but only for peers that are actually registered. A model is
+    registered when its per-model controller is first created (on its first call), so
+    an **idle** priority model (e.g. chat that hasn't been called yet) would NOT be a
+    member, and its floor would not be reserved while it is idle. That lets a
+    best-effort peer (embedding) transiently exceed ``budget − chat_floor``.
+
+    To make a priority peer's floor reserved at ALL times, this enumerates the
+    configured models — ``config.chat_models`` + ``config.embedding_models`` — selects
+    those whose :meth:`Config.gpu_group` matches ``gpu_group``, and registers each with
+    its static floor (:meth:`Config.model_capacity`) and role classification. It is
+    pure config enumeration: NO hardcoded model names or GPU types, so it works for any
+    ``gpu_group`` value and any GPU (GB10/GB200/H100/clusters).
+
+    Idempotent (``upsert`` only refreshes floor/role) and fail-safe: any enumeration
+    error falls back to the current active-only behaviour and never raises. A group
+    with no configured budget is a no-op (``register_member`` short-circuits).
+    """
+    if not gpu_group:
+        return
+    try:
+        from agent_utilities.core.config import config
+
+        models = [*config.chat_models, *config.embedding_models]
+    except Exception:  # noqa: BLE001 — enumeration is best-effort; fall back to active-only
+        return
+    for cfg_model in models:
+        try:
+            model_id = getattr(cfg_model, "id", None)
+            if not model_id:
+                continue
+            if _resolve_gpu_group(model_id) != gpu_group:
+                continue
+            floor = max(_DEFAULT_FLOOR, int(config.model_capacity(model_id)))
+            _register_gpu_member(gpu_group, _key(model_id), floor=floor, model=model_id)
+        except Exception:  # noqa: BLE001 — one bad peer must not break the rest
+            continue
+
+
 def _apply_gpu_cap(
     gpu_group: str | None, model_key: str, target: int, floor: int
 ) -> int:
@@ -629,6 +671,10 @@ def _get_controller(
     _register_gpu_member(
         gpu_group, k, floor=max(_DEFAULT_FLOOR, int(floor)), model=model
     )
+    # Proactively register ALL configured peers sharing this GPU group, so an idle
+    # priority peer (e.g. chat with no calls yet) still reserves its floor off every
+    # other member's allowance (CONCEPT:KG-2.146). Pure config enumeration; fail-safe.
+    _register_gpu_group_peers(gpu_group)
     with _lock:
         ctrl = _controllers.get(k)
         if ctrl is None:

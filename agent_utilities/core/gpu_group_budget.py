@@ -19,6 +19,13 @@ Design (a thin, conservative cap layered on top of the per-model controller):
 * **Grouping** is resolved upstream by :meth:`Config.gpu_group` — explicit
   ``gpu_group`` tag wins, else the ``base_url`` host. This module is told the group
   key, the group's budget, and each member's (floor, role, current target).
+* **Members are seeded PROACTIVELY from config**, not only when a model first runs.
+  The autoscale layer (:mod:`model_capacity_autoscale`,
+  ``_register_gpu_group_peers``) enumerates every configured model sharing a group
+  on first touch and registers each with its static floor + role — so an **idle**
+  priority peer (chat that has never been called) still reserves its floor off every
+  other member's allowance. This is the hard guarantee: a best-effort peer can never
+  transiently exceed ``budget − Σ priority floors`` while a priority peer sits idle.
 * **Roles split into two classes.** *Priority* roles (``GPU_RESERVED_ROLES`` —
   default ``chat``/``generator``/``default``) always keep their static floor
   reserved off the top of the budget. *Best-effort* roles (embedding, batch) may be
