@@ -404,6 +404,8 @@ therefore environment-settable; none are internal-only.
 | `KG_INGESTION_WORKERS` | `None` (auto) | Ingestion worker count override; unset auto-sizes |
 | `KG_ADAPTIVE_CONCURRENCY` | `true` | Auto-scale per-model LLM/embedding fan-out to real vLLM serving capacity (CONCEPT:KG-2.145). Off → static `model_capacity` only. See `architecture/adaptive_model_concurrency.md` |
 | `MODEL_MAX_CONCURRENCY` | `512` | Ceiling the adaptive per-model concurrency target can ramp to (no hardcoded small cap; static `model_capacity` is the floor) |
+| `GPU_CONCURRENCY_BUDGETS` | `{}` (unset → no cap) | JSON `group -> int`: total concurrent in-flight calls across all models sharing one physical GPU (CONCEPT:KG-2.146). Caps the SUM of member adaptive targets so they can't jointly oversubscribe the device, reserving latency-sensitive roles' floors first. Unset → per-model behaviour (no regression). See `architecture/distributed_gpu_concurrency.md` |
+| `GPU_RESERVED_ROLES` | `chat,generator,default,lite,super` | Roles whose static floor is reserved off the top of a GPU budget (CONCEPT:KG-2.146); best-effort roles (embedding/batch) get the remainder and yield to these under contention |
 | `KG_ANALYSIS_MAX_DEPTH` | `2` | Max recursion depth for background research daemons |
 | `MAX_RECURSION_DEPTH` | `2` | Graph recursion depth tunable |
 | `KNOWLEDGE_GRAPH_SYNC_BACKGROUND` | `true` | Background task workers for the KG pipeline |
