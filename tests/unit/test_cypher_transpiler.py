@@ -182,6 +182,35 @@ class TestLimitAndOrder:
         assert "LIMIT" in tq.sql
 
 
+class TestUnlabeledIdLookupPlaceholderParity:
+    """An unlabeled ``WHERE n.id = $id`` lookup fans a UNION ALL across every
+    known table; each branch repeats the ``%s`` placeholder, so the bound params
+    must be repeated to match — the regression behind the live error
+    "the query has N placeholders but 1 parameters were passed". (CONCEPT:KG-2.9h)
+    """
+
+    def test_placeholder_count_equals_param_count(self):
+        tq = transpile(
+            "MATCH (n) WHERE n.id = $id RETURN n", {"id": "abc"}, KNOWN_TABLES
+        )
+        assert tq.query_type == QueryType.SELECT
+        assert tq.sql.count("%s") == len(tq.params)
+        # one bind per table, all the same id
+        assert tq.params == ["abc"] * len(KNOWN_TABLES)
+        # behaviour preserved: a UNION ALL fan-out across the known tables
+        assert tq.sql.count("UNION ALL") == len(KNOWN_TABLES) - 1
+
+    def test_parity_holds_with_trailing_limit(self):
+        tq = transpile(
+            "MATCH (n) WHERE n.id = $id RETURN n LIMIT $lim",
+            {"id": "abc", "lim": 7},
+            KNOWN_TABLES,
+        )
+        assert tq.sql.count("%s") == len(tq.params)
+        # trailing LIMIT param sits after the repeated id binds
+        assert tq.params == ["abc"] * len(KNOWN_TABLES) + [7]
+
+
 class TestUnknownPattern:
     def test_unsupported_cypher(self):
         cypher = "CALL db.schema.visualization()"

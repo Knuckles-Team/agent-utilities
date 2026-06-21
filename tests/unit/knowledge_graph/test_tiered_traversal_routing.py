@@ -88,3 +88,15 @@ def test_write_goes_to_l1_then_mirrors_l3():
     t = _tiered()
     t.execute("MERGE (n:Thing {id: $x})", {"x": "A"})
     assert t.l1.calls and t.l3.calls  # authoritative L1 + durable mirror
+
+
+def test_unhonorable_filtered_aggregate_routes_to_l1_not_l3():
+    # MATCH (d)-[r]->(c) WHERE d.doc_type='news_article' RETURN count(c):
+    # neither tier can faithfully answer (L1 would drop the WHERE → global count;
+    # L3's transpiler can't anchor an unlabeled pattern). Route to L1 so it FAILS
+    # LOUD rather than L3 fabricating an empty/global count. (CONCEPT:KG-2.9h)
+    t = _tiered()
+    t.execute("MATCH (d)-[r]->(c) WHERE d.doc_type = 'news_article' RETURN count(c)")
+    assert t.l1.calls and not t.l3.calls
+    assert t.durability_stats()["l1_reads"] == 1
+    assert t.durability_stats()["l3_reads"] == 0

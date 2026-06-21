@@ -70,6 +70,42 @@ _LABELED_NODE_RE = re.compile(r"\(\s*\w+\s*:\s*`?\w+", re.IGNORECASE)
 _WHERE_PROP_ANCHOR_RE = re.compile(r"\bWHERE\b[^;]*?\b\w+\.\w+\s*=", re.IGNORECASE)
 
 
+# An aggregate (``count(...)``) over a relationship pattern whose WHERE carries a
+# node-property filter that NEITHER tier can faithfully honor — e.g.
+# ``MATCH (d)-[r]->(c) WHERE d.doc_type='news_article' RETURN count(c)``. L1's
+# unanchored aggregate path would drop the filter and return the *global* edge
+# count (silently wrong); L3's regex transpiler can't anchor an unlabeled pattern
+# and returns an empty (also wrong) result. Sending it to L1 makes the engine
+# FAIL LOUD (raise) rather than fabricate a number. (CONCEPT:KG-2.9h)
+_AGG_COUNT_RE = re.compile(r"\bRETURN\b[^;]*\bcount\s*\(", re.IGNORECASE)
+_WHERE_RE = re.compile(r"\bWHERE\b(.+?)(?:\bRETURN\b|\bSET\b|$)", re.IGNORECASE | re.S)
+
+
+def _is_unhonorable_aggregate(query: str) -> bool:
+    """True if this is a relationship-aggregate whose WHERE filter no tier can honor.
+
+    Such a query has no faithful answer on either tier, so it must fail loudly
+    rather than return a fabricated count/empty. (CONCEPT:KG-2.9h)
+    """
+    q = query or ""
+    if not (_is_traversal(q) and _AGG_COUNT_RE.search(q)):
+        return False
+    if _l1_can_traverse(q):
+        return False  # id- or label+WHERE-anchored → a tier can honor it
+    wm = _WHERE_RE.search(q)
+    if not wm:
+        return False
+    # A WHERE predicate beyond bare ``.id`` equality (which would have anchored the
+    # query above) cannot be applied by the unanchored aggregate path.
+    residual = re.sub(
+        r"\w+\.id\s*=\s*(?:\$\w+|'[^']*'|\"[^\"]*\")",
+        "",
+        wm.group(1),
+        flags=re.IGNORECASE,
+    )
+    return bool(re.search(r"\w+\.\w+", residual))
+
+
 def _l1_can_traverse(query: str) -> bool:
     """True if the L1 epistemic engine can resolve this traversal natively.
 
@@ -233,6 +269,12 @@ class TieredGraphBackend(GraphBackend):
             return result
         if _is_traversal(query):
             if _l1_can_traverse(query):
+                self._l1_reads += 1
+                return self.l1.execute(query, params)
+            # A relationship aggregate with a WHERE filter no tier can honor: route
+            # to L1 so it FAILS LOUD instead of L3 fabricating an empty/global count
+            # (silent-wrong is the cardinal sin). (CONCEPT:KG-2.9h)
+            if _is_unhonorable_aggregate(query):
                 self._l1_reads += 1
                 return self.l1.execute(query, params)
             self._l3_reads += 1
