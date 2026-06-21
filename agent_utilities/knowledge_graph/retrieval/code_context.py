@@ -375,6 +375,7 @@ def build_code_context(
     top_k: int = 10,
     depth: int = 2,
     cross_repo: bool = False,
+    **_opts: Any,
 ) -> dict[str, Any]:
     """Compose the code-intelligence primitives into one cited explanation.
 
