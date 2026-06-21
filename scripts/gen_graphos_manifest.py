@@ -23,7 +23,16 @@ from __future__ import annotations
 
 import ast
 import inspect
+import sys
 from pathlib import Path
+
+# Resolve ``agent_utilities`` from THIS repo (the script's own tree), not the
+# editable-installed copy that ``sys.path[0]`` would otherwise prefer when the
+# script is run from a worktree — otherwise the regenerated manifest reflects the
+# wrong checkout and silently misses newly-added actions.
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 _DISCOVERY = {"list_actions", "help", "actions"}
 

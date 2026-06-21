@@ -28,7 +28,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_VALID = {"outcome", "rule", "eval", "reads_avoided"}
+_VALID = {"outcome", "rule", "eval", "reads_avoided", "action_outcome"}
 
 # Map a free-form rule scope to the persisted node type consumed by
 # governance_rules.load_active_rules.
@@ -112,6 +112,10 @@ class FeedbackService:
             )
         if ctype == "reads_avoided":
             return self.record_reads_avoided(
+                target_id, corrected_value=corrected_value, reason=reason
+            )
+        if ctype == "action_outcome":
+            return self.record_action_outcome(
                 target_id, corrected_value=corrected_value, reason=reason
             )
         if ctype == "outcome":
@@ -249,6 +253,83 @@ class FeedbackService:
             capability_id,
             outcome.applied,
             f"reward={reward:.2f} reads_avoided={ra} files_read={fr} correct={ok}",
+            created,
+        )
+
+    # ------------------------------------------------------------------
+    def record_action_outcome(
+        self,
+        action_id: str,
+        *,
+        success: bool = True,
+        reward: float | None = None,
+        expected: str = "",
+        observed: str = "",
+        query: str = "",
+        corrected_value: Any = None,
+        reason: str = "",
+    ) -> CorrectionResult:
+        """Close the loop on ANY autonomous action (CONCEPT:AHE-3.62).
+
+        The general form of :meth:`record_reads_avoided`: an executed action — a
+        ``code_context`` answer, a deploy, a ticket close, a routing choice — reports
+        ``{success, optional reward, expected vs observed}``. That becomes a reward on
+        the action's ``action_id`` reward-EMA (so routing / retrieval / playbooks
+        prefer actions that *achieve their goal*) and, when ``expected`` + ``query``
+        are given, an eval-corpus case so the outcome is regression-checked from then
+        on. This is the substrate the autonomy ramp and goal-SLA loops build on:
+        outcomes, measured, compounding — the missing back-half of the operating loop.
+
+        ``corrected_value`` may carry JSON/dict ``{success, reward, expected, observed,
+        query}`` (the on-the-wire form from ``graph_feedback``).
+        """
+        s, r, exp, obs, q = success, reward, expected, observed, query
+        if corrected_value is not None:
+            payload = corrected_value
+            if isinstance(payload, str):
+                try:
+                    import json as _json
+
+                    payload = _json.loads(payload)
+                except Exception:
+                    payload = {}
+            if isinstance(payload, dict):
+                s = bool(payload.get("success", s))
+                if payload.get("reward") is not None:
+                    try:
+                        r = float(payload["reward"])
+                    except (TypeError, ValueError):
+                        r = None
+                exp = str(payload.get("expected", exp) or exp)
+                obs = str(payload.get("observed", obs) or obs)
+                q = str(payload.get("query", q) or q)
+
+        if r is None:
+            r = 1.0 if s else 0.0
+        r = max(0.0, min(1.0, r))
+        outcome = self._apply_outcome(action_id, r, None, reason or "action_outcome")
+        created = list(outcome.created_ids)
+        if (
+            q
+            and exp
+            and self.eval_corpus is not None
+            and hasattr(self.eval_corpus, "add_case")
+        ):
+            try:
+                case_id = self.eval_corpus.add_case(
+                    query=q,
+                    expected_output=exp,
+                    tags=["action_outcome"],
+                    reason=reason or "action outcome",
+                )
+                created.append(case_id)
+            except Exception as exc:  # pragma: no cover - corpus optional
+                logger.debug("action_outcome eval case failed: %s", exc)
+        return CorrectionResult(
+            "action_outcome",
+            action_id,
+            outcome.applied,
+            f"reward={r:.2f} success={s}" + (f" observed={obs[:40]}" if obs else ""),
             created,
         )
 

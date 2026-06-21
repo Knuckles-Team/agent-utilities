@@ -35,12 +35,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-VALID_INTENTS = ("how", "usage", "impact")
+from agent_utilities.core.source_paths import normalize_path, repo_of
 
-# The agent-utilities source-mount inside the served containers (`/au`) and its
-# canonical on-disk path. Symbols ingested under both must dedupe to one cite.
-_AU_MOUNT = "/au/"
-_AU_CANONICAL = "/home/apps/workspace/agent-packages/agent-utilities/"
+VALID_INTENTS = ("how", "usage", "impact")
 
 # Stable :Code projection (mirrors query_tools._CODE_COLS for a consistent shape).
 _CODE_COLS = (
@@ -50,20 +47,6 @@ _CODE_COLS = (
 )
 
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]+")
-
-
-def normalize_path(path: str | None) -> str:
-    """Canonicalize a source path so mount aliases dedupe (CONCEPT:KG-2.135).
-
-    The agent-utilities tree is bind-mounted at ``/au`` in the served fleet, so
-    the same file is ingested under both ``/au/…`` and its canonical workspace
-    path. Fold the mount alias to the canonical path for citation dedup.
-    """
-    if not path:
-        return ""
-    if path.startswith(_AU_MOUNT):
-        return _AU_CANONICAL + path[len(_AU_MOUNT) :]
-    return path
 
 
 def _as_int(value: Any) -> int | None:
@@ -344,7 +327,7 @@ def cross_repo_usages(engine: Any, symbol: str, limit: int = 200) -> dict[str, A
     callers = _callers(engine, symbol, limit)
     by_repo: dict[str, list[dict[str, Any]]] = {}
     for c in callers:
-        repo = _repo_of(c.get("file") or "")
+        repo = repo_of(c.get("file") or "")
         by_repo.setdefault(repo, []).append(c)
     return {
         "symbol": symbol,
@@ -353,21 +336,6 @@ def cross_repo_usages(engine: Any, symbol: str, limit: int = 200) -> dict[str, A
         "repos": sorted(by_repo),
         "usages_by_repo": by_repo,
     }
-
-
-def _repo_of(path: str) -> str:
-    """Best-effort repo label from a normalized path (for cross-repo grouping)."""
-    if not path:
-        return "unknown"
-    marker = "/agent-packages/"
-    if marker in path:
-        rest = path.split(marker, 1)[1]
-        return rest.split("/", 1)[0] if "/" in rest else rest
-    marker = "/open-source-libraries/"
-    if marker in path:
-        rest = path.split(marker, 1)[1]
-        return "oss/" + (rest.split("/", 1)[0] if "/" in rest else rest)
-    return path.rsplit("/", 1)[0] if "/" in path else path
 
 
 # ---------------------------------------------------------------------------
