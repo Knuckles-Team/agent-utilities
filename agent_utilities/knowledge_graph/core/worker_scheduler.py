@@ -35,7 +35,6 @@ it is pure in-process bookkeeping, so it is cheap and fully unit-testable.
 
 from __future__ import annotations
 
-import os
 import threading
 from dataclasses import dataclass, field
 
@@ -81,16 +80,20 @@ def scheduler_config_from_env(worker_count: int) -> SchedulerConfig:
     so a misconfiguration can never wedge the pool.
     """
 
+    # Route every read through the shared config accessor (config.json + live env),
+    # never bare os.environ — enforced by check_no_env_sprawl.py.
+    from agent_utilities.core._env import setting
+
     def _int(name: str, default: int) -> int:
         try:
-            return int(os.environ.get(name, default))
+            return int(setting(name, default))
         except (TypeError, ValueError):
             return default
 
     wc = max(1, int(worker_count))
     reserved = max(0, min(_int("KG_SCHED_RESERVED", 1), wc))
     per_lane_min = max(0, min(_int("KG_SCHED_PER_LANE_MIN", 1), wc))
-    cap_raw = os.environ.get("KG_SCHED_CODEBASE_CAP")
+    cap_raw = setting("KG_SCHED_CODEBASE_CAP", None)
     codebase_cap: int | None
     if cap_raw is None or cap_raw == "":
         codebase_cap = None
