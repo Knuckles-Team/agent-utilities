@@ -3315,14 +3315,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: Per-channel embedding backfill
 - id: KG-2.145
-  name: raise/lower it toward the model
+  name: Surfaces the universal latency signal
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/core/model_capacity_autoscale.py
   - agent_utilities/core/model_concurrency.py
-  doc: raise/lower it toward the model
+  doc: Surfaces the universal latency signal
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

@@ -235,6 +235,181 @@ def test_adaptive_capacity_ramps_via_config_endpoint(monkeypatch):
     assert first >= 4
 
 
+# --- universal latency-gradient signal (NO /metrics) ------------------------
+
+
+def _latency_controller(
+    *, floor: int = 4, ceiling: int = 512
+) -> AdaptiveCapacityController:
+    """A controller with NO metrics endpoint — pure latency-gradient tuning."""
+    return AdaptiveCapacityController(
+        model_key="chat",
+        model_name="some-openai-model",
+        metrics_url=None,  # LM Studio / llama.cpp / OpenAI: no /metrics
+        floor=floor,
+        ceiling=ceiling,
+        update_samples=1,  # re-tune on every sample for deterministic ramping
+        update_interval_s=0.0,
+        gradient_target=0.9,
+    )
+
+
+def test_latency_flat_low_ramps_up_no_metrics():
+    # Flat, low latency (no inflation) → gradient ≈ 1 → additive increase, ramping
+    # UP toward the ceiling, with NOTHING from the server.
+    ctrl = _latency_controller(floor=4)
+    for _ in range(40):
+        ctrl.record_sample(latency_s=0.10, ok=True)
+    assert ctrl.current_target > 4
+    assert ctrl.resolve() <= ctrl.ceiling
+    assert ctrl.utilization()["signal"] == "latency"
+
+
+def test_latency_inflation_backs_off_not_below_floor():
+    ctrl = _latency_controller(floor=4)
+    # Establish a fast baseline + ramp up.
+    for _ in range(20):
+        ctrl.record_sample(latency_s=0.10, ok=True)
+    high = ctrl.current_target
+    assert high > 4
+    # Now latency inflates badly (queueing) → gradient well below target → back off.
+    for _ in range(60):
+        ctrl.record_sample(latency_s=2.0, ok=True)
+    assert ctrl.current_target < high
+    assert ctrl.current_target >= ctrl.floor  # never below floor
+
+
+def test_overload_status_immediate_backoff():
+    ctrl = _latency_controller(floor=4)
+    for _ in range(20):
+        ctrl.record_sample(latency_s=0.10, ok=True)
+    high = ctrl.current_target
+    assert high > 4
+    # A single 429 is a congestion event → immediate multiplicative decrease.
+    ctrl.record_sample(latency_s=0.10, ok=False, status=429)
+    assert ctrl.current_target < high
+    # 503 likewise.
+    mid = ctrl.current_target
+    ctrl.record_sample(latency_s=0.10, ok=False, status=503)
+    assert ctrl.current_target <= mid
+    assert ctrl.current_target >= ctrl.floor
+
+
+def test_baseline_tracks_minimum():
+    ctrl = _latency_controller(floor=4)
+    ctrl.record_sample(latency_s=0.5, ok=True)
+    assert ctrl.baseline_latency == pytest.approx(0.5)
+    # A faster sample snaps the baseline down toward it.
+    ctrl.record_sample(latency_s=0.1, ok=True)
+    assert ctrl.baseline_latency < 0.5
+    # A slow sample barely moves it (doesn't chase inflation).
+    before = ctrl.baseline_latency
+    ctrl.record_sample(latency_s=5.0, ok=True)
+    assert ctrl.baseline_latency < before * 1.5
+
+
+def test_gradient_computation():
+    ctrl = _latency_controller(floor=4)
+    # baseline 0.1, avg ~0.1 → gradient ≈ 1
+    for _ in range(10):
+        ctrl.record_sample(latency_s=0.1, ok=True)
+    assert ctrl.utilization()["gradient"] == pytest.approx(1.0, abs=0.05)
+    # Push avg up to ~0.4 (baseline still ~0.1) → gradient ≈ 0.25-ish, well < 1.
+    ctrl2 = _latency_controller(floor=4)
+    ctrl2.record_sample(latency_s=0.1, ok=True)  # baseline
+    for _ in range(20):
+        ctrl2.record_sample(latency_s=0.4, ok=True)
+    assert ctrl2.utilization()["gradient"] < 0.9
+
+
+def test_few_samples_hold():
+    ctrl = _latency_controller(floor=4)
+    # Below _MIN_SAMPLES → hold at floor.
+    ctrl.record_sample(latency_s=0.1, ok=True)
+    ctrl.record_sample(latency_s=0.1, ok=True)
+    assert ctrl.current_target == 4
+
+
+def test_latency_respects_ceiling():
+    ctrl = _latency_controller(floor=4, ceiling=10)
+    for _ in range(200):
+        ctrl.record_sample(latency_s=0.05, ok=True)
+    assert ctrl.current_target == 10
+
+
+# --- hybrid: /metrics capacity-waiting forces back-off ----------------------
+
+
+def test_metrics_capacity_waiting_forces_backoff_even_when_latency_ok():
+    # Latency looks great (would ramp up), but vLLM /metrics reports
+    # capacity-waiting > 0 → hard saturation → forced back-off.
+    ctrl = _controller(lambda _url: _metrics(running=2, waiting_capacity=5), floor=4)
+    ctrl.min_poll_interval_s = 0.0
+    # ramp up via latency first
+    for _ in range(30):
+        ctrl.record_sample(latency_s=0.05, ok=True)
+    high = ctrl.current_target
+    assert high > 4
+    # resolve() polls /metrics → capacity-waiting forces a decrease.
+    after = ctrl.resolve()
+    assert after < high
+    snap = ctrl.utilization()
+    assert snap["signal"] == "hybrid"  # both signals present
+    assert snap["saturated"] is True
+
+
+def test_metrics_absent_falls_back_to_latency_only():
+    # Endpoint with NO vLLM gauges (LM Studio etc.) → metrics_available False,
+    # signal stays "latency".
+    ctrl = AdaptiveCapacityController(
+        model_key="chat",
+        model_name="lmstudio-model",
+        metrics_url="http://lmstudio.local/metrics",
+        floor=4,
+        ceiling=512,
+        fetcher=lambda _url: "# HELP foo\nfoo 1\n",  # not vLLM
+        update_samples=1,
+        update_interval_s=0.0,
+    )
+    ctrl.min_poll_interval_s = 0.0
+    for _ in range(30):
+        ctrl.record_sample(latency_s=0.05, ok=True)
+    ctrl.resolve()
+    snap = ctrl.utilization()
+    assert snap["metrics_available"] is False
+    assert snap["signal"] == "latency"
+    assert snap["current_target"] > 4  # latency still ramped it
+
+
+# --- record_sample integration / flag-off -----------------------------------
+
+
+def test_record_sample_module_fn_noop_when_flag_off(monkeypatch):
+    from agent_utilities.core import model_capacity_autoscale as mod
+
+    monkeypatch.setenv("KG_ADAPTIVE_CONCURRENCY", "0")
+    # Must not raise and must not create/tune anything.
+    mod.record_sample("embedding", latency_s=0.1, ok=True)
+    mod.record_sample("embedding", latency_s=0.1, ok=False, status=429)
+
+
+def test_utilization_surfaces_latency_fields():
+    ctrl = _latency_controller(floor=4)
+    for _ in range(10):
+        ctrl.record_sample(latency_s=0.1, ok=True)
+    ctrl.record_sample(latency_s=0.1, ok=False, status=503)
+    snap = ctrl.utilization()
+    assert {
+        "baseline_latency",
+        "recent_avg_latency",
+        "gradient",
+        "error_rate",
+        "signal",
+    } <= set(snap)
+    assert snap["error_rate"] > 0
+    assert snap["signal"] == "latency"
+
+
 def test_get_utilization_shape(monkeypatch):
     from agent_utilities.core import model_capacity_autoscale as mod
 
