@@ -2351,6 +2351,9 @@ class TaskManagerMixin(GraphEngineProtocol):
             # CONCEPT:ORCH-1.75 — stamp the functional lane (top-level, queryable) so the
             # worker can claim fairly per-lane and we can surface per-lane congestion.
             "lane": lane_for_task_type(task_type),
+            # CONCEPT:ORCH-1.76 — stamp the task TYPE top-level too, so claiming can rotate
+            # fairly across types WITHIN a lane (a fast diff/document not stuck behind codebase).
+            "tkind": task_type,
         }
         if due_bucket is not None:
             props["due_bucket"] = due_bucket
@@ -2555,20 +2558,42 @@ class TaskManagerMixin(GraphEngineProtocol):
         single path works on both the SQLite default and pg-age (equality only),
         so priority + reordering hold everywhere. (CONCEPT:KG-2.113)
 
-        CONCEPT:ORCH-1.75 — lane-FAIR within that: rotate which functional lane gets first
-        dibs each claim (round-robin cursor), so a backed-up lane (research/loop_cycle) can no
-        longer head-of-line-block another (codebase ingestion was starved 75-pending/0-run).
-        Inside the chosen lane the priority buckets still order work; lane-less legacy tasks
-        fall through to the original bucket sweep.
+        CONCEPT:ORCH-1.75/1.76 — TWO-LEVEL fair rotation: rotate which functional lane gets
+        first dibs each claim (so a backed-up lane can't head-of-line-block another — codebase
+        ingestion was starved 75-pending/0-run), AND within the chosen lane rotate across its
+        task TYPES (so a fast ``diff``/``document`` is not stuck behind a big ``codebase`` batch
+        sharing the ingestion lane). Inside a (lane,type) the priority buckets still order work;
+        lane-stamped-but-untyped and fully-legacy tasks fall through to the broader sweeps.
         """
-        from agent_utilities.knowledge_graph.core.task_lanes import LANE_NAMES
+        from agent_utilities.knowledge_graph.core.task_lanes import (
+            LANE_NAMES,
+            lane_task_types,
+        )
 
         if not hasattr(self, "_lane_cursor"):
             self._lane_cursor = 0
+            self._type_cursors: dict[str, int] = {}
         n = len(LANE_NAMES)
         order = [LANE_NAMES[(self._lane_cursor + i) % n] for i in range(n)]
         self._lane_cursor = (self._lane_cursor + 1) % n
         for lane in order:
+            # Per-TYPE fair rotation within the lane (ORCH-1.76).
+            types = lane_task_types(lane)
+            if types:
+                tc = self._type_cursors.get(lane, 0)
+                m = len(types)
+                torder = [types[(tc + i) % m] for i in range(m)]
+                self._type_cursors[lane] = (tc + 1) % m
+                for tk in torder:
+                    for bucket in _PRIORITY_BUCKETS:
+                        rows = self.query_cypher(
+                            "MATCH (t:Task {status: 'pending', tkind: $tk, prio_bucket: $b}) "
+                            "RETURN t.id as id, t.metadata as meta LIMIT 1",
+                            {"tk": tk, "b": bucket},
+                        )
+                        if rows:
+                            return rows[0]
+            # Lane-stamped but un-typed (pre-ORCH-1.76): claim by lane.
             for bucket in _PRIORITY_BUCKETS:
                 rows = self.query_cypher(
                     "MATCH (t:Task {status: 'pending', lane: $lane, prio_bucket: $b}) "
