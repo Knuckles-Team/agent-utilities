@@ -108,6 +108,52 @@ def test_unknown_correction_type_is_rejected():
     assert not res.applied
 
 
+# ── FeedbackService: reads_avoided loop (CONCEPT:AHE-3.61) ────────────────────
+def test_reads_avoided_full_replacement_rewards_high_and_grades():
+    idx = FakeIndex()
+    corpus = EvalCorpus()
+    svc = FeedbackService(capability_index=idx, eval_corpus=corpus)
+    res = svc.record_correction(
+        "reads_avoided",
+        "code_context:how:run_agent",
+        corrected_value={
+            "reads_avoided": True,
+            "files_read": 0,
+            "correct": True,
+            "query": "how does run_agent work",
+        },
+    )
+    assert res.applied
+    assert idx.rewards["code_context:how:run_agent"] == 1.0  # replaced the read
+    assert corpus.size == 1  # graded case persisted for regression
+
+
+def test_reads_avoided_partial_and_wrong_rewards():
+    idx = FakeIndex()
+    svc = FeedbackService(capability_index=idx)
+    # helped but files still read -> 0.7
+    svc.record_reads_avoided("cap:a", reads_avoided=True, files_read=2, correct=True)
+    assert idx.rewards["cap:a"] == 0.7
+    # read anyway -> 0.3
+    svc.record_reads_avoided("cap:b", reads_avoided=False, files_read=3, correct=True)
+    assert idx.rewards["cap:b"] == 0.3
+    # wrong answer -> 0.0 regardless
+    svc.record_reads_avoided("cap:c", reads_avoided=True, files_read=0, correct=False)
+    assert idx.rewards["cap:c"] == 0.0
+
+
+def test_reads_avoided_accepts_json_string_payload():
+    idx = FakeIndex()
+    svc = FeedbackService(capability_index=idx)
+    res = svc.record_correction(
+        "reads_avoided",
+        "cap:json",
+        corrected_value='{"reads_avoided": true, "files_read": 0, "correct": true}',
+    )
+    assert res.applied
+    assert idx.rewards["cap:json"] == 1.0
+
+
 # ── EvalCorpus run ────────────────────────────────────────────────────────────
 def test_eval_corpus_runs_cases():
     corpus = EvalCorpus()

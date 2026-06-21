@@ -208,6 +208,37 @@ class DeltaManifest:
                 out[node["source_uri"]] = node.get("content_hash", "")
         return out
 
+    def freshness(self, graph_name: str, category: str) -> dict[str, str]:
+        """Bulk-load ``{source_uri: updated_at}`` for one (graph, category).
+
+        The last-sync watermark per ingested source, used by the ingestion-coverage
+        doctor check to enforce a freshness SLA (CONCEPT:OS-5.47) — flagging repos
+        whose last delta sync is older than the threshold.
+        """
+        if self.mode == "sqlite":
+            with self._lock:
+                conn = sqlite3.connect(self._db_path, timeout=30.0)
+                try:
+                    cur = conn.execute(
+                        "SELECT source_uri, updated_at FROM ingest_manifest "
+                        "WHERE graph_name=? AND category=?",
+                        (graph_name, category),
+                    )
+                    return {r[0]: r[1] for r in cur.fetchall()}
+                finally:
+                    conn.close()
+        rows = self._backend.execute(
+            f"MATCH (m:{_LABEL}) WHERE m.graph_name = $graph_name "
+            "AND m.category = $category RETURN m",
+            {"graph_name": graph_name, "category": category},
+        )
+        out: dict[str, str] = {}
+        for row in rows if isinstance(rows, list) else []:
+            node = self._row_node(row)
+            if node and node.get("source_uri"):
+                out[node["source_uri"]] = node.get("updated_at", "")
+        return out
+
     def clear(self, graph_name: str | None = None, category: str | None = None) -> None:
         """Remove manifest rows (all, or scoped by graph/category).
 

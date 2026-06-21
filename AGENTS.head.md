@@ -94,6 +94,36 @@ For trivial tasks, use judgment; the bias here is correctness over speed.
   step, then loop until the checks pass. **"Done" means a live path actually invokes it**
   (see *Wire-First*) **and the unit suite is green** — not merely that the code compiles.
 
+## Query the code KG before you grep (READ BEFORE exploring code)
+
+The ecosystem's 80+ repos are continuously ingested into the KG as a typed,
+resolved code graph (call graph, similar-code, routes, change-coupling, CONCEPT:
+markers, docs). So **to learn how an area works, where a symbol is used, or what a
+change impacts, query the KG FIRST — don't open with grep/read/Explore.** It is a
+near-free, grounded, cross-session-consistent answer with `file:line` citations;
+grep re-derives by hand what the KG already holds.
+
+The one tool is **`graph_analyze action=code_context`** (REST: `POST
+/graph/analyze/code-context`), CONCEPT:KG-2.134:
+
+- `query=<area / symbol / question>`, `target=` the **intent**:
+  - **`how`** — "how does the messaging reply path work?" → definition + what it
+    calls + owning CONCEPT + docs + routes.
+  - **`usage`** — "where is `create_model` used?" → callers (`file:line`) +
+    near-clones + the **cross-repo** usage view across the whole fleet (KG-2.135).
+  - **`impact`** — "what breaks if I change `_conn`?" → transitive callers
+    (blast radius) + git change-coupling.
+- It returns a synthesized `answer`, `citations` (`file:line`), and a
+  `capability_id`.
+
+**Then read only the few `file:line`s you need to *edit*, not to *understand*.**
+After the task, close the loop: `graph_feedback correction_type=reads_avoided
+target_id=<capability_id> corrected_value={"reads_avoided":true,"files_read":N,
+"correct":true,"query":"…"}` so the retriever learns which answers replace a read
+(CONCEPT:AHE-3.61). If `code_context` returns no anchor, the area may be uningested
+— run `source_sync source=all mode=delta` (and see `agent-utilities-doctor`'s
+`ingestion_coverage` check) — then fall back to grep.
+
 ## Architecture Reference (current)
 
 - **Engine transport.** Python talks to the Rust `epistemic-graph` engine **only**
