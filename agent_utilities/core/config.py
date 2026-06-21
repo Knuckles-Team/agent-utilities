@@ -583,14 +583,15 @@ class AgentConfig(BaseSettings):
 
     # --- Parallel-call capacity resolution (CONCEPT:KG-2.143) ---
 
-    def model_capacity(self, model: str | None = None) -> int:
-        """Resolve a model's total parallel-call capacity by id/role.
+    def _resolve_model_config(
+        self, model: str | None = None
+    ) -> "ChatModelConfig | EmbeddingModelConfig | None":
+        """Resolve a model id/role to its config object (CONCEPT:KG-2.143).
 
-        CONCEPT:KG-2.143. ``model`` may be a model id (matched against both chat
-        and embedding registries), one of the roles ``"chat"``/``"default"``,
-        ``"lite"``, ``"super"``, ``"embedding"``/``"embed"``, or ``None`` (→
-        default chat model). Unknown/unconfigured models resolve to ``1`` — safe
-        sequential behaviour, never zero.
+        ``model`` may be a model id (matched against both chat and embedding
+        registries), a role (``"chat"``/``"default"``, ``"lite"``, ``"super"``,
+        ``"embedding"``/``"embed"``), or ``None`` (→ default chat model). Returns
+        ``None`` when nothing matches.
         """
         cfg: ChatModelConfig | EmbeddingModelConfig | None = None
         key = (model or "").strip().lower()
@@ -612,7 +613,31 @@ class AgentConfig(BaseSettings):
                     if em.id == model:
                         cfg = em
                         break
+        return cfg
+
+    def model_capacity(self, model: str | None = None) -> int:
+        """Resolve a model's total parallel-call capacity by id/role.
+
+        CONCEPT:KG-2.143. ``model`` may be a model id (matched against both chat
+        and embedding registries), one of the roles ``"chat"``/``"default"``,
+        ``"lite"``, ``"super"``, ``"embedding"``/``"embed"``, or ``None`` (→
+        default chat model). Unknown/unconfigured models resolve to ``1`` — safe
+        sequential behaviour, never zero.
+        """
+        cfg = self._resolve_model_config(model)
         return cfg.total_capacity if cfg is not None else 1
+
+    def model_endpoint(self, model: str | None = None) -> tuple[str | None, str | None]:
+        """Resolve a model id/role to its ``(model_id, base_url)`` (CONCEPT:KG-2.145).
+
+        Used by the adaptive concurrency controller to derive a model's vLLM
+        ``/metrics`` URL and the ``model_name`` label its Prometheus gauges carry.
+        Returns ``(None, None)`` when the model is unknown/unconfigured.
+        """
+        cfg = self._resolve_model_config(model)
+        if cfg is None:
+            return (None, None)
+        return (cfg.id, cfg.base_url)
 
     def embedding_capacity(self) -> int:
         """Total parallel-call capacity of the default embedding model.

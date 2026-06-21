@@ -44,19 +44,31 @@ __all__ = [
 
 
 def resolve_capacity(model: str | None = None, default: int = 1) -> int:
-    """Resolve a model's total parallel-call capacity (CONCEPT:KG-2.143).
+    """Resolve a model's parallel-call capacity (CONCEPT:KG-2.143 / KG-2.145).
 
     Looks the model up in the live config registry (by id or role; see
-    :meth:`Config.model_capacity`). Any failure — no config, unknown model,
-    import error — collapses to ``default`` (``1``), i.e. sequential, never zero.
+    :meth:`Config.model_capacity`) for the *static* capacity, then lets the
+    adaptive controller (CONCEPT:KG-2.145) raise/lower it toward the model's real
+    vLLM serving capacity using that static value as the **floor**. When adaptive
+    concurrency is disabled, or the model has no scrapeable endpoint, or any
+    metrics scrape fails, this returns the static capacity unchanged — fail-safe,
+    never below the configured floor.
+
+    Any failure — no config, unknown model, import error — collapses to
+    ``default`` (``1``), i.e. sequential, never zero.
     """
     try:
         from agent_utilities.core.config import config
 
-        cap = config.model_capacity(model)
-        return max(1, int(cap))
+        static_cap = max(1, int(config.model_capacity(model)))
     except Exception:  # noqa: BLE001 — capacity is best-effort; stay safe-sequential
         return max(1, int(default))
+    try:
+        from agent_utilities.core.model_capacity_autoscale import adaptive_capacity
+
+        return adaptive_capacity(model, static_cap)
+    except Exception:  # noqa: BLE001 — adaptation is best-effort; fall back to static
+        return static_cap
 
 
 # --- Shared, cached per-model gates -----------------------------------------
@@ -122,13 +134,25 @@ def get_thread_pool(
 
 
 def reset_controllers() -> None:
-    """Drop all cached gates/pools (test isolation; config reload). CONCEPT:KG-2.143."""
+    """Drop all cached gates/pools (test isolation; config reload). CONCEPT:KG-2.143.
+
+    Also drops the adaptive-capacity controllers (CONCEPT:KG-2.145) so a reload
+    re-derives both the gate size and its auto-tune state from fresh config.
+    """
     with _lock:
         _semaphores.clear()
         pools = list(_pools.values())
         _pools.clear()
     for p in pools:
         p.shutdown(wait=False)
+    try:
+        from agent_utilities.core.model_capacity_autoscale import (
+            reset_adaptive_controllers,
+        )
+
+        reset_adaptive_controllers()
+    except Exception:  # noqa: BLE001 — best-effort cleanup
+        pass
 
 
 async def map_concurrent(
