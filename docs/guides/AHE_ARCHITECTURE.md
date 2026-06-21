@@ -40,7 +40,7 @@ AHE decomposes the harness into 7 independently editable component types:
 ```mermaid
 graph TD
     subgraph "AHE Component Types"
-        SP["System Prompt<br>prompt_builder.py<br>structured_prompts.py"]
+        SP["System Prompt<br>prompting/builder.py<br>prompting/structured.py"]
         TD["Tool Description<br>tool_filtering.py<br>SKILL.md frontmatter"]
         TI["Tool Implementation<br>tools/*.py<br>mcp_server.py"]
         MW["OS-5.3: Middleware<br>middlewares.py<br>guardrails.py<br>tool_guard.py"]
