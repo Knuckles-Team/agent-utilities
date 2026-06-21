@@ -301,6 +301,18 @@ def save_config_item(key: str, value) -> str:
 from pydantic import BaseModel
 
 
+def _total_model_capacity(parallel_instances: int, max_parallel_calls: int) -> int:
+    """Resolve a model's total parallel-call capacity (CONCEPT:KG-2.143).
+
+    ``total_capacity = parallel_instances * max_parallel_calls`` — the number of
+    in-flight LLM/embedding calls the model can serve at once: ``N`` vLLM
+    instances behind one endpoint, each serving ``max_parallel_calls`` concurrent
+    requests. Always at least ``1`` (unknown/misconfigured collapses to safe
+    sequential behaviour, never zero-capacity).
+    """
+    return max(1, int(parallel_instances or 1) * int(max_parallel_calls or 1))
+
+
 class ChatModelConfig(BaseModel):
     id: str
     provider: str
@@ -312,8 +324,24 @@ class ChatModelConfig(BaseModel):
     reasoning: bool = False
     tools_enabled: bool = False
     parallel_instances: int = 1
+    """Number of parallel vLLM instances behind this model's ``base_url``. The
+    per-instance concurrency is ``max_parallel_calls``; total parallel-call
+    capacity is the product (see :pyattr:`total_capacity`)."""
+    max_parallel_calls: int = 1
+    """How many concurrent requests ONE vLLM instance of this model can serve
+    (its per-instance concurrency, e.g. vLLM ``--max-num-seqs``). Default ``1``
+    keeps callers sequential and is always safe. CONCEPT:KG-2.143."""
     can_route: bool = False
     can_kg: bool = False
+
+    @property
+    def total_capacity(self) -> int:
+        """Total in-flight calls this model can serve = instances × per-instance.
+
+        CONCEPT:KG-2.143 — used by the shared concurrency controller to size the
+        fan-out gate for this model.
+        """
+        return _total_model_capacity(self.parallel_instances, self.max_parallel_calls)
 
 
 class EmbeddingModelConfig(BaseModel):
@@ -322,7 +350,23 @@ class EmbeddingModelConfig(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     parallel_instances: int = 1
+    """Number of parallel vLLM instances behind this embedding model's
+    ``base_url``. Total parallel-call capacity is ``parallel_instances *
+    max_parallel_calls`` (see :pyattr:`total_capacity`)."""
+    max_parallel_calls: int = 1
+    """How many concurrent embedding requests ONE vLLM instance of this model can
+    serve (its per-instance concurrency). Default ``1`` keeps batch embedding
+    sequential and is always safe. CONCEPT:KG-2.143."""
     chunk_size: int = 768
+
+    @property
+    def total_capacity(self) -> int:
+        """Total in-flight embedding calls this model can serve.
+
+        CONCEPT:KG-2.143 — ``parallel_instances × max_parallel_calls``; used by
+        the concurrency controller to fan out embedding batches.
+        """
+        return _total_model_capacity(self.parallel_instances, self.max_parallel_calls)
 
 
 # _load_xdg_json_config() is now called dynamically via _ensure_env_loaded()
@@ -536,6 +580,47 @@ class AgentConfig(BaseSettings):
     def default_embedding_model(self) -> EmbeddingModelConfig | None:
         """Primary embedding model (first in list)."""
         return self.embedding_models[0] if self.embedding_models else None
+
+    # --- Parallel-call capacity resolution (CONCEPT:KG-2.143) ---
+
+    def model_capacity(self, model: str | None = None) -> int:
+        """Resolve a model's total parallel-call capacity by id/role.
+
+        CONCEPT:KG-2.143. ``model`` may be a model id (matched against both chat
+        and embedding registries), one of the roles ``"chat"``/``"default"``,
+        ``"lite"``, ``"super"``, ``"embedding"``/``"embed"``, or ``None`` (→
+        default chat model). Unknown/unconfigured models resolve to ``1`` — safe
+        sequential behaviour, never zero.
+        """
+        cfg: ChatModelConfig | EmbeddingModelConfig | None = None
+        key = (model or "").strip().lower()
+        if key in ("", "chat", "default"):
+            cfg = self.default_chat_model
+        elif key == "lite":
+            cfg = self.lite_chat_model
+        elif key == "super":
+            cfg = self.super_chat_model
+        elif key in ("embedding", "embed"):
+            cfg = self.default_embedding_model
+        else:
+            for m in self.chat_models:
+                if m.id == model:
+                    cfg = m
+                    break
+            if cfg is None:
+                for em in self.embedding_models:
+                    if em.id == model:
+                        cfg = em
+                        break
+        return cfg.total_capacity if cfg is not None else 1
+
+    def embedding_capacity(self) -> int:
+        """Total parallel-call capacity of the default embedding model.
+
+        CONCEPT:KG-2.143 — convenience for the embedding fan-out path.
+        """
+        em = self.default_embedding_model
+        return em.total_capacity if em is not None else 1
 
     def reload(self):
         """Reload configuration from XDG config.json dynamically."""
@@ -1954,20 +2039,20 @@ def _init_lazy_config():
 
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT"] = cfg.otel_exporter_otlp_endpoint
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_HEADERS"] = cfg.otel_exporter_otlp_headers
-    _LAZY_CACHE[
-        "DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"
-    ] = cfg.otel_exporter_otlp_public_key
-    _LAZY_CACHE[
-        "DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"
-    ] = cfg.otel_exporter_otlp_secret_key
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"] = (
+        cfg.otel_exporter_otlp_public_key
+    )
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"] = (
+        cfg.otel_exporter_otlp_secret_key
+    )
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
 
     _LAZY_CACHE["DEFAULT_LANGFUSE_PUBLIC_KEY"] = cfg.langfuse_public_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_SECRET_KEY"] = cfg.langfuse_secret_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE[
-        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"
-    ] = cfg.langfuse_dataset_capture_threshold
+    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
+        cfg.langfuse_dataset_capture_threshold
+    )
 
     _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
     _LAZY_CACHE["DEFAULT_A2A_BROKER_URL"] = cfg.a2a_broker_url
@@ -2041,9 +2126,9 @@ def _init_lazy_config():
         _kg_model.id if _kg_model else None
     ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
     _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
-    _LAZY_CACHE[
-        "DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
-    ] = cfg.knowledge_graph_sync_background
+    _LAZY_CACHE["DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"] = (
+        cfg.knowledge_graph_sync_background
+    )
     _LAZY_CACHE["DEFAULT_GRAPH_DIRECT_EXECUTION"] = cfg.graph_direct_execution
 
     # --- Parallel Engine Defaults ---
@@ -2053,9 +2138,9 @@ def _init_lazy_config():
     _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
     _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
     _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE[
-        "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"
-    ] = cfg.enable_progressive_synthesis
+    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
+        cfg.enable_progressive_synthesis
+    )
 
     _LAZY_CACHE["AGENT_API_KEY"] = cfg.agent_api_key
     _LAZY_CACHE["ENABLE_API_AUTH"] = cfg.enable_api_auth
@@ -2942,14 +3027,14 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"][
-                            "PYTHONWARNINGS"
-                        ] = "ignore:urllib3 (2.3.0) or chardet"
+                        cfg["env"]["PYTHONWARNINGS"] = (
+                            "ignore:urllib3 (2.3.0) or chardet"
+                        )
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"][
-                                "PYTHONWARNINGS"
-                            ] += ",ignore:urllib3 (2.3.0) or chardet"
+                            cfg["env"]["PYTHONWARNINGS"] += (
+                                ",ignore:urllib3 (2.3.0) or chardet"
+                            )
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.

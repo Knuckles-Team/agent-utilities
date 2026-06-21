@@ -24,17 +24,42 @@ SearchFn = Callable[[list[float], int], list[dict[str, Any]]]
 
 
 def make_embed_fn(batch_size: int = 64) -> EmbedFn:
-    """Batched embedding fn backed by the configured embedding model (bge-m3)."""
+    """Batched embedding fn backed by the configured embedding model (bge-m3).
+
+    Batches are fanned out CONCURRENTLY up to the embedding model's declared
+    parallel-call capacity (``parallel_instances × max_parallel_calls``) via the
+    shared concurrency controller (CONCEPT:KG-2.143). Capacity ``1`` (the safe
+    default) is byte-for-byte the historical sequential for-loop; capacity ``K``
+    runs up to ``K`` batches in flight. Batch boundaries and output order are
+    preserved, so the same vectors come out in the same order.
+    """
     try:
         from agent_utilities.core.embedding_utilities import create_embedding_model
+        from agent_utilities.core.model_concurrency import (
+            map_concurrent_sync,
+            resolve_capacity,
+        )
 
         model = create_embedding_model()
 
         def _fn(texts: list[str]) -> list[list[float]]:
+            if not texts:
+                return []
+            chunks = [
+                texts[i : i + batch_size] for i in range(0, len(texts), batch_size)
+            ]
+            capacity = resolve_capacity("embedding")
+            # Fan out per-batch embedding up to capacity; order preserved, so
+            # flattening the per-chunk results reproduces the input order.
+            chunk_results = map_concurrent_sync(
+                chunks,
+                model.get_text_embedding_batch,
+                model="embedding",
+                capacity=capacity,
+            )
             out: list[list[float]] = []
-            for i in range(0, len(texts), batch_size):
-                chunk = texts[i : i + batch_size]
-                out.extend(model.get_text_embedding_batch(chunk))
+            for vecs in chunk_results:
+                out.extend(vecs)
             return out
 
         return _fn
