@@ -116,7 +116,12 @@ def _iter_prompt_files(root: Path):
         return
     for path in sorted(root.rglob("*.json")):
         # Skip obvious non-prompt config files by name.
-        if path.name in {"mcp_config.json", "a2a.json", "package.json", "tsconfig.json"}:
+        if path.name in {
+            "mcp_config.json",
+            "a2a.json",
+            "package.json",
+            "tsconfig.json",
+        }:
             continue
         yield path
 
