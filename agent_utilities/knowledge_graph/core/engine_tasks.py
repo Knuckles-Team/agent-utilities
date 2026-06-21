@@ -2341,11 +2341,16 @@ class TaskManagerMixin(GraphEngineProtocol):
             due_bucket = int(float(scheduled_for) // 60)
             status = "scheduled"
 
+        from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
+
         encoded_meta = _encode_metadata(task_data)
         props: dict[str, Any] = {
             "status": status,
             "metadata": encoded_meta,
             "prio_bucket": prio_bucket,
+            # CONCEPT:ORCH-1.75 — stamp the functional lane (top-level, queryable) so the
+            # worker can claim fairly per-lane and we can surface per-lane congestion.
+            "lane": lane_for_task_type(task_type),
         }
         if due_bucket is not None:
             props["due_bucket"] = due_bucket
@@ -2549,7 +2554,30 @@ class TaskManagerMixin(GraphEngineProtocol):
         that predate ``prio_bucket`` and carry only the ``priority`` string. This
         single path works on both the SQLite default and pg-age (equality only),
         so priority + reordering hold everywhere. (CONCEPT:KG-2.113)
+
+        CONCEPT:ORCH-1.75 — lane-FAIR within that: rotate which functional lane gets first
+        dibs each claim (round-robin cursor), so a backed-up lane (research/loop_cycle) can no
+        longer head-of-line-block another (codebase ingestion was starved 75-pending/0-run).
+        Inside the chosen lane the priority buckets still order work; lane-less legacy tasks
+        fall through to the original bucket sweep.
         """
+        from agent_utilities.knowledge_graph.core.task_lanes import LANE_NAMES
+
+        if not hasattr(self, "_lane_cursor"):
+            self._lane_cursor = 0
+        n = len(LANE_NAMES)
+        order = [LANE_NAMES[(self._lane_cursor + i) % n] for i in range(n)]
+        self._lane_cursor = (self._lane_cursor + 1) % n
+        for lane in order:
+            for bucket in _PRIORITY_BUCKETS:
+                rows = self.query_cypher(
+                    "MATCH (t:Task {status: 'pending', lane: $lane, prio_bucket: $b}) "
+                    "RETURN t.id as id, t.metadata as meta LIMIT 1",
+                    {"lane": lane, "b": bucket},
+                )
+                if rows:
+                    return rows[0]
+        # Lane-less legacy tasks (pre-ORCH-1.75 stamp): plain bucket sweep.
         for bucket in _PRIORITY_BUCKETS:
             rows = self.query_cypher(
                 "MATCH (t:Task {status: 'pending', prio_bucket: $b}) "
@@ -2570,6 +2598,43 @@ class TaskManagerMixin(GraphEngineProtocol):
             "RETURN t.id as id, t.metadata as meta LIMIT 1"
         )
         return rows[0] if rows else None
+
+    def lane_metrics(self) -> dict[str, Any]:
+        """Per-lane congestion snapshot (CONCEPT:ORCH-1.75): pending depth + in-flight per
+        functional lane, so congestion is VISIBLE before it starves work — the observability
+        that was missing when codebase ingestion silently sat at 75-pending/0-running. Returns
+        ``{lane: {pending, running, model_role}}`` + a ``lane_less`` bucket for un-stamped tasks.
+        """
+        from agent_utilities.knowledge_graph.core.task_lanes import (
+            LANE_NAMES,
+            lane_model_role,
+        )
+
+        def _count(where: str, params: dict[str, Any]) -> int:
+            rows = self.query_cypher(
+                f"MATCH (t:Task {{{where}}}) RETURN count(t) as c", params
+            )
+            return int((rows[0].get("c") if rows else 0) or 0) if rows else 0
+
+        out: dict[str, Any] = {}
+        stamped = 0
+        for lane in LANE_NAMES:
+            p = _count("status: 'pending', lane: $l", {"l": lane})
+            r = _count("status: 'running', lane: $l", {"l": lane})
+            stamped += p + r
+            out[lane] = {
+                "pending": p,
+                "running": r,
+                "model_role": lane_model_role(lane),
+            }
+        total_pending = _count("status: 'pending'", {})
+        total_running = _count("status: 'running'", {})
+        out["lane_less"] = {
+            "pending": max(0, total_pending - sum(v["pending"] for v in out.values())),
+            "running": max(0, total_running - sum(v["running"] for v in out.values())),
+            "model_role": None,
+        }
+        return out
 
     def _claim_next_task(self) -> tuple[str, dict[str, Any]] | None:
         """Claim the next runnable Task and stamp ownership (CONCEPT:KG-2.113).
