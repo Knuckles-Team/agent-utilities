@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 414
+total_concepts: 415
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3289,6 +3289,16 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: optimistic-concurrency for object property edits
+- id: KG-2.143
+  name: Uses the shared per-model bounded thread pool. At most
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/core/model_concurrency.py
+  - agent_utilities/knowledge_graph/enrichment/semantic.py
+  - agent_utilities/knowledge_graph/pipeline/phases/embedding.py
+  doc: Uses the shared per-model bounded thread pool. At most
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
