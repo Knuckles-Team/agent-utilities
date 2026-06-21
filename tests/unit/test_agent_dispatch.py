@@ -156,12 +156,15 @@ def test_envelope_round_trip():
         kind=KIND_GOAL_LOOP,
         payload_ref="goal-1",
         tenant="acme",
-        priority="high",
+        prio_bucket="high",  # legacy string coerced through the one normalizer
         deadline_unix=123.0,
     )
     item = env.to_item()
     # session_id rides top-level so the queue can key without decoding bodies.
     assert item["session_id"] == "sess-1"
+    # The string priority was normalized to the shared 0..3 bucket (high → 1).
+    assert env.prio_bucket == 1
+    assert item["prio_bucket"] == 1
     restored = AgentTurnEnvelope.from_item(json.loads(json.dumps(item)))
     assert restored == env
     assert restored.job_id.startswith("dispatch-")
@@ -171,6 +174,32 @@ def test_envelope_carries_references_not_bodies():
     env = AgentTurnEnvelope(session_id="s", payload_ref="goal-9")
     assert "objective" not in env.to_item()
     assert env.to_item()["payload_ref"] == "goal-9"
+
+
+def test_envelope_prio_bucket_unified_with_tasks():
+    """Dispatch priority is the SAME 0..3 bucket as a :Task (CONCEPT:KG-2.113).
+
+    The string-only path is gone — every spec (legacy string, int, numeric
+    string) is coerced through the single shared normalizer, identical to how
+    submit_task / schedules / loops normalize their bucket.
+    """
+    from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
+
+    # default
+    assert AgentTurnEnvelope(session_id="s").prio_bucket == 2
+    # legacy strings → the same buckets the one normalizer yields
+    for word in ("critical", "high", "normal", "background", "low"):
+        env = AgentTurnEnvelope(session_id="s", prio_bucket=word)  # type: ignore[arg-type]
+        assert env.prio_bucket == _coerce_prio_bucket(word)
+    # int + numeric string, clamped into [0, 3]
+    assert AgentTurnEnvelope(session_id="s", prio_bucket=0).prio_bucket == 0
+    assert AgentTurnEnvelope(session_id="s", prio_bucket="1").prio_bucket == 1  # type: ignore[arg-type]
+    assert AgentTurnEnvelope(session_id="s", prio_bucket=99).prio_bucket == 3
+    # the bucket survives serialization onto the queue item
+    assert (
+        AgentTurnEnvelope(session_id="s", prio_bucket="high").to_item()["prio_bucket"]  # type: ignore[arg-type]
+        == 1
+    )
 
 
 # ── partition key: session beats tenant ──────────────────────────────────
@@ -364,9 +393,7 @@ async def test_create_goal_queue_mode_enqueues_and_returns_handle(
 
 
 @pytest.mark.asyncio
-async def test_create_goal_queue_mode_enqueue_failure_is_loud(
-    dispatch_db, monkeypatch
-):
+async def test_create_goal_queue_mode_enqueue_failure_is_loud(dispatch_db, monkeypatch):
     monkeypatch.setattr(agent_dispatch, "dispatch_queue_enabled", lambda *a: True)
 
     class _Broken:
