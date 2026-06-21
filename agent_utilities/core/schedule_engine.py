@@ -345,6 +345,24 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
                 interval *= mult
             spec.next_run_unix = now_unix + interval
         _upsert(engine, spec)
+        # Coalesce: if the previous tick for this schedule hasn't been consumed
+        # yet, do NOT pile another. A scheduled job is an interval tick, not a
+        # backlog item — running a stale missed tick later adds no value. Without
+        # this, a slow/stalled consumer (e.g. an engine outage) accumulates an
+        # unbounded backlog of duplicate ticks (one per due-minute, per schedule).
+        # Cheap top-level ``schedule``-property probe (not the O(N) metadata
+        # dedupe scan). (CONCEPT:OS-5.44)
+        try:
+            pend = engine.query_cypher(
+                "MATCH (t:Task) WHERE t.schedule = $name AND t.status IN "
+                "['pending', 'running', 'scheduled', 'blocked'] "
+                "RETURN count(t) AS n",
+                {"name": spec.name},
+            )
+            if pend and int((pend[0] or {}).get("n", 0) or 0) > 0:
+                continue  # an un-consumed tick is already queued
+        except Exception:  # noqa: BLE001 — best-effort; fall through to enqueue
+            pass
         job_id = f"sched:{spec.name}:{minute_key}"
         try:
             engine.submit_task(
