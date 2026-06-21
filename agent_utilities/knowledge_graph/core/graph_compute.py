@@ -515,6 +515,26 @@ class GraphComputeEngine:
         """Check if a directed edge exists between source and target."""
         return self._client.edges.has(source_id, target_id)
 
+    def compare_and_set_node_fields(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> bool:
+        """Atomic engine-side compare-and-set on a node's top-level fields.
+
+        Under the engine's graph write lock: if for every ``(field, expected)``
+        in ``conditions`` the node's current top-level property equals
+        ``expected`` (a missing field reads as null), merge every
+        ``(field, value)`` in ``updates`` into the node and return ``True``;
+        otherwise return ``False`` with no mutation. This is the authoritative,
+        backend-agnostic primitive behind cross-host :Task claiming
+        (CONCEPT:KG-2.141). Mirrors ``add_node``: the call goes straight to
+        ``self._client.nodes.*``; the SyncEpistemicGraphClient wrapper handles
+        the run-in-loop dispatch.
+        """
+        return bool(self._client.nodes.compare_and_set(node_id, conditions, updates))
+
     def node_count(self) -> int:
         """Return the number of nodes in the graph."""
         return self._client.nodes.count()
