@@ -153,6 +153,23 @@ class EpistemicGraphBackend(GraphBackend):
             handled, result = self._exec_where_anchored_traversal(q, params)
             if handled:
                 return result
+            # SILENT-WRONG GUARD (CONCEPT:KG-2.9h): an *aggregate* (``count(...)``)
+            # over a relationship pattern whose WHERE filter no interpreter could
+            # honor must NOT silently return ``[]`` — a caller reads an empty
+            # aggregate as 0, which is a confidently wrong number. Fail loud so the
+            # query is fixed/anchored or routed to a backend (L3) that can transpile
+            # it, rather than returning a fabricated count. Non-aggregate unhandled
+            # reads keep the deliberate ``return []`` deferral (lets a tiered caller
+            # fall through to L3 without a full-graph scan).
+            if re.search(
+                r"RETURN\s+count\s*\(", q, re.I
+            ) and self._where_has_unhonored_filter(q):
+                raise ValueError(
+                    "epistemic_graph (L1) cannot honor this aggregate query's "
+                    "WHERE filter; refusing to return an unfiltered global count "
+                    "(route to an L3 cypher→SQL backend or anchor the query): "
+                    f"{q[:200]}"
+                )
             logger.debug(
                 "epistemic_graph backend: unhandled relationship read; "
                 "returning [] (no full-graph fallback): %s",
@@ -266,6 +283,43 @@ class EpistemicGraphBackend(GraphBackend):
 
         return True, self._project(q, tgt_var, matched, params)
 
+    @staticmethod
+    def _where_has_unhonored_filter(q: str) -> bool:
+        """True if the WHERE clause carries a predicate the *unanchored* edge
+        aggregate cannot apply (CONCEPT:KG-2.9h).
+
+        The unanchored ``count(r)`` / edge-export path can only honor ``<var>.id =
+        …`` equalities (consumed as id anchors). Any other WHERE predicate —
+        notably a node-property filter like ``d.doc_type = 'news_article'`` — is
+        silently dropped if we fall through to the global edge count, producing a
+        confidently wrong answer. Detect that case so the caller can defer rather
+        than lie. Returns ``False`` when there is no WHERE (the legitimate
+        ``MATCH ()-[r]->() RETURN count(r)`` global-count shape).
+        """
+        wm = re.search(r"\bWHERE\b(.+?)(?:\bRETURN\b|\bSET\b|$)", q, re.I | re.S)
+        if not wm:
+            return False
+        where_body = wm.group(1)
+        # Strip the ``<var>.id = <literal/param>`` equalities the aggregate already
+        # consumes as anchors; if anything predicate-like survives, it's unhonored.
+        residual = re.sub(
+            r"\w+\.id\s*=\s*(?:\$\w+|'[^']*'|\"[^\"]*\")",
+            "",
+            where_body,
+            flags=re.I,
+        )
+        # Boolean glue between consumed equalities is not itself a predicate.
+        residual = re.sub(r"\b(AND|OR|NOT)\b", "", residual, flags=re.I)
+        # A surviving ``<var>.<prop>`` reference (e.g. ``d.doc_type``) or any
+        # comparison operator means there is a filter we can't apply.
+        if re.search(r"\w+\.\w+", residual):
+            return True
+        if re.search(
+            r"[<>=!]=?|\bCONTAINS\b|\bIN\b|\bSTARTS\b|\bENDS\b", residual, re.I
+        ):
+            return True
+        return False
+
     def _exec_rel_aggregate(
         self, q: str, params: dict[str, Any]
     ) -> tuple[bool, list[dict[str, Any]]]:
@@ -344,6 +398,26 @@ class EpistemicGraphBackend(GraphBackend):
             # scanning every node — the deliberate L1 guard. This is what makes
             # ``MATCH ()-[r]->() RETURN count(r)`` readable from the L1 backend.
             # (CONCEPT:KG-2.7 P1 — L1 native traversal.)
+            #
+            # SILENT-WRONG GUARD (CONCEPT:KG-2.9h): a WHERE clause carrying a
+            # node-property predicate this aggregate cannot honor (e.g.
+            # ``MATCH (d)-[r]->(c) WHERE d.doc_type='news_article' RETURN count(c)``)
+            # must NOT collapse to the *unfiltered* global edge count — that returns
+            # a confidently wrong number (the cardinal sin: worse than an error).
+            # The only WHERE predicates this branch can apply are the ``.id``
+            # equalities already consumed into ``idmap`` (which would have anchored
+            # the lookup above). If any other predicate remains, defer (``return
+            # False, []``) so the dispatcher tries the label+WHERE traversal and,
+            # failing that, returns ``[]`` (or the tiered backend routes to L3's
+            # cypher→SQL transpiler) — never a silent global count.
+            if self._where_has_unhonored_filter(q):
+                logger.debug(
+                    "epistemic_graph backend: unanchored relationship aggregate "
+                    "with an unhonored WHERE filter; deferring instead of "
+                    "returning a global count: %s",
+                    q[:160],
+                )
+                return False, []
             wants_count = re.search(r"RETURN\s+count\s*\(", q, re.I) is not None
             wants_edge = bool(r_var) and re.search(rf"RETURN\s+{r_var}(\b|\.)", q, re.I)
             if not (wants_count or wants_edge):
@@ -441,7 +515,14 @@ class EpistemicGraphBackend(GraphBackend):
         try:
             rows = self._graph.get_nodes_by_label(anchor_label or "", 0)
         except Exception:  # noqa: BLE001
-            rows = self._graph._get_all_nodes_with_properties()
+            # Fall back to a full node scan if the engine exposes one; if it
+            # exposes NEITHER, defer cleanly (``False, []``) rather than letting an
+            # AttributeError escape — the caller's silent-wrong guard then decides
+            # whether to fail loud. (CONCEPT:KG-2.9h)
+            _scan = getattr(self._graph, "_get_all_nodes_with_properties", None)
+            if not callable(_scan):
+                return False, []
+            rows = _scan()
         for nid, data in rows or []:
             data = data or {}
             if anchor_label and not self._label_match(data, anchor_label):
