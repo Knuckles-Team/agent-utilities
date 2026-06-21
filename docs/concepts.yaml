@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 390
+total_concepts: 394
 total_pillars: 21
 pillars:
 - AHE-3
@@ -623,6 +623,15 @@ concepts:
   - agent_utilities/harness/aegis_loop.py
   - agent_utilities/harness/manifest.py
   doc: '** manifest-verify →'
+- id: AHE-3.61
+  name: via
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/knowledge_graph/retrieval/code_context.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: via
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -3143,6 +3152,25 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/mcp/kg_server.py
   doc: capability-node aliases the lexical gate matches;
+- id: KG-2.134
+  name: the synthesized, cited
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/code_context.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/orchestration/agent_runner.py
+  doc: the synthesized, cited
+- id: KG-2.135
+  name: every usage of a published symbol across the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/code_context.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: every usage of a published symbol across the
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4455,6 +4483,15 @@ concepts:
   - agent_utilities/mcp/server_factory.py
   - agent_utilities/security/oidc_discovery.py
   doc: resolve the token endpoint from the issuer
+- id: OS-5.47
+  name: flagging repos
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  - agent_utilities/knowledge_graph/ingestion/coverage.py
+  - agent_utilities/knowledge_graph/ingestion/manifest.py
+  doc: flagging repos
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

@@ -28,7 +28,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_VALID = {"outcome", "rule", "eval"}
+_VALID = {"outcome", "rule", "eval", "reads_avoided"}
 
 # Map a free-form rule scope to the persisted node type consumed by
 # governance_rules.load_active_rules.
@@ -110,6 +110,10 @@ class FeedbackService:
             return CorrectionResult(
                 ctype, target_id, False, f"unknown correction_type {correction_type!r}"
             )
+        if ctype == "reads_avoided":
+            return self.record_reads_avoided(
+                target_id, corrected_value=corrected_value, reason=reason
+            )
         if ctype == "outcome":
             return self._apply_outcome(target_id, reward, corrected_value, reason)
         if ctype == "rule":
@@ -167,6 +171,85 @@ class FeedbackService:
         new = self.capability_index.record_outcome(target_id, reward=r)
         return CorrectionResult(
             "outcome", target_id, True, f"reward updated to {new:.3f} ({reason})"
+        )
+
+    # ------------------------------------------------------------------
+    def record_reads_avoided(
+        self,
+        capability_id: str,
+        *,
+        reads_avoided: bool = True,
+        files_read: int = 0,
+        correct: bool = True,
+        query: str = "",
+        corrected_value: Any = None,
+        reason: str = "",
+    ) -> CorrectionResult:
+        """Close the reads-avoided measurement loop (CONCEPT:AHE-3.61).
+
+        When a ``code_context`` answer is served the agent reports back whether the
+        KG answer **replaced a file read** (``reads_avoided``), how many files it
+        had to read anyway (``files_read``), and whether the answer was ``correct``.
+        That triple becomes a reward on the answer's ``capability_id`` reward-EMA
+        (so the code-context retriever GEPA-optimizes toward answers that replace a
+        read) *and*, when the agent supplies the right answer, an eval-corpus case
+        so the same question is graded automatically thereafter.
+
+        ``corrected_value`` may carry a JSON/dict ``{reads_avoided, files_read,
+        correct, query}`` (the on-the-wire form from ``graph_feedback``).
+        """
+        ra, fr, ok, q = reads_avoided, files_read, correct, query
+        if corrected_value is not None:
+            payload = corrected_value
+            if isinstance(payload, str):
+                try:
+                    import json as _json
+
+                    payload = _json.loads(payload)
+                except Exception:
+                    payload = {}
+            if isinstance(payload, dict):
+                ra = bool(payload.get("reads_avoided", ra))
+                fr = int(payload.get("files_read", fr) or 0)
+                ok = bool(payload.get("correct", ok))
+                q = str(payload.get("query", q) or q)
+
+        if not ok:
+            reward = 0.0
+        elif ra and fr <= 0:
+            reward = 1.0  # answer fully replaced the read
+        elif ra:
+            reward = 0.7  # helped, but some files still read
+        else:
+            reward = 0.3  # read anyway despite the answer
+
+        outcome = self._apply_outcome(
+            capability_id, reward, None, reason or "reads_avoided"
+        )
+        created = list(outcome.created_ids)
+        # Persist the graded case so the answer is regression-checked from now on.
+        if (
+            ok
+            and q
+            and self.eval_corpus is not None
+            and hasattr(self.eval_corpus, "add_case")
+        ):
+            try:
+                case_id = self.eval_corpus.add_case(
+                    query=q,
+                    expected_output=capability_id,
+                    tags=["code_context", "reads_avoided"],
+                    reason=reason or "code_context answer replaced a read",
+                )
+                created.append(case_id)
+            except Exception as exc:  # pragma: no cover - corpus optional
+                logger.debug("reads_avoided eval case failed: %s", exc)
+        return CorrectionResult(
+            "reads_avoided",
+            capability_id,
+            outcome.applied,
+            f"reward={reward:.2f} reads_avoided={ra} files_read={fr} correct={ok}",
+            created,
         )
 
     def _apply_rule(

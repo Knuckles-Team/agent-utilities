@@ -115,6 +115,61 @@ def test_build_execution_config_applies_chat_profile() -> None:
     assert task_cfg["verifier_timeout"] == DEFAULT_GRAPH_VERIFIER_TIMEOUT
 
 
+def test_build_execution_config_injects_code_context_prime() -> None:
+    """The task-start code_context prime reaches the run's tag_prompts (CONCEPT:KG-2.134)."""
+    from agent_utilities.orchestration.agent_runner import _build_execution_config
+
+    meta: dict[str, Any] = {"type": "unknown", "capabilities": [], "tools": []}
+    cfg = _build_execution_config(
+        None,
+        "some-agent",
+        meta,
+        execution_profile="task",
+        recent_mementos=[],
+        code_context_prime="run_agent is defined at engine.py:1378.",
+    )
+    assert "code_context" in cfg["tag_prompts"]
+    assert "engine.py:1378" in cfg["tag_prompts"]["code_context"]
+    assert "code_context" in cfg["valid_domains"]
+
+
+@pytest.mark.asyncio
+async def test_prime_code_context_skips_chat_profile() -> None:
+    """The prime is skipped on the latency-sensitive chat profile (CONCEPT:KG-2.134)."""
+    from agent_utilities.orchestration.agent_runner import _prime_code_context
+
+    out = await _prime_code_context(
+        object(), "how does the messaging reply path work", execution_profile="chat"
+    )
+    assert out is None
+
+
+@pytest.mark.asyncio
+async def test_prime_code_context_synthesizes_for_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On a task run the prime returns the synthesized answer + citations + cap id."""
+    from agent_utilities.orchestration import agent_runner
+
+    fake = {
+        "anchors": [{"symbol": "run_agent"}],
+        "answer": "`run_agent` is the entry point.",
+        "citations": [{"symbol": "run_agent", "file": "/x/engine.py", "line": 1378}],
+        "capability_id": "code_context:how:run_agent",
+    }
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.retrieval.code_context.build_code_context",
+        lambda *a, **k: fake,
+    )
+    out = await agent_runner._prime_code_context(
+        object(), "how does run_agent work", execution_profile="task"
+    )
+    assert out is not None
+    assert "entry point" in out
+    assert "/x/engine.py:1378" in out
+    assert "code_context:how:run_agent" in out
+
+
 @pytest.mark.asyncio
 async def test_execute_agent_threads_profile_to_run_agent(
     monkeypatch: pytest.MonkeyPatch,

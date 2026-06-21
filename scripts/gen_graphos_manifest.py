@@ -134,8 +134,18 @@ def main() -> None:
         "dispatches ``_execute_tool(tool, action=action, **params)``. ``action=None`` is a\n"
         'single-operation tool. Regenerate after changing the graph-os tool surface."""\n'
     )
-    body = "GRAPHOS_ACTIONS = " + repr(ops) + "\n"
-    out.write_text(header + "\n" + body)
+    # Emit a precise TypedDict so consumers index ``op["tool"]``/``["name"]`` as
+    # ``str`` (not ``object``) — the loose inference over ~300 dict literals
+    # otherwise widens the list to ``list[object]`` and breaks type-checking.
+    typedef = (
+        "from typing import TypedDict\n\n\n"
+        "class GraphosAction(TypedDict):\n"
+        "    tool: str\n"
+        "    action: str | None\n"
+        "    name: str\n"
+    )
+    body = "GRAPHOS_ACTIONS: list[GraphosAction] = " + repr(ops) + "\n"
+    out.write_text(header + "\n" + typedef + "\n\n" + body)
     print(
         f"Wrote {len(ops)} verbose ops across "
         f"{len({o['tool'] for o in ops})} tools -> {out}"

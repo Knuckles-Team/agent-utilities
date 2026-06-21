@@ -1397,6 +1397,49 @@ async def graph_analyze_harness_gate_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_analyze_code_context_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=code_context (CONCEPT:KG-2.134): the
+    synthesized, cited codebase Q&A. Body: ``{query, intent?(how|usage|impact),
+    node_id?, top_k?, depth?, cross_repo?}``."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        intent = str(body.get("intent", "how"))
+        if body.get("cross_repo"):
+            intent = f"{intent}+xrepo"
+        res = await _execute_tool(
+            "graph_analyze",
+            action="code_context",
+            query=body.get("query", ""),
+            target=intent,
+            node_id=body.get("node_id", ""),
+            top_k=int(body.get("top_k", 10)),
+            depth=int(body.get("depth", 2)),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=cross_repo_usages (CONCEPT:KG-2.135): every
+    usage of a published symbol across the fleet, grouped by repo. ``symbol`` /
+    ``query`` = the symbol name; ``top_k`` optional."""
+    try:
+        symbol = request.query_params.get("symbol") or request.query_params.get(
+            "query", ""
+        )
+        top_k = int(request.query_params.get("top_k", "200"))
+        res = await _execute_tool(
+            "graph_analyze", action="cross_repo_usages", query=symbol, top_k=top_k
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -2034,9 +2077,9 @@ def fanout_execute(entries, fn, *, timeout=None):
         except Exception as e:  # noqa: BLE001 — partial-success contract
             errors[name] = str(e)
     for fut in not_done:
-        errors[
-            futures[fut]
-        ] = f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        errors[futures[fut]] = (
+            f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        )
     # Never block on a hung backend's thread; let it finish in the background.
     ex.shutdown(wait=False, cancel_futures=True)
     return results, errors
@@ -2781,6 +2824,12 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     )
     route("/graph/analyze/adr", graph_analyze_adr_endpoint, ["POST"])
     route("/graph/analyze/harness-gate", graph_analyze_harness_gate_endpoint, ["POST"])
+    route("/graph/analyze/code-context", graph_analyze_code_context_endpoint, ["POST"])
+    route(
+        "/graph/analyze/cross-repo-usages",
+        graph_analyze_cross_repo_usages_endpoint,
+        ["GET"],
+    )
     route("/graph/analyze/context", graph_analyze_context_endpoint, ["POST"])
     route(
         "/graph/analyze/evaluate-alpha", graph_analyze_evaluate_alpha_endpoint, ["POST"]
