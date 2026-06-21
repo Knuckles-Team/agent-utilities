@@ -37,6 +37,8 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from agent_utilities.observability import gateway_metrics as _metrics
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -319,8 +321,11 @@ class AgentBus:
         if not to and not topic:
             return {"ok": False, "error": "send requires 'to' or 'topic'"}
 
+        kind = "topic" if topic else "direct"
+        start = time.time()
         decision = self._gate("bus.send", to or f"topic:{topic}", sender, reason)
         if decision is not None and not decision.allowed:
+            _metrics.BUS_MESSAGES.labels(kind=kind, outcome="denied").inc()
             return {
                 "ok": False,
                 "error": f"policy {decision.decision}: {decision.reason}",
@@ -329,6 +334,7 @@ class AgentBus:
         recipients = [to] if to else self._subscribers(topic)
         recipients = [r for r in recipients if r and r != sender]
         if not recipients:
+            _metrics.BUS_MESSAGES.labels(kind=kind, outcome="no_recipient").inc()
             return {"ok": True, "delivered": [], "note": "no recipients"}
 
         group = uuid.uuid4().hex[:12]
@@ -353,6 +359,8 @@ class AgentBus:
             ):
                 self._add_edge(f"{_AGENT_PREFIX}{rcpt}", mid, "HAS_BUS_MESSAGE")
                 delivered.append(rcpt)
+        _metrics.BUS_MESSAGES.labels(kind=kind, outcome="delivered").inc(len(delivered))
+        _metrics.BUS_SEND_DURATION.observe(time.time() - start)
         return {"ok": True, "msg_group": group, "delivered": delivered}
 
     def receive(self, agent_id: str, *, since: int = 0) -> dict[str, Any]:
@@ -421,6 +429,7 @@ class AgentBus:
             return {"ok": False, "error": "sender and objective required"}
         decision = self._gate("bus.dispatch", objective[:80], sender, reason)
         if decision is not None and not decision.allowed:
+            _metrics.BUS_DISPATCH.labels(outcome="denied").inc()
             return {
                 "ok": False,
                 "error": f"policy {decision.decision}: {decision.reason}",
@@ -440,7 +449,9 @@ class AgentBus:
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[ORCH-1.80] dispatch submit_loop failed: %s", exc)
+            _metrics.BUS_DISPATCH.labels(outcome="failed").inc()
             return {"ok": False, "error": f"dispatch failed: {exc}"}
+        _metrics.BUS_DISPATCH.labels(outcome="submitted").inc()
         return {"ok": True, "loop": loop, "dispatched_by": sender}
 
     # ── Governance gate (mirrors MessagingService._gate) ─────────────
@@ -467,6 +478,9 @@ class AgentBus:
         roster = self.roster()
         online = sum(1 for a in roster if a["presence"] == "online")
         topics = self._query("MATCH (t:Topic) RETURN t.name as name", {})
+        # Sample the presence gauges on the health/status read (CONCEPT:ECO-4.87).
+        _metrics.BUS_PARTICIPANTS.labels(status="online").set(online)
+        _metrics.BUS_PARTICIPANTS.labels(status="offline").set(len(roster) - online)
         return {
             "agents": len(roster),
             "online": online,
