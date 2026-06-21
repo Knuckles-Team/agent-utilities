@@ -332,25 +332,55 @@ def register_state_tools(mcp):
             "Native RSS feeds, the FreshRSS aggregator, and ScholarX arXiv are "
             "first-class :FeedSource nodes ingested through ONE world-model gate "
             "(research items → prioritized fetch, news → relevance+novelty). action "
-            "in 'list' (registered feeds), 'add' (register a native RSS/Atom feed by "
-            "url), 'remove' (deregister a feed by url), 'sync' (run the feed sweep "
-            "now — native RSS + ScholarX through the gate)."
+            "in 'list' (registered feeds), 'add' (register one OR many native "
+            "RSS/Atom feeds — pass url=, or urls= a JSON array / comma-separated "
+            "list for a bulk add), 'remove' (deregister one or many by url/urls), "
+            "'sync' (run the feed sweep now — native RSS + ScholarX through the "
+            "gate; feeds are fetched concurrently)."
         ),
         tags=["graph-os", "feeds"],
     )
     async def graph_feeds(
         action: str = Field(default="list", description="list|add|remove|sync"),
-        url: str = Field(default="", description="Feed URL (add/remove)."),
+        url: str = Field(default="", description="Feed URL (single add/remove)."),
+        urls: str = Field(
+            default="",
+            description=(
+                "BULK add/remove: many feed URLs in ONE call — a JSON array "
+                '(\'["https://a/feed","https://b/rss"]\') or a comma/newline-'
+                "separated string. Combined with `url` and deduped."
+            ),
+        ),
         mode: str = Field(default="delta", description="delta|full (sync)."),
     ) -> str:
-        """List / add / remove / sync unified RSS feed sources."""
+        """List / add / remove / sync unified RSS feed sources (add/remove are bulk-capable)."""
         import json as _json
+        import re as _re
 
         from agent_utilities.automation.feed_sources import (
             list_feed_sources,
             remove_feed_source,
             upsert_feed_source,
         )
+
+        def _url_list() -> list[str]:
+            """Resolve url + urls into a deduped, ordered list (JSON array or delimited)."""
+            out: list[str] = []
+            raw = (urls or "").strip()
+            if raw:
+                parsed: object = None
+                try:
+                    parsed = _json.loads(raw)
+                except Exception:  # noqa: BLE001 — not JSON → fall back to delimiters
+                    parsed = None
+                if isinstance(parsed, list):
+                    out.extend(str(x).strip() for x in parsed)
+                else:
+                    out.extend(p.strip() for p in _re.split(r"[,\n]", raw))
+            if url:
+                out.append(url.strip())
+            seen: set[str] = set()
+            return [u for u in out if u and not (u in seen or seen.add(u))]
 
         try:
             engine = kg_server._get_engine()
@@ -359,21 +389,54 @@ def register_state_tools(mcp):
                     {"action": "list", "feeds": list_feed_sources(engine)}, default=str
                 )
             if action == "add":
-                if not url:
-                    return _json.dumps({"error": "add needs a feed url"})
-                node_id = upsert_feed_source(
-                    engine,
-                    key=url,
-                    source_system="rss",
-                    feed_url=url,
-                    kind="RssFeed",
+                targets = _url_list()
+                if not targets:
+                    return _json.dumps(
+                        {"error": "add needs a feed url (url=... or urls=[...])"}
+                    )
+                results: list[dict] = []
+                for u in targets:
+                    try:
+                        nid = upsert_feed_source(
+                            engine,
+                            key=u,
+                            source_system="rss",
+                            feed_url=u,
+                            kind="RssFeed",
+                        )
+                        results.append({"url": u, "id": nid})
+                    except Exception as e:  # noqa: BLE001 — one bad feed never aborts the batch
+                        results.append({"url": u, "error": str(e)})
+                added = [r for r in results if "id" in r]
+                return _json.dumps(
+                    {
+                        "action": "add",
+                        "added": len(added),
+                        "total": len(targets),
+                        "results": results,
+                    }
                 )
-                return _json.dumps({"action": "add", "id": node_id, "url": url})
             if action == "remove":
-                if not url:
-                    return _json.dumps({"error": "remove needs a feed url"})
-                ok = remove_feed_source(engine, key=url, source_system="rss")
-                return _json.dumps({"action": "remove", "url": url, "ok": ok})
+                targets = _url_list()
+                if not targets:
+                    return _json.dumps(
+                        {"error": "remove needs a feed url (url=... or urls=[...])"}
+                    )
+                results = []
+                for u in targets:
+                    try:
+                        ok = remove_feed_source(engine, key=u, source_system="rss")
+                        results.append({"url": u, "ok": bool(ok)})
+                    except Exception as e:  # noqa: BLE001
+                        results.append({"url": u, "error": str(e)})
+                return _json.dumps(
+                    {
+                        "action": "remove",
+                        "removed": sum(1 for r in results if r.get("ok")),
+                        "total": len(targets),
+                        "results": results,
+                    }
+                )
             if action == "sync":
                 from agent_utilities.knowledge_graph.core.source_sync import sync_source
 

@@ -36,6 +36,13 @@ FetchFn = Callable[[str], str]
 #: Cap the persisted seen-id belt so the checkpoint can't grow unbounded; the
 #: publish-date watermark is the primary delta, seen_ids only guards same-date dupes.
 _SEEN_CAP = 5000
+#: Per-feed HTTP fetch timeout (seconds). A feed slower than this in a sweep is
+#: skipped rather than stalling the whole pass; with concurrent fetch the sweep's
+#: wall-clock is bounded by this, not by N×timeout. (CONCEPT:KG-2.121)
+_FEED_FETCH_TIMEOUT_S = 20.0
+#: Max feeds fetched concurrently per sweep (bounds sockets/threads; the sweep
+#: scales to many feeds without a serial stall — the 2000-reviews/hr path).
+_FEED_FETCH_CONCURRENCY = 12
 
 
 def _default_fetch(url: str) -> str:
@@ -49,7 +56,10 @@ def _default_fetch(url: str) -> str:
         ) from exc
     resp = httpx.get(
         url,
-        timeout=60.0,
+        # Bounded per-feed so one slow feed can't stall a multi-feed sweep; feeds
+        # are fetched concurrently (see RssConnector._all_documents), so the sweep's
+        # wall-clock is ~the slowest single feed, not the sum. (CONCEPT:KG-2.121)
+        timeout=_FEED_FETCH_TIMEOUT_S,
         follow_redirects=True,
         headers={"User-Agent": "agent-utilities-rss/1.0"},
     )
@@ -182,9 +192,24 @@ class RssConnector(LoadConnector, PollConnector):
         return out
 
     def _all_documents(self) -> list[SourceDocument]:
+        """Fetch + parse every feed CONCURRENTLY so one slow feed can't stall the
+        sweep. Each ``_entries`` call is bounded by the per-feed fetch timeout and
+        degrades to ``[]`` on error, so the whole pass costs ~the slowest single
+        feed (× ceil(N / concurrency)) instead of the serial sum — the throughput
+        unlock for many-feed sweeps (the 2000-reviews/hr path). (CONCEPT:KG-2.121)"""
+        urls = self.feed_urls
+        if len(urls) <= 1:
+            return self._entries(urls[0]) if urls else []
+        from concurrent.futures import ThreadPoolExecutor
+
         docs: list[SourceDocument] = []
-        for url in self.feed_urls:
-            docs.extend(self._entries(url))
+        workers = min(len(urls), _FEED_FETCH_CONCURRENCY)
+        with ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="rss-fetch"
+        ) as ex:
+            # ex.map preserves feed order; _entries never raises (dead feed → []).
+            for batch in ex.map(self._entries, urls):
+                docs.extend(batch)
         return docs
 
     # -- LoadConnector -----------------------------------------------------
