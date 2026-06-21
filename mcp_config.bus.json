@@ -1,0 +1,22 @@
+{
+  "_comment": "Focused AgentBus preset (per ECO-4.84 / ECO-4.85) — a graph-os surface trimmed to the bus + reach tools only, so a bus-first session (any LLM) sees a tiny, unambiguous toolset and reliably picks graph_bus. The per-group gates <TAG>TOOL=false drop every other graph-os tool group; BUSTOOL/REACHTOOL keep graph_bus + graph_reach. Pair with the prompts/bus_coordinator.json system prompt.",
+  "mcpServers": {
+    "graph-os": {
+      "command": "graph-os",
+      "args": [],
+      "env": {
+        "AGENT_ID": "bus-session",
+        "WORKSPACE_PATH": "${workspaceFolder}",
+        "MCP_TOOL_MODE": "condensed",
+        "KG_DAEMON_ROLE": "client",
+        "BUSTOOL": "true",
+        "REACHTOOL": "true",
+        "QUERYTOOL": "false",
+        "WRITE_INGESTTOOL": "false",
+        "ANALYSISTOOL": "false",
+        "STATETOOL": "false",
+        "ONTOLOGYTOOL": "false"
+      }
+    }
+  }
+}
