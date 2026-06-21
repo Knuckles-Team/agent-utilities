@@ -566,6 +566,22 @@ def _sync_freshrss(
             "freshrss-mcp server to mcp_config)",
         }
 
+    # Register FreshRSS as a first-class :FeedSource node (CONCEPT:KG-2.122) for
+    # symmetry with the RSS/scholarx feeds — idempotent, best-effort upsert.
+    try:
+        from ...automation.feed_sources import upsert_feed_source
+
+        upsert_feed_source(
+            engine,
+            key="freshrss",
+            source_system="freshrss",
+            feed_url=(setting("FRESHRSS_URL", default="") or ""),
+            kind="FeedSource",
+            name="FreshRSS",
+        )
+    except Exception:  # noqa: BLE001 — registry write is best-effort
+        pass
+
     backend = getattr(engine, "backend", None)
     since = None if mode == "full" else _read_watermark(backend, "freshrss")
 

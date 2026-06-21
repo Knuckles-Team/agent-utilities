@@ -41,9 +41,11 @@ _DDL = """
 CREATE TABLE IF NOT EXISTS kg_task_queue (
     id BIGSERIAL PRIMARY KEY,
     data TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
     claimed_by TEXT,
     claimed_at DOUBLE PRECISION
 );
+ALTER TABLE kg_task_queue ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS kg_task_staging (
     id BIGSERIAL PRIMARY KEY,
     job_id TEXT,
@@ -51,8 +53,11 @@ CREATE TABLE IF NOT EXISTS kg_task_staging (
     claimed_by TEXT,
     claimed_at DOUBLE PRECISION
 );
-CREATE INDEX IF NOT EXISTS idx_kg_task_queue_claim
-    ON kg_task_queue (claimed_at NULLS FIRST, id);
+-- KG-2.113: priority-ordered durable claim — lowest bucket (0) first, then
+-- visibility-timeout (claimed_at NULLS FIRST), then FIFO (id). Replaces the
+-- in-memory bucket sort with an atomic SKIP LOCKED ordered claim.
+CREATE INDEX IF NOT EXISTS idx_kg_task_queue_pri
+    ON kg_task_queue (priority, claimed_at NULLS FIRST, id);
 CREATE INDEX IF NOT EXISTS idx_kg_task_staging_claim
     ON kg_task_staging (claimed_at NULLS FIRST, id);
 """
@@ -68,11 +73,13 @@ def _queue_table_ddl(table: str) -> str:
 CREATE TABLE IF NOT EXISTS {table} (
     id BIGSERIAL PRIMARY KEY,
     data TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0,
     claimed_by TEXT,
     claimed_at DOUBLE PRECISION
 );
-CREATE INDEX IF NOT EXISTS idx_{table}_claim
-    ON {table} (claimed_at NULLS FIRST, id);
+ALTER TABLE {table} ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_{table}_pri
+    ON {table} (priority, claimed_at NULLS FIRST, id);
 """  # nosec B608 — table names are module-level constants, never user input
 
 
@@ -102,21 +109,29 @@ class PostgresTaskQueue(QueueBackend):
 
     # ── internal ───────────────────────────────────────────────────────
 
-    def _claim_one(self, table: str, columns: str) -> Any:
-        """Atomically claim the oldest available row (SKIP LOCKED)."""
+    def _claim_one(
+        self, table: str, columns: str, *, priority_ordered: bool = False
+    ) -> Any:
+        """Atomically claim the next available row (SKIP LOCKED).
+
+        ``priority_ordered`` (CONCEPT:KG-2.113): claim the lowest ``priority``
+        bucket first, then visibility-timeout, then FIFO — a durable, cross-host,
+        atomic replacement for sorting claim buckets in memory.
+        """
         now = time.time()
         cutoff = now - _VISIBILITY_TIMEOUT_S
+        order_by = "priority ASC, id ASC" if priority_ordered else "id"
         sql = f"""
             UPDATE {table} SET claimed_by = %s, claimed_at = %s
             WHERE id = (
                 SELECT id FROM {table}
                 WHERE claimed_at IS NULL OR claimed_at < %s
-                ORDER BY id
+                ORDER BY {order_by}
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
             )
             RETURNING {columns}
-        """  # nosec B608 — table/columns are module constants, values bound
+        """  # nosec B608 — table/columns/order are module constants, values bound
         with self._pool.connection() as conn:
             row = conn.execute(sql, (self._claimer, now, cutoff)).fetchone()
         return row
@@ -124,14 +139,20 @@ class PostgresTaskQueue(QueueBackend):
     # ── QueueBackend: task submission queue ────────────────────────────
 
     def put(self, item: dict) -> None:
+        # KG-2.113: carry the claim-priority bucket (0 = highest) so claims are
+        # priority-ordered durably; default 0 preserves prior FIFO behaviour.
+        try:
+            priority = int(item.get("priority", item.get("claim_bucket", 0)) or 0)
+        except (TypeError, ValueError):
+            priority = 0
         with self._pool.connection() as conn:
             conn.execute(
-                f"INSERT INTO {self.queue_table} (data) VALUES (%s)",  # nosec B608 — constant table
-                (json.dumps(item),),
+                f"INSERT INTO {self.queue_table} (data, priority) VALUES (%s, %s)",  # nosec B608 — constant table
+                (json.dumps(item), priority),
             )
 
     def get(self) -> tuple[int, dict] | None:
-        row = self._claim_one(self.queue_table, "id, data")
+        row = self._claim_one(self.queue_table, "id, data", priority_ordered=True)
         if row is None:
             return None
         return int(row[0]), json.loads(row[1])
