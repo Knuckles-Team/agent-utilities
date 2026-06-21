@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 397
+total_concepts: 400
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3016,6 +3016,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/postgres_queue_backend.py
   - agent_utilities/knowledge_graph/research/loops.py
   doc: Hardened priority and scheduled task queue with retry and dead-letter
 - id: KG-2.114
@@ -3072,6 +3073,7 @@ concepts:
   code_paths:
   - agent_utilities/automation/feed_sources.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
   doc: first-class RSS/Atom feed sources
 - id: KG-2.123
   name: Confluence first-class delta connector
@@ -3196,6 +3198,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/ops_context.py
   doc: KG-2.137
+- id: KG-2.141
+  name: the user-override layer of the prompt library, mirroring
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/agent/registry_builder.py
+  - agent_utilities/core/paths.py
+  doc: the user-override layer of the prompt library, mirroring
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -3982,6 +3992,16 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   doc: external connector delta syncs
+- id: ORCH-1.80
+  name: resolve the body via the single canonical resolver so
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/agent/registry_builder.py
+  - agent_utilities/core/workspace.py
+  - agent_utilities/prompting/builder.py
+  - agent_utilities/prompting/structured.py
+  doc: resolve the body via the single canonical resolver so
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
@@ -4518,6 +4538,13 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/coverage.py
   - agent_utilities/knowledge_graph/ingestion/manifest.py
   doc: flagging repos
+- id: OS-5.52
+  name: Modular skill/prompt contribution
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/providers.py
+  doc: Modular skill/prompt contribution
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
