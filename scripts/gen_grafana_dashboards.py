@@ -263,6 +263,73 @@ def host_infra() -> dict:
     return _dashboard("agentos-host-infra", "Host & Infra", panels)
 
 
+def agent_bus() -> dict:
+    """Agent-to-agent bus dashboard (CONCEPT:ECO-4.87) — presence, traffic, latency."""
+    panels = [
+        _panel(
+            1, "Participants online", "stat",
+            [_target('agent_utilities_bus_participants{status="online"}', "online")],
+            _gp(0, 0, 6, 4),
+        ),
+        _panel(
+            2, "Messages/s (delivered)", "stat",
+            [_target(
+                'sum(rate(agent_utilities_bus_messages_total{outcome="delivered"}[5m]))',
+                "msgs/s",
+            )],
+            _gp(6, 0, 6, 4), unit="reqps",
+        ),
+        _panel(
+            3, "Dispatches/s", "stat",
+            [_target("sum(rate(agent_utilities_bus_dispatch_total[5m]))", "disp/s")],
+            _gp(12, 0, 6, 4), unit="reqps",
+        ),
+        _panel(
+            4, "p95 send latency", "stat",
+            [_target(
+                "histogram_quantile(0.95, sum by (le) "
+                "(rate(agent_utilities_bus_send_seconds_bucket[5m])))",
+                "p95",
+            )],
+            _gp(18, 0, 6, 4), unit="s",
+        ),
+        _panel(
+            5, "Message rate by kind+outcome", "timeseries",
+            [_target(
+                "sum by (kind, outcome) (rate(agent_utilities_bus_messages_total[5m]))",
+                "{{kind}}/{{outcome}}",
+            )],
+            _gp(0, 4, 12, 8), unit="reqps",
+        ),
+        _panel(
+            6, "Send latency p50/p95/p99", "timeseries",
+            [
+                _target(
+                    f"histogram_quantile({q}, sum by (le) "
+                    "(rate(agent_utilities_bus_send_seconds_bucket[5m])))",
+                    f"p{int(q * 100)}",
+                )
+                for q in (0.50, 0.95, 0.99)
+            ],
+            _gp(12, 4, 12, 8), unit="s",
+        ),
+        _panel(
+            7, "Dispatch outcomes", "timeseries",
+            [_target(
+                "sum by (outcome) (rate(agent_utilities_bus_dispatch_total[5m]))",
+                "{{outcome}}",
+            )],
+            _gp(0, 12, 12, 8), unit="reqps",
+        ),
+        _panel(
+            8, "Participants (online vs offline)", "timeseries",
+            [_target("sum by (status) (agent_utilities_bus_participants)", "{{status}}")],
+            _gp(12, 12, 12, 8),
+        ),
+    ]
+    return _dashboard("agentos-agent-bus", "Agent Bus", panels)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", type=Path, default=_DEFAULT_OUT)
@@ -272,6 +339,7 @@ def main() -> int:
         ("mcp-fleet-overview", fleet_overview),
         ("mcp-per-service", per_service),
         ("host-infra", host_infra),
+        ("agent-bus", agent_bus),
     ):
         path = args.out / f"{name}.json"
         path.write_text(json.dumps(builder(), indent=2) + "\n")

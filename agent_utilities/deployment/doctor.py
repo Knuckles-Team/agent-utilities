@@ -472,6 +472,45 @@ def _check_connector_coverage() -> dict[str, Any]:
     return _result("connector_coverage", "ok", detail, data=rep)
 
 
+def _check_bus() -> dict[str, Any]:
+    """Report agent-bus health: participants, online count, stale agents, mailbox backlog.
+
+    CONCEPT:ECO-4.87 — the operator view of the AgentBus (ECO-4.84). A large un-acked
+    backlog or zero online participants on a hub that should be busy is the signal that
+    sessions aren't draining their mailboxes or aren't heart-beating.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+        from agent_utilities.messaging.bus import AgentBus
+
+        engine = IntelligenceGraphEngine.get_active()
+        if engine is None:
+            return _result("bus", "skip", "no active engine")
+        bus = AgentBus.instance(engine)
+        st = bus.status()
+        backlog = bus._query(
+            "MATCH (m:BusMessage {status: 'sent'}) RETURN count(m) as n", {}
+        )
+        pending = int(backlog[0].get("n", 0)) if backlog else 0
+    except Exception as exc:  # noqa: BLE001
+        return _result("bus", "skip", f"bus probe unavailable: {exc}")
+
+    detail = (
+        f"{st['online']}/{st['agents']} participants online, "
+        f"{len(st['topics'])} topics, {pending} un-acked message(s)"
+    )
+    data = {**st, "pending_messages": pending}
+    if pending > 1000:
+        return _result(
+            "bus",
+            "warn",
+            detail + " — large backlog; are readers draining their mailboxes?",
+            remediation="check that registered sessions call graph_bus action=receive/ack",
+            data=data,
+        )
+    return _result("bus", "ok", detail, data=data)
+
+
 # Registry: name -> callable. Order is the report order.
 CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
@@ -486,6 +525,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "mcp_fleet": _check_mcp_fleet,
     "hooks": _check_hooks,
     "observability": _check_observability,
+    "bus": _check_bus,
 }
 
 

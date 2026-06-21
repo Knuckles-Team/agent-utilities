@@ -68,6 +68,47 @@ EVENTS_PER_ACTIVE_AGENT_PER_SEC = 2.0
 #: Minimum Kafka partitions (keeps a floor for ordering/parallelism headroom).
 MIN_KAFKA_PARTITIONS = 3
 
+# --------------------------------------------------------------------------- #
+# Agent communication bus (CONCEPT:ECO-4.84/ECO-4.87) — MODELED.
+# The AgentBus is durable-store-first: one send writes one :BusMessage node + one
+# :HAS_BUS_MESSAGE edge per recipient (~2 engine ops/recipient), so its throughput
+# is bounded by the same single-connection anchor as everything else. A receive is
+# a single cursor read. These constants size a single graph-os hub and tell you when
+# to shard engines or add federated hubs.
+# --------------------------------------------------------------------------- #
+
+#: Engine write ops per delivered bus message per recipient (add_node + add_edge).
+BUS_OPS_PER_MESSAGE = 2
+
+#: Registered bus participants (presence + mailbox) one hub holds comfortably.
+PARTICIPANTS_PER_HUB = 10_000
+
+
+def bus_messages_per_sec_per_connection(
+    ops_per_message: int = BUS_OPS_PER_MESSAGE,
+) -> int:
+    """Sustained direct (fanout=1) bus messages/sec on a single engine connection."""
+    return SINGLE_CONNECTION_OPS_PER_SEC // max(1, ops_per_message)
+
+
+def bus_engine_connections_for(
+    messages_per_sec: float,
+    avg_recipients: float = 1.0,
+    ops_per_message: int = BUS_OPS_PER_MESSAGE,
+) -> int:
+    """Engine connections (≈ shards) needed for a bus send rate at a given fan-out."""
+    if messages_per_sec <= 0:
+        return 0
+    ops_per_sec = messages_per_sec * max(1.0, avg_recipients) * ops_per_message
+    return max(1, _ceil_div(ops_per_sec, SINGLE_CONNECTION_OPS_PER_SEC))
+
+
+def bus_hubs_for(participants: int, per_hub: int = PARTICIPANTS_PER_HUB) -> int:
+    """Federated hubs needed to hold ``participants`` (the federation/mesh axis)."""
+    if participants <= 0:
+        return 0
+    return max(1, _ceil_div(participants, per_hub))
+
 
 def _ceil_div(numerator: float, denominator: float) -> int:
     if denominator <= 0:
@@ -182,6 +223,34 @@ def plan_for(residents: int, active_fraction: float = 0.02) -> CapacityPlan:
         nodes=nodes_for(residents, active_fraction),
         kafka_partitions=kafka_partitions_for(residents, active_fraction),
         event_throughput_per_sec=event_throughput_per_sec(residents, active_fraction),
+    )
+
+
+@dataclass(frozen=True)
+class BusCapacityPlan:
+    """A modeled capacity plan for the agent bus at one (participants, rate) point."""
+
+    participants: int
+    messages_per_sec: float
+    avg_recipients: float
+    hubs: int
+    engine_connections: int
+    messages_per_sec_per_connection: int
+
+
+def bus_plan_for(
+    participants: int,
+    messages_per_sec: float,
+    avg_recipients: float = 1.0,
+) -> BusCapacityPlan:
+    """Compute the modeled :class:`BusCapacityPlan` for a bus workload."""
+    return BusCapacityPlan(
+        participants=participants,
+        messages_per_sec=messages_per_sec,
+        avg_recipients=avg_recipients,
+        hubs=bus_hubs_for(participants),
+        engine_connections=bus_engine_connections_for(messages_per_sec, avg_recipients),
+        messages_per_sec_per_connection=bus_messages_per_sec_per_connection(),
     )
 
 
