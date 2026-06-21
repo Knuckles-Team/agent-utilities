@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 405
+total_concepts: 409
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1344,6 +1344,21 @@ concepts:
   - agent_utilities/messaging/inbox.py
   - agent_utilities/messaging/router.py
   doc: record the inbound turn DURABLY as pending BEFORE we attempt the
+- id: ECO-4.84
+  name: AgentBus federated agent-to-agent communication bus over the KG
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/bus.py
+  - agent_utilities/orchestration/action_policy.py
+  doc: AgentBus federated agent-to-agent communication bus over the KG
+- id: ECO-4.85
+  name: graph_bus MCP tool and REST twin for agent-to-agent messaging
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/bus_tools.py
+  doc: graph_bus MCP tool and REST twin for agent-to-agent messaging
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -3072,6 +3087,7 @@ concepts:
   code_paths:
   - agent_utilities/automation/feed_sources.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
   doc: first-class RSS/Atom feed sources
 - id: KG-2.123
   name: Confluence first-class delta connector
@@ -3220,6 +3236,13 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/code_context.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: This is how
+- id: KG-2.141
+  name: ───────────────
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/messaging/bus.py
+  doc: ───────────────
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4025,6 +4048,14 @@ concepts:
   - agent_utilities/core/model_router.py
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   doc: route adaptively from the learned per-role confidence
+- id: ORCH-1.80
+  name: ───────────
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/messaging/bus.py
+  - agent_utilities/orchestration/action_policy.py
+  doc: ───────────
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
