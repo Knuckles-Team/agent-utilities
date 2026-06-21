@@ -227,14 +227,16 @@ def register_write_ingest_tools(mcp):
             "answer, a deploy, a ticket close, a routing choice (target_id=action/"
             "capability id, corrected_value=JSON {success,reward?,expected?,observed?,"
             "query?}) so routing/playbooks prefer actions that achieve their goal "
-            "(CONCEPT:AHE-3.62). This is how 'this was wrong, here's the fix' becomes "
-            "future behaviour (CONCEPT:KG-2.8)."
+            "(CONCEPT:AHE-3.62), 'gotcha' pins a hard-won trap to a file/module "
+            "(target_id=path, corrected_value=the note) so code_context surfaces it "
+            "when an agent next touches that area (CONCEPT:KG-2.140). This is how "
+            "'this was wrong, here's the fix' becomes future behaviour (CONCEPT:KG-2.8)."
         ),
         tags=["graph-os", "feedback", "learning"],
     )
     def graph_feedback(
         correction_type: str = Field(
-            description="One of: outcome | rule | eval | reads_avoided | action_outcome."
+            description="outcome | rule | eval | reads_avoided | action_outcome | gotcha."
         ),
         target_id: str = Field(
             description="Entity/episode/query the correction is about."
