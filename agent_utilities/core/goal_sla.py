@@ -118,9 +118,12 @@ def _escalate(engine: Any, goal: dict[str, Any], verdict: dict[str, Any]) -> Non
     try:
         from agent_utilities.messaging.service import MessagingService
 
-        MessagingService.instance(engine).reach_user_sync(
-            msg, user_id=target or None, source="goal_sla", reason="sla_breach"
-        )
+        svc = MessagingService.instance(engine)
+        sync = getattr(svc, "reach_user_sync", None)
+        if callable(sync):
+            sync(msg, user_id=target or None, source="goal_sla", reason="sla_breach")
+        else:  # pragma: no cover - messaging shape varies
+            logger.info("[ORCH-1.78] %s", msg)
     except Exception as exc:  # pragma: no cover - messaging optional
         logger.info("[ORCH-1.78] %s (notify unavailable: %s)", msg, exc)
 
