@@ -53,7 +53,10 @@ from agent_utilities.core.config import (
 )
 
 from ..models import ExecutionStep, GraphPlan
-from ..tools.knowledge_tools import knowledge_tools
+
+# NOTE: ``knowledge_tools`` is imported lazily inside the functions that build agents
+# (researcher/architect) to break a circular import: knowledge_tools → harness → graph
+# → builder → hierarchical_planner → knowledge_tools (partially initialized).
 from .lifecycle import _emit_node_lifecycle
 from .state import GraphDeps
 
@@ -100,6 +103,7 @@ async def researcher_step(
     researcher_prompt = load_specialized_prompts("researcher")
 
     from ..tools.developer_tools import project_search
+    from ..tools.knowledge_tools import knowledge_tools  # lazy: break import cycle
     from ..tools.workspace_tools import read_workspace_file
 
     researcher = Agent(
@@ -484,6 +488,8 @@ async def architect_step(
     """
     logger.info("Architect: Designing system changes...")
     architect_prompt = load_specialized_prompts("architect")
+
+    from ..tools.knowledge_tools import knowledge_tools  # lazy: break import cycle
 
     architect = Agent(
         model=ctx.deps.agent_model,
