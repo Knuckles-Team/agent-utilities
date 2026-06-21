@@ -18,7 +18,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from agent_utilities.core.source_paths import MOUNT_ALIASES, normalize_path
+from agent_utilities.core.source_paths import MOUNT_ALIASES
 from agent_utilities.knowledge_graph.retrieval.context_plane import read_rows
 
 VALID_INTENTS = ("status", "how", "impact")

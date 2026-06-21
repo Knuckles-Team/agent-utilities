@@ -135,7 +135,12 @@ def _resolve_role_model(role: str):
             from agent_utilities.models.model_registry import RoleSpec
 
             registry.role_routing[role] = RoleSpec.model_validate(cfg_roles[role])
-        return registry.pick_for_role(role)
+        # CONCEPT:ORCH-1.79 — route adaptively from the learned per-role confidence
+        # (cheaper/local when it keeps succeeding, escalate when it fails); fall back
+        # to the static role pick when adaptive selection has nothing to say.
+        from agent_utilities.core.model_router import pick_adaptive
+
+        return pick_adaptive(registry, role) or registry.pick_for_role(role)
     except Exception as e:  # pragma: no cover - defensive
         logging.getLogger(__name__).debug("Role resolution failed for %r: %s", role, e)
         return None
