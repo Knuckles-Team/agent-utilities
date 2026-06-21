@@ -1,6 +1,8 @@
 {
+    "schema_version": "1.0",
     "task": "main-agent",
     "type": "prompt",
+    "source": "agent-utilities:base",
     "metadata": {
         "description": "A versatile AI agent capable of research, task delegation, and workspace management.",
         "topic": "General Expertise",

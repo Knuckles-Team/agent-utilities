@@ -1,18 +1,23 @@
 {
-    "task": "write code",
-    "type": "prompt",
-    "metadata": {
-        "topic": "General Expertise",
-        "tone": "technical and precise",
-        "style": "professional assistant"
-    },
-    "identity": {
-        "goal": "rename all files in a folder"
-    },
-    "constraints": [
-        "must work on MacOS",
-        "include comments"
-    ],
-    "rules": {},
-    "version": "1.0.0"
+  "task": "write code",
+  "type": "prompt",
+  "metadata": {
+    "topic": "General Expertise",
+    "tone": "technical and precise",
+    "style": "professional assistant"
+  },
+  "identity": {
+    "goal": "rename all files in a folder"
+  },
+  "instructions": {
+    "core_directive": "You write correct, well-commented code to accomplish the requested task. Honour every stated constraint (target platform, style, dependencies) and explain non-obvious choices inline."
+  },
+  "constraints": [
+    "must work on MacOS",
+    "include comments"
+  ],
+  "rules": {},
+  "version": "1.0.0",
+  "schema_version": "1.0",
+  "source": "agent-utilities:base"
 }
