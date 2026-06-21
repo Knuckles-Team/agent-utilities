@@ -256,3 +256,26 @@ def test_rss_connector_dead_feed_is_skipped():
 
     conn = build_connector("rss", {"feed_urls": "http://dead/", "fetch_fn": _boom})
     assert list(conn.load()) == []  # a dead feed never aborts
+
+
+@pytest.mark.concept("KG-2.121")
+def test_rss_connector_fetches_feeds_concurrently():
+    # Many feeds, each fetch sleeps: a concurrent sweep costs ~one feed's latency,
+    # not N×. Guards the serial stall that timed out the 19-feed sweep (>300s) —
+    # the throughput unlock for the 2000-reviews/hr path.
+    import time
+
+    n, delay = 8, 0.25
+    urls = [f"http://feed/{i}" for i in range(n)]
+
+    def _slow_fetch(url):
+        time.sleep(delay)
+        return _RSS_XML
+
+    conn = build_connector("rss", {"feed_urls": urls, "fetch_fn": _slow_fetch})
+    t0 = time.monotonic()
+    docs = list(conn.load())
+    elapsed = time.monotonic() - t0
+    # serial would be n*delay = 2.0s; concurrent (<=12 workers) must be far less
+    assert elapsed < n * delay * 0.5, f"feeds not fetched concurrently: {elapsed:.2f}s"
+    assert len(docs) == n * 2  # _RSS_XML has 2 entries per feed
