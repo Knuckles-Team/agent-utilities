@@ -34,17 +34,22 @@ TASK_LANES: dict[str, dict] = {
         "model_role": "lite",
     },
     "research": {
-        "task_types": frozenset(
-            {"research_paper_fetch", "background_research", "deep_extract"}
-        ),
+        "task_types": frozenset({"research_paper_fetch", "background_research"}),
         "model_role": "learner",
     },
-    # scheduled maintenance / orchestration / analysis (loop_cycle lives here as scheduled_job)
+    # CONCEPT:ORCH-1.76 — the LLM-extraction / deep-analysis phase is its OWN lane (heavy model
+    # work), kept off the file-ingestion lane so a slow extraction can't head-of-line-block a
+    # fast codebase/diff index. (Vectorization already runs in its own _embed_backfill_thread,
+    # off the queue entirely; connector-sync + enrichment become lanes once they are task types.)
+    "extraction": {
+        "task_types": frozenset({"deep_extract", "deep_analysis"}),
+        "model_role": "learner",
+    },
+    # scheduled maintenance / orchestration (loop_cycle lives here as scheduled_job)
     "maint": {
         "task_types": frozenset(
             {
                 "scheduled_job",
-                "deep_analysis",
                 "relevance_sweep",
                 "fleet_event_triage",
                 "deploy_watch",
@@ -66,6 +71,13 @@ _TYPE_TO_LANE: dict[str, str] = {
 def lane_for_task_type(task_type: str | None) -> str:
     """The functional lane that owns a task type (``DEFAULT_LANE`` for unmapped types)."""
     return _TYPE_TO_LANE.get(task_type or "", DEFAULT_LANE)
+
+
+def lane_task_types(lane: str) -> list[str]:
+    """The task types a lane owns, in deterministic order — for per-TYPE fair claiming WITHIN
+    the lane (CONCEPT:ORCH-1.76) so a fast type (diff/document) isn't stuck behind a slow one
+    (a big codebase batch) sharing the lane."""
+    return sorted(TASK_LANES.get(lane, {}).get("task_types", ()))
 
 
 def lane_model_role(lane: str) -> str:
