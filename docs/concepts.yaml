@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 387
+total_concepts: 388
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1319,6 +1319,14 @@ concepts:
   - agent_utilities/mcp/readme_tools.py
   - agent_utilities/mcp/verbose_tools.py
   doc: a SERVER-level load exposes only the condensed action
+- id: ECO-4.83
+  name: record the inbound turn DURABLY as pending BEFORE we attempt the
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/inbox.py
+  - agent_utilities/messaging/router.py
+  doc: record the inbound turn DURABLY as pending BEFORE we attempt the
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
