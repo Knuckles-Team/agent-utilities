@@ -33,12 +33,30 @@ def register_write_ingest_tools(mcp):
 
     @mcp.tool(
         name="graph_write",
-        description="Write nodes, relationships, or register external graphs to the Knowledge Graph.",
+        description=(
+            "Write nodes, relationships, or register external graphs to the Knowledge "
+            "Graph. Actions: add_node, add_edge, delete_node, delete_edge, "
+            "register_external_graph, bulk_ingest, compare_and_set, store_memory, "
+            "recall_memory, log_chat, submit_sdd, register_execution, check_loop. "
+            "Use 'compare_and_set' for an atomic conditional update (optimistic "
+            "concurrency / conditional state transitions / atomic reservations) so "
+            "concurrent agents shaping the same node never lose each other's write."
+        ),
         tags=["graph-os", "write", "mutation"],
     )
     def graph_write(
         action: str = Field(
-            description="Action to perform (add_node, add_edge, delete_node, delete_edge, register_external_graph, bulk_ingest, store_memory, recall_memory, log_chat, submit_sdd, register_execution, check_loop)."
+            description=(
+                "Action to perform (add_node, add_edge, delete_node, delete_edge, "
+                "register_external_graph, bulk_ingest, compare_and_set, store_memory, "
+                "recall_memory, log_chat, submit_sdd, register_execution, check_loop). "
+                "Use 'compare_and_set' for an ATOMIC conditional update — optimistic "
+                "concurrency / safe concurrent graph-shaping: it applies 'updates' only "
+                "if every field in 'conditions' still equals the node's current value "
+                "(missing field reads as null), so two agents mutating the same node "
+                "never lose each other's write (conditional state transitions, atomic "
+                "reservations)."
+            )
         ),
         node_id: str = Field(
             default="", description="The unique identifier for the node."
@@ -81,8 +99,34 @@ def register_write_ingest_tools(mcp):
                 "multi-target value; the default and a single named target stay single-write."
             ),
         ),
+        conditions: dict = Field(
+            default_factory=dict,
+            description=(
+                "For action='compare_and_set': field→expected-value the node must "
+                "currently match for the update to apply (a missing field reads as "
+                "null). e.g. {'status': 'pending'}."
+            ),
+        ),
+        updates: dict = Field(
+            default_factory=dict,
+            description=(
+                "For action='compare_and_set': field→new-value to merge into the node "
+                "ONLY when every condition matches. e.g. {'status': 'claimed', "
+                "'owner': 'agent-7'}."
+            ),
+        ),
     ) -> str:
-        """Write nodes, relationships, or register external graphs. This is the primary mutation interface for the Knowledge Graph."""
+        """Write nodes, relationships, or register external graphs. This is the primary mutation interface for the Knowledge Graph.
+
+        The ``compare_and_set`` action is the atomic conditional-update primitive
+        (CONCEPT:KG-2.141): it merges ``updates`` into ``node_id`` only if every
+        field in ``conditions`` still equals the node's current value (missing
+        field ≡ null) — use it for optimistic concurrency, conditional state
+        transitions, and atomic reservations so two agents mutating the same node
+        never clobber each other. Returns ``{"action": "compare_and_set",
+        "node_id": ..., "applied": <bool>}`` (``applied=False`` = precondition
+        failed / another agent won the race).
+        """
 
         def _write_with_engine(engine: Any) -> str:
             if not engine:
@@ -120,6 +164,45 @@ def register_write_ingest_tools(mcp):
                             n.get("id"), n.get("type", "Node"), n.get("properties", {})
                         )
                     return f"Bulk ingested {len(nodes_list)} nodes."
+                elif action == "compare_and_set":
+                    # CONCEPT:KG-2.141 — atomic compare-and-set as a first-class
+                    # agent capability. Applies ``updates`` to the node
+                    # ONLY if every field in ``conditions`` still equals its current
+                    # value (missing field ≡ null), under the engine's write lock —
+                    # the optimistic-concurrency primitive that lets concurrent
+                    # agents shape the same node without lost updates. Returns a
+                    # clear applied/not-applied result; a ``False`` (lost the race /
+                    # precondition failed) is surfaced, never swallowed.
+                    if not node_id:
+                        return "Error: node_id required"
+
+                    # Omitted dict params arrive as the unresolved FastMCP
+                    # ``FieldInfo`` (default_factory is not resolved by the
+                    # internal/REST dispatcher); coerce anything non-dict — and a
+                    # JSON-string some MCP clients send — to a plain dict.
+                    def _as_dict(v: Any) -> dict:
+                        if isinstance(v, dict):
+                            return v
+                        if isinstance(v, str) and v.strip():
+                            try:
+                                parsed = json.loads(v)
+                                return parsed if isinstance(parsed, dict) else {}
+                            except (ValueError, TypeError):
+                                return {}
+                        return {}
+
+                    applied = bool(
+                        engine.backend.compare_and_set_node_fields(
+                            node_id, _as_dict(conditions), _as_dict(updates)
+                        )
+                    )
+                    return json.dumps(
+                        {
+                            "action": "compare_and_set",
+                            "node_id": node_id,
+                            "applied": applied,
+                        }
+                    )
                 elif action in ("store_memory", "recall_memory"):
                     try:
                         from agent_utilities.memory.manager import MemoryManager
