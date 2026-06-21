@@ -424,6 +424,54 @@ def _check_ingestion_coverage() -> dict[str, Any]:
     return _result("ingestion_coverage", "ok", detail, data=rep)
 
 
+def _check_connector_coverage() -> dict[str, Any]:
+    """Assert every configured connector is ingesting + fresh (CONCEPT:OS-5.48).
+
+    The connector analogue of ``ingestion_coverage``: a dark or stale connector
+    means the world-model for that domain (tickets, deploys, processes…) is silently
+    wrong and the agent falls back to hitting the source system. Compares the
+    expected connector set against their ``DeltaManifest`` watermarks."""
+    try:
+        from agent_utilities.knowledge_graph.backends import get_active_backend
+        from agent_utilities.knowledge_graph.ingestion.connector_coverage import (
+            CONNECTOR_CATEGORY,
+            assess_connector_coverage,
+            enumerate_expected_connectors,
+        )
+        from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
+
+        expected = enumerate_expected_connectors()
+        if not expected:
+            return _result("connector_coverage", "skip", "no connectors configured")
+        backend = get_active_backend()
+        dm = DeltaManifest(backend=backend)
+        freshness: dict[str, str] = {}
+        for graph in ("agent_graph", "__commons__"):
+            freshness.update(dm.freshness(graph, CONNECTOR_CATEGORY))
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "connector_coverage", "skip", f"connector probe unavailable: {exc}"
+        )
+
+    rep = assess_connector_coverage(expected, freshness)
+    detail = (
+        f"{rep['covered']}/{rep['total']} connectors ingesting ({rep['coverage_pct']}%)"
+    )
+    if rep["stale"]:
+        detail += f", {len(rep['stale'])} stale (>{rep['sla_days']}d)"
+    if rep["missing"] or rep["stale"]:
+        miss = ", ".join(rep["missing"][:8]) + ("…" if len(rep["missing"]) > 8 else "")
+        return _result(
+            "connector_coverage",
+            "warn",
+            detail + (f"; dark: {miss}" if rep["missing"] else ""),
+            remediation="`source_sync source=all mode=delta` to refresh; check the connector's creds/preset",
+            skill="knowledge-graph-ingest",
+            data=rep,
+        )
+    return _result("connector_coverage", "ok", detail, data=rep)
+
+
 # Registry: name -> callable. Order is the report order.
 CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
@@ -432,6 +480,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "graph_backend": _check_graph_backend,
     "graph_connections": _check_graph_connections,
     "ingestion_coverage": _check_ingestion_coverage,
+    "connector_coverage": _check_connector_coverage,
     "secrets": _check_secrets,
     "auth": _check_auth,
     "mcp_fleet": _check_mcp_fleet,

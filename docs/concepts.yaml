@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 397
+total_concepts: 400
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3196,6 +3196,21 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/ops_context.py
   doc: KG-2.137
+- id: KG-2.138
+  name: KG-2.138
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/deploy_context.py
+  doc: KG-2.138
+- id: KG-2.139
+  name: KG-2.139
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/context_plane.py
+  - agent_utilities/knowledge_graph/retrieval/entity_context.py
+  doc: KG-2.139
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4518,6 +4533,14 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/coverage.py
   - agent_utilities/knowledge_graph/ingestion/manifest.py
   doc: flagging repos
+- id: OS-5.48
+  name: OS-5.48
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  - agent_utilities/knowledge_graph/ingestion/connector_coverage.py
+  doc: OS-5.48
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
