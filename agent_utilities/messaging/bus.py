@@ -540,3 +540,32 @@ def _safe_json(value: Any) -> Any:
         return json.loads(value)
     except (ValueError, TypeError):
         return {}
+
+
+def swarm_topic(session_id: str | None) -> str:
+    """The shared bus topic a swarm uses to coordinate (CONCEPT:ECO-4.88)."""
+    return f"swarm:{session_id}" if session_id else "swarm:default"
+
+
+def bus_capability_prompt() -> str:
+    """Canonical, single-source capability blurb woven into every agent's system prompt.
+
+    CONCEPT:ECO-4.88 — the AgentBus is a NATIVE capability, not an opt-in persona: the core
+    orchestrator (the "graph shaper") and every spawned swarm/sub-agent inherit this so they
+    know they can coordinate with peers instead of working in isolation. Kept in sync with the
+    ``prompts/bus_coordinator.json`` blueprint, which is the deeper standalone profile.
+    """
+    return (
+        "## Agent Bus — coordinate with other agents (native capability, CONCEPT:ECO-4.84)\n"
+        "You are not alone. Other AI sessions and agents — any provider, any host — share a "
+        "durable **AgentBus**, and you can talk to them. Use the native bus tools (or the "
+        "`graph_bus` tool with the same actions):\n"
+        "- `bus_join` — announce yourself (id + capabilities) so peers can find you.\n"
+        "- `bus_peers` — see who is online and what they can do; address peers by those ids.\n"
+        "- `bus_send` — message one peer (`to=`) or a whole topic (`topic=`).\n"
+        "- `bus_check` — read your inbox (pass back the returned cursor for only-new messages).\n"
+        "- `graph_bus(action='dispatch', objective=...)` — hand heavy work to the fleet as a Loop.\n"
+        "When you orchestrate or join a **swarm**, broadcast progress and ask peers for help on the "
+        "swarm's shared topic rather than working alone — set up agent-to-agent communication by "
+        "default whenever more than one agent is involved."
+    )

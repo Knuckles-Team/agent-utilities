@@ -355,6 +355,17 @@ neighbor co-evolution slope, Wasserstein-1 drift). `ParallelEngine` attaches the
 snapshot to `ExecutionResult.telemetry["social_system"]`. Full design:
 [Multi-Agent Social System](../architecture/multi_agent_social_system.md).
 
+### ECO-4.84/4.88 — Agent-to-agent coordination over the AgentBus
+
+Swarm and sub-agent coordination is not limited to manifest fan-in/synthesis: every agent
+inherits the **AgentBus** as a native capability (CONCEPT:ECO-4.88) and can message peers —
+across sessions, providers, and hosts — through the universal `bus_join`/`bus_peers`/`bus_send`/
+`bus_check` tools (or the `graph_bus` MCP tool). The orchestrator (the "graph shaper") knows it
+can stand up agent-to-agent communication, and `action=swarm` gives each wave a shared bus topic
+so peers announce work and share findings instead of duplicating. Heavy work is handed to the
+fleet with `graph_bus(action='dispatch')`. Full design:
+[Agent Communication Bus](../architecture/agent_bus.md).
+
 ### ORCH-1.41 / 1.42 / 1.43 — Ontology-to-Workflow Execution Path
 
 Descriptive process knowledge in the KG is now executable, with the ontology in

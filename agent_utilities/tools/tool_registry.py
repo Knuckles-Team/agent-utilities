@@ -40,6 +40,10 @@ def register_agent_tools(
 
     from .a2a_tools import a2a_tools
     from .agent_tools import (
+        bus_check,
+        bus_join,
+        bus_peers,
+        bus_send,
         invoke_specialized_agent,
         list_available_agents,
         reach_user,
@@ -199,6 +203,12 @@ def register_agent_tools(
     _safe_tool(share_reasoning)
     # CONCEPT:ECO-4.53 — universal agent reach_user tool over the messaging reach service
     _safe_tool(reach_user)
+    # CONCEPT:ECO-4.88 — universal AgentBus tools: every agent (orchestrator + every spawned
+    # swarm sub-agent) can natively coordinate with peers over the bus (join/peers/send/check).
+    _safe_tool(bus_join)
+    _safe_tool(bus_peers)
+    _safe_tool(bus_send)
+    _safe_tool(bus_check)
     # CONCEPT:ECO-4.61 — KG as a first-class shared layer: every agent can search/recall/
     # query the ONE shared graph by default (search runs over the continuously OWL-reasoned
     # graph). Opt out with AGENT_KG_TOOLS=0. Requires a tool-capable model to be used.
