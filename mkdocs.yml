@@ -105,6 +105,7 @@ nav:
       - Agent-Operator Program (closing the loops): architecture/agent-operator-program.md
       - Optimization Campaign Checkpoint: architecture/optimization-campaign-checkpoint.md
       - Reactions / Emotes (system-wide, renderer contract): architecture/reactions.md
+      - Agent Communication Bus (cross-session/host/provider): architecture/agent_bus.md
       - Self-Improving Reasoning Substrate: architecture/self_improving_reasoning_substrate.md
       - Perspectival Inquiry (STORM, native): architecture/perspectival_inquiry.md
       - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
