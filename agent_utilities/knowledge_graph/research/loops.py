@@ -37,6 +37,27 @@ LoopKind = Literal["research", "develop", "skill"]
 #: statuses from which a Loop never needs more work.
 TERMINAL_STATUS = frozenset({"completed", "failed", "cancelled", "rejected"})
 
+#: Loop statuses from which a develop/skill Loop may be CLAIMED for advancement.
+#: ``orphaned`` is a Loop whose previous driver crashed mid-run (the durable
+#: rehydration marks it so) — re-claimable. ``""``/missing reads as a fresh
+#: pending Loop. A ``running`` Loop is owned by a live driver and is NOT
+#: claimable. (CONCEPT:KG-2.141)
+CLAIMABLE_STATUS = frozenset({"", "pending", "orphaned"})
+
+
+def _prio_bucket(value: Any, default: int = 2) -> int:
+    """Normalize a priority spec to the ONE 0..3 claim bucket (CONCEPT:KG-2.113).
+
+    Thin lazy-import wrapper over ``engine_tasks._coerce_prio_bucket`` — the
+    single priority normalizer shared by tasks / dispatch / schedules / loops.
+    Lazy because ``engine_tasks`` pulls in the engine, and this module is
+    imported on that path (avoids an import cycle, mirroring how ``bus.py`` /
+    ``state_tools.py`` / ``schedule_engine.py`` reach the same normalizer).
+    """
+    from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
+
+    return _coerce_prio_bucket(value, default)
+
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -79,8 +100,10 @@ def submit_loop(
         "max_iterations": int(max_iterations),
         # Claim/intake priority bucket (0=critical .. 3=background); active_loops
         # emits in ascending-bucket order so a hot loop is advanced first, and a
-        # loop-spawned child task inherits this. (CONCEPT:KG-2.113)
-        "prio_bucket": int(prio_bucket),
+        # loop-spawned child task inherits this. Coerced through the ONE shared
+        # normalizer so a loop bucket is the same 0..3 value as a task's.
+        # (CONCEPT:KG-2.113)
+        "prio_bucket": _prio_bucket(prio_bucket),
         "timestamp": _now_iso(),
     }
     if end_state:
@@ -98,13 +121,14 @@ def submit_loop(
 
 
 def _loop_dict(oid: str, data: dict[str, Any]) -> dict[str, Any]:
-    _pb = data.get("prio_bucket")
     out: dict[str, Any] = {
         "id": oid,
         "name": data.get("name") or data.get("objective") or oid,
         "kind": data.get("loop_kind") or "research",
-        # NB: bucket 0 (critical) is falsy — don't collapse it to the default.
-        "prio_bucket": int(_pb) if _pb is not None else 2,
+        # Normalized through the ONE shared bucket normalizer (default 2); it
+        # preserves bucket 0 (critical, which is falsy) and maps any legacy
+        # ``priority`` string a Concept might carry. (CONCEPT:KG-2.113)
+        "prio_bucket": _prio_bucket(data.get("prio_bucket")),
     }
     for k in ("objective", "end_state", "validation_cmd", "skill_ref", "status"):
         v = data.get(k)
@@ -155,12 +179,69 @@ def prioritize_loop(engine: Any, loop_id: str, prio_bucket: int) -> bool:
     """
     try:
         engine.add_node(
-            loop_id, "Concept", properties={"prio_bucket": int(prio_bucket)}
+            loop_id, "Concept", properties={"prio_bucket": _prio_bucket(prio_bucket)}
         )
         return True
     except Exception as e:  # noqa: BLE001 — best-effort
         logger.debug("prioritize_loop persist failed: %s", e)
         return False
+
+
+def claim_loop(engine: Any, loop_id: str, *, current_status: str = "") -> bool:
+    """Atomically claim a develop/skill Loop for advancement (CONCEPT:KG-2.141).
+
+    The single cross-host-safe Loop claim, mirroring the engine ``:Task`` claim
+    (``_claim_next_task``): flip the Loop's ``status`` from a *claimable* state
+    (``pending``/``orphaned``/unset) to ``running`` via the engine's
+    compare-and-set, which holds the graph write lock for the flip. Returns
+    ``True`` only if THIS caller won the flip; ``False`` means a concurrent
+    driver (another daemon cycle, a ``graph_loops`` run, or a peer host) already
+    claimed it — the caller must then skip the Loop instead of double-driving it.
+
+    Replaces the former non-atomic "claim" (a blind ``mark_loop_status(...,
+    'running')`` after an intake-time status read), which had a TOCTOU window:
+    two cycles could both intake the same pending Loop and both flip it to
+    running. ``intake`` (``active_loops``) still pre-filters running loops; this
+    CAS is the authoritative arbiter that closes the race.
+
+    The CAS conditions a *single* expected status (the engine primitive matches
+    equality, ``missing ≡ null``). We try the caller's observed status first
+    (typically from intake), then the other claimable states, so a Loop is
+    claimable whether it was seen as ``pending``, freshly created (unset), or
+    left ``orphaned`` by a crashed driver. Best-effort: if the backend lacks the
+    CAS primitive (older engine) we fall back to the legacy blind flip so the
+    single-host path keeps working.
+    """
+    backend = getattr(engine, "backend", None)
+    cas = getattr(backend, "compare_and_set_node_fields", None)
+    if not callable(cas):
+        # Older engine without the CAS primitive: preserve the single-host
+        # behavior (blind flip). No cross-host guarantee, but no regression.
+        return mark_loop_status(engine, loop_id, "running")
+
+    # Try the caller's observed status first (the common, cheap win), then the
+    # remaining claimable states. Each is ONE equality CAS; ``""`` matches a
+    # node with no ``status`` field (the engine reads missing as null).
+    candidates: list[str] = []
+    seen = (current_status or "").lower()
+    if seen in CLAIMABLE_STATUS:
+        candidates.append(seen)
+    candidates.extend(s for s in CLAIMABLE_STATUS if s != seen)
+
+    updates = {
+        "status": "running",
+        "timestamp": _now_iso(),
+        "last_source": "loop_engine",
+    }
+    for status in candidates:
+        try:
+            if cas(loop_id, {"status": status}, updates):
+                return True
+        except Exception as e:  # noqa: BLE001 — one failed CAS never blocks the rest
+            logger.debug(
+                "claim_loop CAS (%s→running) failed for %s: %s", status, loop_id, e
+            )
+    return False
 
 
 def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
@@ -219,16 +300,19 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
         out.append(_loop_dict(cid, r))
     # Priority-ordered intake: the L1 interpreter strips ORDER BY, so we sort the
     # already-fetched candidate set in-memory by claim bucket (0 first) before
-    # the limit cutoff — a hot loop is advanced ahead of background ones.
-    out.sort(key=lambda d: d.get("prio_bucket", 2))
+    # the limit cutoff — a hot loop is advanced ahead of background ones. Each
+    # dict's ``prio_bucket`` is already normalized by ``_loop_dict``.
+    out.sort(key=lambda d: _prio_bucket(d.get("prio_bucket")))
     return out[:limit]
 
 
 __all__ = [
     "LoopKind",
     "TERMINAL_STATUS",
+    "CLAIMABLE_STATUS",
     "submit_loop",
     "active_loops",
     "mark_loop_status",
     "prioritize_loop",
+    "claim_loop",
 ]
