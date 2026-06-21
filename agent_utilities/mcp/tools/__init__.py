@@ -5,6 +5,7 @@ the strangler split of the former ~5k-line monolithic builder.
 """
 
 from agent_utilities.mcp.tools.analysis_tools import register_analysis_tools
+from agent_utilities.mcp.tools.bus_tools import register_bus_tools
 from agent_utilities.mcp.tools.ontology_tools import register_ontology_tools
 from agent_utilities.mcp.tools.query_tools import register_query_tools
 from agent_utilities.mcp.tools.reach_tools import register_reach_tools
@@ -18,4 +19,5 @@ __all__ = [
     "register_state_tools",
     "register_ontology_tools",
     "register_reach_tools",
+    "register_bus_tools",
 ]

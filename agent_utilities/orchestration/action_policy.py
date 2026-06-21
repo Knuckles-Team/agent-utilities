@@ -95,6 +95,13 @@ DEFAULT_POLICY: dict[str, Any] = {
         # entrypoint may render — auto by default. Tighten to forbidden to disable
         # reactions for a principal/context, or scope by target (the channel/surface).
         {"kind": "reaction", "target": "*", "tier": TIER_AUTO},
+        # Agent-to-agent bus traffic (CONCEPT:ECO-4.84): a message between sessions is
+        # auto+notify so it's auditable but frictionless; a dispatch (CONCEPT:ORCH-1.80)
+        # hands an objective to the fleet — also auto+notify, since the Loop's own mutating
+        # steps re-enter this gate individually (same posture as run_playbook). Tighten a
+        # ``bus.send``/``bus.dispatch`` rule to approval_required for a stricter posture.
+        {"kind": "bus.send", "target": "*", "tier": TIER_AUTO_NOTIFY},
+        {"kind": "bus.dispatch", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "record_dry_run", "target": "*", "tier": TIER_AUTO},
         # Sandboxed developer-workspace actions (CONCEPT:OS-5.33) default to
         # auto: the workspace container/process IS the containment boundary.

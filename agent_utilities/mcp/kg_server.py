@@ -541,6 +541,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_goals": "/graph/goals",
     "graph_message": "/graph/message",
     "graph_reach": "/graph/reach",
+    "graph_bus": "/graph/bus",
     "document_process": "/document/process",
     "source_connector": "/connector/source",
     "graph_writeback": "/graph/writeback",
@@ -2418,6 +2419,7 @@ def _build_server(bootstrap: bool = True):
 
     from agent_utilities.mcp.tools import (
         register_analysis_tools,
+        register_bus_tools,
         register_ontology_tools,
         register_query_tools,
         register_reach_tools,
@@ -2441,6 +2443,7 @@ def _build_server(bootstrap: bool = True):
             register_state_tools,
             register_ontology_tools,
             register_reach_tools,
+            register_bus_tools,
         ],
         verbose_register=register_graphos_verbose_tools,
     )
