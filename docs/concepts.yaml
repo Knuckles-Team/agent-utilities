@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 419
+total_concepts: 420
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3320,9 +3320,19 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/core/gpu_group_budget.py
   - agent_utilities/core/model_capacity_autoscale.py
   - agent_utilities/core/model_concurrency.py
   doc: Surfaces the universal latency signal
+- id: KG-2.146
+  name: Models that physically
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/core/gpu_group_budget.py
+  - agent_utilities/core/model_capacity_autoscale.py
+  doc: Models that physically
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

@@ -193,6 +193,7 @@ class AdaptiveCapacityController:
     metrics_url: str | None
     floor: int
     ceiling: int
+    gpu_group: str | None = None
     fetcher: MetricsFetcher = _http_get
     min_poll_interval_s: float = _MIN_POLL_INTERVAL_S
     gradient_target: float = _GRADIENT_TARGET
@@ -432,7 +433,7 @@ class AdaptiveCapacityController:
             m = self.last_metrics
             avg = self._avg_recent_latency()
             grad = self._gradient()
-            return {
+            snap = {
                 "model": self.model_key,
                 "model_name": self.model_name,
                 "metrics_url": self.metrics_url,
@@ -455,6 +456,38 @@ class AdaptiveCapacityController:
                 "last_poll": self.last_poll_ts,
                 "saturated": bool(m.ok and m.waiting_capacity > 0),
             }
+        snap.update(_gpu_group_fields(self.gpu_group, self.model_key))
+        return snap
+
+
+def _gpu_group_fields(gpu_group: str | None, model_key: str) -> dict[str, object]:
+    """Shared-GPU budget fields for a utilization snapshot (CONCEPT:KG-2.146).
+
+    Always returns the four keys (``gpu_group``/``group_budget``/``group_used``/
+    ``group_allowed_for_this_model``) so the surface is stable; budget/used/allowed
+    are ``None`` when no budget is configured for the group.
+    """
+    fields: dict[str, object] = {
+        "gpu_group": gpu_group,
+        "group_budget": None,
+        "group_used": None,
+        "group_allowed_for_this_model": None,
+    }
+    if not gpu_group:
+        return fields
+    try:
+        from agent_utilities.core.gpu_group_budget import group_snapshot
+
+        snap = group_snapshot(gpu_group, model_key)
+        if snap:
+            fields["group_budget"] = snap.get("group_budget")
+            fields["group_used"] = snap.get("group_used")
+            fields["group_allowed_for_this_model"] = snap.get(
+                "group_allowed_for_this_model"
+            )
+    except Exception:  # noqa: BLE001 — observability must never raise
+        return fields
+    return fields
 
 
 # --- Cached per-model controllers -------------------------------------------
@@ -496,6 +529,83 @@ def _tunables() -> dict[str, float]:
     }
 
 
+def _resolve_gpu_group(model: str | None) -> str | None:
+    """Resolve a model's shared-GPU group key (CONCEPT:KG-2.146); never raises.
+
+    ``None`` whenever config lacks a ``gpu_group`` resolver or it errors — the
+    budget layer then applies no cap (per-model behaviour, no regression).
+    """
+    try:
+        from agent_utilities.core.config import config
+
+        resolver = getattr(config, "gpu_group", None)
+        if resolver is None:
+            return None
+        return resolver(model)
+    except Exception:  # noqa: BLE001 — grouping is best-effort
+        return None
+
+
+def _role_hint(model: str | None) -> str | None:
+    """Best-effort role label for GPU-budget priority classification (CONCEPT:KG-2.146).
+
+    A model id that matches a configured chat/embedding model is classified by which
+    registry it lives in; a bare role string (``"chat"``/``"embedding"``/…) is
+    returned as-is. ``None`` ⇒ the group coordinator falls back to the model key.
+    """
+    key = (model or "").strip().lower()
+    if key in ("", "chat", "default", "lite", "super", "embedding", "embed"):
+        return key or "default"
+    try:
+        from agent_utilities.core.config import config
+
+        for em in config.embedding_models:
+            if em.id == model:
+                return "embedding"
+    except Exception:  # noqa: BLE001 — classification is best-effort
+        return None
+    return None
+
+
+def _register_gpu_member(
+    gpu_group: str | None, model_key: str, *, floor: int, model: str | None
+) -> None:
+    """Register a model into its shared-GPU budget (CONCEPT:KG-2.146); never raises."""
+    if not gpu_group:
+        return
+    try:
+        from agent_utilities.core.gpu_group_budget import register_member
+
+        register_member(gpu_group, model_key, floor=floor, role_hint=_role_hint(model))
+    except Exception:  # noqa: BLE001 — the budget layer must never break adaptation
+        return
+
+
+def _apply_gpu_cap(
+    gpu_group: str | None, model_key: str, target: int, floor: int
+) -> int:
+    """Cap ``target`` at the model's allowed share of its GPU budget (CONCEPT:KG-2.146).
+
+    Reports the model's current target into the group, then returns
+    ``min(target, group_allowed)`` floored at ``floor``. When no budget is
+    configured (``group_allowed is None``) the target passes through unchanged —
+    zero regression. Conservative: under contention a best-effort model is driven
+    toward its floor so priority (chat) keeps its reserved slice.
+    """
+    if not gpu_group:
+        return target
+    try:
+        from agent_utilities.core.gpu_group_budget import group_allowed, report_target
+
+        report_target(gpu_group, model_key, target)
+        allowed = group_allowed(gpu_group, model_key)
+        if allowed is None:
+            return target
+        return max(floor, min(int(target), int(allowed)))
+    except Exception:  # noqa: BLE001 — the budget layer must never break adaptation
+        return target
+
+
 def _get_controller(
     model: str | None, floor: int, *, fetcher: MetricsFetcher | None = None
 ) -> AdaptiveCapacityController | None:
@@ -511,8 +621,14 @@ def _get_controller(
         model_name, base_url = config.model_endpoint(model)
     except Exception:  # noqa: BLE001 — no config → no adaptation, fall back to static
         return None
+    gpu_group = _resolve_gpu_group(model)
     k = _key(model)
     tun = _tunables()
+    # Register this model as a member of its shared-GPU budget (CONCEPT:KG-2.146);
+    # a no-op when no budget is configured for the group → pure per-model behaviour.
+    _register_gpu_member(
+        gpu_group, k, floor=max(_DEFAULT_FLOOR, int(floor)), model=model
+    )
     with _lock:
         ctrl = _controllers.get(k)
         if ctrl is None:
@@ -522,6 +638,7 @@ def _get_controller(
                 metrics_url=metrics_url_from_base(base_url) if base_url else None,
                 floor=max(_DEFAULT_FLOOR, int(floor)),
                 ceiling=_ceiling(),
+                gpu_group=gpu_group,
                 fetcher=fetcher or _http_get,
                 gradient_target=tun["gradient_target"],
                 window=tun["window"],
@@ -531,6 +648,7 @@ def _get_controller(
             )
             _controllers[k] = ctrl
         else:
+            ctrl.gpu_group = gpu_group
             # Keep the floor in lockstep with config (a reload may raise capacity);
             # never let the target drop below the new floor.
             new_floor = max(_DEFAULT_FLOOR, int(floor))
@@ -563,7 +681,10 @@ def adaptive_capacity(
     ctrl = _get_controller(model, floor, fetcher=fetcher)
     if ctrl is None:
         return floor
-    return max(floor, ctrl.resolve())
+    target = max(floor, ctrl.resolve())
+    # Cap at this model's allowed share of any shared-GPU budget (CONCEPT:KG-2.146).
+    # No budget configured → returns the target unchanged (no regression).
+    return _apply_gpu_cap(ctrl.gpu_group, ctrl.model_key, target, floor)
 
 
 def record_sample(
@@ -616,7 +737,8 @@ def get_utilization(model: str | None = None) -> dict[str, object]:
         pass
     ctrl = _get_controller(model, floor)
     if ctrl is None or not _enabled():
-        return {
+        gpu_group = _resolve_gpu_group(model)
+        static = {
             "model": _key(model),
             "adaptive": _enabled() and ctrl is not None,
             "running": 0.0,
@@ -635,12 +757,24 @@ def get_utilization(model: str | None = None) -> dict[str, object]:
             "last_poll": 0.0,
             "saturated": False,
         }
+        static.update(_gpu_group_fields(gpu_group, _key(model)))
+        return static
     snap = ctrl.utilization()
     snap["adaptive"] = True
     return snap
 
 
 def reset_adaptive_controllers() -> None:
-    """Drop all cached controllers (test isolation / config reload). CONCEPT:KG-2.145."""
+    """Drop all cached controllers (test isolation / config reload). CONCEPT:KG-2.145.
+
+    Also drops the shared-GPU budget registry (CONCEPT:KG-2.146) so a reload
+    re-derives both the per-model state and the per-GPU member set from fresh config.
+    """
     with _lock:
         _controllers.clear()
+    try:
+        from agent_utilities.core.gpu_group_budget import reset_gpu_group_budgets
+
+        reset_gpu_group_budgets()
+    except Exception:  # noqa: BLE001 — best-effort cleanup
+        pass

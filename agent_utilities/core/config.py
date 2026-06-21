@@ -331,6 +331,11 @@ class ChatModelConfig(BaseModel):
     """How many concurrent requests ONE vLLM instance of this model can serve
     (its per-instance concurrency, e.g. vLLM ``--max-num-seqs``). Default ``1``
     keeps callers sequential and is always safe. CONCEPT:KG-2.143."""
+    gpu_group: str | None = None
+    """Optional shared-GPU group tag (CONCEPT:KG-2.146). Models that physically
+    share one GPU are grouped under one concurrency budget so their fan-out cannot
+    jointly oversubscribe the device. Explicit tag wins; when unset the group
+    defaults to the ``base_url`` host (see :meth:`Config.gpu_group`)."""
     can_route: bool = False
     can_kg: bool = False
 
@@ -357,6 +362,11 @@ class EmbeddingModelConfig(BaseModel):
     """How many concurrent embedding requests ONE vLLM instance of this model can
     serve (its per-instance concurrency). Default ``1`` keeps batch embedding
     sequential and is always safe. CONCEPT:KG-2.143."""
+    gpu_group: str | None = None
+    """Optional shared-GPU group tag (CONCEPT:KG-2.146). Tag this with the same
+    value as a chat model that shares the physical GPU (e.g. both ``"gb10"``) so
+    bulk embedding yields its concurrency to latency-sensitive chat under
+    contention. Explicit tag wins; else defaults to the ``base_url`` host."""
     chunk_size: int = 768
 
     @property
@@ -638,6 +648,36 @@ class AgentConfig(BaseSettings):
         if cfg is None:
             return (None, None)
         return (cfg.id, cfg.base_url)
+
+    def gpu_group(self, model: str | None = None) -> str | None:
+        """Resolve a model's shared-GPU group key (CONCEPT:KG-2.146).
+
+        Models that share one physical GPU are grouped so a per-GPU budget can cap
+        their *joint* concurrency (e.g. embedding must leave headroom for chat on a
+        shared unified-memory device). Resolution order:
+
+        1. The model's explicit ``gpu_group`` tag, if set — this is the only way to
+           group models served from **different** endpoints onto one GPU (our case:
+           tag both ``bge-m3`` @ ``vllm-embed.arpa`` and ``qwen3.5-9b`` @
+           ``vllm.arpa`` ``gpu_group="gb10"``).
+        2. Otherwise the ``base_url`` host (netloc), so same-endpoint models group
+           automatically with zero config.
+        3. ``None`` when the model is unknown or has neither a tag nor a base_url —
+           the caller then applies no budget (per-model behaviour, no regression).
+        """
+        cfg = self._resolve_model_config(model)
+        if cfg is None:
+            return None
+        tag = getattr(cfg, "gpu_group", None)
+        if tag:
+            return str(tag).strip().lower() or None
+        base_url = getattr(cfg, "base_url", None)
+        if not base_url:
+            return None
+        from urllib.parse import urlsplit
+
+        netloc = urlsplit(str(base_url)).netloc.strip().lower()
+        return netloc or None
 
     def embedding_capacity(self) -> int:
         """Total parallel-call capacity of the default embedding model.
