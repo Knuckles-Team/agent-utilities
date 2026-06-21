@@ -30,17 +30,18 @@ class _FakeGraph:
         self.edges.add((source, target, rel_type))
 
     def _agent_node(self, agent_id):
-        return self.nodes.get(f"agent:{agent_id}")
+        return self.nodes.get(f"busagent:{agent_id}")
 
-    # read surface — branch on the query's shape
+    # read surface — branch on the query's shape (all 1-hop, matching the live-robust bus)
     def query_cypher(self, cypher, params=None):
         params = params or {}
-        if "HAS_BUS_MESSAGE]->(m:BusMessage)" in cypher:
-            src = f"agent:{params.get('aid')}"
-            mids = [
-                d for (s, d, r) in self.edges if s == src and r == "HAS_BUS_MESSAGE"
+        if "BusMessage {recipient:" in cypher:
+            aid = params.get("aid")
+            return [
+                {"m": n}
+                for n in self.nodes.values()
+                if n.get("type") == "BusMessage" and n.get("recipient") == aid
             ]
-            return [{"m": self.nodes[m]} for m in mids if m in self.nodes]
         if "BusMessage {msg_group:" in cypher:
             g = params.get("g")
             return [
@@ -53,25 +54,20 @@ class _FakeGraph:
             if node and node.get("recipient") == params.get("aid"):
                 return [{"m": node}]
             return []
-        if "SUBSCRIBES_TO]->(:Topic {name:" in cypher:
-            topic = f"topic:{params.get('t')}"
+        if "BusSubscription {topic:" in cypher:
+            t = params.get("t")
             return [
-                {"aid": self.nodes[s].get("agent_id")}
-                for (s, d, r) in self.edges
-                if d == topic and r == "SUBSCRIBES_TO" and s in self.nodes
+                {"s": n}
+                for n in self.nodes.values()
+                if n.get("type") == "BusSubscription" and n.get("topic") == t
             ]
-        if "UNSUBSCRIBED]->(:Topic {name:" in cypher:
-            topic = f"topic:{params.get('t')}"
-            return [
-                {"aid": self.nodes[s].get("agent_id")}
-                for (s, d, r) in self.edges
-                if d == topic and r == "UNSUBSCRIBED" and s in self.nodes
-            ]
-        if "(a:Agent {agent_id:" in cypher:
+        if "(a:BusAgent {agent_id:" in cypher:
             node = self._agent_node(params.get("aid"))
             return [{"a": node}] if node else []
-        if "(a:Agent) RETURN a" in cypher:
-            return [{"a": n} for n in self.nodes.values() if n.get("type") == "Agent"]
+        if "(a:BusAgent) RETURN a" in cypher:
+            return [
+                {"a": n} for n in self.nodes.values() if n.get("type") == "BusAgent"
+            ]
         if "(t:Topic) RETURN t.name" in cypher:
             return [
                 {"name": n.get("name")}
@@ -105,7 +101,7 @@ def test_register_and_roster_presence(bus):
 def test_presence_goes_stale_without_heartbeat(bus):
     bus.register("idle", provider="anthropic")
     # force last_seen into the past, then roster with a tight window
-    bus._engine.nodes["agent:idle"]["last_seen"] = 0.0
+    bus._engine.nodes["busagent:idle"]["last_seen"] = 0.0
     assert bus.roster()[0]["presence"] == "offline"
     assert bus.roster(online_only=True) == []
     # a heartbeat brings it back online
@@ -115,7 +111,7 @@ def test_presence_goes_stale_without_heartbeat(bus):
 
 def test_heartbeat_preserves_capabilities(bus):
     bus.register("a", capabilities=["x", "y"])
-    bus._engine.nodes["agent:a"]["last_seen"] = 0.0
+    bus._engine.nodes["busagent:a"]["last_seen"] = 0.0
     bus.heartbeat("a")
     assert bus.roster()[0]["capabilities"] == ["x", "y"]  # not wiped by the upsert
 
