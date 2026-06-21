@@ -314,6 +314,45 @@ class StructuredPrompt(BaseModel):
         description="KG-ingestible engineering rules. Supports simple list or categorized dict.",
     )
 
+    # Canonical contract fields (CONCEPT:ORCH-1.80) — provenance, versioning,
+    # skill/tool wiring, and base-prompt composition. ``extra="allow"`` already
+    # accepted these informally; promoting them to typed fields makes them
+    # validated, documented, and emitted into the generated JSON Schema.
+    schema_version: str = Field(
+        default="1.0",
+        description="Canonical prompt-schema version this blueprint conforms to.",
+    )
+    prompt_version: str | None = Field(
+        default=None,
+        description="Semver of THIS prompt's content (a bumpversion sync point).",
+    )
+    source: str | None = Field(
+        default=None,
+        description=(
+            "Provenance / KG namespace for this prompt, e.g. 'gitlab-api' or "
+            "'agent-utilities:base'. Used to namespace the PromptNode id so "
+            "fleet-contributed prompts never collide."
+        ),
+    )
+    skills: list[str] | None = Field(
+        default=None,
+        description=(
+            "Skill slugs this prompt expects installed (resolved by "
+            "check_prompt_refs). Companion to ``tools``."
+        ),
+    )
+    extends: str | None = Field(
+        default=None,
+        description=(
+            "Base prompt to compose onto, e.g. 'agent-utilities:base' or a "
+            "'@base_agent.json' workspace reference. Render-time composition."
+        ),
+    )
+    compose: str = Field(
+        default="append",
+        description="How to merge this body onto ``extends``: append | prepend | replace.",
+    )
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -439,3 +478,100 @@ class StructuredPrompt(BaseModel):
             json.dump(data, f, indent=2, ensure_ascii=False)
             f.write("\n")
         logger.info("Saved structured prompt blueprint to %s", path)
+
+
+# ---------------------------------------------------------------------------
+# Canonical body resolution + validation (CONCEPT:ORCH-1.80)
+# ---------------------------------------------------------------------------
+
+# Legacy flat body keys, retained transitionally for the one-time migration of
+# the existing fleet prompts. The canonical body location is
+# ``instructions.core_directive``; these are read but never written by new code.
+_LEGACY_BODY_KEYS = ("content", "input")
+
+# Canonical schema version emitted by new prompts. Mirrors
+# ``StructuredPrompt.schema_version`` default.
+CANONICAL_SCHEMA_VERSION = "1.0"
+
+
+def resolve_body(data: dict[str, Any]) -> str:
+    """Single source of truth for a prompt blueprint's body text.
+
+    CONCEPT:ORCH-1.80. Replaces three divergent ad-hoc readers
+    (``builder._extract_prompt_content``, ``builder.extract_agent_metadata``,
+    ``registry_builder._resolve_fields``) that each read a different subset and
+    silently missed ``instructions.core_directive`` — the bug that left
+    StructuredPrompt-shaped files (incl. the packaged ``main_agent.json``) with
+    an empty body on the workspace path.
+
+    Precedence (canonical first, legacy transitional fallbacks after):
+      1. ``instructions.core_directive``           (CANONICAL)
+      2. ``content``                               (legacy flat key)
+      3. ``input``                                 (legacy flat key)
+      4. rendered structured sections via the model (decomposed-only prompts)
+      5. ``""`` (no body)
+    """
+    if not isinstance(data, dict):
+        return ""
+    instructions = data.get("instructions")
+    if isinstance(instructions, dict):
+        core = instructions.get("core_directive")
+        if isinstance(core, str) and core.strip():
+            return core
+    for key in _LEGACY_BODY_KEYS:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    # Decomposed-only blueprint (structured instruction sections, no flat body):
+    # render through the model so responsibilities/capabilities/workflow surface.
+    if isinstance(instructions, dict) and instructions:
+        try:
+            return StructuredPrompt.model_validate(data).render()
+        except Exception:  # pragma: no cover - defensive
+            return ""
+    return ""
+
+
+def validate_canonical(data: dict[str, Any], *, strict: bool = False) -> list[str]:
+    """Validate a raw prompt blueprint against the canonical contract.
+
+    Returns a list of human-readable violation strings (empty == conformant).
+    The ONE validator shared by ``prompt-builder/validate_prompt.py``,
+    ``scripts/check_prompt_schema.py``, and per-package ``test_prompt_parity``,
+    so the canonical rules can never drift between authoring and CI.
+
+    Beyond Pydantic model validation it enforces the rules the bare model does
+    not: ``type == "prompt"``, a non-empty renderable body, and — in ``strict``
+    mode — no lingering legacy ``content``/``input`` keys.
+    """
+    errors: list[str] = []
+    if not isinstance(data, dict):
+        return ["prompt blueprint is not a JSON object"]
+
+    try:
+        StructuredPrompt.model_validate(data)
+    except Exception as exc:
+        errors.append(f"schema: {exc}")
+        return errors  # downstream checks assume a structurally valid model
+
+    if data.get("type") != "prompt":
+        errors.append("'type' must be 'prompt'")
+
+    if not str(data.get("schema_version") or "").strip():
+        errors.append("'schema_version' is required (e.g. '1.0')")
+
+    if not resolve_body(data).strip():
+        errors.append(
+            "empty body: set 'instructions.core_directive' or a structured "
+            "instruction section"
+        )
+
+    if strict:
+        legacy = [k for k in _LEGACY_BODY_KEYS if k in data]
+        if legacy:
+            errors.append(
+                "legacy body key(s) present "
+                f"({', '.join(legacy)}); move body to 'instructions.core_directive'"
+            )
+
+    return errors

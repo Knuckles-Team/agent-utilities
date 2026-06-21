@@ -117,6 +117,26 @@ def skills_dir() -> Path:
     return data_dir() / "skills"
 
 
+def prompts_dir() -> Path:
+    """Return the XDG overlay directory for user-supplied system-prompt blueprints.
+
+    Default: ``~/.config/agent-utilities/prompts/``
+
+    Override via ``AGENT_UTILITIES_PROMPTS_DIR`` environment variable.
+
+    CONCEPT:KG-2.141 — the user-override layer of the prompt library, mirroring
+    :func:`skills_dir`. ``*.json`` blueprints placed here take precedence over
+    the packaged base prompts and fleet-contributed (``agent_utilities.prompt_providers``)
+    prompts of the same id when the KG prompt registry is ingested
+    (``ingest_prompts_to_graph``). It lives under the *config* dir (not data),
+    because these are operator-authored overrides, not runtime artifacts.
+    """
+    override = os.environ.get("AGENT_UTILITIES_PROMPTS_DIR")
+    if override:
+        return Path(override).expanduser()
+    return config_dir() / "prompts"
+
+
 def kg_db_path(workspace: Path | str | None = None) -> Path:
     """Resolve the Knowledge Graph database path with priority chain.
 
@@ -317,6 +337,7 @@ def ensure_dirs() -> None:
         messaging_sessions_dir() / "sessions",
         messaging_sessions_dir() / "history",
         skills_dir(),
+        prompts_dir(),
         log_dir(),
     ]
     for d in dirs:

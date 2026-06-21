@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 411
+total_concepts: 412
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3255,17 +3255,19 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: This is how
 - id: KG-2.141
-  name: atomic compare-and-set as a first-class
+  name: the user-override layer of the prompt library, mirroring
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/agent/registry_builder.py
+  - agent_utilities/core/paths.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/tiered_backend.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/messaging/bus.py
-  doc: atomic compare-and-set as a first-class
+  doc: the user-override layer of the prompt library, mirroring
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4072,13 +4074,17 @@ concepts:
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   doc: route adaptively from the learned per-role confidence
 - id: ORCH-1.80
-  name: ───────────
+  name: resolve the body via the single canonical resolver so
   pillar: ORCH-1
   status: live
   code_paths:
+  - agent_utilities/agent/registry_builder.py
+  - agent_utilities/core/workspace.py
   - agent_utilities/messaging/bus.py
   - agent_utilities/orchestration/action_policy.py
-  doc: ───────────
+  - agent_utilities/prompting/builder.py
+  - agent_utilities/prompting/structured.py
+  doc: resolve the body via the single canonical resolver so
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
@@ -4640,6 +4646,13 @@ concepts:
   - agent_utilities/deployment/self_deploy.py
   - agent_utilities/knowledge_graph/retrieval/deploy_context.py
   doc: OS-5.50
+- id: OS-5.52
+  name: Modular skill/prompt contribution
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/providers.py
+  doc: Modular skill/prompt contribution
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

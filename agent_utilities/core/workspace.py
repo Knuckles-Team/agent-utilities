@@ -81,27 +81,34 @@ CORE_FILES = {
 }
 
 TEMPLATES = {
+    # Canonical StructuredPrompt shape (CONCEPT:ORCH-1.80): body lives in
+    # instructions.core_directive; task/tools/schema_version/source replace the
+    # legacy name/capabilities/content keys.
     "MAIN_AGENT": json.dumps(
         {
-            "name": "main-agent",
+            "schema_version": "1.0",
+            "task": "main-agent",
             "type": "prompt",
+            "source": "agent-utilities:base",
             "description": ("The primary orchestrator agent for this workspace."),
-            "capabilities": [
+            "instructions": {
+                "core_directive": (
+                    "# Main Agent\n\n"
+                    "You are the primary orchestrator for this workspace. "
+                    "Your goal is to help the user manage their projects and "
+                    "coordinate specialized agents.\n\n"
+                    "### Core Principles\n"
+                    "* Be concise and efficient.\n"
+                    "* Use the knowledge graph to discover tools and experts.\n"
+                    "* Verify your work before concluding.\n\n"
+                    "Your personality:\n"
+                    "* Vibe: Professional, efficient, helpful\n"
+                ),
+            },
+            "tools": [
                 "workspace-manager",
                 "agent-workflows",
             ],
-            "content": (
-                "# Main Agent\n\n"
-                "You are the primary orchestrator for this workspace. "
-                "Your goal is to help the user manage their projects and "
-                "coordinate specialized agents.\n\n"
-                "### Core Principles\n"
-                "* Be concise and efficient.\n"
-                "* Use the knowledge graph to discover tools and experts.\n"
-                "* Verify your work before concluding.\n\n"
-                "Your personality:\n"
-                "* Vibe: Professional, efficient, helpful\n"
-            ),
         },
         indent=2,
     ),
