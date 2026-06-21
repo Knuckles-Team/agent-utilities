@@ -141,35 +141,59 @@ async def execute_embedding(
             "reason": "no nodes to embed",
         }
 
-    # Process in batches of 32 (LM Studio handles batch well)
-    batch_size = 32
-    for i in range(0, len(nodes_to_embed), batch_size):
-        batch = nodes_to_embed[i : i + batch_size]
-        texts = [text for _, text in batch]
+    # Process in batches of 32 (LM Studio handles batch well). Batches are fanned
+    # out CONCURRENTLY up to the embedding model's declared parallel-call capacity
+    # (parallel_instances × max_parallel_calls) via the shared concurrency
+    # controller (CONCEPT:KG-2.143). Capacity 1 (default) = sequential, identical
+    # to the historical for-loop; capacity K = up to K batches in flight.
+    from agent_utilities.core.model_concurrency import (
+        map_concurrent,
+        resolve_capacity,
+    )
 
-        # Try direct HTTP first (faster, fewer deps), then LlamaIndex fallback
+    batch_size = 32
+    batches = [
+        nodes_to_embed[i : i + batch_size]
+        for i in range(0, len(nodes_to_embed), batch_size)
+    ]
+
+    def _embed_one_batch(
+        batch: list[tuple[str, str]],
+    ) -> list[list[float]] | None:
+        texts = [text for _, text in batch]
+        # Try direct HTTP first (faster, fewer deps), then LlamaIndex fallback.
         try:
             embeddings = _generate_embedding_batch(texts)
-        except ConnectionError as e:
-            if i == 0:
-                logger.error(f"Aborting embedding phase gracefully: {e}")
-                return {
-                    "status": "skipped",
-                    "embeddings_generated": 0,
-                    "reason": f"Embedding server unreachable on first batch: {e}",
-                }
-            embeddings = None
-
+        except ConnectionError:
+            raise  # surfaced below; first-batch failure aborts the phase
         if embeddings is None:
             embeddings = _generate_embedding_llamaindex(texts)
+        return embeddings
 
+    capacity = resolve_capacity("embedding")
+    try:
+        results = await map_concurrent(
+            batches, _embed_one_batch, model="embedding", capacity=capacity
+        )
+    except ConnectionError as e:
+        # An unreachable embedding server fails the whole fan-out; treat it the
+        # same as the old first-batch abort.
+        logger.error(f"Aborting embedding phase gracefully: {e}")
+        return {
+            "status": "skipped",
+            "embeddings_generated": 0,
+            "reason": f"Embedding server unreachable: {e}",
+        }
+
+    # Results are in batch order; apply them deterministically.
+    for idx, (batch, embeddings) in enumerate(zip(batches, results, strict=False)):
         if embeddings and len(embeddings) == len(batch):
             for (node_id, _), embedding in zip(batch, embeddings, strict=False):
                 graph.nodes[node_id]["embedding"] = embedding
                 embeddings_generated += 1
         else:
             errors += len(batch)
-            logger.warning(f"Failed to embed batch {i // batch_size + 1}")
+            logger.warning(f"Failed to embed batch {idx + 1}")
 
     return {
         "status": "completed",
