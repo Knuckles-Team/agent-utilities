@@ -805,6 +805,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_write", "action": "add_node", "name": "graph_write_add_node"},
     {"tool": "graph_write", "action": "bulk_ingest", "name": "graph_write_bulk_ingest"},
     {"tool": "graph_write", "action": "check_loop", "name": "graph_write_check_loop"},
+    {
+        "tool": "graph_write",
+        "action": "compare_and_set",
+        "name": "graph_write_compare_and_set",
+    },
     {"tool": "graph_write", "action": "delete_edge", "name": "graph_write_delete_edge"},
     {"tool": "graph_write", "action": "delete_node", "name": "graph_write_delete_node"},
     {"tool": "graph_write", "action": "log_chat", "name": "graph_write_log_chat"},

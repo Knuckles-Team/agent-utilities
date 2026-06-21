@@ -101,3 +101,116 @@ async def test_write_does_not_fanout_on_default(monkeypatch):
     )
     assert "added" in out
     assert calls == [("default", "n1")]  # only the default engine was written
+
+
+class _CASBackend(_FakeBackend):
+    """Records the compare_and_set call and returns a configurable result."""
+
+    def __init__(self, result: bool):
+        self.result = result
+        self.calls: list[tuple[str, dict, dict]] = []
+
+    def compare_and_set_node_fields(self, node_id, conditions, updates):
+        self.calls.append((node_id, conditions, updates))
+        return self.result
+
+
+class _CASEngine(_FakeEngine):
+    def __init__(self, label, result: bool):
+        super().__init__(label)
+        self.backend = _CASBackend(result)
+
+
+def _install_cas_registry(result: bool) -> _CASEngine:
+    engine = _CASEngine("default", result)
+    registry = ConnectionRegistry(default_engine_provider=lambda: engine)
+    kg_server._CONNECTION_REGISTRY = registry
+    kg_server.ensure_tools_registered()
+    return engine
+
+
+async def test_compare_and_set_calls_backend_and_returns_applied_true():
+    # The compare_and_set action must call the backend's
+    # compare_and_set_node_fields with the EXACT node_id/conditions/updates and
+    # surface a True result as applied=True (CONCEPT:KG-2.141).
+    engine = _install_cas_registry(result=True)
+    out = await kg_server._execute_tool(
+        "graph_write",
+        action="compare_and_set",
+        node_id="task-1",
+        conditions={"status": "pending"},
+        updates={"status": "claimed", "owner": "agent-7"},
+    )
+    payload = json.loads(out)
+    assert payload == {
+        "action": "compare_and_set",
+        "node_id": "task-1",
+        "applied": True,
+    }
+    assert engine.backend.calls == [
+        ("task-1", {"status": "pending"}, {"status": "claimed", "owner": "agent-7"})
+    ]
+
+
+async def test_compare_and_set_surfaces_false_result():
+    # A lost race / failed precondition (backend returns False) must be surfaced
+    # as applied=False, never swallowed.
+    engine = _install_cas_registry(result=False)
+    out = await kg_server._execute_tool(
+        "graph_write",
+        action="compare_and_set",
+        node_id="task-1",
+        conditions={"status": "pending"},
+        updates={"status": "claimed"},
+    )
+    payload = json.loads(out)
+    assert payload["applied"] is False
+    assert payload["node_id"] == "task-1"
+    assert engine.backend.calls == [
+        ("task-1", {"status": "pending"}, {"status": "claimed"})
+    ]
+
+
+async def test_compare_and_set_coerces_omitted_dicts():
+    # When conditions/updates are omitted (the REST body / default_factory case,
+    # which the dispatcher leaves as an unresolved FieldInfo, not {}), the handler
+    # must coerce them to empty dicts rather than pass a FieldInfo to the backend.
+    engine = _install_cas_registry(result=True)
+    out = await kg_server._execute_tool(
+        "graph_write",
+        action="compare_and_set",
+        node_id="task-1",
+    )
+    payload = json.loads(out)
+    assert payload["applied"] is True
+    assert engine.backend.calls == [("task-1", {}, {})]
+
+
+async def test_compare_and_set_accepts_json_string_dicts():
+    # Some MCP clients send dict params as JSON strings; the handler parses them.
+    engine = _install_cas_registry(result=True)
+    out = await kg_server._execute_tool(
+        "graph_write",
+        action="compare_and_set",
+        node_id="task-1",
+        conditions='{"status": "pending"}',
+        updates='{"status": "claimed"}',
+    )
+    payload = json.loads(out)
+    assert payload["applied"] is True
+    assert engine.backend.calls == [
+        ("task-1", {"status": "pending"}, {"status": "claimed"})
+    ]
+
+
+async def test_compare_and_set_requires_node_id():
+    # Missing node_id is a clear error, and the backend is never called.
+    engine = _install_cas_registry(result=True)
+    out = await kg_server._execute_tool(
+        "graph_write",
+        action="compare_and_set",
+        conditions={"status": "pending"},
+        updates={"status": "claimed"},
+    )
+    assert "node_id required" in out
+    assert engine.backend.calls == []

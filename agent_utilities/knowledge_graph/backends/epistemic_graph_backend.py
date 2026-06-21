@@ -1466,6 +1466,20 @@ class EpistemicGraphBackend(GraphBackend):
         except Exception:  # pragma: no cover - read best-effort
             return None
 
+    def compare_and_set_node_fields(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> bool:
+        """Atomic compare-and-set on a node's top-level fields (CONCEPT:KG-2.141).
+
+        Delegates to the authoritative GraphComputeEngine CAS op; returns
+        ``True`` iff the conditions held and the updates were applied. The
+        backend-agnostic primitive behind cross-host :Task claiming.
+        """
+        return self._graph.compare_and_set_node_fields(node_id, conditions, updates)
+
     # --- Persistence ---
 
     def save_to_json(self, path: str) -> None:

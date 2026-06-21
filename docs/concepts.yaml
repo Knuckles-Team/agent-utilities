@@ -3255,12 +3255,17 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: This is how
 - id: KG-2.141
-  name: ───────────────
+  name: atomic compare-and-set as a first-class
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/backends/tiered_backend.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/messaging/bus.py
-  doc: ───────────────
+  doc: atomic compare-and-set as a first-class
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
