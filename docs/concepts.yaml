@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 388
+total_concepts: 389
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3904,13 +3904,21 @@ concepts:
   - agent_utilities/orchestration/execution_profile.py
   doc: the FOCUSED-TOOLS altitude is one agent loop that calls the
 - id: ORCH-1.75
-  name: pending depth + in-flight per
+  name: /1.76 — TWO-LEVEL fair rotation
   pillar: ORCH-1
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
-  doc: pending depth + in-flight per
+  doc: /1.76 — TWO-LEVEL fair rotation
+- id: ORCH-1.76
+  name: stamp the task TYPE top-level too, so claiming can rotate
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  doc: stamp the task TYPE top-level too, so claiming can rotate
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
