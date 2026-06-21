@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 415
+total_concepts: 418
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3307,6 +3307,13 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/semantic.py
   - agent_utilities/knowledge_graph/pipeline/phases/embedding.py
   doc: Uses the shared per-model bounded thread pool. At most
+- id: KG-2.144
+  name: Per-channel embedding backfill
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: Per-channel embedding backfill
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4124,6 +4131,14 @@ concepts:
   - agent_utilities/prompting/builder.py
   - agent_utilities/prompting/structured.py
   doc: resolve the body via the single canonical resolver so
+- id: ORCH-1.81
+  name: ORCH-1.81
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/worker_scheduler.py
+  doc: ORCH-1.81
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
