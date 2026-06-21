@@ -6,6 +6,7 @@ import re
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -1605,6 +1606,84 @@ class TaskManagerMixin(GraphEngineProtocol):
                 _EMBED_CB_COOLDOWN,
             )
 
+    # CONCEPT:KG-2.144 — Per-channel embedding backfill: round-robin unembedded
+    # nodes by source_system + fan out to embedding capacity, so a tiny url/doc
+    # crawl's chunks aren't FIFO-starved behind millions of codebase chunks.
+    # Per-table source-rotation cursors: which channel leads next tick.
+    _EMBED_SOURCE_CURSORS: dict[str, int] = {}  # noqa: RUF012
+
+    def _collect_unembedded_rows(
+        self, conn_factory: Any, tbl: str, take: int
+    ) -> list[tuple[Any, str]]:
+        """Pull up to ``take`` NULL-embedding ``(id, text)`` rows from ``tbl``,
+        round-robin across ingestion *channels* (``source_system``).
+
+        CONCEPT:KG-2.144 — a single ``WHERE embedding IS NULL LIMIT n`` FIFO lets
+        one huge channel (822K codebase ``Code`` chunks) starve a small url/doc
+        crawl's chunks that share the table. Instead, for a table that carries a
+        ``source_system`` column we find the distinct channels with unembedded
+        rows and give each a slice of the budget every tick, rotating which
+        channel leads (so the per-channel remainder is shared fairly over time).
+        Tables without ``source_system`` (internal codebase writes) fall back to
+        the plain bounded scan. L1-safe: only equality filters + LIMIT, no ORDER
+        BY (the interpreter strips ORDER BY) — exactly like the lane claim.
+        """
+        with conn_factory() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = %s",
+                (tbl,),
+            )
+            cols = {r[0] for r in cur.fetchall()}
+            text_cols = [c for c in self._EMBED_TEXT_COLS if c in cols]
+            if not text_cols or "embedding" not in cols:
+                return []
+            expr = " || ' ' || ".join(f"COALESCE(\"{c}\",'')" for c in text_cols)
+            has_source = "source_system" in cols
+
+            def _fetch(where: str, params: tuple, limit: int) -> list[tuple[Any, str]]:
+                cur.execute(
+                    f'SELECT id, {expr} FROM "{tbl}" '  # nosec B608
+                    f"WHERE embedding IS NULL{where} LIMIT %s",
+                    (*params, limit),
+                )
+                got = [(r[0], (r[1] or "").strip()) for r in cur.fetchall()]
+                return [(nid, txt) for nid, txt in got if txt]
+
+            if not has_source:
+                return _fetch("", (), take)
+
+            # Distinct channels that still have unembedded rows (bounded scan, no
+            # GROUP BY ORDER BY — equality-friendly DISTINCT only).
+            cur.execute(
+                f'SELECT DISTINCT source_system FROM "{tbl}" '  # nosec B608
+                "WHERE embedding IS NULL LIMIT 64"
+            )
+            channels = sorted(
+                str(r[0]) if r[0] is not None else "" for r in cur.fetchall()
+            )
+            if len(channels) <= 1:
+                # One (or zero) channel — nothing to round-robin; plain scan.
+                return _fetch("", (), take)
+
+            # Rotate which channel leads this tick (fair sharing of the remainder).
+            cur_idx = self._EMBED_SOURCE_CURSORS.get(tbl, 0) % len(channels)
+            self._EMBED_SOURCE_CURSORS[tbl] = (cur_idx + 1) % len(channels)
+            ordered_ch = channels[cur_idx:] + channels[:cur_idx]
+
+            per_channel = max(1, take // len(ordered_ch))
+            items: list[tuple[Any, str]] = []
+            for ch in ordered_ch:
+                if len(items) >= take:
+                    break
+                slot = min(per_channel, take - len(items))
+                if ch == "":
+                    rows = _fetch(" AND source_system IS NULL", (), slot)
+                else:
+                    rows = _fetch(" AND source_system = %s", (ch,), slot)
+                items.extend(rows)
+            return items[:take]
+
     def _tick_embedding_backfill(self) -> int:
         """Backfill vector embeddings onto durable nodes that lack them.
 
@@ -1662,40 +1741,26 @@ class TaskManagerMixin(GraphEngineProtocol):
                 break
             take = min(per_table, remaining)
             try:
-                with conn_factory() as conn, conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_name = %s",
-                        (tbl,),
-                    )
-                    cols = {r[0] for r in cur.fetchall()}
-                    text_cols = [c for c in self._EMBED_TEXT_COLS if c in cols]
-                    if not text_cols or "embedding" not in cols:
-                        continue
-                    expr = " || ' ' || ".join(
-                        f"COALESCE(\"{c}\",'')" for c in text_cols
-                    )
-                    cur.execute(
-                        f'SELECT id, {expr} FROM "{tbl}" '  # nosec B608
-                        "WHERE embedding IS NULL LIMIT %s",
-                        (take,),
-                    )
-                    rows = cur.fetchall()
+                items = self._collect_unembedded_rows(conn_factory, tbl, take)
             except Exception as e:  # noqa: BLE001
                 logger.debug("embed backfill: query %s failed: %s", tbl, e)
                 continue
 
-            items = [(r[0], (r[1] or "").strip()) for r in rows]
-            items = [(nid, txt) for nid, txt in items if txt]
             if not items:
                 continue
             try:
+                # KG-2.144: fan the embed calls out to the embedding model's
+                # parallel capacity — ``make_embed_fn`` batches at 64 and runs up
+                # to ``capacity`` batches concurrently via the shared controller,
+                # so with capacity 1 it stays sequential and with K it does K at
+                # once (scales with the number of vLLM instances). Same nodes,
+                # same vectors, idempotent.
                 vecs = embed_fn([t for _, t in items])
                 with conn_factory() as conn, conn.cursor() as cur:
                     for (nid, _), vec in zip(items, vecs, strict=False):
                         cur.execute(
                             f'UPDATE "{tbl}" SET embedding = %s::vector '  # nosec B608
-                            "WHERE id = %s",
+                            "WHERE id = %s AND embedding IS NULL",
                             (str(vec), nid),
                         )
                     conn.commit()
@@ -2569,6 +2634,9 @@ class TaskManagerMixin(GraphEngineProtocol):
             start_ingest_consumer_pool(self, worker_count=worker_count)
             return
 
+        # ORCH-1.81: record the live pool size so the admission registry/policy
+        # (hot spare, per-lane min coverage, codebase cap) size to this host's pool.
+        self._ingest_worker_count = int(worker_count)
         logger.info(f"Starting {worker_count} TaskManager workers...")
         for i in range(worker_count):
             t = threading.Thread(
@@ -2576,7 +2644,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
             t.start()
 
-    def _select_pending_task(self) -> dict[str, Any] | None:
+    def _select_pending_task(
+        self,
+        admit: Callable[[str, str], bool] | None = None,
+    ) -> dict[str, Any] | None:
         """Return one claimable pending Task row, highest priority bucket first.
 
         Bucketed equality queries (0=critical .. 3=background) replace
@@ -2592,11 +2663,35 @@ class TaskManagerMixin(GraphEngineProtocol):
         task TYPES (so a fast ``diff``/``document`` is not stuck behind a big ``codebase`` batch
         sharing the ingestion lane). Inside a (lane,type) the priority buckets still order work;
         lane-stamped-but-untyped and fully-legacy tasks fall through to the broader sweeps.
+
+        CONCEPT:ORCH-1.81 — ``admit(lane, task_type) -> bool`` is the reserved-worker admission
+        gate: rotation proposes the candidate, ``admit`` decides whether THIS free worker may
+        claim that lane/type *now* (hot-spare reservation, per-lane min coverage, codebase cap).
+        A denied (lane, type) is skipped so the rotation can offer a lane that needs coverage;
+        if every typed/lane candidate is denied we fall through to the legacy sweeps (which a
+        ``None`` admit, or an admit that has nothing left to deny, also reaches). When ``admit``
+        is ``None`` the behaviour is exactly the pre-ORCH-1.81 rotation.
         """
         from agent_utilities.knowledge_graph.core.task_lanes import (
             LANE_NAMES,
             lane_task_types,
         )
+
+        # Track whether the admission gate denied any candidate this pass — if it
+        # denied at least one real (lane, type) and admitted none, the worker is
+        # being held back as a spare, so the lane-less LEGACY sweeps must NOT grab a
+        # task and spend that spare. With no admit (None), nothing is ever denied,
+        # so legacy sweeps run exactly as before. (CONCEPT:ORCH-1.81)
+        denied_any = False
+
+        def _ok(lane: str, task_type: str) -> bool:
+            nonlocal denied_any
+            if admit is None:
+                return True
+            ok = admit(lane, task_type)
+            if not ok:
+                denied_any = True
+            return ok
 
         if not hasattr(self, "_lane_cursor"):
             self._lane_cursor = 0
@@ -2613,6 +2708,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                 torder = [types[(tc + i) % m] for i in range(m)]
                 self._type_cursors[lane] = (tc + 1) % m
                 for tk in torder:
+                    # ORCH-1.81: admission gate — a denied (lane, type) is skipped
+                    # so this free worker stays a spare / steers to an uncovered
+                    # lane instead of piling onto a capped/covered one.
+                    if not _ok(lane, tk):
+                        continue
                     for bucket in _PRIORITY_BUCKETS:
                         rows = self.query_cypher(
                             "MATCH (t:Task {status: 'pending', tkind: $tk, prio_bucket: $b}) "
@@ -2622,6 +2722,8 @@ class TaskManagerMixin(GraphEngineProtocol):
                         if rows:
                             return rows[0]
             # Lane-stamped but un-typed (pre-ORCH-1.76): claim by lane.
+            if not _ok(lane, ""):
+                continue
             for bucket in _PRIORITY_BUCKETS:
                 rows = self.query_cypher(
                     "MATCH (t:Task {status: 'pending', lane: $lane, prio_bucket: $b}) "
@@ -2630,6 +2732,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
                 if rows:
                     return rows[0]
+        # ORCH-1.81: the admission gate denied work and admitted none → this worker
+        # is being kept as a hot spare; don't let the lane-less legacy sweeps spend
+        # it. (Min-coverage already relaxed the spare inside admit when needed.)
+        if denied_any:
+            return None
         # Lane-less legacy tasks (pre-ORCH-1.75 stamp): plain bucket sweep.
         for bucket in _PRIORITY_BUCKETS:
             rows = self.query_cypher(
@@ -2669,27 +2776,131 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
             return int((rows[0].get("c") if rows else 0) or 0) if rows else 0
 
+        # ORCH-1.81: overlay the LIVE in-process worker registry so the snapshot
+        # also shows how many workers each lane is *actually occupying right now*
+        # (the queue's ``running`` status is set on claim; ``live_running`` is the
+        # admission registry's view, which also drives the reservation/cap math).
+        reg = getattr(self, "_worker_reg", None)
+        live_running = reg.running_by_lane() if reg is not None else {}
+
         out: dict[str, Any] = {}
-        stamped = 0
         for lane in LANE_NAMES:
             p = _count("status: 'pending', lane: $l", {"l": lane})
             r = _count("status: 'running', lane: $l", {"l": lane})
-            stamped += p + r
             out[lane] = {
                 "pending": p,
                 "running": r,
+                "live_running": int(live_running.get(lane, 0)),
                 "model_role": lane_model_role(lane),
             }
         total_pending = _count("status: 'pending'", {})
         total_running = _count("status: 'running'", {})
         out["lane_less"] = {
-            "pending": max(0, total_pending - sum(v["pending"] for v in out.values())),
-            "running": max(0, total_running - sum(v["running"] for v in out.values())),
+            "pending": max(
+                0,
+                total_pending
+                - sum(v["pending"] for v in out.values() if "pending" in v),
+            ),
+            "running": max(
+                0,
+                total_running
+                - sum(v["running"] for v in out.values() if "running" in v),
+            ),
             "model_role": None,
+        }
+        # ORCH-1.81: surface the scheduler's pool/reservation picture for ops.
+        cfg = getattr(self, "_sched_config", None)
+        out["scheduler"] = {
+            "worker_count": getattr(cfg, "worker_count", None),
+            "reserved": getattr(cfg, "reserved", None),
+            "per_lane_min": getattr(cfg, "per_lane_min", None),
+            "codebase_cap": getattr(cfg, "codebase_cap", None),
+            "busy_workers": reg.busy_count() if reg is not None else 0,
+            "free_workers": (
+                reg.free_count(getattr(cfg, "worker_count", 0))
+                if reg is not None and cfg is not None
+                else None
+            ),
+            "running_by_type": reg.running_by_type() if reg is not None else {},
         }
         return out
 
-    def _claim_next_task(self) -> tuple[str, dict[str, Any]] | None:
+    # -- Reserved-worker fair scheduler (CONCEPT:ORCH-1.81) ------------------
+    def _worker_registry(self):
+        """Lazy in-process worker→(lane, type) registry for admission control.
+
+        Created on first use and sized to the live worker pool. The pool size is
+        autosized once (``compute_ingest_worker_count``); the registry only tracks
+        what each worker is *currently* processing, so it never needs resizing.
+        """
+        reg = getattr(self, "_worker_reg", None)
+        if reg is None:
+            from .worker_scheduler import (
+                WorkerRegistry,
+                scheduler_config_from_env,
+            )
+
+            wc = int(getattr(self, "_ingest_worker_count", 0) or 0)
+            if wc <= 0:
+                wc = compute_ingest_worker_count()
+                self._ingest_worker_count = wc
+            reg = WorkerRegistry()
+            self._worker_reg = reg
+            self._sched_config = scheduler_config_from_env(wc)
+        return reg
+
+    def _pending_by_lane(self) -> dict[str, int]:
+        """Pending-task count per functional lane (for admission control).
+
+        One equality count query per lane (LANE_NAMES is small). Lane-stamped
+        tasks are counted directly; typed-but-not-yet-lane-stamped tasks are
+        already covered because every enqueue stamps ``lane``. Best-effort: a
+        query error yields 0 for that lane (degrade to "no pending" → permissive).
+        """
+        from agent_utilities.knowledge_graph.core.task_lanes import LANE_NAMES
+
+        out: dict[str, int] = {}
+        for lane in LANE_NAMES:
+            try:
+                rows = self.query_cypher(
+                    "MATCH (t:Task {status: 'pending', lane: $l}) RETURN count(t) as c",
+                    {"l": lane},
+                )
+                out[lane] = int((rows[0].get("c") if rows else 0) or 0)
+            except Exception:  # noqa: BLE001 — best-effort; permissive on error
+                out[lane] = 0
+        return out
+
+    def _make_admission(self) -> Callable[[str, str], bool] | None:
+        """Build this-claim's admission predicate, or ``None`` to disable the gate.
+
+        Returns ``None`` (pre-ORCH-1.81 behaviour) when the pool is too small for
+        any reservation to make sense (1 worker can't keep a spare AND do work) or
+        when the feature is disabled (``KG_SCHED_RESERVED=0`` and no cap). Otherwise
+        binds an :class:`AdmissionPolicy` over the live registry + a freshly-sampled
+        ``pending_by_lane`` snapshot.
+        """
+        reg = self._worker_registry()
+        cfg = self._sched_config
+        # With a single worker, a hot spare would mean never working; and with no
+        # reservation and no explicit cap there's nothing to enforce.
+        if cfg.worker_count <= 1:
+            return None
+        if cfg.reserved <= 0 and cfg.codebase_cap is None:
+            return None
+        from .worker_scheduler import AdmissionPolicy
+
+        policy = AdmissionPolicy(cfg, reg)
+        pending = self._pending_by_lane()
+
+        def _admit(lane: str, task_type: str) -> bool:
+            return policy.admit(lane, task_type, pending)
+
+        return _admit
+
+    def _claim_next_task(
+        self, worker_id: str | None = None
+    ) -> tuple[str, dict[str, Any]] | None:
         """Claim the next runnable Task and stamp ownership (CONCEPT:KG-2.141).
 
         Atomicity is now arbitrated by the engine's compare-and-set, which holds
@@ -2703,12 +2914,22 @@ class TaskManagerMixin(GraphEngineProtocol):
         is what the zombie reaper uses to requeue a dead host's work. Returns
         ``(job_id, stamped_meta)`` or ``None`` when idle. (CONCEPT:KG-2.113)
         """
+        # ORCH-1.81: build this claim's admission gate from the live worker→lane
+        # registry. Composes WITH the rotation+CAS: rotation proposes a candidate,
+        # ``admit`` decides whether THIS free worker may take that lane/type now
+        # (keep a hot spare, cap codebase, guarantee per-lane min coverage). A
+        # ``None`` gate (tiny pool / disabled) preserves the prior behaviour.
+        try:
+            admit = self._make_admission()
+        except Exception:  # noqa: BLE001 — scheduling is best-effort; never block claims
+            admit = None
+
         # Bound the retry sweep so a burst of contending workers can't spin
         # forever; each miss means a peer claimed that candidate, so the next
         # selection returns a different pending row (the claimed one is now
         # 'running' and no longer matches the pending filter).
         for _ in range(_CLAIM_MAX_RETRIES):
-            row = self._select_pending_task()
+            row = self._select_pending_task(admit=admit)
             if not row:
                 return None
             job_id = row["id"]
@@ -2723,12 +2944,24 @@ class TaskManagerMixin(GraphEngineProtocol):
                 {"status": "running", "metadata": encoded_meta},
             )
             if won:
+                # ORCH-1.81: stamp the registry the instant the CAS wins so the
+                # NEXT worker's admission sees this lane/type as covered/busy.
+                if worker_id is not None:
+                    from agent_utilities.knowledge_graph.core.task_lanes import (
+                        lane_for_task_type,
+                    )
+
+                    tk = str(meta.get("type") or meta.get("tkind") or "document")
+                    self._worker_registry().start(worker_id, lane_for_task_type(tk), tk)
                 return job_id, meta
             # Lost the race for this row — try the next candidate.
         return None
 
     def _task_worker_loop(self):
         """Distributed polling loop that picks up pending tasks natively."""
+        # ORCH-1.81: a stable per-thread id keys this worker in the admission
+        # registry, so the policy knows what THIS worker is processing.
+        worker_id = threading.current_thread().name
         while True:
             try:
                 job_id = None
@@ -2736,7 +2969,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 is_codebase = False
                 task_type = "document"
 
-                claimed = self._claim_next_task()
+                claimed = self._claim_next_task(worker_id=worker_id)
                 if claimed:
                     job_id, meta = claimed
                     if meta:
@@ -2768,10 +3001,20 @@ class TaskManagerMixin(GraphEngineProtocol):
                             "type": "unknown",
                         },
                     )
+                    # ORCH-1.81: free this worker in the admission registry.
+                    self._worker_registry().finish(worker_id)
                     time.sleep(2.0)
                     continue
 
-                self._execute_claimed_task(job_id, target_path, is_codebase, task_type)
+                try:
+                    self._execute_claimed_task(
+                        job_id, target_path, is_codebase, task_type
+                    )
+                finally:
+                    # ORCH-1.81: mark the worker free the moment its task is done
+                    # (success or raise), so the next worker's admission and the
+                    # codebase cap see the freed slot immediately.
+                    self._worker_registry().finish(worker_id)
 
             except Exception as e:
                 logger.error(f"TaskManager worker error: {e}")
@@ -2782,6 +3025,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                         logger.error(
                             f"Failed to update task status to failed for {job_id}: {inner_e}"
                         )
+                # ORCH-1.81: ensure the worker is freed even on the error path.
+                try:
+                    self._worker_registry().finish(worker_id)
+                except Exception:  # noqa: BLE001
+                    pass  # nosec B110
                 time.sleep(5)
 
     def _execute_claimed_task(

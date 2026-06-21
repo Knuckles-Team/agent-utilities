@@ -36,8 +36,14 @@ class _ClaimHarness:
         self._candidates = list(candidates)
         self._tok = TOKEN
 
-    def _select_pending_task(self):
+    def _select_pending_task(self, admit=None):
+        # ORCH-1.81 added an admission predicate; this harness hands back a
+        # controlled candidate queue regardless (admission is tested separately).
         return self._candidates.pop(0) if self._candidates else None
+
+    def _make_admission(self):
+        # ORCH-1.81: disable the admission gate for these pure CAS tests.
+        return None
 
     def _get_host_token(self) -> str:
         return self._tok
