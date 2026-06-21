@@ -198,6 +198,136 @@ def test_resolve_capacity_unknown_defaults_to_one():
     assert resolve_capacity("totally-unknown-model-xyz") == 1
 
 
+# --- sample recording side-channel (CONCEPT:KG-2.145) -----------------------
+
+
+def test_sync_records_samples_while_preserving_order(monkeypatch):
+    from agent_utilities.core import model_concurrency as mc
+
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        mc,
+        "_record",
+        lambda model, *, latency_s, ok, status: recorded.append(
+            {"model": model, "latency_s": latency_s, "ok": ok, "status": status}
+        ),
+    )
+    items = list(range(10))
+    out = mc.map_concurrent_sync(items, lambda x: x * 10, model="embedding", capacity=4)
+    assert out == [i * 10 for i in items]  # ordered results unchanged
+    assert len(recorded) == 10  # one sample per call
+    assert all(r["ok"] for r in recorded)
+    assert all(r["latency_s"] >= 0 for r in recorded)
+    assert all(r["model"] == "embedding" for r in recorded)
+
+
+def test_sync_inline_path_records_samples(monkeypatch):
+    from agent_utilities.core import model_concurrency as mc
+
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        mc,
+        "_record",
+        lambda model, *, latency_s, ok, status: recorded.append(
+            {"latency_s": latency_s, "ok": ok}
+        ),
+    )
+    # capacity=1 → inline loop path
+    out = mc.map_concurrent_sync([1, 2, 3], lambda x: x + 1, capacity=1)
+    assert out == [2, 3, 4]
+    assert len(recorded) == 3 and all(r["ok"] for r in recorded)
+
+
+def test_sync_records_failure_with_status_and_reraises(monkeypatch):
+    from agent_utilities.core import model_concurrency as mc
+
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        mc,
+        "_record",
+        lambda model, *, latency_s, ok, status: recorded.append(
+            {"ok": ok, "status": status}
+        ),
+    )
+
+    class _Overloaded(Exception):
+        status_code = 429
+
+    def boom(_x):
+        raise _Overloaded("too many requests")
+
+    with pytest.raises(_Overloaded):
+        mc.map_concurrent_sync([1], boom, capacity=1)
+    assert recorded == [{"ok": False, "status": 429}]
+
+
+def test_async_records_samples_while_preserving_order(monkeypatch):
+    from agent_utilities.core import model_concurrency as mc
+
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        mc,
+        "_record",
+        lambda model, *, latency_s, ok, status: recorded.append(
+            {"latency_s": latency_s, "ok": ok, "status": status}
+        ),
+    )
+
+    async def afn(x):
+        await asyncio.sleep(0.001)
+        return x * 10
+
+    items = list(range(8))
+    out = asyncio.run(mc.map_concurrent(items, afn, model="embedding", capacity=4))
+    assert out == [i * 10 for i in items]
+    assert len(recorded) == 8
+    assert all(r["ok"] and r["latency_s"] >= 0 for r in recorded)
+
+
+def test_async_records_failure_and_reraises(monkeypatch):
+    from agent_utilities.core import model_concurrency as mc
+
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        mc,
+        "_record",
+        lambda model, *, latency_s, ok, status: recorded.append(
+            {"ok": ok, "status": status}
+        ),
+    )
+
+    class _Down(Exception):
+        status = 503
+
+    async def afn(_x):
+        raise _Down("unavailable")
+
+    with pytest.raises(_Down):
+        asyncio.run(mc.map_concurrent([1], afn, capacity=1))
+    assert recorded == [{"ok": False, "status": 503}]
+
+
+def test_status_of_extracts_common_shapes():
+    from agent_utilities.core.model_concurrency import _status_of
+
+    class A(Exception):
+        status_code = 429
+
+    class B(Exception):
+        status = 503
+
+    class _Resp:
+        status_code = 502
+
+    class C(Exception):
+        response = _Resp()
+
+    assert _status_of(A()) == 429
+    assert _status_of(B()) == 503
+    assert _status_of(C()) == 502
+    assert _status_of(Exception("nope")) is None
+
+
 def test_resolve_capacity_reflects_config(monkeypatch):
     from agent_utilities.core import config as config_mod
 

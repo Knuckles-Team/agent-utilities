@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import threading
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar
@@ -41,6 +42,42 @@ __all__ = [
     "map_concurrent",
     "map_concurrent_sync",
 ]
+
+
+def _status_of(exc: BaseException) -> int | None:
+    """Best-effort HTTP status extraction from a raised exception.
+
+    Works across httpx/openai/requests/urllib without importing any of them: it
+    duck-types the common attributes (``status_code``, ``.response.status_code``,
+    ``.code``, ``.status``). Returns ``None`` when no status is discernible — the
+    controller then treats it as an opaque-under-load congestion-ish failure.
+    """
+    for attr in ("status_code", "status", "code"):
+        val = getattr(exc, attr, None)
+        if isinstance(val, int):
+            return val
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        sc = getattr(resp, "status_code", None)
+        if isinstance(sc, int):
+            return sc
+    return None
+
+
+def _record(
+    model: str | None, *, latency_s: float, ok: bool, status: int | None
+) -> None:
+    """Side-channel: feed an observed call into the adaptive controller.
+
+    Pure observation — never raises, never affects the fan-out contract
+    (CONCEPT:KG-2.145).
+    """
+    try:
+        from agent_utilities.core.model_capacity_autoscale import record_sample
+
+        record_sample(model, latency_s=latency_s, ok=ok, status=status)
+    except Exception:  # noqa: BLE001 — observation must never break fan-out
+        pass
 
 
 def resolve_capacity(model: str | None = None, default: int = 1) -> int:
@@ -180,9 +217,22 @@ async def map_concurrent(
 
     async def _run(item: T) -> R:
         async with sem:
-            if is_coro:
-                return await fn(item)  # type: ignore[misc]
-            return await asyncio.to_thread(fn, item)  # type: ignore[arg-type]
+            start = time.monotonic()
+            try:
+                if is_coro:
+                    result = await fn(item)  # type: ignore[misc]
+                else:
+                    result = await asyncio.to_thread(fn, item)  # type: ignore[arg-type]
+            except BaseException as exc:  # noqa: BLE001 — observe then re-raise
+                _record(
+                    model,
+                    latency_s=time.monotonic() - start,
+                    ok=False,
+                    status=_status_of(exc),
+                )
+                raise
+            _record(model, latency_s=time.monotonic() - start, ok=True, status=None)
+            return result
 
     # gather preserves the order of the awaitables → order of items.
     return list(await asyncio.gather(*(_run(it) for it in items)))
@@ -206,8 +256,24 @@ def map_concurrent_sync(
     if n == 0:
         return []
     cap = max(1, int(capacity)) if capacity is not None else resolve_capacity(model)
+
+    def _timed(item: T) -> R:
+        start = time.monotonic()
+        try:
+            result = fn(item)
+        except BaseException as exc:  # noqa: BLE001 — observe then re-raise
+            _record(
+                model,
+                latency_s=time.monotonic() - start,
+                ok=False,
+                status=_status_of(exc),
+            )
+            raise
+        _record(model, latency_s=time.monotonic() - start, ok=True, status=None)
+        return result
+
     if cap <= 1 or n == 1:
-        return [fn(it) for it in items]
+        return [_timed(it) for it in items]
     pool = get_thread_pool(model, cap)
     # executor.map preserves input order in its result iterator.
-    return list(pool.map(fn, items))
+    return list(pool.map(_timed, items))
