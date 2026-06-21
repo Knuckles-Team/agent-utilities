@@ -292,6 +292,31 @@ DISPATCH_WORKERS = _gauge(
     "Live agent-dispatch workers (fresh heartbeats in the fleet registry).",
 )
 
+# Agent-to-agent communication bus visibility (CONCEPT:ECO-4.87, the AgentBus of
+# ECO-4.84). Participants are sampled by ``AgentBus.status``/``roster``; message and
+# dispatch counters are bumped on the send/dispatch path; send duration measures the
+# server-side bus write latency (the cross-host wire is durable-store polling on top).
+# Labels are bounded (status/kind/outcome are small enums) so cardinality stays flat.
+BUS_PARTICIPANTS = _gauge(
+    "agent_utilities_bus_participants",
+    "Registered bus participants by computed presence (online|offline).",
+    ("status",),
+)
+BUS_MESSAGES = _counter(
+    "agent_utilities_bus_messages_total",
+    "Bus messages by kind (direct|topic) and outcome (delivered|denied|no_recipient).",
+    ("kind", "outcome"),
+)
+BUS_SEND_DURATION = _histogram(
+    "agent_utilities_bus_send_seconds",
+    "Server-side latency of one AgentBus.send (gate + per-recipient durable write).",
+)
+BUS_DISPATCH = _counter(
+    "agent_utilities_bus_dispatch_total",
+    "Bus message->fleet-work dispatches by outcome (submitted|denied|failed).",
+    ("outcome",),
+)
+
 
 def render_metrics() -> tuple[bytes, str]:
     """Render the process metric registry in Prometheus exposition format.

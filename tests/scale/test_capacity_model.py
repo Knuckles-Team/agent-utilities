@@ -132,3 +132,36 @@ def test_kafka_partition_floor():
     # Tiny / dormant populations never drop below the floor.
     assert cm.kafka_partitions_for(10, 0.0) == cm.MIN_KAFKA_PARTITIONS
     assert cm.kafka_partitions_for(0, 0.02) == cm.MIN_KAFKA_PARTITIONS
+
+
+# --- Agent bus capacity (CONCEPT:ECO-4.84/ECO-4.87) ------------------------- #
+
+
+def test_bus_message_rate_anchored_to_single_connection():
+    # ~2 ops/message → half the single-connection op rate.
+    assert cm.bus_messages_per_sec_per_connection() == 2_500
+    assert cm.BUS_OPS_PER_MESSAGE == 2
+
+
+def test_bus_engine_connections_scale_with_rate_and_fanout():
+    assert cm.bus_engine_connections_for(0) == 0
+    # 2,500 direct msg/s fits on one connection; double it → two.
+    assert cm.bus_engine_connections_for(2_500, avg_recipients=1.0) == 1
+    assert cm.bus_engine_connections_for(5_000, avg_recipients=1.0) == 2
+    # Fan-out multiplies the write cost.
+    assert cm.bus_engine_connections_for(2_500, avg_recipients=10.0) == 10
+
+
+def test_bus_hubs_floor_and_sharding():
+    assert cm.bus_hubs_for(0) == 0
+    assert cm.bus_hubs_for(1) == 1
+    assert cm.bus_hubs_for(cm.PARTICIPANTS_PER_HUB) == 1
+    assert cm.bus_hubs_for(cm.PARTICIPANTS_PER_HUB + 1) == 2
+
+
+def test_bus_plan_monotonic_and_consistent():
+    small = cm.bus_plan_for(5_000, 1_000, avg_recipients=1.0)
+    big = cm.bus_plan_for(50_000, 20_000, avg_recipients=4.0)
+    assert small.hubs == 1 and small.engine_connections == 1
+    assert big.hubs >= small.hubs
+    assert big.engine_connections >= small.engine_connections
