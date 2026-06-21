@@ -967,7 +967,14 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="object_edits",
-        description="Durable object-edit ledger (CONCEPT:KG-2.43): record a structured edit (property_set/link_add/link_remove/object_create/object_delete), revert an edit, or read per-object history / as_of snapshot.",
+        description=(
+            "Durable object-edit ledger (CONCEPT:KG-2.43): record a structured edit "
+            "(property_set/link_add/link_remove/object_create/object_delete), revert "
+            "an edit, or read per-object history / as_of snapshot. For a property_set, "
+            "pass 'expect' to record the edit ONLY if the object still matches those "
+            "values (CONCEPT:KG-2.142) — optimistic concurrency for concurrent agent "
+            "object-shaping so two agents editing the same object never lose a write."
+        ),
         tags=["graph-os", "ontology"],
     )
     def object_edits(
@@ -997,13 +1004,47 @@ def register_ontology_tools(mcp):
         actor: str = Field(
             default="system", description="Acting principal recorded on the edit."
         ),
+        expect: dict = Field(
+            default_factory=dict,
+            description=(
+                "For action='record' edit_type='property_set': field→expected current "
+                "value the object must still match for the set to apply (missing field "
+                "reads as null). When non-empty the set goes through an atomic "
+                "compare-and-set (CONCEPT:KG-2.142): the edit is recorded ONLY if it "
+                "wins; an unapplied set returns {'applied': false} and records nothing. "
+                "Empty (default) = unconditional set, identical to prior behavior. "
+                "e.g. {'status': 'pending'}."
+            ),
+        ),
     ) -> str:
-        """Record / revert object edits and read per-object edit history or an as_of snapshot."""
+        """Record / revert object edits and read per-object edit history or an as_of snapshot.
+
+        CONCEPT:KG-2.142 optimistic-concurrency for object property edits.
+        ``action='record'`` with a non-empty ``expect`` is the object-layer
+        optimistic-concurrency primitive: the property_set is
+        applied through the engine's atomic ``compare_and_set_node_fields`` and the
+        ledger edit is recorded **only if the precondition still holds** — use it
+        when concurrent agents shape the same object so one never clobbers another.
+        """
         from agent_utilities.knowledge_graph.ontology.edits import (
             Edit,
             EditType,
             revert_edit,
         )
+
+        def _as_dict(v: Any) -> dict:
+            # Omitted dict params arrive as the unresolved FastMCP ``FieldInfo``
+            # (default_factory is not resolved by the internal/REST dispatcher);
+            # coerce anything non-dict — and a JSON-string some clients send.
+            if isinstance(v, dict):
+                return v
+            if isinstance(v, str) and v.strip():
+                try:
+                    parsed = json.loads(v)
+                    return parsed if isinstance(parsed, dict) else {}
+                except (ValueError, TypeError):
+                    return {}
+            return {}
 
         try:
             ont = kg_server._ontology_system()
@@ -1021,6 +1062,49 @@ def register_ontology_tools(mcp):
                     )
                 else:
                     props = json.loads(properties_json) if properties_json else {}
+                    conditions = _as_dict(expect)
+                    if etype == EditType.PROPERTY_SET and conditions:
+                        # CONCEPT:KG-2.142 — atomic optimistic-concurrency property
+                        # set. The object id IS the node id (the ledger persists the
+                        # edit's target as MERGE (t {id: object_id})), so we condition
+                        # on the SAME node the edit targets. Apply the set ONLY if the
+                        # node still matches ``expect`` (missing field ≡ null), under
+                        # the engine write lock. If we lose the race we record NOTHING
+                        # and surface applied=false — never a misleading audit edit.
+                        engine = kg_server._get_engine()
+                        backend = getattr(engine, "backend", None)
+                        if backend is None:
+                            return json.dumps(
+                                {
+                                    "action": "compare_and_set",
+                                    "object_id": object_id,
+                                    "applied": False,
+                                    "error": "no engine backend for conditional set",
+                                }
+                            )
+                        applied = bool(
+                            backend.compare_and_set_node_fields(
+                                object_id, conditions, dict(props)
+                            )
+                        )
+                        if not applied:
+                            return json.dumps(
+                                {
+                                    "action": "compare_and_set",
+                                    "object_id": object_id,
+                                    "applied": False,
+                                }
+                            )
+                        edit = Edit(
+                            actor=actor,
+                            edit_type=etype,
+                            object_id=object_id,
+                            after=dict(props),
+                        )
+                        recorded = ledger.record(edit)
+                        payload = recorded.model_dump()
+                        payload["applied"] = True
+                        return json.dumps(payload, default=str)
                     edit = Edit(
                         actor=actor,
                         edit_type=etype,

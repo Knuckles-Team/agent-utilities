@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 412
+total_concepts: 413
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3268,6 +3268,13 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/messaging/bus.py
   doc: the user-override layer of the prompt library, mirroring
+- id: KG-2.142
+  name: optimistic-concurrency for object property edits
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: optimistic-concurrency for object property edits
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
