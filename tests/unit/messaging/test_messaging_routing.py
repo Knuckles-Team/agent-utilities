@@ -474,3 +474,24 @@ async def test_image_turn_routes_to_vision_responder(
     )
     assert called["vision"] == 1 and called["execute"] == 0
     assert "1 image" in reply
+
+
+@pytest.mark.asyncio
+async def test_varied_ack_lite_llm_with_static_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CONCEPT:ECO-4.67 — the deferred-turn ack is LLM-varied (not a fixed template), with a
+    varied static fallback when the lite model is unavailable."""
+    from types import SimpleNamespace
+
+    from agent_utilities.knowledge_graph.enrichment import cards
+    from agent_utilities.messaging import router as rt
+
+    shape = SimpleNamespace(tool_servers=("github-mcp",))
+    # lite model available → its varied line is used
+    monkeypatch.setattr(cards, "make_lite_llm_fn", lambda: (lambda p: "Grabbing that now ⏳"))
+    assert await rt._varied_ack("list my issues", shape) == "Grabbing that now ⏳"
+    # lite model unavailable → varied static fallback (references the server, has ⏳)
+    monkeypatch.setattr(cards, "make_lite_llm_fn", lambda: None)
+    fb = await rt._varied_ack("list my issues", shape)
+    assert "github" in fb and "⏳" in fb

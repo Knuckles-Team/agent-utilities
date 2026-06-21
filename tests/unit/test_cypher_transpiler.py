@@ -54,6 +54,24 @@ class TestCreateNode:
         assert "ON CONFLICT" in tq.sql
         assert tq.params == ["agent-1", "Test", "agent"]
 
+    def test_create_strips_nul_and_serializes_dict(self):
+        """CONCEPT:KG-2.9 — node-property values are sanitized for Postgres binding:
+        NUL (0x00) is stripped from strings (TEXT rejects it) and dict/list values are
+        JSON-encoded (psycopg cannot adapt a bare dict to %s). Was dropping Article
+        content (NUL) + Document rows (dict) on ingest."""
+        import json
+
+        cypher = "CREATE (n:Document {id: $id, content: $content, record: $record})"
+        params = {
+            "id": "doc-1",
+            "content": "hello\x00world",
+            "record": {"k": "v", "n": 1},
+        }
+        tq = transpile(cypher, params, KNOWN_TABLES)
+        assert tq.params[0] == "doc-1"
+        assert tq.params[1] == "helloworld"  # NUL stripped
+        assert tq.params[2] == json.dumps({"k": "v", "n": 1})  # dict → JSON string
+
 
 class TestMatchById:
     def test_match_with_set(self):

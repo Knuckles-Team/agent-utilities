@@ -395,16 +395,7 @@ async def create_planner_handler(
                 _kind,
                 shape.reply_budget_s,
             )
-            _ack = (
-                "On it — running those tools now, I'll reply here as soon as they're back. ⏳"
-                if shape.tool_servers
-                else "On it — this one needs the full toolset, so it'll take a little longer. "
-                "I'll reply here as soon as it's ready. ⏳"
-            )
-            await _send(
-                _ack,
-                threaded=True,
-            )
+            await _send(await _varied_ack(combined, shape), threaded=True)
             _spawn_bg(_run_and_deliver(deferred=True))
 
     coalescer = BurstCoalescer(
@@ -817,6 +808,54 @@ async def _graph_agent_reply(
     # Plain-chat fallback — a single short bounded attempt, fired ONLY on a genuine graph
     # error (not a backend timeout), so it never doubles a slow round (CONCEPT:ORCH-1.62/4.74).
     return await _plain_chat_reply(content, image_parts=image_parts)
+
+
+async def _varied_ack(content: str, shape: Any) -> str:
+    """A short, NATURALLY-VARIED 'on it' acknowledgement for a deferred turn (CONCEPT:ECO-4.67).
+
+    The old single template ("On it — …") read as obviously canned. Generate a quick line
+    with the LITE model (so it varies + can reference what it's doing), bounded by a short
+    timeout, and fall back to a randomly-chosen varied static line on any error/slowness —
+    the ack must NEVER delay the real work.
+    """
+    import random
+
+    servers = getattr(shape, "tool_servers", ()) or ()
+    if servers:
+        names = ", ".join(
+            s.replace("-mcp", "").replace("-agent", "").replace("-api", "") for s in servers
+        )
+        static_pool = [
+            f"On it — pulling that from {names} now, back in a moment. ⏳",
+            f"Got it — hitting {names} for you, one sec. ⏳",
+            f"Sure, checking {names} — I'll follow up here shortly. ⏳",
+        ]
+        what = f"it needs the {names} tool(s)"
+    else:
+        static_pool = [
+            "On it — this needs a bit of digging, I'll reply here shortly. ⏳",
+            "Sure — let me work through that, back in a moment. ⏳",
+            "Got it — give me a sec to put this together. ⏳",
+        ]
+        what = "it takes a few steps"
+    fallback = random.choice(static_pool)  # noqa: S311 — cosmetic phrasing, not security
+    try:
+        from agent_utilities.knowledge_graph.enrichment.cards import make_lite_llm_fn
+
+        llm = make_lite_llm_fn()
+        if llm is None:
+            return fallback
+        prompt = (
+            "Write ONE short (max ~12 words), natural, friendly line acknowledging you're on "
+            f"the request and will reply shortly (because {what}). Vary the wording, stay casual, "
+            "end with an hourglass emoji. The user said: "
+            f'"{content[:200]}". Reply with ONLY the line, no quotes.'
+        )
+        line = await asyncio.wait_for(asyncio.to_thread(llm, prompt), timeout=4.0)
+        line = str(line or "").strip().strip('"').splitlines()[0].strip() if line else ""
+        return line if 0 < len(line) <= 160 else fallback
+    except Exception:  # noqa: BLE001 — the ack is best-effort; never block the reply
+        return fallback
 
 
 # CONCEPT:ECO-4.55 — Model-routed inbound responder with local LLM default and Claude address
