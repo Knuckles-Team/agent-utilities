@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 400
+total_concepts: 405
 total_pillars: 21
 pillars:
 - AHE-3
@@ -633,13 +633,13 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: via
 - id: AHE-3.62
-  name: This is how
+  name: AHE-3.62
   pillar: AHE-3
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
-  doc: This is how
+  doc: AHE-3.62
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -3211,6 +3211,15 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/context_plane.py
   - agent_utilities/knowledge_graph/retrieval/entity_context.py
   doc: KG-2.139
+- id: KG-2.140
+  name: This is how
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/knowledge_graph/retrieval/code_context.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: This is how
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -3291,6 +3300,7 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/core/default_catalog.py
   - agent_utilities/core/model_factory.py
+  - agent_utilities/core/model_router.py
   - agent_utilities/core/registry/kg_adapter.py
   - agent_utilities/core/registry/package_adapter.py
   - agent_utilities/core/resource_optimizer.py
@@ -3997,6 +4007,24 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   doc: external connector delta syncs
+- id: ORCH-1.78
+  name: escalate breached goals
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/goal_sla.py
+  - agent_utilities/core/sessions.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: escalate breached goals
+- id: ORCH-1.79
+  name: route adaptively from the learned per-role confidence
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/model_factory.py
+  - agent_utilities/core/model_router.py
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  doc: route adaptively from the learned per-role confidence
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
@@ -4541,6 +4569,23 @@ concepts:
   - agent_utilities/deployment/doctor.py
   - agent_utilities/knowledge_graph/ingestion/connector_coverage.py
   doc: OS-5.48
+- id: OS-5.49
+  name: earned-autonomy ramp
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/orchestration/autonomy_ramp.py
+  doc: earned-autonomy ramp
+- id: OS-5.50
+  name: OS-5.50
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/deployment/self_deploy.py
+  - agent_utilities/knowledge_graph/retrieval/deploy_context.py
+  doc: OS-5.50
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

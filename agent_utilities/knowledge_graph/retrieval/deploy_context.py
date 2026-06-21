@@ -88,6 +88,14 @@ def deploy_status(
     tok = next(iter(_re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", query or "")), "")
     routes = _routes_for(engine, tok)
 
+    # The governed plan to make a merged change live (CONCEPT:OS-5.50).
+    try:
+        from agent_utilities.deployment.self_deploy import plan_redeploy
+
+        redeploy = plan_redeploy()
+    except Exception:  # pragma: no cover - best-effort
+        redeploy = {}
+
     sections = {
         "canonical": [
             {
@@ -101,6 +109,7 @@ def deploy_status(
         "mounts": [{"alias": a, "canonical": c} for a, c in MOUNT_ALIASES.items()],
         "worktrees": [{"path": w} for w in worktrees],
         "routes": routes,
+        "redeploy": [redeploy] if redeploy else [],
     }
     answer = _synthesize(root, branch, head, dirty, ahead, worktrees, routes)
     citations = [{"type": "rev", "id": head, "branch": branch}] + [
@@ -148,6 +157,14 @@ def _synthesize(root, branch, head, dirty, ahead, worktrees, routes) -> str:
     parts.append(
         "Served daemon's LOADED revision is not observable from here — to guarantee a "
         "merged change is live, restart the served graph-os (the mount only updates "
-        "files, not the running process)."
+        "files, not the running process). To make it live: "
+        + _RESTART_HINT
+        + " then verify with the doctor. (Governed self-deploy: "
+        "agent_utilities.deployment.self_deploy.execute_redeploy — policy-gated, "
+        "dry-run by default.)"
     )
     return " ".join(parts)
+
+
+# Shown in the deploy answer; kept in sync with self_deploy.plan_redeploy.
+_RESTART_HINT = "restart the served graph-os on the manager"

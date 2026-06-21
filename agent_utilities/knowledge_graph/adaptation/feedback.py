@@ -28,7 +28,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_VALID = {"outcome", "rule", "eval", "reads_avoided", "action_outcome"}
+_VALID = {"outcome", "rule", "eval", "reads_avoided", "action_outcome", "gotcha"}
 
 # Map a free-form rule scope to the persisted node type consumed by
 # governance_rules.load_active_rules.
@@ -117,6 +117,10 @@ class FeedbackService:
         if ctype == "action_outcome":
             return self.record_action_outcome(
                 target_id, corrected_value=corrected_value, reason=reason
+            )
+        if ctype == "gotcha":
+            return self.record_gotcha(
+                target_id, str(corrected_value or reason or ""), actor_id=actor_id
             )
         if ctype == "outcome":
             return self._apply_outcome(target_id, reward, corrected_value, reason)
@@ -350,6 +354,45 @@ class FeedbackService:
             outcome.applied,
             f"reward={r:.2f} success={s}" + (f" observed={obs[:40]}" if obs else ""),
             created,
+        )
+
+    # ------------------------------------------------------------------
+    def record_gotcha(
+        self,
+        target_id: str,
+        note: str,
+        *,
+        severity: str = "warn",
+        actor_id: str = "human",
+    ) -> CorrectionResult:
+        """Pin a hard-won gotcha to a file/module so it's inherited, not relearned.
+
+        CONCEPT:KG-2.140 — a ``:Gotcha`` node keyed by a (normalized) path + note,
+        surfaced by ``code_context`` when an agent touches that area. The dogfood
+        fix: traps like "gen scripts import the canonical copy, not the worktree" or
+        "``_get_engine()`` hangs in a one-off host process" live IN the KG attached
+        to the code, surfaced on touch — instead of being rediscovered every session.
+        """
+        if self.backend is None or not hasattr(self.backend, "add_node"):
+            return CorrectionResult("gotcha", target_id, False, "no backend to persist")
+        if not note.strip():
+            return CorrectionResult("gotcha", target_id, False, "empty gotcha note")
+        from agent_utilities.core.source_paths import normalize_path
+
+        path = normalize_path(target_id) or target_id
+        gid = f"gotcha:{uuid.uuid5(uuid.NAMESPACE_URL, path + '|' + note).hex[:12]}"
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        self.backend.add_node(
+            gid,
+            type="Gotcha",
+            path=path,
+            note=note.strip(),
+            severity=severity,
+            actor_id=actor_id,
+            timestamp=ts,
+        )
+        return CorrectionResult(
+            "gotcha", target_id, True, f"pinned gotcha to {path}", [gid]
         )
 
     def _apply_rule(

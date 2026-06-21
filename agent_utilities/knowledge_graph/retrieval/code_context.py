@@ -311,6 +311,23 @@ def _docs(engine: Any, query: str, limit: int) -> list[dict[str, Any]]:
     ]
 
 
+def _gotchas(engine: Any, file_path: str, limit: int) -> list[dict[str, Any]]:
+    """Pinned :Gotcha notes for the anchor's file (CONCEPT:KG-2.140)."""
+    if not file_path:
+        return []
+    rows = _rows(
+        engine,
+        "MATCH (g:Gotcha) WHERE g.path = $fp "
+        "RETURN g.note AS note, g.severity AS severity LIMIT $k",
+        {"fp": file_path, "k": int(limit)},
+    )
+    return [
+        {"note": r.get("note"), "severity": r.get("severity")}
+        for r in rows
+        if r.get("note")
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Cross-repo usage (CONCEPT:KG-2.135)
 # ---------------------------------------------------------------------------
@@ -443,6 +460,10 @@ def build_code_context(
         if docs:
             sections["docs"] = docs
             used.append("docs")
+        gotchas = _gotchas(engine, fp, limit)
+        if gotchas:
+            sections["gotchas"] = gotchas
+            used.append("gotchas")
     elif intent == "usage":
         callers = _callers(engine, name, limit)
         if callers:
@@ -531,6 +552,8 @@ def _synthesize(
         for d in (sections.get("docs") or [])[:2]:
             if d.get("snippet"):
                 lines.append(f"Doc: {d['snippet'].strip()} [{d.get('source') or ''}]")
+        for g in (sections.get("gotchas") or [])[:4]:
+            lines.append(f"⚠️ GOTCHA: {g['note']}")
     elif intent == "usage":
         callers = sections.get("callers") or []
         if callers:
