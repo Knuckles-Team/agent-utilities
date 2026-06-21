@@ -151,13 +151,18 @@ class ClientCredentialsTokenProvider:
 
 _provider: ClientCredentialsTokenProvider | None = None
 _provider_lock = threading.Lock()
-_provider_failed = False
 
 
 def get_provider() -> ClientCredentialsTokenProvider | None:
-    """Return the configured provider, or ``None`` when disabled/misconfigured."""
-    global _provider, _provider_failed
-    if not _enabled() or _provider_failed:
+    """Return the configured provider, or ``None`` when disabled/misconfigured.
+
+    Self-healing: a missing-creds result is NOT cached. A first call that races
+    ahead of the secret bridge / OIDC discovery (e.g. at server startup) must not
+    permanently disable fleet auth — the next call retries and succeeds once the
+    creds are present. Only the successfully-built provider is memoized.
+    """
+    global _provider
+    if not _enabled():
         return None
     if _provider is not None:
         return _provider
@@ -171,9 +176,9 @@ def get_provider() -> ClientCredentialsTokenProvider | None:
             logger.error(
                 "MCP_CLIENT_AUTH=oidc-client-credentials but OIDC_TOKEN_URL/"
                 "FASTMCP_SERVER_AUTH_JWT_ISSUER, OIDC_CLIENT_ID or "
-                "OIDC_CLIENT_SECRET is missing — children stay unauthenticated."
+                "OIDC_CLIENT_SECRET is missing — children stay unauthenticated "
+                "(will retry on the next call)."
             )
-            _provider_failed = True
             return None
         verify = setting("OIDC_TLS_VERIFY", "true").strip().lower() not in (
             "false",
@@ -284,6 +289,13 @@ def bearer_auth(existing: dict | None) -> ClientCredentialsAuth | None:
         return None
     provider = get_provider()
     if provider is None:
+        # Never silently leave a child unauthenticated: log WHY so a fleet-wide
+        # 401 is diagnosable (enabled=False → config; enabled=True → creds/discovery).
+        logger.warning(
+            "[OS-5.32] no service bearer for child (MCP_CLIENT_AUTH enabled=%s) — "
+            "request goes unauthenticated; a jwt-protected child will 401.",
+            _enabled(),
+        )
         return None
     return ClientCredentialsAuth(provider)
 
