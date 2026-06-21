@@ -168,8 +168,57 @@ class InboundRouter:
             )
             self._tasks.append(task)
 
+        # CONCEPT:ECO-4.83 — durable-inbox reaper: re-answers inbound turns that were recorded
+        # pending but never got a reply (engine down / crashed mid-flight), so nothing is lost.
+        if self._backends:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._inbox_reaper_loop(), name="messaging-inbox-reaper"
+                )
+            )
+
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
+
+    def _backend_for(self, platform: str) -> MessagingBackend | None:
+        """The connected backend for a platform id (CONCEPT:ECO-4.83), for reaper retries."""
+        for b in self._backends:
+            if platform and (
+                str(getattr(b, "id", "")) == platform
+                or str(getattr(b, "platform", "")) == platform
+            ):
+                return b
+        return self._backends[0] if self._backends else None
+
+    async def _inbox_reaper_loop(self) -> None:
+        """Periodically re-attempt durably-recorded but still-unanswered inbound messages
+        (CONCEPT:ECO-4.83). Uses this router's own backends + the universal reply path, so a
+        turn that failed while the engine was down is answered once the system recovers."""
+        from agent_utilities.core.config import setting
+        from agent_utilities.messaging.inbox import retry_unanswered
+        from agent_utilities.messaging.service import MessagingService
+
+        interval = float(setting("MESSAGING_INBOX_RETRY_S", "120"))
+        while self._running:
+            await asyncio.sleep(interval)
+            try:
+                engine = MessagingService.instance()._resolve_engine()
+
+                async def _reply_send(m: dict[str, Any], _eng: Any = engine) -> bool:
+                    backend = self._backend_for(str(m.get("platform", "")))
+                    if backend is None:
+                        return False
+                    reply = await _graph_agent_reply(
+                        _eng, m.get("text", ""), session=m.get("session", "")
+                    )
+                    if not reply:
+                        return False
+                    await backend.send_message(m.get("channel_id", ""), reply)
+                    return True
+
+                await retry_unanswered(engine, _reply_send)
+            except Exception as e:  # noqa: BLE001 — the reaper must survive any single pass
+                logger.debug("[CONCEPT:ECO-4.83] inbox reaper pass failed: %s", e)
 
     async def stop(self) -> None:
         """Stop all listener tasks gracefully.
@@ -343,6 +392,20 @@ async def create_planner_handler(
         # budget inline; a full multi-agent tool turn would blow any reasonable inline wait, so
         # we ack immediately and send the result as a follow-up when it is ready. The transport
         # stays thin — the core shape makes the call; here we only render it for this medium.
+        # CONCEPT:ECO-4.83 — record the inbound turn DURABLY as pending BEFORE we attempt the
+        # reply, so a turn that fails mid-flight (engine down, crash before _send) is found +
+        # retried by the reaper instead of being silently lost ("I saved your message" → real).
+        from agent_utilities.messaging.inbox import mark_answered, record_inbound
+
+        _inbox_id = record_inbound(
+            engine,
+            platform=str(event.platform),
+            channel_id=event.channel_id,
+            message_id=getattr(getattr(event, "message", None), "id", None),
+            text=combined,
+            session=session,
+        )
+
         from agent_utilities.orchestration.execution_profile import plan_execution_shape
 
         shape = plan_execution_shape(combined, profile_hint="chat", engine=engine)
@@ -367,6 +430,9 @@ async def create_planner_handler(
             # An interactive turn threads its reply to the user's message; a deferred turn
             # already acked there, so its result lands as a fresh follow-up message.
             await _send(reply, threaded=not deferred)
+            # CONCEPT:ECO-4.83 — the real reply was delivered → close the durable inbox entry.
+            # If _run_and_deliver crashed BEFORE this (engine down), it stays pending → retried.
+            mark_answered(engine, _inbox_id)
             # Persist + enrich AFTER the reply is sent (CONCEPT:ECO-4.74). EVERY KG write and
             # local-model encode (last-active, message ingest, episodic memory, and the
             # per-session conversation memento that gives the NEXT turn its continuity) runs
