@@ -113,6 +113,94 @@ def test_submit_loop_records_priority_bucket():
     assert eng.nodes[loop["id"]]["prio_bucket"] == 3
 
 
+def test_submit_loop_coerces_legacy_string_priority():
+    """A loop bucket goes through the ONE normalizer (CONCEPT:KG-2.113)."""
+    eng = _Engine()
+    # Legacy string priority on a loop is coerced to the shared 0..3 bucket.
+    loop = submit_loop(eng, "hot", prio_bucket="critical")  # type: ignore[arg-type]
+    assert loop["prio_bucket"] == 0
+    assert eng.nodes[loop["id"]]["prio_bucket"] == 0
+    loop2 = submit_loop(eng, "bg", loop_id="loop:x", prio_bucket="low")  # type: ignore[arg-type]
+    assert loop2["prio_bucket"] == 3
+
+
+# ── claim_loop: engine compare-and-set arbitration (CONCEPT:KG-2.141) ───────
+
+
+class _CASRecorder:
+    """A backend whose compare_and_set_node_fields is a controllable mock."""
+
+    def __init__(self, *, win_on: set[str] | None = None, always: bool | None = None):
+        self.calls: list[tuple[str, dict, dict]] = []
+        self._win_on = win_on
+        self._always = always
+
+    def compare_and_set_node_fields(self, node_id, conditions, updates):
+        self.calls.append((node_id, dict(conditions), dict(updates)))
+        if self._always is not None:
+            return self._always
+        return conditions.get("status") in (self._win_on or set())
+
+
+class _CASEngine(_Engine):
+    def __init__(self, backend):
+        super().__init__()
+        self.backend = backend
+
+
+def test_claim_loop_issues_cas_pending_to_running_and_wins():
+    backend = _CASRecorder(win_on={"pending"})
+    eng = _CASEngine(backend)
+    from agent_utilities.knowledge_graph.research.loops import claim_loop
+
+    assert claim_loop(eng, "loop:develop:b", current_status="pending") is True
+    # First CAS is the observed status (pending) → running.
+    node_id, conds, updates = backend.calls[0]
+    assert node_id == "loop:develop:b"
+    assert conds == {"status": "pending"}
+    assert updates["status"] == "running"
+    # Won on the first try — no further CAS attempts.
+    assert len(backend.calls) == 1
+
+
+def test_claim_loop_lost_race_returns_false():
+    # CAS never wins (a peer already flipped the loop) → claim_loop returns False
+    # after sweeping every claimable status, and never blind-writes.
+    backend = _CASRecorder(always=False)
+    eng = _CASEngine(backend)
+    from agent_utilities.knowledge_graph.research.loops import (
+        CLAIMABLE_STATUS,
+        claim_loop,
+    )
+
+    assert claim_loop(eng, "loop:develop:b", current_status="pending") is False
+    # One CAS per claimable status, all guarded on status=running update.
+    tried = {c[1]["status"] for c in backend.calls}
+    assert tried == set(CLAIMABLE_STATUS)
+    for _nid, _conds, updates in backend.calls:
+        assert updates["status"] == "running"
+
+
+def test_claim_loop_tries_observed_status_first():
+    # An orphaned loop (crashed driver) is still claimable; observed status is
+    # tried first so the common path is a single CAS.
+    backend = _CASRecorder(win_on={"orphaned"})
+    eng = _CASEngine(backend)
+    from agent_utilities.knowledge_graph.research.loops import claim_loop
+
+    assert claim_loop(eng, "loop:skill:s", current_status="orphaned") is True
+    assert backend.calls[0][1] == {"status": "orphaned"}
+
+
+def test_claim_loop_falls_back_to_blind_flip_without_cas():
+    # Older engine with no CAS primitive: single-host blind flip, no regression.
+    eng = _Engine()  # _Engine has no .backend
+    from agent_utilities.knowledge_graph.research.loops import claim_loop
+
+    assert claim_loop(eng, "loop:develop:b", current_status="pending") is True
+    assert eng.nodes["loop:develop:b"]["status"] == "running"
+
+
 def test_active_loops_emitted_in_priority_order():
     rows = [
         {

@@ -598,12 +598,30 @@ class LoopController:
         aborts the cycle. This is what makes goals + skill runs first-class Loops
         advanced by the one controller, not separate engines.
         """
-        from .loops import mark_loop_status
+        from .loops import claim_loop, mark_loop_status
 
-        out: dict[str, Any] = {"develop": 0, "skill": 0, "completed": 0, "results": []}
+        out: dict[str, Any] = {
+            "develop": 0,
+            "skill": 0,
+            "completed": 0,
+            "skipped": 0,
+            "results": [],
+        }
         for loop in loops:
             kind = loop.get("kind", "research")
             if kind not in ("develop", "skill"):
+                continue
+            # Atomically claim the Loop (status → running via the engine CAS)
+            # before advancing it. A lost race means a concurrent cycle / peer
+            # host / graph_loops run already owns it — skip rather than
+            # double-drive. (CONCEPT:KG-2.141)
+            if not claim_loop(
+                self.engine, loop["id"], current_status=str(loop.get("status") or "")
+            ):
+                out["skipped"] += 1
+                out["results"].append(
+                    {"id": loop["id"], "kind": kind, "status": "skipped(claimed)"}
+                )
                 continue
             res = self._iterate(loop)
             out[kind] += 1
@@ -719,7 +737,7 @@ class LoopController:
             DurableExecutionManager,
         )
 
-        from .loops import TERMINAL_STATUS, mark_loop_status
+        from .loops import TERMINAL_STATUS, claim_loop, mark_loop_status
 
         loop_id = loop["id"]
         max_it = int(max_iterations or loop.get("max_iterations") or 20)
@@ -727,9 +745,29 @@ class LoopController:
             durable = DurableExecutionManager(session_id=loop_id)
         it = self._resume_iteration(durable)
         status = str(loop.get("status") or "running")
-        # Claim the Loop as in-flight so a concurrent daemon cycle's intake
-        # (active_loops) skips it — only this driver advances it (CONCEPT:KG-2.78).
-        mark_loop_status(self.engine, loop_id, "running", iteration=it)
+        # Atomically claim the Loop as in-flight (status → running via the engine
+        # CAS) so a concurrent daemon cycle / peer host / graph_loops run can't
+        # double-drive it — only the winner advances. A resume (it > 0) is a
+        # legitimate re-entry of a Loop this caller already owns (durable
+        # rehydration left it 'running'/'orphaned'), so a lost CAS there is not
+        # fatal; on a fresh start (it == 0) a lost claim means someone else owns
+        # it and we yield. (CONCEPT:KG-2.141, was a blind flip — KG-2.78)
+        won = claim_loop(self.engine, loop_id, current_status=status)
+        if not won and it == 0:
+            logger.info(
+                "run_loop: Loop %s already claimed by another driver — yielding.",
+                loop_id,
+            )
+            return {
+                "id": loop_id,
+                "status": str(loop.get("status") or "running"),
+                "iterations": it,
+                "skipped": True,
+            }
+        # On resume (it > 0) we already own the Loop; the claim CAS won't flip a
+        # node already 'running', so re-stamp the resumed iteration onto it.
+        if it > 0:
+            mark_loop_status(self.engine, loop_id, "running", iteration=it)
 
         while it < max_it and status not in TERMINAL_STATUS:
             if desired_state is not None:
