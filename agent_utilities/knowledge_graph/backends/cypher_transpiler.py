@@ -100,6 +100,24 @@ def _param_key_to_positional(
     return values, index_map
 
 
+def _sanitize_param(v: Any) -> Any:
+    """Make a node-property value safe to bind to a Postgres placeholder.
+
+    - strip NUL (0x00) from strings: a TEXT/JSON column rejects them
+      ("PostgreSQL text fields cannot contain NUL bytes").
+    - JSON-encode dict/list values: psycopg cannot adapt a bare ``dict`` to ``%s``
+      ("cannot adapt type 'dict'"); a JSON string round-trips for TEXT and is a
+      valid jsonb literal. (CONCEPT:KG-2.9 ingestion write-path hardening.)
+    """
+    if isinstance(v, str):
+        return v.replace("\x00", "") if "\x00" in v else v
+    if isinstance(v, (dict, list)):
+        import json
+
+        return json.dumps(v, default=str)
+    return v
+
+
 def transpile(
     cypher: str,
     params: dict[str, Any] | None = None,
@@ -131,7 +149,7 @@ def transpile(
         cols = [p[0] for p in prop_pairs]
         param_keys = [p[1] for p in prop_pairs]
         placeholders = ["%s" for _ in cols]
-        values = [clean_params.get(k) for k in param_keys]
+        values = [_sanitize_param(clean_params.get(k)) for k in param_keys]
         sql = f'INSERT INTO "{label}" ({", ".join(cols)}) VALUES ({", ".join(placeholders)}) ON CONFLICT (id) DO NOTHING'
         return TranspiledQuery(
             sql=sql, params=values, query_type=QueryType.INSERT, target_table=label
@@ -152,8 +170,8 @@ def transpile(
             else []
         )
         cols = ["id"] + [p[0] for p in set_pairs if p[0] != "id"]
-        merge_values = [clean_params.get(id_param)] + [
-            clean_params.get(p[1]) for p in set_pairs if p[0] != "id"
+        merge_values = [_sanitize_param(clean_params.get(id_param))] + [
+            _sanitize_param(clean_params.get(p[1])) for p in set_pairs if p[0] != "id"
         ]
         col_list = ", ".join(f'"{c}"' for c in cols)
         placeholder_sql = ", ".join("%s" for _ in cols)
