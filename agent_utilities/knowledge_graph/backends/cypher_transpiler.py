@@ -463,8 +463,13 @@ def transpile(
             if label:
                 sql += f" WHERE {where_sql}"
             else:
-                # For UNION ALL, wrap each with WHERE
+                # For UNION ALL, wrap each with WHERE. Each branch repeats the
+                # WHERE clause (and thus its ``%s`` placeholders), so the bound
+                # params must be repeated once per table — otherwise psycopg
+                # raises "the query has N placeholders but 1 parameters were
+                # passed" (the id-by-label fan-out bug). (CONCEPT:KG-2.7)
                 sql = _union_all_tables(known_tables, sel_cols, where_sql)
+                where_vals = where_vals * len(known_tables)
 
         # ORDER BY
         m_order = _ORDER_BY_CLAUSE.search(cypher_stripped)
