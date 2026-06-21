@@ -105,13 +105,23 @@ def _sanitize_param(v: Any) -> Any:
 
     - strip NUL (0x00) from strings: a TEXT/JSON column rejects them
       ("PostgreSQL text fields cannot contain NUL bytes").
-    - JSON-encode dict/list values: psycopg cannot adapt a bare ``dict`` to ``%s``
-      ("cannot adapt type 'dict'"); a JSON string round-trips for TEXT and is a
-      valid jsonb literal. (CONCEPT:KG-2.9 ingestion write-path hardening.)
+    - JSON-encode ``dict`` values: psycopg cannot adapt a bare ``dict`` to ``%s``
+      ("cannot adapt type 'dict'"); a JSON string round-trips for TEXT.
+    - pass a SCALAR ``list`` through as a Python list: psycopg adapts it to a
+      Postgres array, which is what ``STRING[]`` → ``TEXT[]`` columns expect.
+      json.dumps'ing it ("[...]") made PG reject it ("malformed array literal" —
+      PG array literals are "{...}"). A list containing dict/list can't be
+      array-adapted, so JSON-encode those. (CONCEPT:KG-2.9 write-path hardening.)
     """
     if isinstance(v, str):
         return v.replace("\x00", "") if "\x00" in v else v
-    if isinstance(v, (dict, list)):
+    if isinstance(v, dict):
+        import json
+
+        return json.dumps(v, default=str)
+    if isinstance(v, list):
+        if all(x is None or isinstance(x, (str, int, float, bool)) for x in v):
+            return v  # psycopg → Postgres array (TEXT[] columns)
         import json
 
         return json.dumps(v, default=str)
