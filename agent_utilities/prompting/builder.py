@@ -39,17 +39,23 @@ logger = logging.getLogger(__name__)
 def _extract_prompt_content(raw: str) -> str:
     """Return the body of a JSON prompt blueprint.
 
+    Delegates body extraction to the single canonical resolver
+    (:func:`agent_utilities.prompting.structured.resolve_body`, CONCEPT:ORCH-1.80)
+    so the canonical ``instructions.core_directive`` location is honoured — not
+    just the legacy flat ``content``/``input`` keys this used to read.
+
     Args:
-        raw: The raw file contents. Must be a JSON object containing a
-            ``content`` (preferred) or ``input`` key.
+        raw: The raw file contents — a JSON object prompt blueprint.
 
     Returns:
-        The value of the ``content`` key, falling back to ``input``.
+        The resolved prompt body string.
 
     Raises:
         ValueError: If ``raw`` is empty, not valid JSON, not a JSON object,
-            or the object lacks both ``content`` and ``input`` keys.
+            or yields no renderable body.
     """
+    from agent_utilities.prompting.structured import resolve_body
+
     if not raw or not raw.strip():
         raise ValueError("Prompt payload is empty")
     try:
@@ -57,16 +63,16 @@ def _extract_prompt_content(raw: str) -> str:
     except json.JSONDecodeError as e:
         raise ValueError(
             "Prompt payload is not valid JSON; expected a blueprint object "
-            "with a 'content' key"
+            "with an 'instructions.core_directive' (or legacy 'content') body"
         ) from e
     if not isinstance(data, dict):
         raise ValueError("Prompt JSON must decode to an object")
-    for key in ("content", "input"):
-        value = data.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
+    body = resolve_body(data)
+    if body and body.strip():
+        return body
     raise ValueError(
-        "Prompt JSON object is missing a 'content' or 'input' string value"
+        "Prompt JSON object has no body: set 'instructions.core_directive' "
+        "(or a legacy 'content'/'input' string)"
     )
 
 
@@ -136,41 +142,119 @@ def get_system_prompt_from_reference(agent_name: str) -> str | None:
     return None
 
 
-def _load_main_agent_content() -> str:
-    """Return the ``content`` body of ``main_agent.json``.
+def _resolve_base_body(extends: str) -> str:
+    """Resolve an ``extends`` reference to its rendered base-prompt body.
 
-    Checks the workspace first, then the packaged default. Returns an empty
-    string when neither source yields a usable blueprint; malformed JSON is
-    logged as a warning rather than raised so agent startup is resilient.
+    CONCEPT:ORCH-1.80. Supports the canonical base namespace
+    (``agent-utilities:base`` → the packaged ``base_agent.json``) and workspace
+    file references (``@file.json`` or a bare ``file.json``).
     """
+    ref = (extends or "").strip()
+    if not ref:
+        return ""
+    if ref in ("agent-utilities:base", "base"):
+        try:
+            from importlib.resources import files
+
+            prompts_dir = files("agent_utilities") / "prompts"
+            for name in ("base_agent.json", "main_agent.json"):
+                base_path = prompts_dir / name
+                if base_path.is_file():
+                    try:
+                        return _extract_prompt_content(
+                            base_path.read_text(encoding="utf-8")
+                        )
+                    except ValueError:
+                        continue
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning("Could not resolve base prompt '%s': %s", ref, e)
+        return ""
+    filename = ref[1:].strip() if ref.startswith("@") else ref
+    content = load_workspace_file(filename)
+    if content:
+        try:
+            return _extract_prompt_content(content)
+        except ValueError:
+            return content.strip()
+    return ""
+
+
+def _compose_bodies(base: str, body: str, mode: str = "append") -> str:
+    """Compose a package prompt ``body`` onto a ``base`` body.
+
+    ``append`` (default) → base then body; ``prepend`` → body then base;
+    ``replace`` → body only.
+    """
+    base = (base or "").strip()
+    body = (body or "").strip()
+    if mode == "replace" or not base:
+        return body
+    if not body:
+        return base
+    if mode == "prepend":
+        return f"{body}\n\n{base}"
+    return f"{base}\n\n{body}"
+
+
+def _load_main_agent_content() -> str:
+    """Return the resolved body of ``main_agent.json``.
+
+    Checks the workspace first, then the packaged default. Honours the canonical
+    body location (``instructions.core_directive``) via the shared resolver, and
+    composes onto a base prompt when the blueprint declares ``extends``
+    (CONCEPT:ORCH-1.80). Returns an empty string when neither source yields a
+    usable blueprint; malformed JSON is logged as a warning rather than raised so
+    agent startup is resilient.
+    """
+    data: dict[str, Any] | None = None
+    body = ""
+
     raw = load_workspace_file("main_agent.json")
     if raw:
         try:
-            return _extract_prompt_content(raw)
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                data = parsed
+        except json.JSONDecodeError:
+            data = None
+        try:
+            body = _extract_prompt_content(raw)
         except ValueError as e:
             logger.warning(
                 "Invalid main_agent.json in workspace (%s); trying package default",
                 e,
             )
 
-    try:
-        from importlib.resources import files
+    if not body:
+        try:
+            from importlib.resources import files
 
-        prompts_dir = files("agent_utilities") / "prompts"
-        main_agent_path = prompts_dir / "main_agent.json"
-        if main_agent_path.is_file():
-            raw = main_agent_path.read_text(encoding="utf-8")
-            try:
-                return _extract_prompt_content(raw)
-            except ValueError as e:
-                logger.warning(
-                    "Invalid packaged main_agent.json (%s); using empty prompt",
-                    e,
-                )
-    except Exception as e:
-        logger.warning(f"Could not load main_agent.json from package: {e}")
+            prompts_dir = files("agent_utilities") / "prompts"
+            main_agent_path = prompts_dir / "main_agent.json"
+            if main_agent_path.is_file():
+                pkg_raw = main_agent_path.read_text(encoding="utf-8")
+                if data is None:
+                    try:
+                        parsed = json.loads(pkg_raw)
+                        if isinstance(parsed, dict):
+                            data = parsed
+                    except json.JSONDecodeError:
+                        data = None
+                try:
+                    body = _extract_prompt_content(pkg_raw)
+                except ValueError as e:
+                    logger.warning(
+                        "Invalid packaged main_agent.json (%s); using empty prompt",
+                        e,
+                    )
+        except Exception as e:
+            logger.warning(f"Could not load main_agent.json from package: {e}")
 
-    return ""
+    if isinstance(data, dict) and data.get("extends"):
+        base = _resolve_base_body(str(data["extends"]))
+        body = _compose_bodies(base, body, str(data.get("compose", "append")))
+
+    return body
 
 
 def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
@@ -300,7 +384,11 @@ def extract_agent_metadata(content: str) -> dict[str, Any]:
         data["description"] = data.pop("role")
     meta.update(data)
 
-    body = data.get("content") or data.get("input") or ""
+    # CONCEPT:ORCH-1.80 — resolve the body via the single canonical resolver so
+    # decomposed ``instructions.core_directive`` prompts are not read as empty.
+    from agent_utilities.prompting.structured import resolve_body
+
+    body = resolve_body(data)
 
     # Prepend few-shot examples if present (CONCEPT:AHE-3.1)
     if "few_shot_examples" in data and isinstance(data["few_shot_examples"], list):
