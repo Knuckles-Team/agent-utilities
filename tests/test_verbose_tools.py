@@ -687,3 +687,183 @@ def test_surface_autowire_opt_out(monkeypatch):
     names = {t.name for t in _tools_list(mcp)}
     assert "svc_issue" in names  # condensed kept
     assert "svc_issue__create_issue" not in names  # no verbose derived
+
+
+# --- Dynamic (runtime) action enumeration (ECO-4.90) ------------------------
+from agent_utilities.mcp.verbose_tools import (  # noqa: E402
+    _resolve_action_provider,
+    _tool_action_names,
+    register_action_provider,
+)
+
+
+class _FakeDynamicClient:
+    """An atlassian-shaped client whose actions are discovered at runtime.
+
+    Mirrors a real connector: free-form ``action: str`` dispatched via
+    ``getattr(client, action)``; the valid names come from ``public_actions`` on
+    the client (not a static Literal). Private/dunder attrs are excluded.
+    """
+
+    def get_issue(self, **kwargs):
+        return {"op": "get_issue"}
+
+    def create_issue(self, **kwargs):
+        return {"op": "create_issue"}
+
+    def delete_issue(self, **kwargs):
+        return {"op": "delete_issue"}
+
+    def _internal(self):  # private -> excluded
+        return None
+
+
+def _freeform_action_module():
+    """A condensed connector module whose ``action`` is a free-form ``str``.
+
+    This is the atlassian shape that the static-enum auto-wire SKIPS: there is no
+    Literal, so the action list must come from a registered dynamic-action
+    provider. The handler dispatches ``getattr(client, action)``.
+    """
+    mod = _types.ModuleType("fake_freeform_mcp")
+    client = _FakeDynamicClient()
+
+    def register_jira_tools(mcp):
+        @mcp.tool(name="atlassian_jira", tags={"jira"})
+        async def atlassian_jira(
+            action: str = Field(description="op"),
+            params_json: str = Field(default="{}", description="args"),
+        ) -> dict:
+            "Manage jira via free-form action dispatch."
+            return {"action": action, "params_json": params_json}
+
+    mod.register_jira_tools = register_jira_tools
+    mod._client = client
+    return mod
+
+
+def test_resolve_action_provider_forms():
+    """A provider resolves from a list, a callable, or a client class — and a
+    client class is introspected credential-free (the class, no live instance)."""
+    assert _resolve_action_provider(["b", "a", "a"]) == ["a", "b"]
+    assert _resolve_action_provider(lambda: ["x", "y"]) == ["x", "y"]
+    # client CLASS (not instance) introspected; private methods excluded
+    assert _resolve_action_provider(_FakeDynamicClient) == [
+        "create_issue",
+        "delete_issue",
+        "get_issue",
+    ]
+
+
+def test_resolve_action_provider_drops_discovery_keywords():
+    """Discovery keywords (list_actions/help/actions) are never real operations."""
+    assert _resolve_action_provider(["get_issue", "list_actions", "help"]) == [
+        "get_issue"
+    ]
+
+
+def test_tool_action_names_prefers_static_enum_over_provider():
+    """A static Literal enum wins; the dynamic provider is the fallback only."""
+    mcp = FastMCP("t")
+
+    @mcp.tool(name="enum_tool")
+    async def enum_tool(
+        action: Literal["a", "b"] = Field(description="op"),
+        params_json: str = Field(default="{}"),
+    ) -> dict:
+        return {}
+
+    from agent_utilities.mcp.verbose_tools import _provider_tools
+
+    tool = _provider_tools(mcp)["enum_tool"]
+    # provider present, but static enum takes precedence
+    assert _tool_action_names(tool, {"enum_tool": ["x", "y"]}) == ["a", "b"]
+
+
+def test_autowire_enumerates_dynamic_actions_via_provider():
+    """The headline ECO-4.90 fix: a free-form ``action: str`` condensed tool (no
+    Literal) still gets one verbose tool per runtime action, sourced from a
+    registered action provider (a client class)."""
+    mcp = FastMCP("t")
+    mod = _freeform_action_module()
+    mod.register_jira_tools(mcp)
+
+    # without a provider the free-form tool is skipped (the OLD behavior / the bug)
+    assert autowire_verbose_from_condensed(mcp) == []
+
+    # register the dynamic action surface, then auto-wire derives 1:1 tools
+    register_action_provider(mcp, "atlassian_jira", _FakeDynamicClient)
+    derived = autowire_verbose_from_condensed(mcp)
+    assert set(derived) == {
+        "atlassian_jira__get_issue",
+        "atlassian_jira__create_issue",
+        "atlassian_jira__delete_issue",
+    }
+    tool = asyncio.run(mcp.get_tool("atlassian_jira__create_issue"))
+    assert "verbose" in tool.tags and "jira" in tool.tags
+    props = tool.parameters.get("properties", {})
+    assert "action" not in props  # preset+hidden
+    assert "params_json" in props  # passthrough
+
+
+def test_autowire_dynamic_dispatches_with_action_preset():
+    """A dynamic-derived verbose tool routes to the SAME condensed handler with
+    its action preset — same passthrough guarantee as the static path."""
+    mcp = FastMCP("t")
+    mod = _freeform_action_module()
+    mod.register_jira_tools(mcp)
+    register_action_provider(mcp, "atlassian_jira", _FakeDynamicClient)
+    autowire_verbose_from_condensed(mcp)
+
+    tool = asyncio.run(mcp.get_tool("atlassian_jira__delete_issue"))
+    res = asyncio.run(tool.run({"params_json": '{"id": 9}'}))
+    assert res.structured_content == {
+        "action": "delete_issue",
+        "params_json": '{"id": 9}',
+    }
+
+
+def test_autowire_dynamic_is_idempotent():
+    """Re-running with a dynamic provider derives nothing new on the second pass."""
+    mcp = FastMCP("t")
+    _freeform_action_module().register_jira_tools(mcp)
+    register_action_provider(
+        mcp, "atlassian_jira", lambda: ["get_issue", "create_issue"]
+    )
+    first = autowire_verbose_from_condensed(mcp)
+    assert len(first) == 2
+    assert autowire_verbose_from_condensed(mcp) == []
+
+
+def test_surface_both_autowires_dynamic_action_tools(monkeypatch):
+    """register_tool_surface threads action_providers through to the auto-wire so a
+    free-form connector (atlassian) gets a verbose surface centrally (ECO-4.90)."""
+    monkeypatch.setenv("MCP_TOOL_MODE", "both")
+    mcp = FastMCP("t")
+    register_tool_surface(
+        mcp,
+        service="atlassian-agent",
+        tools_module=_freeform_action_module(),
+        action_providers={"atlassian_jira": _FakeDynamicClient},
+    )
+    names = {t.name for t in _tools_list(mcp)}
+    assert "atlassian_jira" in names  # condensed kept
+    assert "atlassian_jira__get_issue" in names  # verbose auto-derived from runtime
+    assert "atlassian_jira__create_issue" in names
+    assert "atlassian_jira__delete_issue" in names
+
+
+def test_surface_dynamic_autowire_opt_out(monkeypatch):
+    """autowire_condensed=False also suppresses dynamic-action expansion."""
+    monkeypatch.setenv("MCP_TOOL_MODE", "both")
+    mcp = FastMCP("t")
+    register_tool_surface(
+        mcp,
+        service="atlassian-agent",
+        tools_module=_freeform_action_module(),
+        action_providers={"atlassian_jira": _FakeDynamicClient},
+        autowire_condensed=False,
+    )
+    names = {t.name for t in _tools_list(mcp)}
+    assert "atlassian_jira" in names
+    assert "atlassian_jira__get_issue" not in names
