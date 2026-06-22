@@ -438,9 +438,40 @@ def register_state_tools(mcp):
                     }
                 )
             if action == "sync":
+                # Run the sweep OFF the request path (CONCEPT:KG-2.121): enqueue a
+                # feed_sweep task and return immediately, so a many-feed sweep (which
+                # fetches + gates + enqueues per-article worldview/research tasks)
+                # never rides — or times out — the 300s MCP call. ``url`` may name a
+                # specific source (rss|freshrss|all); defaults to the native RSS sweep.
+                submit = getattr(engine, "submit_task", None)
+                feed_source = (url or "rss").strip().lower()
+                if callable(submit):
+                    job_id = submit(
+                        target_path=f"feed_sweep:{feed_source}",
+                        is_codebase=False,
+                        provenance={"feed_sweep": feed_source},
+                        task_type="feed_sweep",
+                        priority=2,
+                        skip_dedupe=True,
+                        extra_meta={"feed_source": feed_source, "feed_mode": mode},
+                    )
+                    return _json.dumps(
+                        {
+                            "action": "sync",
+                            "enqueued": True,
+                            "job_id": job_id,
+                            "source": feed_source,
+                            "mode": mode,
+                            "note": "sweep runs in the background (connectors lane); "
+                            "watch the worldview/research lanes drain.",
+                        }
+                    )
+                # Fallback: no queue (embedded engine) → run inline.
                 from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
-                return _json.dumps(sync_source(engine, "rss", mode=mode), default=str)
+                return _json.dumps(
+                    sync_source(engine, feed_source, mode=mode), default=str
+                )
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:  # noqa: BLE001
             return _json.dumps({"error": str(e)})
