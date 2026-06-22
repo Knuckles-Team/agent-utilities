@@ -405,7 +405,9 @@ def register_verbose_tools(
             tool_fn = _build_typed_tool(
                 method_name, params, get_client, destructive=destructive
             )
-            doc = ((op or {}).get("summary") or (op or {}).get("description") or "").strip()
+            doc = (
+                (op or {}).get("summary") or (op or {}).get("description") or ""
+            ).strip()
         else:
             tool_fn = _build_params_json_tool(
                 method_name, get_client, destructive=destructive
@@ -434,6 +436,107 @@ def register_verbose_tools(
 
 #: Shared ``register_*_tools``-shaped helpers excluded from module auto-discovery.
 _SURFACE_HELPER_NAMES = frozenset({"register_verbose_tools", "register_tool_surface"})
+
+#: The action-routing argument every condensed fleet tool exposes (its enum is the
+#: list of operations the tool dispatches to). See ``mcp/action_dispatch.py``.
+_ACTION_ARG = "action"
+
+
+def _action_enum(tool: Any) -> list[str]:
+    """The ``action`` enum values of a condensed action-routed tool, or ``[]``.
+
+    Reads the tool's published JSON-schema ``parameters`` (so it works for any
+    tool, codegen'd or hand-written, without re-introspecting Python signatures).
+    A condensed action-routed tool declares ``action`` as an enum (a ``Literal``
+    surfaces as ``{"enum": [...]}``); a free-form ``action: str`` carries no enum
+    and yields ``[]`` (those keep the client-introspection verbose path instead).
+    """
+    schema = getattr(tool, "parameters", None)
+    if not isinstance(schema, dict):
+        return []
+    prop = (schema.get("properties") or {}).get(_ACTION_ARG)
+    if not isinstance(prop, dict):
+        return []
+    enum = prop.get("enum")
+    if isinstance(enum, list) and all(isinstance(v, str) for v in enum):
+        return [v for v in enum if v]
+    return []
+
+
+def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
+    """Derive a verbose 1:1 surface from the already-registered condensed tools.
+
+    The universal, **no-per-connector-edit** path: every connector registers its
+    condensed action-routed tools (each ``<service>_<domain>`` tool takes an
+    ``action`` enum + ``params_json`` and dispatches internally). For each such
+    tool this registers one verbose tool ``<tool>__<action>`` that re-dispatches
+    to the **same** condensed tool with ``action`` preset to that value, leaving
+    every other argument (``params_json`` and any typed fields) as a passthrough.
+
+    It uses FastMCP's native ``Tool.from_tool`` transformation, so the verbose
+    tool routes through the original tool's handler — preserving its ``Depends``
+    client binding, ``Context`` injection, and result coercion with zero
+    re-implementation. Each derived tool inherits the source tool's tags plus
+    ``"verbose"`` so the existing ``DynamicVisibilityTransform`` can slice it.
+
+    Tools without an ``action`` enum (free-form ``action: str``, or no ``action``
+    at all) are skipped here — single-client connectors expose those one-to-one
+    through :func:`register_verbose_tools` (client introspection) instead.
+
+    Returns the list of derived verbose tool names.
+
+    CONCEPT:ECO-4.89 — fleet-wide verbose auto-wire from condensed action enums
+    """
+    try:
+        from fastmcp.tools import Tool
+        from fastmcp.tools.tool_transform import ArgTransform
+    except Exception as exc:  # pragma: no cover - defensive (older FastMCP)
+        logger.warning(
+            "autowire_verbose_from_condensed: FastMCP transforms unavailable: %s", exc
+        )
+        return []
+
+    source_tools = _provider_tools(mcp)
+    derived: list[str] = []
+    for tool_name in sorted(source_tools):
+        tool = source_tools[tool_name]
+        # Don't re-expand an already-derived verbose tool (idempotent re-runs).
+        if "__" in tool_name and getattr(tool, "tags", None) and "verbose" in tool.tags:
+            continue
+        actions = _action_enum(tool)
+        if not actions:
+            continue
+        src_tags = getattr(tool, "tags", None)
+        base_tags = set(src_tags) if isinstance(src_tags, set) else set()
+        for action in actions:
+            verbose_name = f"{tool_name}__{action}"
+            if verbose_name in source_tools:
+                continue
+            try:
+                verbose_tool = Tool.from_tool(
+                    tool,
+                    name=verbose_name,
+                    transform_args={
+                        _ACTION_ARG: ArgTransform(default=action, hide=True)
+                    },
+                    tags=base_tags | {"verbose"},
+                )
+                mcp.add_tool(verbose_tool)
+            except Exception as exc:  # pragma: no cover - defensive per-action
+                logger.warning(
+                    "autowire_verbose_from_condensed: could not derive %s: %s",
+                    verbose_name,
+                    exc,
+                )
+                continue
+            derived.append(verbose_name)
+
+    logger.debug(
+        "autowire_verbose_from_condensed: derived %d verbose tools from %d condensed tools",
+        len(derived),
+        sum(1 for n in source_tools if _action_enum(source_tools[n])),
+    )
+    return derived
 
 
 def _condensed_entries(
@@ -494,6 +597,7 @@ def register_tool_surface(
     tool_prefix: str | None = None,
     verbose_targets: list[dict] | None = None,
     verbose_register: Any = None,
+    autowire_condensed: bool = True,
 ) -> list[str]:
     """Register an agent's MCP tool surface per ``MCP_TOOL_MODE`` — the one place.
 
@@ -522,6 +626,14 @@ def register_tool_surface(
     rather than a per-method client) passes ``verbose_register`` — a callable
     ``(mcp) -> None`` that registers its own 1:1 tools. It runs in verbose/both and
     counts as a verbose target for the empty-server guard.
+
+    **Fleet-wide auto-wire (default ON).** In verbose/both mode, after the explicit
+    verbose path runs, :func:`autowire_verbose_from_condensed` derives one verbose
+    tool per ``action`` enum value of every condensed action-routed tool that just
+    registered — so a connector exposing ONLY condensed tools (the common case)
+    gets a 1:1 verbose surface with no per-connector edits. Pass
+    ``autowire_condensed=False`` to opt a server out (e.g. one whose explicit
+    targets already cover its whole surface). CONCEPT:ECO-4.89.
 
     CONCEPT:ECO-4.82 — MCP tool-mode standardization (central surface wiring)
     """
@@ -580,5 +692,10 @@ def register_tool_surface(
             )
         if verbose_register is not None:
             verbose_register(mcp)
+        # Universal fallback: expand every condensed action-routed tool's action
+        # enum into 1:1 verbose tools, so a connector exposing ONLY condensed tools
+        # still gets a verbose surface with no per-connector wiring (ECO-4.89).
+        if autowire_condensed:
+            autowire_verbose_from_condensed(mcp)
 
     return registered_tags
