@@ -153,21 +153,17 @@ class TieredGraphBackend(GraphBackend):
         # Write-behind (CONCEPT:KG-2.7, B4): when enabled, node/edge mirrors to the
         # durable L3 are queued and drained on a background thread so L1 (the
         # authoritative working store) acks immediately instead of paying L3 latency
-        # inline. OFF by default — durability timing only changes when an operator
-        # opts in (KG_TIERED_WRITE_BEHIND=1). Embeddings always mirror SYNCHRONOUSLY
-        # (semantic_search reads L3, so the vector must be there before the next
-        # query). The queue is bounded; on saturation a mirror runs inline
-        # (backpressure, never dropped). Failures are surfaced via durability_stats.
+        # inline. This is the DEFAULT, not a knob (CONCEPT:KG-2.7): the durable tier's
+        # latency is a property of the system, not a per-deployment setting, and a
+        # slow/erroring L3 must never stall the hot write path — so write-behind is a
+        # free, always-on capability. It is safe because L1 is authoritative for reads
+        # (read-after-write holds) and L1's snapshot+WAL let L3 reconcile from L1 on
+        # restart; embeddings still mirror SYNCHRONOUSLY (semantic_search reads L3, so
+        # the vector must be there before the next query). The queue is bounded; on
+        # saturation a mirror runs inline (backpressure, never dropped). Callers may
+        # pass write_behind=False for a strict-synchronous case (e.g. tests).
         if write_behind is None:
-            from agent_utilities.core.config import setting
-
-            write_behind = str(
-                setting("KG_TIERED_WRITE_BEHIND", "0")
-            ).strip().lower() in (
-                "1",
-                "true",
-                "yes",
-            )
+            write_behind = True
         self._write_behind = bool(write_behind)
         self._wb_inline = 0
         self._wb_queue: Any = None
