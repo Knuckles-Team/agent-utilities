@@ -2623,14 +2623,21 @@ def _sync_gramps_web(
     from ...protocols.source_connectors.connectors.rest import _dig
 
     def _collection(tool: str, action: str) -> list[dict[str, Any]]:
-        res = _run_async(
-            call_tool_once(
-                server=server,
-                tool=tool,
-                action=action,
-                params={"pagesize": 500},
+        # Fail-soft per collection: a connector that doesn't expose one list action
+        # (e.g. the gramps-web families tool lacks a list operation) must not sink the
+        # whole sync — skip that collection and ingest the others.
+        try:
+            res = _run_async(
+                call_tool_once(
+                    server=server,
+                    tool=tool,
+                    action=action,
+                    params={"pagesize": 500},
+                )
             )
-        )
+        except Exception as exc:
+            logger.warning("gramps_web: %s/%s unavailable, skipping: %s", tool, action, exc)
+            return []
         data = _dig(res, "data") if isinstance(res, dict) else res
         if isinstance(data, list):
             return [r for r in data if isinstance(r, dict)]
