@@ -252,10 +252,94 @@ def test_sweep_all_sources_classifies_results(monkeypatch):
     assert "servicenow" in out["errors"]
     assert "jira" not in out["synced"] and "jira" not in out["errors"]
     # synced: leanix + gitlab; errors: servicenow; skipped: archivebox (no new
-    # snapshots) + the unconfigured delta handlers (rss/freshrss/jira/confluence
-    # /plane/fleet_connectors) whose fake_sync raises "not configured". ``fleet``
-    # is excluded from the sweep, so it never enters any bucket.
-    assert out["counts"] == {"synced": 2, "skipped": 7, "errors": 1}
+    # snapshots) + the unconfigured delta handlers (rss/freshrss/fleet_connectors)
+    # whose fake_sync raises "not configured". ``fleet`` is excluded from the sweep,
+    # so it never enters any bucket. The MCP-backed trackers (jira/confluence/plane,
+    # CONCEPT:KG-2.154) are NOT candidates here: the hermetic test env has no
+    # mcp_config, so their ``*-mcp`` servers env-detect as unconfigured and the
+    # candidate-builder drops them (no wasted connector_sync task).
+    assert out["counts"] == {"synced": 2, "skipped": 4, "errors": 1}
+
+
+# ── MCP-backed trackers as configured-via-mcp_config candidates (KG-2.154) ────
+
+
+class _EnqueueEngine:
+    """Captures the targets ``sweep_all_sources`` enqueues as connector_sync tasks."""
+
+    def __init__(self) -> None:
+        self.enqueued: list[str] = []
+
+    def submit_task(self, target_path, is_codebase, provenance, task_type):
+        assert task_type == "connector_sync"
+        self.enqueued.append(target_path)
+        return f"job-{target_path}"
+
+
+def _sweep_targets(monkeypatch, servers: list[str]) -> list[str]:
+    """Run the candidate-builder with a stubbed mcp_config exposing ``servers`` and
+    return the set of connectors it would enqueue (capability/materialize sources off)."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+    from agent_utilities.knowledge_graph.core.hydration import HydrationManager
+
+    monkeypatch.setattr(HydrationManager, "get_status", lambda self: {})
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._load_mcp_config",
+        lambda: {s: {"url": f"http://{s}.arpa/mcp"} for s in servers},
+    )
+    eng = _EnqueueEngine()
+    ss.sweep_all_sources(eng, mode="full", include_materialize=False)
+    return eng.enqueued
+
+
+def test_sweep_includes_mcp_trackers_when_server_in_config(monkeypatch):
+    """CONCEPT:KG-2.154 — jira/confluence/plane are sweep candidates when their fleet
+    ``*-mcp`` server is registered in mcp_config (the live remote-routed operator case),
+    so a source='all' re-ingest actually enqueues a connector_sync task for each."""
+    targets = _sweep_targets(monkeypatch, ["atlassian-mcp", "plane-mcp"])
+    assert "jira" in targets
+    assert "confluence" in targets
+    assert "plane" in targets
+
+
+def test_sweep_drops_mcp_trackers_when_server_absent(monkeypatch):
+    """A tracker whose ``*-mcp`` server is NOT in mcp_config is gracefully dropped from
+    the candidate set (no wasted connector_sync task), not enqueued-then-aborted."""
+    targets = _sweep_targets(monkeypatch, ["sql-mcp", "github-mcp"])
+    assert "jira" not in targets
+    assert "confluence" not in targets
+    assert "plane" not in targets
+    # the always-local feed handlers are unaffected by the tracker gate
+    assert "rss" in targets and "freshrss" in targets
+
+
+def test_sweep_mcp_tracker_gate_is_per_server(monkeypatch):
+    """Only the trackers whose server is present are kept: plane-mcp without
+    atlassian-mcp keeps plane but drops jira/confluence."""
+    targets = _sweep_targets(monkeypatch, ["plane-mcp"])
+    assert "plane" in targets
+    assert "jira" not in targets
+    assert "confluence" not in targets
+
+
+def test_mcp_tracker_configured_honours_instance_server_override(monkeypatch):
+    """A second Atlassian site configured via ``jira_instances`` with a custom server is
+    recognised as configured when THAT server is in mcp_config (multi-instance support)."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+    from agent_utilities.core.config import config as cfg
+
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._load_mcp_config",
+        lambda: {"atlassian-eu-mcp": {"url": "http://atlassian-eu-mcp.arpa/mcp"}},
+    )
+    # default atlassian-mcp is absent, but the configured instance points elsewhere.
+    monkeypatch.setattr(
+        cfg, "jira_instances", [{"name": "eu", "server": "atlassian-eu-mcp"}], raising=False
+    )
+    assert ss._mcp_tracker_configured("jira") is True
+    # confluence still defaults to the (absent) atlassian-mcp → unconfigured.
+    monkeypatch.setattr(cfg, "confluence_instances", None, raising=False)
+    assert ss._mcp_tracker_configured("confluence") is False
 
 
 # ── Fleet connectors: every agents/* package in one handler (KG-2.151) ────────
