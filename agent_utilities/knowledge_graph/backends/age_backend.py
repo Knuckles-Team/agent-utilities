@@ -152,9 +152,27 @@ class AGEBackend(PostgreSQLBackend):
         return names
 
     def _age_session(self, cur: Any) -> None:
-        """Prepare a connection to run AGE Cypher (idempotent, per checkout)."""
+        """Prepare a connection to run AGE Cypher — ONCE per physical connection.
+
+        CONCEPT:KG-2.152 — ``LOAD 'age'`` + ``SET search_path`` are session-scoped:
+        they persist for the connection's lifetime, so re-issuing them on EVERY
+        ``execute`` cost two extra server round-trips per authority write and
+        lengthened how long each write held its pooled connection — the very thing
+        that starves the shared pool and drives the multi-second write tail. The
+        pool hands back the same physical connections, so we stamp each prepared
+        connection and skip the prep on reuse. (Pooled connections are reset on
+        return but ``LOAD``/``SET`` are not undone by a transaction reset.)
+        """
+        conn = getattr(cur, "connection", None)
+        if conn is not None and getattr(conn, "_age_prepared", False):
+            return
         cur.execute("LOAD 'age'")
         cur.execute('SET search_path = ag_catalog, "$user", public')
+        if conn is not None:
+            try:
+                conn._age_prepared = True
+            except (AttributeError, TypeError):  # can't stamp → prep every time
+                pass
 
     def execute(
         self, query: str, params: dict[str, Any] | None = None
