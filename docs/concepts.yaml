@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 436
+total_concepts: 440
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3453,6 +3453,39 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: Twenty CRM people/companies/opportunities →
+- id: KG-2.163
+  name: Audiobookshelf libraries/books/authors →
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+  doc: Audiobookshelf libraries/books/authors →
+- id: KG-2.164
+  name: Firefly III accounts/transactions/budgets →
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+  doc: Firefly III accounts/transactions/budgets →
+- id: KG-2.165
+  name: Paperless-ngx documents/correspondents/tags →
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+  doc: Paperless-ngx documents/correspondents/tags →
+- id: KG-2.166
+  name: Gramps Web people/families/events →
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  doc: Gramps Web people/families/events →
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

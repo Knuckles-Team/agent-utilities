@@ -176,3 +176,20 @@ identity verification, and risk classification. FATF/FinCEN aligned.""" ;
     rdfs:comment "A bank account with IBAN/SWIFT identifiers. Extends Account." ;
     rdfs:subClassOf :Account .
 
+
+# ── Personal-finance entities (CONCEPT:KG-2.164) ─────────────────────────────
+# OWL homes for the typed entities the Firefly III ingestion handler
+# (core/source_sync.py) emits — a :Transaction is part_of its source :Account
+# (declared in ontology_quant.ttl) and may be member_of a :Budget.
+
+:Transaction a owl:Class ;
+    rdfs:label "Transaction" ;
+    rdfs:comment """A Firefly III financial transaction (a money movement between accounts).
+BFO:Process. Aligned to fibo-fbc transaction semantics (CONCEPT:KG-2.164).""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Budget a owl:Class ;
+    rdfs:label "Budget" ;
+    rdfs:comment """A Firefly III budget (a planned spending envelope a :Transaction is
+member_of). BFO:GenericallyDependentContinuant (CONCEPT:KG-2.164).""" ;
+    rdfs:subClassOf bfo:0000031 .

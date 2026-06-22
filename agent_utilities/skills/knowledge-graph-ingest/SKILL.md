@@ -198,6 +198,7 @@ from three registries — you never list connectors by hand:
 | Native feeds | `_DELTA_HANDLERS` (`rss`, `freshrss`) | `rss`, `freshrss` | `connectors` → `worldview` (world-model gated) |
 | Enterprise / tracker / IaC | `_DELTA_HANDLERS` + capability registry (`gitlab`, `leanix`, `jira`, `confluence`, `plane`, `archivebox`, …) | each source id | `connectors` |
 | Ops / platform typed connectors | `_DELTA_HANDLERS` (`dockerhub`, `langfuse`, `technitium`, `tunnel_manager`, `uptime_kuma`, `home_assistant`, `twenty`) — typed OWL entities, MCP-configured (KG-2.155–2.161) | each source id | `connectors` |
+| Media / finance / doc / genealogy connectors | `_DELTA_HANDLERS` (`audiobookshelf`, `firefly_iii`, `paperless_ngx`, `gramps_web`) — typed OWL entities, MCP-configured (KG-2.163–2.166) | each source id | `connectors` |
 | **Every `agents/*` connector** | `package_manifest.PACKAGE_PRESETS`, drained by `_sync_fleet_connectors` via the generic `mcp` connector | `fleet_connectors` | `connectors` |
 | Materialize extractors | `enrichment.materialize.MATERIALIZE_SOURCES` (`camunda`, `aris`, `egeria`) | each source id | `connectors` |
 | Fleet capability elevation | `_sync_fleet` (slow MCP re-probe; boot/explicit only, NOT the */20m sweep) | `fleet` | `connectors` |
@@ -250,6 +251,10 @@ whose `type` is promoted to its OWL class (`core/owl_bridge.py` `PROMOTABLE_NODE
 | **`uptime_kuma`** | uptime-(kuma-)mcp | monitors + heartbeat stats | **`:UptimeMonitor` / `:HeartbeatStat`** (`part_of`) | typed `_sync_uptime_kuma` (**KG-2.159**) |
 | **`home_assistant`** | home-assistant-mcp | devices, entities/states | **`:Device` / `:Entity`** (`part_of`) | typed `_sync_home_assistant` (**KG-2.160**) |
 | **`twenty`** | twenty-mcp | CRM people, companies, opportunities | **`:Person` / `:Company` / `:Opportunity`** (`member_of`/`part_of`) | typed `_sync_twenty` (**KG-2.161**) |
+| **`audiobookshelf`** | audiobookshelf-mcp | libraries, books/audiobooks, authors | **`:Library` / `:Book` / `:Author`** (`part_of`/`authored_by`) | typed `_sync_audiobookshelf` (**KG-2.163**) |
+| **`firefly_iii`** | firefly-iii-mcp | accounts, transactions, budgets | **`:Account` / `:Transaction` / `:Budget`** (`part_of`/`member_of`) | typed `_sync_firefly_iii` (**KG-2.164**) |
+| **`paperless_ngx`** | paperless-ngx-mcp | documents, correspondents, tags | **`:Document` / `:Correspondent` / `:Tag`** (`member_of`/`tagged_with`) | typed `_sync_paperless_ngx` (**KG-2.165**) |
+| **`gramps_web`** | gramps-web-mcp | people, families, events | **`:Person` / `:Family` / `:Event`** (`member_of`/`part_of`) | typed `_sync_gramps_web` (**KG-2.166**) |
 
 The new ops/platform connectors (bold) are **MCP-configured**: each ingests only when its
 `*-mcp` server is registered in `mcp_config.json` (`_MCP_TRACKER_SERVERS`), so the

@@ -139,3 +139,27 @@ Google Calendar). BFO:Process via Event. Aligned to schema:Event.""" ;
     rdfs:seeAlso schema:Event ;
     rdfs:subClassOf :Event .
 
+
+# ── Document-management + genealogy entities (CONCEPT:KG-2.165 / KG-2.166) ────
+# OWL homes for the typed entities the Paperless-ngx and Gramps Web ingestion
+# handlers (core/source_sync.py) emit. Paperless :Document (declared in the
+# canonical ontology.ttl) is member_of a :Correspondent and tagged_with a :Tag;
+# Gramps :Person (canonical) is member_of a :Family and part_of an :Event (canonical).
+
+:Correspondent a owl:Class ;
+    rdfs:label "Correspondent" ;
+    rdfs:comment """A Paperless-ngx correspondent — the sender/recipient organization or
+person a :Document is member_of (CONCEPT:KG-2.165).""" ;
+    rdfs:subClassOf :Organization .
+
+:Tag a owl:Class ;
+    rdfs:label "Tag" ;
+    rdfs:comment """A Paperless-ngx tag — a classification label a :Document is tagged_with.
+A specialization of :Concept (CONCEPT:KG-2.165).""" ;
+    rdfs:subClassOf :Concept .
+
+:Family a owl:Class ;
+    rdfs:label "Family" ;
+    rdfs:comment """A Gramps Web family — a kinship unit grouping the :Person members
+(parents + children) that are member_of it. A social grouping (CONCEPT:KG-2.166).""" ;
+    rdfs:subClassOf :Organization .
