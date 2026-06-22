@@ -1,0 +1,17 @@
+name: Day 0 Bootstrap Swarm
+task_pattern: Perform Day 0 Bootstrap & Multi-Service Wiring Orchestration concurrently across all target layers
+specialist_ids:
+  - systems-manager
+  - devops-engineer
+  - dns-specialist
+  - tunnel-specialist
+capability_overrides:
+  systems-manager:
+    - stuck_loop_detection
+  devops-engineer:
+    - stuck_loop_detection
+    - checkpointing
+  dns-specialist:
+    - stuck_loop_detection
+  tunnel-specialist:
+    - stuck_loop_detection
