@@ -461,8 +461,17 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
             "jql": 'created >= "1970-01-01" ORDER BY updated DESC',
             "max_results": 100,
             "fields": [
-                "summary", "updated", "status", "issuetype", "assignee",
-                "reporter", "created", "parent", "description", "labels", "priority",
+                "summary",
+                "updated",
+                "status",
+                "issuetype",
+                "assignee",
+                "reporter",
+                "created",
+                "parent",
+                "description",
+                "labels",
+                "priority",
             ],
         },
         "records_path": "data.issues",
@@ -519,6 +528,154 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "cursor_path": "data.next_cursor",
         "more_path": "data.next_page_results",
         "doc_type": "issue",
+    },
+    # ── Ops / platform connectors as typed OWL entities (CONCEPT:KG-2.155–2.161) ──
+    #
+    # Each preset is the DRAIN half (list records via the fleet ``*-mcp`` tool); the
+    # matching ``_sync_*`` delta handler in ``core/source_sync.py`` rebuilds typed
+    # entities from ``metadata.record`` and ingests them under an OWL class — the
+    # Document path makes everything a ``:Document``, whereas these are first-class
+    # classes (:Repository / :Trace / :Entity / :Person …) so the reasoner can act on
+    # them. The dict-shaped / bare-list connectors (tunnel-manager, uptime-kuma,
+    # technitium-dns) have NO preset here — their handlers call the tool directly via
+    # ``call_tool_once`` because their result is not a flat record list.
+    #
+    # DockerHub repositories → :Repository / :ContainerImage (CONCEPT:KG-2.155). The
+    # ``hub_repos`` tool is action-routed (action + params_json); a ``namespace`` is
+    # required (injected per-namespace by the handler). DRF page envelope under
+    # ``data.results`` (page-number paging). ``text_field`` is the description.
+    "dockerhub-repos": {
+        "server": "dockerhub-mcp",
+        "tool": "hub_repos",
+        "action": "list",
+        "params_style": "json",
+        "params": {"page_size": 100},
+        "records_path": "data.results",
+        "id_field": "name",
+        "title_field": "name",
+        "text_field": "description",
+        "updated_field": "last_updated",
+        "pagination": "page",
+        "page_kind": "number",
+        "page_param": "page",
+        "page_size_param": "page_size",
+        "page_size": 100,
+        "start_page": 1,
+        "doc_type": "container_image",
+    },
+    # Langfuse traces → :Trace (CONCEPT:KG-2.156). ``langfuse_observability`` is an
+    # action-routed tool that takes plain keyword args (``params_style='args'``):
+    # ``action='trace_list'`` + page/limit. Langfuse returns ``{"data": [...], "meta":
+    # {...}}``; page-number paging (a short final page ends the sweep). The handler also
+    # drains ``observations_get_many`` → :Observation / :Generation.
+    "langfuse-traces": {
+        "server": "langfuse-mcp",
+        "tool": "langfuse_observability",
+        "action": "trace_list",
+        "params_style": "args",
+        "params": {"limit": 100},
+        "records_path": "data",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "input",
+        "updated_field": "timestamp",
+        "pagination": "page",
+        "page_kind": "number",
+        "page_param": "page",
+        "page_size_param": "limit",
+        "page_size": 100,
+        "start_page": 1,
+        "doc_type": "trace",
+    },
+    "langfuse-observations": {
+        "server": "langfuse-mcp",
+        "tool": "langfuse_observability",
+        "action": "observations_get_many",
+        "params_style": "args",
+        "params": {"limit": 100},
+        "records_path": "data",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "input",
+        "updated_field": "startTime",
+        "pagination": "page",
+        "page_kind": "number",
+        "page_param": "page",
+        "page_size_param": "limit",
+        "page_size": 100,
+        "start_page": 1,
+        "doc_type": "observation",
+    },
+    # Home Assistant states → :Device / :Entity (CONCEPT:KG-2.160). ``home_assistant_states``
+    # action-routed; ``list_states`` returns a BARE LIST of HAState (``records_path=""`` =
+    # the whole result), no pagination. Each entity_id maps to an :Entity; its device-class
+    # attribute rolls up to a :Device. ``text_field`` is the state value.
+    "home-assistant-states": {
+        "server": "home-assistant-mcp",
+        "tool": "home_assistant_states",
+        "action": "list_states",
+        "params_style": "json",
+        "id_field": "entity_id",
+        "title_field": "entity_id",
+        "text_field": "state",
+        "updated_field": "last_updated",
+        "doc_type": "entity",
+    },
+    # Twenty CRM people/companies/opportunities → :Person / :Company / :Opportunity
+    # (CONCEPT:KG-2.161). ``twenty_crm`` action-routed (action + params_json); each
+    # ``get_<object>`` returns the Twenty REST envelope ``{"data": {"<object>": [...]},
+    # "pageInfo": {...}}``. Cursor paging via ``pageInfo.endCursor`` /
+    # ``pageInfo.hasNextPage`` (Twenty's keyset ``starting_after``).
+    "twenty-people": {
+        "server": "twenty-mcp",
+        "tool": "twenty_crm",
+        "action": "get_people",
+        "params_style": "json",
+        "params": {"limit": 60},
+        "records_path": "data.people",
+        "id_field": "id",
+        "title_field": "name.firstName",
+        "text_field": "jobTitle",
+        "updated_field": "updatedAt",
+        "pagination": "cursor",
+        "cursor_param": "starting_after",
+        "cursor_path": "pageInfo.endCursor",
+        "more_path": "pageInfo.hasNextPage",
+        "doc_type": "person",
+    },
+    "twenty-companies": {
+        "server": "twenty-mcp",
+        "tool": "twenty_crm",
+        "action": "get_companies",
+        "params_style": "json",
+        "params": {"limit": 60},
+        "records_path": "data.companies",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "name",
+        "updated_field": "updatedAt",
+        "pagination": "cursor",
+        "cursor_param": "starting_after",
+        "cursor_path": "pageInfo.endCursor",
+        "more_path": "pageInfo.hasNextPage",
+        "doc_type": "company",
+    },
+    "twenty-opportunities": {
+        "server": "twenty-mcp",
+        "tool": "twenty_crm",
+        "action": "get_opportunities",
+        "params_style": "json",
+        "params": {"limit": 60},
+        "records_path": "data.opportunities",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "name",
+        "updated_field": "updatedAt",
+        "pagination": "cursor",
+        "cursor_param": "starting_after",
+        "cursor_path": "pageInfo.endCursor",
+        "more_path": "pageInfo.hasNextPage",
+        "doc_type": "opportunity",
     },
 }
 
@@ -1179,9 +1336,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         closed before returning (CONCEPT:KG-2.59 session lifecycle).
         """
 
-        async def run() -> (
-            tuple[list[SourceDocument], dict[str, Any], bool, str | None]
-        ):
+        async def run() -> tuple[
+            list[SourceDocument], dict[str, Any], bool, str | None
+        ]:
             docs: list[SourceDocument] = []
             new_state = dict(state)
             exhausted = False
