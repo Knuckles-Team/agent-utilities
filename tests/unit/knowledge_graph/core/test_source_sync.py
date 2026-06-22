@@ -565,3 +565,178 @@ def test_tunnel_manager_typed_hosts(monkeypatch):
     assert len(by_type["tunnel"]) == 1  # only r820 has a proxy_command
     rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
     assert any(r["type"] == "connects_via" for r in rels)
+
+
+def test_firefly_iii_typed_owl_entities(monkeypatch):
+    """Firefly III rebuilds accounts/transactions/budgets as typed OWL entities + links."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_server_configured", lambda cands: True)
+
+    def fake_drain(preset, **kw):
+        if preset == "firefly-accounts":
+            return [_Rec("1", {"attributes": {"name": "Checking", "type": "asset"}})]
+        if preset == "firefly-budgets":
+            return [_Rec("9", {"attributes": {"name": "Groceries", "active": True}})]
+        if preset == "firefly-transactions":
+            return [
+                _Rec(
+                    "5",
+                    {
+                        "attributes": {
+                            "group_title": "Coffee",
+                            "updated_at": "2026-05-01",
+                            "transactions": [
+                                {
+                                    "type": "withdrawal",
+                                    "amount": "4.50",
+                                    "source_id": "1",
+                                    "budget_id": "9",
+                                }
+                            ],
+                        }
+                    },
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(ss, "_drain_preset", fake_drain)
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_firefly_iii(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"account", "transaction", "budget"} <= set(by_type)
+    assert by_type["account"][0]["name"] == "Checking"
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "part_of" for r in rels)  # transaction → account
+    assert any(r["type"] == "member_of" for r in rels)  # transaction → budget
+
+
+def test_paperless_ngx_typed_owl_entities(monkeypatch):
+    """Paperless-ngx rebuilds documents/correspondents/tags as typed OWL entities + links."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_server_configured", lambda cands: True)
+
+    def fake_drain(preset, **kw):
+        if preset == "paperless-correspondents":
+            return [_Rec("3", {"name": "Acme Corp"})]
+        if preset == "paperless-tags":
+            return [_Rec("7", {"name": "invoice"})]
+        if preset == "paperless-documents":
+            return [
+                _Rec(
+                    "11",
+                    {
+                        "title": "Invoice Q1",
+                        "correspondent": 3,
+                        "tags": [7],
+                        "modified": "2026-05-02",
+                    },
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(ss, "_drain_preset", fake_drain)
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_paperless_ngx(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"document", "correspondent", "tag"} <= set(by_type)
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "member_of" for r in rels)  # document → correspondent
+    assert any(r["type"] == "tagged_with" for r in rels)  # document → tag
+
+
+def test_audiobookshelf_typed_owl_entities(monkeypatch):
+    """Audiobookshelf rebuilds libraries/books/authors as typed OWL entities + links."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_configured_server", lambda cands: "audiobookshelf-mcp")
+
+    def fake_run_async(coro):
+        coro.close()  # consume the call_tool_once coroutine (no live MCP call)
+        # the connector's _call passes action through; infer from the next queued result
+        return fake_run_async.queue.pop(0)
+
+    fake_run_async.queue = [
+        {"libraries": [{"id": "lib1", "name": "Audiobooks", "mediaType": "book"}]},
+        {
+            "results": [
+                {
+                    "id": "item1",
+                    "media": {
+                        "metadata": {
+                            "title": "Dune",
+                            "authors": [{"id": "a1", "name": "Frank Herbert"}],
+                        }
+                    },
+                }
+            ]
+        },
+        {"authors": [{"id": "a1", "name": "Frank Herbert", "numBooks": 6}]},
+    ]
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._run_async",
+        fake_run_async,
+    )
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_audiobookshelf(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"library", "book", "author"} <= set(by_type)
+    assert by_type["book"][0]["name"] == "Dune"
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "part_of" for r in rels)  # book → library
+    assert any(r["type"] == "authored_by" for r in rels)  # book → author
+
+
+def test_gramps_web_typed_owl_entities(monkeypatch):
+    """Gramps Web rebuilds people/families/events as typed OWL entities + links."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_configured_server", lambda cands: "gramps-web-mcp")
+
+    def fake_run_async(coro):
+        coro.close()
+        return fake_run_async.queue.pop(0)
+
+    fake_run_async.queue = [
+        {
+            "data": [
+                {
+                    "handle": "h1",
+                    "gramps_id": "I0001",
+                    "primary_name": {
+                        "first_name": "Ada",
+                        "surname_list": [{"surname": "Lovelace"}],
+                    },
+                    "event_ref_list": [{"ref": "e1"}],
+                }
+            ]
+        },
+        {
+            "data": [
+                {
+                    "handle": "f1",
+                    "gramps_id": "F0001",
+                    "father_handle": "h1",
+                    "child_ref_list": [],
+                }
+            ]
+        },
+        {"data": [{"handle": "e1", "gramps_id": "E0001", "type": {"string": "Birth"}}]},
+    ]
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._run_async",
+        fake_run_async,
+    )
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_gramps_web(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"person", "family", "event"} <= set(by_type)
+    assert by_type["person"][0]["name"] == "Ada Lovelace"
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "member_of" for r in rels)  # person → family
+    assert any(r["type"] == "part_of" for r in rels)  # person → event

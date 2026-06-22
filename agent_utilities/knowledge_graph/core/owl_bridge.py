@@ -327,6 +327,16 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "heartbeat_stat",  # Uptime Kuma heartbeat sample (KG-2.159)
     "device",  # Home Assistant device (KG-2.160)
     "entity",  # Home Assistant entity (KG-2.160)
+    # Media / finance / document / genealogy connectors (CONCEPT:KG-2.163–2.166).
+    # (``account``, ``document``, ``person``, ``event`` are already promotable above.)
+    "library",  # Audiobookshelf library (KG-2.163)
+    "book",  # Audiobookshelf book / audiobook (KG-2.163)
+    "author",  # Audiobookshelf author (KG-2.163)
+    "transaction",  # Firefly III transaction (KG-2.164)
+    "budget",  # Firefly III budget (KG-2.164)
+    "correspondent",  # Paperless-ngx correspondent (KG-2.165)
+    "tag",  # Paperless-ngx tag (KG-2.165)
+    "family",  # Gramps Web family (KG-2.166)
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
@@ -370,6 +380,8 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "supports",
     "depends_on_it",
     "connects_via",  # Host → Tunnel (tunnel-manager, CONCEPT:KG-2.158)
+    "authored_by",  # Book → Author (audiobookshelf, CONCEPT:KG-2.163)
+    "tagged_with",  # Document → Tag (paperless-ngx, CONCEPT:KG-2.165)
     "placed_by",
     "member_of",
     "part_of_dashboard",
