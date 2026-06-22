@@ -691,11 +691,11 @@ def test_audiobookshelf_typed_owl_entities(monkeypatch):
     assert any(r["type"] == "authored_by" for r in rels)  # book → author
 
 
-def test_gramps_web_typed_owl_entities(monkeypatch):
-    """Gramps Web rebuilds people/families/events as typed OWL entities + links."""
+def test_gramps_typed_owl_entities(monkeypatch):
+    """Gramps rebuilds people/families/events as typed OWL entities + links."""
     import agent_utilities.knowledge_graph.core.source_sync as ss
 
-    monkeypatch.setattr(ss, "_configured_server", lambda cands: "gramps-web-mcp")
+    monkeypatch.setattr(ss, "_configured_server", lambda cands: "gramps-mcp")
 
     def fake_run_async(coro):
         coro.close()
@@ -732,7 +732,7 @@ def test_gramps_web_typed_owl_entities(monkeypatch):
         fake_run_async,
     )
     eng = FakeEngine(FakeBackend())
-    out = ss._sync_gramps_web(eng, mode="full", ids=None, client=None)
+    out = ss._sync_gramps(eng, mode="full", ids=None, client=None)
     assert out["status"] == "ok"
     by_type = _entities_by_type(eng.batches)
     assert {"person", "family", "event"} <= set(by_type)

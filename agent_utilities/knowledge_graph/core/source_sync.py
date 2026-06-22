@@ -2601,13 +2601,13 @@ def _sync_paperless_ngx(
     }
 
 
-def _sync_gramps_web(
+def _sync_gramps(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
     """Ingest Gramps Web people/families/events as :Person / :Family / :Event
     (CONCEPT:KG-2.166).
 
-    Calls ``gramps_web_people`` / ``gramps_web_families`` / ``gramps_web_events`` (action
+    Calls ``gramps_people`` / ``gramps_families`` / ``gramps_events`` (action
     ``get_*``) directly via ``call_tool_once`` — each returns the ``Response`` envelope whose
     ``data`` is the decoded collection. Each person → a :Person; each family → a :Family the
     person is ``member_of`` (father/mother/children handles); each event → an :Event a person
@@ -2615,16 +2615,16 @@ def _sync_gramps_web(
     content-hash makes a re-run a no-op. The genealogy graph is the substrate for relationship
     reasoning over the KG.
     """
-    server = _configured_server(("gramps-web-mcp", "gramps-web-agent"))
+    server = _configured_server(("gramps-mcp", "gramps-agent"))
     if server is None:
-        return {"status": "skipped", "reason": "gramps-web-mcp not in mcp_config"}
+        return {"status": "skipped", "reason": "gramps-mcp not in mcp_config"}
     from ...protocols.source_connectors.connectors.mcp_package import _run_async
     from ...protocols.source_connectors.connectors.mcp_tool import call_tool_once
     from ...protocols.source_connectors.connectors.rest import _dig
 
     def _collection(tool: str, action: str) -> list[dict[str, Any]]:
         # Fail-soft per collection: a connector that doesn't expose one list action
-        # (e.g. the gramps-web families tool lacks a list operation) must not sink the
+        # (if a connector doesn't expose one list action) must not sink the
         # whole sync — skip that collection and ingest the others.
         try:
             res = _run_async(
@@ -2636,16 +2636,16 @@ def _sync_gramps_web(
                 )
             )
         except Exception as exc:
-            logger.warning("gramps_web: %s/%s unavailable, skipping: %s", tool, action, exc)
+            logger.warning("gramps: %s/%s unavailable, skipping: %s", tool, action, exc)
             return []
         data = _dig(res, "data") if isinstance(res, dict) else res
         if isinstance(data, list):
             return [r for r in data if isinstance(r, dict)]
         return []
 
-    people = _collection("gramps_web_people", "get_people")
-    families = _collection("gramps_web_families", "get_families")
-    events = _collection("gramps_web_events", "get_events")
+    people = _collection("gramps_people", "get_people")
+    families = _collection("gramps_families", "get_families")
+    events = _collection("gramps_events", "get_events")
     entities: list[dict[str, Any]] = []
     rels: list[dict[str, Any]] = []
 
@@ -2677,8 +2677,8 @@ def _sync_gramps_web(
                 "name": _person_name(rec),
                 "gramps_id": rec.get("gramps_id"),
                 "gender": rec.get("gender"),
-                "domain": "gramps_web",
-                "source_system": "gramps_web",
+                "domain": "gramps",
+                "source_system": "gramps",
                 "externalToolId": str(handle),
                 "updatedAt": rec.get("change"),
             }
@@ -2692,7 +2692,7 @@ def _sync_gramps_web(
                         "source": node_id,
                         "target": f"gramps:event:{ev}",
                         "type": "part_of",
-                        "domain": "gramps_web",
+                        "domain": "gramps",
                     }
                 )
     for rec in families:
@@ -2711,8 +2711,8 @@ def _sync_gramps_web(
                     if isinstance(rec.get("type"), dict)
                     else None
                 ),
-                "domain": "gramps_web",
-                "source_system": "gramps_web",
+                "domain": "gramps",
+                "source_system": "gramps",
                 "externalToolId": str(handle),
                 "updatedAt": rec.get("change"),
             }
@@ -2728,7 +2728,7 @@ def _sync_gramps_web(
                         "source": f"gramps:person:{member}",
                         "target": fam_node,
                         "type": "member_of",
-                        "domain": "gramps_web",
+                        "domain": "gramps",
                     }
                 )
     for rec in events:
@@ -2747,17 +2747,17 @@ def _sync_gramps_web(
                 or f"Event {handle}",
                 "gramps_id": rec.get("gramps_id"),
                 "description": rec.get("description"),
-                "domain": "gramps_web",
-                "source_system": "gramps_web",
+                "domain": "gramps",
+                "source_system": "gramps",
                 "externalToolId": str(handle),
                 "updatedAt": rec.get("change"),
             }
         )
     if entities:
-        engine.ingest_external_batch("gramps_web", entities, rels)
+        engine.ingest_external_batch("gramps", entities, rels)
     return {
         "status": "ok",
-        "source": "gramps_web",
+        "source": "gramps",
         "mode": mode,
         "delta_capable": False,
         "people": len(people),
@@ -2793,7 +2793,7 @@ _MCP_TRACKER_SERVERS: dict[str, tuple[str, ...]] = {
     "audiobookshelf": ("audiobookshelf-mcp", "audiobookshelf-agent"),
     "firefly_iii": ("firefly-iii-mcp", "firefly-iii-agent"),
     "paperless_ngx": ("paperless-ngx-mcp", "paperless-ngx-agent"),
-    "gramps_web": ("gramps-web-mcp", "gramps-web-agent"),
+    "gramps": ("gramps-mcp", "gramps-agent"),
 }
 
 
@@ -2879,7 +2879,7 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "audiobookshelf": _sync_audiobookshelf,
     "firefly_iii": _sync_firefly_iii,
     "paperless_ngx": _sync_paperless_ngx,
-    "gramps_web": _sync_gramps_web,
+    "gramps": _sync_gramps,
     "fleet": _sync_fleet,
     "fleet_connectors": _sync_fleet_connectors,
 }

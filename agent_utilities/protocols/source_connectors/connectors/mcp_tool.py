@@ -681,7 +681,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
     #
     # Same DRAIN-half pattern as the ops connectors above: the preset lists records via
     # the fleet ``*-mcp`` tool, the matching ``_sync_*`` handler rebuilds typed entities.
-    # Audiobookshelf (libraries→items, multi-step) and gramps-web (Response.data envelope
+    # Audiobookshelf (libraries→items, multi-step) and gramps (Response.data envelope
     # per object) have NO preset — their handlers call the tool directly via
     # ``call_tool_once`` because the result is multi-step / wrapped.
     #
@@ -1444,9 +1444,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         closed before returning (CONCEPT:KG-2.59 session lifecycle).
         """
 
-        async def run() -> tuple[
-            list[SourceDocument], dict[str, Any], bool, str | None
-        ]:
+        async def run() -> (
+            tuple[list[SourceDocument], dict[str, Any], bool, str | None]
+        ):
             docs: list[SourceDocument] = []
             new_state = dict(state)
             exhausted = False
