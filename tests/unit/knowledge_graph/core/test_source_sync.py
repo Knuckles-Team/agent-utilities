@@ -171,7 +171,8 @@ def test_generic_source_falls_back_to_full_hydrate(monkeypatch):
 
 
 def test_generic_reconcile_unsupported():
-    out = sync_source(object(), "twenty", mode="reconcile")
+    # A source with NO delta handler can't reconcile (delta handlers own reconcile).
+    out = sync_source(object(), "some_unhandled_source", mode="reconcile")
     assert out["status"] == "skipped"
     assert "reconcile not supported" in out["reason"]
 
@@ -334,7 +335,10 @@ def test_mcp_tracker_configured_honours_instance_server_override(monkeypatch):
     )
     # default atlassian-mcp is absent, but the configured instance points elsewhere.
     monkeypatch.setattr(
-        cfg, "jira_instances", [{"name": "eu", "server": "atlassian-eu-mcp"}], raising=False
+        cfg,
+        "jira_instances",
+        [{"name": "eu", "server": "atlassian-eu-mcp"}],
+        raising=False,
     )
     assert ss._mcp_tracker_configured("jira") is True
     # confluence still defaults to the (absent) atlassian-mcp → unconfigured.
@@ -370,19 +374,24 @@ def test_fleet_connectors_skips_unconfigured_packages(monkeypatch):
     assert out["source"] == "fleet_connectors"
     assert out["synced"] == {}
     assert out["counts"]["errors"] == 0
-    # every preset reported as skipped (server not in mcp_config)
+    # every preset reported as skipped — either its server isn't in mcp_config, or it's
+    # owned by a dedicated delta handler (the _FLEET_DEDICATED_PACKAGES exclusion, KG-2.151).
     assert out["counts"]["skipped"] > 0
-    assert all("not in mcp_config" in r for r in out["skipped"].values())
+    assert all(
+        ("not in mcp_config" in r) or ("dedicated delta handler" in r)
+        for r in out["skipped"].values()
+    )
 
 
 def test_fleet_connectors_drains_configured_package(monkeypatch):
     """A configured package is drained via the mcp connector and processed as Documents."""
     import agent_utilities.knowledge_graph.core.source_sync as ss
 
-    # scholarx-mcp registered → only that package is attempted.
+    # github-mcp registered → only that package is attempted (a non-dedicated package;
+    # scholarx/gitlab/atlassian/plane are owned by dedicated delta handlers and excluded).
     monkeypatch.setattr(
         "agent_utilities.protocols.source_connectors.connectors.mcp_package._load_mcp_config",
-        lambda: {"scholarx-mcp": {"command": "scholarx"}},
+        lambda: {"github-mcp": {"command": "github-mcp"}},
     )
 
     class _Doc:
@@ -390,13 +399,16 @@ def test_fleet_connectors_drains_configured_package(monkeypatch):
             self.id = did
             self.text = text
             self.title = f"T{did}"
-            self.source_uri = f"mcp://scholarx/{did}"
+            self.source_uri = f"mcp://github/{did}"
             self.updated_at = updated
 
     class _Conn:
         def poll(self, checkpoint=None):
             class _Batch:
-                documents = [_Doc("p1", "alpha", "2026-01-01"), _Doc("p2", "beta", "2026-02-01")]
+                documents = [
+                    _Doc("p1", "alpha", "2026-01-01"),
+                    _Doc("p2", "beta", "2026-02-01"),
+                ]
 
                 class checkpoint:  # noqa: N801
                     has_more = False
@@ -420,8 +432,136 @@ def test_fleet_connectors_drains_configured_package(monkeypatch):
         FakeEngine(FakeBackend()), mode="full", ids=None, client=None
     )
     assert out["status"] == "ok"
-    assert out["synced"]["scholarx"]["documents_ingested"] == 2
-    assert out["synced"]["scholarx"]["watermark"] == "2026-02-01"
-    assert processed == ["fleet:scholarx:p1", "fleet:scholarx:p2"]
+    assert out["synced"]["github-agent"]["documents_ingested"] == 2
+    assert out["synced"]["github-agent"]["watermark"] == "2026-02-01"
+    assert processed == ["fleet:github-agent:p1", "fleet:github-agent:p2"]
     # all other packages skipped (their *-mcp server not registered)
     assert out["counts"]["errors"] == 0
+
+
+# ── Ops / platform typed connectors → OWL entities (CONCEPT:KG-2.155–2.161) ──
+
+
+class _Rec:
+    """A drained connector doc carrying its raw source record in metadata.record."""
+
+    def __init__(self, did, record, updated=None):
+        self.id = did
+        self.metadata = {"record": record}
+        self.updated_at = updated
+
+
+def _entities_by_type(batches):
+    """Flatten ingest_external_batch calls → {type: [entity, ...]}."""
+    out: dict[str, list] = {}
+    for _domain, entities, _rels in batches:
+        for e in entities:
+            out.setdefault(e["type"], []).append(e)
+    return out
+
+
+def test_dockerhub_typed_owl_entities(monkeypatch):
+    """DockerHub repos rebuild as :Repository + :ContainerImage with a contains edge."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_configured_server", lambda cands: "dockerhub-mcp")
+    monkeypatch.setattr(
+        ss,
+        "_drain_preset",
+        lambda preset, **kw: [
+            _Rec(
+                "img1",
+                {"name": "img1", "description": "d", "pull_count": 5},
+                "2026-03-01",
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        "agent_utilities.core.config.setting",
+        lambda key, default="": (
+            "myns" if key.startswith("DOCKERHUB_NAMESPACE") else default
+        ),
+    )
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_dockerhub(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert by_type["repository"][0]["id"] == "dockerhub:myns"
+    assert by_type["container_image"][0]["name"] == "myns/img1"
+    # contains edge repo → image
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "contains" for r in rels)
+
+
+def test_twenty_typed_owl_entities(monkeypatch):
+    """Twenty CRM rebuilds people/companies/opportunities as typed OWL entities + links."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_configured_server", lambda cands: "twenty-mcp")
+
+    def fake_drain(preset, **kw):
+        if preset == "twenty-people":
+            return [
+                _Rec(
+                    "p1",
+                    {
+                        "name": {"firstName": "Ada", "lastName": "L"},
+                        "companyId": "c1",
+                        "updatedAt": "2026-04-01",
+                    },
+                )
+            ]
+        if preset == "twenty-companies":
+            return [_Rec("c1", {"name": "Acme", "updatedAt": "2026-04-02"})]
+        if preset == "twenty-opportunities":
+            return [
+                _Rec(
+                    "o1", {"name": "Deal", "companyId": "c1", "updatedAt": "2026-04-03"}
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(ss, "_drain_preset", fake_drain)
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_twenty(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert {"person", "company", "opportunity"} <= set(by_type)
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "member_of" for r in rels)  # person → company
+    assert any(r["type"] == "part_of" for r in rels)  # opportunity → company
+
+
+def test_tunnel_manager_typed_hosts(monkeypatch):
+    """tunnel-manager hosts rebuild as :Host (+ :Tunnel when proxy_command is set)."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(ss, "_configured_server", lambda cands: "tunnel-manager-mcp")
+
+    def fake_run_async(coro):
+        coro.close()  # consume the call_tool_once coroutine (no live MCP call)
+        return {
+            "hosts": {
+                "r820": {
+                    "hostname": "10.0.0.2",
+                    "user": "ops",
+                    "port": 22,
+                    "proxy_command": "ssh jump",
+                    "extra_config": {"group": "core"},
+                },
+                "rw710": {"hostname": "10.0.0.3", "user": "ops"},
+            }
+        }
+
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._run_async",
+        fake_run_async,
+    )
+    eng = FakeEngine(FakeBackend())
+    out = ss._sync_tunnel_manager(eng, mode="full", ids=None, client=None)
+    assert out["status"] == "ok"
+    by_type = _entities_by_type(eng.batches)
+    assert len(by_type["host"]) == 2
+    assert len(by_type["tunnel"]) == 1  # only r820 has a proxy_command
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert any(r["type"] == "connects_via" for r in rels)

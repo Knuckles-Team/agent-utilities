@@ -1034,7 +1034,8 @@ def _jira_jql(inst: dict[str, Any], since: str | None, ids: list[str] | None) ->
         clauses.append(f"({extra})")
     where = " AND ".join(clauses)
     return (
-        f"{where} ORDER BY updated DESC" if where
+        f"{where} ORDER BY updated DESC"
+        if where
         # Jira Cloud /search/jql (search-and-reconcile) rejects an UNBOUNDED query
         # (400); a wide created-bound keeps "all issues" valid (CONCEPT:KG-2.124).
         else 'created >= "1970-01-01" ORDER BY updated DESC'
@@ -1384,6 +1385,798 @@ def _sync_confluence(
     }
 
 
+# ── Ops / platform connectors as typed OWL entities (CONCEPT:KG-2.155–2.161) ──────
+#
+# Seven first-class delta connectors that reach their upstream ONLY through a fleet
+# ``*-mcp`` server (like jira/confluence/plane) and rebuild **typed** entities mapped to
+# OWL classes — not generic Documents. Each is MCP-configured: its "configured" signal is
+# *"the server is registered in mcp_config.json"*. Delta = a per-source ISO ``updated_at``
+# watermark + the write-layer content-hash; the server it reaches is in ``_MCP_TRACKER_SERVERS``.
+#
+# CONCEPT:KG-2.155 — DockerHub repositories → :Repository / :ContainerImage
+# CONCEPT:KG-2.156 — Langfuse traces/observations → :Trace / :Observation / :Generation
+# CONCEPT:KG-2.157 — Technitium DNS zones+records → :DnsZone / :DnsRecord
+# CONCEPT:KG-2.158 — tunnel-manager hosts → :Host / :Tunnel
+# CONCEPT:KG-2.159 — Uptime Kuma monitors → :Monitor / :HeartbeatStat
+# CONCEPT:KG-2.160 — Home Assistant states → :Device / :Entity
+# CONCEPT:KG-2.161 — Twenty CRM people/companies/opportunities → :Person / :Company / :Opportunity
+
+
+def _configured_server(server_candidates: tuple[str, ...]) -> str | None:
+    """The first candidate ``*-mcp`` server actually registered in ``mcp_config.json``
+    (or its ``<name>-mcp`` alias), or ``None`` when none is — so a handler reaches the
+    upstream through the server the operator really configured (the catalog name and the
+    local config key can differ, e.g. ``uptime-mcp`` vs ``uptime-kuma-mcp``)."""
+    try:
+        from ...protocols.source_connectors.connectors.mcp_package import (
+            _load_mcp_config,
+        )
+
+        servers = _load_mcp_config() or {}
+    except Exception:  # noqa: BLE001 — no readable config → not configured here
+        return None
+    for cand in server_candidates:
+        if cand in servers:
+            return cand
+        if f"{cand}-mcp" in servers:
+            return f"{cand}-mcp"
+    return None
+
+
+def _server_configured(server_candidates: tuple[str, ...]) -> bool:
+    """True when any candidate ``*-mcp`` server (or its de-suffixed alias) is in
+    ``mcp_config.json`` — the connector reaches the upstream only through that server."""
+    return _configured_server(server_candidates) is not None
+
+
+def _drain_preset(
+    preset: str, *, server: str = "", params: dict[str, Any] | None = None
+) -> list[Any]:
+    """Build the ``mcp_tool`` connector for a preset and drain ONE full sweep.
+
+    Used by the typed handlers below: the preset does the list/page/cursor drain, the
+    handler maps each ``metadata.record`` to a typed entity. Bounded by the connector's
+    own ``max_pages`` so a cold run can't loop unbounded.
+    """
+    from ...protocols.source_connectors.registry import build_connector
+
+    config: dict[str, Any] = {"preset": preset}
+    if server:
+        config["server"] = server
+    if params:
+        config["params"] = params
+    conn = build_connector("mcp_tool", config)
+    if hasattr(conn, "poll_all"):
+        return list(conn.poll_all())  # type: ignore[attr-defined]
+    return list(conn.load())  # type: ignore[attr-defined]
+
+
+def _ingest_typed(
+    engine: Any,
+    source: str,
+    entities: list[dict[str, Any]],
+    rels: list[dict[str, Any]],
+    *,
+    wm_key: str,
+    since: str | None,
+    watermark: str | None,
+) -> None:
+    """Ingest a typed entity/relationship batch + advance the watermark (shared tail)."""
+    if entities:
+        engine.ingest_external_batch(source, entities, rels)
+    backend = getattr(engine, "backend", None)
+    if watermark and (since is None or str(watermark) > str(since)):
+        _write_watermark(backend, wm_key, watermark)
+
+
+def _sync_dockerhub(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest DockerHub repositories as :Repository + :ContainerImage (CONCEPT:KG-2.155).
+
+    Per configured namespace (``DOCKERHUB_NAMESPACES`` CSV, else ``DOCKERHUB_NAMESPACE``,
+    else ``ids`` as namespaces) drains the ``dockerhub-repos`` preset over ``dockerhub-mcp``
+    and rebuilds each repo as a :ContainerImage (image coordinates + pull/star counts) that
+    ``contains`` the namespace's :Repository. Delta = the ``last_updated`` watermark.
+    """
+    if not _server_configured(("dockerhub-mcp", "dockerhub-api")):
+        return {"status": "skipped", "reason": "dockerhub-mcp not in mcp_config"}
+    from ...core.config import setting
+
+    namespaces = [
+        n.strip()
+        for n in (
+            setting("DOCKERHUB_NAMESPACES", default="")
+            or setting("DOCKERHUB_NAMESPACE", default="")
+        ).split(",")
+        if n.strip()
+    ] or [str(i) for i in (ids or [])]
+    if not namespaces:
+        return {"status": "skipped", "reason": "no DockerHub namespace configured"}
+
+    backend = getattr(engine, "backend", None)
+    total = 0
+    results: list[dict[str, Any]] = []
+    for ns in namespaces:
+        wm_key = f"dockerhub:{ns}"
+        since = None if mode == "full" else _read_watermark(backend, wm_key)
+        docs = _drain_preset("dockerhub-repos", params={"namespace": ns})
+        repo_node = f"dockerhub:{ns}"
+        entities: list[dict[str, Any]] = [
+            {
+                "id": repo_node,
+                "type": "repository",
+                "name": ns,
+                "domain": "dockerhub",
+                "source_system": f"dockerhub:{ns}",
+            }
+        ]
+        rels: list[dict[str, Any]] = []
+        for doc in docs:
+            rec = _record_of(doc)
+            name = rec.get("name") or getattr(doc, "id", None)
+            if not name:
+                continue
+            img_id = f"dockerhub:{ns}/{name}"
+            entities.append(
+                {
+                    "id": img_id,
+                    "type": "container_image",
+                    "name": f"{ns}/{name}",
+                    "description": rec.get("description") or "",
+                    "pull_count": rec.get("pull_count"),
+                    "star_count": rec.get("star_count"),
+                    "is_private": rec.get("is_private"),
+                    "domain": "dockerhub",
+                    "source_system": f"dockerhub:{ns}",
+                    "externalToolId": f"{ns}/{name}",
+                    "updatedAt": rec.get("last_updated"),
+                }
+            )
+            rels.append(
+                {
+                    "source": repo_node,
+                    "target": img_id,
+                    "type": "contains",
+                    "domain": "dockerhub",
+                }
+            )
+        _ingest_typed(
+            engine,
+            "dockerhub",
+            entities,
+            rels,
+            wm_key=wm_key,
+            since=since,
+            watermark=_max_updated(docs),
+        )
+        total += len(docs)
+        results.append({"namespace": ns, "images": len(docs)})
+    return {
+        "status": "ok",
+        "source": "dockerhub",
+        "mode": mode,
+        "delta_capable": True,
+        "namespaces": results,
+        "images_ingested": total,
+    }
+
+
+def _sync_langfuse(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Langfuse traces + observations as :Trace / :Observation / :Generation
+    (CONCEPT:KG-2.156).
+
+    Drains the ``langfuse-traces`` and ``langfuse-observations`` presets over
+    ``langfuse-mcp``; each trace is a :Trace, each observation a :Observation (LLM-call
+    observations — ``type == 'GENERATION'`` — are :Generation), linked ``part_of`` their
+    trace via ``traceId``. Delta = the ``timestamp`` / ``startTime`` watermark.
+    """
+    if not _server_configured(("langfuse-mcp", "langfuse-agent")):
+        return {"status": "skipped", "reason": "langfuse-mcp not in mcp_config"}
+    backend = getattr(engine, "backend", None)
+    wm_key = "langfuse"
+    since = None if mode == "full" else _read_watermark(backend, wm_key)
+    src = "langfuse"
+
+    trace_docs = _drain_preset("langfuse-traces")
+    obs_docs = _drain_preset("langfuse-observations")
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+    for doc in trace_docs:
+        tid = getattr(doc, "id", None)
+        if not tid:
+            continue
+        rec = _record_of(doc)
+        entities.append(
+            {
+                "id": f"langfuse:trace:{tid}",
+                "type": "trace",
+                "name": rec.get("name") or f"Trace {tid}",
+                "user_id": rec.get("userId"),
+                "session_id": rec.get("sessionId"),
+                "domain": "langfuse",
+                "source_system": src,
+                "externalToolId": str(tid),
+                "updatedAt": rec.get("timestamp"),
+            }
+        )
+    for doc in obs_docs:
+        oid = getattr(doc, "id", None)
+        if not oid:
+            continue
+        rec = _record_of(doc)
+        is_gen = str(rec.get("type") or "").upper() == "GENERATION"
+        node_id = f"langfuse:obs:{oid}"
+        entities.append(
+            {
+                "id": node_id,
+                "type": "generation" if is_gen else "observation",
+                "name": rec.get("name") or f"Observation {oid}",
+                "model": rec.get("model"),
+                "domain": "langfuse",
+                "source_system": src,
+                "externalToolId": str(oid),
+                "updatedAt": rec.get("startTime"),
+            }
+        )
+        if tid := rec.get("traceId"):
+            rels.append(
+                {
+                    "source": node_id,
+                    "target": f"langfuse:trace:{tid}",
+                    "type": "part_of",
+                    "domain": "langfuse",
+                }
+            )
+    _ingest_typed(
+        engine,
+        src,
+        entities,
+        rels,
+        wm_key=wm_key,
+        since=since,
+        watermark=_max_updated(trace_docs + obs_docs),
+    )
+    return {
+        "status": "ok",
+        "source": "langfuse",
+        "mode": mode,
+        "delta_capable": True,
+        "traces": len(trace_docs),
+        "observations": len(obs_docs),
+        "nodes_hydrated": len(entities),
+        "relations_hydrated": len(rels),
+    }
+
+
+def _sync_technitium(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Technitium DNS zones + records as :DnsZone / :DnsRecord (CONCEPT:KG-2.157).
+
+    Lists zones via ``technitium_dns_zones`` (action=list_zones), then per zone lists its
+    records (action=get_records, list_zone=true). Each zone → a :DnsZone; each record →
+    a :DnsRecord ``part_of`` its zone. Dict-shaped Technitium envelope (``response.zones`` /
+    ``response.records``) → calls the tool directly via ``call_tool_once``. Full snapshot
+    each run (DNS is small); the write-layer content-hash makes a re-run a no-op.
+    """
+    server = _configured_server(("technitium-dns-mcp", "technitium-dns"))
+    if server is None:
+        return {"status": "skipped", "reason": "technitium-dns-mcp not in mcp_config"}
+    from ...protocols.source_connectors.connectors.mcp_package import _run_async
+    from ...protocols.source_connectors.connectors.mcp_tool import call_tool_once
+    from ...protocols.source_connectors.connectors.rest import _dig
+
+    def _call(action: str, params: dict[str, Any]) -> Any:
+        return _run_async(
+            call_tool_once(
+                server=server,
+                tool="technitium_dns_zones",
+                action=action,
+                params=params,
+            )
+        )
+
+    zones_res = _call("list_zones", {})
+    zones = (
+        (_dig(zones_res, "response.zones") or []) if isinstance(zones_res, dict) else []
+    )
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+    records_total = 0
+    for zone in zones:
+        if not isinstance(zone, dict):
+            continue
+        zname = zone.get("name")
+        if not zname:
+            continue
+        zone_node = f"technitium:zone:{zname}"
+        entities.append(
+            {
+                "id": zone_node,
+                "type": "dns_zone",
+                "name": zname,
+                "zone_type": zone.get("type"),
+                "disabled": zone.get("disabled"),
+                "domain": "technitium",
+                "source_system": "technitium",
+                "externalToolId": zname,
+            }
+        )
+        try:
+            rec_res = _call(
+                "get_records", {"domain": zname, "zone": zname, "list_zone": True}
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad zone never aborts the rest
+            logger.warning(
+                "[KG-2.157] technitium records fetch failed for %s: %s", zname, exc
+            )
+            continue
+        records = (
+            (_dig(rec_res, "response.records") or [])
+            if isinstance(rec_res, dict)
+            else []
+        )
+        for rec in records:
+            if not isinstance(rec, dict):
+                continue
+            rname = rec.get("name")
+            rtype = rec.get("type")
+            rdata = rec.get("rData")
+            value = ""
+            if isinstance(rdata, dict):
+                value = str(
+                    rdata.get("ipAddress")
+                    or rdata.get("value")
+                    or rdata.get("text")
+                    or ""
+                )
+            rec_node = f"technitium:rec:{zname}:{rname}:{rtype}:{value}"
+            entities.append(
+                {
+                    "id": rec_node,
+                    "type": "dns_record",
+                    "name": f"{rname} {rtype}".strip(),
+                    "record_type": rtype,
+                    "ttl": rec.get("ttl"),
+                    "value": value,
+                    "disabled": rec.get("disabled"),
+                    "domain": "technitium",
+                    "source_system": "technitium",
+                }
+            )
+            rels.append(
+                {
+                    "source": rec_node,
+                    "target": zone_node,
+                    "type": "part_of",
+                    "domain": "technitium",
+                }
+            )
+            records_total += 1
+    if entities:
+        engine.ingest_external_batch("technitium", entities, rels)
+    return {
+        "status": "ok",
+        "source": "technitium",
+        "mode": mode,
+        "delta_capable": False,
+        "zones": len(zones),
+        "records": records_total,
+        "nodes_hydrated": len(entities),
+        "relations_hydrated": len(rels),
+    }
+
+
+def _sync_tunnel_manager(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest tunnel-manager host inventory as :Host / :Tunnel (CONCEPT:KG-2.158).
+
+    Calls ``tm_hosts`` (action=list) — a dict ``{"hosts": {alias: HostConfig}}`` (args-style,
+    not a record list) — so it goes through ``call_tool_once`` directly. Each alias → a
+    :Host (hostname/user/port + any ``extra_config`` inventory keys); a configured
+    ``proxy_command`` (a jump/tunnel) → a :Tunnel the host ``connects_via``.
+    """
+    server = _configured_server(("tunnel-manager-mcp", "tunnel-manager"))
+    if server is None:
+        return {"status": "skipped", "reason": "tunnel-manager-mcp not in mcp_config"}
+    from ...protocols.source_connectors.connectors.mcp_package import _run_async
+    from ...protocols.source_connectors.connectors.mcp_tool import call_tool_once
+
+    res = _run_async(
+        call_tool_once(
+            server=server,
+            tool="tm_hosts",
+            params={"action": "list"},
+            params_style="args",
+            action="",
+        )
+    )
+    hosts = (res.get("hosts") if isinstance(res, dict) else None) or {}
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+    for alias, cfg in hosts.items():
+        if not isinstance(cfg, dict):
+            continue
+        extra = (
+            cfg.get("extra_config") if isinstance(cfg.get("extra_config"), dict) else {}
+        )
+        host_node = f"tunnel:host:{alias}"
+        entities.append(
+            {
+                "id": host_node,
+                "type": "host",
+                "name": str(alias),
+                "hostname": cfg.get("hostname"),
+                "ssh_user": cfg.get("user"),
+                "ssh_port": cfg.get("port"),
+                "group": extra.get("group") or extra.get("ansible_group"),
+                "ip_address": extra.get("ansible_host") or cfg.get("hostname"),
+                "domain": "tunnel_manager",
+                "source_system": "tunnel_manager",
+                "externalToolId": str(alias),
+            }
+        )
+        if proxy := cfg.get("proxy_command"):
+            tun_node = f"tunnel:link:{alias}"
+            entities.append(
+                {
+                    "id": tun_node,
+                    "type": "tunnel",
+                    "name": f"tunnel:{alias}",
+                    "proxy_command": str(proxy),
+                    "domain": "tunnel_manager",
+                    "source_system": "tunnel_manager",
+                }
+            )
+            rels.append(
+                {
+                    "source": host_node,
+                    "target": tun_node,
+                    "type": "connects_via",
+                    "domain": "tunnel_manager",
+                }
+            )
+    if entities:
+        engine.ingest_external_batch("tunnel_manager", entities, rels)
+    return {
+        "status": "ok",
+        "source": "tunnel_manager",
+        "mode": mode,
+        "delta_capable": False,
+        "hosts": sum(1 for e in entities if e["type"] == "host"),
+        "tunnels": sum(1 for e in entities if e["type"] == "tunnel"),
+        "nodes_hydrated": len(entities),
+        "relations_hydrated": len(rels),
+    }
+
+
+def _sync_uptime_kuma(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Uptime Kuma monitors + heartbeat stats as :Monitor / :HeartbeatStat
+    (CONCEPT:KG-2.159).
+
+    Calls ``uptime_kuma_monitors`` (action=get_monitors → bare list) and
+    ``uptime_kuma_status`` (action=get_heartbeats → dict keyed by monitor id), both
+    args-shaped, via ``call_tool_once``. Each monitor → a :Monitor; the latest heartbeat
+    per monitor → a :HeartbeatStat ``part_of`` it (status/ping). Full snapshot each run;
+    the write-layer content-hash makes unchanged monitors a no-op — for service-health and
+    failure-pattern analysis over the KG.
+    """
+    server = _configured_server(("uptime-mcp", "uptime-kuma-mcp", "uptime-kuma-agent"))
+    if server is None:
+        return {"status": "skipped", "reason": "uptime-kuma server not in mcp_config"}
+    from ...protocols.source_connectors.connectors.mcp_package import _run_async
+    from ...protocols.source_connectors.connectors.mcp_tool import call_tool_once
+
+    monitors = _run_async(
+        call_tool_once(
+            server=server,
+            tool="uptime_kuma_monitors",
+            params={"action": "get_monitors"},
+            params_style="json",
+            action="",
+        )
+    )
+    # get_monitors may return a bare list OR a dict keyed by id, depending on the
+    # uptime_kuma_api version — normalize both to a list of monitor dicts.
+    if isinstance(monitors, dict):
+        mon_list = [m for m in monitors.values() if isinstance(m, dict)]
+    elif isinstance(monitors, list):
+        mon_list = [m for m in monitors if isinstance(m, dict)]
+    else:
+        mon_list = []
+    try:
+        heartbeats = _run_async(
+            call_tool_once(
+                server=server,
+                tool="uptime_kuma_status",
+                params={"action": "get_heartbeats"},
+                params_style="json",
+                action="",
+            )
+        )
+    except Exception:  # noqa: BLE001 — heartbeats are best-effort enrichment
+        heartbeats = {}
+    hb_map = heartbeats if isinstance(heartbeats, dict) else {}
+
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+    for mon in mon_list:
+        mid = mon.get("id")
+        if mid is None:
+            continue
+        mon_node = f"uptime:monitor:{mid}"
+        entities.append(
+            {
+                "id": mon_node,
+                "type": "uptime_monitor",
+                "name": mon.get("name") or f"Monitor {mid}",
+                "url": mon.get("url"),
+                "monitor_type": mon.get("type"),
+                "active": mon.get("active"),
+                "domain": "uptime_kuma",
+                "source_system": "uptime_kuma",
+                "externalToolId": str(mid),
+            }
+        )
+        beats = hb_map.get(str(mid)) or hb_map.get(mid) or []
+        last = beats[-1] if isinstance(beats, list) and beats else None
+        if isinstance(last, dict):
+            hb_node = f"uptime:hb:{mid}"
+            entities.append(
+                {
+                    "id": hb_node,
+                    "type": "heartbeat_stat",
+                    "name": f"heartbeat:{mid}",
+                    "up": last.get("status") == 1,
+                    "ping": last.get("ping"),
+                    "msg": last.get("msg"),
+                    "domain": "uptime_kuma",
+                    "source_system": "uptime_kuma",
+                    "updatedAt": last.get("time"),
+                }
+            )
+            rels.append(
+                {
+                    "source": hb_node,
+                    "target": mon_node,
+                    "type": "part_of",
+                    "domain": "uptime_kuma",
+                }
+            )
+    if entities:
+        engine.ingest_external_batch("uptime_kuma", entities, rels)
+    return {
+        "status": "ok",
+        "source": "uptime_kuma",
+        "mode": mode,
+        "delta_capable": False,
+        "monitors": len(mon_list),
+        "nodes_hydrated": len(entities),
+        "relations_hydrated": len(rels),
+    }
+
+
+def _sync_home_assistant(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Home Assistant entities/states as :Device / :Entity (CONCEPT:KG-2.160).
+
+    Drains the ``home-assistant-states`` preset (action=list_states → bare list) over
+    ``home-assistant-mcp``. Each ``entity_id`` → an :Entity (state + attributes); its
+    domain prefix (``light``/``sensor``/…) rolls up to a :Device the entity is ``part_of``.
+    Delta = the ``last_updated`` watermark.
+    """
+    if not _server_configured(("home-assistant-mcp", "home-assistant-agent")):
+        return {"status": "skipped", "reason": "home-assistant-mcp not in mcp_config"}
+    backend = getattr(engine, "backend", None)
+    wm_key = "home_assistant"
+    since = None if mode == "full" else _read_watermark(backend, wm_key)
+    docs = _drain_preset("home-assistant-states")
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+    devices: set[str] = set()
+    for doc in docs:
+        eid = getattr(doc, "id", None)
+        if not eid:
+            continue
+        rec = _record_of(doc)
+        attrs = rec.get("attributes") if isinstance(rec.get("attributes"), dict) else {}
+        device_class = str(eid).split(".", 1)[0]  # light / sensor / switch / …
+        ent_node = f"hass:entity:{eid}"
+        entities.append(
+            {
+                "id": ent_node,
+                "type": "entity",
+                "name": attrs.get("friendly_name") or str(eid),
+                "entity_id": str(eid),
+                "state": rec.get("state"),
+                "device_class": device_class,
+                "domain": "home_assistant",
+                "source_system": "home_assistant",
+                "externalToolId": str(eid),
+                "updatedAt": rec.get("last_updated"),
+            }
+        )
+        dev_node = f"hass:device:{device_class}"
+        if device_class not in devices:
+            entities.append(
+                {
+                    "id": dev_node,
+                    "type": "device",
+                    "name": f"HA {device_class}",
+                    "domain": "home_assistant",
+                    "source_system": "home_assistant",
+                }
+            )
+            devices.add(device_class)
+        rels.append(
+            {
+                "source": ent_node,
+                "target": dev_node,
+                "type": "part_of",
+                "domain": "home_assistant",
+            }
+        )
+    _ingest_typed(
+        engine,
+        "home_assistant",
+        entities,
+        rels,
+        wm_key=wm_key,
+        since=since,
+        watermark=_max_updated(docs),
+    )
+    return {
+        "status": "ok",
+        "source": "home_assistant",
+        "mode": mode,
+        "delta_capable": True,
+        "entities": sum(1 for e in entities if e["type"] == "entity"),
+        "devices": len(devices),
+        "nodes_hydrated": len(entities),
+        "relations_hydrated": len(rels),
+    }
+
+
+def _sync_twenty(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Twenty CRM people/companies/opportunities as :Person / :Company /
+    :Opportunity (CONCEPT:KG-2.161).
+
+    Drains the ``twenty-people`` / ``twenty-companies`` / ``twenty-opportunities`` presets
+    over ``twenty-mcp``. People with a ``companyId`` are linked ``member_of`` their company;
+    opportunities with a ``companyId`` are linked ``part_of`` it. Delta = the ``updatedAt``
+    watermark across the three object types.
+    """
+    if not _server_configured(("twenty-mcp", "twenty")):
+        return {"status": "skipped", "reason": "twenty-mcp not in mcp_config"}
+    backend = getattr(engine, "backend", None)
+    wm_key = "twenty"
+    since = None if mode == "full" else _read_watermark(backend, wm_key)
+    src = "twenty"
+
+    people = _drain_preset("twenty-people")
+    companies = _drain_preset("twenty-companies")
+    opps = _drain_preset("twenty-opportunities")
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+
+    def _company_id(rec: dict[str, Any]) -> str | None:
+        cid = rec.get("companyId")
+        if cid:
+            return str(cid)
+        company = rec.get("company")
+        return (
+            str(company["id"])
+            if isinstance(company, dict) and company.get("id")
+            else None
+        )
+
+    for doc in companies:
+        cid = getattr(doc, "id", None)
+        if not cid:
+            continue
+        rec = _record_of(doc)
+        entities.append(
+            {
+                "id": f"twenty:company:{cid}",
+                "type": "company",
+                "name": rec.get("name") or f"Company {cid}",
+                "domain": "twenty",
+                "source_system": src,
+                "externalToolId": str(cid),
+                "updatedAt": rec.get("updatedAt"),
+            }
+        )
+    for doc in people:
+        pid = getattr(doc, "id", None)
+        if not pid:
+            continue
+        rec = _record_of(doc)
+        name = rec.get("name") or {}
+        full = (
+            f"{name.get('firstName', '')} {name.get('lastName', '')}".strip()
+            if isinstance(name, dict)
+            else str(name)
+        )
+        node_id = f"twenty:person:{pid}"
+        entities.append(
+            {
+                "id": node_id,
+                "type": "person",
+                "name": full or f"Person {pid}",
+                "job_title": rec.get("jobTitle"),
+                "domain": "twenty",
+                "source_system": src,
+                "externalToolId": str(pid),
+                "updatedAt": rec.get("updatedAt"),
+            }
+        )
+        if cid := _company_id(rec):
+            rels.append(
+                {
+                    "source": node_id,
+                    "target": f"twenty:company:{cid}",
+                    "type": "member_of",
+                    "domain": "twenty",
+                }
+            )
+    for doc in opps:
+        oid = getattr(doc, "id", None)
+        if not oid:
+            continue
+        rec = _record_of(doc)
+        node_id = f"twenty:opportunity:{oid}"
+        entities.append(
+            {
+                "id": node_id,
+                "type": "opportunity",
+                "name": rec.get("name") or f"Opportunity {oid}",
+                "stage": rec.get("stage"),
+                "domain": "twenty",
+                "source_system": src,
+                "externalToolId": str(oid),
+                "updatedAt": rec.get("updatedAt"),
+            }
+        )
+        if cid := _company_id(rec):
+            rels.append(
+                {
+                    "source": node_id,
+                    "target": f"twenty:company:{cid}",
+                    "type": "part_of",
+                    "domain": "twenty",
+                }
+            )
+    _ingest_typed(
+        engine,
+        src,
+        entities,
+        rels,
+        wm_key=wm_key,
+        since=since,
+        watermark=_max_updated(people + companies + opps),
+    )
+    return {
+        "status": "ok",
+        "source": "twenty",
+        "mode": mode,
+        "delta_capable": True,
+        "people": len(people),
+        "companies": len(companies),
+        "opportunities": len(opps),
+        "nodes_hydrated": len(entities),
+        "relations_hydrated": len(rels),
+    }
+
+
 # MCP-backed dedicated trackers (CONCEPT:KG-2.154) — each reaches its upstream ONLY
 # through a fleet ``*-mcp`` server (never a direct vendor client / env token), so unlike
 # the capability-registry sources (env-token configured) and the always-local feed/fleet
@@ -1395,6 +2188,16 @@ _MCP_TRACKER_SERVERS: dict[str, tuple[str, ...]] = {
     "jira": ("atlassian-mcp",),
     "confluence": ("atlassian-mcp",),
     "plane": ("plane-mcp",),
+    # Ops / platform typed connectors (CONCEPT:KG-2.155–2.161) — server-configured, so the
+    # sweep keeps each candidate only when its ``*-mcp`` server is in mcp_config (else drops
+    # it, never mis-reporting an unconfigured connector as failed work).
+    "dockerhub": ("dockerhub-mcp", "dockerhub-api"),
+    "langfuse": ("langfuse-mcp", "langfuse-agent"),
+    "technitium": ("technitium-dns-mcp", "technitium-dns"),
+    "tunnel_manager": ("tunnel-manager-mcp", "tunnel-manager"),
+    "uptime_kuma": ("uptime-mcp", "uptime-kuma-agent", "uptime-kuma-mcp"),
+    "home_assistant": ("home-assistant-mcp", "home-assistant-agent"),
+    "twenty": ("twenty-mcp", "twenty"),
 }
 
 
@@ -1444,11 +2247,16 @@ def _mcp_tracker_configured(source: str) -> bool:
         "confluence": "confluence_instances",
         "plane": "plane_instances",
     }
-    candidate_servers: set[str] = set()
-    for default_server in default_servers:
-        candidate_servers.update(
-            _tracker_instance_servers(_INST_FIELD[source], default_server)
-        )
+    candidate_servers: set[str] = set(default_servers)
+    inst_field = _INST_FIELD.get(source)
+    if inst_field:
+        # Multi-instance trackers union in per-instance ``server`` overrides so a second
+        # Atlassian site / Plane workspace counts as configured; the ops/platform connectors
+        # (KG-2.155+) are single-server, so their default candidate tuple is authoritative.
+        for default_server in default_servers:
+            candidate_servers.update(
+                _tracker_instance_servers(inst_field, default_server)
+            )
     return any(_mcp_server_configured(servers, s) for s in candidate_servers)
 
 
@@ -1463,6 +2271,14 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "jira": _sync_jira,
     "confluence": _sync_confluence,
     "plane": _sync_plane,
+    # Ops / platform connectors as typed OWL entities (CONCEPT:KG-2.155–2.161)
+    "dockerhub": _sync_dockerhub,
+    "langfuse": _sync_langfuse,
+    "technitium": _sync_technitium,
+    "tunnel_manager": _sync_tunnel_manager,
+    "uptime_kuma": _sync_uptime_kuma,
+    "home_assistant": _sync_home_assistant,
+    "twenty": _sync_twenty,
     "fleet": _sync_fleet,
     "fleet_connectors": _sync_fleet_connectors,
 }

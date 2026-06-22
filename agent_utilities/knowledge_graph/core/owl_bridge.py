@@ -315,6 +315,18 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     # automates/derived_from/composes edges (CONCEPT:KG-2.91).
     "skill_proposal",
     "skill_workflow_proposal",
+    # Ops / platform connectors as typed OWL entities (CONCEPT:KG-2.155–2.161).
+    # (``repository``, ``observation``, ``host``, ``person``, ``company``,
+    # ``opportunity``, ``uptime_monitor`` are already promotable above.)
+    "container_image",  # DockerHub image (KG-2.155)
+    "trace",  # Langfuse trace (KG-2.156)
+    "generation",  # Langfuse LLM-call observation (KG-2.156)
+    "dns_zone",  # Technitium DNS zone (KG-2.157)
+    "dns_record",  # Technitium DNS record (KG-2.157)
+    "tunnel",  # tunnel-manager SSH tunnel (KG-2.158)
+    "heartbeat_stat",  # Uptime Kuma heartbeat sample (KG-2.159)
+    "device",  # Home Assistant device (KG-2.160)
+    "entity",  # Home Assistant entity (KG-2.160)
 }
 
 # Edge types eligible for OWL promotion (transitive / inferable relationships)
@@ -357,6 +369,7 @@ PROMOTABLE_EDGE_TYPES: set[str] = {
     "assigned_to",
     "supports",
     "depends_on_it",
+    "connects_via",  # Host → Tunnel (tunnel-manager, CONCEPT:KG-2.158)
     "placed_by",
     "member_of",
     "part_of_dashboard",
