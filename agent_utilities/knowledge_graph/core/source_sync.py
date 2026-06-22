@@ -1418,7 +1418,27 @@ def sync_source(
 
     handler = _DELTA_HANDLERS.get(source)
     if handler is not None:
-        return handler(engine, mode=mode, ids=ids, client=client)
+        try:
+            return handler(engine, mode=mode, ids=ids, client=client)
+        except Exception as exc:  # noqa: BLE001
+            # An UNCONFIGURED upstream (its MCP server isn't in mcp_config, no
+            # creds, etc.) is a *skip*, never a task failure — the fleet sweep
+            # routinely runs with only a subset of connectors provisioned
+            # (CONCEPT:KG-2.9). Real errors still propagate.
+            msg = str(exc).lower()
+            if any(
+                t in msg
+                for t in (
+                    "not found in mcp_config",
+                    "not configured",
+                    "no client",
+                    "missing",
+                    "credential",
+                    "unconfigured",
+                )
+            ):
+                return {"status": "skipped", "source": source, "reason": str(exc)[:160]}
+            raise
 
     if mode == "reconcile":
         return {

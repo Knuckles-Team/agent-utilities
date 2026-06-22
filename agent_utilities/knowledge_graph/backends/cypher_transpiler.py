@@ -476,7 +476,11 @@ def transpile(
                 # raises "the query has N placeholders but 1 parameters were
                 # passed" (the id-by-label fan-out bug). (CONCEPT:KG-2.7)
                 sql = _union_all_tables(node_tables, sel_cols, where_sql)
-                where_vals = where_vals * len(known_tables)
+                # Params repeat once per UNION branch — branches span node_tables
+                # (the property-shaped subset), so multiply by len(node_tables), NOT
+                # len(known_tables); otherwise the placeholder/param counts diverge
+                # ("N placeholders but M parameters"). (CONCEPT:KG-2.9)
+                where_vals = where_vals * len(node_tables)
 
         # ORDER BY
         m_order = _ORDER_BY_CLAUSE.search(cypher_stripped)
