@@ -97,6 +97,41 @@ def build_parser() -> argparse.ArgumentParser:
     sr.add_argument("--workspace", default=None)
     sr.add_argument("--no-commit", action="store_true")
 
+    # CONCEPT:OS-5.52 — the quick "install the skills" path. Install the AU skill
+    # toolkit (incl. the agent-utilities skill-graph) into the calling agent tool
+    # so it unlocks how to use everything else. Thin delegate to the universal-skills
+    # installer (single source of truth) — defaults: every detected tool + the
+    # agent-utilities XDG home, graphs included.
+    isk = sub.add_parser(
+        "install-skills",
+        help="install the agent-utilities skill toolkit into agent tool(s)",
+    )
+    isk.add_argument(
+        "--tool", default=None, help="target one tool (e.g. claude, agent-utilities)"
+    )
+    isk.add_argument("--path", default=None, help="explicit skills dir to install into")
+    isk.add_argument(
+        "--layer",
+        choices=["all", "atomic", "workflows"],
+        default="all",
+        help="which layer to install (default: all)",
+    )
+    isk.add_argument(
+        "--skills", default="", help="comma-separated skill names (default: all)"
+    )
+    isk.add_argument(
+        "--group", default=None, help="install only skills in this category/path part"
+    )
+    isk.add_argument(
+        "--no-graphs",
+        action="store_true",
+        help="skip skill-graphs (the agent-utilities skill-graph is installed by default)",
+    )
+    isk.add_argument("--force", action="store_true", help="overwrite existing skills")
+    isk.add_argument(
+        "--symlink", action="store_true", help="symlink instead of copy (auto-updates)"
+    )
+
     # CONCEPT:OS-5.42 — atomic concept-ID reservation (offline/worktree entry point).
     cp = sub.add_parser("concept", help="reserve/list/release/reconcile concept ids")
     cp.add_argument(
@@ -148,6 +183,61 @@ def _sleep_run(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def _install_skills(args: argparse.Namespace) -> dict[str, Any]:
+    """Install the agent-utilities skill toolkit into agent tool(s) (CONCEPT:OS-5.52).
+
+    Thin delegate to the universal-skills installer (the single source of truth for
+    skill discovery/placement). With no ``--tool``/``--path`` it installs into every
+    detected agent tool AND the agent-utilities XDG home (so AU agents auto-load them);
+    skill-graphs — including the ``agent-utilities`` platform graph — are included by
+    default because that graph is what unlocks how to use everything else.
+    """
+    try:
+        from universal_skills.core.skill_installer.scripts import install as inst
+    except ImportError:
+        return {
+            "error": "universal-skills is not installed",
+            "fix": "pip install universal-skills  (or: pip install 'agent-utilities[agent]')",
+        }
+
+    skill_names = [s for s in args.skills.split(",") if s] or None
+    include_graphs = not args.no_graphs
+
+    targets: dict[str, Path] = {}
+    if args.path:
+        targets["custom"] = Path(args.path).expanduser()
+    elif args.tool:
+        target = inst.TOOL_PATHS.get(args.tool.lower())
+        if target is None:
+            return {
+                "error": f"unknown tool {args.tool!r}",
+                "known_tools": sorted(inst.TOOL_PATHS),
+            }
+        targets[args.tool.lower()] = target
+    else:
+        targets = dict(inst.detect_present_tools())
+        # Always include the agent-utilities XDG home (factory auto-load target).
+        targets.setdefault("agent-utilities", inst.TOOL_PATHS["agent-utilities"])
+
+    installed: dict[str, str] = {}
+    seen: set[str] = set()
+    for tool, target in targets.items():
+        if str(target) in seen:
+            continue
+        seen.add(str(target))
+        inst.install_skills(
+            target,
+            skill_names,
+            args.group,
+            args.force,
+            include_graphs,
+            symlink=args.symlink,
+            layer=args.layer,
+        )
+        installed[tool] = str(target)
+    return {"installed": installed, "layer": args.layer, "skill_graphs": include_graphs}
+
+
 def _concept(args: argparse.Namespace) -> dict[str, Any]:
     """Concept-ID reservation — runs against the file ledger directly (no gateway)."""
     import socket
@@ -195,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
         out = _harness_fence(args)
     elif args.command == "sleep-run":
         out = _sleep_run(args)
+    elif args.command == "install-skills":
+        out = _install_skills(args)
     elif args.command == "concept":
         out = _concept(args)
     else:

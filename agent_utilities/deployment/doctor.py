@@ -511,6 +511,43 @@ def _check_bus() -> dict[str, Any]:
     return _result("bus", "ok", detail, data=data)
 
 
+def _check_skills() -> dict[str, Any]:
+    """Report whether the agent-utilities skill toolkit is installed in the XDG dir.
+
+    CONCEPT:OS-5.52 — the agent factory auto-loads every ``SKILL.md`` under
+    ``core.paths.skills_dir()``; the ``agent-utilities`` skill-graph + AU skills are
+    what unlock how to use the platform. If they're absent, point at the one command
+    that installs them.
+    """
+    try:
+        from agent_utilities.core.paths import skills_dir
+
+        sdir = skills_dir()
+        if not sdir.exists():
+            installed = 0
+        else:
+            installed = sum(1 for _ in sdir.rglob("SKILL.md"))
+    except Exception as exc:  # noqa: BLE001
+        return _result("skills", "skip", f"skills dir probe unavailable: {exc}")
+
+    if installed == 0:
+        return _result(
+            "skills",
+            "warn",
+            "no skills installed in the agent-utilities skills dir — "
+            "the platform skill-graph + AU skills are not loaded",
+            remediation="`agent-utilities install-skills` (installs the toolkit incl. the agent-utilities skill-graph)",
+            skill="agent-utilities",
+            data={"skills_dir": str(skills_dir()), "installed": 0},
+        )
+    return _result(
+        "skills",
+        "ok",
+        f"{installed} skill file(s) installed in the agent-utilities skills dir",
+        data={"installed": installed},
+    )
+
+
 # Registry: name -> callable. Order is the report order.
 CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
@@ -526,6 +563,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "hooks": _check_hooks,
     "observability": _check_observability,
     "bus": _check_bus,
+    "skills": _check_skills,
 }
 
 
