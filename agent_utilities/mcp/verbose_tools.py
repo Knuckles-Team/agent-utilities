@@ -393,7 +393,13 @@ def register_verbose_tools(
             or domains.get(method_name)
             or "api"
         )
-        tool_name = f"{prefix}_{method_name}"
+        # Avoid a doubled prefix when the client method is already named with the
+        # service prefix (e.g. service ``postiz`` + method ``postiz_create_post``
+        # would otherwise yield ``postiz_postiz_create_post``).
+        if method_name == prefix or method_name.startswith(f"{prefix}_"):
+            tool_name = method_name
+        else:
+            tool_name = f"{prefix}_{method_name}"
         params = (op or {}).get("params") or []
         destructive = _is_destructive(method_name, op)
 
@@ -405,7 +411,9 @@ def register_verbose_tools(
             tool_fn = _build_typed_tool(
                 method_name, params, get_client, destructive=destructive
             )
-            doc = ((op or {}).get("summary") or (op or {}).get("description") or "").strip()
+            doc = (
+                (op or {}).get("summary") or (op or {}).get("description") or ""
+            ).strip()
         else:
             tool_fn = _build_params_json_tool(
                 method_name, get_client, destructive=destructive
