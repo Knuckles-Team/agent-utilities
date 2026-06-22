@@ -519,6 +519,16 @@ def _sync_archivebox(
     }
 
 
+# PACKAGE_PRESETS packages whose upstream is ALREADY ingested by a dedicated
+# _DELTA_HANDLERS source — excluded from the fleet sweep to avoid double-ingestion
+# (CONCEPT:KG-2.151). gitlab-api→gitlab, atlassian-agent→jira/confluence,
+# plane-agent→plane, scholarx→the research feed. Keep this in sync with
+# _DELTA_HANDLERS: a package gains a dedicated handler ⇒ add it here.
+_FLEET_DEDICATED_PACKAGES: frozenset[str] = frozenset(
+    {"gitlab-api", "atlassian-agent", "plane-agent", "scholarx"}
+)
+
+
 def _sync_fleet_connectors(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
@@ -558,6 +568,14 @@ def _sync_fleet_connectors(
     proc: Any = None
 
     for package in sorted(PACKAGE_PRESETS):
+        # Skip packages already covered by a DEDICATED delta handler — otherwise
+        # source="all" enqueues BOTH this fleet leg AND the dedicated source for the
+        # same upstream, writing under non-matching doc-id namespaces so the
+        # content-hash delta can't dedup → duplicate Document/Chunk nodes every run
+        # (CONCEPT:KG-2.151). The dedicated handler owns these upstreams.
+        if package in _FLEET_DEDICATED_PACKAGES:
+            skipped[package] = "covered by a dedicated delta handler"
+            continue
         preset = get_preset(package)
         server = str(preset.get("server") or f"{package}-mcp")
         # Configured = the package's MCP server is registered with the multiplexer.
