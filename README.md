@@ -34,6 +34,15 @@
 > `agent-utilities-deployment` skill (or `agent-os-genesis` for enterprise). Ask the
 > operator one question — *homelab or enterprise?* — and take it from there.
 
+> 🧰 **Install the skills first — they unlock how to use everything else.** Once
+> `agent-utilities` is installed, run **`agent-utilities install-skills`** to drop the
+> skill toolkit — including the **`agent-utilities` skill-graph** (the platform's own
+> reference manual) plus the deployment/evolution/KG skills — into the calling agent
+> tool (Claude Code, etc.) and the agent-utilities XDG skills dir, where agents
+> auto-load them. With no flags it installs into every detected tool; `--tool claude`
+> or `--path <dir>` targets one. `agent-utilities-doctor` flags it if the toolkit is
+> missing.
+
 ## 🚀 Deploy in one command
 
 Point yourself (or any agent) at this repo, or just run:
