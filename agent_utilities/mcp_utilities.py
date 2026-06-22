@@ -103,6 +103,7 @@ def __getattr__(name: str):
         "tool_mode",
         "register_verbose_tools",
         "register_tool_surface",
+        "register_action_provider",
         "VALID_TOOL_MODES",
     ):
         import agent_utilities.mcp.verbose_tools as verbose_mod
@@ -161,6 +162,7 @@ __all__ = [
     "tool_mode",
     "register_verbose_tools",
     "register_tool_surface",
+    "register_action_provider",
     "VALID_TOOL_MODES",
     "load_config",
 ]
