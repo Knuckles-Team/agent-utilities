@@ -1379,6 +1379,74 @@ def _sync_confluence(
     }
 
 
+# MCP-backed dedicated trackers (CONCEPT:KG-2.154) — each reaches its upstream ONLY
+# through a fleet ``*-mcp`` server (never a direct vendor client / env token), so unlike
+# the capability-registry sources (env-token configured) and the always-local feed/fleet
+# handlers, their "configured" signal is *"the server is registered in mcp_config.json"*.
+# Maps the delta source → the candidate ``server`` keys to probe (the handler's
+# ``default_server``; per-instance overrides are unioned in at sweep time). Keep in sync
+# with the ``default_server`` of each ``_resolve_tracker_instances`` call.
+_MCP_TRACKER_SERVERS: dict[str, tuple[str, ...]] = {
+    "jira": ("atlassian-mcp",),
+    "confluence": ("atlassian-mcp",),
+    "plane": ("plane-mcp",),
+}
+
+
+def _mcp_server_configured(servers: dict[str, Any], name: str) -> bool:
+    """True when ``name`` (or ``<name>-mcp``) is registered in the loaded mcp_config
+    ``mcpServers`` map — mirrors the connector's own transport resolution
+    (:meth:`McpToolSourceConnector` server lookup), so "candidate" and "reachable"
+    agree on what counts as configured."""
+    if not name:
+        return False
+    return name in servers or f"{name}-mcp" in servers
+
+
+def _tracker_instance_servers(field: str, default_server: str) -> tuple[str, ...]:
+    """Servers a tracker delta source will actually reach: the per-instance ``server``
+    overrides from a configured ``*_instances`` config row, else the ``default_server``.
+    Lets a sweep recognise a second Atlassian site / Plane workspace as configured."""
+    try:
+        from ...core.config import config as cfg
+
+        rows = [r for r in (getattr(cfg, field, None) or []) if isinstance(r, dict)]
+        servers = tuple(str(r.get("server") or default_server) for r in rows)
+        if servers:
+            return servers
+    except Exception:  # noqa: BLE001 — config probe is best-effort
+        pass
+    return (default_server,)
+
+
+def _mcp_tracker_configured(source: str) -> bool:
+    """True when an MCP-backed dedicated tracker (jira/confluence/plane) is configured
+    for the sweep — i.e. at least one server it would reach is registered in
+    ``mcp_config.json``. Unknown sources default to *configured* (no extra gate)."""
+    default_servers = _MCP_TRACKER_SERVERS.get(source)
+    if default_servers is None:
+        return True
+    try:
+        from ...protocols.source_connectors.connectors.mcp_package import (
+            _load_mcp_config,
+        )
+
+        servers = _load_mcp_config() or {}
+    except Exception:  # noqa: BLE001 — no config readable → not configured here
+        return False
+    _INST_FIELD = {
+        "jira": "jira_instances",
+        "confluence": "confluence_instances",
+        "plane": "plane_instances",
+    }
+    candidate_servers: set[str] = set()
+    for default_server in default_servers:
+        candidate_servers.update(
+            _tracker_instance_servers(_INST_FIELD[source], default_server)
+        )
+    return any(_mcp_server_configured(servers, s) for s in candidate_servers)
+
+
 # Sources with a native delta (watermark/reconcile) handler. Add an entry here to
 # make another source incremental (e.g. Camunda once its extractor takes `since`).
 _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -1494,6 +1562,20 @@ def sweep_all_sources(
     # vocabulary is slow-changing, so it runs at boot + on explicit refresh
     # (``source_sync source=fleet``), not on every */20m document sweep.
     candidates.discard("fleet")
+
+    # CONCEPT:KG-2.154 — the MCP-backed dedicated trackers (jira/confluence/plane) reach
+    # their upstream ONLY through a fleet ``*-mcp`` server, so their "configured" signal is
+    # *"the server is registered in mcp_config.json"* — NOT an env token (capability-registry)
+    # nor always-on (feed/fleet handlers). Keep one as a candidate when its server is in
+    # mcp_config (the live remote-routed atlassian/plane case the operator runs), and DROP it
+    # when truly unconfigured so the sweep neither wastes a connector_sync task nor misreports
+    # a reachable tracker as missing. (Before this gate they were enqueued unconditionally,
+    # so a tracker whose ``*-mcp`` server was absent under the expected key still spawned a
+    # task that the connector then aborted with "not found in mcp_config" → 0 nodes, never
+    # surfacing as configured work.)
+    for _tracker in _MCP_TRACKER_SERVERS:
+        if _tracker in candidates and not _mcp_tracker_configured(_tracker):
+            candidates.discard(_tracker)
 
     from .hydration import HydrationManager
 
