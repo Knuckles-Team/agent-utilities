@@ -181,22 +181,27 @@ def test_set_enabled_and_run_now() -> None:
 
 
 class _CollapseEngine:
-    """Engine whose active-tick reads + bulk cancels are driven by an in-memory
+    """Engine whose active-tick reads + by-id cancels are driven by an in-memory
     task list, for the CONCEPT:OS-5.53 stale-tick collapse."""
 
     def __init__(self, tasks: list[dict]):
         self.tasks = tasks
-        self.backend = self  # collapse writes go through engine.backend.execute
+        self.backend = self  # collapse cancels via engine.backend.compare_and_set_node_fields
 
     def query_cypher(self, _q, params=None):
         st = (params or {}).get("status")
-        return [{"schedule": t["schedule"]} for t in self.tasks if t["status"] == st]
+        return [
+            {"id": t["id"], "schedule": t["schedule"]}
+            for t in self.tasks
+            if t["status"] == st
+        ]
 
-    def execute(self, _q, params=None):
-        name, st = (params or {}).get("name"), (params or {}).get("status")
+    def compare_and_set_node_fields(self, node_id, _conditions, updates):
         for t in self.tasks:
-            if t["schedule"] == name and t["status"] == st:
-                t["status"] = "cancelled"
+            if t["id"] == node_id:
+                t.update(updates)
+                return True
+        return False
 
 
 def _statuses(tasks, name):
