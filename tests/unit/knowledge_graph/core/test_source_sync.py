@@ -253,6 +253,91 @@ def test_sweep_all_sources_classifies_results(monkeypatch):
     assert "jira" not in out["synced"] and "jira" not in out["errors"]
     # synced: leanix + gitlab; errors: servicenow; skipped: archivebox (no new
     # snapshots) + the unconfigured delta handlers (rss/freshrss/jira/confluence
-    # /plane) whose fake_sync raises "not configured". ``fleet`` is excluded from
-    # the sweep, so it never enters any bucket.
-    assert out["counts"] == {"synced": 2, "skipped": 6, "errors": 1}
+    # /plane/fleet_connectors) whose fake_sync raises "not configured". ``fleet``
+    # is excluded from the sweep, so it never enters any bucket.
+    assert out["counts"] == {"synced": 2, "skipped": 7, "errors": 1}
+
+
+# ── Fleet connectors: every agents/* package in one handler (KG-2.151) ────────
+
+
+def test_fleet_connectors_registered_as_sweep_candidate():
+    """``fleet_connectors`` is a delta handler, so the source='all' sweep fans it out."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    assert "fleet_connectors" in ss._DELTA_HANDLERS
+    assert ss._DELTA_HANDLERS["fleet_connectors"] is ss._sync_fleet_connectors
+
+
+def test_fleet_connectors_skips_unconfigured_packages(monkeypatch):
+    """Packages whose MCP server isn't in mcp_config are skipped, never errored."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    # No servers registered → every package preset is skipped.
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._load_mcp_config",
+        lambda: {},
+    )
+
+    out = ss._sync_fleet_connectors(
+        FakeEngine(FakeBackend()), mode="full", ids=None, client=None
+    )
+    assert out["status"] == "ok"
+    assert out["source"] == "fleet_connectors"
+    assert out["synced"] == {}
+    assert out["counts"]["errors"] == 0
+    # every preset reported as skipped (server not in mcp_config)
+    assert out["counts"]["skipped"] > 0
+    assert all("not in mcp_config" in r for r in out["skipped"].values())
+
+
+def test_fleet_connectors_drains_configured_package(monkeypatch):
+    """A configured package is drained via the mcp connector and processed as Documents."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    # scholarx-mcp registered → only that package is attempted.
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._load_mcp_config",
+        lambda: {"scholarx-mcp": {"command": "scholarx"}},
+    )
+
+    class _Doc:
+        def __init__(self, did, text, updated):
+            self.id = did
+            self.text = text
+            self.title = f"T{did}"
+            self.source_uri = f"mcp://scholarx/{did}"
+            self.updated_at = updated
+
+    class _Conn:
+        def poll(self, checkpoint=None):
+            class _Batch:
+                documents = [_Doc("p1", "alpha", "2026-01-01"), _Doc("p2", "beta", "2026-02-01")]
+
+                class checkpoint:  # noqa: N801
+                    has_more = False
+
+            return _Batch()
+
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.registry.build_connector",
+        lambda kind, cfg: _Conn(),
+    )
+
+    processed: list[str] = []
+
+    class _Proc:
+        def process(self, document, **kw):
+            processed.append(kw.get("document_id"))
+
+    monkeypatch.setattr(ss, "_confluence_processor", lambda engine: _Proc())
+
+    out = ss._sync_fleet_connectors(
+        FakeEngine(FakeBackend()), mode="full", ids=None, client=None
+    )
+    assert out["status"] == "ok"
+    assert out["synced"]["scholarx"]["documents_ingested"] == 2
+    assert out["synced"]["scholarx"]["watermark"] == "2026-02-01"
+    assert processed == ["fleet:scholarx:p1", "fleet:scholarx:p2"]
+    # all other packages skipped (their *-mcp server not registered)
+    assert out["counts"]["errors"] == 0

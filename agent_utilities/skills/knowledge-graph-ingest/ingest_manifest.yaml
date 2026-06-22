@@ -1,0 +1,65 @@
+# Declarative full-ingest manifest for the knowledge-graph-ingest skill.
+#
+# CONCEPT:KG-2.151 — one "full ingest" trigger fans across every ingestion path at
+# once. A driver (the skill, or any orchestrator) consumes this manifest to know
+# WHICH families to fire and WHERE each lands; the concrete connector lists are NOT
+# enumerated here — they are computed from the engine registries at run time
+# (`_DELTA_HANDLERS`, the capability registry, `PACKAGE_PRESETS`,
+# `MATERIALIZE_SOURCES`) so adding a source needs no edit to this file or the skill.
+#
+# Each family lands on its own task LANE (agent_utilities/knowledge_graph/core/
+# task_lanes.py) so heavy codebase indexing can never head-of-line-block the
+# connector/feed syncs — they all drain in parallel below the shared queue.
+
+version: 1
+trigger: full_ingest          # "full ingest" / "ingest everything" / "ingest all sources"
+default_mode: full            # full = complete (re-)hydrate; delta = incremental top-up
+
+families:
+  - id: codebase_documents
+    description: >-
+      Every workspace repo, ScholarX papers, conversation logs, ontologies,
+      configs, prompts, MCP servers, and skills (Sections 1, 3, 7, 8 of SKILL.md).
+    tool: graph_ingest                     # alias: kg_ingest
+    arg: target_path                       # JSON array of paths (see SKILL.md path list)
+    lane: ingestion
+    source_registry: null                  # paths assembled by the skill at run time
+
+  - id: native_rss
+    description: Native RSS/Atom feeds + ScholarX arXiv, world-model gated.
+    tool: source_sync
+    args: {source: rss, mode: full}
+    lane: connectors            # gated items route to the worldview lane
+    source_registry: _DELTA_HANDLERS
+
+  - id: freshrss
+    description: FreshRSS GReader API → world-model gated news/research.
+    tool: source_sync
+    args: {source: freshrss, mode: full}
+    lane: connectors            # gated items route to the worldview lane
+    source_registry: _DELTA_HANDLERS
+
+  - id: fleet_connectors
+    description: >-
+      Every agent-packages/agents/* connector — drained via the generic `mcp`
+      connector over each package's registered MCP server (skips unconfigured).
+    tool: source_sync
+    args: {source: fleet_connectors, mode: full}
+    lane: connectors
+    source_registry: PACKAGE_PRESETS
+
+# The single declarative connector trigger: source="all" fans `source_sync` out as
+# one laned connector_sync task PER candidate in the union of every registry above
+# (including rss, freshrss, fleet_connectors, the capability sources, and the
+# materialize extractors). Firing this one call covers families native_rss,
+# freshrss, fleet_connectors AND every other configured connector at once.
+all_connectors_trigger:
+  tool: source_sync
+  args: {source: all, mode: full}
+  lane: connectors
+  fans_out_to: sweep_all_sources
+
+# Minimal full-ingest recipe (the skill executes these two calls):
+#   1) graph_ingest(target_path="<JSON array of codebase + doc + ontology + config + skill paths>")
+#   2) source_sync(source="all", mode="full")
+# Then monitor every lane drain (SKILL.md Section 5).
