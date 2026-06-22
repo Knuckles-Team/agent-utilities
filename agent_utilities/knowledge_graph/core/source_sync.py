@@ -1033,7 +1033,12 @@ def _jira_jql(inst: dict[str, Any], since: str | None, ids: list[str] | None) ->
     if extra := str(inst.get("jql") or "").strip():
         clauses.append(f"({extra})")
     where = " AND ".join(clauses)
-    return f"{where} ORDER BY updated DESC" if where else "ORDER BY updated DESC"
+    return (
+        f"{where} ORDER BY updated DESC" if where
+        # Jira Cloud /search/jql (search-and-reconcile) rejects an UNBOUNDED query
+        # (400); a wide created-bound keeps "all issues" valid (CONCEPT:KG-2.124).
+        else 'created >= "1970-01-01" ORDER BY updated DESC'
+    )
 
 
 def _jira_entities(
