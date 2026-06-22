@@ -65,6 +65,12 @@ class PostgreSQLBackend(GraphBackend):
         )
         self._pool: Any = None
         self._known_tables: set[str] = set()
+        # Subset of _known_tables carrying the universal node shape (a ``properties``
+        # column). A label-less fan-out projects ``properties`` across a UNION, so it
+        # must span ONLY these — typed/ontology tables (e.g. Account) lack the column
+        # and would fail the UNION (CONCEPT:KG-2.9). Populated by introspection after
+        # schema init and extended by ensure_label_table.
+        self._node_tables: set[str] = set()
         self._pggraph_available: bool | None = None  # lazy check
         self._pgvector_available: bool | None = None
         self._paradedb_available: bool | None = None
@@ -220,13 +226,39 @@ class PostgreSQLBackend(GraphBackend):
 
                 conn.commit()
 
+        # Identify the node-shaped tables (those with a ``properties`` column) so
+        # label-less UNIONs never fan over typed/ontology tables that lack it
+        # (CONCEPT:KG-2.9). One introspection query; extended by ensure_label_table.
+        self._refresh_node_tables()
+
         # Register with pgGraph if available
         if self.pggraph_available:
             self._register_pggraph()
 
         logger.info(
-            "PostgreSQL schema initialized (%d tables)", len(self._known_tables)
+            "PostgreSQL schema initialized (%d tables, %d node-shaped)",
+            len(self._known_tables),
+            len(self._node_tables),
         )
+
+    def _refresh_node_tables(self) -> None:
+        """Populate ``_node_tables`` = known tables that have a ``properties`` column.
+
+        The label-less node fan-out (``MATCH (n {id: …})``) projects ``properties``
+        across a UNION; a table without that column makes the whole UNION fail
+        (``column "properties" does not exist``). Restricting the fan-out to
+        node-shaped tables is the durable fix (CONCEPT:KG-2.9)."""
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT table_name FROM information_schema.columns "
+                        "WHERE table_schema = 'public' AND column_name = 'properties'"
+                    )
+                    have_props = {r[0] for r in cur.fetchall()}
+            self._node_tables = {t for t in self._known_tables if t in have_props}
+        except Exception as e:  # noqa: BLE001 — fall back to all known tables
+            logger.debug("node-table introspection failed: %s", e)
 
     def ensure_label_table(self, label: str, force: bool = False) -> bool:
         """Auto-DDL: ensure a durable table exists for node ``label`` (self-healing).
@@ -261,6 +293,7 @@ class PostgreSQLBackend(GraphBackend):
                     cur.execute(ddl)
                     conn.commit()
             self._known_tables.add(name)
+            self._node_tables.add(name)  # created with the universal node shape
             logger.info("auto-DDL: ensured durable table for label '%s'", name)
             return True
         except Exception as e:  # noqa: BLE001
@@ -603,7 +636,7 @@ class PostgreSQLBackend(GraphBackend):
         if handled:
             return rows
 
-        tq = transpile(query, params, self._known_tables)
+        tq = transpile(query, params, self._known_tables, node_tables=(self._node_tables or None))
 
         if tq.query_type == QueryType.UNKNOWN:
             logger.debug("Skipping unknown Cypher pattern: %.120s", query)
@@ -726,7 +759,7 @@ class PostgreSQLBackend(GraphBackend):
                 with self._conn() as conn:
                     with conn.cursor() as cur:
                         for params in chunk:
-                            tq = transpile(query, params, self._known_tables)
+                            tq = transpile(query, params, self._known_tables, node_tables=(self._node_tables or None))
                             if tq.query_type == QueryType.UNKNOWN:
                                 continue
                             cur.execute(tq.sql, tq.params)

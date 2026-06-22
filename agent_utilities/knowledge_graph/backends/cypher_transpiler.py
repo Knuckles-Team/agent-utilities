@@ -120,7 +120,7 @@ def _sanitize_param(v: Any) -> Any:
 
         return json.dumps(v, default=str)
     if isinstance(v, list):
-        if all(x is None or isinstance(x, (str, int, float, bool)) for x in v):
+        if all(x is None or isinstance(x, str | int | float | bool) for x in v):
             return v  # psycopg → Postgres array (TEXT[] columns)
         import json
 
@@ -132,19 +132,26 @@ def transpile(
     cypher: str,
     params: dict[str, Any] | None = None,
     known_tables: set[str] | None = None,
+    node_tables: set[str] | None = None,
 ) -> TranspiledQuery:
     """Transpile a Cypher query into a PostgreSQL SQL statement.
 
     Args:
         cypher: The Cypher query string from the engine.
         params: Named parameters from the engine.
-        known_tables: Set of known table names in the database.
-
-    Returns:
-        A TranspiledQuery with the SQL and positional parameters.
+        known_tables: Set of known table names in the database (used to resolve
+            label-specific matches to their table).
+        node_tables: Subset of ``known_tables`` that carry the **universal node
+            shape** (``id, name, type, properties, created_at``). A label-LESS
+            fan-out (``MATCH (n {id: …})``) projects ``properties`` across a UNION,
+            so it must only span node-shaped tables — typed/ontology tables
+            (e.g. ``Account``) lack ``properties`` and would make the UNION fail
+            with ``column "properties" does not exist``. Defaults to
+            ``known_tables`` when not supplied (back-compatible).
     """
     params = params or {}
     known_tables = known_tables or set()
+    node_tables = node_tables if node_tables is not None else known_tables
     cypher_stripped = cypher.strip().rstrip(";")
 
     # Remove internal params
@@ -349,7 +356,7 @@ def transpile(
         if m_cnt:
             cnt_alias = m_cnt.group(2)
             where_sql, where_vals = _build_where(cypher_stripped, alias, clean_params)
-            tbl = f'"{label}"' if label else _union_all_tables(known_tables)
+            tbl = f'"{label}"' if label else _union_all_tables(node_tables)
             if label:
                 sql = f"SELECT COUNT(*) AS {cnt_alias} FROM {tbl}"
                 if where_sql:
@@ -457,7 +464,7 @@ def transpile(
             sql = f'SELECT {sel_cols} FROM "{label}"'
         else:
             # No label — search all tables
-            sql = _union_all_tables(known_tables, sel_cols)
+            sql = _union_all_tables(node_tables, sel_cols)
 
         if where_sql:
             if label:
@@ -468,7 +475,7 @@ def transpile(
                 # params must be repeated once per table — otherwise psycopg
                 # raises "the query has N placeholders but 1 parameters were
                 # passed" (the id-by-label fan-out bug). (CONCEPT:KG-2.7)
-                sql = _union_all_tables(known_tables, sel_cols, where_sql)
+                sql = _union_all_tables(node_tables, sel_cols, where_sql)
                 where_vals = where_vals * len(known_tables)
 
         # ORDER BY
