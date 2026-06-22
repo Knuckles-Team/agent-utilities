@@ -1124,6 +1124,11 @@ def _sync_jira(
     (the write-layer content-hash is the second guard); rebuilds the issue graph from
     each record and ``ingest_external_batch``-es it. ``ids`` narrows to specific keys
     (webhook). Replaces the removed single-shot ``_hydrate_jira``.
+
+    Deployment note (CONCEPT:KG-2.124): wire ``atlassian-mcp`` in the source
+    ``mcp_config`` over streamable-http (``transport``/``url`` →
+    ``http://atlassian-mcp.arpa/mcp``), mirroring freshrss-mcp / plane-mcp — never a
+    local ``command`` venv binary, which would (mis)spawn a stdio server on the host.
     """
     backend = getattr(engine, "backend", None)
     instances = _resolve_tracker_instances(
@@ -1308,6 +1313,15 @@ def _sync_confluence(
     embed) so the wiki is fully searchable. Delta = the ``version.createdAt`` since
     filter + the write-layer content-hash. ``ids`` narrows to specific pages (webhook).
     NOT relevance-gated — internal wiki is curated knowledge.
+
+    Deployment note (CONCEPT:KG-2.123): the ``atlassian-mcp`` server is reached over
+    streamable-http at its fleet URL (``http://atlassian-mcp.arpa/mcp``) — wire it in
+    the source ``mcp_config`` with ``transport``/``url`` (mirroring freshrss-mcp /
+    plane-mcp), never a local ``command`` venv binary. Confluence Cloud v2 paths are
+    bare (``/spaces``, ``/pages``), so the **service** must set
+    ``ATLASSIAN_CONFLUENCE_CLOUD_URL=https://<site>.atlassian.net/wiki/api/v2`` — the
+    per-suite override in ``atlassian_agent.auth.get_confluence_cloud_client``;
+    otherwise the client falls back to the Jira base URL and every call 404s.
     """
     backend = getattr(engine, "backend", None)
     instances = _resolve_tracker_instances(
