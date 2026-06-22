@@ -430,8 +430,16 @@ def test_surface_verbose_targets_multiclient(monkeypatch):
         mcp,
         service="arr-mcp",
         verbose_targets=[
-            {"client_cls": _Sonarr, "get_client": lambda: _Sonarr(), "tool_prefix": "sonarr"},
-            {"client_cls": _Radarr, "get_client": lambda: _Radarr(), "tool_prefix": "radarr"},
+            {
+                "client_cls": _Sonarr,
+                "get_client": lambda: _Sonarr(),
+                "tool_prefix": "sonarr",
+            },
+            {
+                "client_cls": _Radarr,
+                "get_client": lambda: _Radarr(),
+                "tool_prefix": "radarr",
+            },
         ],
     )
     names = {t.name for t in _tools_list(mcp)}
@@ -463,7 +471,10 @@ def test_surface_condensed_only_server_survives_global_verbose(monkeypatch):
             ("ontology", "ONTOLOGYTOOL", lambda m: calls.append("ontology")),
         ],
     )
-    assert set(tags) == {"query", "ontology"}  # condensed fell back on (no verbose target)
+    assert set(tags) == {
+        "query",
+        "ontology",
+    }  # condensed fell back on (no verbose target)
     assert calls == ["query", "ontology"]
 
 
@@ -473,13 +484,17 @@ def test_surface_verbose_register_hook(monkeypatch):
 
     def _custom_verbose(mcp):
         seen["called"] = True
-        mcp.tool(name="gx_write_add_node", tags={"verbose", "graph_write"})(lambda: None)
+        mcp.tool(name="gx_write_add_node", tags={"verbose", "graph_write"})(
+            lambda: None
+        )
 
     # verbose mode: condensed skipped, custom verbose runs (not left empty)
     monkeypatch.setenv("MCP_TOOL_MODE", "verbose")
     mcp = FastMCP("t")
     tags = register_tool_surface(
-        mcp, service="graph-os", tools_module=_surface_module(),
+        mcp,
+        service="graph-os",
+        tools_module=_surface_module(),
         verbose_register=_custom_verbose,
     )
     assert tags == []  # condensed NOT force-added — a verbose surface exists
@@ -491,7 +506,9 @@ def test_surface_verbose_register_hook(monkeypatch):
     monkeypatch.setenv("MCP_TOOL_MODE", "both")
     mcp2 = FastMCP("t")
     tags2 = register_tool_surface(
-        mcp2, service="graph-os", tools_module=_surface_module(),
+        mcp2,
+        service="graph-os",
+        tools_module=_surface_module(),
         verbose_register=_custom_verbose,
     )
     assert set(tags2) == {"cmdb", "change_management"}
@@ -519,3 +536,154 @@ def test_surface_stamps_domain_tag_and_records_exact_toggle(monkeypatch):
     assert "observability" in tool.tags  # canonical domain tag stamped
     # exact toggle map matches the gating env var (not the service-name guess)
     assert mcp._condensed_tool_toggles["langfuse_observability"] == "OBSERVABILITYTOOL"
+
+
+# --- Fleet-wide verbose auto-wire from condensed action enums (ECO-4.89) -----
+from typing import Literal  # noqa: E402
+
+from pydantic import Field  # noqa: E402
+
+from agent_utilities.mcp.verbose_tools import (  # noqa: E402
+    _action_enum,
+    autowire_verbose_from_condensed,
+)
+
+
+def _action_routed_module():
+    """A fake <pkg>.mcp module of condensed *action-enum* tools (atlassian-shaped).
+
+    Each register_<tag>_tools adds one tool whose ``action`` is a ``Literal`` enum
+    plus a ``params_json`` passthrough — the universal condensed shape the auto-wire
+    expands one verbose tool per action from.
+    """
+    mod = _types.ModuleType("fake_action_mcp")
+
+    def register_issue_tools(mcp):
+        @mcp.tool(name="svc_issue", tags={"issue"})
+        async def svc_issue(
+            action: Literal["get_issue", "create_issue", "delete_issue"] = Field(
+                description="op"
+            ),
+            params_json: str = Field(default="{}", description="args"),
+        ) -> dict:
+            "Manage issues."
+            return {"action": action, "params_json": params_json}
+
+    def register_comment_tools(mcp):
+        @mcp.tool(name="svc_comment", tags={"comment"})
+        async def svc_comment(
+            action: Literal["add_comment", "list_comments"] = Field(description="op"),
+            params_json: str = Field(default="{}", description="args"),
+        ) -> dict:
+            "Manage comments."
+            return {"action": action, "params_json": params_json}
+
+    mod.register_issue_tools = register_issue_tools
+    mod.register_comment_tools = register_comment_tools
+    return mod
+
+
+def test_action_enum_reads_literal_and_skips_freeform():
+    """_action_enum returns enum values for a Literal action, [] for free-form str."""
+    mcp = FastMCP("t")
+
+    @mcp.tool(name="enum_tool")
+    async def enum_tool(
+        action: Literal["a", "b"] = Field(description="op"),
+        params_json: str = Field(default="{}"),
+    ) -> dict:
+        return {}
+
+    @mcp.tool(name="freeform_tool")
+    async def freeform_tool(
+        action: str = Field(description="op"),
+        params_json: str = Field(default="{}"),
+    ) -> dict:
+        return {}
+
+    from agent_utilities.mcp.verbose_tools import _provider_tools
+
+    tools = _provider_tools(mcp)
+    assert _action_enum(tools["enum_tool"]) == ["a", "b"]
+    assert _action_enum(tools["freeform_tool"]) == []
+
+
+def test_autowire_one_verbose_tool_per_action():
+    """The core guarantee: one dispatching verbose tool per action enum value,
+    derived from already-registered condensed action-routed tools (no per-connector
+    edits). Verifies the named offline contract for ECO-4.89."""
+    mcp = FastMCP("t")
+    mod = _action_routed_module()
+    mod.register_issue_tools(mcp)
+    mod.register_comment_tools(mcp)
+
+    derived = autowire_verbose_from_condensed(mcp)
+    assert set(derived) == {
+        "svc_issue__get_issue",
+        "svc_issue__create_issue",
+        "svc_issue__delete_issue",
+        "svc_comment__add_comment",
+        "svc_comment__list_comments",
+    }
+    # one verbose tool per action present on the server, tagged for slicing
+    tool = asyncio.run(mcp.get_tool("svc_issue__create_issue"))
+    assert "verbose" in tool.tags and "issue" in tool.tags
+    # the verbose tool hides `action` (preset) and keeps `params_json` passthrough
+    props = tool.parameters.get("properties", {})
+    assert "action" not in props
+    assert "params_json" in props
+
+
+def test_autowire_dispatches_to_condensed_handler_with_action_preset():
+    """A derived verbose tool routes to the SAME condensed handler with its action
+    preset — not a re-implementation."""
+    mcp = FastMCP("t")
+    mod = _action_routed_module()
+    mod.register_issue_tools(mcp)
+    autowire_verbose_from_condensed(mcp)
+
+    tool = asyncio.run(mcp.get_tool("svc_issue__delete_issue"))
+    res = asyncio.run(tool.run({"params_json": '{"id": 7}'}))
+    assert res.structured_content == {
+        "action": "delete_issue",
+        "params_json": '{"id": 7}',
+    }
+
+
+def test_autowire_is_idempotent():
+    """Re-running the auto-wire derives nothing new (won't double-register or
+    expand its own verbose tools)."""
+    mcp = FastMCP("t")
+    _action_routed_module().register_issue_tools(mcp)
+    first = autowire_verbose_from_condensed(mcp)
+    assert first
+    assert autowire_verbose_from_condensed(mcp) == []
+
+
+def test_surface_both_autowires_condensed_action_tools(monkeypatch):
+    """register_tool_surface in `both` mode auto-wires verbose tools from condensed
+    action-routed tools with no client_cls/verbose_targets (the atlassian case)."""
+    monkeypatch.setenv("MCP_TOOL_MODE", "both")
+    mcp = FastMCP("t")
+    register_tool_surface(
+        mcp, service="atlassian-agent", tools_module=_action_routed_module()
+    )
+    names = {t.name for t in _tools_list(mcp)}
+    assert "svc_issue" in names  # condensed kept
+    assert "svc_issue__create_issue" in names  # verbose auto-derived
+    assert "svc_comment__add_comment" in names
+
+
+def test_surface_autowire_opt_out(monkeypatch):
+    """autowire_condensed=False opts a server out of the action-enum expansion."""
+    monkeypatch.setenv("MCP_TOOL_MODE", "both")
+    mcp = FastMCP("t")
+    register_tool_surface(
+        mcp,
+        service="atlassian-agent",
+        tools_module=_action_routed_module(),
+        autowire_condensed=False,
+    )
+    names = {t.name for t in _tools_list(mcp)}
+    assert "svc_issue" in names  # condensed kept
+    assert "svc_issue__create_issue" not in names  # no verbose derived
