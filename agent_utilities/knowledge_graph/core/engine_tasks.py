@@ -3066,6 +3066,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             "codebase",
             "document",
             "content_url",
+            "feed_ingest",
             "deep_analysis",
             "synthesize",
             "deep_extract",
@@ -3285,6 +3286,63 @@ class TaskManagerMixin(GraphEngineProtocol):
                         "error": r.error,
                     },
                 )
+
+            elif task_type == "feed_ingest":
+                # Async full-ingest of a relevance-gated feed article OFF the sweep
+                # path (CONCEPT:KG-2.121). The world-model gate enqueues; the worker
+                # pool drains these in parallel, so "reviews" (the sweep) scale
+                # independently of "ingest" (chunk + embed + contextual-enrich),
+                # and ingest scales 1→N with the model-concurrency controller. The
+                # already-fetched article text rides on the task — no re-crawl. Run
+                # the (sync) DocumentProcessor in a worker thread so concurrent
+                # feed_ingest tasks don't serialize on the event loop.
+                from agent_utilities.knowledge_graph.ontology.document_processing import (
+                    ChunkingConfig,
+                    DocumentProcessor,
+                )
+
+                trow = self.query_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
+                )
+                meta_t = _decode_metadata(trow[0]["t"].get("metadata")) if trow else {}
+                fd = (meta_t or {}).get("feed_doc") or {}
+                if not fd.get("document_id"):
+                    self._update_task_status(
+                        job_id,
+                        "failed",
+                        {"type": task_type, "error": "no feed_doc payload"},
+                    )
+                else:
+                    proc = DocumentProcessor(
+                        getattr(self, "backend", None),
+                        chunking=ChunkingConfig(),
+                        contextual=True,
+                    )
+                    try:
+                        await asyncio.to_thread(
+                            proc.process,
+                            fd.get("text", "") or "",
+                            document_id=fd["document_id"],
+                            title=fd.get("title") or fd["document_id"],
+                            doc_type=fd.get("doc_type", "news_article"),
+                            source=fd.get("source", ""),
+                            metadata=fd.get("metadata") or {},
+                        )
+                        self._update_task_status(
+                            job_id,
+                            "completed",
+                            {"target": fd["document_id"], "type": task_type},
+                        )
+                    except Exception as fe:  # noqa: BLE001
+                        self._update_task_status(
+                            job_id,
+                            "failed",
+                            {
+                                "target": fd["document_id"],
+                                "type": task_type,
+                                "error": str(fe),
+                            },
+                        )
 
             elif task_type == "skill_workflows":
                 # CONCEPT:KG-2.97 — ingest the universal-skills workflow corpus as

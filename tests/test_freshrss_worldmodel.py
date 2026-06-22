@@ -203,3 +203,29 @@ def test_sync_freshrss_gates_and_watermarks(monkeypatch):
     assert res["relevant"] == 1 and res["marginal"] == 1
     assert res["skipped_unchanged"] == 1
     assert written["freshrss"] == "1700000300"  # max published epoch
+
+
+def test_ingest_full_enqueues_feed_ingest_task():
+    """CONCEPT:KG-2.121 — relevance-gated full ingest is DECOUPLED: it ENQUEUES a
+    feed_ingest task (the worldview lane) carrying the already-fetched text, rather
+    than processing inline, so the sweep returns fast and ingest workers drain in
+    parallel. Falls back to inline only when no queue (submit_task) exists."""
+    eng = MagicMock()
+    runner = WorldModelPipelineRunner(engine=eng)
+    doc = SimpleNamespace(
+        id="item1",
+        title="Oil markets shift on Hormuz risk",
+        text="Full article body " * 20,
+        metadata={},
+        source_uri="https://example/1",
+    )
+    rec = {"origin": {"title": "EIA"}, "canonical": [{"href": "https://example/1"}]}
+    runner._ingest_full(doc, rec, score=4.0, domains=["energy"])
+
+    assert eng.submit_task.called, "relevant item must be ENQUEUED, not inline"
+    kw = eng.submit_task.call_args.kwargs
+    assert kw["task_type"] == "feed_ingest"
+    fd = kw["extra_meta"]["feed_doc"]
+    assert fd["document_id"].startswith("doc:freshrss:")
+    assert fd["text"].strip()  # carries the body so the worker never re-crawls
+    assert fd["metadata"]["domains"] == ["energy"]

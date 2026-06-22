@@ -270,28 +270,71 @@ class WorldModelPipelineRunner:
     def _ingest_full(
         self, doc: Any, rec: dict[str, Any], score: float, domains: list[str]
     ) -> None:
-        """Native KG-2.48 Document + Chunk ingestion of the full article body."""
+        """Relevance-gated full ingestion of the article body (KG-2.48).
+
+        DECOUPLED (CONCEPT:KG-2.121): the heavy chunk + embed + contextual-enrich
+        work is ENQUEUED as a ``feed_ingest`` task and drained by the worker pool,
+        so the sweep (the "review") returns fast while N ingest workers process in
+        parallel — the split that lets reviews scale (CPU + network) independently
+        of ingest, which scales 1→N with the model-concurrency controller
+        (KG-2.143/2.145). The already-fetched text rides on the task (no re-crawl).
+        Falls back to inline processing when no queue is available."""
         if self.engine is None:
             return
         url = self._canonical(rec) or getattr(doc, "source_uri", "")
         origin = rec.get("origin") or {}
         item_node_id = self._node_id("doc:freshrss:", doc.id)
+        metadata = {
+            **(getattr(doc, "metadata", None) or {}),
+            "source_system": "freshrss",
+            "importance_score": 0.8,
+            "relevance_score": score,
+            "domains": domains,
+            "feed": origin.get("title"),
+            "published": rec.get("published"),
+        }
+        title = getattr(doc, "title", "") or doc.id
+        text = getattr(doc, "text", "") or ""
+
+        submit = getattr(self.engine, "submit_task", None)
+        if callable(submit):
+            try:
+                submit(
+                    target_path=item_node_id,
+                    is_codebase=False,
+                    provenance={"feed": origin.get("title") or "rss"},
+                    task_type="feed_ingest",
+                    priority=2,
+                    skip_dedupe=True,  # the gate's _is_known already deduped this item
+                    job_id=f"feedjob:{item_node_id}",
+                    extra_meta={
+                        "feed_doc": {
+                            "document_id": item_node_id,
+                            "text": text,
+                            "title": title,
+                            "doc_type": "news_article",
+                            "source": url,
+                            "metadata": metadata,
+                        }
+                    },
+                )
+                self._link_feed_source(item_node_id, doc, rec)
+                return
+            except Exception as exc:  # noqa: BLE001 — fall back to inline ingest
+                logger.warning(
+                    "[KG-2.121] feed_ingest enqueue failed for %s: %s; inline",
+                    doc.id,
+                    exc,
+                )
+
         try:
             self._processor().process(
-                getattr(doc, "text", "") or "",
+                text,
                 document_id=item_node_id,
-                title=getattr(doc, "title", "") or doc.id,
+                title=title,
                 doc_type="news_article",
                 source=url,
-                metadata={
-                    **(getattr(doc, "metadata", None) or {}),
-                    "source_system": "freshrss",
-                    "importance_score": 0.8,
-                    "relevance_score": score,
-                    "domains": domains,
-                    "feed": origin.get("title"),
-                    "published": rec.get("published"),
-                },
+                metadata=metadata,
             )
             self._link_feed_source(item_node_id, doc, rec)
         except Exception as exc:  # noqa: BLE001 — degrade to a marginal footprint
