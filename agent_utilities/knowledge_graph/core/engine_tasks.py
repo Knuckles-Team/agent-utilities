@@ -1420,8 +1420,10 @@ class TaskManagerMixin(GraphEngineProtocol):
                 for name, interval, tick in jobs:
                     if now - last_run[name] < interval:
                         continue
+                    logger.info("[maint-loop] running job %r", name)
                     try:
                         tick()
+                        logger.info("[maint-loop] job %r done", name)
                     except Exception as e:  # one job's failure never stops others
                         logger.error("Maintenance job '%s' error: %s", name, e)
                     last_run[name] = time.time()
@@ -1899,8 +1901,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             # Register the former fixed-interval maintenance ticks as durable
             # :Schedule nodes once (after the backend is ready). Idempotent.
             if not getattr(self, "_maint_schedules_registered", False):
+                logger.info("[maint] registering maintenance schedules…")
                 self._register_maintenance_schedules()
                 self._maint_schedules_registered = True
+                logger.info("[maint] maintenance schedules registered")
             result = run_scheduler_tick(self)
             if result.get("fired"):
                 logger.info("scheduler fired: %s", result["fired"])
