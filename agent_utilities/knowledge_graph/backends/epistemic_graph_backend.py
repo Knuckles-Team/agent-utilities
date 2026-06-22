@@ -61,14 +61,35 @@ class EpistemicGraphBackend(GraphBackend):
         engine emits is interpreted directly (CONCEPT:KG-2.63)."""
         return "subset"
 
-    def __init__(self) -> None:
+    def __init__(self, graph_name: str | None = None) -> None:
+        """Initialize the backend, optionally bound to a named engine graph.
+
+        CONCEPT:KG-2.148 — Control-plane graph isolation (foundation). The
+        optional ``graph_name`` selects which engine graph this backend instance
+        reads from and writes to. It is threaded straight through to the
+        underlying :class:`GraphComputeEngine` (and thence the
+        ``SyncEpistemicGraphClient`` connection), so a caller can later bind a
+        dedicated graph (e.g. a separate ``__control__`` graph for the scheduler
+        / task control plane) that is isolated from sustained content-ingestion
+        writes which otherwise hold the single per-graph write lock.
+
+        Default (``graph_name=None``) preserves EXACTLY today's behaviour:
+        ``GraphComputeEngine`` resolves the ambient/configured default graph
+        (``config.kg_default_graph`` or the tenant-routed graph) exactly as it
+        did before this parameter existed.
+        """
         from ..core.graph_compute import GraphComputeEngine
 
-        self._graph = GraphComputeEngine(backend_type="rust")
+        self._graph = GraphComputeEngine(graph_name=graph_name, backend_type="rust")
+        # Surface the effective graph the engine resolved (None-default routes to
+        # the configured/tenant graph) so callers/tiered wrappers can introspect
+        # the binding. (CONCEPT:KG-2.148)
+        self.graph_name = getattr(self._graph, "graph_name", graph_name)
         self._embeddings: dict[str, list[float]] = {}
         self._node_counter = 0
         logger.info(
-            "EpistemicGraphBackend initialized (GraphComputeEngine, pure in-memory)"
+            "EpistemicGraphBackend initialized (GraphComputeEngine, pure in-memory%s)",
+            f", graph={self.graph_name}" if graph_name else "",
         )
 
     @property
