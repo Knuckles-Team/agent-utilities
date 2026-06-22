@@ -5,6 +5,11 @@ This captures the day-0 steps that make a freshly-deployed connector actually
 connectors end-to-end. The connector-auth section applies to **any** `*-mcp` fleet
 server the `graph-os` host syncs from, not just Plane.
 
+> **What each connector ingests + how it maps to OWL** (its `source_sync` source key, the
+> entities, the OWL classes, and the creds/env) lives in the companion
+> **`connector-ingestion-owl.md`**. This doc is the *auth/provisioning* half; that one is
+> the *ingestion/ontology* half. Both generalize the same `.arpa` connector pattern.
+
 ## 1. Plane instance provisioning (god-mode)
 
 A fresh Plane AIO deploy registers an *instance* but has **no instance (god-mode)
