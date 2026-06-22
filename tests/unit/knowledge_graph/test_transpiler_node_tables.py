@@ -34,3 +34,16 @@ def test_defaults_to_known_tables_when_node_tables_unset():
     # Back-compatible: callers that don't pass node_tables get the old behavior.
     sql = transpile("MATCH (n {id: $id}) RETURN n", {"id": "x"}, _KNOWN).sql
     assert "Account" in sql  # spans all known tables when node subset not supplied
+
+
+def test_labelless_where_union_param_count_matches_branches():
+    """Regression: the WHERE-clause label-less UNION repeats the placeholder once
+    per branch — branches span node_tables, so bound params must repeat
+    len(node_tables) times, NOT len(known_tables). A mismatch raises psycopg
+    'the query has N placeholders but M parameters were passed' (CONCEPT:KG-2.9)."""
+    tq = transpile(
+        "MATCH (n) WHERE n.id = $id RETURN n", {"id": "x"}, _KNOWN, node_tables=_NODE
+    )
+    placeholders = tq.sql.count("%s")
+    assert placeholders == len(_NODE), (placeholders, tq.sql)
+    assert len(tq.params) == placeholders, (len(tq.params), placeholders)
