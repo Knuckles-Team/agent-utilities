@@ -3586,12 +3586,24 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # loads its scratch tenant in one batch round-trip, so it can no
                 # longer hang or stall a bulk load — the old KG_INGEST_FEATURES /
                 # KG_INGEST_PROFILE opt-out knobs are gone. (CONCEPT:KG-2.7)
+                # Forward a caller-scoped file subset (CONCEPT:KG-2.150): the
+                # agent-utilities self-ingest scopes a DIRTY tree to its
+                # git-status-modified files via ``only_files`` on the task
+                # metadata; pass it through so the ingest engine parses only those.
+                cb_rows = self._control_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
+                )
+                cb_meta = _decode_metadata(cb_rows[0]["m"]) if cb_rows else {}
+                cb_manifest_meta: dict[str, Any] = {"features": True}
+                only_files = cb_meta.get("only_files")
+                if isinstance(only_files, list) and only_files:
+                    cb_manifest_meta["only_files"] = only_files
                 ing = IngestionEngine(kg_engine=self)
                 cb_res = await ing.ingest(
                     IngestionManifest(
                         content_type=ContentType.CODEBASE,
                         source_uri=str(target),
-                        metadata={"features": True},
+                        metadata=cb_manifest_meta,
                     )
                 )
                 if cb_res.status == "failed":

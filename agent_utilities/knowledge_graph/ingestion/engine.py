@@ -1117,8 +1117,19 @@ class IngestionEngine:
             except Exception:  # noqa: BLE001
                 prior_sha = None
         changed_files: list[Path] | None = None
+        # Caller-scoped file subset (CONCEPT:KG-2.150): when the manifest declares
+        # an explicit ``only_files`` list (e.g. the agent-utilities self-ingest
+        # scoping a DIRTY tree to its git-status-modified files), honor it verbatim
+        # — parse/chunk only those files instead of falling back to the full walk a
+        # dirty tree would otherwise force. Takes precedence over the git-diff path.
+        explicit = manifest.metadata.get("only_files") if manifest.metadata else None
+        if explicit:
+            subset = [Path(p) for p in explicit if Path(p).exists()]
+            if subset:
+                changed_files = subset
         if (
-            head_sha
+            changed_files is None
+            and head_sha
             and prior_sha
             and prior_sha != head_sha
             and _git_worktree_clean(source_path)
@@ -1154,7 +1165,11 @@ class IngestionEngine:
                     pass
 
         # Record the new HEAD as the delta watermark on success (best-effort).
-        if head_sha:
+        # NOT after an explicit ``only_files`` subset (CONCEPT:KG-2.150): a scoped
+        # partial ingest did not cover the whole tree at this HEAD, so advancing the
+        # whole-repo watermark would falsely mark untouched files as up-to-date —
+        # the per-file content_hash skip remains the correctness backstop instead.
+        if head_sha and not explicit:
             try:
                 self.manifest.record(self.graph_name, git_cat, repo_key, head_sha)
             except Exception:  # noqa: BLE001

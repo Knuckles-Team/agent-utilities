@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from .base import GraphBackend
@@ -133,106 +134,224 @@ def _sanitize_label(label: str) -> str:
     return s or "Node"
 
 
+@dataclass
+class _DurableMirror:
+    """One durable mirror target with its OWN independent drain channel.
+
+    CONCEPT:KG-2.149 — Per-backend durable fan-out. Each mirror target carries
+    its own bounded queue + drainer thread so the tier fans a write out to every
+    durable backend *independently*: one slow or failing backend backs up (or
+    fails into) only ITS own channel and never blocks L1's ack nor the progress
+    of the other healthy mirrors. Per-target counters surface that isolation.
+    """
+
+    backend: GraphBackend
+    name: str
+    queue: Any = None  # queue.Queue | None (None when write-behind off)
+    thread: Any = None  # threading.Thread | None
+    writes: int = 0
+    failures: int = 0
+    inline: int = 0  # mirrors run inline because this target's queue was full
+
+    def label(self) -> str:
+        return self.name or type(self.backend).__name__
+
+
 class TieredGraphBackend(GraphBackend):
-    """Write-through wrapper: L1 working store + L3 durable persistence."""
+    """Write-through wrapper: L1 working store + N durable mirror targets.
+
+    The durable tier may be a single backend (the historical L3, the default) or
+    a list of backends (pg-age + neo4j + falkordb + ladybug, …). Each durable
+    target is mirrored on its OWN write-behind channel so they drain
+    independently (CONCEPT:KG-2.149). Reads, ``semantic_search``, reconcile,
+    SPARQL and the CAS mirror all use the **primary** target (the first one) —
+    ``self.l3`` — for which read-after-write durability matters; the others are
+    pure additional mirrors.
+    """
 
     def __init__(
         self,
         l1: GraphBackend,
-        l3: GraphBackend,
+        l3: GraphBackend | list[GraphBackend],
         *,
         write_behind: bool | None = None,
         wb_queue_size: int = 10000,
+        mirror_names: list[str] | None = None,
     ) -> None:
         self.l1 = l1
-        self.l3 = l3
-        self._l3_failures = 0
-        self._l3_writes = 0
+        # Normalise the durable tier to a per-target list (default = list of one,
+        # preserving the historical single-L3 behaviour). The PRIMARY target
+        # (index 0) is the authority the read path / reconcile / SPARQL use.
+        targets = list(l3) if isinstance(l3, list | tuple) else [l3]
+        if not targets:
+            raise ValueError("TieredGraphBackend requires at least one durable target")
+        names = mirror_names or []
+        self._mirrors: list[_DurableMirror] = [
+            _DurableMirror(
+                backend=t,
+                name=(names[i] if i < len(names) else type(t).__name__),
+            )
+            for i, t in enumerate(targets)
+        ]
         self._l1_reads = 0
         self._l3_reads = 0
-        # Write-behind (CONCEPT:KG-2.7, B4): when enabled, node/edge mirrors to the
-        # durable L3 are queued and drained on a background thread so L1 (the
-        # authoritative working store) acks immediately instead of paying L3 latency
-        # inline. This is the DEFAULT, not a knob (CONCEPT:KG-2.7): the durable tier's
-        # latency is a property of the system, not a per-deployment setting, and a
-        # slow/erroring L3 must never stall the hot write path — so write-behind is a
-        # free, always-on capability. It is safe because L1 is authoritative for reads
-        # (read-after-write holds) and L1's snapshot+WAL let L3 reconcile from L1 on
-        # restart; embeddings still mirror SYNCHRONOUSLY (semantic_search reads L3, so
-        # the vector must be there before the next query). The queue is bounded; on
-        # saturation a mirror runs inline (backpressure, never dropped). Callers may
-        # pass write_behind=False for a strict-synchronous case (e.g. tests).
+        # Write-behind (CONCEPT:KG-2.7, B4; fan-out CONCEPT:KG-2.149): when enabled,
+        # node/edge mirrors to each durable target are queued and drained on that
+        # target's OWN background thread so L1 (the authoritative working store) acks
+        # immediately instead of paying durable latency inline. This is the DEFAULT,
+        # not a knob (CONCEPT:KG-2.7): the durable tier's latency is a property of the
+        # system, not a per-deployment setting, and a slow/erroring durable backend
+        # must never stall the hot write path — nor the other healthy mirrors — so
+        # per-target write-behind is a free, always-on capability. It is safe because
+        # L1 is authoritative for reads (read-after-write holds) and L1's snapshot+WAL
+        # let each target reconcile from L1 on restart; embeddings still mirror
+        # SYNCHRONOUSLY to the primary (semantic_search reads the primary, so the
+        # vector must be there before the next query). Each queue is bounded; on
+        # saturation that target's mirror runs inline (backpressure, never dropped).
+        # Callers may pass write_behind=False for a strict-synchronous case (tests).
         if write_behind is None:
             write_behind = True
         self._write_behind = bool(write_behind)
-        self._wb_inline = 0
-        self._wb_queue: Any = None
-        self._wb_thread: Any = None
         if self._write_behind:
             import queue as _queue
             import threading
 
-            self._wb_queue = _queue.Queue(maxsize=max(1, wb_queue_size))
-            self._wb_thread = threading.Thread(
-                target=self._wb_drain, name="kg-l3-backfeed", daemon=True
-            )
-            self._wb_thread.start()
+            for m in self._mirrors:
+                m.queue = _queue.Queue(maxsize=max(1, wb_queue_size))
+                m.thread = threading.Thread(
+                    target=self._wb_drain,
+                    args=(m,),
+                    name=f"kg-l3-backfeed[{m.label()}]",
+                    daemon=True,
+                )
+                m.thread.start()
         logger.info(
-            "TieredGraphBackend initialized (L1=%s, L3=%s, write_behind=%s)",
+            "TieredGraphBackend initialized (L1=%s, durable=[%s], write_behind=%s)",
             type(l1).__name__,
-            type(l3).__name__,
+            ", ".join(m.label() for m in self._mirrors),
             self._write_behind,
         )
 
     # ------------------------------------------------------------------
-    # L3 mirroring helper — never raises
+    # Durable-tier accessors (primary = index 0, the read/reconcile authority)
     # ------------------------------------------------------------------
-    def _mirror(self, op: str, fn, *, force_sync: bool = False) -> None:
-        # In write-behind mode, queue the mirror for the background drainer so L1
-        # acks without waiting on L3. `force_sync` (embeddings) bypasses the queue.
-        if self._write_behind and not force_sync and self._wb_queue is not None:
-            try:
-                self._wb_queue.put_nowait((op, fn))
-                return
-            except Exception:  # noqa: BLE001 — queue.Full → backpressure, run inline
-                self._wb_inline += 1
-                logger.warning(
-                    "TieredGraphBackend: L3 backfeed queue full; mirroring %s inline",
-                    op,
-                )
-        self._mirror_sync(op, fn)
+    @property
+    def l3(self) -> GraphBackend:
+        """The PRIMARY durable target — reads/semantic_search/reconcile/SPARQL.
 
-    def _mirror_sync(self, op: str, fn) -> None:
+        Back-compat: callers (and the historical single-target shape) treat the
+        tier as having one durable ``l3``. With a fan-out set this is target 0.
+        """
+        return self._mirrors[0].backend
+
+    @property
+    def _l3_writes(self) -> int:
+        """Total durable writes across all targets (back-compat aggregate)."""
+        return sum(m.writes for m in self._mirrors)
+
+    @property
+    def _l3_failures(self) -> int:
+        """Total durable failures across all targets (back-compat aggregate)."""
+        return sum(m.failures for m in self._mirrors)
+
+    @property
+    def _wb_inline(self) -> int:
+        """Total inline (queue-full) mirrors across all targets (back-compat)."""
+        return sum(m.inline for m in self._mirrors)
+
+    # ------------------------------------------------------------------
+    # Durable mirroring helper — fans out to every target; never raises
+    # ------------------------------------------------------------------
+    def _mirror(self, op: str, fn_for, *, force_sync: bool = False) -> None:
+        """Fan ``op`` out to every durable target on its own channel.
+
+        ``fn_for`` is either a zero-arg callable (applied verbatim to each target
+        — used when the mirror op doesn't reference the backend) or a callable
+        taking the target ``GraphBackend`` and returning the per-target mirror
+        thunk. One target's slow/full queue or failure never affects another's.
+        ``force_sync`` (embeddings) bypasses the queues and runs on the PRIMARY
+        only — the read-after-write target.
+        """
+        for i, m in enumerate(self._mirrors):
+            thunk = self._thunk_for(fn_for, m.backend)
+            if force_sync:
+                # Read-after-write only matters for the primary (the read path);
+                # only the primary must be synchronously durable for embeddings.
+                # Secondary mirrors may lag (write-behind) like any other mirror.
+                if i == 0 or not (self._write_behind and m.queue is not None):
+                    self._mirror_sync(m, op, thunk)
+                else:
+                    self._enqueue(m, op, thunk)
+                continue
+            if self._write_behind and m.queue is not None:
+                self._enqueue(m, op, thunk)
+            else:
+                self._mirror_sync(m, op, thunk)
+
+    @staticmethod
+    def _thunk_for(fn_for, backend: GraphBackend):
+        """Resolve a per-target mirror callable.
+
+        Accepts a backend-taking factory ``fn(backend)->thunk`` (fan-out aware)
+        or a plain zero-arg thunk (legacy single-target call sites, applied as-is
+        to every target). Detected by arity.
+        """
         try:
-            fn()
-            self._l3_writes += 1
-        except Exception as exc:  # noqa: BLE001 - durability is best-effort
-            self._l3_failures += 1
+            import inspect
+
+            params = inspect.signature(fn_for).parameters
+            takes_arg = len(params) >= 1
+        except (TypeError, ValueError):  # builtins / bound methods w/o signature
+            takes_arg = False
+        return fn_for(backend) if takes_arg else fn_for
+
+    def _enqueue(self, m: _DurableMirror, op: str, thunk) -> None:
+        try:
+            m.queue.put_nowait((op, thunk))
+        except Exception:  # noqa: BLE001 — queue.Full → backpressure, run inline
+            m.inline += 1
             logger.warning(
-                "TieredGraphBackend: L3 mirror of %s failed (#%d): %s",
+                "TieredGraphBackend: %s backfeed queue full; mirroring %s inline",
+                m.label(),
                 op,
-                self._l3_failures,
+            )
+            self._mirror_sync(m, op, thunk)
+
+    def _mirror_sync(self, m: _DurableMirror, op: str, thunk) -> None:
+        try:
+            thunk()
+            m.writes += 1
+        except Exception as exc:  # noqa: BLE001 - durability is best-effort
+            m.failures += 1
+            logger.warning(
+                "TieredGraphBackend: %s mirror of %s failed (#%d): %s",
+                m.label(),
+                op,
+                m.failures,
                 exc,
             )
 
-    def _wb_drain(self) -> None:
-        """Background drainer: applies queued L3 mirrors in order. A ``None`` item
-        is the shutdown sentinel."""
+    def _wb_drain(self, m: _DurableMirror) -> None:
+        """Per-target drainer: applies that target's queued mirrors in order. A
+        ``None`` item is the shutdown sentinel. Each target has its own thread, so
+        a slow/failing target drains independently of the others."""
         while True:
-            item = self._wb_queue.get()
+            item = m.queue.get()
             try:
                 if item is None:
                     return
-                op, fn = item
-                self._mirror_sync(op, fn)
+                op, thunk = item
+                self._mirror_sync(m, op, thunk)
             finally:
-                self._wb_queue.task_done()
+                m.queue.task_done()
 
     def flush_backfeed(self) -> None:
-        """Block until all queued L3 mirrors have drained (called at checkpoint, so
-        the durable tier is caught up to L1 before the snapshot)."""
-        if self._write_behind and self._wb_queue is not None:
-            self._wb_queue.join()
+        """Block until every target's queued mirrors have drained (called at a
+        checkpoint, so each durable target is caught up to L1 before the snapshot)."""
+        if self._write_behind:
+            for m in self._mirrors:
+                if m.queue is not None:
+                    m.queue.join()
 
     # ------------------------------------------------------------------
     # Core CRUD & Query
@@ -261,7 +380,7 @@ class TieredGraphBackend(GraphBackend):
         write = _is_write(query) if is_write is None else is_write
         if write:
             result = self.l1.execute(query, params)
-            self._mirror("execute", lambda: self.l3.execute(query, params))
+            self._mirror("execute", lambda be: lambda: be.execute(query, params))
             return result
         if _is_traversal(query):
             if _l1_can_traverse(query):
@@ -290,12 +409,12 @@ class TieredGraphBackend(GraphBackend):
     ) -> list[dict[str, Any]]:
         """High-throughput ingestion — always a write; mirror to L3."""
         result = self.l1.execute_batch(query, batch)
-        self._mirror("execute_batch", lambda: self.l3.execute_batch(query, batch))
+        self._mirror("execute_batch", lambda be: lambda: be.execute_batch(query, batch))
         return result
 
     def create_schema(self) -> None:
         self.l1.create_schema()
-        self._mirror("create_schema", self.l3.create_schema)
+        self._mirror("create_schema", lambda be: be.create_schema)
 
     def compare_and_set_node_fields(
         self,
@@ -314,13 +433,16 @@ class TieredGraphBackend(GraphBackend):
         won = self.l1.compare_and_set_node_fields(node_id, conditions, updates)
         if won:
 
-            def _mirror_cas() -> None:
-                set_clause = ", ".join(f"n.{k} = ${k}" for k in updates)
-                params: dict[str, Any] = {"_casid": node_id, **updates}
-                self.l3.execute(
-                    f"MATCH (n {{id: $_casid}}) SET {set_clause}",
-                    params,
-                )
+            def _mirror_cas(be: GraphBackend):
+                def _apply() -> None:
+                    set_clause = ", ".join(f"n.{k} = ${k}" for k in updates)
+                    params: dict[str, Any] = {"_casid": node_id, **updates}
+                    be.execute(
+                        f"MATCH (n {{id: $_casid}}) SET {set_clause}",
+                        params,
+                    )
+
+                return _apply
 
             self._mirror("compare_and_set_node_fields", _mirror_cas)
         return won
@@ -334,7 +456,7 @@ class TieredGraphBackend(GraphBackend):
         # vector must be durable before the next query (read-after-write).
         self._mirror(
             "add_embedding",
-            lambda: self.l3.add_embedding(node_id, embedding),
+            lambda be: lambda: be.add_embedding(node_id, embedding),
             force_sync=True,
         )
 
@@ -366,27 +488,36 @@ class TieredGraphBackend(GraphBackend):
     # ------------------------------------------------------------------
     def prune(self, criteria: dict[str, Any]) -> None:
         self.l1.prune(criteria)
-        self._mirror("prune", lambda: self.l3.prune(criteria))
+        self._mirror("prune", lambda be: lambda: be.prune(criteria))
 
     def close(self) -> None:
-        # Drain pending L3 mirrors and stop the drainer BEFORE closing the tiers,
-        # so a write-behind backlog isn't lost on shutdown.
-        if self._write_behind and self._wb_thread is not None:
-            try:
-                self._wb_queue.join()
-                self._wb_queue.put(None)  # shutdown sentinel
-                self._wb_thread.join(timeout=30.0)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "TieredGraphBackend: backfeed drain on close failed: %s", exc
-                )
+        # Drain each target's pending mirrors and stop its drainer BEFORE closing
+        # the tiers, so no write-behind backlog is lost on shutdown. Each target
+        # drains independently (CONCEPT:KG-2.149).
+        if self._write_behind:
+            for m in self._mirrors:
+                if m.thread is None or m.queue is None:
+                    continue
+                try:
+                    m.queue.join()
+                    m.queue.put(None)  # shutdown sentinel
+                    m.thread.join(timeout=30.0)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "TieredGraphBackend: %s backfeed drain on close failed: %s",
+                        m.label(),
+                        exc,
+                    )
         try:
             self.l1.close()
         finally:
-            try:
-                self.l3.close()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("TieredGraphBackend: L3 close failed: %s", exc)
+            for m in self._mirrors:
+                try:
+                    m.backend.close()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "TieredGraphBackend: %s close failed: %s", m.label(), exc
+                    )
 
     # ------------------------------------------------------------------
     # SPARQL — delegate to whichever tier supports it (L3 first)
@@ -499,26 +630,46 @@ class TieredGraphBackend(GraphBackend):
                 "edges_missing": 0,
                 "prior_l3_failures": self._l3_failures,
             }
-        summary = copy_graph(self.l1, self.l3)
+        # Reconcile EVERY durable target (CONCEPT:KG-2.149): a fresh mirror added
+        # to the fan-out set is backfilled from L1 here. The returned summary is
+        # the primary's (back-compat shape); per-target drift is under ``targets``.
+        per_target: dict[str, dict[str, int]] = {}
+        primary_summary: dict[str, int] | None = None
+        for i, m in enumerate(self._mirrors):
+            s = copy_graph(self.l1, m.backend)
+            per_target[m.label()] = s
+            if i == 0:
+                primary_summary = dict(s)
+        summary = primary_summary or {
+            "nodes": 0,
+            "edges": 0,
+            "errors": 0,
+            "nodes_missing": 0,
+            "edges_missing": 0,
+        }
         summary["prior_l3_failures"] = self._l3_failures
+        if len(self._mirrors) > 1:
+            summary["targets"] = per_target  # type: ignore[assignment]
         return summary
 
     # ------------------------------------------------------------------
     # Observability
     # ------------------------------------------------------------------
-    def durability_stats(self) -> dict[str, int]:
+    def _target_depth(self, m: _DurableMirror) -> int:
+        return m.queue.qsize() if (self._write_behind and m.queue is not None) else 0
+
+    def durability_stats(self) -> dict[str, Any]:
         """Mirror counters for monitoring the durable tier + read routing.
 
         In write-behind mode a growing ``backfeed_queued`` (or any
-        ``backfeed_inline`` from queue saturation) is the LOUD signal that L3 is
-        falling behind L1 — alarm on it rather than letting durability drift
-        silently."""
-        depth = (
-            self._wb_queue.qsize()
-            if (self._write_behind and self._wb_queue is not None)
-            else 0
-        )
-        return {
+        ``backfeed_inline`` from queue saturation) is the LOUD signal that a
+        durable target is falling behind L1 — alarm on it rather than letting
+        durability drift silently. The top-level counters are aggregated across
+        ALL targets (back-compat); ``targets`` carries per-backend isolation so
+        one slow/failing mirror is visible without dragging down the others
+        (CONCEPT:KG-2.149)."""
+        depth = sum(self._target_depth(m) for m in self._mirrors)
+        stats: dict[str, Any] = {
             "l3_writes": self._l3_writes,
             "l3_failures": self._l3_failures,
             "l1_reads": self._l1_reads,
@@ -526,3 +677,14 @@ class TieredGraphBackend(GraphBackend):
             "backfeed_queued": depth,
             "backfeed_inline": self._wb_inline,
         }
+        if len(self._mirrors) > 1:
+            stats["targets"] = {
+                m.label(): {
+                    "l3_writes": m.writes,
+                    "l3_failures": m.failures,
+                    "backfeed_queued": self._target_depth(m),
+                    "backfeed_inline": m.inline,
+                }
+                for m in self._mirrors
+            }
+        return stats
