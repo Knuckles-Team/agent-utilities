@@ -38,7 +38,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 
-from .task_lanes import LANE_NAMES, lane_for_task_type
+from .task_lanes import BEST_EFFORT_LANES, LANE_NAMES, lane_for_task_type
 
 __all__ = [
     "SchedulerConfig",
@@ -179,6 +179,9 @@ class AdmissionPolicy:
     (lane → count of *pending* tasks). The policy enforces, in order:
 
     * the heavy-type cap (``codebase`` concurrency ≤ cap), then
+    * the best-effort lane cap (a ``BEST_EFFORT_LANES`` lane — maint interval ticks —
+      may run at most its floor ``max(1, per_lane_min)`` workers, so a periodic-tick
+      backlog never expands into the throughput lanes; CONCEPT:ORCH-1.82), then
     * per-lane minimum coverage steering (don't pile onto a covered lane while an
       uncovered pending lane exists and this is the worker that could cover it),
       then
@@ -244,6 +247,16 @@ class AdmissionPolicy:
             cap = self.codebase_cap(pending_by_lane)
             if running_by_type.get(HEAVY_TYPE, 0) >= cap:
                 return _Decision(False, f"codebase_cap reached ({cap})")
+
+        # 1b) Best-effort lane cap (CONCEPT:ORCH-1.82) — a low-value/high-volume
+        #     lane (maint interval ticks) is guaranteed its floor coverage but never
+        #     EXPANDS beyond it, so a backlog of cheap periodic ticks can't crowd out
+        #     the throughput lanes. Below the floor it falls through to the normal
+        #     steering/spare logic (so it still gets covered) — capped, not starved.
+        if lane in BEST_EFFORT_LANES:
+            floor = max(1, cfg.per_lane_min)
+            if running_by_lane.get(lane, 0) >= floor:
+                return _Decision(False, f"{lane} best-effort cap ({floor})")
 
         uncovered = self._uncovered_pending_lanes(pending_by_lane, running_by_lane)
         this_lane_uncovered = lane in uncovered

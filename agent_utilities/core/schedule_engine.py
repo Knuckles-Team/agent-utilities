@@ -291,6 +291,72 @@ def register_schedule(engine: Any, spec: ScheduleSpec) -> None:
     _upsert(engine, spec)
 
 
+# ── Stale-tick collapse (CONCEPT:OS-5.53) ────────────────────────────────────
+# The active statuses an un-consumed ``scheduled_job`` tick can hold.
+_ACTIVE_TICK_STATUSES = ("pending", "scheduled", "blocked")
+
+
+def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
+    """Bulk-cancel duplicate ``scheduled_job`` ticks to ≤1 active per schedule.
+
+    The per-schedule coalescer in :func:`run_scheduler_tick` stops NEW pileup, but a
+    window where the consumer fell behind (an engine outage, an older build, or a
+    transient coalescer-probe failure) can leave a backlog of duplicate interval
+    ticks. A scheduled job is an interval tick, not a backlog item — running a stale
+    missed tick adds no value (the same rationale as the coalescer) — and a backlog
+    of them otherwise occupies the maint lane's workers re-running outdated sweeps.
+
+    This collapses it: for every schedule with more than one ACTIVE
+    (pending/scheduled/blocked) tick, all of that schedule's active ticks are
+    cancelled in bulk (one UPDATE per status) — the normal due-evaluation that
+    follows re-enqueues exactly one *fresh* tick when the schedule is next due, so a
+    schedule never carries a stale tick and never a duplicate. ``running`` ticks are
+    never touched. Idempotent and cheap in steady state: when every schedule already
+    has ≤1 active tick it issues only the read probes and no writes. Best-effort —
+    it must never raise into the scheduler tick.
+    """
+    backend = getattr(engine, "backend", None)
+    if backend is None:
+        return {"schedules_collapsed": 0, "cancelled": 0}
+    # Per-status reads return only ACTIVE ticks (a label+equality MATCH the L1
+    # transpiler supports), so the terminal-tick history is never materialized.
+    counts: dict[str, int] = {}
+    for status in _ACTIVE_TICK_STATUSES:
+        try:
+            rows = engine.query_cypher(
+                "MATCH (t:Task {tkind: 'scheduled_job', status: $status}) "
+                "RETURN t.schedule AS schedule",
+                {"status": status},
+            )
+        except Exception:  # noqa: BLE001 — probe failure ⇒ skip this cycle
+            return {"schedules_collapsed": 0, "cancelled": 0}
+        for row in rows or []:
+            name = (row or {}).get("schedule")
+            if name:
+                counts[name] = counts.get(name, 0) + 1
+    over = {name: n for name, n in counts.items() if n > 1}
+    if not over:
+        return {"schedules_collapsed": 0, "cancelled": 0}
+    cancelled = 0
+    for name, n in over.items():
+        for status in _ACTIVE_TICK_STATUSES:
+            try:
+                backend.execute(
+                    "MATCH (t:Task {tkind: 'scheduled_job', schedule: $name, "
+                    "status: $status}) SET t.status = 'cancelled'",
+                    {"name": name, "status": status},
+                )
+            except Exception:  # noqa: BLE001 — best-effort per (schedule, status)
+                continue
+        cancelled += n
+    logger.info(
+        "scheduler collapsed stale ticks: %d schedule(s), ~%d duplicate tick(s) cancelled",
+        len(over),
+        cancelled,
+    )
+    return {"schedules_collapsed": len(over), "cancelled": cancelled}
+
+
 # ── The one scheduler tick: evaluate → enqueue ───────────────────────────────
 def _is_due(spec: ScheduleSpec, now: datetime, now_unix: float) -> bool:
     if not spec.enabled:
@@ -327,6 +393,14 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
         except Exception as e:  # noqa: BLE001
             logger.warning("schedule seed failed: %s", e)
         engine._schedules_seeded = True
+
+    # Curb/recover any duplicate interval-tick backlog before evaluating due
+    # schedules (CONCEPT:OS-5.53). Cheap no-op once every schedule has ≤1 active
+    # tick; never raises into the tick.
+    try:
+        collapse_stale_ticks(engine)
+    except Exception:  # noqa: BLE001
+        logger.debug("collapse_stale_ticks failed", exc_info=True)
 
     now = now or datetime.now()
     now_unix = time.time()

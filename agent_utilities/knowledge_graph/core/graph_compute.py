@@ -511,6 +511,21 @@ class GraphComputeEngine:
         """Check if node_id exists in the graph."""
         return self._client.nodes.has(node_id)
 
+    def has_batch(self, node_ids: list[str]) -> dict[str, bool]:
+        """Existence of many nodes in ONE round-trip → ``{id: exists}`` (KG-2.147).
+
+        The engine is a separate process behind a MessagePack/UDS socket, so each
+        call is a round-trip — N per-element ``has_node`` calls = N round-trips.
+        This surfaces the engine client's existing one-round-trip existence op
+        (CONCEPT:KG-2.16) through the facade so orchestration code (ingestion dedup)
+        can check a whole batch natively instead of looping. (Bulk writes already
+        flow through :meth:`batch_update`.)
+        """
+        ids = list(node_ids)
+        if not ids:
+            return {}
+        return dict(self._client.nodes.has_batch(ids))
+
     def has_edge(self, source_id: str, target_id: str) -> bool:
         """Check if a directed edge exists between source and target."""
         return self._client.edges.has(source_id, target_id)

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 420
+total_concepts: 423
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1813,6 +1813,7 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/interfaces.py
   - agent_utilities/knowledge_graph/pipeline/__init__.py
   - agent_utilities/knowledge_graph/pipeline/phases/__init__.py
+  - agent_utilities/knowledge_graph/pipeline/phases/embedding.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/research/search.py
   - agent_utilities/mcp/tools/analysis_tools.py
@@ -2047,7 +2048,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
   doc: social-closer / triviality gate
 - id: KG-2.16
-  name: KG-2.16
+  name: through the GraphComputeEngine facade so
   pillar: KG-2
   status: live
   code_paths:
@@ -2057,7 +2058,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
-  doc: KG-2.16
+  doc: through the GraphComputeEngine facade so
 - id: KG-2.17
   name: decay scanner + semantic merge
   pillar: KG-2
@@ -3115,6 +3116,8 @@ concepts:
   - agent_utilities/automation/worldmodel_pipeline.py
   - agent_utilities/core/config.py
   - agent_utilities/core/schedule_engine.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/protocols/source_connectors/connectors/rss.py
   doc: native zero-infra RSS/Atom feed extractor and unified feed source
@@ -3325,14 +3328,22 @@ concepts:
   - agent_utilities/core/model_concurrency.py
   doc: Surfaces the universal latency signal
 - id: KG-2.146
-  name: Models that physically
+  name: Pure config enumeration; fail-safe
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/core/gpu_group_budget.py
   - agent_utilities/core/model_capacity_autoscale.py
-  doc: Models that physically
+  doc: Pure config enumeration; fail-safe
+- id: KG-2.147
+  name: ──────────────────────────
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/automation/worldmodel_pipeline.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  doc: ──────────────────────────
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4158,6 +4169,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: ORCH-1.81
+- id: ORCH-1.82
+  name: a low-value/high-volume
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/knowledge_graph/core/worker_scheduler.py
+  doc: a low-value/high-volume
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
@@ -4726,6 +4745,14 @@ concepts:
   code_paths:
   - agent_utilities/core/providers.py
   doc: Modular skill/prompt contribution
+- id: OS-5.53
+  name: Cheap no-op once every schedule has ≤1 active
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/schedule_engine.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  doc: Cheap no-op once every schedule has ≤1 active
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

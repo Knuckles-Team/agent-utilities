@@ -62,6 +62,22 @@ A default-on `research_feed` schedule (`KG_RESEARCH_FEED`, cadence
 
 Enable/disable or retune it like any schedule via `graph_schedules`.
 
+## Duplicate-tick safety (coalesce + collapse)
+
+A scheduled job is an *interval tick*, not a backlog item — running a stale missed
+tick adds no value. Two mechanisms keep the queue from accumulating duplicates:
+
+- **Coalesce (per-schedule, at enqueue):** a tick is not enqueued while a prior
+  tick for the same schedule is still un-consumed (CONCEPT:OS-5.44).
+- **Collapse (self-healing, at each tick):** `collapse_stale_ticks` cancels any
+  schedule's *active* duplicate ticks down to ≤1, recovering from a backlog that
+  pre-dates the coalescer or a window where its probe failed (CONCEPT:OS-5.53).
+  `running` ticks are never touched.
+
+This pairs with the **best-effort lane cap** (CONCEPT:ORCH-1.82): the `maint` lane
+is capped at its floor coverage so a tick backlog can never crowd the throughput
+lanes. See [Ingestion Throughput](../architecture/ingestion_throughput.md).
+
 ## Verifying end-to-end
 
 ```bash

@@ -84,6 +84,17 @@ TASK_LANES: dict[str, dict] = {
 LANE_NAMES: tuple[str, ...] = tuple(TASK_LANES)
 DEFAULT_LANE = "maint"
 
+# CONCEPT:ORCH-1.82 — "best-effort" lanes: low-value, high-volume periodic work
+# (the maint interval ticks) that must be GUARANTEED its minimum coverage but must
+# NEVER expand into spare workers. Without this, a backlog of cheap scheduled-job
+# ticks (one per due-minute, per schedule) crowds the worker pool — the rotation
+# offers maint most often because it has the most pending — and starves the
+# throughput lanes (ingestion/worldview/research) of all but their minimum. The
+# AdmissionPolicy caps a best-effort lane at its per-lane floor (see
+# :meth:`AdmissionPolicy.decide`). Pairs with the scheduler's stale-tick collapse
+# (CONCEPT:OS-5.53), which keeps the backlog itself small.
+BEST_EFFORT_LANES: frozenset[str] = frozenset({"maint"})
+
 _TYPE_TO_LANE: dict[str, str] = {
     t: lane for lane, cfg in TASK_LANES.items() for t in cfg["task_types"]
 }

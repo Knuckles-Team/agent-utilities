@@ -85,9 +85,14 @@ class WorldModelPipelineRunner:
         """Score, tier, and ingest a batch of drained ``SourceDocument`` items."""
         report = WorldModelReport(items_seen=len(docs))
         taxonomy = self._live_taxonomy()
+        # Dedup the WHOLE batch in ONE engine round-trip (CONCEPT:KG-2.147) instead
+        # of N items × ~4 per-item ``has_node`` round-trips — the review plane is the
+        # 50k/hr hot path, so its known-check must be O(1)-round-trip. ``None`` ⇒ the
+        # engine lacks bulk existence; each item falls back to per-item ``_is_known``.
+        known_ids = self._batch_known_ids(docs)
         for doc in docs:
             try:
-                self._gate_one(doc, taxonomy, report)
+                self._gate_one(doc, taxonomy, report, known_ids)
             except Exception:  # noqa: BLE001 — one bad item never aborts the sweep
                 logger.debug(
                     "world-model gate failed for %s",
@@ -98,10 +103,19 @@ class WorldModelPipelineRunner:
         return report
 
     def _gate_one(
-        self, doc: Any, taxonomy: dict[str, dict[str, Any]], report: WorldModelReport
+        self,
+        doc: Any,
+        taxonomy: dict[str, dict[str, Any]],
+        report: WorldModelReport,
+        known_ids: set[str] | None = None,
     ) -> None:
         rec = (getattr(doc, "metadata", None) or {}).get("record") or {}
-        if self._is_known(doc, rec):
+        known = (
+            getattr(doc, "id", "") in known_ids
+            if known_ids is not None
+            else self._is_known(doc, rec)
+        )
+        if known:
             report.skipped += 1
             return
 
@@ -228,10 +242,12 @@ class WorldModelPipelineRunner:
         m = _re.search(r"(\d{4}\.\d{4,5})", blob)
         return f"arxiv:{m.group(1)}" if m else ""
 
-    def _is_known(self, doc: Any, rec: dict[str, Any] | None = None) -> bool:
-        graph = getattr(self.engine, "graph", None)
-        if graph is None:
-            return False
+    def _known_keys(self, doc: Any, rec: dict[str, Any] | None = None) -> list[str]:
+        """Every node-id under which ``doc`` may already exist in the KG.
+
+        The single key-derivation shared by the per-item :meth:`_is_known` and the
+        batched :meth:`_batch_known_ids` so both check the *same* identity keys.
+        """
         rid = getattr(doc, "id", "")
         keys = [
             self._node_id(p, rid)
@@ -243,9 +259,42 @@ class WorldModelPipelineRunner:
             # The research path lands papers at article:scholarx:<safe> (full/marginal).
             keys.append(f"article:scholarx:{safe}")
             keys.append(self._node_id("doc:scholarx:", aid))
+        return keys
+
+    def _batch_known_ids(self, docs: list[Any]) -> set[str] | None:
+        """Which ``docs`` already exist in the KG — in ONE round-trip (CONCEPT:KG-2.147).
+
+        Collects every candidate node-id key across the whole batch, asks the engine
+        once via ``graph.has_batch``, and maps the present keys back to their owning
+        doc ids. Returns ``None`` when bulk existence is unavailable (no engine / old
+        client) so the caller falls back to per-item :meth:`_is_known`; an empty set
+        means "bulk ran, nothing already known".
+        """
+        graph = getattr(self.engine, "graph", None)
+        has_batch = getattr(graph, "has_batch", None)
+        if graph is None or not callable(has_batch):
+            return None
+        key_to_doc: dict[str, str] = {}
+        for doc in docs:
+            rec = (getattr(doc, "metadata", None) or {}).get("record") or {}
+            did = getattr(doc, "id", "")
+            for k in self._known_keys(doc, rec):
+                key_to_doc.setdefault(k, did)
+        if not key_to_doc:
+            return set()
+        try:
+            present = has_batch(list(key_to_doc))
+        except Exception:  # noqa: BLE001 — degrade to per-item _is_known
+            return None
+        return {key_to_doc[k] for k, exists in present.items() if exists}
+
+    def _is_known(self, doc: Any, rec: dict[str, Any] | None = None) -> bool:
+        graph = getattr(self.engine, "graph", None)
+        if graph is None:
+            return False
         try:
             nodes = graph.nodes
-            return any(k in nodes for k in keys)
+            return any(k in nodes for k in self._known_keys(doc, rec))
         except Exception:  # noqa: BLE001
             return False
 

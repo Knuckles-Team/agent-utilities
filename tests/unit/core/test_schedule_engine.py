@@ -180,6 +180,75 @@ def test_set_enabled_and_run_now() -> None:
     assert se.run_scheduler_tick(eng)["fired"] == ["ctl"]
 
 
+class _CollapseEngine:
+    """Engine whose active-tick reads + bulk cancels are driven by an in-memory
+    task list, for the CONCEPT:OS-5.53 stale-tick collapse."""
+
+    def __init__(self, tasks: list[dict]):
+        self.tasks = tasks
+        self.backend = self  # collapse writes go through engine.backend.execute
+
+    def query_cypher(self, _q, params=None):
+        st = (params or {}).get("status")
+        return [{"schedule": t["schedule"]} for t in self.tasks if t["status"] == st]
+
+    def execute(self, _q, params=None):
+        name, st = (params or {}).get("name"), (params or {}).get("status")
+        for t in self.tasks:
+            if t["schedule"] == name and t["status"] == st:
+                t["status"] = "cancelled"
+
+
+def _statuses(tasks, name):
+    return sorted(t["status"] for t in tasks if t["schedule"] == name)
+
+
+def test_collapse_cancels_duplicate_active_ticks_per_schedule() -> None:
+    # file_watch: 3 pending (over-subscribed); analysis: 1 pending + 1 scheduled
+    # (over-subscribed across statuses); enrichment: 1 pending (healthy); a running
+    # file_watch tick must NEVER be cancelled.
+    tasks = (
+        [{"id": f"fw{i}", "schedule": "file_watch", "status": "pending"} for i in range(3)]
+        + [{"id": "run0", "schedule": "file_watch", "status": "running"}]
+        + [
+            {"id": "an0", "schedule": "analysis", "status": "pending"},
+            {"id": "an1", "schedule": "analysis", "status": "scheduled"},
+        ]
+        + [{"id": "en0", "schedule": "enrichment", "status": "pending"}]
+    )
+    eng = _CollapseEngine(tasks)
+    res = se.collapse_stale_ticks(eng)
+    assert res["schedules_collapsed"] == 2  # file_watch + analysis
+    # every ACTIVE duplicate cancelled; the running tick survives untouched.
+    assert _statuses(tasks, "file_watch") == [
+        "cancelled",
+        "cancelled",
+        "cancelled",
+        "running",
+    ]
+    assert _statuses(tasks, "analysis") == ["cancelled", "cancelled"]
+    # the healthy single-tick schedule is left intact.
+    assert _statuses(tasks, "enrichment") == ["pending"]
+
+
+def test_collapse_is_noop_when_every_schedule_healthy() -> None:
+    tasks = [
+        {"id": "a", "schedule": "x", "status": "pending"},
+        {"id": "b", "schedule": "y", "status": "scheduled"},
+    ]
+    eng = _CollapseEngine(tasks)
+    assert se.collapse_stale_ticks(eng) == {"schedules_collapsed": 0, "cancelled": 0}
+    assert _statuses(tasks, "x") == ["pending"]
+    assert _statuses(tasks, "y") == ["scheduled"]
+
+
+def test_collapse_no_backend_is_safe() -> None:
+    assert se.collapse_stale_ticks(object()) == {
+        "schedules_collapsed": 0,
+        "cancelled": 0,
+    }
+
+
 def test_record_schedule_result_backoff() -> None:
     eng = _FakeEngine()
     se.register_schedule(

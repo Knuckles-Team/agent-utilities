@@ -22,6 +22,7 @@ from agent_utilities.knowledge_graph.core.worker_scheduler import (
 
 INGEST_LANE = lane_for_task_type(HEAVY_TYPE)  # "ingestion"
 QUERIES_LANE = lane_for_task_type("conversation")  # "queries"
+MAINT_LANE = lane_for_task_type("scheduled_job")  # "maint" (best-effort)
 
 
 def _policy(worker_count=4, reserved=1, per_lane_min=1, codebase_cap=None):
@@ -173,6 +174,41 @@ def test_never_pull_last_worker_off_sole_covered_pending_lane():
     pending = {INGEST_LANE: 5, QUERIES_LANE: 3}
     # The single free worker covers the uncovered queries lane (spends spare).
     assert policy.admit(QUERIES_LANE, "conversation", pending) is True
+
+
+# --- Best-effort lane cap (CONCEPT:ORCH-1.82) ------------------------------
+def test_maint_lane_capped_at_floor_never_expands():
+    """A best-effort lane (maint) gets its floor coverage but is refused beyond it,
+    so a periodic-tick backlog can't expand into the many free workers."""
+    policy, reg = _policy(worker_count=8, reserved=1, per_lane_min=1)
+    pending = {MAINT_LANE: 1000}  # huge maint backlog, nothing else pending
+    # First maint claim is admitted (covers the lane at its floor).
+    assert policy.admit(MAINT_LANE, "scheduled_job", pending) is True
+    reg.start("w0", MAINT_LANE, "scheduled_job")
+    # 1 running == floor(1): further maint refused though 7 workers are free —
+    # the CAP blocks it, not the spare.
+    assert policy.admit(MAINT_LANE, "scheduled_job", pending) is False
+
+
+def test_maint_cap_tracks_per_lane_min():
+    """The floor/cap follows ``per_lane_min`` — raising it lets maint use more."""
+    policy, reg = _policy(worker_count=8, reserved=1, per_lane_min=2)
+    pending = {MAINT_LANE: 1000}
+    reg.start("w0", MAINT_LANE, "scheduled_job")
+    assert policy.admit(MAINT_LANE, "scheduled_job", pending) is True  # 1 < floor 2
+    reg.start("w1", MAINT_LANE, "scheduled_job")
+    assert policy.admit(MAINT_LANE, "scheduled_job", pending) is False  # 2 == floor 2
+
+
+def test_maint_backlog_does_not_starve_throughput_lanes():
+    """The headline: with a massive maint backlog pinned at its floor, the
+    throughput lanes still get the free workers."""
+    policy, reg = _policy(worker_count=8, reserved=1, per_lane_min=1)
+    reg.start("w0", MAINT_LANE, "scheduled_job")  # maint at its cap (1)
+    pending = {MAINT_LANE: 1000, INGEST_LANE: 100, "worldview": 12}
+    assert policy.admit(MAINT_LANE, "scheduled_job", pending) is False  # capped
+    assert policy.admit(INGEST_LANE, "document", pending) is True
+    assert policy.admit("worldview", "feed_ingest", pending) is True
 
 
 # --- env config ------------------------------------------------------------
