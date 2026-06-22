@@ -141,6 +141,15 @@ class ScheduleSpec:
     consecutive_failures: int = 0
     backoff_until: float = 0.0
     description: str = ""
+    # CONCEPT:KG-2.153 — the queue task type the scheduler enqueues for this
+    # schedule, which selects the FUNCTIONAL LANE the tick runs in (see
+    # :mod:`agent_utilities.knowledge_graph.core.task_lanes`). Defaults to
+    # ``scheduled_job`` (the ``maint`` lane). A high-volume schedule whose work is
+    # a throughput backfill (e.g. OWL card enrichment) overrides this so it runs in
+    # its OWN lane instead of being capped at the best-effort maint floor. The
+    # worker routes any of these types through the same ``run_scheduled_job``
+    # dispatcher, so only the lane (and thus the worker share + model role) differs.
+    task_type: str = "scheduled_job"
 
     def to_props(self) -> dict[str, Any]:
         return {
@@ -154,6 +163,7 @@ class ScheduleSpec:
             "consecutive_failures": int(self.consecutive_failures),
             "backoff_until": float(self.backoff_until),
             "description": self.description or "",
+            "task_type": self.task_type or "scheduled_job",
             "payload": _enc(self.payload),
         }
 
@@ -174,6 +184,7 @@ class ScheduleSpec:
             consecutive_failures=int(row.get("consecutive_failures", 0) or 0),
             backoff_until=float(row.get("backoff_until", 0.0) or 0.0),
             description=row.get("description") or "",
+            task_type=row.get("task_type") or "scheduled_job",
         )
 
 
@@ -217,6 +228,7 @@ def _load_all(engine: Any) -> list[ScheduleSpec]:
         "consecutive_failures",
         "backoff_until",
         "description",
+        "task_type",
         "payload",
     )
     proj = ", ".join(f"s.{k} as {k}" for k in keys)
@@ -240,6 +252,7 @@ def _load_one(engine: Any, name: str) -> ScheduleSpec | None:
         "consecutive_failures",
         "backoff_until",
         "description",
+        "task_type",
         "payload",
     )
     proj = ", ".join(f"s.{k} as {k}" for k in keys)
@@ -284,6 +297,8 @@ def seed_schedules(engine: Any) -> int:
             prio_bucket=int(entry.get("prio_bucket", 2)),
             enabled=bool(entry.get("enabled", True)),
             description=entry.get("description", ""),
+            # CONCEPT:KG-2.153 — YAML schedules may pick their own lane via task_type.
+            task_type=entry.get("task_type") or "scheduled_job",
         )
         existing = _load_one(engine, name)
         if existing is not None:
@@ -323,8 +338,13 @@ def register_schedule(engine: Any, spec: ScheduleSpec) -> None:
 
 
 # ── Stale-tick collapse (CONCEPT:OS-5.53) ────────────────────────────────────
-# The active statuses an un-consumed ``scheduled_job`` tick can hold.
+# The active statuses an un-consumed scheduler tick can hold.
 _ACTIVE_TICK_STATUSES = ("pending", "scheduled", "blocked")
+# The task types the scheduler enqueues for a due :Schedule. ``scheduled_job`` is
+# the default (maint lane); a schedule may pick its own to land in a dedicated lane
+# (CONCEPT:KG-2.153, e.g. ``enrichment_backfill``). Both are interval ticks subject
+# to stale-tick collapse.
+_SCHEDULED_TICK_TYPES = ("scheduled_job", "enrichment_backfill")
 
 
 def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
@@ -360,20 +380,30 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
     # transpiler supports), carrying each tick's id so we cancel by id — never the
     # terminal-tick history.
     by_schedule: dict[str, list[str]] = {}
-    for status in _ACTIVE_TICK_STATUSES:
-        try:
-            rows = engine.query_cypher(
-                "MATCH (t:Task {tkind: 'scheduled_job', status: $status}) "
-                "RETURN t.id AS id, t.schedule AS schedule",
-                {"status": status},
-            )
-        except Exception as e:  # noqa: BLE001 — probe failure ⇒ skip this cycle
-            logger.warning("[OS-5.53] collapse read failed (status=%s): %s", status, e)
-            return {"schedules_collapsed": 0, "cancelled": 0}
-        for row in rows or []:
-            name, tid = (row or {}).get("schedule"), (row or {}).get("id")
-            if name and tid:
-                by_schedule.setdefault(name, []).append(tid)
+    # CONCEPT:KG-2.153 — collapse every scheduler-enqueued tick TYPE, not just
+    # ``scheduled_job``: a schedule can now land its tick in a dedicated lane via a
+    # custom task type (e.g. ``enrichment_backfill`` for OWL card backfill), and
+    # those interval ticks must also never accumulate a stale backlog.
+    for tkind in _SCHEDULED_TICK_TYPES:
+        for status in _ACTIVE_TICK_STATUSES:
+            try:
+                rows = engine.query_cypher(
+                    "MATCH (t:Task {tkind: $tkind, status: $status}) "
+                    "RETURN t.id AS id, t.schedule AS schedule",
+                    {"tkind": tkind, "status": status},
+                )
+            except Exception as e:  # noqa: BLE001 — probe failure ⇒ skip this cycle
+                logger.warning(
+                    "[OS-5.53] collapse read failed (tkind=%s status=%s): %s",
+                    tkind,
+                    status,
+                    e,
+                )
+                return {"schedules_collapsed": 0, "cancelled": 0}
+            for row in rows or []:
+                name, tid = (row or {}).get("schedule"), (row or {}).get("id")
+                if name and tid:
+                    by_schedule.setdefault(name, []).append(tid)
     over = {name: ids for name, ids in by_schedule.items() if len(ids) > 1}
     logger.info(
         "[OS-5.53] collapse scan: active=%d schedules=%d over=%d",
@@ -492,7 +522,10 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
                 target_path=f"schedule:{spec.name}",
                 is_codebase=False,
                 provenance={"schedule": spec.name},
-                task_type="scheduled_job",
+                # CONCEPT:KG-2.153 — the task type selects the functional lane; most
+                # schedules use ``scheduled_job`` (the maint lane), but a throughput
+                # backfill (OWL card enrichment) overrides it to run in its own lane.
+                task_type=spec.task_type or "scheduled_job",
                 skip_dedupe=True,
                 priority=spec.prio_bucket,
                 job_id=job_id,

@@ -287,11 +287,20 @@ _PROMOTION_SWEEP_INTERVAL = 60.0
 _TERMINAL_TASK_STATUS = frozenset({"completed", "failed", "cancelled", "dead_letter"})
 
 # Enrichment pass sizing (config discipline): per-tick LLM-card batch budget. The
-# worker concurrency is CPU/mem auto-sized via compute_ingest_worker_count();
-# these batch caps are bounded constants, not env knobs (replacing
-# KG_ENRICH_BATCH / KG_ENRICH_MAX_BATCHES).
+# per-batch summarization concurrency is CPU/mem auto-sized via
+# compute_ingest_worker_count(); these batch caps are bounded constants, not env
+# knobs (replacing KG_ENRICH_BATCH / KG_ENRICH_MAX_BATCHES).
+#
+# CONCEPT:KG-2.153 — the per-TICK chunk is sized to drain the ``cards_pending``
+# backlog at scale, not just trickle it. Each tick re-checks the foreground
+# throttle BETWEEN batches and yields promptly, so a large MAX_BATCHES never
+# blocks interactive work — it only bounds how much ONE enrichment-lane task
+# does before completing and freeing the worker for fair re-claim. At
+# 16 * 64 = 1024 symbols/tick and a 20s interval, a single lane worker drains
+# ~180k symbols/hr — enough to clear an 85k backlog inside an hour, then the
+# delta-skip (summary != '') keeps subsequent ticks cheap.
 _ENRICH_BATCH = 16
-_ENRICH_MAX_BATCHES = 8
+_ENRICH_MAX_BATCHES = 64
 
 
 class SQLiteTaskQueue(QueueBackend):
@@ -825,9 +834,11 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         specs: list[ScheduleSpec] = []
 
-        def _maint(name, ref, interval, *, enabled=True, prio=3):
+        def _maint(name, ref, interval, *, enabled=True, prio=3, task_type=None):
             # Always upsert the node (with ``enabled`` reflecting the config gate)
             # so toggling a flag off across a restart disables the schedule too.
+            # CONCEPT:KG-2.153 — ``task_type`` lets a high-volume maint job run in
+            # its OWN functional lane (default ``scheduled_job`` = the maint lane).
             specs.append(
                 ScheduleSpec(
                     name=name,
@@ -836,6 +847,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     interval_s=float(interval),
                     prio_bucket=prio,
                     enabled=bool(enabled),
+                    task_type=task_type or "scheduled_job",
                 )
             )
 
@@ -910,7 +922,20 @@ class TaskManagerMixin(GraphEngineProtocol):
                 getattr(getattr(self, "backend", None), "reconcile_to_durable", None)
             ),
         )
-        _maint("enrichment", "enrichment", _ENRICH_INTERVAL)
+        # CONCEPT:KG-2.153 — OWL capability-card backfill runs in its OWN
+        # ``enrichment`` lane (task_type ``enrichment_backfill``), NOT the
+        # best-effort maint lane. Previously it rode ``scheduled_job`` and so was
+        # capped at the maint floor (1 worker shared with ~17 ticks), leaving ~85k
+        # Code symbols un-carded. As its own non-best-effort lane it drains the
+        # cards_pending backlog in parallel while the background-throttle semaphore
+        # + per-lane reservation keep it from starving the control/query planes.
+        _maint(
+            "enrichment",
+            "enrichment",
+            _ENRICH_INTERVAL,
+            prio=2,
+            task_type="enrichment_backfill",
+        )
         _usage = bool(getattr(_cfg, "usage_tracking_enabled", True))
         _maint("usage_log_sync", "usage_log_sync", _USAGE_SYNC_INTERVAL, enabled=_usage)
         _maint(
@@ -3128,6 +3153,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             # under the background throttle so a heavy cycle yields to foreground
             # work like any other background task. (CONCEPT:OS-5.44)
             "scheduled_job",
+            # OWL capability-card backfill, run in its own lane (CONCEPT:KG-2.153)
+            # — heavy background LLM work, so it yields under the throttle exactly
+            # like any other scheduled tick.
+            "enrichment_backfill",
             # Full-paper download + ingest enqueued by the RSS feed screen.
             "research_paper_fetch",
         }
@@ -3153,8 +3182,11 @@ class TaskManagerMixin(GraphEngineProtocol):
     ):
         """Execute the ingestion logic."""
         try:
-            if task_type == "scheduled_job":
+            if task_type in ("scheduled_job", "enrichment_backfill"):
                 # A recurring job enqueued by the unified scheduler (CONCEPT:OS-5.44).
+                # ``enrichment_backfill`` is the same dispatch, only landed in the
+                # dedicated enrichment lane so it isn't capped at the maint floor
+                # (CONCEPT:KG-2.153).
                 # The payload (the dispatch descriptor) rides on the task metadata;
                 # run it through the single dispatcher and let the schedule's own
                 # failure backoff govern cadence (so we do NOT route a job failure

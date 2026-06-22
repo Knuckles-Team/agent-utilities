@@ -211,6 +211,49 @@ def test_maint_backlog_does_not_starve_throughput_lanes():
     assert policy.admit("worldview", "feed_ingest", pending) is True
 
 
+# --- Dedicated enrichment lane (CONCEPT:KG-2.153) --------------------------
+ENRICH_LANE = lane_for_task_type("enrichment_backfill")  # "enrichment"
+
+
+def test_enrichment_lane_is_its_own_non_besteffort_lane():
+    """OWL card backfill lands in the dedicated ``enrichment`` lane, not maint —
+    the root-cause fix for ~0% card coverage."""
+    from agent_utilities.knowledge_graph.core.task_lanes import (
+        BEST_EFFORT_LANES,
+        LANE_NAMES,
+        lane_model_role,
+    )
+
+    assert ENRICH_LANE == "enrichment"
+    assert ENRICH_LANE != MAINT_LANE
+    assert ENRICH_LANE in LANE_NAMES
+    # The whole point: it is NOT best-effort, so it is not floor-capped.
+    assert ENRICH_LANE not in BEST_EFFORT_LANES
+    assert lane_model_role(ENRICH_LANE) == "lite"
+
+
+def test_enrichment_lane_expands_into_spare_workers_unlike_maint():
+    """The throughput contrast: a huge enrichment backlog DRAINS across many
+    workers (bounded only by the hot spare), whereas the same-size maint backlog
+    is pinned at its floor of 1. This is why card coverage now climbs at scale."""
+    policy, reg = _policy(worker_count=8, reserved=1, per_lane_min=1)
+    pending = {ENRICH_LANE: 1000}  # huge backlog, nothing else pending
+    admitted = 0
+    for i in range(8):
+        if policy.admit(ENRICH_LANE, "enrichment_backfill", pending):
+            reg.start(f"w{i}", ENRICH_LANE, "enrichment_backfill")
+            admitted += 1
+        else:
+            break
+    # Drains into all-but-the-reserved-spare (7), not capped at the maint floor (1).
+    assert admitted == 8 - 1
+    # Contrast: maint with the identical backlog stops at its floor of 1.
+    _policy_m, reg_m = _policy(worker_count=8, reserved=1, per_lane_min=1)
+    assert _policy_m.admit(MAINT_LANE, "scheduled_job", {MAINT_LANE: 1000}) is True
+    reg_m.start("m0", MAINT_LANE, "scheduled_job")
+    assert _policy_m.admit(MAINT_LANE, "scheduled_job", {MAINT_LANE: 1000}) is False
+
+
 # --- env config ------------------------------------------------------------
 def test_scheduler_config_from_env_defaults():
     with mock.patch.dict(os.environ, {}, clear=False):
