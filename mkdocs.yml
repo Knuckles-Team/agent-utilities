@@ -102,6 +102,7 @@ nav:
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
       - Entrypoint Unification (one orchestrator): architecture/entrypoint-unification.md
       - Codebase Context via the KG (query, don't grep): architecture/codebase-context.md
+      - Ingestion Throughput (lanes, tick collapse, bulk): architecture/ingestion_throughput.md
       - Modular Prompt & Skill Contribution (fleet entry-points): architecture/modular-prompt-skill-contribution.md
       - Agent-Operator Program (closing the loops): architecture/agent-operator-program.md
       - Optimization Campaign Checkpoint: architecture/optimization-campaign-checkpoint.md

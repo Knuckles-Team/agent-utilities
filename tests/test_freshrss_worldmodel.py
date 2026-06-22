@@ -147,6 +147,57 @@ def test_run_gated_ingest_tiers_without_engine():
     assert report.ingested == 3
 
 
+# ── batched dedup (CONCEPT:KG-2.147) ────────────────────────────────────────
+
+
+def test_batch_known_ids_one_round_trip_via_has_batch():
+    """The whole batch's known-check is ONE ``has_batch`` round-trip, not N×~4
+    per-item ``has_node`` calls; present keys map back to their owning doc id."""
+    runner = WorldModelPipelineRunner(engine=None)
+    known_key = runner._node_id("news:freshrss:", "i1")  # i1 already in the KG
+
+    calls: list[list[str]] = []
+
+    def has_batch(ids):
+        calls.append(list(ids))
+        return {k: (k == known_key) for k in ids}
+
+    engine = SimpleNamespace(graph=SimpleNamespace(has_batch=has_batch))
+    runner = WorldModelPipelineRunner(engine=engine)
+    docs = [
+        _doc("i1", "Nvidia earnings beat", "earnings stock equities", {"published": "1"}),
+        _doc("i3", "Cat picture", "a fluffy cat naps", {"published": "2"}),
+    ]
+    known_ids = runner._batch_known_ids(docs)
+    assert known_ids == {"i1"}
+    assert len(calls) == 1  # exactly one bulk round-trip for the whole batch
+
+
+def test_batch_known_ids_falls_back_when_no_bulk_primitive():
+    """A graph without ``has_batch`` (no bulk support) ⇒ ``None`` so the caller
+    uses the per-item ``_is_known`` path."""
+    engine = SimpleNamespace(graph=SimpleNamespace(nodes=set()))  # no has_batch
+    runner = WorldModelPipelineRunner(engine=engine)
+    assert runner._batch_known_ids([_doc("i1", "t", "x", {})]) is None
+
+
+def test_run_gated_ingest_skips_batch_known_item():
+    """End-to-end: a doc already in the KG is skipped via the batched check, with
+    no per-item ``has_node`` calls."""
+    runner = WorldModelPipelineRunner(engine=None)
+    known_key = runner._node_id("news:freshrss:", "i1")
+    engine = SimpleNamespace(
+        graph=SimpleNamespace(has_batch=lambda ids: {k: k == known_key for k in ids})
+    )
+    docs = [
+        _doc("i1", "Nvidia earnings beat", "earnings stock equities", {"published": "1"}),
+        _doc("i3", "Cat picture", "a fluffy cat naps", {"published": "2"}),
+    ]
+    report = WorldModelPipelineRunner(engine=engine).run_gated_ingest(docs)
+    assert report.items_seen == 2
+    assert report.skipped == 2  # i1 already-known, i3 below threshold
+
+
 # ── delta handler ─────────────────────────────────────────────────────────────
 
 
