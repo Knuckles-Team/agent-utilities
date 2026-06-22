@@ -678,6 +678,15 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
                         policy_file=policy_file,
                         use_remote_eunomia=False,
                     )
+            # The remote Eunomia server caps ``/check/bulk`` at 100 items; a server
+            # exposing >100 tools would 400 on ``tools/list`` without chunking. The
+            # JWT path already chunks inside create_jwt_eunomia_middleware; cover the
+            # remote + non-JWT embedded paths here. CONCEPT:ECO-4.88.
+            from agent_utilities.mcp.eunomia_principal import (
+                apply_bulk_check_chunking,
+            )
+
+            eunomia_mw = apply_bulk_check_chunking(eunomia_mw)
             middlewares.append(eunomia_mw)
         except Exception as e:
             logger.error(f"Failed to load Eunomia middleware: {e}")

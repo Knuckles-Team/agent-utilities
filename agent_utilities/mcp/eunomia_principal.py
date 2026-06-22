@@ -21,8 +21,12 @@ can never lock the gateway out (plan Phase 3 robustness). CONCEPT:ECO-4.36.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 from eunomia_core import schemas
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from collections.abc import Sequence
 
 try:  # eunomia_mcp is an optional dep (only installed where authz is enabled)
     from eunomia_mcp.middleware import EunomiaMcpMiddleware
@@ -33,6 +37,70 @@ except ImportError:  # pragma: no cover - exercised only without the extra
     _EUNOMIA_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+# The remote Eunomia server enforces a hard per-request cap on ``POST /check/bulk``
+# (HTTP 400 ``Too many requests. Maximum allowed: 100``). The third-party caller
+# chain — ``EunomiaMcpMiddleware._authorize_listing`` → ``EunomiaBridge.bulk_check``
+# → ``eunomia_sdk.EunomiaClient.bulk_check`` (``POST /check/bulk`` with the FULL
+# list) — sends every component in one request, so a server exposing >100 tools
+# (e.g. the plane-mcp ingestion surface fronted by the multiplexer) gets a 400 and
+# the whole ``tools/list`` fails. Chunk under the cap and merge results.
+# CONCEPT:ECO-4.88.
+EUNOMIA_BULK_CHECK_MAX = 100
+
+
+class _ChunkingBulkCheckBridge:
+    """Wrap a ``EunomiaBridge`` so ``bulk_check`` batches under the server cap.
+
+    Delegates every attribute to the wrapped bridge except ``bulk_check``, which it
+    splits into chunks of at most ``max_batch`` (default 100, the remote server's
+    hard cap) and concatenates the per-chunk responses in order. A response list is
+    positionally aligned with its request list, so concatenating chunk responses in
+    request order reproduces exactly the single-request result — a resource is
+    allowed iff the (single) check covering it within its batch allowed it.
+    """
+
+    def __init__(self, bridge: Any, max_batch: int = EUNOMIA_BULK_CHECK_MAX) -> None:
+        if max_batch < 1:
+            raise ValueError("max_batch must be >= 1")
+        self._bridge = bridge
+        self._max_batch = max_batch
+
+    def __getattr__(self, name: str) -> Any:
+        # Anything that isn't ``bulk_check`` (``check``, ``mode``, ``_client`` …)
+        # passes straight through to the real bridge.
+        return getattr(self._bridge, name)
+
+    async def bulk_check(
+        self, requests: Sequence[schemas.CheckRequest]
+    ) -> list[schemas.CheckResponse]:
+        requests = list(requests)
+        if len(requests) <= self._max_batch:
+            return await self._bridge.bulk_check(requests)
+
+        merged: list[schemas.CheckResponse] = []
+        for start in range(0, len(requests), self._max_batch):
+            chunk = requests[start : start + self._max_batch]
+            merged.extend(await self._bridge.bulk_check(chunk))
+        return merged
+
+
+def apply_bulk_check_chunking(
+    middleware: Any, max_batch: int = EUNOMIA_BULK_CHECK_MAX
+) -> Any:
+    """Make ``middleware`` chunk its ``/check/bulk`` calls under the server cap.
+
+    Wraps the middleware's ``_eunomia`` bridge with :class:`_ChunkingBulkCheckBridge`
+    so listing authorization (``_authorize_listing``) never exceeds the remote
+    Eunomia server's 100-item limit. Idempotent and a no-op if the middleware has no
+    ``_eunomia`` attribute (defensive against upstream refactors). Returns the same
+    middleware for call-chaining.
+    """
+    bridge = getattr(middleware, "_eunomia", None)
+    if bridge is None or isinstance(bridge, _ChunkingBulkCheckBridge):
+        return middleware
+    middleware._eunomia = _ChunkingBulkCheckBridge(bridge, max_batch=max_batch)
+    return middleware
 
 
 def apply_fastmcp_enabled_compat() -> None:
@@ -117,8 +185,9 @@ def create_jwt_eunomia_middleware(
     server = EunomiaServer()
     server.engine.add_policy(load_policy_config(policy_file))
 
-    return JwtPrincipalEunomiaMiddleware(
+    middleware = JwtPrincipalEunomiaMiddleware(
         mode=EunomiaMode.SERVER,
         eunomia_server=server,
         enable_audit_logging=enable_audit_logging,
     )
+    return apply_bulk_check_chunking(middleware)
