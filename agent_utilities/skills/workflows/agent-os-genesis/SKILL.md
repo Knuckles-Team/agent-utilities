@@ -436,6 +436,16 @@ or `kubectl apply`. The arr-suite gluetun pattern below becomes a native
     `_validate_auth` endpoint, Eunomia bulk ≤100). Full repeatable procedure + Keycloak-OIDC
     SSO setup for Plane/GitLab:
     [`references/plane-provisioning-and-connector-auth.md`](references/plane-provisioning-and-connector-auth.md).
+  - **Homelab operations & provisioning playbook (READ for day-2 / repair):** the recurring
+    patterns — "deployed-but-unprovisioned / lost-creds" recovery (Firefly `.env` injection +
+    auto-migrate, ERPNext `bench` admin+API-key, Plane god-mode + Redis `cache.clear`); the
+    graph-os **HOST is the source_sync sweeper** (creds + PYTHONPATH go there, not just the
+    server); the MCP-fleet bug classes (localhost-vs-service-URL, `Failed to resolve dependency
+    client`, Eunomia `/check/bulk` 100-cap + stale-process-needs-redeploy); presigned-S3 must be
+    browser-reachable (Plane cover-upload → `planeminio.arpa` S3 API); swarm worker-vs-manager,
+    `--env-add` persistence vs from-source redeploy, the multiplexer restart-breaker; GitLab JWKS
+    rotation cron. Full playbook: [`references/homelab-ops-learnings.md`](references/homelab-ops-learnings.md).
+    Per-connector ingestion + OWL mapping: [`references/connector-ingestion-owl.md`](references/connector-ingestion-owl.md).
   - **FreshRSS world-model intake + Caddy/Keycloak web SSO (REQUIRED for the RSS source + any
     `*.arpa` web SSO):** install/enable the FreshRSS API + seed curated feeds + deploy the
     `freshrss-mcp` connector, and gate app web UIs with **`caddy-security` (greenpau) OIDC**.
