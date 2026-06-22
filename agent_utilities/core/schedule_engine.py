@@ -274,6 +274,10 @@ def seed_schedules(engine: Any) -> int:
             spec.next_run_unix = existing.next_run_unix
             spec.consecutive_failures = existing.consecutive_failures
             spec.backoff_until = existing.backoff_until
+            # Idempotent: skip the write when nothing changed (see register_schedule).
+            if spec.to_props() == existing.to_props():
+                seeded += 1
+                continue
         _upsert(engine, spec)
         seeded += 1
     return seeded
@@ -290,6 +294,13 @@ def register_schedule(engine: Any, spec: ScheduleSpec) -> None:
         spec.next_run_unix = existing.next_run_unix
         spec.consecutive_failures = existing.consecutive_failures
         spec.backoff_until = existing.backoff_until
+        # Idempotent (CONCEPT:OS-5.44): once runtime state is merged in, if the
+        # persisted node already equals the desired state there is NOTHING to
+        # write. Re-upserting ~27 unchanged schedules on every boot needlessly
+        # contended with ingestion on the engine write lock and blocked the
+        # scheduler from ever ticking. A read is cheap and lock-free; skip the write.
+        if spec.to_props() == existing.to_props():
+            return
     _upsert(engine, spec)
 
 
@@ -320,46 +331,52 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
     backend = getattr(engine, "backend", None)
     if backend is None:
         return {"schedules_collapsed": 0, "cancelled": 0}
+    cas = getattr(backend, "compare_and_set_node_fields", None)
+    if not callable(cas):
+        return {"schedules_collapsed": 0, "cancelled": 0}
     # Per-status reads return only ACTIVE ticks (a label+equality MATCH the L1
-    # transpiler supports), so the terminal-tick history is never materialized.
-    counts: dict[str, int] = {}
+    # transpiler supports), carrying each tick's id so we cancel by id — never the
+    # terminal-tick history.
+    by_schedule: dict[str, list[str]] = {}
     for status in _ACTIVE_TICK_STATUSES:
         try:
             rows = engine.query_cypher(
                 "MATCH (t:Task {tkind: 'scheduled_job', status: $status}) "
-                "RETURN t.schedule AS schedule",
+                "RETURN t.id AS id, t.schedule AS schedule",
                 {"status": status},
             )
         except Exception as e:  # noqa: BLE001 — probe failure ⇒ skip this cycle
             logger.warning("[OS-5.53] collapse read failed (status=%s): %s", status, e)
             return {"schedules_collapsed": 0, "cancelled": 0}
         for row in rows or []:
-            name = (row or {}).get("schedule")
-            if name:
-                counts[name] = counts.get(name, 0) + 1
-    over = {name: n for name, n in counts.items() if n > 1}
+            name, tid = (row or {}).get("schedule"), (row or {}).get("id")
+            if name and tid:
+                by_schedule.setdefault(name, []).append(tid)
+    over = {name: ids for name, ids in by_schedule.items() if len(ids) > 1}
     logger.info(
         "[OS-5.53] collapse scan: active=%d schedules=%d over=%d",
-        sum(counts.values()),
-        len(counts),
+        sum(len(v) for v in by_schedule.values()),
+        len(by_schedule),
         len(over),
     )
     if not over:
         return {"schedules_collapsed": 0, "cancelled": 0}
+    # Cancel every active tick of an over-subscribed schedule by id via the
+    # engine-native O(1) compare-and-set (CONCEPT:KG-2.141) — NOT a write-Cypher
+    # ``MATCH … SET`` (which forces an O(N) full-graph scan on L1 and, run per
+    # (schedule, status), contended with ingestion on the engine write lock). The
+    # due-evaluation that follows re-enqueues exactly one fresh tick per due
+    # schedule, so a schedule keeps neither a stale tick nor a duplicate.
     cancelled = 0
-    for name, n in over.items():
-        for status in _ACTIVE_TICK_STATUSES:
+    for ids in over.values():
+        for tid in ids:
             try:
-                backend.execute(
-                    "MATCH (t:Task {tkind: 'scheduled_job', schedule: $name, "
-                    "status: $status}) SET t.status = 'cancelled'",
-                    {"name": name, "status": status},
-                )
-            except Exception:  # noqa: BLE001 — best-effort per (schedule, status)
+                if cas(tid, {}, {"status": "cancelled"}):
+                    cancelled += 1
+            except Exception:  # noqa: BLE001 — best-effort per tick
                 continue
-        cancelled += n
     logger.info(
-        "scheduler collapsed stale ticks: %d schedule(s), ~%d duplicate tick(s) cancelled",
+        "scheduler collapsed stale ticks: %d schedule(s), %d duplicate tick(s) cancelled",
         len(over),
         cancelled,
     )
