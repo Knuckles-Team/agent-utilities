@@ -45,6 +45,15 @@ TASK_LANES: dict[str, dict] = {
         "task_types": frozenset({"research_paper_fetch", "background_research"}),
         "model_role": "learner",
     },
+    # CONCEPT:KG-2.121 — the WORLDVIEW stream: relevance-gated news/world-event
+    # articles (feed_ingest) build the world model. Its OWN lane so it drains in
+    # parallel with — and never head-of-line-blocks behind — research-paper fetch
+    # (which feeds agent-utilities-evolution) or the heavy codebase backlog. The
+    # world-model gate is the router that splits feed items into research vs here.
+    "worldview": {
+        "task_types": frozenset({"feed_ingest"}),
+        "model_role": "lite",
+    },
     # CONCEPT:ORCH-1.76 — the LLM-extraction / deep-analysis phase is its OWN lane (heavy model
     # work), kept off the file-ingestion lane so a slow extraction can't head-of-line-block a
     # fast codebase/diff index. (Vectorization already runs in its own _embed_backfill_thread,
