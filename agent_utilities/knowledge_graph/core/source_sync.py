@@ -519,6 +519,113 @@ def _sync_archivebox(
     }
 
 
+def _sync_fleet_connectors(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Drain EVERY configured ``agent-packages/agents/*`` connector in one pass (CONCEPT:KG-2.151).
+
+    The fleet ships ~50 sibling packages, each a FastMCP server with a declared
+    document-yielding tool (the :data:`package_manifest.PACKAGE_PRESETS` catalog —
+    scholarx/github-agent/gitlab-api/servicenow-api/mattermost/nextcloud/microsoft/
+    atlassian/plane/erpnext/mealie/langfuse/…). Rather than a per-package handler,
+    this ONE declarative handler iterates the preset catalog, reaches each package
+    through the generic ``mcp`` connector (:class:`MCPPackageConnector`, ECO-4.29),
+    and ingests every yielded record through the unified ``DOCUMENT`` path — so the
+    "every agents/* connector" leg of a FULL ingest is a single registered source
+    (``fleet_connectors``) that the ``source="all"`` sweep fans out as its own laned
+    ``connector_sync`` task.
+
+    A package is only attempted when its MCP server is registered in the workspace
+    ``mcp_config.json`` (the same source the multiplexer/connector use), so
+    unconfigured packages are reported *skipped* — never errored — and one bad
+    package never aborts the rest. Delta = a per-package ISO ``updated_at`` watermark
+    (``fleet:<package>``); the write-layer content-hash is the second guard, so a
+    re-run is a no-op for unchanged records. ``mode='full'`` drains from scratch.
+    """
+    from ...protocols.source_connectors.connectors.mcp_package import _load_mcp_config
+    from ...protocols.source_connectors.connectors.package_manifest import (
+        PACKAGE_PRESETS,
+        get_preset,
+    )
+    from ...protocols.source_connectors.registry import build_connector
+
+    servers = _load_mcp_config() or {}
+    backend = getattr(engine, "backend", None)
+
+    synced: dict[str, Any] = {}
+    skipped: dict[str, str] = {}
+    errors: dict[str, str] = {}
+    proc: Any = None
+
+    for package in sorted(PACKAGE_PRESETS):
+        preset = get_preset(package)
+        server = str(preset.get("server") or f"{package}-mcp")
+        # Configured = the package's MCP server is registered with the multiplexer.
+        if server not in servers and package not in servers:
+            skipped[package] = f"{server} not in mcp_config"
+            continue
+        wm_key = f"fleet:{package}"
+        since = None if mode == "full" else _read_watermark(backend, wm_key)
+        try:
+            conn = build_connector("mcp", {"package": package})
+            docs = _drain_incremental(conn, since)
+            doc_type = str(preset.get("doc_type") or "document")
+            ingested = 0
+            for doc in docs:
+                text = getattr(doc, "text", "") or ""
+                if not text.strip():
+                    continue
+                if proc is None:
+                    proc = _confluence_processor(engine)
+                doc_id = f"fleet:{package}:{getattr(doc, 'id', '')}"
+                proc.process(
+                    text,
+                    document_id=doc_id,
+                    title=getattr(doc, "title", "") or str(getattr(doc, "id", "")),
+                    doc_type=doc_type,
+                    source=getattr(doc, "source_uri", "") or "",
+                    metadata={
+                        "source_system": f"fleet:{package}",
+                        "package": package,
+                        "updated_at": getattr(doc, "updated_at", None),
+                    },
+                )
+                ingested += 1
+            watermark = _max_updated(docs)
+            if watermark and (since is None or str(watermark) > str(since)):
+                _write_watermark(backend, wm_key, watermark)
+            synced[package] = {
+                "records_seen": len(docs),
+                "documents_ingested": ingested,
+                "watermark": watermark,
+            }
+        except Exception as exc:  # noqa: BLE001 — isolate one bad package
+            msg = str(exc)
+            if any(
+                t in msg.lower()
+                for t in ("not configured", "no client", "missing", "credential")
+            ):
+                skipped[package] = f"unconfigured: {msg[:120]}"
+            else:
+                errors[package] = msg[:200]
+                logger.warning("fleet_connectors: %s failed: %s", package, exc)
+
+    return {
+        "status": "ok",
+        "source": "fleet_connectors",
+        "mode": mode,
+        "delta_capable": True,
+        "synced": synced,
+        "skipped": skipped,
+        "errors": errors,
+        "counts": {
+            "synced": len(synced),
+            "skipped": len(skipped),
+            "errors": len(errors),
+        },
+    }
+
+
 def _as_epoch(value: Any) -> int | None:
     """Best-effort parse of a watermark value to int unix-seconds."""
     try:
@@ -1266,6 +1373,7 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "confluence": _sync_confluence,
     "plane": _sync_plane,
     "fleet": _sync_fleet,
+    "fleet_connectors": _sync_fleet_connectors,
 }
 
 

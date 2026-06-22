@@ -1,21 +1,68 @@
 ---
 name: knowledge-graph-ingest
 description: >-
-  Bulk ingests the workspace projects, ScholarX documents, and conversation logs into the Knowledge Graph.
-  Use when the user wants to "ingest the workspace", "bulk ingest", "ingest these git urls",
+  Bulk ingests the workspace projects, ScholarX documents, and conversation logs into the Knowledge Graph,
+  AND fans a single "full ingest" trigger across every ingestion path at once — workspace codebase +
+  documents PLUS the native 'rss' and 'freshrss' feed connectors AND every agent-packages/agents/*
+  connector (the fleet sweep). Use when the user wants to "ingest the workspace", "bulk ingest",
+  "full ingest", "ingest everything", "ingest all sources", "ingest these git urls",
   "ingest conversations", "backup the kg", or "wipe the kg".
   Automatically handles finding all workspace paths natively via the repository-manager MCP,
-  cloning parallel git URLs if requested, and firing off the ingestion pipeline.
+  cloning parallel git URLs if requested, and firing off the ingestion pipeline across all sources/lanes.
 license: MIT
-tags: [knowledge-graph, ingestion, workspace, bulk, git, conversations, backup]
+tags: [knowledge-graph, ingestion, workspace, bulk, git, conversations, backup, rss, freshrss, connectors, fleet]
 metadata:
   author: Genius
-  version: '2.0.0'
+  version: '2.1.0'
 ---
 
 # Knowledge Graph Ingestion
 
 This skill coordinates bulk data ingestion into the unified Knowledge Graph. It handles retrieving workspace configuration, cloning ad-hoc repositories, ingesting conversation logs from multiple IDEs/agents, and triggering the ingestion pipeline.
+
+## 0. Full Ingest — one trigger, every path at once (CONCEPT:KG-2.9)
+
+> Triggers: "full ingest", "ingest everything", "ingest all sources", "exercise every
+> ingestion path", or any "ingest the workspace" where the user wants the complete picture.
+
+A FULL ingest run exercises **all four ingestion families in one fan-out** so the KG is
+hydrated from every reachable source simultaneously. Each family lands on its OWN task
+**lane** (see `agent_utilities/knowledge_graph/core/task_lanes.py`), so heavy codebase
+indexing in the `ingestion` lane can never head-of-line-block the connector/feed syncs in
+the `connectors` / `worldview` lanes — they all drain in parallel below the shared queue.
+
+| # | Family | Tool (native go__*) | Lane | What it covers |
+|---|--------|---------------------|------|----------------|
+| 1 | **Codebase + documents** | `graph_ingest` (alias `kg_ingest`) with `target_path` = the workspace/doc paths (Sections 1, 3, 7) | `ingestion` | every repo, ScholarX papers, conversations, ontologies, configs, skills |
+| 2 | **Native RSS feeds** | `source_sync(source="rss", mode="full")` | `connectors`/`worldview` | `KG_RSS_FEEDS` + the runtime `:FeedSource` registry + ScholarX arXiv, world-model gated (`_sync_rss`) |
+| 3 | **FreshRSS** | `source_sync(source="freshrss", mode="full")` | `connectors`/`worldview` | the FreshRSS GReader API → world-model gated news/research (`_sync_freshrss`) |
+| 4 | **Every `agents/*` connector** | `source_sync(source="all", mode="full")` | `connectors` | the fleet sweep — fans out one laned `connector_sync` task per configured connector (`sweep_all_sources`), reaching each agent-package via the MCP fleet adapter (`PACKAGE_PRESETS`) plus the gitlab/leanix/jira/confluence/plane/materialize sources |
+
+### The single declarative trigger
+
+`source_sync(source="all", mode="full")` is THE one connector trigger: it calls
+`sweep_all_sources`, which enqueues a `connector_sync` task **per** source in the candidate
+union — the delta-capable handlers (which **include `rss` and `freshrss`**), every
+capability-registry source that env-detects as configured, the `agents/*` MCP-package
+presets (Section 10), and the materialize extractor sources. So families 2, 3 and 4 above
+are all driven by this ONE call; you only fire 1 and 4:
+
+```text
+# 1) codebase + documents (heavy file-ingestion lane) — see Sections 1/3/7 for the path list
+graph_ingest(target_path="<JSON array of workspace + doc + ontology + config + skill paths>")
+
+# 2-4) every connector + both feed sources, fanned across the connectors/worldview lanes
+source_sync(source="all", mode="full")
+```
+
+Use `mode="full"` for a complete (re-)hydrate; `mode="delta"` for an incremental top-up
+(the write-layer content-hash delta makes unchanged entities a no-op either way). Then
+follow Section 5 to monitor every lane drain.
+
+> Declarative, not procedural: you do **not** enumerate connectors by hand. The candidate
+> set is computed by `sweep_all_sources` from the registries; adding a connector to
+> `_DELTA_HANDLERS`, the capability registry, or `PACKAGE_PRESETS` makes the next full
+> ingest pick it up with **no change to this skill**.
 
 ## Capabilities
 
@@ -138,6 +185,33 @@ sources is a no-op.
 | Specs | (auto in codebase) | `**/.specify/**` | `Spec`/`ImplementationPlan` |
 | Chats | `conversation` | `"chats"` sentinel | `Thread`/`Message` + per-thread `Concept` |
 | Codebases | `codebase` | a repo path | `Code`/`Test`/`Feature` (CALLS/IMPLEMENTS/COVERS) |
+
+## 8a. Connector fan-out — source → `source_sync` matrix (KG-2.9 / KG-2.151)
+
+The connector side of a full ingest mirrors the document matrix above, but the
+entrypoint is `source_sync` and the fan-out is laned. The candidate set the
+`source="all"` sweep dispatches is **computed declaratively** (`sweep_all_sources`)
+from three registries — you never list connectors by hand:
+
+| Group | Registry (data, not code in this skill) | `source` value | Lane |
+|---|---|---|---|
+| Native feeds | `_DELTA_HANDLERS` (`rss`, `freshrss`) | `rss`, `freshrss` | `connectors` → `worldview` (world-model gated) |
+| Enterprise / tracker / IaC | `_DELTA_HANDLERS` + capability registry (`gitlab`, `leanix`, `jira`, `confluence`, `plane`, `archivebox`, …) | each source id | `connectors` |
+| **Every `agents/*` connector** | `package_manifest.PACKAGE_PRESETS`, drained by `_sync_fleet_connectors` via the generic `mcp` connector | `fleet_connectors` | `connectors` |
+| Materialize extractors | `enrichment.materialize.MATERIALIZE_SOURCES` (`camunda`, `aris`, `egeria`) | each source id | `connectors` |
+| Fleet capability elevation | `_sync_fleet` (slow MCP re-probe; boot/explicit only, NOT the */20m sweep) | `fleet` | `connectors` |
+
+`source_sync(source="all")` enqueues one laned `connector_sync` task **per**
+candidate, so every connector (both feeds + the whole `agents/*` fleet) drains in
+parallel. The `fleet_connectors` source iterates `PACKAGE_PRESETS`, attempts only
+packages whose MCP server is registered in `mcp_config.json`, and reports
+unconfigured packages as *skipped* (never errored). Each yielded record ingests
+through the same `DocumentProcessor` (chunk + concept-link) as documents. Add a new
+package to `PACKAGE_PRESETS` and the next full ingest picks it up with **no change
+to this skill** — that is the declarative contract.
+
+See the companion declarative manifest `ingest_manifest.yaml` (next to this file)
+for the machine-readable family→tool→lane mapping that a driver can consume.
 
 ## 9. Skill-graph packages — distill OUT / import back (KG-2.7 / AHE-3.9)
 
