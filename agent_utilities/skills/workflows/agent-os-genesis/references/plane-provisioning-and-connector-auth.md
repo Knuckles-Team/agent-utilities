@@ -93,31 +93,90 @@ above, so set them on `graph-os_graph-os` AND `graph-os_graph-os-host`.
 - **Eunomia** — `/check/bulk` hard-caps at **100 items**; servers fronting >100 tools
   (plane) must chunk the bulk authz ≤100. (CONCEPT:ECO-4.88, `mcp/eunomia_principal.py`.)
 
-## 4. SSO procedure (Keycloak OIDC for Plane + GitLab)
+## 4. SSO procedure (Keycloak OIDC) — and the internal-HTTP gotchas
 
-Both wire to the `homelab` Keycloak realm (`http://keycloak.arpa`). General shape:
-create a confidential Keycloak client per app, store the secret in OpenBao
-`apps/<app>`, point the app's OIDC config at the realm.
+Each app: a confidential Keycloak client in the `homelab` realm (`http://keycloak.arpa`),
+secret in OpenBao `apps/<app>`, app's OIDC config pointed at the realm.
 
-**Plane** (god-mode → *Authentication → OIDC*, or instance config):
-- Keycloak client `plane` (confidential), valid redirect
-  `http://plane.arpa/auth/oidc/callback/`.
-- Set the Plane instance OIDC config (`is_oidc_enabled=true`, client id/secret, the realm
-  discovery URL `…/realms/homelab/.well-known/openid-configuration`). Enables the "Sign in
-  with SSO" button on the workspace login.
+### ⚠️ The core problem: keycloak's issuer is HTTP (internal), but OIDC tooling assumes HTTPS
 
-**GitLab** (the `/users/auth/openid_connect` route 404s when OmniAuth OIDC is not wired):
-- Keycloak client `gitlab` (confidential), redirect
-  `http://gitlab.arpa/users/auth/openid_connect/callback`.
-- In `gitlab.rb` (or `GITLAB_OMNIBUS_CONFIG`): enable `omniauth`, add an
-  `openid_connect` provider (`issuer: http://keycloak.arpa/realms/homelab`,
-  `client_auth_method: 'query'`, `discovery: true`, the client id/secret,
-  `redirect_uri` as above), then `gitlab-ctl reconfigure`. The route then resolves and
-  the login page shows the Keycloak button.
+`keycloak.arpa` is internal HTTP. OIDC libraries that **auto-discover** force **HTTPS**
+for the `.well-known` fetch (the OIDC spec mandates https) → they dial `keycloak.arpa:443`
+→ TLS fails. So **`discovery: true` does not work** against this keycloak. Use
+`discovery: false` and supply everything discovery would have — but watch the gaps below.
 
-> Reconfiguring an app's auth can lock out the existing login path, so do it with
-> console/root access available and verify the SSO round-trip before removing the
-> password fallback.
+### GitLab — the VERIFIED working recipe (CONCEPT:ECO-4 / OS-5)
+
+Keycloak client `gitlab` (confidential), redirect
+`http://gitlab.arpa/users/auth/openid_connect/callback`. In `GITLAB_OMNIBUS_CONFIG`
+(`services/gitlab/compose.yml`):
+
+```ruby
+gitlab_rails['omniauth_enabled'] = true
+gitlab_rails['omniauth_allow_single_sign_on'] = ['openid_connect']
+gitlab_rails['omniauth_auto_link_user'] = ['openid_connect']
+gitlab_rails['omniauth_providers'] = [{
+  name: "openid_connect", label: "Keycloak",
+  args: {
+    name: "openid_connect", scope: ["openid","profile","email"], response_type: "code",
+    issuer: "http://keycloak.arpa/realms/homelab",
+    discovery: false,                 # discovery:true would force https:443 → TLS fail
+    client_auth_method: "query", uid_field: "preferred_username",
+    client_signing_alg: :RS256,       # (1) discovery:false needs the alg declared
+    client_jwk_signing_key: '<the full JWKS JSON from keycloak certs>',  # (2) SEE BELOW
+    client_options: {
+      identifier: "gitlab", secret: "<client secret>",
+      redirect_uri: "http://gitlab.arpa/users/auth/openid_connect/callback",
+      scheme: "http", host: "keycloak.arpa", port: 80,   # (3) pin back-channel to HTTP
+      authorization_endpoint: "/realms/homelab/protocol/openid-connect/auth",
+      token_endpoint: "/realms/homelab/protocol/openid-connect/token",
+      userinfo_endpoint: "/realms/homelab/protocol/openid-connect/userinfo",
+      jwks_uri: "/realms/homelab/protocol/openid-connect/certs",
+      end_session_endpoint: "/realms/homelab/protocol/openid-connect/logout",
+    }
+  }
+}]
+```
+
+The four gaps `discovery:false` opens — each surfaced as a distinct error, fix in order:
+1. **`Ssl connect … :443 … tlsv1 alert`** → the back-channel defaulted to https:443; set
+   `client_options` `scheme: "http", host, port: 80` (+ the explicit endpoint *paths*).
+2. **`Missing parameter: code challenge method`** → the Keycloak `gitlab` client requires
+   PKCE but gitlab sends none. Clear it: set the client attribute
+   `pkce.code.challenge.method` to `""` (admin API / console), or add `pkce: true` to gitlab.
+3. **`undefined method 'include?' for nil`** (after the sign-alg fix) → **the real one**:
+   under `discovery:false` the gem builds the verification key from
+   `client_jwk_signing_key`/`client_x509_signing_key` **only — it ignores `jwks_uri`**. With
+   RS256 and neither set, `public_key` is nil. Fix: set `client_jwk_signing_key` to the FULL
+   JWKS JSON from `http://keycloak.arpa/realms/homelab/protocol/openid-connect/certs`.
+4. **CAVEAT — key rotation:** that embedded JWKS is static; when keycloak rotates its signing
+   key, SSO breaks until re-embedded. Schedule a small refresh that re-fetches the JWKS into
+   the gitlab config on rotation (or accept manual re-embed).
+
+`POST /users/auth/openid_connect` → 302 means omniauth is loaded (GET is 404 — it's POST-only;
+don't poll GET). Apply live with `docker service update --env-add` AND persist to the compose.
+
+### Plane — CE has NO generic OIDC
+
+This Plane CE build exposes only Google/GitHub/GitLab/Gitea OAuth (no `is_oidc_enabled`). For
+Keycloak SSO, **chain via GitLab OAuth** (`IS_GITLAB_ENABLED` + `GITLAB_HOST=http://gitlab.arpa`,
+a GitLab OAuth app for Plane) so Plane → gitlab.arpa → Keycloak; or use Plane EE.
+
+### ⛔ Caddy-security (`authp`) startup deadlock — DO NOT restart Caddy blindly
+
+The edge `Caddyfile` (`/home/apps/caddy/Caddyfile`) had a global `security { oauth identity
+provider keycloak { metadata_url http://keycloak.arpa/... } authentication portal authp … } }`
+block. caddy-security **provisions this at startup** by fetching keycloak's metadata+JWKS — via
+`keycloak.arpa`, which **routes through Caddy itself**. So **any Caddy restart deadlocks**
+(needs keycloak.arpa → needs Caddy) and takes down **all `.arpa`**. The discovery doc also
+advertises `keycloak.arpa:80` endpoints (the Caddy frontend) that Caddy can't reach during its
+own boot, so pointing metadata at the internal VIP only moves the failure to the JWKS fetch.
+**Recovery used:** comment out the `security {}` block + every `authenticate with authp` /
+`authorize with …` directive (only `auth.arpa` + freshrss used it) → Caddy starts → ingress
+restored. **Re-enabling caddy-security safely requires a keycloak endpoint reachable at Caddy
+startup that does NOT loop through Caddy** (e.g. a tiny always-up keycloak proxy on `:80`, or
+serving keycloak.arpa from a non-Caddy ingress for the auth host). Treat a Caddy restart as a
+high-blast-radius op; back up the Caddyfile first.
 
 See also: [`freshrss-and-sso.md`](freshrss-and-sso.md),
 [`keycloak-realm-consolidation.md`](keycloak-realm-consolidation.md),
