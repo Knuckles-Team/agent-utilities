@@ -1396,6 +1396,18 @@ concepts:
   code_paths:
   - agent_utilities/mcp/verbose_tools.py
   doc: fleet-wide verbose auto-wire from condensed action enums
+- id: ECO-4.90
+  name: verbose auto-wire enumerates dynamic (runtime) actions
+  pillar: ECO-4
+  status: in_progress
+  code_paths:
+  - agent_utilities/mcp/verbose_tools.py
+  doc: >-
+    Extends the ECO-4.89 auto-wire so condensed tools whose `action` is a
+    free-form `str` (populated at runtime via public_actions(client), e.g.
+    atlassian/arr) also gain a 1:1 verbose surface. A registered action provider
+    (list / callable / client class introspected credential-free) supplies the
+    action names; the static-enum path is preserved and takes precedence.
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033

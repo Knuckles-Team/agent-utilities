@@ -40,6 +40,7 @@ from fastmcp import Context
 from fastmcp.dependencies import Depends
 from pydantic import Field
 
+from agent_utilities.mcp.action_dispatch import DISCOVERY_ACTIONS, public_actions
 from agent_utilities.mcp.concurrency import run_blocking
 from agent_utilities.mcp.context_helpers import ctx_confirm_destructive
 
@@ -441,6 +442,84 @@ _SURFACE_HELPER_NAMES = frozenset({"register_verbose_tools", "register_tool_surf
 #: list of operations the tool dispatches to). See ``mcp/action_dispatch.py``.
 _ACTION_ARG = "action"
 
+#: Attribute on the FastMCP server holding ``{tool_name: actions_provider}`` for
+#: condensed tools whose ``action`` is a free-form ``str`` (populated at runtime via
+#: ``public_actions(client)`` rather than a static ``Literal``). The provider is the
+#: action list, a zero-arg callable returning it, or a client class to introspect.
+_ACTION_PROVIDERS_ATTR = "_verbose_action_providers"
+
+#: Discovery action names that are not real operations (they request the action
+#: list) — never expanded into a verbose 1:1 tool.
+_NON_OPERATION_ACTIONS = frozenset(DISCOVERY_ACTIONS)
+
+
+def register_action_provider(mcp: Any, tool_name: str, actions: Any) -> None:
+    """Register the dynamic action set of a free-form condensed tool for autowire.
+
+    Action-routed connectors (atlassian, arr, …) declare ``action: str`` and obtain
+    the valid action names at *runtime* from ``public_actions(client)`` — so the
+    static-enum reader :func:`_action_enum` returns ``[]`` for them and
+    :func:`autowire_verbose_from_condensed` would skip them. A connector (or the
+    central surface) records its tool's action surface here so the auto-wire can
+    still derive one verbose 1:1 tool per action without credentials.
+
+    ``actions`` may be:
+
+    - a concrete ``list[str]`` / iterable of action names;
+    - a **zero-arg callable** returning that list (resolved at autowire time); or
+    - a **client class** (``type``) — its public, callable, non-underscore methods
+      are enumerated via :func:`public_actions` (credential-free: ``dir()`` on the
+      *class* needs no live instance).
+
+    Idempotent per ``(mcp, tool_name)`` — last write wins.
+
+    CONCEPT:ECO-4.90 — verbose auto-wire enumerates dynamic (runtime) actions
+    """
+    providers: dict[str, Any] = getattr(mcp, _ACTION_PROVIDERS_ATTR, {})
+    providers[tool_name] = actions
+    setattr(mcp, _ACTION_PROVIDERS_ATTR, providers)
+
+
+def _resolve_action_provider(provider: Any) -> list[str]:
+    """Resolve a registered action provider to a sorted list of action names.
+
+    Accepts the three forms documented on :func:`register_action_provider`. A
+    client *class* is introspected with :func:`public_actions` (operating on the
+    class object, so no live instance / credentials are needed). Anything that
+    raises or yields no usable names resolves to ``[]`` (the tool is then skipped,
+    keeping the auto-wire best-effort).
+    """
+    try:
+        if isinstance(provider, type):
+            # public_actions(dir()) works equally on a class or an instance.
+            candidates: Any = public_actions(provider)
+        elif callable(provider):
+            candidates = provider()
+        else:
+            candidates = provider
+        names = [str(a) for a in (candidates or []) if isinstance(a, str) and a]
+    except Exception as exc:  # pragma: no cover - defensive per-provider
+        logger.warning("verbose autowire: action provider failed: %s", exc)
+        return []
+    # Drop discovery keywords (list_actions/help/actions) and de-dup, stable-sorted.
+    return sorted({n for n in names if n not in _NON_OPERATION_ACTIONS})
+
+
+def _tool_action_names(tool: Any, providers: dict[str, Any]) -> list[str]:
+    """Action names for a condensed tool: static enum first, else a dynamic provider.
+
+    Returns the ``Literal`` enum when the tool declares one (the static path), else
+    the resolved dynamic-action list from a registered provider (the runtime path),
+    else ``[]`` (no ``action`` surface — skipped by the auto-wire).
+    """
+    enum = _action_enum(tool)
+    if enum:
+        return enum
+    provider = providers.get(getattr(tool, "name", None))
+    if provider is not None:
+        return _resolve_action_provider(provider)
+    return []
+
 
 def _action_enum(tool: Any) -> list[str]:
     """The ``action`` enum values of a condensed action-routed tool, or ``[]``.
@@ -468,10 +547,21 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
 
     The universal, **no-per-connector-edit** path: every connector registers its
     condensed action-routed tools (each ``<service>_<domain>`` tool takes an
-    ``action`` enum + ``params_json`` and dispatches internally). For each such
-    tool this registers one verbose tool ``<tool>__<action>`` that re-dispatches
-    to the **same** condensed tool with ``action`` preset to that value, leaving
-    every other argument (``params_json`` and any typed fields) as a passthrough.
+    ``action`` + ``params_json`` and dispatches internally). For each such tool
+    this registers one verbose tool ``<tool>__<action>`` that re-dispatches to the
+    **same** condensed tool with ``action`` preset to that value, leaving every
+    other argument (``params_json`` and any typed fields) as a passthrough.
+
+    The action list is sourced two ways, in order:
+
+    - **Static enum** — the tool declares ``action`` as a ``Literal`` (surfaces as a
+      JSON-schema ``enum``); :func:`_action_enum` reads it directly.
+    - **Dynamic / runtime** — the tool declares a free-form ``action: str`` and its
+      actions come from ``public_actions(client)`` at call time (atlassian, arr,
+      and most action-routed connectors). The valid names are obtained from an
+      **action provider** registered via :func:`register_action_provider` (a list,
+      a callable, or a client class introspected credential-free). Before this,
+      such tools yielded zero verbose tools — the gap ECO-4.90 closes.
 
     It uses FastMCP's native ``Tool.from_tool`` transformation, so the verbose
     tool routes through the original tool's handler — preserving its ``Depends``
@@ -479,13 +569,15 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
     re-implementation. Each derived tool inherits the source tool's tags plus
     ``"verbose"`` so the existing ``DynamicVisibilityTransform`` can slice it.
 
-    Tools without an ``action`` enum (free-form ``action: str``, or no ``action``
-    at all) are skipped here — single-client connectors expose those one-to-one
-    through :func:`register_verbose_tools` (client introspection) instead.
+    Tools with neither a static ``action`` enum nor a registered dynamic-action
+    provider (no discoverable action surface at all) are skipped here —
+    single-client connectors expose those one-to-one through
+    :func:`register_verbose_tools` (client introspection) instead.
 
     Returns the list of derived verbose tool names.
 
     CONCEPT:ECO-4.89 — fleet-wide verbose auto-wire from condensed action enums
+    CONCEPT:ECO-4.90 — verbose auto-wire enumerates dynamic (runtime) actions
     """
     try:
         from fastmcp.tools import Tool
@@ -497,13 +589,14 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
         return []
 
     source_tools = _provider_tools(mcp)
+    providers: dict[str, Any] = getattr(mcp, _ACTION_PROVIDERS_ATTR, {})
     derived: list[str] = []
     for tool_name in sorted(source_tools):
         tool = source_tools[tool_name]
         # Don't re-expand an already-derived verbose tool (idempotent re-runs).
         if "__" in tool_name and getattr(tool, "tags", None) and "verbose" in tool.tags:
             continue
-        actions = _action_enum(tool)
+        actions = _tool_action_names(tool, providers)
         if not actions:
             continue
         src_tags = getattr(tool, "tags", None)
@@ -534,7 +627,7 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
     logger.debug(
         "autowire_verbose_from_condensed: derived %d verbose tools from %d condensed tools",
         len(derived),
-        sum(1 for n in source_tools if _action_enum(source_tools[n])),
+        sum(1 for n in source_tools if _tool_action_names(source_tools[n], providers)),
     )
     return derived
 
@@ -598,6 +691,7 @@ def register_tool_surface(
     verbose_targets: list[dict] | None = None,
     verbose_register: Any = None,
     autowire_condensed: bool = True,
+    action_providers: dict[str, Any] | None = None,
 ) -> list[str]:
     """Register an agent's MCP tool surface per ``MCP_TOOL_MODE`` — the one place.
 
@@ -629,11 +723,15 @@ def register_tool_surface(
 
     **Fleet-wide auto-wire (default ON).** In verbose/both mode, after the explicit
     verbose path runs, :func:`autowire_verbose_from_condensed` derives one verbose
-    tool per ``action`` enum value of every condensed action-routed tool that just
+    tool per ``action`` value of every condensed action-routed tool that just
     registered — so a connector exposing ONLY condensed tools (the common case)
-    gets a 1:1 verbose surface with no per-connector edits. Pass
-    ``autowire_condensed=False`` to opt a server out (e.g. one whose explicit
-    targets already cover its whole surface). CONCEPT:ECO-4.89.
+    gets a 1:1 verbose surface with no per-connector edits. The action list comes
+    from a static ``Literal`` enum where the tool has one; for free-form
+    ``action: str`` tools (atlassian, arr, …) pass ``action_providers`` —
+    ``{tool_name: actions}`` where ``actions`` is a list, a zero-arg callable, or a
+    client class — and the auto-wire enumerates each tool's runtime actions
+    (ECO-4.90). Pass ``autowire_condensed=False`` to opt a server out (e.g. one
+    whose explicit targets already cover its whole surface). CONCEPT:ECO-4.89.
 
     CONCEPT:ECO-4.82 — MCP tool-mode standardization (central surface wiring)
     """
@@ -692,10 +790,13 @@ def register_tool_surface(
             )
         if verbose_register is not None:
             verbose_register(mcp)
-        # Universal fallback: expand every condensed action-routed tool's action
-        # enum into 1:1 verbose tools, so a connector exposing ONLY condensed tools
-        # still gets a verbose surface with no per-connector wiring (ECO-4.89).
+        # Universal fallback: expand every condensed action-routed tool's actions
+        # into 1:1 verbose tools, so a connector exposing ONLY condensed tools still
+        # gets a verbose surface with no per-connector wiring (ECO-4.89). Free-form
+        # action tools enumerate via the registered action providers (ECO-4.90).
         if autowire_condensed:
+            for tool_name, actions in (action_providers or {}).items():
+                register_action_provider(mcp, tool_name, actions)
             autowire_verbose_from_condensed(mcp)
 
     return registered_tags
