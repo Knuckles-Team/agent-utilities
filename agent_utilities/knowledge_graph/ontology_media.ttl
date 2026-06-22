@@ -114,3 +114,30 @@ BFO:Process via Action. Aligned to schema:DownloadAction.""" ;
     rdfs:seeAlso schema:DownloadAction ;
     rdfs:subClassOf :Action .
 
+
+# ── Audiobookshelf library entities (CONCEPT:KG-2.163) ───────────────────────
+# OWL homes for the typed entities the Audiobookshelf ingestion handler
+# (core/source_sync.py) emits, so each library/book/author is a first-class OWL
+# class the reasoner acts on (not a generic Document).
+
+:Library a owl:Class ;
+    rdfs:label "Library" ;
+    rdfs:comment """An Audiobookshelf library (a collection of :Book items of one
+media type — audiobooks or ebooks). BFO:IndependentContinuant via System
+(CONCEPT:KG-2.163).""" ;
+    rdfs:subClassOf :System .
+
+:Book a owl:Class ;
+    rdfs:label "Book" ;
+    rdfs:comment """A book / audiobook item in an Audiobookshelf :Library, authored_by an
+:Author. A specialization of :MediaAsset. Aligned to schema:Book / bibo:Book
+(CONCEPT:KG-2.163).""" ;
+    rdfs:seeAlso schema:Book ;
+    rdfs:subClassOf :MediaAsset .
+
+:Author a owl:Class ;
+    rdfs:label "Author" ;
+    rdfs:comment """The author of one or more :Book items. Aligned to schema:Person /
+foaf:Person (CONCEPT:KG-2.163).""" ;
+    rdfs:seeAlso foaf:Person ;
+    rdfs:subClassOf foaf:Person .

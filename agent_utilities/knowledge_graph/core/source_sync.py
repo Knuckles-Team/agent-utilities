@@ -2177,6 +2177,590 @@ def _sync_twenty(
     }
 
 
+# ── Media / finance / document / genealogy connectors as typed OWL entities ──────
+# (CONCEPT:KG-2.163–2.166)
+#
+# Four more first-class delta connectors reaching their upstream ONLY through a fleet
+# ``*-mcp`` server (same contract as jira/dockerhub/twenty) and rebuilding **typed**
+# entities mapped to OWL classes — not generic Documents.
+#
+# CONCEPT:KG-2.163 — Audiobookshelf libraries/books/authors → :Library / :Book / :Author
+# CONCEPT:KG-2.164 — Firefly III accounts/transactions/budgets → :Account / :Transaction / :Budget
+# CONCEPT:KG-2.165 — Paperless-ngx documents/correspondents/tags → :Document / :Correspondent / :Tag
+# CONCEPT:KG-2.166 — Gramps Web people/families/events → :Person / :Family / :Event
+
+
+def _sync_audiobookshelf(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Audiobookshelf libraries/books/authors as :Library / :Book / :Author
+    (CONCEPT:KG-2.163).
+
+    Multi-step over ``audiobookshelf-mcp``: ``library_operations(action=list)`` →
+    ``{"libraries": [...]}``; per library ``action=items`` → ``{"results": [...]}`` (each
+    library item is a :Book ``part_of`` its :Library) and ``action=authors`` →
+    ``{"authors": [...]}`` (each :Author, with books linked ``authored_by``). Dict-shaped /
+    multi-step → calls the tool directly via ``call_tool_once``. Full snapshot each run; the
+    write-layer content-hash makes a re-run a no-op.
+    """
+    server = _configured_server(("audiobookshelf-mcp", "audiobookshelf-agent"))
+    if server is None:
+        return {"status": "skipped", "reason": "audiobookshelf-mcp not in mcp_config"}
+    from ...protocols.source_connectors.connectors.mcp_package import _run_async
+    from ...protocols.source_connectors.connectors.mcp_tool import call_tool_once
+
+    def _call(action: str, params: dict[str, Any]) -> Any:
+        return _run_async(
+            call_tool_once(
+                server=server,
+                tool="library_operations",
+                action=action,
+                params=params,
+            )
+        )
+
+    libs_res = _call("list", {})
+    libraries = (
+        libs_res.get("libraries") if isinstance(libs_res, dict) else None
+    ) or []
+    if isinstance(libs_res, list):  # some ABS builds return a bare list
+        libraries = libs_res
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+    books_total = 0
+    authors_total = 0
+    for lib in libraries:
+        if not isinstance(lib, dict):
+            continue
+        lib_id = lib.get("id")
+        if not lib_id:
+            continue
+        lib_node = f"abs:library:{lib_id}"
+        entities.append(
+            {
+                "id": lib_node,
+                "type": "library",
+                "name": lib.get("name") or f"Library {lib_id}",
+                "media_type": lib.get("mediaType"),
+                "domain": "audiobookshelf",
+                "source_system": "audiobookshelf",
+                "externalToolId": str(lib_id),
+            }
+        )
+        try:
+            items_res = _call("items", {"id": lib_id, "limit": 500})
+        except Exception as exc:  # noqa: BLE001 — one bad library never aborts the rest
+            logger.warning(
+                "[KG-2.163] audiobookshelf items fetch failed for %s: %s", lib_id, exc
+            )
+            items_res = {}
+        items = (
+            items_res.get("results") if isinstance(items_res, dict) else None
+        ) or []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_id = item.get("id")
+            if not item_id:
+                continue
+            media = item.get("media") if isinstance(item.get("media"), dict) else {}
+            meta = (
+                media.get("metadata") if isinstance(media.get("metadata"), dict) else {}
+            )
+            title = meta.get("title") or item.get("title") or f"Book {item_id}"
+            book_node = f"abs:book:{item_id}"
+            entities.append(
+                {
+                    "id": book_node,
+                    "type": "book",
+                    "name": str(title),
+                    "subtitle": meta.get("subtitle"),
+                    "isbn": meta.get("isbn"),
+                    "asin": meta.get("asin"),
+                    "publisher": meta.get("publisher"),
+                    "published_year": meta.get("publishedYear"),
+                    "duration": media.get("duration"),
+                    "domain": "audiobookshelf",
+                    "source_system": "audiobookshelf",
+                    "externalToolId": str(item_id),
+                    "updatedAt": item.get("updatedAt"),
+                }
+            )
+            rels.append(
+                {
+                    "source": book_node,
+                    "target": lib_node,
+                    "type": "part_of",
+                    "domain": "audiobookshelf",
+                }
+            )
+            for author in meta.get("authors") or []:
+                if not isinstance(author, dict):
+                    continue
+                aid = author.get("id")
+                aname = author.get("name")
+                if not (aid or aname):
+                    continue
+                author_node = f"abs:author:{aid or aname}"
+                rels.append(
+                    {
+                        "source": book_node,
+                        "target": author_node,
+                        "type": "authored_by",
+                        "domain": "audiobookshelf",
+                    }
+                )
+            books_total += 1
+        try:
+            authors_res = _call("authors", {"id": lib_id})
+        except Exception:  # noqa: BLE001 — authors are best-effort enrichment
+            authors_res = {}
+        authors = (
+            authors_res.get("authors") if isinstance(authors_res, dict) else None
+        ) or []
+        for author in authors:
+            if not isinstance(author, dict):
+                continue
+            aid = author.get("id")
+            aname = author.get("name")
+            if not (aid or aname):
+                continue
+            author_node = f"abs:author:{aid or aname}"
+            entities.append(
+                {
+                    "id": author_node,
+                    "type": "author",
+                    "name": aname or f"Author {aid}",
+                    "num_books": author.get("numBooks"),
+                    "domain": "audiobookshelf",
+                    "source_system": "audiobookshelf",
+                    "externalToolId": str(aid or aname),
+                }
+            )
+            authors_total += 1
+    if entities:
+        engine.ingest_external_batch("audiobookshelf", entities, rels)
+    return {
+        "status": "ok",
+        "source": "audiobookshelf",
+        "mode": mode,
+        "delta_capable": False,
+        "libraries": sum(1 for e in entities if e["type"] == "library"),
+        "books": books_total,
+        "authors": authors_total,
+        "nodes_hydrated": len(entities),
+        "relations_hydrated": len(rels),
+    }
+
+
+def _sync_firefly_iii(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Firefly III accounts/transactions/budgets as :Account / :Transaction /
+    :Budget (CONCEPT:KG-2.164).
+
+    Drains the ``firefly-accounts`` / ``firefly-transactions`` / ``firefly-budgets``
+    presets over ``firefly-iii-mcp``. Each JSON:API record's ``attributes`` block carries
+    the real fields. A transaction's first split is linked ``part_of`` its source :Account.
+    Delta = the ``updated_at`` watermark across the three object types.
+    """
+    if not _server_configured(("firefly-iii-mcp", "firefly-iii-agent")):
+        return {"status": "skipped", "reason": "firefly-iii-mcp not in mcp_config"}
+    backend = getattr(engine, "backend", None)
+    wm_key = "firefly_iii"
+    since = None if mode == "full" else _read_watermark(backend, wm_key)
+    src = "firefly_iii"
+
+    accounts = _drain_preset("firefly-accounts")
+    transactions = _drain_preset("firefly-transactions")
+    budgets = _drain_preset("firefly-budgets")
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+
+    def _attrs(rec: dict[str, Any]) -> dict[str, Any]:
+        a = rec.get("attributes")
+        return a if isinstance(a, dict) else {}
+
+    for doc in accounts:
+        aid = getattr(doc, "id", None)
+        if not aid:
+            continue
+        attrs = _attrs(_record_of(doc))
+        entities.append(
+            {
+                "id": f"firefly:account:{aid}",
+                "type": "account",
+                "name": attrs.get("name") or f"Account {aid}",
+                "account_type": attrs.get("type"),
+                "account_role": attrs.get("account_role"),
+                "currency_code": attrs.get("currency_code"),
+                "current_balance": attrs.get("current_balance"),
+                "domain": "firefly_iii",
+                "source_system": src,
+                "externalToolId": str(aid),
+                "updatedAt": attrs.get("updated_at"),
+            }
+        )
+    for doc in budgets:
+        bid = getattr(doc, "id", None)
+        if not bid:
+            continue
+        attrs = _attrs(_record_of(doc))
+        entities.append(
+            {
+                "id": f"firefly:budget:{bid}",
+                "type": "budget",
+                "name": attrs.get("name") or f"Budget {bid}",
+                "active": attrs.get("active"),
+                "domain": "firefly_iii",
+                "source_system": src,
+                "externalToolId": str(bid),
+                "updatedAt": attrs.get("updated_at"),
+            }
+        )
+    for doc in transactions:
+        tid = getattr(doc, "id", None)
+        if not tid:
+            continue
+        attrs = _attrs(_record_of(doc))
+        splits = attrs.get("transactions")
+        first = splits[0] if isinstance(splits, list) and splits else {}
+        first = first if isinstance(first, dict) else {}
+        node_id = f"firefly:transaction:{tid}"
+        entities.append(
+            {
+                "id": node_id,
+                "type": "transaction",
+                "name": attrs.get("group_title")
+                or first.get("description")
+                or f"Transaction {tid}",
+                "transaction_type": first.get("type"),
+                "amount": first.get("amount"),
+                "currency_code": first.get("currency_code"),
+                "transaction_date": first.get("date"),
+                "category_name": first.get("category_name"),
+                "domain": "firefly_iii",
+                "source_system": src,
+                "externalToolId": str(tid),
+                "updatedAt": attrs.get("updated_at"),
+            }
+        )
+        if src_acct := first.get("source_id"):
+            rels.append(
+                {
+                    "source": node_id,
+                    "target": f"firefly:account:{src_acct}",
+                    "type": "part_of",
+                    "domain": "firefly_iii",
+                }
+            )
+        if budget_id := first.get("budget_id"):
+            rels.append(
+                {
+                    "source": node_id,
+                    "target": f"firefly:budget:{budget_id}",
+                    "type": "member_of",
+                    "domain": "firefly_iii",
+                }
+            )
+    _ingest_typed(
+        engine,
+        src,
+        entities,
+        rels,
+        wm_key=wm_key,
+        since=since,
+        watermark=_max_updated(accounts + transactions + budgets),
+    )
+    return {
+        "status": "ok",
+        "source": "firefly_iii",
+        "mode": mode,
+        "delta_capable": True,
+        "accounts": len(accounts),
+        "transactions": len(transactions),
+        "budgets": len(budgets),
+        "nodes_hydrated": len(entities),
+        "relations_hydrated": len(rels),
+    }
+
+
+def _sync_paperless_ngx(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Paperless-ngx documents/correspondents/tags as :Document / :Correspondent /
+    :Tag (CONCEPT:KG-2.165).
+
+    Drains the ``paperless-documents`` / ``paperless-correspondents`` / ``paperless-tags``
+    presets over ``paperless-ngx-mcp`` (each tool paginates internally → a flat list). Each
+    document → a :Document linked ``member_of`` its :Correspondent and ``tagged_with`` each
+    :Tag. Delta = the ``modified`` watermark on documents.
+    """
+    if not _server_configured(("paperless-ngx-mcp", "paperless-ngx-agent")):
+        return {"status": "skipped", "reason": "paperless-ngx-mcp not in mcp_config"}
+    backend = getattr(engine, "backend", None)
+    wm_key = "paperless_ngx"
+    since = None if mode == "full" else _read_watermark(backend, wm_key)
+    src = "paperless_ngx"
+
+    correspondents = _drain_preset("paperless-correspondents")
+    tags = _drain_preset("paperless-tags")
+    documents = _drain_preset("paperless-documents")
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+
+    for doc in correspondents:
+        cid = getattr(doc, "id", None)
+        if cid is None:
+            continue
+        rec = _record_of(doc)
+        entities.append(
+            {
+                "id": f"paperless:correspondent:{cid}",
+                "type": "correspondent",
+                "name": rec.get("name") or f"Correspondent {cid}",
+                "document_count": rec.get("document_count"),
+                "domain": "paperless_ngx",
+                "source_system": src,
+                "externalToolId": str(cid),
+            }
+        )
+    for doc in tags:
+        tid = getattr(doc, "id", None)
+        if tid is None:
+            continue
+        rec = _record_of(doc)
+        entities.append(
+            {
+                "id": f"paperless:tag:{tid}",
+                "type": "tag",
+                "name": rec.get("name") or f"Tag {tid}",
+                "color": rec.get("color"),
+                "domain": "paperless_ngx",
+                "source_system": src,
+                "externalToolId": str(tid),
+            }
+        )
+    for doc in documents:
+        did = getattr(doc, "id", None)
+        if did is None:
+            continue
+        rec = _record_of(doc)
+        node_id = f"paperless:document:{did}"
+        entities.append(
+            {
+                "id": node_id,
+                "type": "document",
+                "name": rec.get("title") or f"Document {did}",
+                "created": rec.get("created"),
+                "added": rec.get("added"),
+                "archive_serial_number": rec.get("archive_serial_number"),
+                "domain": "paperless_ngx",
+                "source_system": src,
+                "externalToolId": str(did),
+                "updatedAt": rec.get("modified"),
+            }
+        )
+        if (corr := rec.get("correspondent")) is not None:
+            rels.append(
+                {
+                    "source": node_id,
+                    "target": f"paperless:correspondent:{corr}",
+                    "type": "member_of",
+                    "domain": "paperless_ngx",
+                }
+            )
+        for tag_id in rec.get("tags") or []:
+            rels.append(
+                {
+                    "source": node_id,
+                    "target": f"paperless:tag:{tag_id}",
+                    "type": "tagged_with",
+                    "domain": "paperless_ngx",
+                }
+            )
+    _ingest_typed(
+        engine,
+        src,
+        entities,
+        rels,
+        wm_key=wm_key,
+        since=since,
+        watermark=_max_updated(documents),
+    )
+    return {
+        "status": "ok",
+        "source": "paperless_ngx",
+        "mode": mode,
+        "delta_capable": True,
+        "documents": len(documents),
+        "correspondents": len(correspondents),
+        "tags": len(tags),
+        "nodes_hydrated": len(entities),
+        "relations_hydrated": len(rels),
+    }
+
+
+def _sync_gramps_web(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest Gramps Web people/families/events as :Person / :Family / :Event
+    (CONCEPT:KG-2.166).
+
+    Calls ``gramps_web_people`` / ``gramps_web_families`` / ``gramps_web_events`` (action
+    ``get_*``) directly via ``call_tool_once`` — each returns the ``Response`` envelope whose
+    ``data`` is the decoded collection. Each person → a :Person; each family → a :Family the
+    person is ``member_of`` (father/mother/children handles); each event → an :Event a person
+    ``part_of`` (via the person's ``event_ref_list``). Full snapshot each run; the write-layer
+    content-hash makes a re-run a no-op. The genealogy graph is the substrate for relationship
+    reasoning over the KG.
+    """
+    server = _configured_server(("gramps-web-mcp", "gramps-web-agent"))
+    if server is None:
+        return {"status": "skipped", "reason": "gramps-web-mcp not in mcp_config"}
+    from ...protocols.source_connectors.connectors.mcp_package import _run_async
+    from ...protocols.source_connectors.connectors.mcp_tool import call_tool_once
+    from ...protocols.source_connectors.connectors.rest import _dig
+
+    def _collection(tool: str, action: str) -> list[dict[str, Any]]:
+        res = _run_async(
+            call_tool_once(
+                server=server,
+                tool=tool,
+                action=action,
+                params={"pagesize": 500},
+            )
+        )
+        data = _dig(res, "data") if isinstance(res, dict) else res
+        if isinstance(data, list):
+            return [r for r in data if isinstance(r, dict)]
+        return []
+
+    people = _collection("gramps_web_people", "get_people")
+    families = _collection("gramps_web_families", "get_families")
+    events = _collection("gramps_web_events", "get_events")
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+
+    def _person_name(rec: dict[str, Any]) -> str:
+        name = rec.get("primary_name")
+        if isinstance(name, dict):
+            first = name.get("first_name") or ""
+            surnames = name.get("surname_list") or []
+            last = ""
+            if isinstance(surnames, list) and surnames:
+                s0 = surnames[0]
+                last = s0.get("surname", "") if isinstance(s0, dict) else ""
+            full = f"{first} {last}".strip()
+            if full:
+                return full
+        return rec.get("gramps_id") or rec.get("handle") or "Person"
+
+    person_handles: set[str] = set()
+    for rec in people:
+        handle = rec.get("handle")
+        if not handle:
+            continue
+        person_handles.add(str(handle))
+        node_id = f"gramps:person:{handle}"
+        entities.append(
+            {
+                "id": node_id,
+                "type": "person",
+                "name": _person_name(rec),
+                "gramps_id": rec.get("gramps_id"),
+                "gender": rec.get("gender"),
+                "domain": "gramps_web",
+                "source_system": "gramps_web",
+                "externalToolId": str(handle),
+                "updatedAt": rec.get("change"),
+            }
+        )
+        for eref in rec.get("event_ref_list") or []:
+            if not isinstance(eref, dict):
+                continue
+            if ev := eref.get("ref"):
+                rels.append(
+                    {
+                        "source": node_id,
+                        "target": f"gramps:event:{ev}",
+                        "type": "part_of",
+                        "domain": "gramps_web",
+                    }
+                )
+    for rec in families:
+        handle = rec.get("handle")
+        if not handle:
+            continue
+        fam_node = f"gramps:family:{handle}"
+        entities.append(
+            {
+                "id": fam_node,
+                "type": "family",
+                "name": rec.get("gramps_id") or f"Family {handle}",
+                "gramps_id": rec.get("gramps_id"),
+                "relationship": (
+                    (rec.get("type") or {}).get("string")
+                    if isinstance(rec.get("type"), dict)
+                    else None
+                ),
+                "domain": "gramps_web",
+                "source_system": "gramps_web",
+                "externalToolId": str(handle),
+                "updatedAt": rec.get("change"),
+            }
+        )
+        members: list[Any] = [rec.get("father_handle"), rec.get("mother_handle")]
+        for child in rec.get("child_ref_list") or []:
+            if isinstance(child, dict) and child.get("ref"):
+                members.append(child["ref"])
+        for member in members:
+            if member:
+                rels.append(
+                    {
+                        "source": f"gramps:person:{member}",
+                        "target": fam_node,
+                        "type": "member_of",
+                        "domain": "gramps_web",
+                    }
+                )
+    for rec in events:
+        handle = rec.get("handle")
+        if not handle:
+            continue
+        entities.append(
+            {
+                "id": f"gramps:event:{handle}",
+                "type": "event",
+                "name": (
+                    (rec.get("type") or {}).get("string")
+                    if isinstance(rec.get("type"), dict)
+                    else rec.get("gramps_id")
+                )
+                or f"Event {handle}",
+                "gramps_id": rec.get("gramps_id"),
+                "description": rec.get("description"),
+                "domain": "gramps_web",
+                "source_system": "gramps_web",
+                "externalToolId": str(handle),
+                "updatedAt": rec.get("change"),
+            }
+        )
+    if entities:
+        engine.ingest_external_batch("gramps_web", entities, rels)
+    return {
+        "status": "ok",
+        "source": "gramps_web",
+        "mode": mode,
+        "delta_capable": False,
+        "people": len(people),
+        "families": len(families),
+        "events": len(events),
+        "nodes_hydrated": len(entities),
+        "relations_hydrated": len(rels),
+    }
+
+
 # MCP-backed dedicated trackers (CONCEPT:KG-2.154) — each reaches its upstream ONLY
 # through a fleet ``*-mcp`` server (never a direct vendor client / env token), so unlike
 # the capability-registry sources (env-token configured) and the always-local feed/fleet
@@ -2198,6 +2782,11 @@ _MCP_TRACKER_SERVERS: dict[str, tuple[str, ...]] = {
     "uptime_kuma": ("uptime-mcp", "uptime-kuma-agent", "uptime-kuma-mcp"),
     "home_assistant": ("home-assistant-mcp", "home-assistant-agent"),
     "twenty": ("twenty-mcp", "twenty"),
+    # Media / finance / document / genealogy connectors (CONCEPT:KG-2.163–2.166)
+    "audiobookshelf": ("audiobookshelf-mcp", "audiobookshelf-agent"),
+    "firefly_iii": ("firefly-iii-mcp", "firefly-iii-agent"),
+    "paperless_ngx": ("paperless-ngx-mcp", "paperless-ngx-agent"),
+    "gramps_web": ("gramps-web-mcp", "gramps-web-agent"),
 }
 
 
@@ -2279,6 +2868,11 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "uptime_kuma": _sync_uptime_kuma,
     "home_assistant": _sync_home_assistant,
     "twenty": _sync_twenty,
+    # Media / finance / document / genealogy connectors (CONCEPT:KG-2.163–2.166)
+    "audiobookshelf": _sync_audiobookshelf,
+    "firefly_iii": _sync_firefly_iii,
+    "paperless_ngx": _sync_paperless_ngx,
+    "gramps_web": _sync_gramps_web,
     "fleet": _sync_fleet,
     "fleet_connectors": _sync_fleet_connectors,
 }

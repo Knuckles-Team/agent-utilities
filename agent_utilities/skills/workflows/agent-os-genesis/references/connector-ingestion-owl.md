@@ -49,6 +49,10 @@ each as a candidate when reachable, drops it (skipped, never errored) otherwise.
 | **`uptime_kuma`** | `uptime-mcp` (alias `uptime-kuma-mcp`) | monitors→`:UptimeMonitor`, heartbeats→`:HeartbeatStat` (`part_of`) | typed (**KG-2.159**) | Uptime-Kuma URL+creds in `apps/uptime-mcp` |
 | **`home_assistant`** | `home-assistant-mcp` | entities→`:Entity`, device groups→`:Device` (`part_of`) | typed (**KG-2.160**) | HA long-lived token in `apps/home-assistant-mcp` |
 | **`twenty`** | `twenty-mcp` | people→`:Person`, companies→`:Company`, opportunities→`:Opportunity` (`member_of`/`part_of`) | typed (**KG-2.161**) | Twenty API key in `apps/twenty-mcp` |
+| **`audiobookshelf`** | `audiobookshelf-mcp` | libraries→`:Library`, books→`:Book`, authors→`:Author` (`part_of`/`authored_by`) | typed (**KG-2.163**) | `AUDIOBOOKSHELF_URL`+`AUDIOBOOKSHELF_TOKEN` (Bearer JWT) in `apps/audiobookshelf-mcp` |
+| **`firefly_iii`** | `firefly-iii-mcp` | accounts→`:Account`, transactions→`:Transaction`, budgets→`:Budget` (`part_of`/`member_of`) | typed (**KG-2.164**) | `FIREFLY_III_URL`+`FIREFLY_III_TOKEN` (Passport PAT) in `apps/firefly-iii-mcp` |
+| **`paperless_ngx`** | `paperless-ngx-mcp` | documents→`:Document`, correspondents→`:Correspondent`, tags→`:Tag` (`member_of`/`tagged_with`) | typed (**KG-2.165**) | `PAPERLESS_NGX_URL`+`PAPERLESS_NGX_TOKEN` (DRF token) in `apps/paperless-ngx-mcp` |
+| **`gramps_web`** | `gramps-web-mcp` | people→`:Person`, families→`:Family`, events→`:Event` (`member_of`/`part_of`) | typed (**KG-2.166**) | `GRAMPS_WEB_URL`+`GRAMPS_WEB_USERNAME`/`PASSWORD` (or `GRAMPS_WEB_TOKEN`) in `apps/gramps-web-mcp` |
 
 ## Available via MCP, ingestion-optional
 
