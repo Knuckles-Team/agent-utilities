@@ -458,9 +458,12 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "action": "search_and_reconsile_issues_using_jql",
         "params_style": "json",
         "params": {
-            "jql": "ORDER BY updated DESC",
+            "jql": 'created >= "1970-01-01" ORDER BY updated DESC',
             "max_results": 100,
-            "expand": ["renderedFields"],
+            "fields": [
+                "summary", "updated", "status", "issuetype", "assignee",
+                "reporter", "created", "parent", "description", "labels", "priority",
+            ],
         },
         "records_path": "data.issues",
         "id_field": "key",
