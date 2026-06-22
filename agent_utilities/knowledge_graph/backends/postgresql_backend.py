@@ -26,6 +26,22 @@ logger = logging.getLogger(__name__)
 _EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
 
 
+def _pool_acquire_timeout_s() -> float:
+    """Seconds to wait for a free pooled connection before failing fast.
+
+    CONCEPT:KG-2.152 — bound the authority-write tail. Env-overridable via
+    ``GRAPH_DB_POOL_TIMEOUT``; default 5s (vs psycopg_pool's 30s) so a starved
+    write becomes a fast retryable failure rather than a 16s stall.
+    """
+    try:
+        return max(0.5, float(setting("GRAPH_DB_POOL_TIMEOUT", "5") or "5"))
+    except (TypeError, ValueError):
+        return 5.0
+
+
+_PG_POOL_TIMEOUT_S = _pool_acquire_timeout_s()
+
+
 class PostgresLockContentionError(ConnectionError):
     """PostgreSQL lock/deadlock contention — retryable with exponential backoff."""
 
@@ -55,11 +71,23 @@ class PostgreSQLBackend(GraphBackend):
         pool_min: int = 2,
         pool_max: int = 10,
         pggraph_schema: str | None = None,
+        pool_timeout: float | None = None,
     ) -> None:
         self._dsn = dsn
         self._graph_name = graph_name
         self._pool_min = pool_min
         self._pool_max = pool_max
+        # Bound the wait to acquire a connection (CONCEPT:KG-2.152). The default
+        # psycopg_pool wait is 30s — under sustained ingest with every lane worker
+        # + the fan-out drainer threads sharing this ONE pool, a starved write
+        # blocks the FULL 30s waiting for a free connection (profiled authority
+        # write p50 ~3ms but MAX 11.7-16.4s: the tail IS the connection wait, not
+        # the SQL). A short, explicit timeout turns that unbounded queueing into a
+        # fast retryable failure (PostgresLockContentionError → bounded backoff)
+        # so the tail collapses to the pool acquire ceiling instead of 16s.
+        self._pool_timeout = (
+            pool_timeout if pool_timeout is not None else _PG_POOL_TIMEOUT_S
+        )
         self._pggraph_schema = pggraph_schema or setting(
             "GRAPH_PGGRAPH_SCHEMA", "public"
         )
@@ -89,6 +117,10 @@ class PostgreSQLBackend(GraphBackend):
                 self._dsn,
                 min_size=self._pool_min,
                 max_size=self._pool_max,
+                # Bound the per-acquire wait at the POOL level too (CONCEPT:KG-2.152)
+                # so any caller that doesn't pass an explicit ``timeout`` still fails
+                # fast instead of inheriting the 30s default.
+                timeout=self._pool_timeout,
                 open=True,
                 kwargs={"autocommit": False},
             )
@@ -126,7 +158,11 @@ class PostgreSQLBackend(GraphBackend):
                     pass
                 raise
         else:
-            with pool.connection() as conn:
+            # Bound the acquire (CONCEPT:KG-2.152): a starved pool raises
+            # PoolTimeout fast rather than blocking 30s. The caller's resilience
+            # policy retries with bounded backoff (see ``execute``), so the tail
+            # is the pool-timeout ceiling, not an unbounded queue wait.
+            with pool.connection(timeout=self._pool_timeout) as conn:
                 yield conn
 
     # ── Extension Detection ──────────────────────────────────────────
@@ -601,6 +637,12 @@ class PostgreSQLBackend(GraphBackend):
         sqlstate = getattr(exc, "sqlstate", None)
         if sqlstate in ("40001", "40P01", "55P03", "55006"):
             return True
+        # A bounded-pool acquire that times out (CONCEPT:KG-2.152) is transient
+        # contention — every connection is busy — so it is retryable exactly like
+        # a lock wait: a brief backoff lets an in-flight write release a conn.
+        # Matched by type name to avoid importing psycopg_pool at module load.
+        if type(exc).__name__ == "PoolTimeout":
+            return True
         msg = str(exc).lower()
         return any(
             p in msg
@@ -610,6 +652,7 @@ class PostgreSQLBackend(GraphBackend):
                 "lock not available",
                 "lock timeout",
                 "canceling statement due to lock",
+                "couldn't get a connection after",
             )
         )
 
