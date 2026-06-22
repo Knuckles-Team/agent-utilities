@@ -88,6 +88,44 @@ operational adds:
   **never blindly restart Caddy** while that block is active; re-enabling it safely needs a
   keycloak endpoint reachable at Caddy startup that doesn't loop through Caddy.
 
+### Multiplexer → child service-account auth (the "fleet-wide 401 that isn't the deployed mux")
+
+The multiplexer mints a Keycloak client-credentials bearer (`mcp-multiplexer`, audience
+`agent-services`) and attaches it to every jwt-protected child (CONCEPT:OS-5.32,
+`mcp/client_credentials.py` `bearer_auth` → `ClientCredentialsAuth`). If the mint fails it
+**degrades to no auth** and the child returns **401** — so a single bad mint config looks like a
+fleet-wide child outage.
+
+There are **two multiplexers**, and the per-session one is the usual culprit:
+- **Deployed swarm mux** (`mcp-multiplexer.arpa`, `mcp_config_central.json`) — fronts the fleet.
+- **Per-session local mux** — each Claude session spawns its OWN: `~/.claude.json` →
+  `mcpServers.mcp-multiplexer` = `python -m agent_utilities.mcp.multiplexer --config
+  mcp_config_claude.json`. Its config **already points every child at the swarm `.arpa`
+  services** (it's just the session's aggregator, not a second fleet), and it mints its own bearer
+  from the `env` OIDC vars.
+
+Two ways the local mux's mint silently breaks → `invalid_client` → no bearer → **every** child 401:
+1. **Wrong realm in `OIDC_TOKEN_URL`.** Must be `…/realms/homelab/…` — the `mcp-multiplexer`
+   client and `agent-services` audience live in **homelab**, NOT `master`. A `…/realms/master/…`
+   token URL mints `invalid_client` even with the correct secret. (Observed + fixed: the local
+   `~/.claude.json` had the `master` realm.)
+2. **Stale `OIDC_CLIENT_SECRET`** — drifts when the Keycloak client secret rotates without
+   re-syncing `~/.claude.json`.
+
+**Diagnosis (don't chase the deployed mux):** prove the swarm mux is healthy first — inside its
+container, `get_provider().get_token()` mints and a `streamablehttp_client(<child>.arpa/mcp,
+auth=bearer_auth({}))` `initialize()` returns 200. If that works but `load_tools(<child>)` from
+your session 401s, the fault is the **local** mux. Confirm by minting with `~/.claude.json`'s exact
+`OIDC_TOKEN_URL` + `OIDC_CLIENT_SECRET` — an `invalid_client` pinpoints realm-or-secret.
+**Fix:** set `OIDC_TOKEN_URL=http://keycloak.arpa/realms/homelab/protocol/openid-connect/token`
++ the current secret, then **reconnect** the session (the running process must respawn).
+
+**Rotation runbook (so this can't recur):** rotating the `mcp-multiplexer` Keycloak client secret
+must fan the new value — and the correct **homelab** realm — to ALL consumers in one pass: the
+swarm `mcp-multiplexer` + `graph-os` (server+host) service envs, OpenBao `apps/mcp-multiplexer`,
+**and every local `~/.claude.json`**. Treat it like the GitLab-JWKS cron above — a rotation that
+misses one consumer causes a confusing partial outage.
+
 ## 5. Object storage / presigned URLs (browser must reach the S3 endpoint)
 
 **Plane "failed to upload image cover"** = the backend signs presigned URLs with the **internal**
