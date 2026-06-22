@@ -166,21 +166,23 @@ class ScheduleSpec:
 
 # ── Durable :Schedule node store ─────────────────────────────────────────────
 def _upsert(engine: Any, spec: ScheduleSpec) -> None:
+    """Upsert a ``:Schedule`` node via the engine-native O(1)-by-id ``add_node``.
+
+    PERF (CONCEPT:OS-5.44): a write-Cypher ``MATCH (s:Schedule {id: $id}) SET …``
+    forces the L1 engine to scan the whole graph to locate the node (no write-path
+    id index) — ~5s per call on the live graph. The scheduler upserts ~27 schedules
+    every boot, so that scan-per-upsert blocked the single-threaded maintenance loop
+    for minutes (contending with ingestion on the engine write lock) and the
+    scheduler/collapse/reaper effectively never ran. ``add_node`` is a direct,
+    O(1)-by-id upsert that replaces the property blob — exactly what we want here,
+    since ``spec.to_props()`` is the full desired state and callers
+    (:func:`register_schedule`/:func:`seed_schedules`) already merge live runtime
+    state into ``spec`` before upserting. So one fast write, no scan, no read.
+    """
     backend = getattr(engine, "backend", None)
     if backend is None:
         return
-    props = spec.to_props()
-    existing = backend.execute(
-        "MATCH (s:Schedule {id: $id}) RETURN s.id as id", {"id": spec.name}
-    )
-    if existing:
-        sets = ", ".join(f"s.{k} = ${k}" for k in props)
-        backend.execute(
-            f"MATCH (s:Schedule {{id: $id}}) SET {sets}",
-            {"id": spec.name, **props},
-        )
-    else:
-        backend.add_node(spec.name, node_type=_SCHEDULE_LABEL, **props)
+    backend.add_node(spec.name, node_type=_SCHEDULE_LABEL, **spec.to_props())
 
 
 def _load_all(engine: Any) -> list[ScheduleSpec]:
