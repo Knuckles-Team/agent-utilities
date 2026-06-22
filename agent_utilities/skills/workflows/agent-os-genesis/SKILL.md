@@ -426,6 +426,16 @@ or `kubectl apply`. The arr-suite gluetun pattern below becomes a native
     user asks. Fleet still-on-`master` → `homelab` migration procedure (waves of 5, dual-trust,
     lock-out/recovery caveats, `keycloak-mcp` special case):
     [`references/keycloak-realm-consolidation.md`](references/keycloak-realm-consolidation.md).
+  - **Connector day-0 auth + Plane god-mode provisioning:** making a freshly-deployed
+    `*-mcp` connector actually ingest requires (1) the OIDC client-credentials env on the
+    `graph-os` host+server, (2) the `agent-services` audience scope on the minting Keycloak
+    client, (3) the connector routed to its remote `.arpa` URL in the host's
+    `mcp_config_source.json` (not a stdio command). Plus Plane needs an instance (god-mode)
+    admin created via the Django shell + a Redis `cache.clear()`, and per-connector
+    API-compat gotchas (Jira `/search/jql` bounded JQL+fields, Plane `-> Any` tool returns +
+    `_validate_auth` endpoint, Eunomia bulk ≤100). Full repeatable procedure + Keycloak-OIDC
+    SSO setup for Plane/GitLab:
+    [`references/plane-provisioning-and-connector-auth.md`](references/plane-provisioning-and-connector-auth.md).
   - **FreshRSS world-model intake + Caddy/Keycloak web SSO (REQUIRED for the RSS source + any
     `*.arpa` web SSO):** install/enable the FreshRSS API + seed curated feeds + deploy the
     `freshrss-mcp` connector, and gate app web UIs with **`caddy-security` (greenpau) OIDC**.
