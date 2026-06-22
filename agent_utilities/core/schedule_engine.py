@@ -328,13 +328,20 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
                 "RETURN t.schedule AS schedule",
                 {"status": status},
             )
-        except Exception:  # noqa: BLE001 — probe failure ⇒ skip this cycle
+        except Exception as e:  # noqa: BLE001 — probe failure ⇒ skip this cycle
+            logger.warning("[OS-5.53] collapse read failed (status=%s): %s", status, e)
             return {"schedules_collapsed": 0, "cancelled": 0}
         for row in rows or []:
             name = (row or {}).get("schedule")
             if name:
                 counts[name] = counts.get(name, 0) + 1
     over = {name: n for name, n in counts.items() if n > 1}
+    logger.info(
+        "[OS-5.53] collapse scan: active=%d schedules=%d over=%d",
+        sum(counts.values()),
+        len(counts),
+        len(over),
+    )
     if not over:
         return {"schedules_collapsed": 0, "cancelled": 0}
     cancelled = 0
@@ -387,6 +394,7 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
     crash skips rather than double-fires) and the deterministic task id
     ``sched:<name>:<minute>``. Leader-gating happens in the caller.
     """
+    logger.info("[OS-5.44] scheduler tick: begin")
     if not getattr(engine, "_schedules_seeded", False):
         try:
             seed_schedules(engine)
@@ -454,6 +462,7 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
             logger.error("schedule %s enqueue error: %s", spec.name, e)
     if fired:
         logger.info("scheduler fired: %s", fired)
+    logger.info("[OS-5.44] scheduler tick: end (fired=%d)", len(fired))
     return {"fired": fired, "count": len(fired)}
 
 
