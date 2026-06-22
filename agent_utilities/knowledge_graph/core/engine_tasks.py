@@ -225,12 +225,6 @@ def compute_ingest_worker_count(configured: int | None = None) -> int:
 _EMBED_BACKFILL_BUDGET = 256
 _EMBED_BACKFILL_FETCH = 512
 
-# A bulk ingest is "in progress" when the durable submission queue is at least
-# this deep; the maintenance scheduler auto-defers its whole-graph passes while
-# bulk-loading rather than contending with ingestion. Replaces the manual
-# KG_BULK_INGEST flag — the engine already knows the queue depth. (CONCEPT:KG-2.7)
-_BULK_QUEUE_THRESHOLD = 5
-
 # PerformanceAnomaly consumer cadence (CONCEPT:AHE-3.19): a bounded, LLM-free
 # scan, so a fixed moderate interval suffices — no env knob needed.
 _ANOMALY_CONSUMER_INTERVAL = 900.0
@@ -1400,36 +1394,27 @@ class TaskManagerMixin(GraphEngineProtocol):
                     time.sleep(10.0)
                     continue
 
-                # Single shared gate for ALL background jobs: yield to interactive
-                # foreground work AND to an in-flight bulk ingest (the latter is not
-                # visible in the queue-depth probe below once the task is claimed).
-                try:
-                    from agent_utilities.core.background_throttle import get_throttle
-
-                    if get_throttle().should_yield_background:
-                        time.sleep(POLL)
-                        continue
-                except ImportError:
-                    pass
-
-                # Auto-defer while a bulk ingest drains: the whole-graph passes
-                # contend with ingestion for the single-writer engine. Detected
-                # from the durable submission-queue depth, not a manual flag.
-                # The probe doubles as the backpressure-visibility sample
-                # (CONCEPT:KG-2.57): depth (and, for Kafka, kg-ingest consumer
-                # lag) land on the OS-5.23 gateway Prometheus registry every
-                # pass — including while bulk-deferred, exactly when the number
-                # is most interesting.
+                # Backpressure visibility (CONCEPT:KG-2.57): sample the durable
+                # submission-queue depth every pass so depth (and, for Kafka,
+                # kg-ingest consumer lag) lands on the OS-5.23 gateway Prometheus
+                # registry — including under load, exactly when it matters most.
                 q = getattr(self, "_submission_queue", None)
                 if q is not None:
                     try:
-                        qsize = q.get_queue_size()
-                        self._record_queue_telemetry(qsize)
-                        if qsize > _BULK_QUEUE_THRESHOLD:
-                            time.sleep(POLL)
-                            continue
+                        self._record_queue_telemetry(q.get_queue_size())
                     except Exception:  # noqa: BLE001 — queue probe best-effort
                         pass
+
+                # This loop now runs ONLY queue PLUMBING — the scheduler (which
+                # also collapses stale ticks, CONCEPT:OS-5.53), the task reaper,
+                # and the promotion sweep. Unlike the heavy job *bodies* they
+                # enqueue (which run in the worker pool under the background
+                # throttle), the plumbing feeds and heals the queue, so it MUST
+                # run even when the queue/workers are saturated. It is therefore
+                # deliberately NOT gated by the foreground throttle or a
+                # bulk-ingest auto-defer: gating it was the regression that let a
+                # stale-tick backlog and dead-worker leases pile up *precisely*
+                # while ingestion was busy and the queue most needed healing.
 
                 now = time.time()
                 for name, interval, tick in jobs:
