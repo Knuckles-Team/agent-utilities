@@ -358,6 +358,9 @@
         }
     },
     "telegram_bot_token": null,
+    "mattermost_url": null,
+    "mattermost_token": null,
+    "mattermost_bot_user": null,
     "messaging_default_platform": "telegram",
     "messaging_default_channel": "",
     "messaging_agent": "",

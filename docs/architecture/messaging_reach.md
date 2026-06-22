@@ -166,7 +166,25 @@ action=send` targets a specific service explicitly.
 | `MESSAGING_LOCAL_MODEL` | Override the local responder model id |
 | `MESSAGING_REPLY_TIMEOUT` | Seconds to wait for the universal graph run before degrading to the plain-chat fallback (default `45`) |
 | `ANTHROPIC_API_KEY` | Required for the Claude route |
+| `MATTERMOST_URL` / `MATTERMOST_TOKEN` / `MATTERMOST_BOT_USER` | Mattermost (ECO-4.90): server base URL, a Bot Account token, and the bot's username/id (optional — auto-resolved from the token). Inbound runs over the bot WebSocket (`posted` events); outbound posts via the bot REST API |
 | `MCP_CLIENT_AUTH` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_AUDIENCE` / `OIDC_TOKEN_URL` | Fleet OIDC client-credentials — loaded into the daemon env so spawned agents authenticate to the jwt-protected fleet. **Source from OpenBao**, never a plaintext file (ECO-4.75) |
+
+### Mattermost as a first-class platform (ECO-4.90)
+
+Mattermost is a thin, bidirectional adapter exactly like Telegram — the universal
+orchestrator is still the ONE agent. **Inbound:** the bot's WebSocket event stream is
+consumed (`posted` events), each post normalized into the shared `InboundEvent` the
+`InboundRouter` routes; the bot's own posts are dropped (no echo loop). **Outbound:**
+`reach_user`/`MessagingService` posts a Markdown reply via the bot REST API (a threaded
+reply roots under the originating post id). Like Telegram, the WebSocket is started lazily
+by `listen()` (not `connect()`), so a send-only client never opens a duplicate stream.
+
+**Operator provisioning** (the bot account is created out-of-band): in the Mattermost
+**System Console → Integrations → Bot Accounts**, enable bot accounts and *Add Bot
+Account*; copy its **token** into `MATTERMOST_TOKEN` (store in OpenBao `apps/<service>`),
+set `MATTERMOST_URL` to the server URL, then add the bot to the teams/channels it should
+listen in and post to (or DM it). Install the extra with
+`pip install agent-utilities[messaging-mattermost]`.
 
 ### Fleet delegation is native to the universal path (ECO-4.78)
 
