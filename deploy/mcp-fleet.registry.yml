@@ -409,3 +409,31 @@ services:
     container_port: 8000
     host_port: 8254
     profiles: [single-node-prod, enterprise]
+  - name: audiobookshelf-mcp
+    package: audiobookshelf-mcp
+    console_script: audiobookshelf-mcp
+    image: knucklessg1/audiobookshelf-mcp:latest
+    container_port: 8000
+    host_port: 8255
+    profiles: [enterprise]
+  - name: firefly-iii-mcp
+    package: firefly-iii-mcp
+    console_script: firefly-iii-mcp
+    image: knucklessg1/firefly-iii-mcp:latest
+    container_port: 8000
+    host_port: 8256
+    profiles: [enterprise]
+  - name: paperless-ngx-mcp
+    package: paperless-ngx-mcp
+    console_script: paperless-ngx-mcp
+    image: knucklessg1/paperless-ngx-mcp:latest
+    container_port: 8000
+    host_port: 8257
+    profiles: [enterprise]
+  - name: gramps-mcp
+    package: gramps-mcp
+    console_script: gramps-mcp
+    image: knucklessg1/gramps-mcp:latest
+    container_port: 8000
+    host_port: 8258
+    profiles: [enterprise]
