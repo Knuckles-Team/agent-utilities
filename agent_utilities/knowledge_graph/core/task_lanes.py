@@ -66,6 +66,21 @@ TASK_LANES: dict[str, dict] = {
         "task_types": frozenset({"deep_extract", "deep_analysis"}),
         "model_role": "learner",
     },
+    # CONCEPT:KG-2.153 — OWL capability-card backfill is its OWN throughput lane,
+    # NOT a maint interval tick. It used to ride the ``maint`` lane as a generic
+    # ``scheduled_job`` and so was capped at the best-effort floor (1 worker, shared
+    # round-robin with ~17 other maint ticks), which left ~85k Code symbols
+    # un-carded (codebase card coverage ~0.0006). As its own lane it drains the
+    # ``cards_pending`` backlog in parallel with — but, being a normal
+    # (non-best-effort) lane still bounded by the per-lane min / hot-spare
+    # reservation AND the shared background-throttle semaphore, never starving — the
+    # control plane (isolated on ``__control__``, KG-2.148) or the latency-sensitive
+    # ``queries`` lane. ``lite`` model role: card summaries are a structured
+    # extraction the lite model handles fast (the default in ``_tick_enrichment``).
+    "enrichment": {
+        "task_types": frozenset({"enrichment_backfill"}),
+        "model_role": "lite",
+    },
     # scheduled maintenance / orchestration (loop_cycle lives here as scheduled_job)
     "maint": {
         "task_types": frozenset(

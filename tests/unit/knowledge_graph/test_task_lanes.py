@@ -19,8 +19,11 @@ def test_lane_for_task_type_maps_functional_domains():
     assert lane_for_task_type("deep_extract") == "extraction"  # ORCH-1.76 own lane
     assert lane_for_task_type("connector_sync") == "connectors"  # ORCH-1.77 own lane
     assert lane_for_task_type("scheduled_job") == "maint"
+    # KG-2.153 — OWL card backfill is its OWN throughput lane, not capped maint.
+    assert lane_for_task_type("enrichment_backfill") == "enrichment"
     assert lane_for_task_type("totally_unknown") == DEFAULT_LANE
     assert lane_model_role("ingestion") == "lite"
+    assert lane_model_role("enrichment") == "lite"
 
 
 def test_sweep_all_sources_enqueues_laned_connector_tasks():
