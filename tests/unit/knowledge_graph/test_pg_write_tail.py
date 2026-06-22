@@ -26,7 +26,6 @@ from agent_utilities.knowledge_graph.backends.postgresql_backend import (
     PostgreSQLBackend,
 )
 
-
 # ── 1. PoolTimeout is retryable contention (caps the tail) ───────────────────
 
 
@@ -63,7 +62,7 @@ def test_schema_error_still_not_contention():
 
 
 class _FakeCursor:
-    def __init__(self, conn: "_FakeConn") -> None:
+    def __init__(self, conn: _FakeConn) -> None:
         self.connection = conn
 
     def execute(self, sql: str, params=None):  # noqa: ANN001
@@ -130,6 +129,139 @@ def test_pool_defaults_raised_and_env_tunable(monkeypatch):
         monkeypatch.delenv("GRAPH_DB_POOL_MAX", raising=False)
         monkeypatch.delenv("GRAPH_DB_POOL_MIN", raising=False)
         importlib.reload(backends_pkg)
+
+
+# ── 4. Live AGE write path actually runs the resilience policy ───────────────
+#
+# The deployed authority is AGEBackend (GRAPH_PG_AGE=1), whose execute/execute_batch/
+# add_embedding/semantic_search OVERRIDE the parent and issue raw SQL through
+# ``self._conn()``. Before the fix those overrides did NOT wrap the call in the
+# pool-acquire/lock-contention retry policy, so a starved-pool ``PoolTimeout`` on
+# the LIVE write path escaped uncaught (the parent's fix only covered the transpiler
+# path). These tests drive a write through ``AGEBackend.execute`` with the pooled
+# connection raising ``PoolTimeout`` and assert the policy re-drives it.
+
+
+class _ConnCtx:
+    """Context manager standing in for ``pool.connection(timeout=...)``."""
+
+    def __init__(self, conn: _FakeConn) -> None:
+        self._conn = conn
+
+    def __enter__(self) -> _FakeConn:
+        return self._conn
+
+    def __exit__(self, *exc) -> bool:  # noqa: ANN002
+        return False
+
+
+class _ExecConn:
+    """A connection whose cursor records executed SQL and commits."""
+
+    def __init__(self) -> None:
+        self.executed: list[str] = []
+        self.committed = 0
+        self._age_prepared = True  # skip LOAD/SET prep noise
+
+    def cursor(self):  # noqa: ANN201
+        outer = self
+
+        class _Cur:
+            description = None  # a no-RETURN write yields no rows
+
+            def __enter__(self_inner):  # noqa: ANN001
+                return self_inner
+
+            def __exit__(self_inner, *exc):  # noqa: ANN001, ANN002
+                return False
+
+            def execute(self_inner, sql, params=None):  # noqa: ANN001
+                outer.executed.append(sql)
+
+            def fetchall(self_inner):  # noqa: ANN001
+                return []
+
+        return _Cur()
+
+    def commit(self) -> None:
+        self.committed += 1
+
+
+class _FlakyPool:
+    """Pool whose ``.connection(...)`` raises PoolTimeout for the first N acquires.
+
+    Mirrors a starved psycopg_pool: the bounded acquire times out while every
+    connection is busy, then frees up and succeeds.
+    """
+
+    def __init__(self, fail_times: int) -> None:
+        self.fail_times = fail_times
+        self.acquires = 0
+        self.conn = _ExecConn()
+
+    def connection(self, timeout=None):  # noqa: ANN001
+        self.acquires += 1
+        if self.acquires <= self.fail_times:
+            raise _PoolTimeout("couldn't get a connection after 5.0 sec")
+        return _ConnCtx(self.conn)
+
+
+def _age_backend_with_pool(pool) -> AGEBackend:  # noqa: ANN001
+    be = AGEBackend.__new__(AGEBackend)
+    # Minimal state _conn()/execute touch (no real DSN/pool open).
+    be._pool = pool
+    be._pool_timeout = 5.0
+    be._graph_name = "agent_graph"
+    return be
+
+
+@pytest.mark.concept("KG-2.152")
+def test_age_execute_retries_pool_timeout_then_succeeds():
+    # PoolTimeout on the first acquire, success on the second: the resilience policy
+    # must re-drive the AGE write and ultimately commit it — NOT hang, NOT drop.
+    pool = _FlakyPool(fail_times=1)
+    be = _age_backend_with_pool(pool)
+
+    out = be.execute("CREATE (n:Thing {id: $id})", {"id": "x1"})
+
+    assert out == []  # a no-RETURN write
+    assert pool.acquires == 2  # one timeout + one success → it retried
+    assert pool.conn.committed == 1  # the write actually landed
+    assert pool.conn.executed  # SQL ran on the second (live) acquire
+
+
+@pytest.mark.concept("KG-2.152")
+def test_age_execute_classifies_pool_timeout_as_retryable():
+    # The classifier the policy relies on must flag the live-path PoolTimeout.
+    assert AGEBackend._is_lock_contention(_PoolTimeout("timed out")) is True
+
+
+@pytest.mark.concept("KG-2.152")
+def test_age_execute_bounded_when_pool_never_frees():
+    # If the pool never frees, the retry budget is bounded (does NOT hang forever)
+    # and the terminal PoolTimeout surfaces rather than being silently swallowed.
+    pool = _FlakyPool(fail_times=999)
+    be = _age_backend_with_pool(pool)
+
+    with pytest.raises(Exception) as ei:  # noqa: PT011 — PoolTimeout/contention
+        be.execute("CREATE (n:Thing {id: $id})", {"id": "x2"})
+
+    # Bounded attempts (default max 3), not an unbounded loop, and nothing committed.
+    assert pool.acquires == 3
+    assert pool.conn.committed == 0
+    assert type(ei.value).__name__ in ("PoolTimeout", "PostgresLockContentionError")
+
+
+@pytest.mark.concept("KG-2.152")
+def test_age_add_embedding_retries_pool_timeout():
+    # The embedding write override is on the same live path → same protection.
+    pool = _FlakyPool(fail_times=1)
+    be = _age_backend_with_pool(pool)
+
+    be.add_embedding("node-1", [0.0, 1.0, 2.0])
+
+    assert pool.acquires == 2  # retried past the timeout
+    assert pool.conn.committed == 1
 
 
 @pytest.mark.concept("KG-2.152")

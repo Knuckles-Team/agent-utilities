@@ -191,13 +191,25 @@ class AGEBackend(PostgreSQLBackend):
             f"SELECT * FROM cypher('{self._graph_name}', $ag${inlined}$ag$) "
             f"AS ({col_def})"
         )
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                self._age_session(cur)
-                cur.execute(sql)
-                rows = cur.fetchall()  # no-RETURN writes yield 0 rows, not an error
-                colnames = [d.name for d in cur.description] if cur.description else []
-            conn.commit()
+
+        def _run() -> tuple[list[Any], list[str]]:
+            # CONCEPT:KG-2.152 — the live authority-write path. Drive the raw-SQL
+            # AGE write through the SHARED pool-timeout/lock-contention retry policy
+            # (``_run_resilient``) so a starved-pool ``PoolTimeout`` becomes a bounded
+            # retry instead of escaping uncaught — the parent's resilience fix only
+            # protected the transpiler path, not this override.
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    self._age_session(cur)
+                    cur.execute(sql)
+                    rows = cur.fetchall()  # no-RETURN writes yield 0 rows, not an error
+                    colnames = (
+                        [d.name for d in cur.description] if cur.description else []
+                    )
+                conn.commit()
+            return rows, colnames
+
+        rows, colnames = self._run_resilient(_run, name="age-execute")
 
         out: list[dict[str, Any]] = []
         for row in rows:
@@ -241,26 +253,39 @@ class AGEBackend(PostgreSQLBackend):
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         vec = "[" + ",".join(repr(float(x)) for x in embedding) + "]"
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO kg_embeddings (node_id, embedding) VALUES (%s, %s::vector) "
-                    "ON CONFLICT (node_id) DO UPDATE SET embedding = EXCLUDED.embedding",
-                    (node_id, vec),
-                )
-            conn.commit()
+
+        def _run() -> None:
+            # CONCEPT:KG-2.152 — embedding writes share the same starved pool, so
+            # route through the shared pool-timeout/lock-contention retry policy too.
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO kg_embeddings (node_id, embedding) VALUES (%s, %s::vector) "
+                        "ON CONFLICT (node_id) DO UPDATE SET embedding = EXCLUDED.embedding",
+                        (node_id, vec),
+                    )
+                conn.commit()
+
+        self._run_resilient(_run, name="age-add-embedding")
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5
     ) -> list[dict[str, Any]]:
         vec = "[" + ",".join(repr(float(x)) for x in query_embedding) + "]"
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT node_id, 1 - (embedding <=> %s::vector) AS score "
-                    "FROM kg_embeddings ORDER BY embedding <=> %s::vector LIMIT %s",
-                    (vec, vec, n_results),
-                )
-                rows = cur.fetchall()
-            conn.commit()
+
+        def _run() -> list[Any]:
+            # CONCEPT:KG-2.152 — vector search competes for the same pool under load;
+            # route through the shared pool-timeout/lock-contention retry policy.
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT node_id, 1 - (embedding <=> %s::vector) AS score "
+                        "FROM kg_embeddings ORDER BY embedding <=> %s::vector LIMIT %s",
+                        (vec, vec, n_results),
+                    )
+                    rows = cur.fetchall()
+                conn.commit()
+            return rows
+
+        rows = self._run_resilient(_run, name="age-semantic-search")
         return [{"id": r[0], "score": float(r[1])} for r in rows]

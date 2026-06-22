@@ -656,6 +656,54 @@ class PostgreSQLBackend(GraphBackend):
             )
         )
 
+    def _run_resilient(
+        self, fn: Any, *, max_attempts: int = 3, name: str = "postgresql-op"
+    ) -> Any:
+        """Run a DB callable under the shared pool-acquire/lock-contention policy.
+
+        CONCEPT:KG-2.152 — the bounded ``_conn`` acquire raises ``PoolTimeout`` fast
+        when the shared pool is starved; ``_is_lock_contention`` classifies that (and
+        genuine PG lock/deadlock SQLSTATEs) as retryable, and this re-drives ``fn``
+        with bounded exponential backoff instead of hanging on the 30s default or
+        silently dropping the write. The AGE subclass routes its raw-SQL writes
+        (``execute``/``execute_batch``/``add_embedding``/``semantic_search``) through
+        here too, so the live authority-write path actually gets the fix — they would
+        otherwise let a ``PoolTimeout`` escape uncaught and re-implement the pool
+        acquire without any retry.
+
+        ``fn`` MUST raise on contention (do NOT swallow exceptions inside it) so the
+        policy can see the retryable error; on a non-retryable error the original
+        exception propagates after the attempt budget logic, matching prior behaviour.
+        """
+        from agent_utilities.orchestration.resilience import (
+            ResiliencePolicy,
+            RetryableError,
+            run_with_resilience_sync,
+        )
+
+        attempts_used = 0
+
+        def _attempt() -> Any:
+            nonlocal attempts_used
+            attempts_used += 1
+            try:
+                return fn()
+            except Exception as e:
+                if self._is_lock_contention(e) and attempts_used < max_attempts:
+                    logger.warning("PG locked, retrying (attempt %d)", attempts_used)
+                    raise PostgresLockContentionError(str(e)) from e
+                raise
+
+        policy = ResiliencePolicy(
+            max_attempts=max_attempts,
+            backoff_base_s=0.1,
+            backoff_factor=2.0,
+            jitter=False,
+            retry_on=(PostgresLockContentionError, RetryableError),
+            name=name,
+        )
+        return run_with_resilience_sync(_attempt, policy)
+
     def execute(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
@@ -679,7 +727,9 @@ class PostgreSQLBackend(GraphBackend):
         if handled:
             return rows
 
-        tq = transpile(query, params, self._known_tables, node_tables=(self._node_tables or None))
+        tq = transpile(
+            query, params, self._known_tables, node_tables=(self._node_tables or None)
+        )
 
         if tq.query_type == QueryType.UNKNOWN:
             logger.debug("Skipping unknown Cypher pattern: %.120s", query)
@@ -802,7 +852,12 @@ class PostgreSQLBackend(GraphBackend):
                 with self._conn() as conn:
                     with conn.cursor() as cur:
                         for params in chunk:
-                            tq = transpile(query, params, self._known_tables, node_tables=(self._node_tables or None))
+                            tq = transpile(
+                                query,
+                                params,
+                                self._known_tables,
+                                node_tables=(self._node_tables or None),
+                            )
                             if tq.query_type == QueryType.UNKNOWN:
                                 continue
                             cur.execute(tq.sql, tq.params)
