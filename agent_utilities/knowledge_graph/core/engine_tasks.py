@@ -3153,13 +3153,21 @@ class TaskManagerMixin(GraphEngineProtocol):
             # under the background throttle so a heavy cycle yields to foreground
             # work like any other background task. (CONCEPT:OS-5.44)
             "scheduled_job",
-            # OWL capability-card backfill, run in its own lane (CONCEPT:KG-2.153)
-            # — heavy background LLM work, so it yields under the throttle exactly
-            # like any other scheduled tick.
-            "enrichment_backfill",
             # Full-paper download + ingest enqueued by the RSS feed screen.
             "research_paper_fetch",
         }
+        # CONCEPT:KG-2.153 — ``enrichment_backfill`` is heavy background LLM work
+        # but it must NOT acquire the background semaphore HERE, at the
+        # task-dispatch boundary: a single tick drains up to ``_ENRICH_MAX_BATCHES``
+        # batches (16*64 = 1024 symbols), and holding ONE outer permit for that
+        # whole tick (a) caps the dedicated enrichment lane at
+        # ``_BACKGROUND_MAX_CONCURRENT`` regardless of how many spare workers it
+        # could expand into, and (b) starves the other ~17 background/maint ticks
+        # for the full tick. Instead, ``_tick_enrichment`` acquires the
+        # background_slot PER BATCH and releases it BETWEEN batches, so the permit
+        # is yielded ~64x per tick and other background work interleaves while the
+        # dedicated lane + hot-spare reservation still bound concurrency. So this
+        # type runs UNWRAPPED here (its per-batch throttle is the real gate).
         if task_type in _HEAVY_TASK_TYPES:
             from agent_utilities.core.background_throttle import get_throttle
 
