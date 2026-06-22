@@ -54,6 +54,14 @@ you loop over). The whole thing is built to need only this repo URL.
    healthy, fleet valid). Report what's wired and what the operator still needs to
    supply (e.g. provider keys, host inventory).
 
+> 🧰 **Install the skills first — they unlock how to use everything else.** The very
+> first move (even before full deploy) is **`agent-utilities install-skills`**: it drops
+> the skill toolkit — including the **`agent-utilities` skill-graph** (the platform's own
+> reference manual) plus the `agent-utilities-deployment` / `agent-os-genesis` /
+> evolution / KG skills — into the calling agent tool and the agent-utilities XDG skills
+> dir, where agents auto-load them. `agent-utilities-doctor`'s `skills` check flags it if
+> absent. These skills are how an agent learns to drive the rest of the platform.
+
 | Profile | Infra | MCP fleet | Secrets | Skill |
 |---|---|---|---|---|
 | `tiny` | none (in-process) | none | `.env` | `agent-utilities-deployment` |
@@ -520,6 +528,39 @@ This is the surface contract for *Native by default*: "always-on in the flow"
 governs internal behavior; "reachable from gateway + MCP" governs the operator
 surface. A feature satisfies neither by existing — it satisfies both by being
 wired, defaulted on, and exposed on both surfaces in the same change.
+
+## This package ships its OWN skills + the mcp-builder parity waiver (READ when touching skills/MCP)
+
+agent-utilities is both the **hub** that discovers fleet-contributed skills/prompts
+(`core/providers.py` → `agent_utilities.skill_providers` / `agent_utilities.prompt_providers`)
+**and**, like every `agents/*` package, a **contributor of its own** (CONCEPT:OS-5.52):
+
+- Its unique skills live in **`agent_utilities/skills/`** (atomic skills at the top level,
+  the genesis workflow under `skills/workflows/agent-os-genesis/`, and the `agent-utilities`
+  skill-graph under `skills/skill_graphs/agent-utilities/`). They are declared via the single
+  `[project.entry-points."agent_utilities.skill_providers"]` = `agent_utilities.skills` group and
+  shipped through package-data `skills/**`, so `install-skills` (and the quick
+  `agent-utilities install-skills` command) drops them into the XDG skills dir exactly like any
+  other package. **Add a new AU-specific skill here**, not in universal-skills; generic/standalone
+  skills (and the authoring builders + `kg-delegation-router`) stay in universal-skills.
+- The hub deliberately does **NOT** declare a `prompt_providers` entry-point for itself: its
+  `prompts/*.json` are already the packaged BASE layer (`registry_builder._iter_prompt_sources`
+  ingests them with bare `prompt:<name>` ids and `source: agent-utilities:base`). A self-pointing
+  provider would re-ingest every base prompt under a second `prompt:agent-utilities/<name>`
+  namespace — so it is intentionally one-sided vs the `agents/*` pattern.
+
+**MCP parity waiver.** The three FastMCP servers (`mcp/kg_server.py`, `mcp/multiplexer.py`,
+`mcp/harness_server.py`) already follow mcp-builder's **tool-surface** conventions: built via
+`create_mcp_server` (`mcp/server_factory.py`), the graph-os surface via the one-call
+`register_tool_surface` (`mcp/verbose_tools.py`) owning `MCP_TOOL_MODE`, and every feature on the
+REST **and** MCP surface over one `_execute_tool` core. The hub explicitly **WAIVES** the
+**connector-shape** rows of `agent-package-builder`'s PARITY_MANIFEST (per-connector `auth.py
+get_client`, per-domain `api_client_*` mixins, `a2a.json`, `validate_api_integration`, the
+`{SERVICE}_URL/TOKEN/SSL_VERIFY` env trio, per-connector compose) — the golden reference there is a
+*connector* (gitlab-api); agent-utilities is the framework hub with its own gateway/daemon/identity/
+engine stack. Do **not** run `scripts/retrofit_fleet_contribution.py` against this repo (its
+connector display-name / `extends agent-utilities:base` / namespaced-prompt / starter-skill
+assumptions are wrong for the hub).
 
 ## Document & diagram by default — every change updates the architecture + docs (READ BEFORE finishing a feature)
 

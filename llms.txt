@@ -13,6 +13,7 @@
 
 ## Start here (read first)
 
+- **Install the skills first — they unlock how to use everything else.** Run `agent-utilities install-skills` to install the skill toolkit (including the `agent-utilities` skill-graph — the platform's own reference manual) into the calling agent tool and the agent-utilities XDG skills dir, where agents auto-load them. `agent-utilities-doctor` flags it if missing.
 - [Start Here — what it is & how to use it](docs/start-here.md): the one-page overview — pillars, the 3 consumption models, zero-infra KG.
 - [Capabilities](docs/capabilities.md): concrete list of what an agent can do, with copy-paste library + MCP snippets.
 - [Consumption Models](docs/guides/consumption-models.md): library vs MCP stdio vs MCP HTTP vs REST gateway — when to use each.
