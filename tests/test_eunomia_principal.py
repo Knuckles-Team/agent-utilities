@@ -127,3 +127,137 @@ def test_fastmcp3_component_exposes_enabled():
     assert tool.enabled is True
     disabled = not tool.enabled
     assert disabled is False
+
+
+# --- /check/bulk chunking (CONCEPT:ECO-4.88) -------------------------------
+
+
+def _req(name):
+    """A minimal CheckRequest whose resource uri encodes its index/name."""
+    return schemas.CheckRequest(
+        principal=schemas.PrincipalCheck(uri="agent:claude-code", attributes={}),
+        resource=schemas.ResourceCheck(uri=f"mcp:tool:{name}", attributes={}),
+        action="list",
+    )
+
+
+class _FakeBridge:
+    """Stand-in EunomiaBridge with a mocked transport.
+
+    Records the size of every ``bulk_check`` call it receives and rejects any
+    request larger than ``cap`` (mirroring the remote server's HTTP 400). Returns
+    one CheckResponse per request, positionally aligned, marking a resource allowed
+    iff its uri is in ``allowed_uris``.
+    """
+
+    def __init__(self, cap=100, allowed_uris=None):
+        self.cap = cap
+        self.allowed_uris = set(allowed_uris or [])
+        self.batch_sizes = []
+        self.mode = "client"  # arbitrary passthrough attribute
+
+    async def bulk_check(self, requests):
+        requests = list(requests)
+        self.batch_sizes.append(len(requests))
+        if len(requests) > self.cap:
+            raise RuntimeError(
+                f"Too many requests. Maximum allowed: {self.cap}"
+            )
+        return [
+            schemas.CheckResponse(allowed=(r.resource.uri in self.allowed_uris))
+            for r in requests
+        ]
+
+
+@pytest.mark.asyncio
+async def test_bulk_check_chunks_250_into_100_100_50():
+    """250 items must be split into 100/100/50 batches, none exceeding the cap."""
+    from agent_utilities.mcp.eunomia_principal import _ChunkingBulkCheckBridge
+
+    fake = _FakeBridge(cap=100)
+    wrapped = _ChunkingBulkCheckBridge(fake, max_batch=100)
+
+    requests = [_req(i) for i in range(250)]
+    results = await wrapped.bulk_check(requests)
+
+    assert fake.batch_sizes == [100, 100, 50]
+    assert all(b <= 100 for b in fake.batch_sizes)
+    assert len(results) == 250
+
+
+@pytest.mark.asyncio
+async def test_bulk_check_merges_results_in_order():
+    """Merged responses stay positionally aligned with the request list."""
+    from agent_utilities.mcp.eunomia_principal import _ChunkingBulkCheckBridge
+
+    # Allow only every 7th tool, spread across all three chunks.
+    requests = [_req(i) for i in range(250)]
+    allowed = {f"mcp:tool:{i}" for i in range(250) if i % 7 == 0}
+    fake = _FakeBridge(cap=100, allowed_uris=allowed)
+    wrapped = _ChunkingBulkCheckBridge(fake, max_batch=100)
+
+    results = await wrapped.bulk_check(requests)
+
+    assert len(results) == 250
+    for i, res in enumerate(results):
+        assert res.allowed == (i % 7 == 0), f"index {i} misaligned after merge"
+
+
+@pytest.mark.asyncio
+async def test_bulk_check_single_batch_when_under_cap():
+    """<=cap items go in one request (no needless chunking)."""
+    from agent_utilities.mcp.eunomia_principal import _ChunkingBulkCheckBridge
+
+    fake = _FakeBridge(cap=100)
+    wrapped = _ChunkingBulkCheckBridge(fake, max_batch=100)
+
+    results = await wrapped.bulk_check([_req(i) for i in range(100)])
+    assert fake.batch_sizes == [100]
+    assert len(results) == 100
+
+
+@pytest.mark.asyncio
+async def test_unwrapped_bridge_would_fail_on_oversize():
+    """Sanity: without chunking the fake transport rejects >cap (the live 400)."""
+    fake = _FakeBridge(cap=100)
+    with pytest.raises(RuntimeError, match="Maximum allowed: 100"):
+        await fake.bulk_check([_req(i) for i in range(250)])
+
+
+def test_chunking_bridge_delegates_other_attrs():
+    """Everything except bulk_check passes through to the real bridge."""
+    from agent_utilities.mcp.eunomia_principal import _ChunkingBulkCheckBridge
+
+    fake = _FakeBridge()
+    wrapped = _ChunkingBulkCheckBridge(fake)
+    assert wrapped.mode == "client"  # delegated attribute
+
+
+def test_apply_bulk_check_chunking_is_idempotent():
+    """Wrapping a middleware twice must not double-wrap the bridge."""
+    from agent_utilities.mcp.eunomia_principal import (
+        _ChunkingBulkCheckBridge,
+        apply_bulk_check_chunking,
+    )
+
+    class _MW:
+        def __init__(self):
+            self._eunomia = _FakeBridge()
+
+    mw = _MW()
+    apply_bulk_check_chunking(mw)
+    assert isinstance(mw._eunomia, _ChunkingBulkCheckBridge)
+    inner = mw._eunomia._bridge
+    apply_bulk_check_chunking(mw)  # second call
+    assert mw._eunomia._bridge is inner  # not re-wrapped
+
+
+def test_apply_bulk_check_chunking_noop_without_bridge():
+    """No ``_eunomia`` attribute → return middleware unchanged (defensive)."""
+    from agent_utilities.mcp.eunomia_principal import apply_bulk_check_chunking
+
+    class _Bare:
+        pass
+
+    mw = _Bare()
+    assert apply_bulk_check_chunking(mw) is mw
