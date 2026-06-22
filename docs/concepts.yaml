@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 427
+total_concepts: 428
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1389,6 +1389,13 @@ concepts:
   - agent_utilities/tools/agent_tools.py
   - agent_utilities/tools/tool_registry.py
   doc: the AgentBus is a NATIVE capability, not an opt-in persona
+- id: ECO-4.89
+  name: fleet-wide verbose auto-wire from condensed action enums
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/mcp/verbose_tools.py
+  doc: fleet-wide verbose auto-wire from condensed action enums
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
