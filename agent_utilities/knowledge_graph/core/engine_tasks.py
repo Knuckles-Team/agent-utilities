@@ -3067,6 +3067,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             "document",
             "content_url",
             "feed_ingest",
+            "feed_sweep",
             "deep_analysis",
             "synthesize",
             "deep_extract",
@@ -3343,6 +3344,39 @@ class TaskManagerMixin(GraphEngineProtocol):
                                 "error": str(fe),
                             },
                         )
+
+            elif task_type == "feed_sweep":
+                # The RSS/FreshRSS sweep run OFF the request path (CONCEPT:KG-2.121).
+                # The sweep is the "review" producer: it fetches (concurrently),
+                # runs the world-model gate, and ENQUEUES per-article worldview/
+                # research tasks. It does NOT ride the 300s MCP call — graph_feeds
+                # sync enqueues this and returns immediately. The gate loop does
+                # per-item engine work, so run it in a worker thread.
+                from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+                trow = self.query_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
+                )
+                meta_t = _decode_metadata(trow[0]["t"].get("metadata")) if trow else {}
+                source = str((meta_t or {}).get("feed_source") or "rss")
+                fmode = str((meta_t or {}).get("feed_mode") or "delta")
+                try:
+                    res = await asyncio.to_thread(sync_source, self, source, mode=fmode)
+                    self._update_task_status(
+                        job_id,
+                        "completed",
+                        {"target": f"feed:{source}", "type": task_type, "result": res},
+                    )
+                except Exception as se:  # noqa: BLE001
+                    self._update_task_status(
+                        job_id,
+                        "failed",
+                        {
+                            "target": f"feed:{source}",
+                            "type": task_type,
+                            "error": str(se),
+                        },
+                    )
 
             elif task_type == "skill_workflows":
                 # CONCEPT:KG-2.97 — ingest the universal-skills workflow corpus as
