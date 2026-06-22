@@ -48,6 +48,19 @@ _SCHEDULE_LABEL = "Schedule"
 _ADAPTIVE_MAX_BACKOFF_MULT = 16
 
 
+def _control_backend(engine: Any) -> Any:
+    """The engine's isolated control-plane backend (CONCEPT:KG-2.148).
+
+    The scheduler operates on :Schedule and :Task nodes — the CONTROL plane —
+    which live on the dedicated ``__control__`` engine graph so they never
+    contend with sustained content ingestion on ``__commons__``'s write lock.
+    Returns ``engine.control_backend`` when present, else falls back to
+    ``engine.backend`` (unchanged behaviour where no isolated control backend
+    was built).
+    """
+    return getattr(engine, "control_backend", None) or getattr(engine, "backend", None)
+
+
 def _registry_path() -> Path:
     """deploy/schedules.yml at the package repo root."""
     return Path(__file__).resolve().parents[2] / "deploy" / "schedules.yml"
@@ -178,15 +191,19 @@ def _upsert(engine: Any, spec: ScheduleSpec) -> None:
     since ``spec.to_props()`` is the full desired state and callers
     (:func:`register_schedule`/:func:`seed_schedules`) already merge live runtime
     state into ``spec`` before upserting. So one fast write, no scan, no read.
+
+    CONCEPT:KG-2.148 — :Schedule is CONTROL plane → write it to the isolated
+    ``__control__`` graph (the control backend), never the content graph.
     """
-    backend = getattr(engine, "backend", None)
+    backend = _control_backend(engine)
     if backend is None:
         return
     backend.add_node(spec.name, node_type=_SCHEDULE_LABEL, **spec.to_props())
 
 
 def _load_all(engine: Any) -> list[ScheduleSpec]:
-    backend = getattr(engine, "backend", None)
+    # CONCEPT:KG-2.148 — :Schedule lives on the control graph; read it from there.
+    backend = _control_backend(engine)
     if backend is None:
         return []
     keys = (
@@ -208,7 +225,8 @@ def _load_all(engine: Any) -> list[ScheduleSpec]:
 
 
 def _load_one(engine: Any, name: str) -> ScheduleSpec | None:
-    backend = getattr(engine, "backend", None)
+    # CONCEPT:KG-2.148 — :Schedule lives on the control graph; read it from there.
+    backend = _control_backend(engine)
     if backend is None:
         return None
     keys = (
@@ -327,8 +345,12 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
     never touched. Idempotent and cheap in steady state: when every schedule already
     has ≤1 active tick it issues only the read probes and no writes. Best-effort —
     it must never raise into the scheduler tick.
+
+    CONCEPT:KG-2.148 — operates on :Task ticks via the CONTROL backend (the ticks
+    live on the isolated ``__control__`` graph); ``engine.query_cypher`` already
+    routes those :Task reads there too.
     """
-    backend = getattr(engine, "backend", None)
+    backend = _control_backend(engine)
     if backend is None:
         return {"schedules_collapsed": 0, "cancelled": 0}
     cas = getattr(backend, "compare_and_set_node_fields", None)

@@ -18,6 +18,7 @@ else:
 
 
 import logging
+import re
 from typing import Any
 
 from ...models.knowledge_graph import RegistryNodeType
@@ -26,6 +27,31 @@ from ..retrieval.score_gate import score_gate
 from ..retrieval.temporal_semantic_id import TemporalSemanticIdEncoder
 
 logger = logging.getLogger(__name__)
+
+# CONCEPT:KG-2.148 — the labels that live on the isolated ``__control__`` engine
+# graph (the scheduler / task control plane). A read whose node labels are ALL in
+# this set is a control-plane read and is routed to the control backend; anything
+# else (content labels, or a label-less pattern that might match content) stays on
+# the content backend.
+_CONTROL_PLANE_LABELS = frozenset({"task", "schedule"})
+# Node-pattern label extractor: matches the label after a ':' inside a
+# ``(var:Label`` / ``(:Label`` pattern (Cypher node patterns only).
+_NODE_LABEL_RE = re.compile(r"\(\s*\w*\s*:\s*([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _is_control_plane_query(query: str) -> bool:
+    """True when ``query`` references ONLY control-plane node labels (KG-2.148).
+
+    Returns ``False`` for any query that references a content label, or that
+    references no node label at all (e.g. a bare ``MATCH (n) WHERE n.id = …``),
+    so a content read is never misrouted to the control graph. Returns ``True``
+    only when at least one node label is present and every referenced node label
+    is in :data:`_CONTROL_PLANE_LABELS`.
+    """
+    labels = _NODE_LABEL_RE.findall(query or "")
+    if not labels:
+        return False
+    return all(lbl.lower() in _CONTROL_PLANE_LABELS for lbl in labels)
 
 
 class QueryMixin(_Base):
@@ -73,13 +99,32 @@ class QueryMixin(_Base):
         except Exception as exc:  # pragma: no cover - never break a read
             logger.debug("query scope() skipped: %s", exc)
 
-        if not self.backend:
+        # CONCEPT:KG-2.148 — control-plane / content-plane read isolation. The
+        # control plane (:Task / :Schedule) is stored on the isolated
+        # ``__control__`` engine graph (see engine._build_control_backend), so a
+        # query that targets ONLY those labels must read from the control backend
+        # — otherwise external callers (job_status, ops_context, fleet, deploy
+        # watch, …) would read the content graph (``__commons__``) and find no
+        # tasks/schedules. Content queries (and any query that also touches a
+        # content label) stay on ``self.backend``. Degrades to ``self.backend``
+        # whenever no isolated control backend exists, so behaviour is unchanged
+        # on deployments where it could not be built.
+        read_backend = self.backend
+        ctrl = getattr(self, "control_backend", None)
+        if (
+            ctrl is not None
+            and ctrl is not self.backend
+            and _is_control_plane_query(scoped_query)
+        ):
+            read_backend = ctrl
+
+        if not read_backend:
             logger.warning(
                 "GraphBackend not initialized; using basic graph compute fallback for Cypher query."
             )
             rows = self._query_nx_fallback(scoped_query, params, clearance_level)
         else:
-            rows = self.backend.execute(scoped_query, params)
+            rows = read_backend.execute(scoped_query, params)
 
         try:
             from agent_utilities.knowledge_graph.core.secured_reads import (

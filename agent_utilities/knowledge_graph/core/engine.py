@@ -159,6 +159,19 @@ class IntelligenceGraphEngine(
             )
             self.routing_strategy = RoutingStrategy.HYBRID
 
+        # CONCEPT:KG-2.148 — control-plane / content-plane write isolation.
+        # The scheduler, the per-task claim CAS, status flips, the reaper resets,
+        # the promotion sweep, and the :Schedule store all funnel through ONE
+        # engine graph ('__commons__') with a single per-graph write lock. Under
+        # sustained codebase ingestion that lock is held for long stretches and
+        # STARVES the control plane (claims/collapse/scheduler block on it). Bind
+        # a dedicated control backend to a separate '__control__' engine graph so
+        # the control plane has its own write lock, never contended by content
+        # ingestion. The durable L3 stays the SAME Postgres (row-level locking →
+        # no cross-graph contention there). Falls back to ``self.backend`` if the
+        # control backend can't be built (degrade, never crash).
+        self.control_backend = self._build_control_backend()
+
         super().__init__()
 
         # Start workers if there are pending tasks in the database natively
@@ -203,6 +216,66 @@ class IntelligenceGraphEngine(
 
         # CONCEPT:ORCH-1.4 — Auto-register service registry
         self._services_registered = False
+
+    def _build_control_backend(self) -> GraphBackend:
+        """Construct the dedicated control-plane backend (CONCEPT:KG-2.148).
+
+        Returns a backend bound to the ``__control__`` engine graph so the
+        scheduler / task-claim / status / reaper / promotion-sweep / :Schedule
+        writes run on a *separate* per-graph write lock from sustained content
+        ingestion (which holds ``__commons__``'s lock and otherwise starves the
+        control plane).
+
+        Shape mirrors ``self.backend``:
+
+          * If ``self.backend`` is a :class:`TieredGraphBackend` (L1 epistemic +
+            L3 durable), the control backend is a NEW ``TieredGraphBackend`` whose
+            L1 is an ``EpistemicGraphBackend(graph_name='__control__')`` and whose
+            L3 is the **same** durable backend instance — Postgres has row-level
+            locking, so two engine graphs sharing it never contend on a graph
+            write lock. The single durable connection pool is reused.
+          * If ``self.backend`` is an L1-only ``EpistemicGraphBackend`` (no durable
+            tier configured), the control backend is a standalone
+            ``EpistemicGraphBackend(graph_name='__control__')``.
+          * Any failure (unexpected backend shape, engine not reachable for the
+            named graph) degrades to ``self.backend`` so the control plane keeps
+            working on ``__commons__`` exactly as before — never crash.
+        """
+        try:
+            from ..backends.epistemic_graph_backend import EpistemicGraphBackend
+            from ..backends.tiered_backend import TieredGraphBackend
+
+            base = self.backend
+            control_l1 = EpistemicGraphBackend(graph_name="__control__")
+
+            if isinstance(base, TieredGraphBackend):
+                # Reuse the SAME durable L3 (shared Postgres pool); only the L1
+                # working store is bound to the isolated control graph. Keep the
+                # default always-on write-behind so a slow L3 never stalls the
+                # control plane's hot write path either.
+                control = TieredGraphBackend(l1=control_l1, l3=base.l3)
+                logger.info(
+                    "[CONCEPT:KG-2.148] control backend bound to '__control__' "
+                    "(L1=epistemic_graph, L3=shared durable %s)",
+                    type(base.l3).__name__,
+                )
+                return control
+
+            # L1-only deployment: standalone control graph, no durable tier.
+            logger.info(
+                "[CONCEPT:KG-2.148] control backend bound to '__control__' "
+                "(L1-only, backend=%s)",
+                type(base).__name__,
+            )
+            return control_l1
+        except Exception as e:  # noqa: BLE001 — degrade, never crash the engine
+            logger.warning(
+                "[CONCEPT:KG-2.148] could not build isolated control backend "
+                "(%s); falling back to the shared content backend (__commons__). "
+                "Control-plane writes will contend with ingestion as before.",
+                e,
+            )
+            return self.backend
 
     def register_services(self) -> int:
         """Register all services with the KG for orchestrator discovery.

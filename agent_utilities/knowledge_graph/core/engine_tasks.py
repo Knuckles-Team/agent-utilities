@@ -573,6 +573,41 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         self._embed_backfill_thread.start()
 
+    # ── Control-plane backend routing (CONCEPT:KG-2.148) ─────────────────
+    # The scheduler / task-claim / status / reaper / promotion-sweep / :Schedule
+    # writes are CONTROL plane and must run on the isolated ``__control__`` engine
+    # graph's write lock, NOT ``__commons__``'s — which sustained content
+    # ingestion holds and otherwise starves the control plane through. The engine
+    # builds ``self.control_backend`` (a backend bound to ``__control__``); these
+    # helpers route the control-plane ops to it, degrading to ``self.backend``
+    # when no isolated control backend exists (so behaviour is unchanged on
+    # deployments where construction failed). Content/document/codebase ingestion
+    # writes deliberately keep using ``self.backend`` (``__commons__``).
+
+    @property
+    def _control(self) -> Any:
+        """The control-plane backend (``__control__``), or ``self.backend``.
+
+        CONCEPT:KG-2.148 — single accessor so every control-plane call site
+        routes through the isolated control graph when available and falls back
+        cleanly to the shared content backend when it isn't.
+        """
+        return getattr(self, "control_backend", None) or self.backend
+
+    def _control_cypher(
+        self, cypher: str, params: dict | None = None
+    ) -> list[dict[str, Any]]:
+        """Run a CONTROL-PLANE Cypher read/write against ``__control__``.
+
+        Mirrors ``query_cypher`` but targets the isolated control backend
+        (CONCEPT:KG-2.148). Used for :Task / :Schedule / queue / claim ops so
+        they never block on the content-ingestion write lock.
+        """
+        ctrl = self._control
+        if ctrl is not None and hasattr(ctrl, "execute"):
+            return ctrl.execute(cypher, params)
+        return []
+
     def unified_daemon_status(self) -> dict[str, Any]:
         """Status of the single consolidated background daemon (CONCEPT:KG-2.8).
 
@@ -1077,7 +1112,9 @@ class TaskManagerMixin(GraphEngineProtocol):
 
             _multi_host = postgres_state_enabled()
 
-            rows = self.query_cypher(
+            # CONCEPT:KG-2.148 — the reaper scans + resets :Task on the CONTROL
+            # plane (__control__), never the content graph.
+            rows = self._control_cypher(
                 "MATCH (t:Task {status: 'running'}) RETURN t.id as id, t.metadata as meta"
             )
             requeued = failed = 0
@@ -1143,7 +1180,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         "failing to break the loop"
                     )
                     meta["reaper_resets"] = resets
-                    self.backend.execute(
+                    self._control_cypher(
                         "MATCH (t:Task {id: $id}) SET t.status = 'failed', t.metadata = $meta",
                         {"id": tid, "meta": _encode_metadata(meta)},
                     )
@@ -1163,7 +1200,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 meta.pop("claim_unix", None)
                 # Guard on status='running' so we never clobber a task a worker just
                 # legitimately completed between the scan and this write.
-                self.backend.execute(
+                self._control_cypher(
                     "MATCH (t:Task {id: $id, status: 'running'}) SET t.status = 'pending', t.metadata = $meta",
                     {"id": tid, "meta": _encode_metadata(meta)},
                 )
@@ -1221,7 +1258,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         broken = {"failed", "dead_letter", "cancelled"}
         all_done = True
         for dep in deps:
-            rows = self.query_cypher(
+            # CONCEPT:KG-2.148 — dependency :Task lookups are CONTROL plane.
+            rows = self._control_cypher(
                 "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": dep}
             )
             state = rows[0].get("s") if rows else None
@@ -1250,8 +1288,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             now = time.time()
             promoted = 0
             cancelled = 0
+            # CONCEPT:KG-2.148 — the promotion sweep reads + flips :Task on the
+            # CONTROL plane (__control__), isolated from content ingestion.
             # scheduled → pending once eta is due (or eta missing/garbled → now).
-            rows = self.query_cypher(
+            rows = self._control_cypher(
                 "MATCH (t:Task {status: 'scheduled'}) "
                 "RETURN t.id as id, t.metadata as meta"
             )
@@ -1266,14 +1306,14 @@ class TaskManagerMixin(GraphEngineProtocol):
                 except (TypeError, ValueError):
                     due = True
                 if due:
-                    self.backend.execute(
+                    self._control_cypher(
                         "MATCH (t:Task {id: $id, status: 'scheduled'}) "
                         "SET t.status = 'pending'",
                         {"id": tid},
                     )
                     promoted += 1
             # blocked → pending once all deps completed; broken deps → cancel.
-            rows = self.query_cypher(
+            rows = self._control_cypher(
                 "MATCH (t:Task {status: 'blocked'}) "
                 "RETURN t.id as id, t.metadata as meta"
             )
@@ -1285,7 +1325,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 deps = meta.get("depends_on") or []
                 state = self._deps_state(deps)
                 if state == "ready":
-                    self.backend.execute(
+                    self._control_cypher(
                         "MATCH (t:Task {id: $id, status: 'blocked'}) "
                         "SET t.status = 'pending'",
                         {"id": tid},
@@ -2346,9 +2386,23 @@ class TaskManagerMixin(GraphEngineProtocol):
                 job_id = task_data["job_id"]
                 props = task_data["props"]
 
-                # This call will block if the DB is locked by worker threads,
-                # but it won't hang the MCP endpoint!
-                self.add_node(job_id, "Task", properties=props)
+                # CONCEPT:KG-2.148 — the :Task node is CONTROL plane: write it to
+                # the isolated ``__control__`` graph (via the control backend) so
+                # task creation never blocks behind sustained content ingestion on
+                # ``__commons__``'s write lock.
+                ctrl = self._control
+                if (
+                    ctrl is not None
+                    and ctrl is not self.backend
+                    and hasattr(ctrl, "add_node")
+                ):
+                    # Replicate EXACTLY what the protocol add_node() does (it wraps
+                    # node_type + ephemeral into the property bag), just bound to
+                    # the control backend instead of self.backend.
+                    ctrl.add_node(job_id, node_type="Task", ephemeral=False, **props)
+                else:
+                    # Degrade to the shared content backend (unchanged behaviour).
+                    self.add_node(job_id, "Task", properties=props)
 
                 # Only acknowledge and remove from queue if successful
                 self._submission_queue.ack(item_id)
@@ -2384,7 +2438,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         # Statuses that still represent un-finished work for dedupe + the
         # promotion sweep: pending/running plus the new delayed/blocked lanes.
         if not skip_dedupe:
-            existing = self.query_cypher(
+            # CONCEPT:KG-2.148 — :Task dedupe read is CONTROL plane → __control__.
+            existing = self._control_cypher(
                 "MATCH (t:Task) WHERE t.status IN "
                 "['pending', 'running', 'scheduled', 'blocked'] "
                 "RETURN t.id as id, t.metadata as meta"
@@ -2481,7 +2536,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         ingest. (CONCEPT:KG-2.7 / KG-2.8)
         """
         try:
-            rows = self.query_cypher(
+            rows = self._control_cypher(
                 "MATCH (t:Task) WHERE t.status IN ['pending','running'] "
                 "RETURN t.metadata as meta"
             )
@@ -2514,7 +2569,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             except Exception:  # noqa: BLE001 — depth probe is best-effort
                 pass
         try:
-            rows = self.query_cypher(
+            rows = self._control_cypher(
                 "MATCH (t:Task) WHERE t.status IN ['pending','running'] "
                 "RETURN count(t) AS c"
             )
@@ -2542,7 +2597,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         # Pre-fetch active targets to deduplicate efficiently
         active_targets = set()
-        for task in self.query_cypher(
+        for task in self._control_cypher(
             "MATCH (t:Task) WHERE t.status IN ['pending', 'running'] RETURN t.metadata as meta"
         ):
             meta = _decode_metadata(task.get("meta"))
@@ -2703,7 +2758,8 @@ class TaskManagerMixin(GraphEngineProtocol):
                     if not _ok(lane, tk):
                         continue
                     for bucket in _PRIORITY_BUCKETS:
-                        rows = self.query_cypher(
+                        # CONCEPT:KG-2.148 — :Task claim selection is CONTROL plane.
+                        rows = self._control_cypher(
                             "MATCH (t:Task {status: 'pending', tkind: $tk, prio_bucket: $b}) "
                             "RETURN t.id as id, t.metadata as meta LIMIT 1",
                             {"tk": tk, "b": bucket},
@@ -2714,7 +2770,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             if not _ok(lane, ""):
                 continue
             for bucket in _PRIORITY_BUCKETS:
-                rows = self.query_cypher(
+                rows = self._control_cypher(
                     "MATCH (t:Task {status: 'pending', lane: $lane, prio_bucket: $b}) "
                     "RETURN t.id as id, t.metadata as meta LIMIT 1",
                     {"lane": lane, "b": bucket},
@@ -2728,7 +2784,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             return None
         # Lane-less legacy tasks (pre-ORCH-1.75 stamp): plain bucket sweep.
         for bucket in _PRIORITY_BUCKETS:
-            rows = self.query_cypher(
+            rows = self._control_cypher(
                 "MATCH (t:Task {status: 'pending', prio_bucket: $b}) "
                 "RETURN t.id as id, t.metadata as meta LIMIT 1",
                 {"b": bucket},
@@ -2736,13 +2792,13 @@ class TaskManagerMixin(GraphEngineProtocol):
             if rows:
                 return rows[0]
         # Legacy fallback (pre-bucket nodes): honor the old high-then-any tiering.
-        rows = self.query_cypher(
+        rows = self._control_cypher(
             "MATCH (t:Task {status: 'pending', priority: 'high'}) "
             "RETURN t.id as id, t.metadata as meta LIMIT 1"
         )
         if rows:
             return rows[0]
-        rows = self.query_cypher(
+        rows = self._control_cypher(
             "MATCH (t:Task {status: 'pending'}) "
             "RETURN t.id as id, t.metadata as meta LIMIT 1"
         )
@@ -2760,7 +2816,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
 
         def _count(where: str, params: dict[str, Any]) -> int:
-            rows = self.query_cypher(
+            # CONCEPT:KG-2.148 — lane congestion counts read :Task on __control__.
+            rows = self._control_cypher(
                 f"MATCH (t:Task {{{where}}}) RETURN count(t) as c", params
             )
             return int((rows[0].get("c") if rows else 0) or 0) if rows else 0
@@ -2863,7 +2920,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         out: dict[str, int] = {}
         for lane in LANE_NAMES:
             try:
-                rows = self.query_cypher(
+                rows = self._control_cypher(
                     "MATCH (t:Task {status: 'pending', lane: $l}) RETURN count(t) as c",
                     {"l": lane},
                 )
@@ -2939,7 +2996,11 @@ class TaskManagerMixin(GraphEngineProtocol):
             meta["claimed_by"] = self._get_host_token()
             meta["claim_unix"] = time.time()
             encoded_meta = _encode_metadata(meta)
-            won = self.backend.compare_and_set_node_fields(
+            # CONCEPT:KG-2.148 — the claim CAS (status: pending→running) is the
+            # hottest control-plane write; route it to the isolated __control__
+            # graph so claims hold a write lock that content ingestion never
+            # touches. Falls back to self.backend when no control backend exists.
+            won = self._control.compare_and_set_node_fields(
                 job_id,
                 {"status": "pending"},
                 {"status": "running", "metadata": encoded_meta},
@@ -3103,7 +3164,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     run_scheduled_job,
                 )
 
-                rows = self.query_cypher(
+                rows = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
                 )
                 meta = _decode_metadata(rows[0]["m"]) if rows else {}
@@ -3136,7 +3197,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     ResearchPipelineRunner,
                 )
 
-                rows = self.query_cypher(
+                rows = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
                 )
                 meta = _decode_metadata(rows[0]["m"]) if rows else {}
@@ -3167,7 +3228,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # CONCEPT:KG-2.130 — a memory write offloaded from a SERVING process. The
                 # host performs the embed+write here (inline, _local=True so it never
                 # re-enqueues), isolating heavy ingestion from the serving/read plane.
-                rows = self.query_cypher(
+                rows = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
                 )
                 meta = _decode_metadata(rows[0]["m"]) if rows else {}
@@ -3242,7 +3303,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     IngestionManifest,
                 )
 
-                trow = self.query_cypher(
+                trow = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
                 )
                 tprops = trow[0]["t"] if trow else {}
@@ -3291,7 +3352,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     DocumentProcessor,
                 )
 
-                trow = self.query_cypher(
+                trow = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
                 )
                 meta_t = _decode_metadata(trow[0]["t"].get("metadata")) if trow else {}
@@ -3343,7 +3404,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # per-item engine work, so run it in a worker thread.
                 from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
-                trow = self.query_cypher(
+                trow = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
                 )
                 meta_t = _decode_metadata(trow[0]["t"].get("metadata")) if trow else {}
@@ -3446,7 +3507,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 query = str(target)
 
                 # Fetch metadata to track depth
-                res = self.query_cypher(
+                res = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
                 )
                 t_props = res[0]["t"] if res else {}
@@ -3559,7 +3620,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # (gitlab/servicenow) blocking the rest in a sequential inline loop.
                 from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
-                res = self.query_cypher(
+                res = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t.sync_mode as m", {"id": job_id}
                 )
                 mode = str((res[0].get("m") if res else None) or "delta")
@@ -3622,7 +3683,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 query = str(target)
 
                 # Fetch metadata to track top_k if provided
-                res = self.query_cypher(
+                res = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
                 )
                 t_props = res[0]["t"] if res else {}
@@ -4242,7 +4303,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             return
 
         # Quick check: are there still pending/running tasks?
-        remaining = self.query_cypher(
+        remaining = self._control_cypher(
             "MATCH (t:Task) WHERE t.status IN ['pending', 'running'] RETURN count(t) as cnt"
         )
         if remaining and remaining[0].get("cnt", 0) > 0:
@@ -4292,12 +4353,15 @@ class TaskManagerMixin(GraphEngineProtocol):
     def _update_task_status(
         self, job_id: str, status: str, metadata: dict[str, Any]
     ) -> None:
-        """Update a task's status and metadata using base64-encoded JSON."""
+        """Update a task's status and metadata using base64-encoded JSON.
+
+        CONCEPT:KG-2.148 — :Task status/metadata is CONTROL plane → __control__.
+        """
         if not self.backend:
             return
 
-        # Preserve existing metadata timestamps
-        existing = self.query_cypher(
+        # Preserve existing metadata timestamps (control-plane read).
+        existing = self._control_cypher(
             "MATCH (t:Task {id: $id}) RETURN t.metadata as meta", {"id": job_id}
         )
         if existing and existing[0].get("meta"):
@@ -4320,7 +4384,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     pass
 
         encoded = _encode_metadata(metadata)
-        self.backend.execute(
+        self._control_cypher(
             "MATCH (t:Task {id: $id}) SET t.status = $status, t.metadata = $meta",
             {"id": job_id, "status": status, "meta": encoded},
         )
@@ -4340,7 +4404,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         """
         if not self.backend:
             return
-        rows = self.query_cypher(
+        # CONCEPT:KG-2.148 — :Task retry/dead-letter is CONTROL plane → __control__.
+        rows = self._control_cypher(
             "MATCH (t:Task {id: $id}) RETURN t.metadata as meta", {"id": job_id}
         )
         meta = _decode_metadata(rows[0]["meta"]) if rows and rows[0].get("meta") else {}
@@ -4369,7 +4434,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         meta.pop("claimed_by", None)
         meta.pop("claim_unix", None)
         due_bucket = int(eta // 60)
-        self.backend.execute(
+        self._control_cypher(
             "MATCH (t:Task {id: $id}) "
             "SET t.status = 'scheduled', t.due_bucket = $due, t.metadata = $meta",
             {"id": job_id, "due": due_bucket, "meta": _encode_metadata(meta)},
@@ -4391,7 +4456,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         writes to ``progress.json``.
         """
         try:
-            rows = self.query_cypher(
+            rows = self._control_cypher(
                 "MATCH (t:Task) RETURN t.status as status, t.metadata as meta"
             )
         except Exception:  # noqa: BLE001
@@ -4465,7 +4530,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def get_task_status(self, job_id: str) -> dict | None:
         """Get the status and decoded metadata for a specific task."""
-        results = self.query_cypher(
+        results = self._control_cypher(
             "MATCH (t:Task {id: $id}) RETURN t.status as status, t.metadata as meta",
             {"id": job_id},
         )
@@ -4483,7 +4548,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def list_tasks(self) -> dict:
         """List all tasks grouped by status with decoded metadata."""
-        results = self.query_cypher(
+        results = self._control_cypher(
             "MATCH (t:Task) RETURN t.id as id, t.status as status, t.metadata as meta"
         )
         print(f"DEBUG: list_tasks results: {results}")
@@ -4550,28 +4615,28 @@ class TaskManagerMixin(GraphEngineProtocol):
 
     def remove_task(self, job_id: str) -> bool:
         """Remove a task from the graph."""
-        res = self.query_cypher(
+        res = self._control_cypher(
             "MATCH (t:Task {id: $id}) RETURN t.id as id", {"id": job_id}
         )
         if not res:
             return False
 
-        self.backend.execute("MATCH (t:Task {id: $id}) DETACH DELETE t", {"id": job_id})
+        self._control_cypher("MATCH (t:Task {id: $id}) DETACH DELETE t", {"id": job_id})
         return True
 
     def clear_completed_tasks(self) -> dict:
         """Clear all completed or failed tasks from the queue."""
-        results = self.query_cypher(
+        results = self._control_cypher(
             "MATCH (t:Task) WHERE t.status IN ['completed', 'failed'] "
             "RETURN count(t) as count"
         )
         cleared = results[0]["count"] if results else 0
 
-        self.backend.execute(
+        self._control_cypher(
             "MATCH (t:Task) WHERE t.status IN ['completed', 'failed'] DETACH DELETE t"
         )
 
-        rem_results = self.query_cypher("MATCH (t:Task) RETURN count(t) as count")
+        rem_results = self._control_cypher("MATCH (t:Task) RETURN count(t) as count")
         remaining = rem_results[0]["count"] if rem_results else 0
 
         return {"status": "success", "cleared": cleared, "remaining": remaining}
@@ -4585,12 +4650,12 @@ class TaskManagerMixin(GraphEngineProtocol):
         """
         if not job_id:
             return {"status": "error", "error": "job_id required"}
-        rows = self.query_cypher(
+        rows = self._control_cypher(
             "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": job_id}
         )
         if not rows:
             return {"status": "error", "error": f"job {job_id} not found"}
-        self.backend.execute(
+        self._control_cypher(
             "MATCH (t:Task {id: $id}) SET t.status = 'cancelled'", {"id": job_id}
         )
         return {"status": "success", "job_id": job_id, "prev_status": rows[0].get("s")}
@@ -4620,11 +4685,11 @@ class TaskManagerMixin(GraphEngineProtocol):
             }
 
         if status == "all":
-            rows = self.query_cypher("MATCH (t:Task) RETURN t.id as id")
+            rows = self._control_cypher("MATCH (t:Task) RETURN t.id as id")
             ids = [r["id"] for r in (rows or []) if r.get("id")]
         elif status == "zombie":
             token = self._get_host_token()
-            rows = self.query_cypher(
+            rows = self._control_cypher(
                 "MATCH (t:Task {status: 'running'}) RETURN t.id as id, t.metadata as meta"
             )
             ids = []
@@ -4635,17 +4700,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                 if meta.get("claimed_by") != token:  # foreign or unstamped → orphan
                     ids.append(r["id"])
         else:
-            rows = self.query_cypher(
+            rows = self._control_cypher(
                 "MATCH (t:Task {status: $s}) RETURN t.id as id", {"s": status}
             )
             ids = [r["id"] for r in (rows or []) if r.get("id")]
 
         for tid in ids:
-            self.backend.execute(
+            self._control_cypher(
                 "MATCH (t:Task {id: $id}) DETACH DELETE t", {"id": tid}
             )
 
-        rem = self.query_cypher("MATCH (t:Task) RETURN count(t) as count")
+        rem = self._control_cypher("MATCH (t:Task) RETURN count(t) as count")
         remaining = rem[0]["count"] if rem else 0
         return {
             "status": "success",
@@ -4676,12 +4741,12 @@ class TaskManagerMixin(GraphEngineProtocol):
             }
         bucket = _coerce_prio_bucket(priority)
         legacy = {0: "high", 1: "high", 2: "normal", 3: "normal"}[bucket]
-        rows = self.query_cypher(
+        rows = self._control_cypher(
             "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": job_id}
         )
         if not rows:
             return {"status": "error", "error": f"job {job_id} not found"}
-        self.backend.execute(
+        self._control_cypher(
             "MATCH (t:Task {id: $id}) SET t.prio_bucket = $b, t.priority = $p",
             {"id": job_id, "b": bucket, "p": legacy},
         )
