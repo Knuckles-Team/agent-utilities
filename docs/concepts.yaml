@@ -91,6 +91,7 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/prompting/builder.py
   - agent_utilities/prompting/dspy_compiler.py
+  - agent_utilities/skills/agent-utilities-evolution/scripts/wiring_sweep.py
   - agent_utilities/tools/eval_harness.py
   doc: / AHE-3.40 — generalized from the original system-prompt-only
 - id: AHE-3.2
@@ -2048,7 +2049,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
   doc: social-closer / triviality gate
 - id: KG-2.16
-  name: through the GraphComputeEngine facade so
+  name: through the facade so orchestration code
   pillar: KG-2
   status: live
   code_paths:
@@ -2058,7 +2059,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
-  doc: through the GraphComputeEngine facade so
+  doc: through the facade so orchestration code
 - id: KG-2.17
   name: decay scanner + semantic merge
   pillar: KG-2
@@ -3337,13 +3338,12 @@ concepts:
   - agent_utilities/core/model_capacity_autoscale.py
   doc: Pure config enumeration; fail-safe
 - id: KG-2.147
-  name: ──────────────────────────
+  name: instead
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/automation/worldmodel_pipeline.py
-  - agent_utilities/knowledge_graph/core/graph_compute.py
-  doc: ──────────────────────────
+  doc: instead
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4739,12 +4739,14 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/deploy_context.py
   doc: OS-5.50
 - id: OS-5.52
-  name: Modular skill/prompt contribution
+  name: the agent factory auto-loads every
   pillar: OS-5
   status: live
   code_paths:
+  - agent_utilities/cli/__init__.py
   - agent_utilities/core/providers.py
-  doc: Modular skill/prompt contribution
+  - agent_utilities/deployment/doctor.py
+  doc: the agent factory auto-loads every
 - id: OS-5.53
   name: Cheap no-op once every schedule has ≤1 active
   pillar: OS-5
