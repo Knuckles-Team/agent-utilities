@@ -677,6 +677,114 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "more_path": "pageInfo.hasNextPage",
         "doc_type": "opportunity",
     },
+    # ── Finance / document / genealogy connectors (CONCEPT:KG-2.163–2.166) ────────
+    #
+    # Same DRAIN-half pattern as the ops connectors above: the preset lists records via
+    # the fleet ``*-mcp`` tool, the matching ``_sync_*`` handler rebuilds typed entities.
+    # Audiobookshelf (libraries→items, multi-step) and gramps-web (Response.data envelope
+    # per object) have NO preset — their handlers call the tool directly via
+    # ``call_tool_once`` because the result is multi-step / wrapped.
+    #
+    # Firefly III accounts/transactions/budgets → :Account / :Transaction / :Budget
+    # (CONCEPT:KG-2.164). The ``*_operations`` tools are action-routed (action +
+    # params_json); each returns the Laravel JSON:API envelope ``{"data": [{"id","type",
+    # "attributes":{…}}], "meta":{"pagination":{…}}}``. Page-number paging nests under the
+    # tool's ``params`` query dict (``params.page`` / ``params.limit``); a short final page
+    # ends the sweep. ``text_field`` digs the JSON:API ``attributes`` block.
+    "firefly-accounts": {
+        "server": "firefly-iii-mcp",
+        "tool": "accounts_operations",
+        "action": "list_account",
+        "params_style": "json",
+        "params": {"params": {"limit": 100}},
+        "records_path": "data",
+        "id_field": "id",
+        "title_field": "attributes.name",
+        "text_field": "attributes.type",
+        "updated_field": "attributes.updated_at",
+        "pagination": "page",
+        "page_kind": "number",
+        "page_param": "params.page",
+        "page_size_param": "params.limit",
+        "page_size": 100,
+        "start_page": 1,
+        "doc_type": "account",
+    },
+    "firefly-transactions": {
+        "server": "firefly-iii-mcp",
+        "tool": "transactions_operations",
+        "action": "list_transaction",
+        "params_style": "json",
+        "params": {"params": {"limit": 100}},
+        "records_path": "data",
+        "id_field": "id",
+        "title_field": "attributes.group_title",
+        "text_field": "attributes.group_title",
+        "updated_field": "attributes.updated_at",
+        "pagination": "page",
+        "page_kind": "number",
+        "page_param": "params.page",
+        "page_size_param": "params.limit",
+        "page_size": 100,
+        "start_page": 1,
+        "doc_type": "transaction",
+    },
+    "firefly-budgets": {
+        "server": "firefly-iii-mcp",
+        "tool": "budgets_operations",
+        "action": "list_budget",
+        "params_style": "json",
+        "params": {"params": {"limit": 100}},
+        "records_path": "data",
+        "id_field": "id",
+        "title_field": "attributes.name",
+        "text_field": "attributes.name",
+        "updated_field": "attributes.updated_at",
+        "pagination": "page",
+        "page_kind": "number",
+        "page_param": "params.page",
+        "page_size_param": "params.limit",
+        "page_size": 100,
+        "start_page": 1,
+        "doc_type": "budget",
+    },
+    # Paperless-ngx documents/correspondents/tags → :Document / :Correspondent / :Tag
+    # (CONCEPT:KG-2.165). The ``document_operations`` tool is action-routed (action +
+    # params_json) and ALREADY paginates internally (``_fetch_all`` follows DRF ``next``),
+    # returning a FLAT LIST — so ``records_path=""`` (the whole result) and
+    # ``pagination='none'``. ``ordering=-modified`` surfaces the freshest first.
+    "paperless-documents": {
+        "server": "paperless-ngx-mcp",
+        "tool": "document_operations",
+        "action": "list_documents",
+        "params_style": "json",
+        "params": {"ordering": "-modified"},
+        "id_field": "id",
+        "title_field": "title",
+        "text_field": "content",
+        "updated_field": "modified",
+        "doc_type": "document",
+    },
+    "paperless-correspondents": {
+        "server": "paperless-ngx-mcp",
+        "tool": "document_operations",
+        "action": "list_correspondents",
+        "params_style": "json",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "name",
+        "doc_type": "correspondent",
+    },
+    "paperless-tags": {
+        "server": "paperless-ngx-mcp",
+        "tool": "document_operations",
+        "action": "list_tags",
+        "params_style": "json",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "name",
+        "doc_type": "tag",
+    },
 }
 
 
