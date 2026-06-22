@@ -38,7 +38,11 @@ TASK_LANES: dict[str, dict] = {
     # so they fan out in parallel here instead of one slow connector blocking the rest inline,
     # and never contend with codebase/document indexing in the ingestion lane.
     "connectors": {
-        "task_types": frozenset({"connector_sync"}),
+        # connector_sync = external delta syncs; feed_sweep = the on-demand RSS/
+        # FreshRSS sweep run OFF the request path (it fetches+gates+enqueues the
+        # per-article worldview/research tasks, so it must not ride the 300s MCP
+        # call). Both are sweep PRODUCERS, kept off the ingestion lane. (KG-2.121)
+        "task_types": frozenset({"connector_sync", "feed_sweep"}),
         "model_role": "lite",
     },
     "research": {
