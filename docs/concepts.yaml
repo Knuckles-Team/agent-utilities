@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 423
+total_concepts: 427
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1894,6 +1894,7 @@ concepts:
   - agent_utilities/ecosystem/ea_clients.py
   - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/backends/cypher_transpiler.py
+  - agent_utilities/knowledge_graph/backends/postgresql_backend.py
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/hydration.py
   - agent_utilities/knowledge_graph/core/materialization.py
@@ -3285,6 +3286,7 @@ concepts:
   code_paths:
   - agent_utilities/agent/registry_builder.py
   - agent_utilities/core/paths.py
+  - agent_utilities/core/schedule_engine.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/tiered_backend.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
@@ -3344,6 +3346,40 @@ concepts:
   code_paths:
   - agent_utilities/automation/worldmodel_pipeline.py
   doc: instead
+- id: KG-2.148
+  name: Schedule lives on the control graph; read it from there
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/schedule_engine.py
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  doc: Schedule lives on the control graph; read it from there
+- id: KG-2.149
+  name: Per-backend durable fan-out. Each mirror target carries
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/backends/tiered_backend.py
+  doc: Per-backend durable fan-out. Each mirror target carries
+- id: KG-2.150
+  name: the agent-utilities checkout
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  doc: the agent-utilities checkout
+- id: KG-2.151
+  name: gitlab-api→gitlab, atlassian-agent→jira/confluence
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  doc: gitlab-api→gitlab, atlassian-agent→jira/confluence
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4753,6 +4789,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/schedule_engine.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   doc: Cheap no-op once every schedule has ≤1 active
 - id: SAFE-1.0
