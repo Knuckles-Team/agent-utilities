@@ -63,6 +63,12 @@ def scan() -> set[tuple[str, str]]:
         if any(part in SKIP_DIRS for part in py.parts):
             continue
         rel = py.relative_to(ROOT).as_posix()
+        # Vendored skill assets (CONCEPT:OS-5.52, ``agent_utilities/skills/``) are
+        # shipped skill scripts, not serving-plane code — they follow the skill
+        # repos' own convention (standalone CLI tools reading env directly), so the
+        # config-discipline gate does not apply to them.
+        if rel.startswith("agent_utilities/skills/"):
+            continue
         if rel in ALLOW_FILES:
             continue
         try:

@@ -3,6 +3,14 @@
 > The single page to read first. If you are an AI agent or a developer who just
 > wants to *use* this, everything you need is below or one click away.
 
+> 🧰 **Install the skills first — they unlock how to use everything else.** After
+> `pip install agent-utilities`, run **`agent-utilities install-skills`**. It installs
+> the skill toolkit — including the **`agent-utilities` skill-graph** (this platform's
+> own reference manual) and the deployment / evolution / knowledge-graph skills — into
+> the calling agent tool (Claude Code, etc.) and the agent-utilities XDG skills dir,
+> where agents auto-load them. `agent-utilities-doctor` flags it if the toolkit is
+> missing.
+
 ## What it is, in one paragraph
 
 **agent-utilities is a batteries-included harness for building Pydantic-AI agents

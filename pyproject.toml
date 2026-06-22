@@ -320,11 +320,21 @@ synology = "agent_utilities.messaging.backends.synology:SynologyChatBackend"
 voicecall = "agent_utilities.messaging.backends.voicecall:VoiceCallBackend"
 nextcloud = "agent_utilities.messaging.backends.nextcloud:NextcloudTalkBackend"
 
+# CONCEPT:OS-5.52 — agent-utilities ships its OWN unique skills (and the
+# agent-utilities skill-graph + the agent-os-genesis workflow) and contributes
+# them like any other agent-package, so `install-skills` drops them into the
+# XDG skills dir. The hub is already the BASE prompt provider via the packaged
+# `prompts/*.json` (registry_builder ingests them with bare `prompt:<name>` ids),
+# so it deliberately does NOT also declare a `prompt_providers` entry-point —
+# that would re-ingest the base prompts under a second `agent-utilities/` namespace.
+[project.entry-points."agent_utilities.skill_providers"]
+agent-utilities = "agent_utilities.skills"
+
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.package-data]
-agent_utilities = ["agent_data/**", "prompts/*.json", "**/*.ttl", "**/*.owl", "py.typed"]
+agent_utilities = ["agent_data/**", "prompts/*.json", "skills/**", "**/*.ttl", "**/*.owl", "py.typed"]
 
 [tool.setuptools.packages.find]
 where = ["."]
