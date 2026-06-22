@@ -197,6 +197,7 @@ from three registries — you never list connectors by hand:
 |---|---|---|---|
 | Native feeds | `_DELTA_HANDLERS` (`rss`, `freshrss`) | `rss`, `freshrss` | `connectors` → `worldview` (world-model gated) |
 | Enterprise / tracker / IaC | `_DELTA_HANDLERS` + capability registry (`gitlab`, `leanix`, `jira`, `confluence`, `plane`, `archivebox`, …) | each source id | `connectors` |
+| Ops / platform typed connectors | `_DELTA_HANDLERS` (`dockerhub`, `langfuse`, `technitium`, `tunnel_manager`, `uptime_kuma`, `home_assistant`, `twenty`) — typed OWL entities, MCP-configured (KG-2.155–2.161) | each source id | `connectors` |
 | **Every `agents/*` connector** | `package_manifest.PACKAGE_PRESETS`, drained by `_sync_fleet_connectors` via the generic `mcp` connector | `fleet_connectors` | `connectors` |
 | Materialize extractors | `enrichment.materialize.MATERIALIZE_SOURCES` (`camunda`, `aris`, `egeria`) | each source id | `connectors` |
 | Fleet capability elevation | `_sync_fleet` (slow MCP re-probe; boot/explicit only, NOT the */20m sweep) | `fleet` | `connectors` |
@@ -212,6 +213,59 @@ to this skill** — that is the declarative contract.
 
 See the companion declarative manifest `ingest_manifest.yaml` (next to this file)
 for the machine-readable family→tool→lane mapping that a driver can consume.
+
+## 8b. Connector → OWL entity reference (what gets ingested + how it's modeled)
+
+This is the **authoritative map of every configured connector**: its `source_sync`
+source key, the entities it ingests, and the OWL ontology classes they map to. The KG
+is OWL-native — a connector's records are not generic Documents but **typed entities**
+whose `type` is promoted to its OWL class (`core/owl_bridge.py` `PROMOTABLE_NODE_TYPES`
+→ a class declared in the canonical ontology library). Two ingestion shapes:
+
+- **Typed entity rebuild** (`_DELTA_HANDLERS` in `core/source_sync.py`): the handler
+  drains records and rebuilds `ingest_external_batch` entities with `type=<owl-class>`
+  + relationships — first-class OWL classes the reasoner acts on.
+- **Document** (`PACKAGE_PRESETS` via `fleet_connectors`, or `MCP_TOOL_PRESETS`): the
+  record becomes a `:Document`+`:Chunk` (with `doc_type`), searchable but not a domain
+  class. Most `agents/*` connectors land here through the fleet sweep.
+
+| `source` key | Connector / server | Entities ingested | OWL classes (`ontology*.ttl`) | Path |
+|---|---|---|---|---|
+| `jira` | atlassian-mcp | issues, assignees, epics | `:Issue` / `:Person` / `:Goal`(epic) | typed `_sync_jira` (KG-2.124) |
+| `confluence` | atlassian-mcp | wiki pages | `:ConfluencePage` (`:Document`) | doc `_sync_confluence` (KG-2.123) |
+| `plane` | plane-mcp | work items, projects | `:Issue` / `:SoftwareProject` | typed `_sync_plane` (KG-2.125) |
+| `gitlab` | gitlab-mcp / REST | projects, files, symbols, MRs | `:Repository` / `:File` / `:Code` / `:MergeRequest` | typed `_sync_gitlab` (KG-2.9g) |
+| `egeria` | egeria-mcp | metadata, governance, lineage | `:ProcessModel` / `:GovernanceRule` / lineage | materialize `MATERIALIZE_SOURCES` |
+| `camunda` | camunda-mcp | processes, deployments | `:BusinessProcess` / `:ProcessStep` | materialize `MATERIALIZE_SOURCES` |
+| `aris` | aris-mcp | EPC process models | `:ProcessModel` / `:ArchimateElement` | materialize `MATERIALIZE_SOURCES` |
+| `leanix` | leanix-agent | fact sheets (apps, IT components) | `:Application` / `:ITComponent` / `:BusinessCapability` | typed `_sync_leanix` |
+| `rss` | native + scholarx | news/research feed items | `:Document` / `:ResearchInquiry` (gated) | feed `_sync_rss` (KG-2.121) |
+| `freshrss` | freshrss-mcp | curated news/research | `:Document` (world-model gated) | feed `_sync_freshrss` (KG-2.115) |
+| (scholarx) | scholarx-mcp | research papers | `:Document` + `:Concept` | via `rss` feed + `graph_ingest` |
+| `archivebox` | archivebox-api | preserved web snapshots | `:Document` | typed `_sync_archivebox` (KG-2.7) |
+| **`dockerhub`** | dockerhub-mcp | registry images, repos | **`:Repository` / `:ContainerImage`** (`contains`) | typed `_sync_dockerhub` (**KG-2.155**) |
+| **`langfuse`** | langfuse-mcp | LLM traces, observations, generations | **`:Trace` / `:Observation` / `:Generation`** (`part_of`) | typed `_sync_langfuse` (**KG-2.156**) |
+| **`technitium`** | technitium-dns-mcp | DNS zones + records | **`:DnsZone` / `:DnsRecord`** (`part_of`) | typed `_sync_technitium` (**KG-2.157**) |
+| **`tunnel_manager`** | tunnel-manager-mcp | host inventory, tunnels | **`:Host` / `:Tunnel`** (`connects_via`) | typed `_sync_tunnel_manager` (**KG-2.158**) |
+| **`uptime_kuma`** | uptime-(kuma-)mcp | monitors + heartbeat stats | **`:UptimeMonitor` / `:HeartbeatStat`** (`part_of`) | typed `_sync_uptime_kuma` (**KG-2.159**) |
+| **`home_assistant`** | home-assistant-mcp | devices, entities/states | **`:Device` / `:Entity`** (`part_of`) | typed `_sync_home_assistant` (**KG-2.160**) |
+| **`twenty`** | twenty-mcp | CRM people, companies, opportunities | **`:Person` / `:Company` / `:Opportunity`** (`member_of`/`part_of`) | typed `_sync_twenty` (**KG-2.161**) |
+
+The new ops/platform connectors (bold) are **MCP-configured**: each ingests only when its
+`*-mcp` server is registered in `mcp_config.json` (`_MCP_TRACKER_SERVERS`), so the
+`source="all"` sweep keeps it as a candidate when reachable and drops it (skipped, never
+errored) otherwise. Trigger one directly with `source_sync(source="<key>", mode="delta")`.
+
+**Available via MCP but ingestion-optional** (their `*-mcp` is fixed/configured today, no
+dedicated handler — ingest only when there is clear knowledge value, else reach live):
+`owncast`, `mealie` (recipe docs preset `mealie-recipes`), `searxng` (search preset
+`searxng-search`), `lgtm`, `nextcloud` (folder preset `nextcloud-files`), `arr`. These
+surface through the declarative fleet sweep / `MCP_TOOL_PRESETS` as `:Document`s, not
+typed domain classes.
+
+> Still declarative: adding a typed connector = a `_DELTA_HANDLER` + its `MCP_TOOL_PRESET`
+> + the `PROMOTABLE_NODE_TYPES` entries + the OWL class in the canonical ontology — then the
+> next `source="all"` sweep picks it up. Keep this table in lockstep with `_DELTA_HANDLERS`.
 
 ## 9. Skill-graph packages — distill OUT / import back (KG-2.7 / AHE-3.9)
 
