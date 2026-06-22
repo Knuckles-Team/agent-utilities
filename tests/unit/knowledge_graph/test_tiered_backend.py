@@ -101,6 +101,7 @@ def test_explicit_is_write_overrides_regex():
 
     # Explicit write of a query the keyword regex wouldn't match.
     t.execute("CALL custom.mutate()", is_write=True)
+    t.flush_backfeed()  # mirror is write-behind by default; drain before asserting
     assert _ops(l3) == ["execute"], "explicit write must mirror to L3"
 
 
@@ -109,6 +110,7 @@ def test_write_mirrored_to_both():
     t = TieredGraphBackend(l1, l3)
     out = t.execute("CREATE (n:Foo {id:'x'})")
     assert out[0]["backend"] == "l1"  # L1 result is authoritative
+    t.flush_backfeed()  # mirror is write-behind by default; drain before asserting
     assert _ops(l1) == ["execute"]
     assert _ops(l3) == ["execute"]
     assert t.durability_stats() == {
@@ -126,6 +128,7 @@ def test_batch_and_embedding_mirror():
     t = TieredGraphBackend(l1, l3)
     t.execute_batch("UNWIND $rows AS r CREATE (n)", [{"a": 1}, {"a": 2}])
     t.add_embedding("n1", [0.1, 0.2])
+    t.flush_backfeed()  # execute_batch is write-behind; embedding is synchronous
     assert ("execute_batch", 2) in l3.calls
     assert ("add_embedding", "n1") in l3.calls
     assert t.durability_stats()["l3_writes"] == 2
@@ -138,6 +141,7 @@ def test_l3_failure_is_non_fatal():
     # Write must still succeed and return L1's result despite L3 raising.
     out = t.execute("CREATE (n:Foo {id:'x'})")
     assert out[0]["backend"] == "l1"
+    t.flush_backfeed()  # let the (failing) write-behind mirror run before asserting
     assert t.durability_stats() == {
         "l3_writes": 0,
         "l3_failures": 1,
@@ -248,5 +252,87 @@ def test_write_behind_embeddings_stay_synchronous():
         t.add_embedding("n1", [0.1, 0.2, 0.3])
         # No flush needed — the embedding mirror is synchronous.
         assert ("add_embedding", "n1") in l3.calls
+    finally:
+        t.close()
+
+
+# ---------------------------------------------------------------------------
+# CONCEPT:KG-2.149 — per-backend durable fan-out
+# ---------------------------------------------------------------------------
+
+
+def test_fanout_mirrors_write_to_every_target():
+    """A list of durable targets each receives the write on its own channel."""
+    l1 = RecordingBackend("l1")
+    age, neo, falkor = (
+        RecordingBackend("pg-age"),
+        RecordingBackend("neo4j"),
+        RecordingBackend("falkordb"),
+    )
+    t = TieredGraphBackend(
+        l1, [age, neo, falkor], mirror_names=["pg-age", "neo4j", "falkordb"]
+    )
+    try:
+        t.execute("CREATE (n:Foo {id:'x'})")
+        t.flush_backfeed()
+        assert _ops(age) == ["execute"]
+        assert _ops(neo) == ["execute"]
+        assert _ops(falkor) == ["execute"]
+        stats = t.durability_stats()
+        assert stats["l3_writes"] == 3  # aggregate across all targets
+        assert stats["targets"]["pg-age"]["l3_writes"] == 1
+        assert stats["targets"]["neo4j"]["l3_writes"] == 1
+        assert stats["targets"]["falkordb"]["l3_writes"] == 1
+    finally:
+        t.close()
+
+
+def test_fanout_one_failing_target_does_not_block_others():
+    """A failing/slow target fails into ITS OWN channel; healthy mirrors and L1
+    are unaffected (CONCEPT:KG-2.149 isolation)."""
+    l1 = RecordingBackend("l1")
+    good = RecordingBackend("good")
+    bad = RecordingBackend("bad", fail=True)
+    t = TieredGraphBackend(l1, [good, bad], mirror_names=["good", "bad"])
+    try:
+        out = t.execute("CREATE (n:Foo {id:'x'})")
+        assert out[0]["backend"] == "l1"  # L1 ack unaffected
+        t.flush_backfeed()
+        stats = t.durability_stats()
+        # Healthy target committed; failing target recorded a failure, isolated.
+        assert stats["targets"]["good"]["l3_writes"] == 1
+        assert stats["targets"]["good"]["l3_failures"] == 0
+        assert stats["targets"]["bad"]["l3_writes"] == 0
+        assert stats["targets"]["bad"]["l3_failures"] == 1
+        assert stats["l3_writes"] == 1 and stats["l3_failures"] == 1
+    finally:
+        t.close()
+
+
+def test_fanout_primary_serves_reads():
+    """The primary (index 0) is the read/semantic_search authority; secondaries
+    are pure mirrors and never serve reads."""
+    l1 = RecordingBackend("l1")
+    primary, secondary = RecordingBackend("primary"), RecordingBackend("secondary")
+    t = TieredGraphBackend(l1, [primary, secondary])
+    try:
+        assert t.l3 is primary  # back-compat: l3 == primary target
+        t.semantic_search([0.1, 0.2], n_results=2)
+        assert ("semantic_search", 2) in primary.calls
+        assert secondary.calls == []  # secondary is mirror-only, no reads
+    finally:
+        t.close()
+
+
+def test_single_target_back_compat_no_targets_key():
+    """A single durable backend (the default) behaves exactly as before — no
+    per-target breakdown key is emitted."""
+    l1, l3 = RecordingBackend("l1"), RecordingBackend("l3")
+    t = TieredGraphBackend(l1, l3, write_behind=False)
+    try:
+        t.execute("CREATE (n:Foo {id:'x'})")
+        stats = t.durability_stats()
+        assert "targets" not in stats
+        assert stats["l3_writes"] == 1
     finally:
         t.close()
