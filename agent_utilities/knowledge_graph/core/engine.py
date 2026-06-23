@@ -226,48 +226,31 @@ class IntelligenceGraphEngine(
         ingestion (which holds ``__commons__``'s lock and otherwise starves the
         control plane).
 
-        Shape mirrors ``self.backend``:
-
-          * If ``self.backend`` is a :class:`TieredGraphBackend` (L1 epistemic +
-            L3 durable), the control backend is a NEW ``TieredGraphBackend`` whose
-            L1 is an ``EpistemicGraphBackend(graph_name='__control__')`` and whose
-            L3 is the **same** durable backend instance — Postgres has row-level
-            locking, so two engine graphs sharing it never contend on a graph
-            write lock. The single durable connection pool is reused.
-          * If ``self.backend`` is an L1-only ``EpistemicGraphBackend`` (no durable
-            tier configured), the control backend is a standalone
-            ``EpistemicGraphBackend(graph_name='__control__')``.
-          * Any failure (unexpected backend shape, engine not reachable for the
-            named graph) degrades to ``self.backend`` so the control plane keeps
-            working on ``__commons__`` exactly as before — never crash.
+        The engine is the one database, so the control backend is always an
+        isolated engine graph — ``EpistemicGraphBackend(graph_name='__control__')``
+        — regardless of whether ``self.backend`` is the bare engine or a
+        :class:`FanOutBackend` (engine authority + mirrors). Mirrors don't carry
+        control-plane state; only the engine authority does. Any failure (engine
+        not reachable for the named graph) degrades to ``self.backend`` so the
+        control plane keeps working on ``__commons__`` exactly as before — never
+        crash.
         """
         try:
             from ..backends.epistemic_graph_backend import EpistemicGraphBackend
-            from ..backends.tiered_backend import TieredGraphBackend
 
             base = self.backend
-            control_l1 = EpistemicGraphBackend(graph_name="__control__")
-
-            if isinstance(base, TieredGraphBackend):
-                # Reuse the SAME durable L3 (shared Postgres pool); only the L1
-                # working store is bound to the isolated control graph. Keep the
-                # default always-on write-behind so a slow L3 never stalls the
-                # control plane's hot write path either.
-                control = TieredGraphBackend(l1=control_l1, l3=base.l3)
-                logger.info(
-                    "[CONCEPT:KG-2.148] control backend bound to '__control__' "
-                    "(L1=epistemic_graph, L3=shared durable %s)",
-                    type(base.l3).__name__,
-                )
-                return control
-
-            # L1-only deployment: standalone control graph, no durable tier.
+            # The engine is the one database, so the control plane is simply an
+            # isolated engine graph (``__control__``) on the same authority — its
+            # writes use a separate per-graph write lock and never contend with
+            # ``__commons__`` content ingestion. (Mirrors don't carry control-plane
+            # state; only the engine authority does.)
+            control = EpistemicGraphBackend(graph_name="__control__")
             logger.info(
                 "[CONCEPT:KG-2.148] control backend bound to '__control__' "
-                "(L1-only, backend=%s)",
+                "(isolated engine graph; content backend=%s)",
                 type(base).__name__,
             )
-            return control_l1
+            return control
         except Exception as e:  # noqa: BLE001 — degrade, never crash the engine
             logger.warning(
                 "[CONCEPT:KG-2.148] could not build isolated control backend "

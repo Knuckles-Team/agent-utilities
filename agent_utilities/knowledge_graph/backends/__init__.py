@@ -32,13 +32,15 @@ Opt-in (contrib) access::
     from agent_utilities.knowledge_graph.backends import Neo4jBackend
 
 Environment Variables:
-    GRAPH_BACKEND: Backend type. Bare default: "tiered" — L1 epistemic_graph +
-        L2 LadybugDB (embedded, no external server). Supported: "tiered",
-        "memory", "file", "epistemic_graph", "postgresql" (primary), plus
-        opt-in contrib: "ladybug", "falkordb", "neo4j".
-    GRAPH_BACKEND_L1: L1 working store for "tiered". Default: "epistemic_graph".
-    GRAPH_BACKEND_L2: L2 durable store for "tiered". Default: "ladybug"
-        (or "postgresql" when a DB URI is configured).
+    GRAPH_BACKEND: Backend type. Bare default: "epistemic_graph" — the engine IS
+        the one database (compute + cache + semantic + durable persistence), a
+        self-contained binary with no external dependencies. Set "fanout" to add
+        MIRRORS (the engine stays the authority; writes fan out to the mirrors).
+        Also: "memory", "file", "postgresql"/"age", "jena_fuseki", "stardog", plus
+        opt-in contrib mirrors "ladybug", "falkordb", "neo4j".
+    GRAPH_MIRROR_TARGETS: JSON/CSV list of mirror connection names for "fanout"
+        (resolved via kg_connections). GRAPH_AUTHORITY names the authority
+        (default "epistemic_graph").
     GRAPH_DB_PATH: File path for LadybugDB. Default: "knowledge_graph.db".
     GRAPH_DB_HOST: Host for FalkorDB/Neo4j. Default: "localhost".
     GRAPH_DB_PORT: Port for FalkorDB (6379) or Neo4j (7687).
@@ -152,9 +154,8 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
     """Build ``{name: backend}`` for ``GRAPH_MIRROR_TARGETS`` (CONCEPT:KG-2.74),
     resolved against ``kg_connections``. Returns ``{}`` when none are configured.
 
-    Shared by the ``fanout`` backend and the ``tiered`` durable tier (where it
-    tees every write that lands in the L3 authority — e.g. pg-age — out to the
-    named mirrors like neo4j / falkordb).
+    Used by the ``fanout`` backend: every write that lands in the engine authority
+    is teed, losslessly, out to the named mirrors (e.g. pg-age / neo4j / falkordb).
     """
     from agent_utilities.core.config import config as _cfg
 
@@ -259,19 +260,20 @@ def create_backend(
     """Factory function to create the appropriate graph backend.
 
     Resolves configuration from explicit arguments first, then falls back to
-    environment variables, then to sensible defaults. The bare default is the
-    self-contained ``tiered`` backend (L1 epistemic_graph + L2 LadybugDB) — no
-    external server required. PostgreSQL + pgvector is the durable production
-    tier and is selected automatically for ``tiered`` whenever a DB URI is
-    configured. Contrib backends (ladybug/falkordb/neo4j) are imported only
-    when explicitly requested.
+    environment variables, then to sensible defaults. The bare default is
+    ``epistemic_graph`` — the engine is the one self-contained database (compute +
+    cache + semantic + durable persistence), no external server required. Set
+    ``fanout`` to add optional MIRRORS (Postgres/Neo4j/FalkorDB/Ladybug): the engine
+    stays the authority serving every read and writes fan out losslessly to them.
+    Contrib mirror backends (ladybug/falkordb/neo4j) are imported only when
+    explicitly requested.
 
     Args:
-        backend_type: One of "tiered" (default), "memory", "file",
-            "epistemic_graph", "postgresql" (primary), or the opt-in contrib
-            values "ladybug", "falkordb", "neo4j". Falls back to
-            ``GRAPH_BACKEND`` env var, then "tiered" (zero-infra: epistemic_graph
-            + LadybugDB; configure GRAPH_DB_URI for a PostgreSQL L2 in prod).
+        backend_type: One of "epistemic_graph" (default), "fanout" (engine +
+            mirrors), "memory", "file", "postgresql"/"age", "jena_fuseki",
+            "stardog", or the opt-in contrib mirrors "ladybug", "falkordb",
+            "neo4j". Falls back to the ``GRAPH_BACKEND`` env var, then
+            "epistemic_graph" (zero-infra self-contained engine).
         db_path: File path for LadybugDB. Falls back to ``GRAPH_DB_PATH``.
         host: Host for FalkorDB/Neo4j. Falls back to ``GRAPH_DB_HOST``.
         port: Port for FalkorDB/Neo4j. Falls back to ``GRAPH_DB_PORT``.
@@ -286,16 +288,16 @@ def create_backend(
     """
     global _ACTIVE_BACKEND
 
-    # Bare fallback is the self-contained "tiered" backend: L1 epistemic_graph
-    # (always included) + L2 LadybugDB (embedded, no server). This runs as a
-    # single binary with NO external system dependencies. PostgreSQL stays the
-    # PRODUCTION durable tier and is selected automatically whenever a DB URI is
-    # configured (GRAPH_DB_URI/PGGRAPH_DSN) or explicitly via
-    # GRAPH_BACKEND_L2=postgresql; the prod-profile guard enforces it for prod.
+    # Bare fallback is "epistemic_graph": the engine IS the one database — it does
+    # compute, cache, semantic and durable persistence in a single binary with NO
+    # external system dependencies (the self-contained, zero-infra default). To add
+    # MIRRORS (Postgres/Neo4j/FalkorDB/Ladybug — optional interop/BI/DR fan-out
+    # targets), set GRAPH_BACKEND=fanout + GRAPH_MIRROR_TARGETS: the engine stays the
+    # authority serving every read, and writes fan out losslessly to the mirrors.
     # The unit suite pins GRAPH_BACKEND=memory (see tests/conftest.py) to stay
     # purely ephemeral.
     backend_type = (
-        (backend_type or setting("GRAPH_BACKEND") or "tiered").lower().strip()
+        (backend_type or setting("GRAPH_BACKEND") or "epistemic_graph").lower().strip()
     )
 
     from .base import GraphBackend
@@ -492,129 +494,6 @@ def create_backend(
             outbox_path = str(kg_db_path().parent / "graph_mirror_outbox.db")
             backend = FanOutBackend(authority, mirrors, outbox_path=outbox_path)
 
-    elif backend_type == "tiered":
-        # Two-tier write-through: L1 working store (epistemic-graph) in front of
-        # an L2 durable tier. Sub-backends are built directly (not via recursive
-        # create_backend) so they don't claim _ACTIVE_BACKEND.
-        #
-        # L2 (durable) selection — keep it zero-infra by default:
-        #   * explicit GRAPH_BACKEND_L2 wins;
-        #   * else if a Postgres DSN is configured (uri / GRAPH_DB_URI /
-        #     PGGRAPH_DSN) → "postgresql" (preserves existing prod configs);
-        #   * else → "ladybug" (embedded, no external server).
-        from .epistemic_graph_backend import EpistemicGraphBackend
-        from .tiered_backend import TieredGraphBackend
-
-        l1_type = (setting("GRAPH_BACKEND_L1") or "epistemic_graph").lower().strip()
-        if l1_type not in ("epistemic_graph", "memory", "file"):
-            logger.warning(
-                "tiered L1 '%s' unsupported; falling back to epistemic_graph",
-                l1_type,
-            )
-        l1 = EpistemicGraphBackend()
-
-        has_pg_dsn = bool(uri or setting("GRAPH_DB_URI") or setting("PGGRAPH_DSN"))
-        l2_type = setting("GRAPH_BACKEND_L2", "").lower().strip() or (
-            "postgresql" if has_pg_dsn else "ladybug"
-        )
-
-        # Durable-tier opener policy (CONCEPT:KG-2.8 / OS-5.9): the embedded
-        # Ladybug/Kuzu DB is SINGLE-WRITER — if every process (host daemon + each
-        # MCP server / CLI / script) opens it they contend on the file lock and a
-        # host restart can't reacquire it (the "Graph DB locked / std::bad_alloc"
-        # wedge). Gate it so only the singleton HOST (the flock holder) opens it;
-        # other roles run L1-only (the shared epistemic-graph engine already holds
-        # the full node+edge graph). Postgres/pggraph is multi-process (MVCC) and
-        # is intentionally NOT gated — every role may open it concurrently.
-        from ..core.host_lock import effective_daemon_role
-
-        _role = effective_daemon_role()
-
-        l3: GraphBackend | None = None
-        if l2_type in ("postgres", "postgresql", "pggraph", "age", "pggraph_age"):
-            # AGE durable tier when GRAPH_PG_AGE=1 or L2 explicitly names age.
-            if l2_type in ("age", "pggraph_age") or setting(
-                "GRAPH_PG_AGE", ""
-            ).lower() in ("1", "true", "yes"):
-                from .age_backend import AGEBackend as _PGBackend
-            else:
-                from .postgresql_backend import PostgreSQLBackend as _PGBackend
-
-            resolved_uri = (
-                uri
-                or setting("GRAPH_DB_URI")
-                or setting("PGGRAPH_DSN")
-                or "postgresql://localhost:5432/agent_utilities"
-            )
-            resolved_name = db_name or setting("GRAPH_DB_NAME") or "agent_graph"
-            pool_min = _PG_POOL_MIN
-            pool_max = _PG_POOL_MAX
-            pggraph_schema = setting("GRAPH_PGGRAPH_SCHEMA", "public")
-            l3 = _PGBackend(
-                dsn=resolved_uri,
-                graph_name=resolved_name,
-                pool_min=pool_min,
-                pool_max=pool_max,
-                pggraph_schema=pggraph_schema,
-            )
-        elif l2_type == "ladybug":
-            from .contrib.ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
-
-            if _role != "host":
-                logger.info(
-                    "tiered L2=ladybug: role=%s (not host) → L1-only. The singleton "
-                    "host owns the single-writer durable tier; clients read the "
-                    "shared engine. (CONCEPT:KG-2.8)",
-                    _role,
-                )
-            elif not LADYBUG_AVAILABLE:
-                logger.warning(
-                    "tiered L2=ladybug requested but the 'ladybug' package is not "
-                    "installed; running L1-only (no durable persistence)."
-                )
-            else:
-                if db_path:
-                    resolved_path = db_path
-                elif setting("GRAPH_DB_PATH"):
-                    resolved_path = setting("GRAPH_DB_PATH")
-                else:
-                    from agent_utilities.core.paths import kg_db_path
-
-                    resolved = kg_db_path()
-                    resolved.parent.mkdir(parents=True, exist_ok=True)
-                    resolved_path = str(resolved)
-                l3 = LadybugBackend(resolved_path)
-        else:
-            logger.warning(
-                "tiered L2 '%s' unsupported; running L1-only (no durable "
-                "persistence). Supported: ladybug, postgresql.",
-                l2_type,
-            )
-
-        # CONCEPT:KG-2.74 — tee the durable L3 to mirror stores. When
-        # GRAPH_MIRROR_TARGETS is set, every write that lands in the L3 authority
-        # (e.g. pg-age) is also copied, losslessly, to the named mirrors (neo4j /
-        # falkordb) via the durable outbox. The L3 authority is unchanged; reads
-        # still come from L1 (epistemic). Backfill existing L3 data into fresh
-        # mirrors with TieredGraphBackend.reconcile_to_durable().
-        if l3 is not None:
-            mirrors = _build_mirror_set()
-            if mirrors:
-                from agent_utilities.core.paths import kg_db_path
-
-                from .fanout_backend import FanOutBackend
-
-                outbox_path = str(kg_db_path().parent / "graph_mirror_outbox.db")
-                l3 = FanOutBackend(l3, mirrors, outbox_path=outbox_path)
-                logger.info(
-                    "tiered L3 fan-out enabled: authority=durable tier, mirrors=[%s]",
-                    ", ".join(mirrors),
-                )
-
-        # When no durable L2 could be built, degrade to the L1 working store
-        # alone rather than crashing the whole engine.
-        backend = TieredGraphBackend(l1=l1, l3=l3) if l3 is not None else l1
-
     elif backend_type == "stardog":
         # First-class SPARQL DATA backend (push/pull/query of instance data), usable
         # standalone, as a fan-out mirror, or an ad-hoc connection. The OWL
@@ -632,8 +511,8 @@ def create_backend(
     else:
         logger.error(
             f"Unknown graph backend type: '{backend_type}'. "
-            f"Supported: memory, file, epistemic_graph, postgresql, tiered, "
-            f"fanout, ladybug, falkordb, neo4j, jena_fuseki, stardog"
+            f"Supported: epistemic_graph, fanout, memory, file, postgresql, age, "
+            f"jena_fuseki, stardog, ladybug, falkordb, neo4j"
         )
         return None
 

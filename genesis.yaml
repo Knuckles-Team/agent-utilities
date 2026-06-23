@@ -30,6 +30,7 @@ profiles:
     install_mode: deploy-baremetal
     idp: none
     ontology_host: local
+    engine: embedded
   single-node-prod:
     summary: one durable, secured host (Postgres/pg-age) + the core MCP connectors
     recipe: docs/recipes/single-node-prod.md
@@ -41,6 +42,7 @@ profiles:
     install_mode: deploy-container
     idp: keycloak
     ontology_host: local
+    engine: container
   enterprise:
     summary: multi-host Docker Swarm, full integration (Vault/SSO/DNS/ingress/observability + all connectors)
     recipe: docs/recipes/enterprise.md
@@ -52,6 +54,7 @@ profiles:
     install_mode: deploy-container
     idp: keycloak
     ontology_host: stardog
+    engine: remote
 run_plan:
   actions:
   - deploy-container
@@ -79,6 +82,10 @@ run_plan:
   - stardog
   - apache-jena
   - local
+  engine:
+  - embedded
+  - container
+  - remote
   install_modes:
   - deploy-container
   - deploy-baremetal

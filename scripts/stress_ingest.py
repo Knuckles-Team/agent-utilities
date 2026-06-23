@@ -8,9 +8,9 @@ chats, mcp servers (with live tool discovery), skills — and records per-catego
 disk growth, node-count delta). Within-category work runs concurrently, and an
 incremental ``progress.json`` is written so a watcher can report live %.
 
-Runs against the tiered backend (epistemic-graph L1 + pggraph L3). Example::
+Runs against the engine authority with a pg-age mirror (fanout). Example::
 
-    GRAPH_BACKEND=tiered \\
+    GRAPH_BACKEND=fanout \\
     GRAPH_DB_URI=postgresql://postgres:postgres@pggraph.arpa:5432/pggraph \\
     KG_BULK_INGEST=1 \\
     .venv/bin/python scripts/stress_ingest.py --limit 3        # quick validation

@@ -13,7 +13,7 @@ Standard RAG architectures suffer from three critical flaws that block Agentic G
 
 ## How It Works (Implementation)
 
-The solution is a unified `IngestionEngine` and layered `GraphBackend` (PostgreSQL/pg-age + the Rust `epistemic-graph` durable tier), with NetworkX retained as an ephemeral in-memory compute scratchpad.
+The solution is a unified `IngestionEngine` over the **one epistemic-graph engine — the authority** (compute + cache + semantic + durable persistence), with writes fanned out to optional durable mirrors (PostgreSQL/pg-age, Neo4j, FalkorDB, LadybugDB) for interop/BI/DR, and NetworkX retained as an ephemeral in-memory compute scratchpad.
 
 ### RAG-KG Unification & Spectral Clustering (KG-2.38 & KG-2.34)
 We collapsed separate vector indexes directly into the Knowledge Graph. By computing an **Auto-Similarity Memory Graph**, the system pre-computes semantic proximity and creates `SIMILAR_TO` edges. Retrieval is now accelerated to O(degree) complexity via shortest-path traversal. The **Spectral Cluster Navigator** groups these nodes using normalized Laplacian eigengap heuristics, providing hierarchy-aware context scoping.
@@ -381,8 +381,8 @@ All ingestion now flows through a single front door — the `IngestionEngine`
 objects and per-`ContentType` adaptors. The `graph_ingest` MCP tool is a thin
 wrapper over it. This abstracts away the previous multi-phase in-memory
 pipeline, providing robust, database-first ingestion against the
-`GraphBackend` (PostgreSQL/pg-age + epistemic-graph), parallel execution, and
-direct Cypher materialization.
+epistemic-graph engine authority (writes fan out to optional mirrors like
+PostgreSQL/pg-age), parallel execution, and direct Cypher materialization.
 
 Re-ingestion is delta-aware: the durable `DeltaManifest`
 (`knowledge_graph/ingestion/manifest.py`) records graph-native
@@ -432,8 +432,8 @@ graph TD
         NX -- "Topological [KG-2.5]" --> NX
     end
 
-    subgraph Persistence_Layer ["Persistent Graph [KG-2.0]"]
-        LDB["GraphBackend<br/>(Postgres/pg-age + epistemic-graph) [KG-2.0]"]
+    subgraph Persistence_Layer ["Authority — epistemic-graph engine [KG-2.0]"]
+        LDB["epistemic-graph engine<br/>compute + cache + semantic + durable<br/>(writes fan out to optional mirrors) [KG-2.0]"]
         LDB -- "Cypher [KG-2.0]" --> LDB
     end
 

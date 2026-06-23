@@ -10,21 +10,27 @@ All LLM configuration (models, API keys, endpoints) is now managed centrally via
 Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated** and will be ignored. API keys can optionally be provided in the `.env` file or directly inside the `config.json` model entries.
 
 ### Graph Database
+
+The **epistemic-graph engine is the one database — the authority**. It serves all
+reads and is where every write commits first. `GRAPH_BACKEND=fanout` additionally
+fans committed writes out asynchronously and losslessly to the **mirrors** named
+in `GRAPH_MIRROR_TARGETS` (Postgres/pg-age, Neo4j, FalkorDB, Ladybug) for
+interop/BI/DR — mirrors are never the authority and never on the read path.
+
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_BACKEND` | `tiered` (epistemic_graph L1 + LadybugDB L2; zero-infra) | Backend to use. Primary tiers: `tiered`, `memory`, `file`, `epistemic_graph`, `postgresql`. Contrib (opt-in, under `backends/contrib/`): `ladybug`, `falkordb`, `neo4j`. For a Postgres durable L2 set `GRAPH_DB_URI` (or `GRAPH_BACKEND_L2=postgresql`) |
-| `GRAPH_BACKEND_L1` | `epistemic_graph` | L1 working store for the `tiered` backend |
-| `GRAPH_BACKEND_L2` | `ladybug` (or `postgresql` when a DSN is set) | L2 durable store for the `tiered` backend |
-| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for the `file`/`ladybug` backends |
-| `GRAPH_DB_HOST` | `localhost` | Host for Neo4j/FalkorDB |
-| `GRAPH_DB_PORT` | `7687` | Port for Neo4j/FalkorDB |
-| `GRAPH_DB_URI` | *None* | Direct connection URI (overrides Host/Port; e.g. for PostgreSQL bolt/URI) |
-| `GRAPH_DB_USER` | `neo4j` | Username for remote DBs (Neo4j/PostgreSQL) |
-| `GRAPH_DB_PASSWORD` | *None* | Password for remote DBs (Neo4j/PostgreSQL) |
-| `GRAPH_DB_NAME` | `agent_graph` | Database/graph name for FalkorDB/PostgreSQL |
-| `GRAPH_POOL_MIN` | `2` | Minimum PostgreSQL connection pool size |
-| `GRAPH_POOL_MAX` | `10` | Maximum PostgreSQL connection pool size |
-| `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pg-age table registration |
+| `GRAPH_BACKEND` | `epistemic_graph` | `epistemic_graph` (the engine only — self-contained, zero-infra), `fanout` (engine + mirrors), or `memory` (ephemeral, tests/CI) |
+| `GRAPH_MIRROR_TARGETS` | *None* | Comma-separated mirrors to fan out to under `fanout`: `postgresql`, `neo4j`, `falkordb`, `ladybug` |
+| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for the engine store (or a LadybugDB mirror) |
+| `GRAPH_DB_HOST` | `localhost` | Host for a Neo4j/FalkorDB mirror |
+| `GRAPH_DB_PORT` | `7687` | Port for a Neo4j/FalkorDB mirror |
+| `GRAPH_DB_URI` | *None* | Direct connection URI for a PostgreSQL/Neo4j mirror (overrides Host/Port) |
+| `GRAPH_DB_USER` | `neo4j` | Username for a remote mirror (Neo4j/PostgreSQL) |
+| `GRAPH_DB_PASSWORD` | *None* | Password for a remote mirror (Neo4j/PostgreSQL) |
+| `GRAPH_DB_NAME` | `agent_graph` | Database/graph name for a FalkorDB/PostgreSQL mirror |
+| `GRAPH_POOL_MIN` | `2` | Minimum PostgreSQL mirror connection pool size |
+| `GRAPH_POOL_MAX` | `10` | Maximum PostgreSQL mirror connection pool size |
+| `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pg-age mirror table registration |
 
 ### OWL Reasoning
 | Variable | Default | Description |

@@ -492,6 +492,29 @@ def create_agent_server(
         _auto_ws = get_agent_workspace()
         logger.info(f"Graph Agent: Auto-detected workspace {_auto_ws}")
 
+    # Embedded engine auto-provision (CONCEPT:OS-5.61). For a tiny/embedded
+    # deployment (e.g. a connector's agent_server.py) with no remote engine
+    # configured, scan-or-spawn the ONE engine authority as a lifecycle-coupled
+    # child via the existing machinery (it spawns coupled by default, dies with
+    # this process). No-op when GRAPH_SERVICE_ENDPOINTS points at a remote shard
+    # or when EPISTEMIC_GRAPH_AUTOSTART is off. Host-reuse (host_lock/engine_lock)
+    # means co-located servers share the one engine — no new locking here.
+    _embedded_engine: Any = None
+    try:
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            ensure_local_engine,
+        )
+
+        _embedded_engine = ensure_local_engine()
+        if _embedded_engine is not None:
+            logger.info(
+                "Graph Agent: ensured local embedded engine (lifecycle-coupled)"
+            )
+    except Exception as _eng_exc:  # noqa: BLE001 — provisioning is best-effort
+        logger.debug(
+            "Graph Agent: embedded engine auto-provision skipped: %s", _eng_exc
+        )
+
     if enable_terminal_ui:
         import subprocess
         import threading
@@ -659,45 +682,55 @@ def create_agent_server(
         f"with only that domain's tools loaded for efficiency."
     )
 
-    _run_agent_server(
-        provider=provider,
-        model_id=model_id,
-        base_url=base_url,
-        api_key=api_key,
-        mcp_url=_mcp_url,
-        mcp_config=None,  # Handled robustly by graph_config
-        skill_types=skill_types,
-        custom_skills_directory=custom_skills_directory,
-        debug=debug,
-        host=host,
-        port=port,
-        enable_web_ui=enable_web_ui,
-        enable_terminal_ui=enable_terminal_ui,
-        enable_web_logs=enable_web_logs,
-        custom_web_app=custom_web_app,
-        custom_web_mount_path=custom_web_mount_path,
-        web_ui_instructions=web_ui_instructions,
-        html_source=html_source,
-        ssl_verify=ssl_verify,
-        name=name,
-        system_prompt=graph_prompt,
-        enable_otel=enable_otel,
-        otel_endpoint=otel_endpoint,
-        otel_headers=otel_headers,
-        otel_public_key=otel_public_key,
-        otel_secret_key=otel_secret_key,
-        otel_protocol=otel_protocol,
-        workspace=workspace,
-        a2a_broker=a2a_broker,
-        a2a_broker_url=a2a_broker_url,
-        a2a_storage=a2a_storage,
-        a2a_storage_url=a2a_storage_url,
-        graph_bundle=(graph, graph_config),
-        persistence_type=persistence_type,
-        persistence_path=persistence_path,
-        persistence_dsn=persistence_dsn,
-        persistence_url=persistence_url,
-        isolate_mcp=True,
-        mcp_toolsets=graph_config.get("mcp_toolsets", []),
-        model_registry=model_registry,
-    )
+    try:
+        _run_agent_server(
+            provider=provider,
+            model_id=model_id,
+            base_url=base_url,
+            api_key=api_key,
+            mcp_url=_mcp_url,
+            mcp_config=None,  # Handled robustly by graph_config
+            skill_types=skill_types,
+            custom_skills_directory=custom_skills_directory,
+            debug=debug,
+            host=host,
+            port=port,
+            enable_web_ui=enable_web_ui,
+            enable_terminal_ui=enable_terminal_ui,
+            enable_web_logs=enable_web_logs,
+            custom_web_app=custom_web_app,
+            custom_web_mount_path=custom_web_mount_path,
+            web_ui_instructions=web_ui_instructions,
+            html_source=html_source,
+            ssl_verify=ssl_verify,
+            name=name,
+            system_prompt=graph_prompt,
+            enable_otel=enable_otel,
+            otel_endpoint=otel_endpoint,
+            otel_headers=otel_headers,
+            otel_public_key=otel_public_key,
+            otel_secret_key=otel_secret_key,
+            otel_protocol=otel_protocol,
+            workspace=workspace,
+            a2a_broker=a2a_broker,
+            a2a_broker_url=a2a_broker_url,
+            a2a_storage=a2a_storage,
+            a2a_storage_url=a2a_storage_url,
+            graph_bundle=(graph, graph_config),
+            persistence_type=persistence_type,
+            persistence_path=persistence_path,
+            persistence_dsn=persistence_dsn,
+            persistence_url=persistence_url,
+            isolate_mcp=True,
+            mcp_toolsets=graph_config.get("mcp_toolsets", []),
+            model_registry=model_registry,
+        )
+    finally:
+        # Tear down the coupled embedded engine on server shutdown (the
+        # atexit/SIGTERM handler is the backstop; this is the explicit hook).
+        if _embedded_engine is not None:
+            from agent_utilities.knowledge_graph.core.graph_compute import (
+                teardown_local_engine,
+            )
+
+            teardown_local_engine(_embedded_engine)

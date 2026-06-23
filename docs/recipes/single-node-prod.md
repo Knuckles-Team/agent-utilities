@@ -7,50 +7,63 @@
 > brain enforcement, `STATE_DB_URI` state externalization) — this page is the
 > docker-compose walkthrough.
 
-One host, durable, no swarm. Good for a small team or a staging box: a durable
-Postgres/pg-age KG, the REST gateway, a core slice of the `*-mcp` fleet, and
-optional Langfuse/OpenBao — all via `docker compose` on a single machine.
+One host, durable, no swarm. Good for a small team or a staging box: the
+epistemic-graph engine running as **its own container** (still the one
+authority — compute, cache, ontology, and durable persistence in a single
+engine), the REST gateway, a core slice of the `*-mcp` fleet, optional mirror
+databases, and optional Langfuse/OpenBao — all via `docker compose` on a single
+machine. The difference from [tiny](tiny.md) is purely lifecycle: instead of an
+embedded child that dies with one agent process, the engine runs as a
+long-lived container that the gateway and connectors share.
 
 ## What runs
 
 | Component | How |
 |---|---|
+| **epistemic-graph engine** | **its own container** — the one durable authority; the gateway/connectors connect to it (local socket or `GRAPH_SERVICE_ENDPOINTS`) |
 | REST gateway (`python -m agent_utilities`, `:9000` via `HOST`/`PORT`) | container or host process; hosts the KG daemon (flock-elected) and serves `/api/graph/*`, `/api/fleet/*`, `/metrics` |
 | KG host daemon | inside the gateway process; headless alternative: `graph-os-daemon` (no HTTP) |
-| Knowledge graph | `tiered` (or `fanout`) with a durable **Postgres tier** (`GRAPH_DB_URI`) — the Postgres image **must** carry **Apache AGE + pgvector + ParadeDB** (see note below) |
-| Durable platform state | sessions/goals/checkpoints/task queue on the same Postgres (`STATE_DB_URI`) |
+| Knowledge graph | the engine authority is durable on its own. **Optional**: fan out write-only to a Postgres/pg-age **mirror** (`GRAPH_DB_URI`) for SQL-side querying/BI — the Postgres image **must** carry **Apache AGE + pgvector + ParadeDB** (see note below) |
+| Durable platform state | sessions/goals/checkpoints/task queue on the optional Postgres (`STATE_DB_URI`) |
 | Core `*-mcp` connectors | the `single-node-prod` profile from `mcp-fleet.registry.yml` (openbao, technitium, container-manager, vector, caddy, …) |
 | Caddy | HTTPS reverse proxy in front of the gateway + connectors |
 | OpenBao | optional secrets store |
 | Langfuse | optional observability |
 | Kafka / Keycloak / swarm | **not** in this tier (see [Enterprise](enterprise.md)) |
 
-> **Postgres extension requirement.** The durable tier must be a Postgres that
-> carries **Apache AGE** (`age`, native openCypher — the `backend: "age"` path),
-> **pgvector** (`vector`), and **ParadeDB** (`pg_search`), with `age` and
-> `pg_search` in `shared_preload_libraries`. The curated `registry.arpa/pg-age`
-> image (`services/pg-age/`, built `FROM paradedb/paradedb` PG18 + AGE 1.7.0)
-> bundles all three. The **stock `paradedb/paradedb` image has pgvector +
-> pg_search but NOT AGE** — using it leaves Postgres on the bounded regex
-> transpiler (`cypher_support="subset"`). See
+> **Postgres mirror extension requirement.** Postgres here is an **optional
+> write-only mirror** of the engine authority (not the system of record). If you
+> enable it, the Postgres must carry **Apache AGE** (`age`, native openCypher —
+> the `backend: "age"` path), **pgvector** (`vector`), and **ParadeDB**
+> (`pg_search`), with `age` and `pg_search` in `shared_preload_libraries`. The
+> curated `registry.arpa/pg-age` image (`services/pg-age/`, built `FROM
+> paradedb/paradedb` PG18 + AGE 1.7.0) bundles all three. The **stock
+> `paradedb/paradedb` image has pgvector + pg_search but NOT AGE** — using it
+> leaves the mirror on the bounded regex transpiler
+> (`cypher_support="subset"`). See
 > [Graph Backend Architecture → Extension Dependencies](../architecture/graph_backends_architecture.md#extension-dependencies).
 
 ## Steps
 
 ```bash
-# 1. Bring up Postgres/pg-age (publishes host port 5433, db agent_kg,
-#    user/password agent/agent)
+# 1. Bring up the epistemic-graph engine as its own durable container.
+#    This is the one authority (persists to its --persist-dir volume).
+docker compose -f docker/epistemic-graph.compose.yml up -d
+export GRAPH_SERVICE_ENDPOINTS=unix:///run/epistemic-graph/engine.sock  # or tcp://
+
+# 2. (OPTIONAL) Bring up a Postgres/pg-age MIRROR for SQL-side querying
+#    (publishes host port 5433, db agent_kg, user/password agent/agent).
 docker compose -f docker/pg-age.compose.yml up -d
 docker exec agent-pg-age psql -U agent -d agent_kg -c 'CREATE DATABASE agent_state'
 
-# 2. Start the REST gateway pointed at it (also hosts the KG daemon)
+# 3. Start the REST gateway pointed at the engine (also hosts the KG daemon)
 export GRAPH_BACKEND=tiered
-export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
-export STATE_DB_URI=postgresql://agent:agent@localhost:5433/agent_state
+export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg     # optional mirror
+export STATE_DB_URI=postgresql://agent:agent@localhost:5433/agent_state  # optional
 python -m agent_utilities       # REST API on :9000 (HOST/PORT)
 # Headless alternative (no REST surface): uv run graph-os-daemon
 
-# 3. Deploy the core connector slice (single-node-prod profile)
+# 4. Deploy the core connector slice (single-node-prod profile)
 #    Build/run each from its docker/compose.yml, or use portainer-sync-agent.
 ```
 
@@ -58,10 +71,16 @@ python -m agent_utilities       # REST API on :9000 (HOST/PORT)
 
 ```dotenv
 GRAPH_BACKEND=tiered
+
+# The engine authority — its own container, shared by the gateway + connectors.
+GRAPH_SERVICE_ENDPOINTS=unix:///run/epistemic-graph/engine.sock
+
+# OPTIONAL — write-only Postgres/pg-age mirror of the engine (SQL-side querying);
+# omit it entirely for an engine-only single node.
 GRAPH_DB_URI=postgresql://agent:REDACTED@localhost:5433/agent_kg
 
 # Durable platform state: sessions/goals, durable-exec checkpoints, and the
-# KG task queue all move onto Postgres; the task queue auto-resolves to
+# KG task queue can move onto Postgres; the task queue auto-resolves to
 # `postgres` when this is set (rung c of the ladder)
 STATE_DB_URI=postgresql://agent:REDACTED@localhost:5433/agent_state
 
@@ -99,7 +118,8 @@ host port (`8200+`) so they coexist on one machine. Front them with Caddy
 curl -s -X POST localhost:9000/api/graph/query \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"cypher":"MATCH (n) RETURN count(n) AS n"}'
-# Restart the gateway — KG state, sessions, and goals persist (Postgres now).
+# Restart the gateway — KG state persists in the engine's own durable volume
+# (and any optional Postgres mirror); sessions/goals persist if STATE_DB_URI set.
 # Without a Bearer token the same call returns 401 (KG_AUTH_REQUIRED=1).
 ```
 

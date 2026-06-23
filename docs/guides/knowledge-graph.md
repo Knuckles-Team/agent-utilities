@@ -67,27 +67,18 @@ graph TD
         end
     end
 
-    subgraph Memory_Layer ["In-Memory Graph"]
+    subgraph Engine_Layer ["epistemic-graph engine (the one database / authority)"]
         direction TB
-        NX[("NetworkX MultiDiGraph")]
-        NX -- "Topological Algorithms" --> NX
+        EG[("KG-2.0: epistemic_graph — authority")]
+        EG -- "Cache · Compute · Cypher · Vectors · Ontology" --> EG
     end
 
-    subgraph Persistence_Layer ["Persistent Graph Storage"]
+    subgraph Mirror_Layer ["Optional mirrors (interop / BI / DR — async fan-out)"]
         direction TB
-        BackendNode("KG-2.0: GraphBackend Abstraction")
-        EG[("KG-2.0: epistemic_graph (default)")]
-        PG[("KG-2.0: PostgreSQL / pg-age (durable)")]
-        LDB[("contrib: LadybugDB")]
-        FDB[("contrib: FalkorDB")]
-        N4J[("contrib: Neo4j")]
-
-        BackendNode -- default --> EG
-        BackendNode -- "prod durable" --> PG
-        BackendNode -.->|opt-in| LDB
-        BackendNode -.->|opt-in| FDB
-        BackendNode -.->|opt-in| N4J
-        PG -- "Cypher & Vectors" --> PG
+        PG[("Postgres / pg-age")]
+        LDB[("LadybugDB")]
+        FDB[("FalkorDB")]
+        N4J[("Neo4j")]
     end
 
     subgraph Query_Layer ["MCP / CLI / Tool Interface"]
@@ -97,21 +88,20 @@ graph TD
         Q_CRUD[KG-2.0: Memory CRUD]
     end
 
-    Ingestion_Pipeline -- "Mutates" --> Memory_Layer
-    Memory_Layer -- "Syncs To" --> Persistence_Layer
-    Query_Layer -- "Query" --> Persistence_Layer
-    Query_Layer -- "Fallback" --> Memory_Layer
+    Ingestion_Pipeline -- "Commits to" --> Engine_Layer
+    Engine_Layer -. "async, lossless fan-out (durable outbox)" .-> Mirror_Layer
+    Query_Layer -- "All reads & writes" --> Engine_Layer
 
     subgraph Autonomous_Loop ["Autonomous Self-Improvement Loop"]
         direction TB
         Outcome[AHE-3.1: Outcome Evaluation] --> Critique["Critique / Textual Gradient"]
         Critique --> PromptEvolution["AHE-3.2: Prompt/Skill Evolution"]
-        PromptEvolution --> Persistence_Layer
+        PromptEvolution --> Engine_Layer
     end
 
     style Ingestion_Pipeline fill:#dae8fe,stroke:#6c8ebf,stroke-width:2px
-    style Memory_Layer fill:#d5e8d4,stroke:#82b366,stroke-width:2px
-    style Persistence_Layer fill:#f8cecc,stroke:#b85450,stroke-width:2px
+    style Engine_Layer fill:#d5e8d4,stroke:#82b366,stroke-width:2px
+    style Mirror_Layer fill:#f8cecc,stroke:#b85450,stroke-width:2px
     style Query_Layer fill:#e1d5e7,stroke:#9673a6,stroke-width:2px
     style Autonomous_Loop fill:#fff2cc,stroke:#d6b656,stroke-width:2px
 ```
@@ -123,13 +113,12 @@ The Knowledge Graph supports an optional **Hybrid OWL Reasoning Layer** that enr
 ```mermaid
 graph TB
     subgraph HotPath ["Agent Runtime - Hot Path"]
-        A[ORCH-1.0: IntelligenceGraphEngine] --> B[NetworkX MultiDiGraph]
-        A --> C[KG-2.0: GraphBackend ABC]
-        C --> D[KG-2.0: epistemic_graph default]
-        C --> P[KG-2.0: PostgreSQL / pg-age durable]
-        C -.->|opt-in contrib| E[Neo4j]
-        C -.->|opt-in contrib| F[FalkorDB]
-        C -.->|opt-in contrib| L[LadybugDB]
+        A[ORCH-1.0: IntelligenceGraphEngine] --> C[KG-2.0: GraphBackend ABC]
+        C --> D[KG-2.0: epistemic_graph — the database / authority]
+        D -.->|async fan-out: interop/BI/DR| P[Postgres / pg-age mirror]
+        D -.->|async fan-out| E[Neo4j mirror]
+        D -.->|async fan-out| F[FalkorDB mirror]
+        D -.->|async fan-out| L[LadybugDB mirror]
     end
 
     subgraph WarmPath ["OWL Reasoning - Warm Path"]
@@ -175,7 +164,7 @@ graph TB
 
 | Phase | Name | Purpose |
 |-------|------|---------|
-| 1 | **Memory** | Hydrates existing state (Nodes/Edges) from the persistent **GraphBackend** (epistemic_graph / PostgreSQL) to maintain continuity. |
+| 1 | **Memory** | Hydrates existing state (Nodes/Edges) from the **epistemic-graph engine** (the authority) to maintain continuity. |
 | 2 | **Scan** | Walks the filesystem, respects `.gitignore`, and identifies all source code files. |
 | 3 | **Registry** | Ingests `prompts/*.json` and MCP server definitions into the **Knowledge Graph** as specialist nodes. |
 | 4 | **Parse** | AST parsing (**tree-sitter**) to extract symbols (Classes, Functions, Imports) from code. |
@@ -185,7 +174,7 @@ graph TB
 | 8 | **Communities** | Clusters nodes into tightly-coupled modules using **Louvain** topological clustering. |
 | 9 | **Centrality** | Runs **PageRank** analysis to identify critical path "God Objects" and core utilities. |
 | 10 | **Embedding** | Generates semantic vector embeddings via LM Studio (`text-embedding-nomic-embed-text-v2-moe`) for hybrid search. |
-| 11 | **Sync** | Projects the NetworkX graph into the persistent **GraphBackend** Cypher store (epistemic_graph / PostgreSQL). |
+| 11 | **Sync** | Commits the enriched graph into the **epistemic-graph engine** (the authority); committed writes fan out asynchronously to any configured mirrors. |
 | 12 | **OWL Reasoning** | Promotes stable nodes to OWL, runs HermiT/Stardog inference, downfeeds inferred facts. |
 | 13 | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer. |
 | 14 | **Workspace Sync** | Clones repos from `workspace.yml` using **repository-manager** and triggers auto-ingestion. |
@@ -218,19 +207,28 @@ All external resources are first-class graph nodes, allowing the agent to reason
 
 ## Backend Abstraction Layer
 
-All graph storage is routed through the `GraphBackend` ABC (`backends/base.py`), providing **hot-swappable** database backends with unified methods for execution, schema creation, and **functional pruning**.
+The **epistemic-graph engine is the one database — the authority**. The
+`GraphBackend` ABC (`backends/base.py`) exposes it (plus an in-memory test
+backend) through unified methods for execution, schema creation, and
+**functional pruning**. The other databases below are **mirrors**: they receive
+an asynchronous, lossless copy of committed writes and are never the authority or
+on the read path.
 
-**Supported Graph Backends:**
-| Backend | Status | Connection | Use Case |
+**The authority:**
+| Backend | Status | Connection | Role |
 |---|---|---|---|
-| **epistemic_graph** (`memory`/`file`) | Full (default) | In-process Rust client / `.json` snapshot | Zero-dependency working store (L1); bare default is `memory` |
-| **PostgreSQL / pg-age** | Full (durable tier) | `postgresql://host:port` | Relational + graph unified storage via pgvector & transpiler; production durable backend |
-| **tiered** | Full | L1 epistemic_graph + L2 PostgreSQL | Write-through two-tier (working store in front of durable store) |
-| **LadybugDB** | Opt-in contrib | File path (`knowledge_graph.db`) | Embedded, zero-config, schema-enforced Cypher (`backends/contrib/`) |
-| **FalkorDB** | Opt-in contrib | `host:port` (Redis protocol) | High-performance, distributed graph workloads (`backends/contrib/`) |
-| **Neo4j** | Opt-in contrib | `bolt://host:port` or `neo4j://` | Enterprise, ACID-compliant property graphs (`backends/contrib/`) |
+| **epistemic_graph** | Full (default) | In-process / UDS Rust client | The one database — durable persistence, in-memory cache, graph compute, ontology reasoning. Serves ALL reads; all writes commit here first. |
+| **memory** | Full | In-process | Pure ephemeral engine for tests/CI; no persistence. |
 
-> The `epistemic_graph` engine is reached **only** through the out-of-process MessagePack/UDS client — there is no PyO3. Set `GRAPH_BACKEND=postgresql` (or `tiered`) for production durability; `ladybug`/`falkordb`/`neo4j` are imported only when explicitly requested.
+**Optional mirrors (interop / BI / DR — fan out via `GRAPH_BACKEND=fanout`):**
+| Mirror | Connection | Use Case |
+|---|---|---|
+| **PostgreSQL / pg-age** | `postgresql://host:port` | Relational + graph external query via pgvector & transpiler; BI/reporting/DR |
+| **LadybugDB** | File path (`knowledge_graph.db`) | Embedded, schema-enforced Cypher mirror |
+| **FalkorDB** | `host:port` (Redis protocol) | High-performance distributed graph mirror |
+| **Neo4j** | `bolt://host:port` or `neo4j://` | Enterprise property-graph interop |
+
+> The `epistemic_graph` engine is reached **only** through the out-of-process MessagePack/UDS client — there is no PyO3. The engine alone is the default (`GRAPH_BACKEND=epistemic_graph`); set `GRAPH_BACKEND=fanout` with `GRAPH_MIRROR_TARGETS` to also populate mirrors. Mirror drivers (`postgresql`/`falkordb`/`neo4j`) are imported only when a mirror is enabled.
 
 For step-by-step setup, Docker files, and multi-agent production guides, see the [Deploying Graph Databases Guide](graph-db-deployment.md).
 
@@ -244,30 +242,34 @@ For step-by-step setup, Docker files, and multi-agent production guides, see the
 ```python
 from agent_utilities.knowledge_graph.backends import create_backend
 
-# Bare default: in-process epistemic_graph ("memory")
+# Default: the epistemic-graph engine — the one database / authority
 backend = create_backend()
 
-# Production durable tier
-backend = create_backend(backend_type="postgresql", uri="postgresql://agent:agent@localhost:5433/agent_kg")
-backend = create_backend(backend_type="tiered")  # epistemic_graph L1 + PostgreSQL L2
+# Engine authority + async mirrors (interop / BI / DR)
+backend = create_backend(
+    backend_type="fanout",
+    mirror_targets=["postgresql"],
+    uri="postgresql://agent:agent@localhost:5433/agent_kg",
+)
 
-# Opt-in contrib backends (imported only when explicitly requested)
-backend = create_backend(backend_type="neo4j", uri="bolt://prod-neo4j:7687")
-backend = create_backend(backend_type="falkordb", host="redis-host", port=6380)
-backend = create_backend(backend_type="ladybug", db_path="/data/agent.db")
+# Mirror connection details (only used when that mirror is enabled)
+# uri="bolt://prod-neo4j:7687"          # Neo4j mirror
+# host="redis-host", port=6380          # FalkorDB mirror
+# db_path="/data/agent.db"              # LadybugDB mirror
 ```
 
 **Environment Variables:**
 | Variable | Description | Default |
 |---|---|---|
-| `GRAPH_BACKEND` | Backend type: `memory`, `file`, `epistemic_graph`, `postgresql`, `tiered` (primary), plus opt-in contrib `ladybug`, `falkordb`, `neo4j` | `memory` (set `postgresql` for prod) |
-| `GRAPH_DB_PATH` | File path for LadybugDB (contrib) | `knowledge_graph.db` |
-| `GRAPH_DB_HOST` | Host for FalkorDB/Neo4j | `localhost` |
-| `GRAPH_DB_PORT` | Port for FalkorDB (6379) or Neo4j (7687) | varies |
-| `GRAPH_DB_URI` | Full URI for Neo4j or PostgreSQL | `bolt://localhost:7687` |
-| `GRAPH_DB_USER` | Username for Neo4j/PostgreSQL | `neo4j` |
-| `GRAPH_DB_PASSWORD` | Password for Neo4j/PostgreSQL | `password` |
-| `GRAPH_DB_NAME` | Database/graph name for FalkorDB/PostgreSQL | `agent_graph` |
+| `GRAPH_BACKEND` | `epistemic_graph` (the engine only — default), `fanout` (engine + mirrors), or `memory` (ephemeral) | `epistemic_graph` |
+| `GRAPH_MIRROR_TARGETS` | Comma-separated mirrors to fan out to under `fanout`: `postgresql`, `neo4j`, `falkordb`, `ladybug` | *None* |
+| `GRAPH_DB_PATH` | File path for the engine store (or a LadybugDB mirror) | `knowledge_graph.db` |
+| `GRAPH_DB_HOST` | Host for a FalkorDB/Neo4j mirror | `localhost` |
+| `GRAPH_DB_PORT` | Port for a FalkorDB (6379) or Neo4j (7687) mirror | varies |
+| `GRAPH_DB_URI` | Full URI for a Neo4j or PostgreSQL mirror | `bolt://localhost:7687` |
+| `GRAPH_DB_USER` | Username for a Neo4j/PostgreSQL mirror | `neo4j` |
+| `GRAPH_DB_PASSWORD` | Password for a Neo4j/PostgreSQL mirror | `password` |
+| `GRAPH_DB_NAME` | Database/graph name for a FalkorDB/PostgreSQL mirror | `agent_graph` |
 | `GRAPH_POOL_MIN` | Minimum PostgreSQL connection pool size | `2` |
 | `GRAPH_POOL_MAX` | Maximum PostgreSQL connection pool size | `10` |
 | `GRAPH_PGGRAPH_SCHEMA` | Schema for pg-age table registration | `public` |
@@ -294,7 +296,7 @@ Validated Articles / Facts / Concepts (type-safe)
     | KBIngestionEngine
 Graph Nodes: KnowledgeBase -> Article -> KBConcept / KBFact / KBIndex
     | Phase 13 / Backend Sync
-Persistent Storage (epistemic_graph / PostgreSQL; opt-in contrib: LadybugDB / Neo4j / FalkorDB)
+epistemic-graph engine (the authority; async fan-out to optional mirrors: Postgres / Neo4j / FalkorDB / LadybugDB)
     | KB Tools (list, search, get, health, archive, export)
 Agent Q&A and Knowledge Queries
 ```
@@ -905,4 +907,4 @@ This interaction logic is fully integrated with the 17-Phase Ingestion Pipeline 
 
 1. **Topology & OWL Convergence**: As the OWL reasoning bridge infers new implicit facts (e.g., `subClassOf`), these new edges create additional positional intersections.
 2. **Native Vectorization**: The `EncPI` engine natively computes the dense vector embeddings for these positional interactions.
-3. **Retrieval Application**: During test-time, the `HybridRetriever` uses `cosine_similarity` across the vectorized `EncPI` embeddings stored in the persistent `GraphBackend` (epistemic_graph / PostgreSQL). This allows the retriever to infer that a completely novel relation topologically behaves like a known relation, enabling true zero-shot reasoning over dynamic autonomous data.
+3. **Retrieval Application**: During test-time, the `HybridRetriever` uses `cosine_similarity` across the vectorized `EncPI` embeddings stored in the **epistemic-graph engine** (the authority). This allows the retriever to infer that a completely novel relation topologically behaves like a known relation, enabling true zero-shot reasoning over dynamic autonomous data.

@@ -46,6 +46,9 @@ PROFILES_META = {
         "install_mode": "deploy-baremetal",
         "idp": "none",
         "ontology_host": "local",
+        # The ONE engine authority runs as a lifecycle-coupled embedded child,
+        # auto-spun-up on demand (EPISTEMIC_GRAPH_AUTOSTART). No engine container.
+        "engine": "embedded",
     },
     "single-node-prod": {
         "summary": "one durable, secured host (Postgres/pg-age) + the core MCP connectors",
@@ -57,6 +60,8 @@ PROFILES_META = {
         "install_mode": "deploy-container",
         "idp": "keycloak",
         "ontology_host": "local",
+        # Engine runs as its own container on the host.
+        "engine": "container",
     },
     "enterprise": {
         "summary": "multi-host Docker Swarm, full integration (Vault/SSO/DNS/ingress/observability + all connectors)",
@@ -69,6 +74,8 @@ PROFILES_META = {
         "install_mode": "deploy-container",
         "idp": "keycloak",
         "ontology_host": "stardog",
+        # Shared/remote engine reached via GRAPH_SERVICE_ENDPOINTS; mirrors fan out.
+        "engine": "remote",
     },
 }
 
@@ -87,6 +94,10 @@ RUN_PLAN = {
     "idp": ["keycloak", "okta", "other-oidc", "none"],
     "secrets_store": ["vault", "env"],
     "ontology_hosts": ["stardog", "apache-jena", "local"],
+    # epistemic-graph is the ONE engine authority. embedded = lifecycle-coupled
+    # autostart child (tiny); container = its own container (single-node-prod);
+    # remote = shared engine via GRAPH_SERVICE_ENDPOINTS (enterprise).
+    "engine": ["embedded", "container", "remote"],
     "install_modes": ["deploy-container", "deploy-baremetal", "use-existing", "skip"],
     # prod = PyPI image / uvx; dev = editable: `pip/uv install -e` (baremetal) OR the
     # package's compose.dev.yml source-mounted container (edits live on restart).
@@ -194,6 +205,8 @@ def build() -> dict:
             "install_mode": meta["install_mode"],
             "idp": meta["idp"],
             "ontology_host": meta["ontology_host"],
+            # epistemic-graph engine deployment shape (embedded|container|remote).
+            "engine": meta["engine"],
         }
 
     return {

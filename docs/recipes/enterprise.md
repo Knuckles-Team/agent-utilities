@@ -17,7 +17,8 @@ connector fleet. This is the "run the enterprise" tier. It is driven by the
 |---|---|
 | Edge | Caddy (HTTPS ingress) · Technitium DNS (authoritative `.arpa`) |
 | Core | Keycloak (SSO) · OpenBao (secrets) · Portainer (stack GitOps) · LGTM (Prometheus/Loki/Grafana/Tempo) |
-| Data | Postgres/pg-age (durable KG L2) · Kafka (event backbone) |
+| Engine | **shared/remote epistemic-graph engine** (the one authority/SoR), reached by every client via `GRAPH_SERVICE_ENDPOINTS`; shard it when one host saturates |
+| Data (mirrors) | **optional** Postgres/pg-age **mirror** (write-only fan-out for SQL-side querying/BI) · Kafka (event backbone) |
 | agent-utilities | REST gateway + KG host daemon, replicated; graph-os over streamable-http |
 | Connectors | the **entire** `*-mcp` fleet (`enterprise` profile) via Portainer GitOps |
 | UIs | agent-webui (Fleet Supervisor), agent-terminal-ui, geniusbot |
@@ -33,9 +34,10 @@ The `agent-os-genesis` (alias `day0`) workflow runs the ordered bootstrap:
 5. core-edge deploy → registry → DNS → Caddy → Portainer.
 6. `secret-vault-manager` → OpenBao + Keycloak.
 7. `gitlab-repository-seeder` + `portainer-gitops-bind` → stacks bound to Git.
-8. **agent-utilities** → install deps, start graph-os + multiplexer, deploy the
-   `*-mcp` fleet from `deploy/mcp-fleet.registry.yml`, wire pg-age + Kafka +
-   OpenBao + Langfuse + Keycloak.
+8. **agent-utilities** → install deps, start the shared engine + graph-os +
+   multiplexer, deploy the `*-mcp` fleet from `deploy/mcp-fleet.registry.yml`,
+   point clients at the engine (`GRAPH_SERVICE_ENDPOINTS`), and wire the optional
+   pg-age mirror + Kafka + OpenBao + Langfuse + Keycloak.
 9. `graph-os` → materialize the full topology in the KG.
 
 Select the **enterprise** profile when the workflow's Step-0 questionnaire asks,
@@ -46,6 +48,13 @@ and toggle the integrations you want.
 ```jsonc
 {
   "graph_backend": "tiered",
+
+  // The shared/remote engine authority — every gateway/connector/worker points
+  // at the SAME engine (one endpoint, or N shards). This is the system of record.
+  "graph_service_endpoints": ["tcp://kg-engine.example.arpa:9101"],
+
+  // OPTIONAL — write-only Postgres/pg-age MIRROR of the engine (SQL-side
+  // querying/BI). Omit it for an engine-only enterprise.
   "graph_db_uri": "postgresql://agent:REDACTED@pg-age.example.arpa:5432/agent_kg",
   "kg_daemon_role": "host",
 
@@ -91,9 +100,10 @@ session-keyed partitions) — on any host that reaches Kafka, Postgres, and the
 engine; invocations are in
 [rung (d) of the ladder](../guides/deployment-configurations.md#rung-d-scaled-multi-host).
 
-### Engine shards (Stage 2 — tenant-partitioned L0)
+### Engine shards (Stage 2 — tenant-partitioned engine authority)
 
-When one engine host saturates, run N engine shards and add to `config.json`:
+When one engine host saturates, run N engine shards (each a slice of the one
+authority) and add to `config.json`:
 
 ```jsonc
 {

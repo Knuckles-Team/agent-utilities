@@ -1,52 +1,66 @@
 # Graph Backends
 
-This directory contains the persistence layer implementations for the Knowledge Graph.
+This directory contains the `GraphBackend` implementations for the Knowledge Graph.
 
 ## Overview
 
-All backends implement the `GraphBackend` abstract base class defined in `base.py`. This ensures that the engine can interact with any database using a unified interface for Cypher queries, vector search, and functional pruning.
+**The epistemic-graph engine is the ONE database — the authority / system of
+record** (compute + in-memory cache + semantic/ontology + durable persistence).
+It serves all reads and acks all writes. The other backends here are **mirrors**:
+durable copies that receive the engine's write stream — losslessly and
+asynchronously, via the per-mirror outbox — for interop, BI, external query, and
+DR. Every backend implements the `GraphBackend` abstract base class in `base.py`,
+so a mutation runs natively on the authority and every mirror through one unified
+interface for Cypher queries, vector search, and functional pruning.
 
-## Supported Backends
+## The authority
 
-### 1. LadybugDB (`ladybug_backend.py`)
-- **Type**: Embedded SQLite-based Graph/Vector DB.
-- **Status**: Production (Default).
-- **Use Case**: Local development, zero-config deployments, and single-agent sessions.
+### epistemic-graph (`epistemic_graph_backend.py`)
+- **Type**: Rust-native graph engine, reached out-of-process over MessagePack/UDS.
+- **Role**: **THE authority / system of record** — compute + cache + semantic +
+  durable persistence in one engine. Default; zero external services.
 
-### 2. Neo4j (`neo4j_backend.py`)
-- **Type**: Enterprise Distributed Graph DB.
-- **Status**: Stub / Experimental.
-- **Use Case**: High-concurrency environments, complex multi-user graph analysis.
+## Mirror targets
 
-### 3. FalkorDB (`falkordb_backend.py`)
-- **Type**: Redis-based Graph DB.
-- **Status**: Stub / Experimental.
-- **Use Case**: High-throughput graph workloads requiring Redis speeds.
+### PostgreSQL + pg-age (`postgresql_backend.py`)
+- **Type**: PostgreSQL with the AGE graph extension + pgvector + ParadeDB.
+- **Role**: Richest mirror — full openCypher (AGE) + vector + BM25 in a durable,
+  BI-friendly store.
+- **Extensions**: AGE (native openCypher / CSR graph traversal), pgvector (HNSW
+  embedding search), ParadeDB (BM25 lexical search).
+- **Features**: Connection pooling (psycopg_pool), Cypher-to-SQL transpilation
+  fallback, graceful degradation when extensions are absent.
 
-### 4. PostgreSQL + pg-age (`postgresql_backend.py`)
-- **Type**: Enterprise PostgreSQL with pg-age graph extension + pgvector + ParadeDB.
-- **Status**: Production.
-- **Use Case**: Teams with existing PostgreSQL infrastructure wanting graph, vector, and BM25 capabilities without a separate graph database.
-- **Extensions**: pg-age (CSR graph traversal), pgvector (HNSW embedding search), ParadeDB (BM25 lexical search).
-- **Features**: Connection pooling (psycopg_pool), Cypher-to-SQL transpilation, graceful degradation when extensions are absent.
+### Neo4j (`contrib/neo4j_backend.py`)
+- **Type**: Distributed graph DB (Bolt).
+- **Role**: Native-Cypher mirror for high-concurrency external graph analysis.
 
-### 5. Memory (`memory_backend.py`)
+### FalkorDB (`contrib/falkordb_backend.py`)
+- **Type**: Redis-based graph DB.
+- **Role**: Native-Cypher mirror for Redis-speed external workloads.
+
+### LadybugDB (`contrib/ladybug_backend.py`)
+- **Type**: Embedded SQLite-based graph/vector DB.
+- **Role**: Local zero-infra durable mirror (single file, no server).
+
+### Memory (`memory_backend.py`)
 - **Type**: Pure in-memory NetworkX graph.
-- **Status**: Testing / Development.
-- **Use Case**: Unit tests, CI pipelines, edge devices, and ephemeral containers.
+- **Role**: Testing / development — unit tests, CI, ephemeral containers.
 
 ## Configuration
 
-Backends are selected via environment variables:
+Configured via environment variables:
 
-- `GRAPH_BACKEND`: `tiered` (default — L1 `epistemic_graph` + L2 `ladybug`, a
-  single self-contained binary with no external server), or one of `memory`,
-  `file`, `epistemic_graph`, `postgresql`, `ladybug`, `neo4j`, `falkordb`.
-- `GRAPH_BACKEND_L1` / `GRAPH_BACKEND_L2`: tiered tier selection. L2 defaults to
-  `ladybug`, and auto-switches to `postgresql` when a DSN (`GRAPH_DB_URI` /
-  `PGGRAPH_DSN`) is configured. Set `GRAPH_BACKEND_L2=postgresql` to force it.
+- `GRAPH_BACKEND`: `epistemic_graph` (default — the engine authority alone, also
+  `memory`/`file` snapshot modes) or `fanout` (engine authority + mirrors). The
+  `tiered`/`GRAPH_BACKEND_L1`/`GRAPH_BACKEND_L2` scheme is **removed**.
+- `GRAPH_AUTHORITY`: read source-of-truth under `fanout` (default
+  `epistemic_graph`; may name any durable connection).
+- `GRAPH_MIRROR_TARGETS`: JSON/list of mirror connection names (declared in
+  `KG_CONNECTIONS`) that receive the fanned-out write stream — replaces the
+  removed `GRAPH_BACKEND_L2`.
 - `GRAPH_DB_PATH`: Local path for LadybugDB (default: `knowledge_graph.db`).
-- `GRAPH_DB_URI`: Connection URI for Neo4j or PostgreSQL.
+- `GRAPH_DB_URI` / `PGGRAPH_DSN`: Connection URI for the Neo4j / PostgreSQL mirror.
 - `GRAPH_DB_HOST`: Host for FalkorDB.
 - `GRAPH_POOL_MIN` / `GRAPH_POOL_MAX`: PostgreSQL connection pool sizing.
 - `GRAPH_PGGRAPH_SCHEMA`: Schema for pg-age table registration (default: `public`).

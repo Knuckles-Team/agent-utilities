@@ -1,16 +1,22 @@
 # Graph Backend Architecture
 
-The Knowledge Graph engine supports multiple backend implementations through a
-unified `GraphBackend` abstract interface. All backends provide the same core
-capabilities: Cypher query execution, vector search, node/edge CRUD, and
-optional SPARQL support.
+**The epistemic-graph engine is the ONE database — the authority and system of
+record.** A single Rust engine does compute, in-memory cache, semantic/ontology
+reasoning, AND durable persistence. All reads are served by the engine; all
+writes commit to the engine and then fan out — losslessly and asynchronously
+(durable outbox, replay-on-reconnect) — to optional **mirrors** for interop, BI,
+external query, and disaster recovery. The mirror backends (PostgreSQL/pg-age,
+Neo4j, FalkorDB, LadybugDB) each implement the same unified `GraphBackend`
+abstract interface (Cypher query execution, vector search, node/edge CRUD, and
+optional SPARQL support), so a mutation runs natively on every store.
 
-The **default** backend is the zero-dependency Rust-native `EpistemicGraph`
-(`GRAPH_BACKEND=memory`/`file`/`epistemic_graph`); the **production** durable
-backend is PostgreSQL (`GRAPH_BACKEND=postgresql`), optionally fronted by the
-`tiered` write-through store (L1 EpistemicGraph + L3 Postgres). LadybugDB, Neo4j,
-and FalkorDB are first-class backends whose drivers install as optional extras
-(`backends/contrib/`).
+The **default** is the engine alone (`GRAPH_BACKEND=epistemic_graph`, also
+`memory`/`file` for snapshot modes) — zero external services. Turn on mirroring
+with `GRAPH_BACKEND=fanout` and name a mirror set; the engine stays the read
+authority and each durable mirror receives the replicated stream. PostgreSQL/
+pg-age, Neo4j, and FalkorDB are first-class mirror targets (drivers install as
+optional extras under `backends/contrib/`). There is **no tier vocabulary** —
+it is the engine authority plus mirrors.
 
 > **Verified parity (KG-2.7).** Node properties (declared / ad-hoc / nested),
 > edge existence, **edge properties**, and vector search round-trip on **every**
@@ -30,97 +36,89 @@ and FalkorDB are first-class backends whose drivers install as optional extras
 ```mermaid
 graph TB
     subgraph "IntelligenceGraphEngine"
-        A["KG-2.0: query_cypher()"] --> B["KG-2.0: backend.execute()"]
+        A["KG-2.0: query_cypher()"] --> B["KG-2.0: engine.execute()"]
         C["KG-2.0: add_node()"] --> B
         D["KG-2.0: link_nodes()"] --> B
-        E["KG-2.3: search_hybrid()"] --> F["KG-2.3: backend.semantic_search()"]
-        G["KG-2.0: load_subgraph()"] --> H["Rust GraphComputeEngine\n(Tier 2 Compute)"]
+        E["KG-2.3: search_hybrid()"] --> F["KG-2.3: engine.semantic_search()"]
+        G["KG-2.0: load_subgraph()"] --> H["Rust GraphComputeEngine\n(compute + cache)"]
         QR["KG-2.7: QueryRouter"] --> B
         QR --> H
         QR --> F
     end
 
-    B --> I{"KG-2.0: Backend Type?"}
-
-    subgraph "KG-2.7: EpistemicGraph (Default — memory/file)"
-        I -->|memory / file / epistemic_graph| EG["Rust-native EpistemicGraph\n(zero-dep working store)"]
+    subgraph AUTH["KG-2.7: epistemic-graph engine — THE authority (system of record)"]
+        EG["Rust-native EpistemicGraph\ncompute + in-mem cache + semantic + durable persistence\n(serves ALL reads, acks ALL writes)"]
     end
 
-    subgraph "KG-2.7: Tiered (L1 EpistemicGraph + L3 Postgres)"
-        I -->|tiered| TI["TieredGraphBackend\nwrite-through L1→L3"]
+    B --> EG
+    F --> EG
+    H --> EG
+
+    EG -->|"GRAPH_BACKEND=fanout\n(durable outbox · async · lossless)"| OUTBOX["per-mirror outbox\n(replay-on-reconnect)"]
+
+    subgraph MIRRORS["GRAPH_MIRROR_TARGETS — optional mirrors (interop · BI · external query · DR)"]
+        M_PG["PostgreSQL / pg-age (AGE)\nopenCypher + pgvector + ParadeDB BM25"]
+        M_N4["Neo4j (Bolt)"]
+        M_FK["FalkorDB (Redis)"]
+        M_LB["LadybugDB (SQLite + HNSW)"]
+        M_SD["Stardog (SPARQL · urn:source:*)"]
     end
 
-    subgraph "KG-2.0: LadybugDB (opt-in contrib)"
-        I -->|ladybug| J["Native Cypher\nSQLite + HNSW"]
-    end
+    OUTBOX --> M_PG
+    OUTBOX --> M_N4
+    OUTBOX --> M_FK
+    OUTBOX --> M_LB
+    OUTBOX --> M_SD
 
-    subgraph "KG-2.0: Neo4j (opt-in contrib)"
-        I -->|neo4j| K["KG-2.0: Native Cypher\nBolt Protocol"]
-    end
-
-    subgraph "FalkorDB (opt-in contrib)"
-        I -->|falkordb| L["KG-2.0: Cypher via\nRedis Protocol"]
-    end
-
-    subgraph "PostgreSQL (Production durable)"
-        I -->|postgresql| M["KG-2.0: Cypher → SQL\nTranspiler (default)"]
-        I -->|age / GRAPH_PG_AGE=1| AGE["KG-2.7: Apache AGE\ncypher() — real openCypher"]
-        M --> N["PostgreSQL Tables"]
-        M --> O["KG-2.0: AGE openCypher"]
-        AGE --> AGN["AGE graph (agtype)\n+ kg_embeddings (pgvector)"]
-        F --> P["KG-2.3: pgvector\n(Cosine Search)"]
-        F --> Q["KG-2.3: ParadeDB BM25\n(Lexical Search)"]
-    end
-
-    subgraph "SPARQL Backends"
-        I -->|jena_fuseki| S1["Jena Fuseki / EpistemicGraph Compute In-Memory\n(pyjena_fuseki)"]
-        I -->|fuseki| S2["Apache Fuseki\n(HTTP SPARQL)"]
-    end
-
-    subgraph "Memory (Testing)"
-        I -->|memory| R["GraphComputeEngine\nIn-Memory"]
-    end
+    EG -->|"SPARQL via OWL/RDF layer (local, any data)"| SPARQL["W3C SPARQL endpoint\n(core/owl_bridge · pyjena_fuseki)"]
 ```
 
-## Backend Comparison
+## Engine authority vs. mirror comparison
 
-| Capability | epistemic_graph (default) | LadybugDB | PostgreSQL (AGE) | Neo4j | FalkorDB |
+The first column is **the engine** — the one authority that serves reads and acks
+writes. The rest are **mirror targets**: durable, full-openCypher (or SPARQL)
+stores that receive the replicated write stream for interop/BI/external-query/DR.
+
+| Capability | epistemic-graph (THE authority) | LadybugDB (mirror) | PostgreSQL/pg-age (mirror) | Neo4j (mirror) | FalkorDB (mirror) |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **Status** | **Default (Rust-native)** | first-class (extra) | **Production (durable)** | first-class (extra) | first-class (extra) |
+| **Role** | **authority · system of record** | mirror (extra) | mirror (extra) | mirror (extra) | mirror (extra) |
 | Cypher Support | subset (id-anchored)¹ | Native (Kuzu) | **Native (AGE)** / transpiled | Native | Native |
 | Node props (declared/ad-hoc/nested) | ✅ | ✅ (ad-hoc in `metadata`) | ✅ | ✅ | ✅ |
 | **Edge properties** | ✅ | ✅ (JSON `r.properties`) | ✅ | ✅ | ✅ |
 | Vector Search | ✅ | ✅ | ✅ pgvector | ✅ (`:Embeddable`) | ⚠️ AVX2 host² |
 | SPARQL (via OWL/RDF layer) | ✅ local | ✅ local | ✅ local | ✅ local | ✅ local |
-| Graph Traversal (multi-hop) | compute/L3¹ | ✅ | ✅ (AGE) | ✅ | ✅ |
+| Graph Traversal (multi-hop) | ✅ native compute¹ | ✅ | ✅ (AGE) | ✅ | ✅ |
 | Connection Pooling | UDS client | File Lock | ✅ psycopg_pool | ✅ | — |
-| Persistence | optional/in-mem | File | Server | Server | Redis |
+| Persistence | **durable (built-in)** | File | Server | Server | Redis |
 | Zero Config | ✅ | ✅ | — | — | — |
 
-¹ epistemic_graph is the in-memory **L1 working store**; `backend.execute` interprets
-an operational id-anchored Cypher subset, and multi-hop traversal is served via the
-compute layer / tiered L3 — by design. ² FalkorDB vector search is code-correct
-(Cypher `CREATE VECTOR INDEX` + `db.idx.vector.queryNodes`) but the `falkordb` image
-SIGILLs on 768-dim vector ops on non-AVX2 host CPUs.
+¹ The engine is the authority and serves multi-hop traversal natively from its
+own compute/cache over its durable store; `engine.execute` interprets an
+operational id-anchored Cypher subset on the write path. ² FalkorDB vector search
+is code-correct (Cypher `CREATE VECTOR INDEX` + `db.idx.vector.queryNodes`) but
+the `falkordb` image SIGILLs on 768-dim vector ops on non-AVX2 host CPUs.
 
-## PostgreSQL Backend Deep Dive
+## PostgreSQL Mirror Deep Dive
 
-The PostgreSQL backend combines three PostgreSQL extensions into a unified
-graph + vector + search layer:
+PostgreSQL is the richest **mirror** target: it combines three PostgreSQL
+extensions into a unified graph + vector + search store, so the engine's
+replicated write stream lands in a queryable, BI-friendly, openCypher-capable
+durable copy. (It is a mirror, not the authority — the engine remains the read
+source of truth.)
 
-### Three-Layer Architecture
+### Internal extension architecture
 
 ```mermaid
 graph LR
-    subgraph "Layer 1: Storage"
+    subgraph "Storage (relational)"
         A["KG-2.0: Node Tables\n(Agent, Tool, Memory, ...)"] --- B["KG-2.0: kg_edges Table"]
     end
 
-    subgraph "Layer 2: Graph Index"
+    subgraph "Graph Index (AGE)"
         C["KG-2.0: AGE traversal\n(graph.traverse)\n(graph.shortest_path)\n(graph.search)"]
     end
 
-    subgraph "Layer 3: Search"
+    subgraph "Search"
         D["KG-2.3: pgvector HNSW\n(Cosine Similarity)"]
         E["KG-2.3: ParadeDB BM25\n(Lexical Ranking)"]
     end
@@ -147,8 +145,8 @@ engine generates:
 
 ### Extension Dependencies
 
-**Postgres is the durable graph backend of choice here** (`backend: "age"`), and
-to be a first-class graph + vector + search store it needs **three** extensions
+**Postgres is the richest mirror target here** (`backend: "age"`), and
+to be a first-class graph + vector + search mirror it needs **three** extensions
 installed — and, for AGE and pg_search, preloaded:
 
 | Extension | Required | `shared_preload_libraries` | Purpose |
@@ -163,7 +161,7 @@ installed — and, for AGE and pg_search, preloaded:
 > back to the bounded regex transpiler (`backend: "postgresql"`, `cypher_support
 > = "subset"`) — fine as a single store, but it cannot serve the full query
 > surface a fan-out mirror set shares (CONCEPT:KG-2.74). With AGE, Postgres is a
-> peer of Neo4j/FalkorDB and the **preferred authority**.
+> peer of Neo4j/FalkorDB and the **richest mirror target** (full openCypher).
 
 **The curated image bundles all three.** `services/pg-age/` builds
 `registry.arpa/pg-age` **FROM `paradedb/paradedb:latest` (PostgreSQL 18)** — which
@@ -174,7 +172,7 @@ that introduced PG18 support). The stack `command` sets
 `pg_search`. The **stock `paradedb/paradedb` image does NOT include AGE** — using
 it directly leaves a Postgres connection on the `subset` transpiler path.
 
-The backend **gracefully degrades** when extensions are missing — CRUD and basic
+The mirror **gracefully degrades** when extensions are missing — CRUD and basic
 search work with plain PostgreSQL; native Cypher requires AGE; vector search
 requires pgvector; BM25 requires pg_search.
 
@@ -184,8 +182,9 @@ requires pgvector; BM25 requires pg_search.
 
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_BACKEND` | `memory` | Backend type: `memory`/`file`/`epistemic_graph` (default, Rust-native), `postgresql` (production durable), `tiered`, `jena_fuseki`, `fuseki`; opt-in contrib: `ladybug`, `neo4j`, `falkordb` |
-| `GRAPH_BACKEND_L1` | `epistemic_graph` | L1 working store type when `GRAPH_BACKEND=tiered` |
+| `GRAPH_BACKEND` | `epistemic_graph` | Engine mode: `epistemic_graph` (default — the engine authority alone, also `memory`/`file` snapshot modes) or `fanout` (engine authority + mirrors). The `tiered`/`GRAPH_BACKEND_L1`/`GRAPH_BACKEND_L2` scheme is **removed**. |
+| `GRAPH_AUTHORITY` | `epistemic_graph` | Read source-of-truth under `fanout`; any named durable connection may be named instead, but the engine is the default |
+| `GRAPH_MIRROR_TARGETS` | unset | JSON/list of mirror connection names (declared in `KG_CONNECTIONS`) that receive the fanned-out write stream; supersedes the removed `GRAPH_BACKEND_L2` |
 | `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for EpistemicGraph (`file` mode) / LadybugDB |
 | `GRAPH_DB_URI` | — | Connection URI for Neo4j or PostgreSQL |
 | `GRAPH_DB_HOST` | `localhost` | Host for FalkorDB |
@@ -307,7 +306,7 @@ asynchronously — to any set of durable backends. Turn it on with
 when you configure a mirror set).
 
 ```bash
-# Authority = epistemic-graph L1 (fast in-mem reads); mirror to Postgres-AGE,
+# Authority = epistemic-graph engine (fast in-mem reads + durable); mirror to Postgres-AGE,
 # Neo4j and FalkorDB. The mirror set names entries declared in KG_CONNECTIONS.
 export GRAPH_BACKEND=fanout
 export GRAPH_AUTHORITY=epistemic_graph
@@ -333,8 +332,8 @@ are mirrors.
   (zero external infra). A per-mirror drainer thread applies entries in order and
   advances a persisted cursor, so a mirror that is **offline or slow keeps its
   unapplied tail and replays from its cursor on reconnect / restart** — a
-  transient outage never drops a write. (Contrast the tiered write-behind queue,
-  which is in-memory and lost on crash.)
+  transient outage never drops a write. (Unlike an in-memory write-behind queue,
+  the outbox survives a crash.)
 * **One drainer per mirror = natural single-writer.** A file-locked store
   (LadybugDB/Kuzu) is serialised for free — it is simply the slowest mirror.
 * **Reconcile backstop.** `graph_configure(action="reconcile")` runs a full
@@ -361,8 +360,8 @@ edge props into the `properties` JSON column (durably stored, conformance-verifi
 ### Native cross-backend migration (CONCEPT:KG-2.74)
 
 `knowledge_graph/migration.py` `copy_graph(source, target)` copies every node +
-edge (+ embeddings) from any source (the L1 compute store, or a full-cypher durable
-backend read via `MATCH`) into any target backend. The **write** goes through the
+edge (+ embeddings) from any source (the engine authority, or a full-cypher mirror
+read via `MATCH`) into any target backend. The **write** goes through the
 engine's proven, dialect-aware MERGE upserts (`IntelligenceGraphEngine._upsert_node`
 / `_upsert_edge`) — so each backend gets a *correct native write*, never one
 backend's raw cypher forwarded to all. It is the right layer for interchangeable
@@ -376,7 +375,7 @@ storage:
 * returns exact post-condition drift (`nodes_missing` / `edges_missing`).
 
 This is what **backfills a freshly-added mirror** (`graph_configure(action="reconcile")`
-and the tiered `reconcile_to_durable` both delegate to `copy_graph`) and what migrates
+and `reconcile_to_durable` both delegate to `copy_graph`) and what migrates
 data between any two backends (e.g. Neo4j → FalkorDB). It replaced the old reconcile
 that reconstructed `CREATE (n:Label {`k`: $k})` cypher — fragile on native-cypher
 backends (double-escaped reserved keys) and edge-lossy. Parity is proven by
@@ -384,17 +383,18 @@ backends (double-escaped reserved keys) and edge-lossy. Parity is proven by
 source graph copied into Postgres + Neo4j + FalkorDB + LadybugDB lands as identical
 counts.
 
-### Quick Start: PostgreSQL
+### Quick Start: PostgreSQL mirror
 
 ```bash
 # 1. Start the database
 docker compose -f docker/pg-age.compose.yml up -d
 
-# 2. Configure the backend
-export GRAPH_BACKEND=postgresql
-export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
+# 2. Mirror the engine authority to Postgres-AGE
+export GRAPH_BACKEND=fanout
+export GRAPH_MIRROR_TARGETS='["pg-age"]'
+export KG_CONNECTIONS='[{"name":"pg-age","backend":"age","uri":"postgresql://agent:agent@localhost:5433/agent_kg"}]'
 
-# 3. Run the graph-os MCP server
+# 3. Run the graph-os MCP server — engine serves reads, Postgres mirrors writes
 graph-os
 ```
 

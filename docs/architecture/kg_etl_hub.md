@@ -30,7 +30,7 @@ flowchart LR
         PROV["stamp_source()<br/>source_system + domain"]
         ONT["Ontology transform<br/>interfaces · links · OWL bridge · metamodel compile"]
     end
-    HUB["Canonical Knowledge Graph<br/>(L1 epistemic + L3 durable)<br/>externalToolId + domain federation keys"]
+    HUB["Canonical Knowledge Graph<br/>(epistemic-graph engine — the authority)<br/>externalToolId + domain federation keys"]
     subgraph OUT["Load (outbound)"]
         WB["Write-back sinks (18)<br/>run_writeback · dry-run + ProposalQueue"]
         MIR["Graph-store load<br/>push_to_stardog / copy_graph / fan-out mirror"]

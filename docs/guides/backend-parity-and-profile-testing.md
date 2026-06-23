@@ -1,13 +1,15 @@
 # Backend parity & deployment-profile testing
 
 Agent-utilities ships the *same* code to a Raspberry Pi 3 and to an enterprise
-cluster, on top of any of several storage backends. Two test layers keep that
-promise honest:
+cluster. The **epistemic-graph engine is the one database** in every case; the
+optional mirrors (Postgres/pg-age, Neo4j, FalkorDB, Ladybug) must each accept the
+engine's async write fan-out faithfully. Two test layers keep that promise honest:
 
-1. **Backend conformance** — one assertion body run against **every** supported
-   storage backend (`tests/integration/backends/`).
+1. **Mirror conformance** — one assertion body run against **every** supported
+   mirror (`tests/integration/backends/`).
 2. **Deployment profiles** — two end-to-end topologies: a zero-dependency "tiny"
-   profile and the full "enterprise" profile (`tests/integration/profiles/`).
+   profile (engine only) and the full "enterprise" profile, engine + mirrors
+   (`tests/integration/profiles/`).
 
 Both stand real services up in **throwaway containers** via
 [`testcontainers`](https://testcontainers-python.readthedocs.io/) — on random
@@ -20,15 +22,16 @@ intentionally broken without touching anything you care about.
 pip install 'agent-utilities[test-backends]'   # drivers + testcontainers
 ```
 
-Requires a reachable Docker daemon for the live matrix. The two zero-infra cases
-(epistemic-graph L1, embedded LadybugDB) need neither Docker nor `testcontainers`.
+Requires a reachable Docker daemon for the live matrix. The zero-infra case
+(the embedded epistemic-graph engine, no mirrors) needs neither Docker nor
+`testcontainers`.
 
 ## What runs when
 
 | Selection | What runs | Needs Docker? |
 |---|---|---|
-| `pytest` (default, `-m "not live"`) | tiny-profile zero-dep e2e; conformance for `epistemic_graph` + `ladybug` | no |
-| `pytest -m live` | full backend matrix (pg-age/Neo4j/FalkorDB) + Fuseki SPARQL + enterprise-profile e2e | yes |
+| `pytest` (default, `-m "not live"`) | tiny-profile (engine-only) zero-dep e2e; mirror conformance for `ladybug` | no |
+| `pytest -m live` | full mirror matrix (pg-age/Neo4j/FalkorDB) + Fuseki SPARQL + enterprise-profile e2e | yes |
 
 The default PR suite therefore continuously enforces the **Pi-3 zero-dependency
 contract** (including a cold-import footprint guard) without requiring Docker, and
@@ -53,26 +56,29 @@ footprint guard always runs.
 
 ## The two profiles
 
-**Tiny (Raspberry Pi 3).** `GRAPH_BACKEND=tiered` (epistemic-graph L1 + embedded
-LadybugDB L2), `OWL_BACKEND=owlready2`, SQLite task queue, inline dispatch, no
-`GRAPH_DB_URI`/`STATE_DB_URI`/Kafka. The test boots the gateway REST surface
-in-process and asserts write→query works and the local OWL reasoner runs — with
-**zero containers** — plus a subprocess cold-import check that no external-service
-driver (`aiokafka`/`psycopg`/`neo4j`/`falkordb`/`pystardog`/`confluent_kafka`)
-leaked into the footprint.
+**Tiny (Raspberry Pi 3).** `GRAPH_BACKEND=epistemic_graph` (the engine alone — the
+one self-contained database, no mirrors), `OWL_BACKEND=owlready2`, SQLite task
+queue, inline dispatch, no `GRAPH_DB_URI`/`STATE_DB_URI`/Kafka. The test boots the
+gateway REST surface in-process and asserts write→query works and the local OWL
+reasoner runs — with **zero containers** — plus a subprocess cold-import check
+that no mirror/external-service driver
+(`aiokafka`/`psycopg`/`neo4j`/`falkordb`/`pystardog`/`confluent_kafka`) leaked
+into the footprint.
 
-**Enterprise.** Throwaway pg-age + Kafka + Fuseki. Asserts the three integration
-seams: durable graph writes persist in pg-age across a reconnect; the task queue
-resolves to Kafka and a put→consume→ack round-trips; the ontology publishes to
-Fuseki and is queryable over SPARQL.
+**Enterprise.** Engine + throwaway pg-age + Kafka + Fuseki
+(`GRAPH_BACKEND=fanout`). Asserts the three integration seams: writes committed to
+the engine fan out and land in the pg-age **mirror**, surviving a reconnect; the
+task queue resolves to Kafka and a put→consume→ack round-trips; the ontology
+publishes to Fuseki and is queryable over SPARQL.
 
 ## Parity status (the 100%-parity program)
 
-A live full-matrix probe (write via the engine, read via `backend.execute`, all
-five backends running) drove a phased program that closed the gaps. **Verified
-current state:**
+A live full-matrix probe (write via the engine, then read each mirror via
+`backend.execute`, all mirrors running) drove a phased program that closed the
+gaps. The `epistemic_graph` column is the authority; the rest are mirrors.
+**Verified current state:**
 
-| Capability | epistemic_graph | ladybug | pg-age (AGE) | neo4j | falkordb |
+| Capability | epistemic_graph (authority) | ladybug | pg-age (AGE) | neo4j | falkordb |
 |---|---|---|---|---|---|
 | node props (declared/ad-hoc/nested) | ✅ | ✅ (ad-hoc in `metadata`) | ✅ | ✅ | ✅ |
 | edge existence | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -81,22 +87,22 @@ current state:**
 | vector search | ✅ | ✅ | ✅ (pgvector) | ✅ (`:Embeddable`) | ⚠️² |
 | SPARQL (via OWL/RDF layer) | ✅ local `/sparql` | ✅ | ✅ | ✅ | ✅ |
 
-¹ epistemic_graph is the in-memory **L1 working store**; its `backend.execute`
+¹ epistemic_graph is the **authority engine**; its `backend.execute`
 interprets an operational Cypher subset (id-anchored traversals), and multi-hop
-traversal is served via the compute layer / tiered L3 — by design, not a gap.
+traversal is served via the engine's native compute layer — by design, not a gap.
 ² FalkorDB vector search is **code-correct** (Cypher DDL `CREATE VECTOR INDEX` +
 `db.idx.vector.queryNodes`, verified with small vectors) but the
 `falkordb/falkordb` image **crashes (SIGILL) on 768-dim vector ops on non-AVX
 host CPUs** — verify on AVX-capable hardware.
 
 What changed:
-- **Neo4j/FalkorDB are first-class** — they crashed on the standard write path
-  (`label()`), threw on nested props, and mis-targeted the vector index; all fixed.
-  They run in the `-m live` conformance matrix and pass the contract.
+- **Neo4j/FalkorDB are first-class mirrors** — they crashed on the standard write
+  path (`label()`), threw on nested props, and mis-targeted the vector index; all
+  fixed. They run in the `-m live` conformance matrix and pass the contract.
 - **pg-age runs Apache AGE** (`GRAPH_PG_AGE=1` / `backend_type=age`,
   `docker/pg-age-age.compose.yml`) — real openCypher incl. `count(r)`, multi-hop,
   variable-length, edge props, plus pgvector embeddings.
-- **Edge properties** persist on every backend (Ladybug via a JSON `r.properties`
+- **Edge properties** persist on every mirror (Ladybug via a JSON `r.properties`
   column on REL tables).
 - **Local SPARQL** is served at `{prefix}/sparql` over the OWL/RDF bridge (rdflib
   materialization) with zero external deps — Fuseki/Stardog are optional scale-out.
@@ -108,8 +114,8 @@ passing where a backend genuinely can't satisfy a check:
 - **FalkorDB vector search** needs an AVX-capable host (see ² above).
 - **Prune semantics differ** (importance vs `last_accessed`); the suite asserts
   only the shared no-raise contract.
-- **Per-backend ontology object/link/function parity** is exercised through the
-  tiny-profile gateway path against the default tiered backend.
+- **Per-mirror ontology object/link/function parity** is exercised through the
+  tiny-profile gateway path against the default engine-only backend.
 
 ## Adopting this in another agent-package
 

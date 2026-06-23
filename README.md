@@ -89,8 +89,10 @@ graph runs in-process. Use it three ways:
 ### The 30-second mental model
 
 All four surfaces talk to one gateway; the gateway owns one knowledge-graph facade;
-the facade fronts a fast Rust engine (L1) and durable tiers (L2). Everything below the
-gateway is shared — the surfaces are just different windows onto the same brain.
+the facade fronts **one engine — the authority** (a fast Rust engine that does
+compute, cache, semantics, AND durable persistence). Writes fan out to optional
+durable mirrors. Everything below the gateway is shared — the surfaces are just
+different windows onto the same brain.
 
 ```mermaid
 flowchart TD
@@ -99,9 +101,9 @@ flowchart TD
     end
     Surfaces -->|REST / MCP| GW["graph-os MCP + REST gateway<br/>(identity · ActionPolicy · metrics)"]
     GW --> KG["KnowledgeGraph facade<br/>(ontology · routing · memory)"]
-    KG --> L1["epistemic-graph<br/>Rust engine — L1 (MessagePack/UDS)"]
-    KG --> L2["durable L2<br/>Postgres / pg-age · LadybugDB"]
-    KG --> OWL["OWL / SHACL · Fuseki<br/>semantics"]
+    KG --> ENG["epistemic-graph Rust engine — THE authority<br/>compute + cache + semantic + durable (MessagePack/UDS)"]
+    ENG -->|async lossless fan-out| MIR["optional mirrors<br/>Postgres / pg-age · Neo4j · FalkorDB · LadybugDB"]
+    KG --> OWL["OWL / SHACL · Fuseki<br/>semantics (local SPARQL over the engine)"]
     GW -. fleet events / autonomy .-> FLEET["reconciler · playbooks · autoscaler"]
 ```
 
@@ -136,7 +138,7 @@ Claude set itself up — all in the **[Quick Start](docs/guides/quick-start.md)*
 ### Use the knowledge graph natively — for free, no database
 
 ```python
-from agent_utilities.mcp import kg_server   # GRAPH_BACKEND=tiered is the default
+from agent_utilities.mcp import kg_server   # GRAPH_BACKEND=epistemic_graph is the default
 
 # Add knowledge...
 await kg_server._execute_tool("graph_write", action="add_node",
@@ -203,8 +205,9 @@ Grouped by what they do. Each line links to the deep-dive; the full catalog with
 every concept ID is in **[docs/guides/features.md](docs/guides/features.md)**.
 
 **🧠 Knowledge graph & memory** — the zero-infra core.
-A tiered KG (native Rust L1 + durable Postgres/pg-age L2 + OWL semantics; contrib
-Neo4j/FalkorDB/LadybugDB) with **[Schema-Pack domain profiles](docs/pillars/2_epistemic_knowledge_graph/KG-2.37-Research_State_Domain_Pack.md)**
+**One engine — the authority** (native Rust: compute + cache + OWL semantics +
+durable persistence; writes fan out to optional Postgres/pg-age, Neo4j, FalkorDB,
+LadybugDB mirrors) with **[Schema-Pack domain profiles](docs/pillars/2_epistemic_knowledge_graph/KG-2.37-Research_State_Domain_Pack.md)**
 (KG-2.22–2.37: zero-LLM typed-edge extraction, transitive/inverse OWL closure,
 bitemporal `as_of` recall) over a **[high-performance Rust compute engine](docs/pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md)**
 (MessagePack/UDS, **no PyO3**; measured ~52 kB/agent — see the
@@ -400,16 +403,19 @@ For more details, see the [Installation Guide](docs/guides/installation.md).
 
 Out of the box, agent-utilities runs as a **single self-contained install with no
 external *service* dependencies** (no database or graph server to stand up;
-Python package dependencies still apply). The default knowledge-graph backend is `tiered` —
-the always-included Rust-native `epistemic_graph` (L1) in front of an embedded
-**LadybugDB** (L2). No Postgres/Neo4j server is required to get started.
+Python package dependencies still apply). The default knowledge-graph backend is
+`epistemic_graph` — the always-included Rust-native engine that is **the one
+authority** (compute + cache + semantic + durable persistence). No Postgres/Neo4j
+server is required to get started.
 
-To use a durable PostgreSQL tier in production, just set a DSN — the tiered L2
-auto-switches to Postgres (your existing configuration keeps working unchanged):
+To add a durable PostgreSQL **mirror** in production (for interop/BI/DR), turn on
+fan-out and name the mirror — the engine stays the read authority and Postgres
+receives the replicated write stream:
 
 ```bash
-export GRAPH_BACKEND=tiered
-export GRAPH_DB_URI=postgresql://agent:agent@localhost:5432/agent_kg
+export GRAPH_BACKEND=fanout
+export GRAPH_MIRROR_TARGETS='["pg-age"]'
+export KG_CONNECTIONS='[{"name":"pg-age","backend":"age","uri":"postgresql://agent:agent@localhost:5432/agent_kg"}]'
 ```
 
 ## Deployment

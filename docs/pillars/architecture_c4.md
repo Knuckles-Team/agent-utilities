@@ -65,7 +65,7 @@ C4Container
         Container(os_k, "OS: Agent OS Kernel", "Python + FastAPI", "JWT-minted identity (OS-5.14), guardrails, lifecycle, telemetry, Prometheus /metrics, rate limiting, GATEWAY_WORKERS (OS-5.23)")
         Container(autonomy, "OS: Fleet Autonomy Plane", "Python", "ActionPolicy gate (OS-5.24), fleet reconciler (OS-5.25), remediation playbooks (OS-5.26), deploy watch (OS-5.27), autoscaler (OS-5.29)")
         Container(workers, "Worker Fleets", "Python console scripts", "kg-ingest-worker (KG-2.57) + agent-dispatch-worker (ORCH-1.45) — stateless, any host")
-        ContainerDb(kgdb, "Knowledge Graph DB", "epistemic-graph engine shards (L0/L1) + PostgreSQL (durable); SQLite/file fallback", "1..N shards behind GRAPH_SERVICE_ENDPOINTS")
+        ContainerDb(kgdb, "Knowledge Graph DB", "epistemic-graph engine — THE authority (compute+cache+semantic+durable); optional Postgres/Neo4j/FalkorDB mirrors", "1..N shards behind GRAPH_SERVICE_ENDPOINTS")
         ContainerDb(statedb, "Shared State Store", "PostgreSQL via STATE_DB_URI (OS-5.16); per-host SQLite default", "Checkpoints, sessions/goals, task + dispatch queues (SKIP LOCKED, advisory-lock leadership)")
         ContainerQueue(queues, "Work Queues", "Kafka kg_tasks + agent_turns topics (or Postgres/SQLite)", "Keyed partitions: tenant/repo (KG-2.56), session (ORCH-1.45)")
     }
@@ -154,7 +154,7 @@ C4Component
 
     Container_Boundary(kg, "Knowledge Graph") {
         Component(engine, "IntelligenceGraphEngine", "Python", "Core engine composed of 8 focused mixins (Query, Memory, Ingestion, MCPDiscovery, Registry, TaskManager, Federation, AHE)")
-        Component(backend, "Graph Backends", "Python", "Primary: epistemic-graph + PostgreSQL (TieredGraphBackend); contrib: Ladybug, FalkorDB, Neo4j")
+        Component(backend, "Graph Backends", "Python", "Authority: epistemic-graph engine; fan-out mirrors: PostgreSQL/pg-age, Neo4j, FalkorDB, Ladybug (backends/contrib/)")
         Component(pipeline, "Graph-OS Ingestion", "Python", "Ingest, enrich, index, materialize, evolve via MCP")
         Component(retrieval, "Hybrid Retriever", "Python", "Semantic 72% + keyword 28% search")
         Component(dci, "🔬 DCI Retriever", "Python", "KG-2.3: Multi-hop graph traversal retrieval. Research: 2605.05242v1")
@@ -194,7 +194,7 @@ C4Component
         Component(prog_synth, "🔬 Program Synthesis", "Python", "KG-2.69: inductive DSL search with an MDL/Occam (Solomonoff) selection prior")
     }
 
-    Rel(engine, backend, "Tier 1: Cypher persistence")
+    Rel(engine, backend, "Cypher reads/writes via the engine authority")
     Rel(engine, pipeline, "Orchestrates graph-os native ingestion")
     Rel(retrieval, engine, "Queries via hybrid scoring")
     Rel(dci, retrieval, "Seeds from hybrid, then graph traversal")
@@ -627,7 +627,7 @@ flowchart LR
 graph TD
     subgraph "Pillar Interconnection Matrix"
             P1["<b>ORCH-1.0: Orchestration</b><br/>Orchestrates multi-agent workflows"]
-            P2["<b>KG-2.0: Knowledge Graph</b><br/>epistemic-graph + PostgreSQL semantic engine"]
+            P2["<b>KG-2.0: Knowledge Graph</b><br/>epistemic-graph engine authority (+ optional mirrors)"]
             P3["<b>AHE-3.0: Agentic Harness</b><br/>Continuous evaluation and evolution"]
             P4["<b>ECO-4.0: Ecosystem</b><br/>MCP server connections and APIs"]
             P5["<b>OS-5.0: Agent OS</b><br/>Runtime environment and security"]

@@ -28,14 +28,14 @@ logger = logging.getLogger(__name__)
 
 # Backends for which the manifest must use the SQLite fallback instead of
 # graph-native :IngestManifest nodes:
-#   - EpistemicGraphBackend: pure in-memory L1 → not durable across restart.
-#   - PostgreSQLBackend / TieredGraphBackend: schema-constrained L3 has no
-#     :IngestManifest table, so graph-native MERGE errors ("relation does not
-#     exist"). SQLite under data_dir() is durable + robust for all of them.
+#   - PostgreSQLBackend: schema-constrained tables have no :IngestManifest table,
+#     so a graph-native MERGE errors ("relation does not exist").
+# SQLite under data_dir() is durable + robust, so it's the manifest store for
+# these. (The epistemic-graph engine authority holds arbitrary nodes, so the
+# fanout/engine path keeps graph-native manifests.)
 _NON_DURABLE_BACKENDS = {
     "EpistemicGraphBackend",
     "PostgreSQLBackend",
-    "TieredGraphBackend",
 }
 
 _LABEL = "IngestManifest"
@@ -48,9 +48,9 @@ def _now() -> str:
 def _is_durable_backend(backend: Any) -> bool:
     """True if writes through ``backend.execute()`` survive a restart.
 
-    A pure in-memory L1 backend cannot persist the manifest graph-side, so it is
-    treated as non-durable (→ SQLite fallback). Anything backed by a durable
-    tier (pggraph / TieredGraphBackend) is durable.
+    A pure in-memory backend cannot persist the manifest graph-side, so it is
+    treated as non-durable (→ SQLite fallback). A schema-backed durable store
+    (pggraph) is durable.
     """
     if backend is None:
         return False

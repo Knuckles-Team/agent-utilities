@@ -74,7 +74,7 @@ manually with the existing snapshot tooling:
    changed everywhere;
 4. delete the stale copy from the old shard.
 
-Durable tiers (pg-age L3) are unaffected — they are not partitioned by this
+Durable mirrors (e.g. pg-age) are unaffected — they are not partitioned by this
 mechanism.
 
 ## Topology visibility (CONCEPT:OS-5.28)

@@ -150,7 +150,7 @@ if [ "$DO_MCP" = 1 ]; then
     "graph-os": {
       "command": "graph-os",
       "args": [],
-      "env": {"GRAPH_BACKEND": "tiered"}
+      "env": {"GRAPH_BACKEND": "epistemic_graph"}
     }
   }
 }
