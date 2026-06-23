@@ -29,6 +29,9 @@ class _FakeGraph:
     def add_edge(self, source, target, rel_type=""):
         self.edges.add((source, target, rel_type))
 
+    def delete_node(self, node_id):
+        self.nodes.pop(node_id, None)
+
     def _agent_node(self, agent_id):
         return self.nodes.get(f"busagent:{agent_id}")
 
@@ -48,6 +51,37 @@ class _FakeGraph:
                 {"m": n}
                 for n in self.nodes.values()
                 if n.get("type") == "BusMessage" and n.get("msg_group") == g
+            ]
+        if "BusMessage {topic: $t, kind: 'topic'}" in cypher:
+            t = params.get("t")
+            return [
+                {"m": n}
+                for n in self.nodes.values()
+                if n.get("type") == "BusMessage"
+                and n.get("kind") == "topic"
+                and n.get("topic") == t
+            ]
+        if "BusMessage {kind: 'topic'}" in cypher:
+            return [
+                {"m": n}
+                for n in self.nodes.values()
+                if n.get("type") == "BusMessage" and n.get("kind") == "topic"
+            ]
+        if "BusTopicCursor {agent_id:" in cypher:
+            aid, t = params.get("aid"), params.get("t")
+            return [
+                {"c": n}
+                for n in self.nodes.values()
+                if n.get("type") == "BusTopicCursor"
+                and n.get("agent_id") == aid
+                and n.get("topic") == t
+            ]
+        if "BusSubscription {agent_id:" in cypher:
+            aid = params.get("aid")
+            return [
+                {"s": n}
+                for n in self.nodes.values()
+                if n.get("type") == "BusSubscription" and n.get("agent_id") == aid
             ]
         if "BusMessage {id:" in cypher:
             node = self.nodes.get(params.get("mid"))
@@ -151,6 +185,72 @@ def test_unsubscribe_stops_delivery(bus):
     assert bus.send(sender="pub", topic="t", payload="x")["delivered"] == []
 
 
+def test_topic_send_with_no_subscribers_is_stored_then_replayed(bus):
+    """Store-and-forward (ECO-4.91): a topic message with zero current subscribers is LEFT and
+    delivered to an agent that subscribes later."""
+    bus.register("pub")
+    out = bus.send(sender="pub", topic="news", payload="breaking")
+    assert out["ok"] and out["delivered"] == [] and out["stored"] is True
+
+    # A peer subscribes AFTER the send. With replay_recent it backfills the recent window.
+    bus.register("late")
+    bus.subscribe("late", "news", replay_recent=True)
+    got = bus.receive("late")
+    assert [m["payload"] for m in got["messages"]] == ["breaking"]
+    # Read once only — a second receive yields nothing (cursor advanced).
+    assert bus.receive("late")["messages"] == []
+
+
+def test_late_subscriber_replay_no_double_delivery_to_existing(bus):
+    """A current subscriber gets the message ONCE (per-recipient), not again via backlog; a
+    later subscriber gets the stored backlog exactly once (ECO-4.91)."""
+    for a in ("pub", "early"):
+        bus.register(a)
+    bus.subscribe("early", "t")
+    r = bus.send(sender="pub", topic="t", payload="m1")
+    assert r["delivered"] == ["early"] and r["stored"] is True
+    # The existing subscriber sees m1 once (per-recipient) and no backlog duplicate — passing
+    # the returned cursor back yields nothing more (the topic-log entry isn't re-delivered).
+    first = bus.receive("early")
+    assert [m["payload"] for m in first["messages"]] == ["m1"]
+    assert bus.receive("early", since=first["cursor"])["messages"] == []
+
+    # A NEW subscriber joining without replay_recent gets only FUTURE messages, not m1.
+    bus.register("late")
+    bus.subscribe("late", "t")
+    assert bus.receive("late")["messages"] == []
+    bus.send(sender="pub", topic="t", payload="m2")
+    # late gets m2 once (it's a current subscriber now → per-recipient delivery).
+    got_late = bus.receive("late")
+    assert [m["payload"] for m in got_late["messages"]] == ["m2"]
+    assert bus.receive("late", since=got_late["cursor"])["messages"] == []
+
+
+def test_reaper_prunes_expired_topic_messages(bus):
+    bus.register("pub")
+    bus.send(sender="pub", topic="t", payload="old")
+    # Force the stored topic message past its TTL.
+    for n in bus._engine.nodes.values():
+        if n.get("type") == "BusMessage" and n.get("kind") == "topic":
+            n["expires_at"] = 1.0
+    assert bus.prune_topic_log() == 1
+    assert not any(n.get("kind") == "topic" for n in bus._engine.nodes.values())
+
+
+def test_auto_register_on_first_touch(bus):
+    """ECO-4.92: touching the bus with a fresh id auto-creates the :BusAgent and shows online."""
+    assert bus.roster() == []
+    assert bus.touch("fresh") is True
+    roster = bus.roster()
+    assert [a["agent_id"] for a in roster] == ["fresh"]
+    assert roster[0]["presence"] == "online"
+    # Touch preserves any registered capabilities (no blob clobber).
+    bus.register("capped", capabilities=["x"])
+    bus._engine.nodes["busagent:capped"]["last_seen"] = 0.0
+    bus.touch("capped")
+    assert bus.roster(capability="x")[0]["agent_id"] == "capped"
+
+
 def test_send_requires_target(bus):
     bus.register("a")
     assert bus.send(sender="a", payload="x")["ok"] is False
@@ -252,11 +352,17 @@ async def test_graph_bus_tool_live_path(monkeypatch):
             since=0,
             online_only=False,
             reason="",
+            replay_recent=False,
+            ctx=None,
         )
         base.update(kw)
         return json.loads(await graph_bus(**base))
 
-    await call(action="register", agent_id="a", provider="anthropic")
+    # ECO-4.92: a fresh agent_id auto-registers on first touch — no explicit register call.
+    await call(action="receive", agent_id="a")
+    roster = await call(action="roster")
+    assert "a" in {x["agent_id"] for x in roster["roster"]}
+
     await call(action="register", agent_id="b", provider="openai")
     roster = await call(action="roster")
     assert {a["agent_id"] for a in roster["roster"]} == {"a", "b"}

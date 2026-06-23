@@ -217,6 +217,11 @@ class InboundRouter:
                     return True
 
                 await retry_unanswered(engine, _reply_send)
+                # CONCEPT:ECO-4.91 — same housekeeping cadence prunes expired AgentBus topic-log
+                # messages so the store-and-forward backlog can't grow unbounded.
+                from agent_utilities.messaging.bus import AgentBus
+
+                AgentBus.instance(engine).prune_topic_log()
             except Exception as e:  # noqa: BLE001 — the reaper must survive any single pass
                 logger.debug("[CONCEPT:ECO-4.83] inbox reaper pass failed: %s", e)
 

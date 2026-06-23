@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 445
+total_concepts: 447
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1408,6 +1408,22 @@ concepts:
   code_paths:
   - agent_utilities/messaging/backends/mattermost.py
   doc: Mattermost as a first-class bidirectional messaging platform
+- id: ECO-4.91
+  name: same housekeeping cadence prunes expired AgentBus topic-log
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/messaging/bus.py
+  - agent_utilities/messaging/router.py
+  doc: same housekeeping cadence prunes expired AgentBus topic-log
+- id: ECO-4.92
+  name: auto-register + online presence on any bus touch
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/bus_tools.py
+  - agent_utilities/messaging/bus.py
+  doc: auto-register + online presence on any bus touch
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -3306,6 +3322,7 @@ concepts:
   - agent_utilities/agent/registry_builder.py
   - agent_utilities/core/paths.py
   - agent_utilities/core/schedule_engine.py
+  - agent_utilities/knowledge_graph/backends/base.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/tiered_backend.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
