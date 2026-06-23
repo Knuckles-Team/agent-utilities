@@ -158,6 +158,34 @@ def _collect_rich(
             }
         except TypeError:  # pragma: no cover - non-standard graph
             return out
+    # Unrestricted: prefer the engine-side BOUNDED label fetch (CONCEPT:KG-2.51) over a
+    # whole-graph GetNodes dump — on a large multi-tenant engine the full node list is a
+    # huge payload that resets the socket. Try each type's label across casings (live
+    # labels are inconsistently cased, e.g. "article" vs "Concept").
+    by_label = getattr(graph, "get_nodes_by_label", None)
+    if callable(by_label):
+        labels = {
+            cased
+            for t in node_types
+            for cased in (t, t.lower(), t.capitalize(), t.upper(), t.title())
+        }
+        seen_any = False
+        for lbl in labels:
+            try:
+                rows = by_label(lbl, 0) or []
+            except Exception:  # noqa: BLE001 — try the next label casing
+                continue
+            for row in rows:
+                if isinstance(row, list | tuple) and len(row) >= 2:
+                    nid, data = str(row[0]), row[1]
+                    if (
+                        isinstance(data, dict)
+                        and str(data.get("type", "")).lower() in wanted
+                    ):
+                        out[nid] = data
+                        seen_any = True
+        if seen_any:
+            return out
     try:
         node_iter = graph.nodes(data=True)
     except TypeError:  # pragma: no cover - non-standard graph
