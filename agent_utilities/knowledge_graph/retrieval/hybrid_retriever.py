@@ -102,7 +102,9 @@ class HybridRetriever:
         self._last_quality_report = None
 
         # CONCEPT:KG-2.3: Lazy embedding model — defer HTTP connection to first use
-        self._embed_model = None
+        # (typed Any to avoid importing the heavy llama_index BaseEmbedding onto the
+        # retrieval path — dependency discipline).
+        self._embed_model: Any = None
         self._embed_model_initialized = False
 
     @property

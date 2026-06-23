@@ -380,7 +380,12 @@ def register_state_tools(mcp):
             if url:
                 out.append(url.strip())
             seen: set[str] = set()
-            return [u for u in out if u and not (u in seen or seen.add(u))]
+            deduped: list[str] = []
+            for u in out:
+                if u and u not in seen:
+                    seen.add(u)
+                    deduped.append(u)
+            return deduped
 
         try:
             engine = kg_server._get_engine()
