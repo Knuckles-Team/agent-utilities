@@ -4519,6 +4519,127 @@ class TaskManagerMixin(GraphEngineProtocol):
             c["duration_ms"] = round(c["duration_ms"], 1)
         return cats
 
+    def profile_report(
+        self, window_sec: int = 86400, group_by: str = "lane"
+    ) -> dict[str, Any]:
+        """Per-lane / per-stage latency + cost profile from Task nodes (CONCEPT:OS-5.55).
+
+        Where ``aggregate_ingest_metrics`` sums per content TYPE, this groups by a
+        chosen dimension — ``lane`` (the functional task lane), ``type`` (the task
+        type / pipeline stage), or ``tkind`` — and reports latency PERCENTILES
+        (p50/p95/max) plus token/cost totals and a **parallelism factor** (sum of
+        per-task durations ÷ wall-clock span). That is exactly the measurement a
+        profiling run needs to PROVE a speed-up: the same corpus before vs after an
+        optimization, and how much pipelining the staged lanes actually buy.
+
+        Reads only metadata every task already carries — ``duration_ms`` (computed in
+        ``_update_task_status``), ``lane``/``type`` (stamped at submit), and optional
+        ``tokens``/``cost``/``usage`` when an LLM stage recorded them — so it adds no
+        write path and covers EVERY ingestion lane uniformly.
+        """
+
+        def _pct(values: list[float], p: float) -> float:
+            if not values:
+                return 0.0
+            if len(values) == 1:
+                return values[0]
+            k = (len(values) - 1) * (p / 100.0)
+            lo = int(k)
+            hi = min(lo + 1, len(values) - 1)
+            frac = k - lo
+            return values[lo] * (1 - frac) + values[hi] * frac
+
+        try:
+            rows = self._control_cypher(
+                "MATCH (t:Task) RETURN t.status as status, t.metadata as meta"
+            )
+        except Exception:  # noqa: BLE001
+            return {}
+        cutoff = None
+        if window_sec:
+            try:
+                cutoff = datetime.now(UTC) - timedelta(seconds=window_sec)
+            except Exception:  # noqa: BLE001
+                cutoff = None
+
+        key = group_by if group_by in ("lane", "type", "tkind") else "lane"
+        groups: dict[str, dict[str, Any]] = {}
+        starts: list[float] = []
+        ends: list[float] = []
+        for r in rows or []:
+            meta = _decode_metadata(r.get("meta"))
+            ca = meta.get("completed_at")
+            if cutoff is not None and ca:
+                try:
+                    if datetime.fromisoformat(ca) < cutoff:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            g = (
+                meta.get(key)
+                or meta.get("type")
+                or meta.get("content_type")
+                or "unknown"
+            )
+            grp = groups.setdefault(
+                g,
+                {
+                    "count": 0,
+                    "completed": 0,
+                    "failed": 0,
+                    "dead_letter": 0,
+                    "_durations": [],
+                    "tokens": 0,
+                    "cost": 0.0,
+                    "nodes": 0,
+                    "edges": 0,
+                },
+            )
+            grp["count"] += 1
+            st = (r.get("status") or "").lower()
+            if st in ("completed", "done", "success"):
+                grp["completed"] += 1
+            elif st in ("failed", "error"):
+                grp["failed"] += 1
+            elif st == "dead_letter":
+                grp["dead_letter"] += 1
+            dur = float(meta.get("duration_ms", 0) or 0)
+            if dur > 0:
+                grp["_durations"].append(dur)
+            usage = meta.get("usage") or {}
+            grp["tokens"] += int(meta.get("tokens", usage.get("total", 0)) or 0)
+            grp["cost"] += float(meta.get("cost", usage.get("cost", 0)) or 0)
+            grp["nodes"] += int(
+                meta.get("nodes_added", meta.get("nodes_created", 0)) or 0
+            )
+            grp["edges"] += int(
+                meta.get("edges_added", meta.get("edges_created", 0)) or 0
+            )
+            for ts, bucket in ((meta.get("started_at"), starts), (ca, ends)):
+                if ts:
+                    try:
+                        bucket.append(datetime.fromisoformat(ts).timestamp())
+                    except (ValueError, TypeError):
+                        pass
+
+        for grp in groups.values():
+            durs = sorted(grp.pop("_durations"))
+            grp["total_ms"] = round(sum(durs), 1)
+            grp["p50_ms"] = round(_pct(durs, 50), 1)
+            grp["p95_ms"] = round(_pct(durs, 95), 1)
+            grp["max_ms"] = round(durs[-1], 1) if durs else 0.0
+            grp["cost"] = round(grp["cost"], 4)
+
+        total_ms = sum(g["total_ms"] for g in groups.values())
+        wall_ms = (max(ends) - min(starts)) * 1000.0 if starts and ends else 0.0
+        return {
+            "group_by": key,
+            "groups": groups,
+            "parallelism_factor": round(total_ms / wall_ms, 2) if wall_ms > 0 else 0.0,
+            "wall_ms": round(wall_ms, 1),
+            "total_task_ms": round(total_ms, 1),
+        }
+
     def _checkpoint_db(self) -> None:
         """Force a WAL checkpoint so a SQLite-backed store persists across restarts.
 
