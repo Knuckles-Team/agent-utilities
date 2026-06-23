@@ -103,12 +103,14 @@ async def gui_action(
     ws = _ws(ctx)
     if ws is None:
         return _NO_WS
-    valid_ops = set(ComputerUseAction.model_fields["op"].annotation.__args__)
+    _ann = ComputerUseAction.model_fields["op"].annotation
+    valid_ops = set(getattr(_ann, "__args__", ()))
     if op not in valid_ops:
         return f"unknown op {op!r}; valid: {', '.join(sorted(valid_ops))}"
     obs = await ws.act(
         ComputerUseAction(
-            op=op,  # type: ignore[arg-type]  (validated above against the Literal)
+            # op is validated against the Literal above, so the cast is safe.
+            op=op,  # type: ignore[arg-type]
             element_id=element_id,
             x=x,
             y=y,
