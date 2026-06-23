@@ -46,7 +46,13 @@ TASK_LANES: dict[str, dict] = {
         "model_role": "lite",
     },
     "research": {
-        "task_types": frozenset({"research_paper_fetch", "background_research"}),
+        # CONCEPT:KG-2.172 — the research-cohort barrier gate (cohort_synthesize) lives
+        # HERE, not the best-effort maint lane: under heavy cohort ingestion the maint
+        # floor-cap starved the gate so the matrix never synthesized. Research is a real
+        # throughput lane, so the gate is reliably claimed once its members drain.
+        "task_types": frozenset(
+            {"research_paper_fetch", "background_research", "cohort_synthesize"}
+        ),
         "model_role": "learner",
     },
     # CONCEPT:KG-2.121 — the WORLDVIEW stream: relevance-gated news/world-event
@@ -75,10 +81,6 @@ TASK_LANES: dict[str, dict] = {
                 "fleet_event_triage",
                 "deploy_watch",
                 "synthesize",
-                # CONCEPT:KG-2.172 — the research-cohort barrier gate: polls member
-                # readiness then runs assimilation + feature matrix. Coordination
-                # work, kept off the throughput lanes.
-                "cohort_synthesize",
             }
         ),
         "model_role": "judge",
