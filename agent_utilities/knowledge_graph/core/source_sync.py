@@ -2852,6 +2852,193 @@ def _mcp_tracker_configured(source: str) -> bool:
     return any(_mcp_server_configured(servers, s) for s in candidate_servers)
 
 
+# ── ARD registry delta handler (CONCEPT:KG-2.188) ────────────────────────────
+
+
+def _resolve_ard_registries() -> list[dict[str, Any]]:
+    """Resolve configured external ARD registries from ``ARD_REGISTRIES``.
+
+    The value is a JSON list of ``{name, preset|catalog_url, search_url?, media_types?}``
+    objects (a bare string item is treated as a preset name), so an operator points the
+    consume side at HF + any peer registry with one config key.
+    """
+    import json as _json
+
+    from ...core.config import setting
+
+    raw = (setting("ARD_REGISTRIES", default="") or "").strip()
+    if not raw:
+        return []
+    try:
+        data = _json.loads(raw)
+    except Exception:  # noqa: BLE001 — malformed config ⇒ no registries
+        return []
+    items = data if isinstance(data, list) else [data]
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if isinstance(item, str):
+            out.append({"name": item, "preset": item})
+        elif isinstance(item, dict):
+            out.append(dict(item))
+    return out
+
+
+def _ard_entities(
+    docs: list[Any], registry_name: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Map drained ARD resource docs → typed KG entities + relationships (KG-2.188).
+
+    ``application/mcp-server*`` → ``:MCPServer``; ``application/ai-skill`` → ``:Skill``;
+    every resource links ``registeredIn`` its ``:ResourceRegistry`` and ``providesCapability``
+    a ``:ServiceCapability`` per tag — reusing the a2a/capability ontology terms so an
+    ingested external capability is queryable exactly like a native one.
+    """
+    import re as _re
+
+    def _slug(value: str) -> str:
+        return _re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-") or "x"
+
+    entities: list[dict[str, Any]] = []
+    rels: list[dict[str, Any]] = []
+    src = f"ard:{registry_name}"
+    registry_node = f"ard:registry:{_slug(registry_name)}"
+    entities.append(
+        {
+            "id": registry_node,
+            "type": "ResourceRegistry",
+            "name": registry_name,
+            "domain": "ard",
+            "source_system": src,
+        }
+    )
+    for doc in docs:
+        eid = getattr(doc, "id", None)
+        if not eid:
+            continue
+        meta = getattr(doc, "metadata", None) or {}
+        record = meta.get("record") if isinstance(meta, dict) else {}
+        media = str((meta or {}).get("ard_media_type") or "")
+        node_type = "Skill" if media == "application/ai-skill" else "MCPServer"
+        node_id = f"ard:{registry_name}:{_slug(eid)}"
+        publisher_domain = str((record.get("publisher") or {}).get("domain", ""))
+        entities.append(
+            {
+                "id": node_id,
+                "type": node_type,
+                "name": getattr(doc, "title", None) or str(eid),
+                "description": getattr(doc, "text", "") or "",
+                "domain": "ard",
+                "source_system": src,
+                "externalToolId": str(eid),
+                "ardMediaType": media,
+                "publisherDomain": publisher_domain,
+                "updatedAt": getattr(doc, "updated_at", None),
+            }
+        )
+        rels.append(
+            {
+                "source": node_id,
+                "target": registry_node,
+                "type": "registeredIn",
+                "domain": "ard",
+            }
+        )
+        for tag in record.get("tags") or []:
+            cap = str(tag).strip().lower()
+            if not cap:
+                continue
+            cap_node = f"capability:{_slug(cap)}"
+            entities.append(
+                {
+                    "id": cap_node,
+                    "type": "ServiceCapability",
+                    "name": cap,
+                    "domain": "ard",
+                    "source_system": src,
+                }
+            )
+            rels.append(
+                {
+                    "source": node_id,
+                    "target": cap_node,
+                    "type": "providesCapability",
+                    "domain": "ard",
+                }
+            )
+    return entities, rels
+
+
+def _sync_ard(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Ingest external ARD registries as typed discoverable resources (CONCEPT:KG-2.188).
+
+    For every registry in ``ARD_REGISTRIES`` (e.g. ``[{"name":"hf","preset":"huggingface"}]``)
+    this drains the ``ard`` connector (signature-verified), maps each resource to a typed
+    ``:MCPServer``/``:Skill`` node linked to its ``:ResourceRegistry`` + capabilities, and
+    ``ingest_external_batch``-es it under ``domain="ard"``. ``mode='reconcile'`` tombstones
+    resources no longer present. ``client`` may inject a fetch function for offline tests.
+    """
+    from ...protocols.source_connectors.registry import build_connector
+
+    registries = _resolve_ard_registries()
+    if not registries:
+        return {"status": "skipped", "reason": "no ARD_REGISTRIES configured"}
+
+    backend = getattr(engine, "backend", None)
+    results: list[dict[str, Any]] = []
+    total_e = total_r = total_fail = 0
+    all_live: set[str] = set()
+    for reg in registries:
+        name = str(reg.get("name") or reg.get("preset") or "ard")
+        conf = {k: v for k, v in reg.items() if k != "name"}
+        if callable(client):
+            conf["fetch_fn"] = client
+        try:
+            conn = build_connector("ard", conf)
+        except Exception as exc:  # noqa: BLE001 — a misconfigured registry is a skip
+            results.append(
+                {"registry": name, "status": "skipped", "reason": str(exc)[:160]}
+            )
+            continue
+        wm_key = f"ard:{name}"
+        since = None if mode == "full" else _read_watermark(backend, wm_key)
+        docs = _drain_incremental(conn, since)
+        live = {str(getattr(d, "id", "")) for d in docs if getattr(d, "id", None)}
+        all_live |= live
+        if mode == "reconcile":
+            results.append(_reconcile(engine, "ard", live) | {"registry": name})
+            continue
+        entities, rels = _ard_entities(docs, name)
+        if entities:
+            engine.ingest_external_batch("ard", entities, rels)
+        watermark = _max_updated(docs)
+        if watermark and (since is None or str(watermark) > str(since)):
+            _write_watermark(backend, wm_key, watermark)
+        fails = int(getattr(conn, "verify_failures", 0) or 0)
+        total_e += len(entities)
+        total_r += len(rels)
+        total_fail += fails
+        results.append(
+            {
+                "registry": name,
+                "resources": len(docs),
+                "verify_failures": fails,
+                "watermark": watermark,
+            }
+        )
+    return {
+        "status": "ok",
+        "source": "ard",
+        "mode": mode,
+        "delta_capable": True,
+        "registries": results,
+        "nodes_hydrated": total_e,
+        "relations_hydrated": total_r,
+        "verify_failures": total_fail,
+    }
+
+
 # Sources with a native delta (watermark/reconcile) handler. Add an entry here to
 # make another source incremental (e.g. Camunda once its extractor takes `since`).
 _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
@@ -2876,6 +3063,8 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "firefly_iii": _sync_firefly_iii,
     "paperless_ngx": _sync_paperless_ngx,
     "gramps": _sync_gramps,
+    # External ARD registries (HF + peers) as typed discoverable resources (KG-2.188).
+    "ard": _sync_ard,
     "fleet": _sync_fleet,
     "fleet_connectors": _sync_fleet_connectors,
 }
