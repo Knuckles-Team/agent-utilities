@@ -2416,6 +2416,37 @@ def _build_server(bootstrap: bool = True):
             }
         )
 
+    # ARD registry surface (CONCEPT:ECO-4.95/ECO-4.97) — the graph-os twin of the
+    # gateway routes in server/routers/ard.py. This is the container the deploy
+    # mechanic restarts, so it must answer the well-known + search paths too. Both
+    # delegate into the same ecosystem.ard_* core to stay in lockstep with the gateway.
+    @mcp.custom_route("/.well-known/ai-catalog.json", methods=["GET"])
+    async def ard_ai_catalog(request: Request) -> JSONResponse:  # noqa: ARG001
+        from agent_utilities.ecosystem.ard_registry import build_ai_catalog
+
+        return JSONResponse(build_ai_catalog())
+
+    @mcp.custom_route("/search", methods=["POST"])
+    async def ard_search_route(request: Request) -> JSONResponse:
+        from agent_utilities.ecosystem.ard_federation import ArdFederationRelay
+
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 — malformed body ⇒ empty query, not a 500
+            body = {}
+        query = body.get("query") or {}
+        text = str(query.get("text") or body.get("text") or "")
+        types = ((query.get("filter") or {}).get("type")) or None
+        page_size = int(body.get("pageSize") or 5)
+        result = ArdFederationRelay().federated_search(
+            text,
+            types=types,
+            page_size=page_size,
+            mode=body.get("federationMode"),
+            via=body.get("via") or [],
+        )
+        return JSONResponse(result)
+
     # ═══ Synthesized Tools (7 tools, action-routed) ═══
 
     from agent_utilities.mcp.tools import (

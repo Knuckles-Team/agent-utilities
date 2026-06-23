@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Agentic Resource Discovery (ARD) interop — publish + consume + federate
+  (CONCEPT:ECO-4.95/4.96/4.97, KG-2.188, OS-5.60).** agent-utilities becomes a
+  peer in the ARD discovery commons (draft spec from Hugging Face, Microsoft,
+  Google, GoDaddy). *Publish:* serve a signed `ai-catalog.json` at
+  `/.well-known/ai-catalog.json` and a ranked `POST /search` (gateway router +
+  graph-os `@mcp.custom_route` mirrors), mapping fleet MCP servers and KG skills
+  onto ARD media types via `MCPMultiplexer.discover_tools`. *Consume:* a new
+  `@register_source("ard")` connector ingests external registries (HF preset
+  built-in), Ed25519-verified, materialized as typed `:MCPServer`/`:Skill` nodes
+  linked to a `:ResourceRegistry` (`_sync_ard`). *Federate:* `ArdFederationRelay`
+  fans `/search` out to peer registries (`auto`/`referrals`/`none`) with loop-break
+  and dedup. Ed25519 publisher signing (`security/ard_signing`, import-guarded).
+  Docs: `docs/architecture/ard-interop.md`.
 - **KG-2.9 connector-expansion: enterprise/EA/governance/CRM/finance/legal
   bidirectional connectors (CONCEPT:KG-2.9).** A large wave of source connectors
   that both ingest *and* write back over one fail-closed writeback core. Ops +

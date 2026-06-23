@@ -383,5 +383,10 @@
     "messaging_voice": "1",
     "messaging_voice_model": "base",
     "messaging_goals": "1",
-    "messaging_recall_timeout": "8"
+    "messaging_recall_timeout": "8",
+    "ard_publisher_domain": "",
+    "ard_spec_version": "draft-0",
+    "ard_federation_mode": "none",
+    "ard_registries": "",
+    "ard_require_signature": "False"
 }
