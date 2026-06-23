@@ -101,7 +101,7 @@ async def run_computer_use_task(
     return str(result.output)
 
 
-DEFAULT_GUI_SANDBOX_IMAGE = "registry.arpa/homelab/gui-sandbox:latest"
+DEFAULT_GUI_SANDBOX_IMAGE = "knucklessg1/gui-sandbox:latest"
 
 
 async def provision_and_run_computer_use(
