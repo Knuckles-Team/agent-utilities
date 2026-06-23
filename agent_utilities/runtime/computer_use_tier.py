@@ -103,15 +103,27 @@ class ContainerExecComputerUseDriver:
         manager_type: str | None = None,
         session_id: str = "",
         engine: Any | None = None,
+        display: str = ":1",
+        user: str = "sandbox",
+        home: str = "/home/sandbox",
     ) -> None:
         self.container_id = container_id
         self.host = host
         self.manager_type = manager_type
         self.session_id = session_id
+        # gui-sandbox runs its X session + AT-SPI bus as this unprivileged user; the
+        # actuator must exec as it (not root) so a11y-dump can reach the a11y bus.
+        self.display = display
+        self.user = user
+        self.home = home
         self._engine = engine  # optional GraphComputeEngine for observe_screen ingest
         self._manager: Any | None = None
         # Grounding cache from the last capture: element_id -> (cx, cy) screen center.
         self._grounding: dict[str, tuple[int, int]] = {}
+        # Frame-chain state for the observe_screen enrichment (succeededBy diff chain).
+        self._frame_seq = 0
+        self._prev_frame_id = ""
+        self._prev_hash = 0
 
     def _manager_or_create(self) -> Any:
         if self._manager is None:
@@ -127,7 +139,9 @@ class ContainerExecComputerUseDriver:
 
     async def _exec(self, command: list[str], binary: bool = False) -> dict:
         manager = self._manager_or_create()
-        full = ["env", "DISPLAY=:1", *command]
+        env = ["env", f"DISPLAY={self.display}", f"HOME={self.home}", *command]
+        # Drop to the desktop user so X + the AT-SPI accessibility bus are reachable.
+        full = ["runuser", "-u", self.user, "--", *env] if self.user else env
         return await asyncio.to_thread(
             manager.exec_in_container, self.container_id, full, False, binary
         )
@@ -216,13 +230,22 @@ class ContainerExecComputerUseDriver:
         if engine is None or not image_b64:
             return
         observe = getattr(engine, "observe_screen", None)
-        if observe is None:
+        if observe is None or not getattr(engine, "supports_observe_screen", False):
             return
         try:
-            payload = json.dumps(
-                {"session_id": self.session_id, "elements": elements}
-            ).encode()
-            await asyncio.to_thread(observe, base64.b64decode(image_b64), payload)
+            result = await asyncio.to_thread(
+                observe,
+                base64.b64decode(image_b64),
+                session_id=self.session_id or "default",
+                frame_seq=self._frame_seq,
+                prev_frame_id=self._prev_frame_id,
+                prev_hash=self._prev_hash,
+                elements=elements,
+            )
+            # Advance the frame chain so the next capture links via succeededBy.
+            self._frame_seq += 1
+            self._prev_frame_id = (result or {}).get("frame_id", "")
+            self._prev_hash = (result or {}).get("hash", 0)
         except Exception:  # noqa: BLE001 - ingestion is best-effort, never blocks actuation
             return
 
