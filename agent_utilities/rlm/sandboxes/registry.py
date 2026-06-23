@@ -55,6 +55,17 @@ def default_sandboxes() -> list[Sandbox]:
     except Exception as e:  # noqa: BLE001 - optional backend
         logger.debug("forkserver sandbox not registered: %s", e)
 
+    # container_fork (CONCEPT:ORCH-1.89) — warm pooled container (vs cold --rm docker);
+    # full isolation, host callbacks via UDS bridge. Gated on a docker/podman daemon.
+    try:
+        from .container_fork_backend import ContainerForkSandbox
+
+        cfork = ContainerForkSandbox()
+        if cfork.is_available():
+            backends.append(cfork)
+    except Exception as e:  # noqa: BLE001 - optional backend
+        logger.debug("container_fork sandbox not registered: %s", e)
+
     # docker / podman (Phase 4) — full isolation, host callbacks via UDS bridge.
     try:
         from .docker_backend import DockerSandbox
