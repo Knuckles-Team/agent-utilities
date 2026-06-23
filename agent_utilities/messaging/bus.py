@@ -24,6 +24,7 @@ CONCEPT:ECO-4.84 — AgentBus federated agent-to-agent communication bus over th
 CONCEPT:KG-2.141 — :Agent / :Topic / :BusMessage presence + mailbox node model
 CONCEPT:ECO-4.91 — store-and-forward topic log + per-(agent,topic) replay cursor (leave a message)
 CONCEPT:ECO-4.92 — auto-register + online presence on any bus touch (no explicit register)
+CONCEPT:ECO-4.98 — bus register under the served auth profile: run as the request's authenticated identity + surface a denied write (never a silent ok:false)
 
 See Also:
     - ``messaging/service.py`` (ECO-4.48) — the sibling *human*-reach core this mirrors.
@@ -87,6 +88,12 @@ class AgentBus:
 
     def __init__(self, engine: Any = None) -> None:
         self._engine = engine
+        # The reason the most recent :meth:`_add_node` write failed (CONCEPT:ECO-4.98).
+        # ``_add_node`` is best-effort and returns a bool, but a write that does NOT
+        # land must never be swallowed as a benign ``ok:false`` — the caller (e.g.
+        # :meth:`register`) reads this to tell a real engine/ACL denial apart from a
+        # missing-engine no-op and surface WHY, instead of a silent false.
+        self._last_write_error: str = ""
 
     @classmethod
     def instance(cls, engine: Any = None) -> AgentBus:
@@ -115,12 +122,18 @@ class AgentBus:
         engine = self._resolve_engine()
         add_node = getattr(engine, "add_node", None)
         if not callable(add_node):
+            self._last_write_error = "no active engine (bus has no durable store)"
             return False
         try:
             add_node(node_id, node_type, properties={"id": node_id, **props})
+            self._last_write_error = ""
             return True
         except Exception as exc:  # noqa: BLE001 — durability is best-effort
-            logger.debug("[ECO-4.84] add_node(%s) failed: %s", node_id, exc)
+            # Record WHY so the caller can surface it (CONCEPT:ECO-4.98). A write that
+            # does not land — e.g. an engine/ACL denial under the served profile
+            # (KG_BRAIN_ENFORCE) — must not be silently swallowed as a benign false.
+            self._last_write_error = f"{type(exc).__name__}: {exc}"
+            logger.warning("[ECO-4.84] add_node(%s) failed: %s", node_id, exc)
             return False
 
     def _add_edge(self, src: str, dst: str, rel: str) -> None:
@@ -192,7 +205,23 @@ class AgentBus:
                 "last_seen": now,
             },
         )
-        return {"ok": ok, "agent_id": agent_id, "capabilities": caps}
+        result: dict[str, Any] = {
+            "ok": ok,
+            "agent_id": agent_id,
+            "capabilities": caps,
+        }
+        # A failed register must say WHY (CONCEPT:ECO-4.98) — never a silent ok:false.
+        # The most common served-profile cause is an unattributed write under
+        # KG_BRAIN_ENFORCE: the bus is fleet-coordination infrastructure, so a
+        # legitimate *authenticated* session must be able to register (its identity
+        # is propagated from the MCP/REST surface), while an unauthenticated caller is
+        # cleanly rejected with this error rather than a benign-looking false.
+        if not ok:
+            result["error"] = self._last_write_error or (
+                f"register write for {node_id!r} did not land (the :BusAgent node "
+                "was not persisted)"
+            )
+        return result
 
     def heartbeat(self, agent_id: str) -> bool:
         """Refresh a participant's ``last_seen`` so the roster keeps it ``online``.
