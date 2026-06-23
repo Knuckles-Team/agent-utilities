@@ -889,7 +889,8 @@ async def _varied_ack(content: str, shape: Any) -> str:
     servers = getattr(shape, "tool_servers", ()) or ()
     if servers:
         names = ", ".join(
-            s.replace("-mcp", "").replace("-agent", "").replace("-api", "") for s in servers
+            s.replace("-mcp", "").replace("-agent", "").replace("-api", "")
+            for s in servers
         )
         static_pool = [
             f"On it — pulling that from {names} now, back in a moment. ⏳",
@@ -904,7 +905,8 @@ async def _varied_ack(content: str, shape: Any) -> str:
             "Got it — give me a sec to put this together. ⏳",
         ]
         what = "it takes a few steps"
-    fallback = random.choice(static_pool)  # noqa: S311 — cosmetic phrasing, not security
+    # cosmetic phrasing choice, not security-sensitive
+    fallback = random.choice(static_pool)  # noqa: S311  # nosec B311
     try:
         from agent_utilities.knowledge_graph.enrichment.cards import make_lite_llm_fn
 
@@ -918,7 +920,9 @@ async def _varied_ack(content: str, shape: Any) -> str:
             f'"{content[:200]}". Reply with ONLY the line, no quotes.'
         )
         line = await asyncio.wait_for(asyncio.to_thread(llm, prompt), timeout=4.0)
-        line = str(line or "").strip().strip('"').splitlines()[0].strip() if line else ""
+        line = (
+            str(line or "").strip().strip('"').splitlines()[0].strip() if line else ""
+        )
         return line if 0 < len(line) <= 160 else fallback
     except Exception:  # noqa: BLE001 — the ack is best-effort; never block the reply
         return fallback

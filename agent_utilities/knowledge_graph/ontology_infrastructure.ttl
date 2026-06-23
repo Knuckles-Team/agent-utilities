@@ -31,15 +31,56 @@
     rdfs:comment "A blade chassis housing multiple blade servers." ;
     rdfs:subClassOf bfo:0000030 .
 
+:ContainerImage a owl:Class ;
+    rdfs:label "Container Image" ;
+    rdfs:comment """An OCI container image / DockerHub repository tag-set, published from a
+:ContainerRegistry and contained by a :Repository namespace (CONCEPT:KG-2.155).""" ;
+    rdfs:subClassOf bfo:0000031 .
+
 :DDClient a owl:Class ;
     rdfs:label "Dynamic DNS Client" ;
     rdfs:comment "A dynamic DNS updater process." ;
     rdfs:subClassOf bfo:0000015 .
 
+:Device a owl:Class ;
+    rdfs:label "Device" ;
+    rdfs:comment """A physical/logical Home-Assistant device grouping one or more
+:Entity states (CONCEPT:KG-2.160).""" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:DnsRecord a owl:Class ;
+    rdfs:label "DNS Record" ;
+    rdfs:comment """A single resource record (A/AAAA/CNAME/TXT/…) part_of a :DnsZone
+(CONCEPT:KG-2.157).""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:DnsZone a owl:Class ;
+    rdfs:label "DNS Zone" ;
+    rdfs:comment "An authoritative DNS zone served by a :DNSService (CONCEPT:KG-2.157)." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Entity a owl:Class ;
+    rdfs:label "Home Assistant Entity" ;
+    rdfs:comment """A Home-Assistant entity (entity_id + state + attributes) that is
+part_of a :Device (CONCEPT:KG-2.160).""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Host a owl:Class ;
+    rdfs:label "Host" ;
+    rdfs:comment """A reachable host in the tunnel-manager inventory (an addressable compute
+node, possibly reached through a :Tunnel). CONCEPT:KG-2.158.""" ;
+    rdfs:subClassOf au:HardwareNode .
+
 :PlatformService a owl:Class ;
     rdfs:label "Platform Service" ;
     rdfs:comment "A software service or platform application deployed on our infrastructure." ;
     rdfs:subClassOf bfo:0000004 .
+
+:Tunnel a owl:Class ;
+    rdfs:label "Tunnel" ;
+    rdfs:comment """An SSH/proxy tunnel a :Host connects via to reach an upstream
+(CONCEPT:KG-2.158).""" ;
+    rdfs:subClassOf bfo:0000015 .
 
 :attachedStorage a owl:ObjectProperty ;
     rdfs:label "attached storage" ;
@@ -381,51 +422,5 @@ BFO:Process — unfolds over time.""" ;
     rdfs:comment """A complete deployment blueprint recording what was deployed,
 where, when, and under which profile (homelab/enterprise/minimal).
 BFO:GenericallyDependentContinuant — an information entity.""" ;
-    rdfs:subClassOf bfo:0000031 .
-
-# ── Ops / platform connector entities (CONCEPT:KG-2.155–2.160) ───────────────
-# OWL homes for the typed entities the DockerHub / Technitium-DNS / tunnel-manager /
-# Home-Assistant ingestion handlers (core/source_sync.py) emit, so each connector's
-# records are first-class OWL classes the reasoner acts on (not generic Documents).
-
-:ContainerImage a owl:Class ;
-    rdfs:label "Container Image" ;
-    rdfs:comment """An OCI container image / DockerHub repository tag-set, published from a
-:ContainerRegistry and contained by a :Repository namespace (CONCEPT:KG-2.155).""" ;
-    rdfs:subClassOf bfo:0000031 .
-
-:DnsZone a owl:Class ;
-    rdfs:label "DNS Zone" ;
-    rdfs:comment "An authoritative DNS zone served by a :DNSService (CONCEPT:KG-2.157)." ;
-    rdfs:subClassOf bfo:0000031 .
-
-:DnsRecord a owl:Class ;
-    rdfs:label "DNS Record" ;
-    rdfs:comment """A single resource record (A/AAAA/CNAME/TXT/…) part_of a :DnsZone
-(CONCEPT:KG-2.157).""" ;
-    rdfs:subClassOf bfo:0000031 .
-
-:Host a owl:Class ;
-    rdfs:label "Host" ;
-    rdfs:comment """A reachable host in the tunnel-manager inventory (an addressable compute
-node, possibly reached through a :Tunnel). CONCEPT:KG-2.158.""" ;
-    rdfs:subClassOf au:HardwareNode .
-
-:Tunnel a owl:Class ;
-    rdfs:label "Tunnel" ;
-    rdfs:comment """An SSH/proxy tunnel a :Host connects via to reach an upstream
-(CONCEPT:KG-2.158).""" ;
-    rdfs:subClassOf bfo:0000015 .
-
-:Device a owl:Class ;
-    rdfs:label "Device" ;
-    rdfs:comment """A physical/logical Home-Assistant device grouping one or more
-:Entity states (CONCEPT:KG-2.160).""" ;
-    rdfs:subClassOf bfo:0000004 .
-
-:Entity a owl:Class ;
-    rdfs:label "Home Assistant Entity" ;
-    rdfs:comment """A Home-Assistant entity (entity_id + state + attributes) that is
-part_of a :Device (CONCEPT:KG-2.160).""" ;
     rdfs:subClassOf bfo:0000031 .
 

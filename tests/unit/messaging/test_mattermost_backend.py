@@ -231,7 +231,7 @@ async def test_inbound_frame_reaches_router_and_reply_renders(
     b = _backend()
     await b.connect()
 
-    # Stub the default handler to stand in for the universal orchestrator: it renders a reply
+    # Fake the default handler to stand in for the universal orchestrator: it renders a reply
     # back through the SAME backend (what create_planner_handler does after a graph run).
     replies: list[tuple[str, str]] = []
 

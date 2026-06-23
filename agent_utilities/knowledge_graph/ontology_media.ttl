@@ -3,13 +3,35 @@
 @prefix bibo: <http://purl.org/ontology/bibo/> .
 @prefix time: <http://www.w3.org/2006/time#> .
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
-@prefix foaf: <http://xmlns.com/foaf/0.1/> .
 @prefix dc: <http://purl.org/dc/terms/> .
 @prefix : <http://knuckles.team/kg#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix schema: <http://schema.org/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:Author a owl:Class ;
+    rdfs:label "Author" ;
+    rdfs:comment """The author of one or more :Book items. Aligned to schema:Person /
+foaf:Person (CONCEPT:KG-2.163).""" ;
+    rdfs:seeAlso foaf:Person ;
+    rdfs:subClassOf foaf:Person .
+
+:Book a owl:Class ;
+    rdfs:label "Book" ;
+    rdfs:comment """A book / audiobook item in an Audiobookshelf :Library, authored_by an
+:Author. A specialization of :MediaAsset. Aligned to schema:Book / bibo:Book
+(CONCEPT:KG-2.163).""" ;
+    rdfs:seeAlso schema:Book ;
+    rdfs:subClassOf :MediaAsset .
+
+:Library a owl:Class ;
+    rdfs:label "Library" ;
+    rdfs:comment """An Audiobookshelf library (a collection of :Book items of one
+media type — audiobooks or ebooks). BFO:IndependentContinuant via System
+(CONCEPT:KG-2.163).""" ;
+    rdfs:subClassOf :System .
 
 :addedDate a owl:DatatypeProperty ;
     rdfs:label "added date" ;
@@ -99,6 +121,13 @@ Standards alignment: schema:MediaObject, schema:DownloadAction.""" ;
 MediaAssets into collections. BFO:IndependentContinuant via System.""" ;
     rdfs:subClassOf :System .
 
+:DownloadJob a owl:Class ;
+    rdfs:label "Download Job" ;
+    rdfs:comment """A download task tracked in qBittorrent or media-downloader.
+BFO:Process via Action. Aligned to schema:DownloadAction.""" ;
+    rdfs:seeAlso schema:DownloadAction ;
+    rdfs:subClassOf :Action .
+
 :MediaAsset a owl:Class ;
     rdfs:label "Media Asset" ;
     rdfs:comment """A downloaded or managed media file (video, audio, document).
@@ -107,37 +136,3 @@ Aligned to schema:MediaObject.""" ;
     rdfs:seeAlso schema:MediaObject ;
     rdfs:subClassOf :Dataset .
 
-:DownloadJob a owl:Class ;
-    rdfs:label "Download Job" ;
-    rdfs:comment """A download task tracked in qBittorrent or media-downloader.
-BFO:Process via Action. Aligned to schema:DownloadAction.""" ;
-    rdfs:seeAlso schema:DownloadAction ;
-    rdfs:subClassOf :Action .
-
-
-# ── Audiobookshelf library entities (CONCEPT:KG-2.163) ───────────────────────
-# OWL homes for the typed entities the Audiobookshelf ingestion handler
-# (core/source_sync.py) emits, so each library/book/author is a first-class OWL
-# class the reasoner acts on (not a generic Document).
-
-:Library a owl:Class ;
-    rdfs:label "Library" ;
-    rdfs:comment """An Audiobookshelf library (a collection of :Book items of one
-media type — audiobooks or ebooks). BFO:IndependentContinuant via System
-(CONCEPT:KG-2.163).""" ;
-    rdfs:subClassOf :System .
-
-:Book a owl:Class ;
-    rdfs:label "Book" ;
-    rdfs:comment """A book / audiobook item in an Audiobookshelf :Library, authored_by an
-:Author. A specialization of :MediaAsset. Aligned to schema:Book / bibo:Book
-(CONCEPT:KG-2.163).""" ;
-    rdfs:seeAlso schema:Book ;
-    rdfs:subClassOf :MediaAsset .
-
-:Author a owl:Class ;
-    rdfs:label "Author" ;
-    rdfs:comment """The author of one or more :Book items. Aligned to schema:Person /
-foaf:Person (CONCEPT:KG-2.163).""" ;
-    rdfs:seeAlso foaf:Person ;
-    rdfs:subClassOf foaf:Person .

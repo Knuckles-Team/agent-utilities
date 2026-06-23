@@ -1732,7 +1732,10 @@ def register_analysis_tools(mcp):
                 from agent_utilities.messaging.bus import swarm_topic as _swarm_topic
 
                 _btopic = _swarm_topic(
-                    _hl.sha1((task or "swarm").encode()).hexdigest()[:8]
+                    # topic-name hash, not security — usedforsecurity=False
+                    _hl.sha1(  # noqa: S324
+                        (task or "swarm").encode(), usedforsecurity=False
+                    ).hexdigest()[:8]
                 )
                 _coord = (
                     f"You are one agent in a swarm on the same overall task. Coordinate with "

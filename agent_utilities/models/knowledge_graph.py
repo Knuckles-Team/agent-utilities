@@ -2006,9 +2006,9 @@ class OrganizationNode(RegistryNode):
     org_id: str = Field(description="Stable slug, e.g. 'acme-corp'")
     legal_name: str | None = None
     domain: str | None = Field(default=None, description="Primary DNS domain")
-    org_type: Literal["company", "team", "vendor", "opensource", "regulator"] = (
-        "company"
-    )
+    org_type: Literal[
+        "company", "team", "vendor", "opensource", "regulator"
+    ] = "company"
     parent_org_id: str | None = Field(
         default=None, description="Points to another OrganizationNode"
     )

@@ -23,7 +23,7 @@ flowchart TD
     B["Tier (b): per-GPU-host shared budget<br/>GpuGroupBudget, KG-2.146<br/>caps Σ member targets, reserves chat's floor"]
     C["Tier (c): per-deployment aggregate<br/>Σ per-host shares across N GPU hosts<br/>endpoint list + cross-host balancing"]
     A -->|"target(m)"| B
-    B -->|"allowed(m) = min(target, group share)"| C
+    B -->|"allowed(m) = min of target and group share"| C
     C -->|"per-host slice"| Gate["model_concurrency gate<br/>semaphore / thread pool"]
 ```
 

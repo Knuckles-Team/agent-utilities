@@ -105,7 +105,10 @@ _OVERLOAD_STATUSES = frozenset({429, 502, 503, 504, 529})
 
 def _http_get(url: str) -> str:
     """Default metrics fetcher — a short-timeout stdlib GET (no heavy deps)."""
-    with urllib.request.urlopen(url, timeout=_FETCH_TIMEOUT_S) as resp:  # noqa: S310
+    # internal metrics endpoint (http://…/metrics), fixed scheme — not user input
+    with urllib.request.urlopen(  # noqa: S310  # nosec B310
+        url, timeout=_FETCH_TIMEOUT_S
+    ) as resp:
         return resp.read().decode("utf-8", "replace")
 
 

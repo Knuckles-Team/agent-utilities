@@ -136,7 +136,7 @@ class WiringSweep:
             imports: list[str] = []
 
             for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                     functions.append(node.name)
                     total_functions += 1
                     self.all_definitions[node.name].append(rel)
@@ -204,7 +204,7 @@ class WiringSweep:
 
             # Also scan for references to track test coverage
             for node in ast.walk(ast.parse(text, filename=rel)):
-                if isinstance(node, (ast.ImportFrom, ast.Import)):
+                if isinstance(node, ast.ImportFrom | ast.Import):
                     if isinstance(node, ast.ImportFrom) and node.module:
                         for alias in node.names or []:
                             self.all_references.add(alias.name)

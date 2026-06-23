@@ -220,7 +220,7 @@ def _budget_for_group(group: str) -> int | None:
     else:
         return None
     val = mapping.get(group)
-    if not isinstance(val, (int, float, str)):
+    if not isinstance(val, int | float | str):
         return None
     try:
         b = int(val)
@@ -236,7 +236,7 @@ def _reserved_roles() -> frozenset[str]:
     raw = setting("GPU_RESERVED_ROLES", "")
     if not raw:
         return DEFAULT_RESERVED_ROLES
-    if isinstance(raw, (list, tuple, set, frozenset)):
+    if isinstance(raw, list | tuple | set | frozenset):
         items = [str(x) for x in raw]
     else:
         items = str(raw).split(",")
