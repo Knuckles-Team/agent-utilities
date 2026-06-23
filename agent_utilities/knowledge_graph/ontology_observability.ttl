@@ -9,14 +9,22 @@
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
+:Generation a owl:Class ;
+    rdfs:label "LLM Generation" ;
+    rdfs:comment """A Langfuse generation: an LLM-call observation (model + prompt + output)
+that is part_of a :Trace. A specialization of :Observation (CONCEPT:KG-2.156).""" ;
+    rdfs:subClassOf :Observation .
+
+:HeartbeatStat a owl:Class ;
+    rdfs:label "Heartbeat Stat" ;
+    rdfs:comment """A single Uptime-Kuma heartbeat sample (up/down + ping) part_of a
+:UptimeMonitor — the substrate for failure-pattern analysis (CONCEPT:KG-2.159).""" ;
+    rdfs:subClassOf :Observation .
+
 :Topic a owl:Class ;
     rdfs:label "Topic" ;
     rdfs:comment "A message/stream topic (e.g. Kafka) carrying events between services." ;
     rdfs:subClassOf :DataSource .
-
-# ── LLM observability + service-health entities (CONCEPT:KG-2.156 / KG-2.159) ──
-# Langfuse traces/generations and Uptime-Kuma monitors/heartbeats, ingested as typed
-# entities by core/source_sync.py so service-health and LLM-trace analysis run over the KG.
 
 :Trace a owl:Class ;
     rdfs:label "LLM Trace" ;
@@ -24,23 +32,11 @@
 its :Observation / :Generation steps (CONCEPT:KG-2.156).""" ;
     rdfs:subClassOf :Episode .
 
-:Generation a owl:Class ;
-    rdfs:label "LLM Generation" ;
-    rdfs:comment """A Langfuse generation: an LLM-call observation (model + prompt + output)
-that is part_of a :Trace. A specialization of :Observation (CONCEPT:KG-2.156).""" ;
-    rdfs:subClassOf :Observation .
-
 :UptimeMonitor a owl:Class ;
     rdfs:label "Uptime Monitor" ;
     rdfs:comment """An Uptime-Kuma monitor (an availability probe of a service/URL) whose
 samples are :HeartbeatStat (CONCEPT:KG-2.159).""" ;
     rdfs:subClassOf :System .
-
-:HeartbeatStat a owl:Class ;
-    rdfs:label "Heartbeat Stat" ;
-    rdfs:comment """A single Uptime-Kuma heartbeat sample (up/down + ping) part_of a
-:UptimeMonitor — the substrate for failure-pattern analysis (CONCEPT:KG-2.159).""" ;
-    rdfs:subClassOf :Observation .
 
 <http://knuckles.team/kg/observability> a owl:Ontology ;
     rdfs:label "Observability & Streaming Ontology" ;

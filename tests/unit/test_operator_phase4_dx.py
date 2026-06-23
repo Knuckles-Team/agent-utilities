@@ -94,7 +94,7 @@ def test_execute_redeploy_dry_run_by_default():
 
 @pytest.mark.concept("OS-5.50")
 def test_execute_redeploy_confirm_blocks_without_restart_mechanic(monkeypatch):
-    # Stub an allowing policy so we reach the restart-mechanic gate.
+    # Fake an allowing policy so we reach the restart-mechanic gate.
     import agent_utilities.orchestration.action_policy as ap
 
     class _Decision:

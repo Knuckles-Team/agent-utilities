@@ -71,7 +71,11 @@ def _set(engine: Any, inbox_id: str, props: dict[str, Any]) -> None:
     if not callable(add_node) or not inbox_id:
         return
     try:
-        add_node(node_id=inbox_id, node_type="InboundMessage", properties={"id": inbox_id, **props})
+        add_node(
+            node_id=inbox_id,
+            node_type="InboundMessage",
+            properties={"id": inbox_id, **props},
+        )
     except Exception as e:  # noqa: BLE001
         logger.debug("[ECO-4.83] inbox update failed: %s", e)
 
@@ -79,7 +83,11 @@ def _set(engine: Any, inbox_id: str, props: dict[str, Any]) -> None:
 def mark_answered(engine: Any, inbox_id: str | None) -> None:
     """Mark an inbound message answered once a reply was actually delivered."""
     if inbox_id:
-        _set(engine, inbox_id, {"status": "answered", "answered_at": datetime.now(UTC).isoformat()})
+        _set(
+            engine,
+            inbox_id,
+            {"status": "answered", "answered_at": datetime.now(UTC).isoformat()},
+        )
 
 
 def pending_unanswered(
@@ -158,5 +166,8 @@ async def retry_unanswered(
                 },
             )
     if answered:
-        logger.info("[CONCEPT:ECO-4.83] inbox reaper answered %d previously-unanswered turn(s).", answered)
+        logger.info(
+            "[CONCEPT:ECO-4.83] inbox reaper answered %d previously-unanswered turn(s).",
+            answered,
+        )
     return answered

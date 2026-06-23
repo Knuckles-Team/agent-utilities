@@ -200,20 +200,28 @@ def interview(tier: str) -> dict:
     s = dict(PROFILES[tier])
     s["tier"] = tier
 
-    print(f"\nRecommended baseline for \033[1m{tier}\033[0m "
-          f"({TIER_BLURB[tier]}):")
+    print(f"\nRecommended baseline for \033[1m{tier}\033[0m " f"({TIER_BLURB[tier]}):")
     print(f"  backend   : {_backend_summary(s)}")
     print(f"  deploy    : {s['deploy']}")
-    print(f"  web UI    : {s['enable_web_ui']}   auth: {s['enable_api_auth']}   "
-          f"secrets: {s['secrets_backend']}")
+    print(
+        f"  web UI    : {s['enable_web_ui']}   auth: {s['enable_api_auth']}   "
+        f"secrets: {s['secrets_backend']}"
+    )
     print(f"  a2a       : broker={s['a2a_broker']} storage={s['a2a_storage']}")
-    print(f"  otel      : {s['enable_otel']}   max_concurrent_agents: "
-          f"{s['max_concurrent_agents']}")
+    print(
+        f"  otel      : {s['enable_otel']}   max_concurrent_agents: "
+        f"{s['max_concurrent_agents']}"
+    )
     if s["app_profile"]:
-        print("  APP_PROFILE=production → the profile guard will REQUIRE a "
-              "durable Postgres L2, a real broker, and Kafka.")
+        print(
+            "  APP_PROFILE=production → the profile guard will REQUIRE a "
+            "durable Postgres L2, a real broker, and Kafka."
+        )
 
-    if not ask_bool("\nCustomize these settings?", default=_interactive() and tier.startswith("prod")):
+    if not ask_bool(
+        "\nCustomize these settings?",
+        default=_interactive() and tier.startswith("prod"),
+    ):
         return s
 
     section("2. Knowledge-graph backend")
@@ -224,20 +232,28 @@ def interview(tier: str) -> dict:
         "GRAPH_BACKEND", ["memory", "tiered", "postgresql"], s["graph_backend"]
     )
     if s["graph_backend"] == "tiered":
-        print("    L2 (durable tier): ladybug = embedded/no server; "
-              "postgresql = durable/shardable")
+        print(
+            "    L2 (durable tier): ladybug = embedded/no server; "
+            "postgresql = durable/shardable"
+        )
         s["graph_backend_l2"] = ask_choice(
-            "GRAPH_BACKEND_L2", ["ladybug", "postgresql"], s["graph_backend_l2"] or "ladybug"
+            "GRAPH_BACKEND_L2",
+            ["ladybug", "postgresql"],
+            s["graph_backend_l2"] or "ladybug",
         )
         if s["graph_backend_l2"] == "postgresql":
-            s["graph_db_uri"] = ask("GRAPH_DB_URI", s["graph_db_uri"]
-                                    or "postgresql://agent:agent@pggraph:5432/agent_kg")
+            s["graph_db_uri"] = ask(
+                "GRAPH_DB_URI",
+                s["graph_db_uri"] or "postgresql://agent:agent@pggraph:5432/agent_kg",
+            )
         else:
             s["graph_db_uri"] = None
     elif s["graph_backend"] == "postgresql":
         s["graph_backend_l2"] = None
-        s["graph_db_uri"] = ask("GRAPH_DB_URI", s["graph_db_uri"]
-                                or "postgresql://agent:agent@pggraph:5432/agent_kg")
+        s["graph_db_uri"] = ask(
+            "GRAPH_DB_URI",
+            s["graph_db_uri"] or "postgresql://agent:agent@pggraph:5432/agent_kg",
+        )
     else:
         s["graph_backend_l2"] = None
         s["graph_db_uri"] = None
@@ -254,8 +270,9 @@ def interview(tier: str) -> dict:
     s["enable_web_ui"] = ask_bool("enable web UI", s["enable_web_ui"])
     s["enable_api_auth"] = ask_bool("enable API auth (JWT/OIDC)", s["enable_api_auth"])
     if s["enable_api_auth"]:
-        s["oidc_config_url"] = ask("OIDC discovery URL (blank = static token)",
-                                   s.get("oidc_config_url"))
+        s["oidc_config_url"] = ask(
+            "OIDC discovery URL (blank = static token)", s.get("oidc_config_url")
+        )
 
     section("5. Secrets, messaging & observability")
     s["secrets_backend"] = ask_choice(
@@ -275,14 +292,19 @@ def interview(tier: str) -> dict:
         )
     s["enable_otel"] = ask_bool("enable OpenTelemetry", s["enable_otel"])
     if s["enable_otel"]:
-        s["otel_endpoint"] = ask("otel OTLP endpoint",
-                                 s.get("otel_endpoint") or "http://otel-collector:4318")
+        s["otel_endpoint"] = ask(
+            "otel OTLP endpoint", s.get("otel_endpoint") or "http://otel-collector:4318"
+        )
 
     section("6. Capacity")
-    s["max_concurrent_agents"] = int(ask("max_concurrent_agents", s["max_concurrent_agents"]))
+    s["max_concurrent_agents"] = int(
+        ask("max_concurrent_agents", s["max_concurrent_agents"])
+    )
 
     section("7. Models (LLM gateway)")
-    s["llm_base_url"] = ask("llm_base_url", s.get("llm_base_url") or "http://vllm.arpa/v1")
+    s["llm_base_url"] = ask(
+        "llm_base_url", s.get("llm_base_url") or "http://vllm.arpa/v1"
+    )
     s["model_id"] = ask("default model_id (blank = auto-route)", s.get("model_id"))
 
     _warn_production_safety(s)
@@ -291,7 +313,9 @@ def interview(tier: str) -> dict:
 
 def _backend_summary(s: dict) -> str:
     if s["graph_backend"] == "tiered":
-        l2 = s.get("graph_backend_l2") or ("postgresql" if s.get("graph_db_uri") else "ladybug")
+        l2 = s.get("graph_backend_l2") or (
+            "postgresql" if s.get("graph_db_uri") else "ladybug"
+        )
         return f"tiered (epistemic_graph + {l2})"
     return s["graph_backend"]
 
@@ -301,7 +325,11 @@ def _warn_production_safety(s: dict) -> None:
         return
     problems = []
     l2 = s.get("graph_backend_l2")
-    if s["graph_backend"] == "tiered" and l2 != "postgresql" and not s.get("graph_db_uri"):
+    if (
+        s["graph_backend"] == "tiered"
+        and l2 != "postgresql"
+        and not s.get("graph_db_uri")
+    ):
         problems.append("backend resolves to a single-host LadybugDB L2")
     if s["graph_backend"] in ("memory", "file", "ladybug"):
         problems.append(f"GRAPH_BACKEND={s['graph_backend']} is single-host")
@@ -310,12 +338,16 @@ def _warn_production_safety(s: dict) -> None:
     if not s.get("kafka_bootstrap_servers"):
         problems.append("kafka_bootstrap_servers unset (no durable event ledger)")
     if problems:
-        print("\n  \033[33m⚠ APP_PROFILE=production will be REJECTED by the profile "
-              "guard:\033[0m")
+        print(
+            "\n  \033[33m⚠ APP_PROFILE=production will be REJECTED by the profile "
+            "guard:\033[0m"
+        )
         for p in problems:
             print(f"    - {p}")
-        print("  Set a Postgres L2 (GRAPH_DB_URI), a real broker, and Kafka, or "
-              "drop APP_PROFILE.")
+        print(
+            "  Set a Postgres L2 (GRAPH_DB_URI), a real broker, and Kafka, or "
+            "drop APP_PROFILE."
+        )
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -356,7 +388,9 @@ def build_config_json(s: dict) -> dict:
 
 
 def build_env(s: dict) -> str:
-    lines = ["# agent-utilities backend environment (authoritative for backend selection)"]
+    lines = [
+        "# agent-utilities backend environment (authoritative for backend selection)"
+    ]
     lines.append(f"GRAPH_BACKEND={s['graph_backend']}")
     if s["graph_backend"] == "tiered":
         lines.append("GRAPH_BACKEND_L1=epistemic_graph")
@@ -373,7 +407,7 @@ def build_env(s: dict) -> str:
 
 
 def build_run_commands(s: dict, extras: str) -> str:
-    spec = f'agent-utilities[{extras}]'
+    spec = f"agent-utilities[{extras}]"
     if s["deploy"] == "uvx":
         return (
             f"# Ephemeral run with uv (no venv to manage):\n"
@@ -390,8 +424,11 @@ def build_run_commands(s: dict, extras: str) -> str:
         return (
             "# Bring up the MCP server (+ Postgres L2 if selected):\n"
             "docker compose --env-file deploy.env -f docker/mcp.compose.yml up -d\n"
-            + ("docker compose -f docker/pggraph.compose.yml up -d\n"
-               if s.get("graph_backend_l2") == "postgresql" else "")
+            + (
+                "docker compose -f docker/pggraph.compose.yml up -d\n"
+                if s.get("graph_backend_l2") == "postgresql"
+                else ""
+            )
         )
     return (
         "# Apply the generated Kubernetes manifests:\n"
@@ -414,7 +451,7 @@ def build_k8s(s: dict, extras: str) -> str:
     if s.get("kafka_bootstrap_servers"):
         env_items.append(("KAFKA_BOOTSTRAP_SERVERS", s["kafka_bootstrap_servers"]))
     env_yaml = "\n".join(
-        f"            - name: {k}\n              value: \"{v}\"" for k, v in env_items
+        f'            - name: {k}\n              value: "{v}"' for k, v in env_items
     )
     replicas = 3 if s["tier"] == "prod-scale" else 1
     return f"""# Generated by deploy_wizard.py — tier={s['tier']}
@@ -509,8 +546,10 @@ def emit(s: dict, emit_what: str, out_dir: Path, apply: bool) -> None:
         print(f"  wrote {path}")
 
     section("Plan" if not apply else "Applying")
-    print(f"  tier={s['tier']}  backend={_backend_summary(s)}  deploy={s['deploy']}  "
-          f"extras=[{extras}]")
+    print(
+        f"  tier={s['tier']}  backend={_backend_summary(s)}  deploy={s['deploy']}  "
+        f"extras=[{extras}]"
+    )
 
     want = {"config", "env"} | (
         {emit_what} if emit_what != "all" else {"uvx", "docker", "kubernetes"}
@@ -541,16 +580,32 @@ NON_INTERACTIVE = False
 
 def main() -> int:
     global NON_INTERACTIVE
-    p = argparse.ArgumentParser(description="Interactive agent-utilities deployment wizard")
-    p.add_argument("--use-case", choices=TIERS, help="Preset tier (skips the first prompt)")
-    p.add_argument("--deploy", choices=DEPLOY_TARGETS, help="Override deployment target")
-    p.add_argument("--emit", choices=["uvx", "docker", "kubernetes", "all"], default="all",
-                   help="Which run artifacts to emit (config.json + .env always emitted)")
+    p = argparse.ArgumentParser(
+        description="Interactive agent-utilities deployment wizard"
+    )
+    p.add_argument(
+        "--use-case", choices=TIERS, help="Preset tier (skips the first prompt)"
+    )
+    p.add_argument(
+        "--deploy", choices=DEPLOY_TARGETS, help="Override deployment target"
+    )
+    p.add_argument(
+        "--emit",
+        choices=["uvx", "docker", "kubernetes", "all"],
+        default="all",
+        help="Which run artifacts to emit (config.json + .env always emitted)",
+    )
     p.add_argument("--output-dir", default="./deploy", help="Where to write artifacts")
-    p.add_argument("--non-interactive", action="store_true",
-                   help="Accept all recommended defaults, no prompts")
-    p.add_argument("--apply", action="store_true",
-                   help="Actually write files (default is a dry run)")
+    p.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Accept all recommended defaults, no prompts",
+    )
+    p.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually write files (default is a dry run)",
+    )
     args = p.parse_args()
     NON_INTERACTIVE = args.non_interactive
 

@@ -636,7 +636,9 @@ class PostgreSQLBackend(GraphBackend):
         if handled:
             return rows
 
-        tq = transpile(query, params, self._known_tables, node_tables=(self._node_tables or None))
+        tq = transpile(
+            query, params, self._known_tables, node_tables=(self._node_tables or None)
+        )
 
         if tq.query_type == QueryType.UNKNOWN:
             logger.debug("Skipping unknown Cypher pattern: %.120s", query)
@@ -759,7 +761,12 @@ class PostgreSQLBackend(GraphBackend):
                 with self._conn() as conn:
                     with conn.cursor() as cur:
                         for params in chunk:
-                            tq = transpile(query, params, self._known_tables, node_tables=(self._node_tables or None))
+                            tq = transpile(
+                                query,
+                                params,
+                                self._known_tables,
+                                node_tables=(self._node_tables or None),
+                            )
                             if tq.query_type == QueryType.UNKNOWN:
                                 continue
                             cur.execute(tq.sql, tq.params)

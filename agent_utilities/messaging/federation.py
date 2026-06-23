@@ -61,7 +61,9 @@ class BusFederationRelay:
 
         # Bind to this relay's own engine (one engine per hub) rather than the global
         # singleton, so a process hosting more than one hub keeps them isolated.
-        return AgentBus(self._engine) if self._engine is not None else AgentBus.instance()
+        return (
+            AgentBus(self._engine) if self._engine is not None else AgentBus.instance()
+        )
 
     # ── Peer hub registry (KG-native via A2A, ECO-4.86) ──────────────
     def register_hub(self, name: str, url: str, *, auth: str = "none") -> str:

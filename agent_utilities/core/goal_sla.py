@@ -29,7 +29,7 @@ def _parse_ts(value: Any) -> datetime | None:
     if not value:
         return None
     # Goal nodes store created_at as a unix float (time.time()); accept that too.
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         try:
             return datetime.fromtimestamp(float(value), tz=UTC)
         except (ValueError, OverflowError, OSError):
