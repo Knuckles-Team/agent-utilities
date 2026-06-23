@@ -55,7 +55,10 @@ def iter_provider_dirs(group: str) -> list[tuple[str, Path]]:
     try:
         eps = entry_points(group=group)
     except TypeError:  # pragma: no cover - very old importlib.metadata
-        eps = entry_points().get(group, [])  # type: ignore[attr-defined]
+        # Legacy importlib.metadata (<3.10): entry_points() returns a dict-like
+        # SelectableGroups, not the keyword-filtered EntryPoints — the .get + the
+        # default list are correct for that old shape only.
+        eps = entry_points().get(group, [])  # type: ignore[attr-defined, arg-type]
     for ep in sorted(eps, key=lambda e: e.name):
         if ep.name in seen:
             continue

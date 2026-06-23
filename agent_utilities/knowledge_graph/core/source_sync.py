@@ -1801,9 +1801,7 @@ def _sync_tunnel_manager(
     for alias, cfg in hosts.items():
         if not isinstance(cfg, dict):
             continue
-        extra = (
-            cfg.get("extra_config") if isinstance(cfg.get("extra_config"), dict) else {}
-        )
+        extra = ec if isinstance((ec := cfg.get("extra_config")), dict) else {}
         host_node = f"tunnel:host:{alias}"
         entities.append(
             {
@@ -1985,8 +1983,8 @@ def _sync_home_assistant(
         eid = getattr(doc, "id", None)
         if not eid:
             continue
-        rec = _record_of(doc)
-        attrs = rec.get("attributes") if isinstance(rec.get("attributes"), dict) else {}
+        rec = rd if isinstance((rd := _record_of(doc)), dict) else {}
+        attrs = a if isinstance((a := rec.get("attributes")), dict) else {}
         device_class = str(eid).split(".", 1)[0]  # light / sensor / switch / …
         ent_node = f"hass:entity:{eid}"
         entities.append(
@@ -2263,10 +2261,8 @@ def _sync_audiobookshelf(
             item_id = item.get("id")
             if not item_id:
                 continue
-            media = item.get("media") if isinstance(item.get("media"), dict) else {}
-            meta = (
-                media.get("metadata") if isinstance(media.get("metadata"), dict) else {}
-            )
+            media = m if isinstance((m := item.get("media")), dict) else {}
+            meta = mm if isinstance((mm := media.get("metadata")), dict) else {}
             title = meta.get("title") or item.get("title") or f"Book {item_id}"
             book_node = f"abs:book:{item_id}"
             entities.append(

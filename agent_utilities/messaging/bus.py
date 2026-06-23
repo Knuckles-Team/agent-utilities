@@ -286,9 +286,9 @@ class AgentBus:
             "MATCH (s:BusSubscription {topic: $t}) RETURN s", {"t": topic}
         )
         subs = {
-            p.get("agent_id")
+            str(aid)
             for p in (self._props(r, "s") for r in rows)
-            if p.get("status", "active") == "active" and p.get("agent_id")
+            if p.get("status", "active") == "active" and (aid := p.get("agent_id"))
         }
         return sorted(subs)
 
