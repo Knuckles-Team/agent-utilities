@@ -11,12 +11,60 @@ CONCEPT:ECO-4.85 — graph_bus MCP tool and REST twin for agent-to-agent messagi
 
 from __future__ import annotations
 
+import contextlib
 import json
 
 from fastmcp import Context
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+
+def _bus_actor_scope(action: str) -> contextlib.AbstractContextManager:
+    """Scope a ``graph_bus`` call to the request's server-minted identity (CONCEPT:ECO-4.98).
+
+    ``graph_bus`` is a standalone FastMCP tool, so — unlike every action routed
+    through :func:`kg_server._execute_tool` — it does NOT otherwise apply the
+    validated per-request actor. That left the bus writing/reading as the ambient
+    unauthenticated ``SYSTEM_ACTOR`` under the served profile (``KG_BRAIN_ENFORCE``):
+    a ``register`` write was unattributed and, depending on the engine's isolation
+    rules, did not land — surfacing as ``ok:false``. This mirrors ``_execute_tool``'s
+    identity handling so an *authenticated* session registers under its own
+    ``ActorContext`` (the write lands + the roster shows it), while an
+    *unauthenticated* MCP caller is correctly rejected under ``KG_AUTH_REQUIRED``
+    for the mutating actions instead of silently writing as SYSTEM.
+
+    The bus is fleet-coordination INFRASTRUCTURE, so the read-only presence actions
+    (``roster``/``status``/``list_hubs``) stay reachable for an unauthenticated caller
+    (parity with :data:`kg_server.ANONYMOUS_READ_TOOLS`); the mutating actions require
+    a real identity when the server enforces auth.
+    """
+    from agent_utilities.security.brain_context import current_actor, use_actor
+
+    _READ_ONLY = {"roster", "status", "list_hubs"}
+
+    # If the gateway middleware already scoped this request (REST surface), keep it.
+    if current_actor().authenticated:
+        return contextlib.nullcontext()
+
+    actor = kg_server._actor_from_mcp_token()
+    if actor is None and kg_server._PROCESS_ACTOR is not None:
+        actor = kg_server._PROCESS_ACTOR
+
+    if actor is not None:
+        return use_actor(actor)
+
+    # No server-minted identity. Under enforced auth a mutating action may not run
+    # as the ambient privileged SYSTEM actor — reject it with a clear reason so the
+    # caller learns it must authenticate (rather than landing an unattributed write).
+    if kg_server._kg_auth_required() and action not in _READ_ONLY:
+        raise PermissionError(
+            f"KG_AUTH_REQUIRED=1: graph_bus action {action!r} needs an authenticated "
+            "identity (an OIDC client-credentials Bearer token on the MCP connection, "
+            "or KG_AUTH_TOKEN for stdio). Read-only presence actions "
+            f"({sorted(_READ_ONLY)}) are exempt. (CONCEPT:OS-5.14 / ECO-4.98)"
+        )
+    return contextlib.nullcontext()
 
 
 def _session_identity(ctx: Context | None) -> str:
@@ -134,6 +182,71 @@ def register_bus_tools(mcp):
         engine = kg_server._get_engine()
         bus = AgentBus.instance(engine)
 
+        # Scope the whole call to the request's server-minted identity so the bus
+        # writes/reads as the authenticated caller under the served profile, and an
+        # unauthenticated caller is cleanly rejected for mutating actions rather than
+        # silently writing as the ambient SYSTEM actor (CONCEPT:ECO-4.98 / OS-5.14).
+        try:
+            _scope = _bus_actor_scope(action)
+        except PermissionError as exc:
+            return json.dumps({"ok": False, "error": str(exc)})
+        with _scope:
+            return _dispatch_bus(
+                bus,
+                engine,
+                action=action,
+                agent_id=agent_id,
+                sender=sender,
+                to=to,
+                topic=topic,
+                payload=payload,
+                objective=objective,
+                kind=kind,
+                priority=priority,
+                provider=provider,
+                host=host,
+                capabilities=capabilities,
+                session_id=session_id,
+                message_id=message_id,
+                since=since,
+                online_only=online_only,
+                reason=reason,
+                url=url,
+                group=group,
+                origin=origin,
+                scope=scope,
+                replay_recent=replay_recent,
+                ctx=ctx,
+            )
+
+    def _dispatch_bus(
+        bus,
+        engine,
+        *,
+        action: str,
+        agent_id: str,
+        sender: str,
+        to: str,
+        topic: str,
+        payload: str,
+        objective: str,
+        kind: str,
+        priority: str,
+        provider: str,
+        host: str,
+        capabilities: str,
+        session_id: str,
+        message_id: str,
+        since: int,
+        online_only: bool,
+        reason: str,
+        url: str,
+        group: str,
+        origin: str,
+        scope: str,
+        replay_recent: bool,
+        ctx: Context | None,
+    ) -> str:
         # CONCEPT:ECO-4.92 — auto-register + presence: a session that has this tool appears
         # online to peers without an explicit ``register`` call. Resolve the acting id (the
         # explicit agent_id/sender, else the stable served-session identity) and TOUCH the bus
