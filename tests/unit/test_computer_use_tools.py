@@ -82,6 +82,19 @@ async def test_gui_action_surfaces_error():
     assert "failed" in out and "boom" in out
 
 
+def test_build_computer_use_agent_exposes_tools():
+    from pydantic_ai.models.test import TestModel
+
+    from agent_utilities.orchestration.computer_use_agent import (
+        build_computer_use_agent,
+    )
+
+    agent = build_computer_use_agent(TestModel())
+    assert agent.name == "computer-use-agent"
+    names = set(agent._function_toolset.tools.keys())
+    assert {"capture_screen", "gui_action"} <= names
+
+
 pytestmark = pytest.mark.anyio
 
 
