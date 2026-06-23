@@ -62,3 +62,19 @@ agent_utilities/domains/finance/streaming.py
 agent_utilities/domains/finance/trade_journal.py
 agent_utilities/domains/finance/versioned_orders.py
 agent_utilities/domains/finance/visual_ta.py
+# ──────────────────────────────────────────────────────────────────────────────
+# knowledge_graph/retrieval/*_context.py — context-plane providers, reached via
+# DYNAMIC import (KG-2.136 universal context plane)
+# ──────────────────────────────────────────────────────────────────────────────
+# These are the built-in providers of the context plane
+# (retrieval/context_plane.py): each is registered in ``_BUILTIN_PROVIDERS`` as a
+# ``(module_path, fn_name)`` string pair and resolved with ``importlib.import_module()``
+# on first use — explicitly so the plane carries "no static dependency on heavy
+# provider modules". The operator surface for them is the ONE context plane,
+# reached live via ``graph_analyze action=explain`` / ``code_context``
+# (kg_server -> graph_analyze -> context_plane.synthesize_context -> provider), not
+# a per-provider graph_* tool (which would be the forbidden second implementation).
+# Runtime reachability is real; only the static import edge is severed.
+agent_utilities/knowledge_graph/retrieval/deploy_context.py
+agent_utilities/knowledge_graph/retrieval/entity_context.py
+agent_utilities/knowledge_graph/retrieval/ops_context.py
