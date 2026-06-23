@@ -213,6 +213,46 @@ class ConceptMatcher:
             self._embed_fn = make_embed_fn()
         return self._embed_fn(texts)
 
+    def _hnsw_recall_fn(
+        self, engine: Any, concept_ids: set[str]
+    ) -> Callable[[list[float]], list[tuple[str, float]]] | None:
+        """Build a recall fn over the engine HNSW (CONCEPT:KG-2.193).
+
+        ``add_embedding``/``enrich_concepts`` store concept vectors in the engine's
+        HNSW index, not the node ``embedding`` property — so when the in-memory
+        cosine index is empty we recall candidates by querying ``semantic_search``
+        (which holds mixed node types) and keeping the nearest CONCEPT ids.
+        """
+        ss = getattr(engine, "semantic_search", None)
+        if not callable(ss):
+            ss = getattr(getattr(engine, "backend", None), "semantic_search", None)
+        if not callable(ss):
+            return None
+        # the HNSW holds all node types; cast a wide net, then filter to concepts.
+        n = max(self.top_k * 25, 150)
+
+        def recall(fvec: list[float]) -> list[tuple[str, float]]:
+            try:
+                hits = ss(fvec, n) or []
+            except Exception:  # noqa: BLE001 — recall is best-effort
+                return []
+            out: list[tuple[str, float]] = []
+            for h in hits:
+                if isinstance(h, list | tuple) and len(h) >= 2:
+                    cid, score = str(h[0]), float(h[1])
+                elif isinstance(h, dict):
+                    cid = str(h.get("id", ""))
+                    score = float(h.get("_similarity", h.get("score", 0.0)) or 0.0)
+                else:
+                    continue
+                if cid in concept_ids and score >= self.retrieval_threshold:
+                    out.append((cid, score))
+                    if len(out) >= self.top_k:
+                        break
+            return out
+
+        return recall
+
     def _judge(self, feature_text: str, feature_hash: str, cid: str, ctext: str):
         key = (feature_hash, cid)
         if key in self._judge_cache:
@@ -235,6 +275,7 @@ class ConceptMatcher:
         concept_vecs: list[tuple[str, list[float]]],
         concept_text: dict[str, str],
         feature_vec: list[float] | None,
+        recall_fn: Callable[[list[float]], list[tuple[str, float]]] | None = None,
     ) -> FeatureMatch:
         # Stage 0 — explicit id (highest precision)
         for ref in _feature_refs(fid, fdata):
@@ -243,12 +284,28 @@ class ConceptMatcher:
                 m = Match(cid, 1.0, "covered", 1.0, 1.0, "id", "declared concept id")
                 return FeatureMatch(fid, "covered", m, 0.0, [m])
 
-        # Stage 1 — embedding retrieval (recall: candidate generation only)
+        # Stage 1 — embedding retrieval (recall: candidate generation only).
+        # The feature vector is embedded ON-THE-FLY from its text when it has no
+        # stored node embedding (CONCEPT:KG-2.193) — embeddings live in the engine
+        # HNSW, not the node property, so we never rely on a node-level vector here.
+        if not feature_vec:
+            ftext0 = _feature_text(fdata)
+            if ftext0.strip():
+                try:
+                    feature_vec = self._embed([ftext0])[0]
+                except Exception:  # noqa: BLE001 — embed unavailable → no recall
+                    feature_vec = None
         candidates: list[tuple[str, float]] = []
         if feature_vec:
-            candidates = _top_k_cosine(
-                feature_vec, concept_vecs, self.top_k, self.retrieval_threshold
-            )
+            # Prefer the engine HNSW recall (where add_embedding/enrich_concepts store
+            # vectors); fall back to the in-memory cosine index (test doubles / when
+            # node embeddings are present).
+            if recall_fn is not None:
+                candidates = recall_fn(feature_vec)
+            elif concept_vecs:
+                candidates = _top_k_cosine(
+                    feature_vec, concept_vecs, self.top_k, self.retrieval_threshold
+                )
         if not candidates:
             return FeatureMatch(fid, "unrelated", None, 1.0, [])
 
@@ -295,6 +352,12 @@ class ConceptMatcher:
 
         concept_by_key, concept_vecs, concept_text = _build_concept_index(concepts)
 
+        # When concepts carry no node-level embedding (the live engine stores vectors
+        # in its HNSW via add_embedding/enrich_concepts, not on the node property),
+        # recall candidates from the engine HNSW and filter to concept ids — instead
+        # of the empty in-memory cosine index. (CONCEPT:KG-2.193)
+        recall_fn = self._hnsw_recall_fn(engine, set(concepts)) if not concept_vecs else None
+
         for fid, fdata in features.items():
             if restrict_to and fid not in restrict_to:
                 continue
@@ -305,6 +368,7 @@ class ConceptMatcher:
                 concept_vecs=concept_vecs,
                 concept_text=concept_text,
                 feature_vec=fdata.get("embedding"),
+                recall_fn=recall_fn,
             )
             report.feature_matches.append(fm)
             if fm.best is None or fm.decision == "unrelated":
