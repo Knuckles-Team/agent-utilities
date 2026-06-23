@@ -29,7 +29,9 @@ async def spawn_team(
     """
     capability = getattr(ctx, "team_capability", None)
     if not capability:
-        # Auto-initialize if missing
+        # Auto-initialize if missing. Stash it dynamically on the RunContext via
+        # setattr (mypy-safe; RunContext has no static team_capability field) to
+        # mirror the getattr read above.
         capability = TeamCapability()
         ctx.team_capability = capability
 

@@ -1580,8 +1580,8 @@ class EvalRunner:
 
             model = create_embedding_model()
             if model is not None:
-                expected_emb = model.embed(expected)
-                actual_emb = model.embed(actual)
+                expected_emb = model.get_text_embedding(expected)
+                actual_emb = model.get_text_embedding(actual)
                 # Cosine similarity
                 dot = sum(a * b for a, b in zip(expected_emb, actual_emb, strict=False))
                 norm_e = sum(a * a for a in expected_emb) ** 0.5

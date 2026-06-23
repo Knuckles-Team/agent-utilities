@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 440
+total_concepts: 445
 total_pillars: 21
 pillars:
 - AHE-3
@@ -641,6 +641,14 @@ concepts:
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: AHE-3.62
+- id: AHE-3.63
+  name: grade every ingested research source against the
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/fleet_relevance.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: grade every ingested research source against the
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -3486,6 +3494,32 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/source_sync.py
   doc: Gramps Web people/families/events →
+- id: KG-2.172
+  name: batch-ingest N papers + M repos as one research
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/knowledge_graph/research/cohort.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: batch-ingest N papers + M repos as one research
+- id: KG-2.173
+  name: default-ON so every cycle emits the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/assimilation/feature_matrix.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  doc: default-ON so every cycle emits the
+- id: KG-2.174
+  name: generalized cross-lane parallelization
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/automation/research_pipeline.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  doc: generalized cross-lane parallelization
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4898,6 +4932,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   doc: Cheap no-op once every schedule has ≤1 active
+- id: OS-5.55
+  name: returns per-lane/stage latency percentiles + token/cost + the parallelism factor
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: returns per-lane/stage latency percentiles + token/cost + the parallelism factor
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

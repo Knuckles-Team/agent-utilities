@@ -210,8 +210,8 @@ def interview(tier: str) -> dict:
     print(f"  otel      : {s['enable_otel']}   max_concurrent_agents: "
           f"{s['max_concurrent_agents']}")
     if s["app_profile"]:
-        print(f"  APP_PROFILE=production → the profile guard will REQUIRE a "
-              f"durable Postgres L2, a real broker, and Kafka.")
+        print("  APP_PROFILE=production → the profile guard will REQUIRE a "
+              "durable Postgres L2, a real broker, and Kafka.")
 
     if not ask_bool("\nCustomize these settings?", default=_interactive() and tier.startswith("prod")):
         return s
