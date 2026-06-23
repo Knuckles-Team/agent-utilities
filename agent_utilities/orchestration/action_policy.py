@@ -111,6 +111,13 @@ DEFAULT_POLICY: dict[str, Any] = {
         {"kind": "workspace.write", "target": "*", "tier": TIER_AUTO},
         {"kind": "workspace.edit", "target": "*", "tier": TIER_AUTO},
         {"kind": "workspace.browse", "target": "*", "tier": TIER_AUTO},
+        # GUI computer-use (CONCEPT:OS-5.57): driving a desktop in a gui-sandbox
+        # container. The sandbox is the containment boundary (like the other
+        # workspace.* actions), but a click/type is more notable than a file write
+        # and per-click approval would make the agent loop unusable — so auto+notify:
+        # the loop runs, every desktop mutation is audited. (Capture is read-only and
+        # bypasses the gate.) Tighten to approval_required for human sign-off on input.
+        {"kind": "workspace.computer_use", "target": "*", "tier": TIER_AUTO_NOTIFY},
         # Playbook *dispatch* is auto+notify: a playbook's mutating steps
         # re-enter this gate individually with their concrete kinds.
         {"kind": "run_playbook", "target": "*", "tier": TIER_AUTO_NOTIFY},

@@ -126,6 +126,12 @@ terminal = [
     "agent-terminal-ui>=0.14.0"]
 browser = [
     "playwright>=1.60.0"]
+# CONCEPT:ECO-4.93 — GUI computer-use over a gui-sandbox container. Reuses
+# container-manager-mcp's manager abstraction (which transitively brings the
+# docker[ssh] + tunnel-manager deps), so the actuator never re-implements
+# exec-over-ssh. Imported lazily by the driver; absent from lean core.
+computer-use = [
+    "container-manager-mcp>=1.45.0"]
 acp = [
     "pydantic-acp>=0.9.6",
     "acpkit[pydantic]>=0.9.6"

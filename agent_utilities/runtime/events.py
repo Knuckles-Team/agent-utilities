@@ -102,6 +102,42 @@ class BrowseAction(_Event):
     interaction: str = ""  # optional DSL/JSON describing a click/type sequence
 
 
+class ComputerUseAction(_Event):
+    """GUI computer-use on a sandbox desktop (CONCEPT:ORCH-1.84).
+
+    One action type with an ``op`` discriminator covering the screen capture plus
+    the mouse/keyboard primitives — mirroring the optional ``BrowseAction`` tier but
+    for full OS-level desktop control. ``op="capture"`` is read-only (it is how the
+    agent *sees*); every other op mutates the desktop and is gated by ``ActionPolicy``
+    as ``workspace.computer_use`` (OS-5.57). Targets may be given as absolute
+    ``x``/``y`` pixels or, preferably, by ``element_id`` (a :UIElement grounded in the
+    KG by the ``observe_screen`` enrichment), which the driver resolves to coordinates.
+    """
+
+    kind: Literal["computer_use"] = "computer_use"
+    op: Literal[
+        "capture",
+        "click",
+        "double_click",
+        "right_click",
+        "move",
+        "type",
+        "key",
+        "scroll",
+        "drag",
+        "wait",
+    ] = "capture"
+    x: int | None = None
+    y: int | None = None
+    element_id: str = ""  # ground-by-reference: a KG :UIElement id → resolved to x,y
+    text: str = ""  # for op="type"
+    keys: str = ""  # for op="key", e.g. "ctrl+l"
+    button: int = 1  # mouse button (1=left, 3=right)
+    dx: int = 0  # scroll/drag horizontal delta
+    dy: int = 0  # scroll/drag vertical delta
+    duration_ms: int = 0  # for op="wait"
+
+
 class AgentFinishAction(_Event):
     kind: Literal["agent_finish"] = "agent_finish"
     summary: str = ""
@@ -115,6 +151,7 @@ Action = Annotated[
     | TestRunAction
     | PortExposeAction
     | BrowseAction
+    | ComputerUseAction
     | AgentFinishAction,
     Field(discriminator="kind"),
 ]
@@ -188,6 +225,24 @@ class BrowserObservation(_Event):
     error: str = ""
 
 
+class ScreenObservation(_Event):
+    """A captured desktop frame + its grounded UI elements (CONCEPT:ORCH-1.84).
+
+    ``image_b64`` is the PNG the model sees; ``elements`` are the AT-SPI/observe_screen
+    UI elements (role/name/bbox/id) the agent grounds clicks against. ``session_id``
+    ties the frame to its durable :ComputerUseSession in the KG.
+    """
+
+    kind: Literal["screen"] = "screen"
+    session_id: str = ""
+    image_b64: str = ""  # base64 PNG for direct (vision-model) consumption
+    screenshot_ref: str = ""  # optional path/ref if the image was persisted out-of-band
+    width: int = 0
+    height: int = 0
+    elements: list[dict] = Field(default_factory=list)  # [{id,role,name,x,y,w,h}, ...]
+    error: str = ""
+
+
 class NullObservation(_Event):
     kind: Literal["null"] = "null"
 
@@ -200,6 +255,7 @@ Observation = Annotated[
     | TestResultObservation
     | PortObservation
     | BrowserObservation
+    | ScreenObservation
     | ErrorObservation
     | NullObservation,
     Field(discriminator="kind"),
@@ -225,6 +281,7 @@ _MUTATING_KIND_TO_POLICY: dict[str, str] = {
     "file_write": "workspace.write",
     "file_edit": "workspace.edit",
     "browse": "workspace.browse",
+    "computer_use": "workspace.computer_use",
 }
 
 # The full set of mutating policy action names this runtime registers (used by callers that
@@ -236,4 +293,9 @@ WORKSPACE_MUTATING_ACTIONS: frozenset[str] = frozenset(
 
 def mutating_action_name(action: BaseModel) -> str | None:
     """Return the ActionPolicy action name to gate ``action`` by, or ``None`` if read-only."""
-    return _MUTATING_KIND_TO_POLICY.get(getattr(action, "kind", ""))
+    kind = getattr(action, "kind", "")
+    # A computer-use capture is a read-only observation (how the agent *sees*); only
+    # the input ops (click/type/key/…) mutate the desktop and need a policy decision.
+    if kind == "computer_use" and getattr(action, "op", "") == "capture":
+        return None
+    return _MUTATING_KIND_TO_POLICY.get(kind)
