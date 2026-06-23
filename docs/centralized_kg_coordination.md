@@ -63,10 +63,10 @@ graph TD
         Server["Starlette / FastMCP App"]
     end
 
-    subgraph "Epistemic Storage Tiers (GraphBackend)"
-        Epistemic["epistemic-graph L1 (Rust, MessagePack/UDS client)"]
-        Postgres["pg-age / PostgreSQL durable tier (Production)"]
-        Contrib["contrib backends (Ladybug/Kùzu, Neo4j, FalkorDB)"]
+    subgraph "Epistemic Storage (GraphBackend)"
+        Epistemic["epistemic-graph — the one authority (Rust, MessagePack/UDS client)"]
+        Postgres["pg-age / PostgreSQL mirror (optional, write-only fan-out)"]
+        Contrib["contrib mirrors (Ladybug/Kùzu, Neo4j, FalkorDB)"]
     end
 
     Agent1 -->|HTTP POST /cypher<br/>X-Agent-ID: emerald_exchange<br/>X-Session-ID: sess_946ec773| Middleware

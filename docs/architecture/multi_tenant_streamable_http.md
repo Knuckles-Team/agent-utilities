@@ -29,12 +29,12 @@ flowchart TD
     R --> E1["ENGINE shard 1<br/>tenant graphs · role=host"]
     R --> E2[ENGINE shard N]
     R --> CM["COMMONS engine<br/>shared default graph · read-mostly"]
-    E1 -->|write-through| L3
+    E1 -->|fan-out| L3
     E2 --> L3
     CM --> L3
     F --> ST
-    subgraph DURABLE [Central durable state]
-      L3[("Postgres / pg-age L3<br/>RLS by tenant_id")]
+    subgraph DURABLE [Central state + optional mirror]
+      L3[("Postgres / pg-age mirror<br/>optional write-only fan-out · RLS by tenant_id")]
       ST[("STATE_DB_URI<br/>sessions · goals · durable_checkpoints")]
     end
 ```
@@ -101,7 +101,7 @@ Verbs (MCP tool `graph_share` / `POST /graph/share`):
 
 `GRAPH_SERVICE_ENDPOINTS` fixes the shard set; the pool is the *elastic* layer within
 a process: a bounded **warm set** of per-tenant engine clients (LRU), **hydrate on
-miss**, and (when `KG_ENGINE_POOL_DROP_ON_EVICT` is set and L3 mirrors the data) an
+miss**, and (when `KG_ENGINE_POOL_DROP_ON_EVICT` is set and a pg-age mirror holds the data) an
 engine-side **per-graph unload** to reclaim memory on eviction. Disabled by default
 (`KG_ENGINE_POOL_SIZE=0` → per-use construction, today's behaviour).
 
@@ -116,9 +116,9 @@ engine-side **per-graph unload** to reclaim memory on eviction. Disabled by defa
 | `KG_ACL_DEFAULT_ALLOW` | off | deny-on-missing-ACL when enforcing (fail-closed) |
 | `KG_DEFAULT_GRAPH` | `__bus__` | the commons graph; tenants route to `tenant__<slug>__<this>` |
 | `GRAPH_SERVICE_ENDPOINTS` | one socket | engine shard set (HRW routing) |
-| `GRAPH_DB_URI` / `STATE_DB_URI` | — | L3 pg-age (apply RLS) / central session+checkpoint store |
+| `GRAPH_DB_URI` / `STATE_DB_URI` | — | pg-age mirror (apply RLS) / central session+checkpoint store |
 | `KG_ENGINE_POOL_SIZE` | `0` | warm per-tenant engines (elastic pool); `0` = per-use |
-| `KG_ENGINE_POOL_DROP_ON_EVICT` | off | unload the tenant graph from the engine on eviction (needs L3) |
+| `KG_ENGINE_POOL_DROP_ON_EVICT` | off | unload the tenant graph from the engine on eviction (needs a pg-age mirror) |
 
 ## Tracking clients & their agents
 

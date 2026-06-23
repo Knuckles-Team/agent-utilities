@@ -186,8 +186,8 @@ flowchart TD
 
 ## Backend note (live-validated)
 
-Reads resolve via the epistemic-graph **L0** compute engine (schema-less, source of truth);
-durable rows mirror to **L1** Postgres/pg-age. So bus state uses a dedicated `:BusAgent` label
+Reads resolve via the epistemic-graph **engine authority** (schema-less, source of truth);
+rows optionally mirror to **Postgres/pg-age**. So bus state uses a dedicated `:BusAgent` label
 (not the platform's typed `:Agent` table), a `created` timestamp (the per-table `created_at`
 column is reserved `TIMESTAMPTZ`), and **1-hop** property reads with subscriptions as
 first-class `:BusSubscription` nodes (AGE multi-hop traversals are unreliable). These were found

@@ -40,7 +40,7 @@ The Company Brain solves this by treating the Knowledge Graph not as a **storage
 │                   Graph Backends                               │
 │   ┌──────────────┬──────────┬──────────┬─────────────────┐   │
 │   │epistemic-graph│ Postgres │   OWL    │ contrib (neo4j, │   │
-│   │   (L1 store)  │ (durable)│ (reason) │ falkordb, …)    │   │
+│   │ (authority)  │ (mirror) │ (reason) │ falkordb, …)    │   │
 │   └──────────────┴──────────┴──────────┴─────────────────┘   │
 ├───────────────────────────────────────────────────────────────┤
 │                  OWL Ontology (~26KB)                          │
@@ -64,10 +64,10 @@ The `GraphBackend` abstraction supports multiple storage backends:
 
 | Backend | Use Case | ACID | Vector Search | Scale |
 |:--------|:---------|:-----|:--------------|:------|
-| **epistemic-graph** | Primary L1 store (Rust, out-of-process UDS client) | Partial | Via embeddings | Single-node |
-| **PostgreSQL (pg-age)** | Durable tier (system of record) | Full | pgvector | Cluster |
+| **epistemic-graph** | The one authority / system of record (Rust, out-of-process UDS client) — compute + cache + semantic + durable persistence | ACID | Via embeddings | Single-node |
+| **PostgreSQL (pg-age)** | Optional mirror (eventually consistent, write-only fan-out from the authority) | Full | pgvector | Cluster |
 | **OWL/RDFLib** | Reasoning-only | N/A | N/A | In-memory |
-| **contrib** (Neo4j, FalkorDB, LadybugDB) | Optional/demoted backends under `backends/contrib/` | Varies | Varies | Varies |
+| **contrib** (Neo4j, FalkorDB, LadybugDB) | Optional mirrors under `backends/contrib/` | Varies | Varies | Varies |
 
 ### Layer 3: IntelligenceGraphEngine
 
@@ -205,7 +205,7 @@ EventStreamIngester              ProvenanceTracker
 │     (Node ACLs, Classification, Filtering)    │
 ├──────────────────────────────────────────────┤
 │        IntelligenceGraphEngine               │
-│   (epistemic-graph L1 + Postgres durable)    │
+│  (epistemic-graph authority + opt. mirrors)  │
 └──────────────────────────────────────────────┘
                     │
                     ▼

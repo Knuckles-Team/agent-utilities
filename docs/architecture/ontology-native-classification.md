@@ -104,7 +104,7 @@ fleet specialist registered" — **Phase A fixes both**.)
 | 2 semantic | `search_hybrid` (vector) | ~4.5s | paraphrase/synonym the lexical missed |
 | 3 reasoning | LLM HTN planner | LLM | genuinely complex multi-step |
 
-Backend-agnostic by design: the lexical tier lives in **epistemic-graph** (the one universal L1
+Backend-agnostic by design: the lexical step lives in **epistemic-graph** (the one authority
 every deployment runs), **NOT** ParadeDB BM25. `postgresql_backend.lexical_search` (BM25,
 `paradedb.rank_bm25`) exists and works, but it is **Postgres-only** — neo4j/falkordb/ladybug have
 no equivalent — so binding the gate to it would silently fail on other backends.

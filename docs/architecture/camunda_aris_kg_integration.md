@@ -46,7 +46,7 @@ flowchart LR
     CE --> B[ExtractionBatch\nBusinessProcess / BusinessTask / FLOWS_TO]
     AE --> B
     B --> MS[materialize_source\nregistry.write_batch]
-    MS --> KG[(Knowledge Graph\nL1 store + compute)]
+    MS --> KG[(Knowledge Graph\nengine authority + compute)]
     KG --> RD[OntologyReasoningDriver\nOWLBridge.run_cycle]
     RD --> KG
 ```

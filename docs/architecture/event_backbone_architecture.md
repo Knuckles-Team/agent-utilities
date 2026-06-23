@@ -34,7 +34,7 @@ graph TD
     end
 
     subgraph Consumers
-        L1["L1 GraphComputeEngine<br/>(via SyncDaemon)"]
+        L1["GraphComputeEngine authority<br/>(via SyncDaemon)"]
         WSM["WorkingSetManager"]
         TELE["Telemetry Pipeline"]
         EVOL["Evolution Engine"]
@@ -112,23 +112,24 @@ backend = create_event_backend("redpanda", bootstrap_servers="redpanda:9092")
 
 ## Graph Sync Daemon
 
-The `KafkaGraphSyncDaemon` (in `core/kafka_graph_sync.py`) ensures L1 (Rust
-GraphComputeEngine) stays synchronized with L3 (persistent backend):
+The `KafkaGraphSyncDaemon` (in `core/kafka_graph_sync.py`) keeps the Rust
+GraphComputeEngine authority and any optional mirror (persistent backend)
+synchronized:
 
 ```mermaid
 sequenceDiagram
-    participant L3 as L3 Persistent
+    participant ENG as Engine authority (Rust)
     participant EB as EventBackend
     participant SD as SyncDaemon
-    participant L1 as L1 Rust Engine
+    participant MIR as Mirror (persistent backend)
 
-    L3->>EB: publish(kg.mutations, {add_node...})
+    ENG->>EB: publish(kg.mutations, {add_node...})
     EB->>SD: on_mutation(topic, event)
     Note over SD: Buffer (100ms batch)
-    SD->>L1: flush_batch() → add_node(id, props)
+    SD->>MIR: flush_batch() → add_node(id, props)
     Note over SD: Every 5 min
-    SD->>L3: reconcile() → diff L1 vs L3
-    SD->>L1: repair drift
+    SD->>MIR: reconcile() → diff authority vs mirror
+    SD->>MIR: repair drift
 ```
 
 ### Failure Modes
@@ -136,8 +137,8 @@ sequenceDiagram
 | Failure Mode | Mitigation |
 |-------------|-----------|
 | Redpanda unavailable | Auto-fallback to MemoryEventBackend |
-| Consumer lag > 10K | Circuit breaker → full L1 reload from L3 |
-| L1↔L3 drift | 5-minute reconciliation daemon |
+| Consumer lag > 10K | Circuit breaker → full mirror reload from the engine authority |
+| Authority↔mirror drift | 5-minute reconciliation daemon |
 | Duplicate events | Idempotent dedup via (action, id, timestamp) key |
 
 ## Docker Deployment

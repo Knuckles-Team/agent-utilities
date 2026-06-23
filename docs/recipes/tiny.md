@@ -53,7 +53,7 @@ cp .env.example .env            # then edit the model provider line
 
 ```dotenv
 # --- Knowledge graph: the engine is the one authority; no mirrors configured ---
-GRAPH_BACKEND=tiered
+GRAPH_BACKEND=epistemic_graph
 
 # --- Engine: auto-spawn the embedded engine, lifecycle-coupled to its spawner ---
 # ON BY DEFAULT for the tiny profile. The embedded engine is a self-contained,

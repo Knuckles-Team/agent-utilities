@@ -77,7 +77,7 @@ a *very* stale high-authority source can be overtaken by a fresher one.
 
 Arbitration is **field-level survivorship** (the MDM "golden record" model) when
 the backend can cheaply read a node's current properties (`get_node_properties` —
-implemented on the in-memory/epistemic engine, inherited by the tiered backend):
+implemented on the epistemic-graph engine authority, also used by the fanout backend):
 each attribute is kept from its highest-authority writer, so a low-authority
 source can still contribute *new* attributes without clobbering a high-authority
 source's fields. The full reconciled record is written back, so the result is

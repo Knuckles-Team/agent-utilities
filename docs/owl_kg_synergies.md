@@ -47,7 +47,7 @@ By unifying low-level kernel abstractions (resource limits, sandboxing, task sch
 *   **The Synergy**: Aligning the two-tiered checkpointer directly with the tiered memory system (`KG-2.1`).
 *   **Mechanism**:
     - **Tier 1 (Ephemeral/Volatile)**: Fast in-memory/Redis caching represents the **Episodic Memory Buffer**. Every tool execution writes lightweight state changes with sub-millisecond latency.
-    - **Tier 2 (Durable/Epistemic)**: Commit to the Knowledge Graph represents the **Semantic Memory Consolidation**. At major transition boundaries, the accumulated step-by-step logs are refactored, removing redundant iterations, and committed to Neo4j/LadybugDB as clean OWL triples. This prevents database lock starvation while guaranteeing total crash durability.
+    - **Tier 2 (Durable/Epistemic)**: Commit to the Knowledge Graph represents the **Semantic Memory Consolidation**. At major transition boundaries, the accumulated step-by-step logs are refactored, removing redundant iterations, and committed to the **epistemic-graph authority** (the durable system of record) as clean OWL triples — and optionally fanned out to mirrors (Neo4j/LadybugDB). This prevents database lock starvation while guaranteeing total crash durability.
 
 ---
 

@@ -46,9 +46,9 @@ into `OntologySystem(graph=self)`, so the object-aware paths resolve against the
 real layers:
 
 - **Functions-on-Objects** (`ObjectFunctionContext`) read properties and traverse
-  links through the facade's L1 store.
-- **Derived properties** dispatch `CYPHER`/`SPARQL` through the facade + L2 OWL
-  bridge and `EMBEDDING` through the retrieval plane.
+  links through the facade's engine authority.
+- **Derived properties** dispatch `CYPHER`/`SPARQL` through the facade + the OWL
+  semantic layer and `EMBEDDING` through the retrieval plane.
 - **Interface targeting** (`resolve_target`) and **conformance** use the live
   type catalog.
 - The **edit ledger** writes durable `object_edit` nodes via the live store; the
@@ -58,9 +58,9 @@ real layers:
 Binding is defensive: any import failure resolves `kg.ontology` to `None` rather
 than raising, matching the other layer accessors.
 
-## 3. The OWL/SHACL substrate (L2 semantic)
+## 3. The OWL/SHACL substrate (semantic layer)
 
-The ontology layer sits on the facade's L2 semantic layer:
+The ontology layer sits on the facade's semantic layer:
 
 - **Value types** compile to a reusable SHACL `sh:PropertyShape` and a named OWL
   `rdfs:Datatype` restricted by XSD facets (`value_types.py` → `value_types_shapes_ttl`
@@ -136,9 +136,9 @@ flowchart TB
     FACADE --> OntologySystem
 
     subgraph Substrate ["KnowledgeGraph layers"]
-        L0["L0 compute<br/>Rust epistemic-graph (UDS/MessagePack)"]
-        L1["L1 store<br/>Postgres / epistemic_graph"]
-        L2["L2 semantic<br/>owl_bridge + SHACL validator"]
+        L0["engine authority<br/>Rust epistemic-graph (UDS/MessagePack) — compute + cache + semantic + durable store"]
+        MIRROR["optional mirrors<br/>Postgres / pg-age (write-only fan-out)"]
+        L2["semantic layer<br/>owl_bridge + SHACL validator"]
         RET["retrieval<br/>CapabilityIndex (HNSW)"]
     end
 
@@ -146,16 +146,16 @@ flowchart TB
     IF --> L2
     DP --> L2
     DP --> RET
-    FN --> L1
-    OS --> L1
-    ED --> L1
+    FN --> L0
+    OS --> L0
+    ED --> L0
     IX --> RET
     PM --> L2
     DOC --> RET
     ACT --> FN
     ACT --> ED
     L2 --> L0
-    L1 --> L0
+    L0 --> MIRROR
 ```
 
 ## 6. Live-path invariants (Wire-First)
@@ -167,7 +167,7 @@ flowchart TB
 - Actions invoke the **bound** `FunctionRuntime` and write through the **bound**
   `EditLedger`, so an action's effects are durable, audited KG nodes.
 - Permissioning `enforce`/`restricted_view` run on the read path; marking
-  propagation traverses real graph edges via the L2 substrate.
+  propagation traverses real graph edges via the semantic layer.
 
 ---
 

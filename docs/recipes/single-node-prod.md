@@ -57,7 +57,8 @@ docker compose -f docker/pg-age.compose.yml up -d
 docker exec agent-pg-age psql -U agent -d agent_kg -c 'CREATE DATABASE agent_state'
 
 # 3. Start the REST gateway pointed at the engine (also hosts the KG daemon)
-export GRAPH_BACKEND=tiered
+export GRAPH_BACKEND=fanout
+export GRAPH_MIRROR_TARGETS=age                                         # fan out to the pg-age mirror
 export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg     # optional mirror
 export STATE_DB_URI=postgresql://agent:agent@localhost:5433/agent_state  # optional
 python -m agent_utilities       # REST API on :9000 (HOST/PORT)
@@ -70,13 +71,14 @@ python -m agent_utilities       # REST API on :9000 (HOST/PORT)
 ## `.env` (generalized)
 
 ```dotenv
-GRAPH_BACKEND=tiered
+GRAPH_BACKEND=fanout
+GRAPH_MIRROR_TARGETS=age   # fan out to the pg-age mirror; drop both for engine-only
 
 # The engine authority — its own container, shared by the gateway + connectors.
 GRAPH_SERVICE_ENDPOINTS=unix:///run/epistemic-graph/engine.sock
 
 # OPTIONAL — write-only Postgres/pg-age mirror of the engine (SQL-side querying);
-# omit it entirely for an engine-only single node.
+# omit it (and GRAPH_MIRROR_TARGETS) for an engine-only single node.
 GRAPH_DB_URI=postgresql://agent:REDACTED@localhost:5433/agent_kg
 
 # Durable platform state: sessions/goals, durable-exec checkpoints, and the
