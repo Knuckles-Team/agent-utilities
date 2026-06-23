@@ -217,6 +217,11 @@ class InboundRouter:
                     return True
 
                 await retry_unanswered(engine, _reply_send)
+                # CONCEPT:ECO-4.91 — same housekeeping cadence prunes expired AgentBus topic-log
+                # messages so the store-and-forward backlog can't grow unbounded.
+                from agent_utilities.messaging.bus import AgentBus
+
+                AgentBus.instance(engine).prune_topic_log()
             except Exception as e:  # noqa: BLE001 — the reaper must survive any single pass
                 logger.debug("[CONCEPT:ECO-4.83] inbox reaper pass failed: %s", e)
 
@@ -889,7 +894,8 @@ async def _varied_ack(content: str, shape: Any) -> str:
     servers = getattr(shape, "tool_servers", ()) or ()
     if servers:
         names = ", ".join(
-            s.replace("-mcp", "").replace("-agent", "").replace("-api", "") for s in servers
+            s.replace("-mcp", "").replace("-agent", "").replace("-api", "")
+            for s in servers
         )
         static_pool = [
             f"On it — pulling that from {names} now, back in a moment. ⏳",
@@ -918,7 +924,9 @@ async def _varied_ack(content: str, shape: Any) -> str:
             f'"{content[:200]}". Reply with ONLY the line, no quotes.'
         )
         line = await asyncio.wait_for(asyncio.to_thread(llm, prompt), timeout=4.0)
-        line = str(line or "").strip().strip('"').splitlines()[0].strip() if line else ""
+        line = (
+            str(line or "").strip().strip('"').splitlines()[0].strip() if line else ""
+        )
         return line if 0 < len(line) <= 160 else fallback
     except Exception:  # noqa: BLE001 — the ack is best-effort; never block the reply
         return fallback

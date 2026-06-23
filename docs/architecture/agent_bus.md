@@ -74,6 +74,62 @@ sequenceDiagram
     Bus->>Fleet: submit_loop(objective)
 ```
 
+## Store-and-forward — leave a message for a busy/offline peer (CONCEPT:ECO-4.91)
+
+A **direct** send (`to=`) already survives an offline recipient: it materializes a durable
+`:BusMessage{recipient=to}` regardless of the peer's presence, so the peer picks it up on its
+next `receive`. The gap was **topic** messages — a `send(topic=…)` with **zero current
+subscribers** used to be dropped, and a peer that subscribed *later* never saw earlier traffic.
+
+Store-and-forward closes both: every topic send ALSO writes one durable **topic-log** entry
+(`:BusMessage{recipient="", kind="topic", expires_at}`, id `topicmsg:<group>`) on top of the
+per-subscriber fan-out. A late subscriber replays that log via a **per-(agent,topic) cursor**
+node (`:BusTopicCursor{agent_id,topic,last_ts}`, id `bustcur:<agent>:<topic>`) so each message
+is read at most once and current subscribers (whose cursor is advanced to `now` at send time)
+never get a duplicate.
+
+- **Replay window:** by default a brand-new subscriber replays only messages **newer than its
+  subscription** (no history dump). `subscribe(replay_recent=True)` backfills a bounded recent
+  window (`TOPIC_REPLAY_RECENT_S`, 1h) so a joiner can catch up on what it just missed.
+- **Bounded growth:** topic-log entries carry `expires_at = created + TOPIC_MSG_TTL_S` (24h); the
+  bus reaper `AgentBus.prune_topic_log()` runs on the messaging daemon's existing reaper cadence
+  (`router._inbox_reaper_loop`, alongside the ECO-4.83 inbox reaper) and deletes expired entries.
+- **Upsert-clobber safety:** each agent's replay cursor is its **own node**, never a property on
+  the shared `:Topic` node — the durable backend replaces a node's whole property blob on upsert,
+  so a shared-node cursor would clobber every other agent's. (Same gotcha as `heartbeat`/inbox.)
+
+```mermaid
+sequenceDiagram
+    participant A as Session A
+    participant Bus as AgentBus
+    participant KG as KG (:BusMessage topic-log + :BusTopicCursor)
+    participant B as Session B (subscribes LATER)
+    A->>Bus: send(topic=news, payload)  %% no subscribers yet
+    Bus->>KG: write topic-log :BusMessage(recipient="", expires_at)
+    Note over Bus: delivered:[], stored:true
+    B->>Bus: subscribe(news)  %% seeds bustcur:B:news baseline
+    B->>Bus: receive(B)
+    Bus->>KG: replay topic-log after B's cursor, advance cursor
+    Bus-->>B: [news backlog], once only
+```
+
+## Auto-register + online presence (CONCEPT:ECO-4.92)
+
+A session that has the `graph_bus` tool **appears online to peers without an explicit
+`register` call**. Every `graph_bus` action resolves an acting id (the explicit
+`agent_id`/`sender`, else a stable served-session identity) and calls `AgentBus.touch(id)`,
+which **auto-creates** the `:BusAgent` on first reference and **bumps `last_seen`** on every
+subsequent action — so merely *using* the bus keeps you rosterable and `presence=online`
+(the roster still computes staleness lazily from `last_seen`, so a vanished session goes
+`offline` on its own with no reaper).
+
+**Session identity:** on served MCP requests FastMCP injects a `Context` whose `session_id`
+(fallback `client_id`) is stable for the connection's life; `bus_tools._session_identity(ctx)`
+derives `session:<id>` from it so a call that passes **no** `agent_id` is still auto-registered
+and presence-tracked. **Limitation:** headless/in-process calls have no `Context` (identity is
+`""`), so there the caller must still pass an id explicitly — we never fabricate one. `touch`
+preserves an existing agent's capability/provider blob (no upsert clobber).
+
 ## Native capability — every agent knows the bus (CONCEPT:ECO-4.88)
 
 The bus is **not** an opt-in persona you must select; it is a native capability the *graph
@@ -119,7 +175,9 @@ flowchart TD
 | Swarm coordination | shared `swarm_topic()` in `mcp/tools/analysis_tools.py` (`action=swarm`) |
 | Standalone preset | `prompts/bus_coordinator.json` + `mcp_config.bus.json` (2-tool focused surface) |
 | Federation relay | `agent_utilities/messaging/federation.py` (`BusFederationRelay`) |
-| Ontology | `:BusAgent`/`:Topic`/`:BusSubscription`/`:BusMessage` in `knowledge_graph/ontology_orchestration.ttl` |
+| Ontology | `:BusAgent`/`:Topic`/`:BusSubscription`/`:BusMessage`/`:BusTopicCursor` in `knowledge_graph/ontology_orchestration.ttl` |
+| Store-and-forward (ECO-4.91) | topic-log `:BusMessage{kind=topic}` + per-(agent,topic) `:BusTopicCursor`; reaper `AgentBus.prune_topic_log()` |
+| Auto-presence (ECO-4.92) | `AgentBus.touch()` + `bus_tools._session_identity(ctx)` (served-session id) |
 | Governance | `bus.send`/`bus.dispatch` in `orchestration/action_policy.py` + `deploy/action-policy.default.yml` |
 | Observability | `agent_utilities_bus_*` in `observability/gateway_metrics.py`; Grafana `agent-bus.json` |
 | Load harness | `scripts/bench_bus.py` |
