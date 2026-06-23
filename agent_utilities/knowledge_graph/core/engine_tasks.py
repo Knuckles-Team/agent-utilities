@@ -3130,6 +3130,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             "scheduled_job",
             # Full-paper download + ingest enqueued by the RSS feed screen.
             "research_paper_fetch",
+            # Cohort barrier finalize → assimilation pass + feature matrix (KG-2.172).
+            "cohort_synthesize",
         }
         if task_type in _HEAVY_TASK_TYPES:
             from agent_utilities.core.background_throttle import get_throttle
@@ -3720,6 +3722,61 @@ class TaskManagerMixin(GraphEngineProtocol):
                     )
                 except Exception as e:
                     self._fail_or_retry_task(job_id, str(e), {"type": task_type})
+
+            elif task_type == "cohort_synthesize":
+                # Self-polling barrier gate for a research cohort (CONCEPT:KG-2.172):
+                # once every member task is terminal (completed OR failed — a poison
+                # member never wedges the cohort) or the deadline passes, run the
+                # assimilation pass + materialize the feature matrix over whatever was
+                # ingested. Until then re-defer ONE poll interval as 'scheduled' (NOT
+                # a failure attempt) so the promotion sweep re-promotes it.
+                from agent_utilities.knowledge_graph.research.cohort import (
+                    cohort_ready,
+                    finalize_cohort,
+                )
+
+                crow = self._control_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t.metadata as meta", {"id": job_id}
+                )
+                cmeta = (
+                    _decode_metadata(crow[0]["meta"])
+                    if crow and crow[0].get("meta")
+                    else {}
+                )
+                cohort_id = str(cmeta.get("cohort_id") or "")
+                deadline = float(cmeta.get("deadline_unix", 0.0) or 0.0)
+                ready, member_st = cohort_ready(self, cohort_id, deadline_unix=deadline)
+                if not ready:
+                    eta = time.time() + 60.0
+                    cmeta["eta_unix"] = eta
+                    cmeta["member_status"] = member_st
+                    self._control_cypher(
+                        "MATCH (t:Task {id: $id}) SET t.status = 'scheduled', "
+                        "t.due_bucket = $due, t.metadata = $meta",
+                        {
+                            "id": job_id,
+                            "due": int(eta // 60),
+                            "meta": _encode_metadata(cmeta),
+                        },
+                    )
+                else:
+                    try:
+                        result = finalize_cohort(self, cohort_id)
+                        self._update_task_status(
+                            job_id,
+                            "completed",
+                            {
+                                "type": task_type,
+                                "cohort_id": cohort_id,
+                                "members": member_st,
+                                "feature_matrix": (
+                                    result.get("feature_matrix") or {}
+                                ).get("counts", {}),
+                            },
+                        )
+                    except Exception as e:
+                        self._fail_or_retry_task(job_id, str(e), {"type": task_type})
+
             else:
                 import hashlib
 
