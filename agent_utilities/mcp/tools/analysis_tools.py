@@ -1512,7 +1512,7 @@ def register_analysis_tools(mcp):
     async def graph_orchestrate(
         action: str = Field(
             default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers; task='all'/'sweep' runs the propose-only sweep over all self-supervised targets — the on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AHE-3.47/3.40/3.44/3.45/3.46); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:KG-2.90/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
+            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, computer_use, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component). 'computer_use' = run a GUI computer-use agent (Observe→Ground→Decide→Act) on a gui-sandbox desktop: provisions a sandbox on host=<inventory alias> (or drives an existing container_id=...), governed by ActionPolicy (workspace.computer_use), frames grounded in the KG via observe_screen (CONCEPT:ORCH-1.85). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers; task='all'/'sweep' runs the propose-only sweep over all self-supervised targets — the on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AHE-3.47/3.40/3.44/3.45/3.46); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:KG-2.78); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:KG-2.90/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:ORCH-1.32); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:KG-2.49); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AHE-3.18); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:ORCH-1.41); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AHE-3.21); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AHE-3.32).",
         ),
         task: str = Field(
             default="", description="Task description or payload to dispatch."
@@ -1577,6 +1577,16 @@ def register_analysis_tools(mcp):
             description="CONCEPT:ORCH-1.40 — when True (action='execute_agent'), open a native "
             "bidirectional message channel for this run; the response JSON includes a "
             "'channel_id' to talk to the spawned agent via graph_message(send/receive).",
+        ),
+        host: str = Field(
+            default="",
+            description="CONCEPT:ORCH-1.85 — for action='computer_use': inventory host alias "
+            "to run the gui-sandbox on (over ssh:// docker/podman). Empty = local docker.",
+        ),
+        container_id: str = Field(
+            default="",
+            description="CONCEPT:ORCH-1.85 — for action='computer_use': drive an EXISTING "
+            "gui-sandbox container by id instead of provisioning a fresh one.",
         ),
     ) -> str:
         """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution.
@@ -1807,6 +1817,26 @@ def register_analysis_tools(mcp):
                     return agent_result
                 except Exception as exc:
                     return f"Error: agent execution failed: {exc}"
+            elif action == "computer_use":
+                # CONCEPT:ORCH-1.85 — run a GUI computer-use agent (Observe→Ground→
+                # Decide→Act) on a gui-sandbox desktop. Provisions a sandbox on `host`
+                # (or drives an existing `container_id`), governed by ActionPolicy
+                # (workspace.computer_use) with frames grounded in the KG (observe_screen).
+                try:
+                    from agent_utilities.orchestration.computer_use_agent import (
+                        provision_and_run_computer_use,
+                        run_computer_use_task,
+                    )
+
+                    if container_id:
+                        return await run_computer_use_task(
+                            task, container_id, host=host or None, engine=engine
+                        )
+                    return await provision_and_run_computer_use(
+                        task, host=host or None, engine=engine
+                    )
+                except Exception as exc:
+                    return f"Error: computer-use task failed: {exc}"
             elif action == "compile_workflow":
                 try:
                     from agent_utilities.knowledge_graph.workflow_store import (
