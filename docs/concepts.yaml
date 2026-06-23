@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 454
+total_concepts: 456
 total_pillars: 21
 pillars:
 - AHE-3
@@ -4409,6 +4409,23 @@ concepts:
   - agent_utilities/rlm/sandboxes/container_fork_backend.py
   - agent_utilities/rlm/sandboxes/registry.py
   doc: container_fork sandbox
+- id: ORCH-1.91
+  name: feed the per-rung reward EMA so a persistently failing rung is
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/repl.py
+  - agent_utilities/rlm/sandboxes/reward.py
+  - agent_utilities/rlm/sandboxes/router.py
+  doc: feed the per-rung reward EMA so a persistently failing rung is
+- id: ORCH-1.92
+  name: warm-share the SkillsToolset across the fan-out cohort
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/agent/factory.py
+  - agent_utilities/agent/warm_skills.py
+  doc: warm-share the SkillsToolset across the fan-out cohort
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
@@ -4998,15 +5015,16 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: returns per-lane/stage latency percentiles + token/cost + the parallelism factor
 - id: OS-5.58
-  name: Host-singleton warm-parent pool for the warm-fork sandbox family
+  name: so they are idle-reaped and counted alongside the sandbox warm parents
   pillar: OS-5
   status: live
   code_paths:
+  - agent_utilities/agent/warm_skills.py
   - agent_utilities/gateway/daemon.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/rlm/sandboxes/base.py
   - agent_utilities/runtime/warm_registry.py
-  doc: Host-singleton warm-parent pool for the warm-fork sandbox family
+  doc: so they are idle-reaped and counted alongside the sandbox warm parents
 - id: OS-5.59
   name: OS-5.59
   pillar: OS-5
