@@ -92,16 +92,17 @@ curl -s localhost:9000/api/graph/query -d '{"cypher":"MATCH (n) RETURN n LIMIT 5
 
 ## The knowledge graph is free and native
 
-You do **not** need a database to use the KG. The default backend is `tiered`:
-the Rust `epistemic_graph` working store (L1) in front of an embedded LadybugDB
-(L2). Zero servers, zero config:
+You do **not** need a database to use the KG. The default backend is
+`epistemic_graph`: the Rust engine is the one authority — compute, cache,
+semantic, and durable persistence in a single store. Zero servers, zero config:
 
 ```bash
-export GRAPH_BACKEND=tiered     # this is already the default
+export GRAPH_BACKEND=epistemic_graph     # this is already the default
 ```
 
-When you outgrow it, point `GRAPH_DB_URI` at Postgres/pg-age and the durable
-tier switches automatically — nothing else changes. See
+When you want optional mirrors, set `GRAPH_BACKEND=fanout` and point
+`GRAPH_MIRROR_TARGETS` at Postgres/pg-age (or other) mirror connections; the
+engine stays the authority and fans writes out to the mirrors. See
 [Deployment Recipes](recipes/tiny.md) for tiny → single-node → enterprise, and
 [Stardog + pg-age databases](recipes/databases.md) to push your ontology to
 Stardog (or a local SPARQL endpoint) and backfill relationships into Apache AGE

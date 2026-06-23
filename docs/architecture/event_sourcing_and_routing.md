@@ -30,9 +30,9 @@ The `EventBackend` is built on a **Local-First** paradigm:
 
 Instead of throwing all queries directly at SPARQL (which can result in massive, slow JOINs), the `QueryRouter` intelligently classifies and routes queries based on a "Cost Heuristic."
 
-- **L1 (Rust In-Memory Engine):** Extremely fast for `expected_hops >= 2` or `QueryType.TOPOLOGICAL` queries.
-- **L2 (Working Set Cache):** Fast for local subset `FILTERED_MATCH` queries.
-- **L3 (Persistent SPARQL Store):** Authoritative source. Used when `requires_freshness=True` or for raw `QueryType.SPARQL`.
-- **L4 (Vector Store):** Used for Semantic Similarity (`QueryType.SEMANTIC`).
+- **Rust engine (the authority):** the source of truth — extremely fast for `expected_hops >= 2` or `QueryType.TOPOLOGICAL` queries.
+- **Working-set cache:** fast for local subset `FILTERED_MATCH` queries.
+- **SPARQL mirror:** an optional read mirror used for raw `QueryType.SPARQL` queries; on `requires_freshness=True` the router goes to the engine authority.
+- **Vector store:** used for Semantic Similarity (`QueryType.SEMANTIC`).
 
-By analyzing `expected_hops` and `requires_freshness`, the router minimizes latency and offloads work to the most efficient tier automatically.
+By analyzing `expected_hops` and `requires_freshness`, the router minimizes latency and offloads work to the most efficient query path automatically.

@@ -20,7 +20,7 @@ This document defines how the Knowledge Graph scores, ranks, and retrieves resul
 
 ### How it Works
 
-1. **HNSW Index Phase**: The HNSW index (the `CapabilityIndex` / Postgres pgvector primary tier; LadybugDB is a demoted `backends/contrib/` option) performs approximate nearest-neighbor search, retrieving `top_k × 3` candidates internally to ensure quality
+1. **HNSW Index Phase**: The HNSW index (the `CapabilityIndex` on the epistemic-graph authority; Postgres pgvector and LadybugDB are optional mirrors, the latter a demoted `backends/contrib/` option) performs approximate nearest-neighbor search, retrieving `top_k × 3` candidates internally to ensure quality
 2. **Quality Gate**: Results below `relevance_threshold` (default 0.6, or the active schema pack's `min_relevance_threshold`) are filtered
 3. **Enrichment**: Innovation signals, metadata, and decay scoring are applied
 4. **Truncation**: Final results are truncated to `top_k`

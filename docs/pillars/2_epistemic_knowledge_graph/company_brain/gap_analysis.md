@@ -55,5 +55,5 @@
 1. **Ontology-First** — We start with OWL and bolt storage underneath, not the reverse
 2. **Memory Is Infrastructure** — SynthesisEngine + temporal decay = self-maintaining state
 3. **Mixin Architecture** — New capabilities are additive, not rewrites
-4. **Multi-Backend** — Postgres (pg-age) + `epistemic-graph` primary tier via the `GraphBackend` abstraction (Neo4j/FalkorDB/LadybugDB available under `backends/contrib/`)
+4. **One authority + optional mirrors** — `epistemic-graph` is the one authority (system of record) via the `GraphBackend` abstraction; Postgres (pg-age), Neo4j, FalkorDB, LadybugDB are optional write-only mirrors (the latter three under `backends/contrib/`)
 5. **5-Pillar Ecosystem** — Only architecture where the substrate integrates orchestration, self-improvement, ecosystem sensors, and governance

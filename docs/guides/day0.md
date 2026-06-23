@@ -13,7 +13,7 @@ integrations — at the scale that fits you.
 
 ```bash
 git clone https://github.com/Knuckles-Team/agent-utilities && cd agent-utilities
-./scripts/bootstrap.sh          # venv + install + .env(GRAPH_BACKEND=tiered) + smoke test
+./scripts/bootstrap.sh          # venv + install + .env(GRAPH_BACKEND=epistemic_graph) + smoke test
 ```
 
 That installs deps, writes a zero-infra `.env`, starts `graph-os`, and runs a
@@ -78,16 +78,18 @@ Each integration is a single config switch — set only the ones your profile us
 
 | Integration | Switch | Profile |
 |---|---|---|
-| Durable KG (Postgres/pg-age) | `GRAPH_DB_URI=postgresql://…` | single-node-prod, enterprise |
+| KG mirror (Postgres/pg-age) | `GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS=age` + `GRAPH_DB_URI=postgresql://…` | single-node-prod, enterprise |
 | Ingest queue scale-out (Kafka) | `TASK_QUEUE_BACKEND=kafka` + `KAFKA_BOOTSTRAP_SERVERS=…` (fail-loud) | enterprise |
 | Secrets (OpenBao/Vault) | `SECRETS_VAULT_URL=…` + `VAULT_AUTH_METHOD=…` | single-node-prod, enterprise |
 | SSO (Keycloak/OIDC) | `AUTH_JWT_JWKS_URI=…` / `OIDC_CONFIG_URL=…` | enterprise |
 | Observability (Langfuse) | `LANGFUSE_HOST` + `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | any (optional) |
 | Tracing (OTel) | `ENABLE_OTEL=true` + `OTEL_EXPORTER_OTLP_ENDPOINT=…` | any (optional) |
 
-Backend resolution (`create_backend()`): the default `GRAPH_BACKEND=tiered` uses
-the in-process `epistemic_graph` (L1) + embedded LadybugDB (L2); set `GRAPH_DB_URI`
-and the L2 auto-switches to Postgres — nothing else changes.
+Backend resolution (`create_backend()`): the default `GRAPH_BACKEND=epistemic_graph`
+makes the Rust engine the one authority — compute, cache, semantic, and durable
+persistence in a single store, no external DB. For optional mirrors set
+`GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS` (e.g. `age`) and `GRAPH_DB_URI`;
+the engine stays the authority and fans writes out — nothing else changes.
 
 ## Automated day-0 (skill-workflow)
 

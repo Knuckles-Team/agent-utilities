@@ -235,7 +235,14 @@ def test_embedding_and_semantic_search_ranking(
     ``:Chunk`` vector index) may return nothing for generic nodes — a real parity
     gap surfaced as a backend-named skip rather than a false pass.
     """
-    dim = 768
+    # Use the configured embedding dimension, not a hardcoded one: backends that
+    # build their vector index up-front from ``config.kg_embedding_dim`` (e.g.
+    # FalkorDB's CREATE VECTOR INDEX) reject — and drop the connection on — a write
+    # whose dimension differs from the index. The system standardized on 1024
+    # (bge-m3), so a stale 768 here mismatched the index and reset FalkorDB.
+    from agent_utilities.core.config import config as _cfg
+
+    dim = int(_cfg.kg_embedding_dim or 768)
     suffix = uuid.uuid4().hex[:8]
     targets = {
         f"doc:hit:{suffix}": [1.0] + [0.0] * (dim - 1),

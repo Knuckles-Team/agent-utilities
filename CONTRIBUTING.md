@@ -12,8 +12,10 @@ pip install -e ".[all]"
 pre-commit install
 ```
 
-The default knowledge-graph backend is zero-infra (in-process), so most work needs
-no external services. For the durable tier set `GRAPH_DB_URI` (Postgres/pg-age).
+The default knowledge-graph backend is zero-infra: the epistemic-graph engine is
+the one authority (compute + cache + semantic + durable persistence), so most work
+needs no external services. For an optional pg-age mirror set `GRAPH_BACKEND=fanout`
++ `GRAPH_MIRROR_TARGETS` and `GRAPH_DB_URI` (Postgres/pg-age).
 
 ## Branch / worktree workflow
 

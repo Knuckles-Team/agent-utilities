@@ -25,7 +25,7 @@ graph TD
         subgraph MemoryArchitecture [Autonomous Memory Architecture]
             KG --> MAGMA[ORCH-1.0: MAGMA: Orthogonal Views]
             KG --> Lightning[AHE-3.3: Autonomous Self-Improvement]
-            KG --> UnifiedDB[(GraphBackend: epistemic-graph L1 + pg-age durable)]
+            KG --> UnifiedDB[(GraphBackend: epistemic-graph authority + opt. pg-age mirror)]
 
             MAGMA --> Semantic[KG-2.3: Semantic View]
             MAGMA --> Temporal[KG-2.6: Temporal View]

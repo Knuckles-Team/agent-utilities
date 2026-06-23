@@ -51,6 +51,19 @@ def _skip_without_docker() -> None:
     if probe.returncode != 0:
         pytest.skip("Docker daemon not reachable")
 
+    # Give slow-booting containers headroom: the testcontainers default readiness
+    # wait is 120s (max_tries=120 × sleep_time=1s), but a heavyweight image on a
+    # cold/loaded CI runner — notably neo4j:latest (a JVM server that can take
+    # >120s to become bolt-ready) and a first-pull Fuseki/ParadeDB — exceeds that
+    # and the fixture errors at setup. Raise the ceiling so a slow start is just
+    # slow, not a spurious parity failure.
+    from testcontainers.core.config import testcontainers_config as _tc_cfg
+
+    # ``timeout`` is a read-only property derived from ``max_tries`` × ``sleep_time``;
+    # raising max_tries lifts the effective readiness wait to ~300s.
+    if _tc_cfg.max_tries < 300:
+        _tc_cfg.max_tries = 300
+
 
 # ───────────────────────────── container fixtures ──────────────────────────────
 # All session-scoped: containers are expensive to boot, and the conformance body
@@ -142,7 +155,10 @@ def ephemeral_fuseki() -> Iterator[dict[str, Any]]:
     )
     container.start()
     try:
-        wait_for_logs(container, "Started", timeout=90)
+        # Jena-Fuseki's first-run image pull + JVM boot can exceed 90s on a loaded
+        # or cold CI runner; give it headroom so the SPARQL parity tests don't error
+        # at setup on a slow start.
+        wait_for_logs(container, "Started", timeout=180)
         host = container.get_container_host_ip()
         port = container.get_exposed_port(3030)
         yield {"url": f"http://{host}:{port}", "dataset": dataset}

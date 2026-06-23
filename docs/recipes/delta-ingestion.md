@@ -69,12 +69,18 @@ Set `GRAPH_BACKEND` (env or `config.json`). All support the write-delta.
 
 | `GRAPH_BACKEND` | Config keys | Notes |
 |---|---|---|
-| `tiered` *(default)* | `GRAPH_BACKEND_L1` (=`epistemic_graph`), `GRAPH_BACKEND_L2` (auto: `postgresql` if `GRAPH_DB_URI`/`PGGRAPH_DSN` set, else `ladybug`) | Zero-infra locally (L1 + embedded Ladybug); durable when an L2 DSN is set. |
-| `age` / `postgresql` | `GRAPH_DB_URI`, `GRAPH_PG_AGE=1`, `GRAPH_PGGRAPH_SCHEMA` | Postgres + Apache AGE; the recommended durable prod store. |
-| `neo4j` | `GRAPH_DB_URI` (`bolt://…`), `GRAPH_DB_USER`, `GRAPH_DB_PASSWORD` | |
-| `falkordb` | `GRAPH_DB_HOST`, `GRAPH_DB_PORT` (6379), `GRAPH_DB_NAME` | |
-| `ladybug` | `GRAPH_DB_PATH` (else XDG) | Embedded Kuzu; single-writer (host-role only). |
-| `fanout` | `GRAPH_AUTHORITY` + `GRAPH_MIRROR_TARGETS` (resolved against `KG_CONNECTIONS`) | N-way mirrored writes; durable replay outbox. Delta applies on the authority. |
+| `epistemic_graph` *(default)* | none | The Rust engine is the one authority — compute, cache, semantic, and durable persistence in a single store. Zero infra; the delta applies on the authority. |
+| `fanout` | `GRAPH_AUTHORITY` (=`epistemic_graph`) + `GRAPH_MIRROR_TARGETS` (resolved against `KG_CONNECTIONS`) | Engine authority + N optional mirrors; durable replay outbox. The delta applies on the authority, then fans out. |
+
+Mirror connection names listed in `GRAPH_MIRROR_TARGETS` are declared in
+`KG_CONNECTIONS`. Common mirror types and their config keys:
+
+| Mirror type | Config keys |
+|---|---|
+| `age` / `postgresql` | `GRAPH_DB_URI`, `GRAPH_PG_AGE=1`, `GRAPH_PGGRAPH_SCHEMA` (Postgres + Apache AGE) |
+| `neo4j` | `GRAPH_DB_URI` (`bolt://…`), `GRAPH_DB_USER`, `GRAPH_DB_PASSWORD` |
+| `falkordb` | `GRAPH_DB_HOST`, `GRAPH_DB_PORT` (6379), `GRAPH_DB_NAME` |
+| `ladybug` | `GRAPH_DB_PATH` (else XDG); embedded Kuzu, single-writer (host-role only) |
 
 One-command provisioning (managed Postgres image carrying AGE + pgvector +
 ParadeDB), via CLI or MCP:
@@ -105,8 +111,8 @@ at startup, so either works). Read via the `setting()` accessor.
 | Key | Default | Purpose |
 |---|---|---|
 | `KG_WRITE_DELTA` | `1` | Content-hash write-delta. `0` disables (full re-write every ingest). |
-| `GRAPH_BACKEND` | `tiered` | The delta store (see §2). **Restart-required.** |
-| `GRAPH_DB_URI` | – | Durable tier DSN (Postgres/AGE, Neo4j). **Restart-required.** |
+| `GRAPH_BACKEND` | `epistemic_graph` | The delta store (see §2). **Restart-required.** |
+| `GRAPH_DB_URI` | – | Mirror DSN (Postgres/AGE, Neo4j) for `fanout`. **Restart-required.** |
 | `KG_DAEMON_ROLE` | `auto` | `host` runs the scheduler/sweep; `client` doesn't; `auto` = host if the flock is free. **Restart-required.** |
 | `KG_LOOP` | `false` | Enables the research/evolution Loop (separate from the delta sweep). |
 | `KG_LOOP_INTERVAL` | `3600` | Loop cadence (seconds). |
@@ -173,10 +179,11 @@ Hand Claude this recipe in a new environment. The guided path:
 - **enterprise / multi-node** → the **`agent-os-genesis`** skill (aliases `day0`,
   `day0_bootstrap_orchestrator`), driven by the root **`genesis.yaml`** manifest.
   Its backend/config steps:
-  - **A1 `agent-utilities-install`** — install; tiny writes `GRAPH_BACKEND=tiered`.
+  - **A1 `agent-utilities-install`** — install; tiny writes `GRAPH_BACKEND=epistemic_graph`.
   - **A2 `graph-os-and-multiplexer`** — deploys `graph-os` pinned to the KG host
     with `KG_DAEMON_ROLE=host` and the shared `~/.config/agent-utilities/config.json`
-    volume; points `GRAPH_DB_URI` at the pggraph tier for durable profiles.
+    volume; for mirror profiles sets `GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS`
+    and points `GRAPH_DB_URI` at the pggraph mirror.
   - **A4 `integrations-wiring`** — wires `pggraph` (`GRAPH_DB_URI`), Kafka,
     OpenBao, Keycloak.
 
@@ -215,4 +222,4 @@ source_sync(source="all", mode="delta")   # each result carries "skipped_unchang
 | `skipped_unchanged` always 0 on re-run | `KG_WRITE_DELTA=0`, or backend can't answer the prefetch | Set `KG_WRITE_DELTA=1`; confirm the backend persists `content_hash` (any real backend does). |
 | Sweep never runs | No host daemon | Set `KG_DAEMON_ROLE=host` and run `graph-os-daemon`; confirm the flock isn't held elsewhere. |
 | A source is `skipped` in the sweep | Unconfigured (no client/creds) | Add the connector's credentials; unconfigured sources are skipped, not errored. |
-| Durable writes lost after restart | No L2 DSN (tiered fell back to embedded Ladybug) | Set `GRAPH_DB_URI` + `GRAPH_PG_AGE=1` (restart-required) and re-run `setup-databases`. |
+| Writes not appearing in the pg-age mirror | `GRAPH_BACKEND` not `fanout`, or no mirror DSN | Set `GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS`, `GRAPH_DB_URI` + `GRAPH_PG_AGE=1` (restart-required) and re-run `setup-databases`. (The engine authority is durable on its own; the mirror is optional.) |

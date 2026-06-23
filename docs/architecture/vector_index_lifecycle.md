@@ -135,7 +135,7 @@ just not optimal).
 
 | File | Component |
 |------|-----------|
-| `knowledge_graph/backends/contrib/ladybug_backend.py` | `build_vector_indices()`, `drop_vector_indices()` (Ladybug/Kuzu is a demoted `contrib` backend; the durable tier is `postgresql_backend.py` + `epistemic_graph_backend.py`) |
+| `knowledge_graph/backends/contrib/ladybug_backend.py` | `build_vector_indices()`, `drop_vector_indices()` (Ladybug/Kuzu is a demoted `contrib` mirror; the authority is `epistemic_graph_backend.py`, with `postgresql_backend.py` as an optional mirror) |
 | `knowledge_graph/retrieval/hybrid_retriever.py` | `_vector_search_native()`, label-scoped fallback |
 | `knowledge_graph/core/engine_tasks.py` | `submit_task()` (pre-drop), `_maybe_build_vector_indexes()` (post-build) |
 | `mcp/kg_server.py` | `graph_ingest(action="rebuild_indexes")` |

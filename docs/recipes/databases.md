@@ -27,14 +27,16 @@ agent-utilities graph ──promote──▶ ontology (OWL/RDF, KG-2.6)
 
 - **Push / host / consume** the ontology → `OntologyPublisher` +
   the gateway SPARQL endpoint.
-- **Backfill relationships into pg-age** → the tiered backend's
+- **Backfill relationships into pg-age** → the fanout backend's
   `reconcile_to_durable()`.
 
 ### "Am I backfilling into pg-age today?"
 
-Probably **not yet**. The zero-infra default is `GRAPH_BACKEND=tiered` with a
-**LadybugDB** L2 — durable, but not Postgres/AGE. You start backfilling into AGE
-once `GRAPH_DB_URI` + `GRAPH_PG_AGE=1` are set. **This recipe flips that on.**
+Probably **not yet**. The zero-infra default is `GRAPH_BACKEND=epistemic_graph` —
+the engine is the one authority (compute + cache + semantic + durable
+persistence), no mirrors. You start mirroring into AGE once you set
+`GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS` and `GRAPH_DB_URI` +
+`GRAPH_PG_AGE=1`. **This recipe flips that on.**
 
 ---
 
@@ -131,8 +133,9 @@ setup-databases --profile prod --postgres-mode managed_image \
   --dsn "$GRAPH_DB_URI"
 ```
 
-This (1) verifies Postgres, (2) wires `GRAPH_DB_URI`+`GRAPH_PG_AGE=1`+`GRAPH_BACKEND=tiered`
-so the graph backfills into AGE, (3) **pushes the bundled ontology to Stardog**
+This (1) verifies Postgres, (2) wires `GRAPH_DB_URI`+`GRAPH_PG_AGE=1`+`GRAPH_BACKEND=fanout`
+(+`GRAPH_MIRROR_TARGETS`) so the engine authority fans writes out into the AGE mirror,
+(3) **pushes the bundled ontology to Stardog**
 (`OntologyPublisher.push_to_stardog`), (3b) **registers Stardog as a live data
 mirror** so instance data replicates continuously (see Step 2b), (4) reconciles the
 working graph into AGE *and* backfills the Stardog mirror, and (5) smoke-tests a
@@ -154,7 +157,7 @@ partitioned into `urn:source:<system>` **named graphs** so each source is a slic
 you can push, query, or re-ingest on its own.
 
 **Continuous (live mirror).** `setup-databases --profile prod` registers Stardog as
-a `role="mirror"` connection by default, so under `GRAPH_BACKEND=tiered` every KG
+a `role="mirror"` connection by default, so under `GRAPH_BACKEND=fanout` every KG
 write — including each `source_sync` of LeanIX/ServiceNow — fans out into Stardog
 via the durable outbox. Backfill what's already there with `reconcile` (or `setup`'s
 Step 4). Opt out with `--no-mirror-data` if you only want the ontology.

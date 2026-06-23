@@ -22,7 +22,7 @@ flowchart TB
     end
 
     exec["_execute_tool()<br/><b>single source of truth</b>"]
-    engine[("IntelligenceGraphEngine<br/>(Rust L1 + durable L2)")]
+    engine[("epistemic-graph engine<br/>the one authority")]
     durable[("Durable checkpoints<br/>SQLite / Postgres<br/>idempotency keys")]
     corr["correlation_id stamped on<br/>FleetEvent + Task nodes"]
 
@@ -94,8 +94,11 @@ concurrent goal loops honor pause with zero side effects).
 ## 3. Durable execution on embedded SQLite (CONCEPT:ORCH-1.36)
 
 **Context.** `DurableExecutionManager` persisted to an in-memory mock — it
-survived nothing. The L1 epistemic_graph tier is a *cache* (rebuilt on restart),
-so it is the wrong substrate for crash-survivable execution.
+survived nothing. While the epistemic-graph engine is the durable authority for
+KG state, execution checkpoints (idempotency keys, in-flight action progress)
+are deliberately kept off the graph hot path and on a dedicated transactional
+substrate, so the in-memory mock was the wrong place for crash-survivable
+execution.
 
 **Decision.** Persist checkpoints to an embedded, crash-safe SQLite store (the
 same substrate `core.sessions` uses for recovery; `state_db_uri` promotes it to

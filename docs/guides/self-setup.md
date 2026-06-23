@@ -69,7 +69,7 @@ mcp-multiplexer     # unified tool gateway over the *-mcp fleet
 ```
 
 Containerized: `docker compose -f docker/mcp.compose.yml up -d` (plus
-`docker/pg-age-full.compose.yml` for the durable tier).
+`docker/pg-age-full.compose.yml` for an optional pg-age mirror).
 
 ## 6. Auth & observability (enterprise)
 

@@ -88,53 +88,36 @@ class FalkorDBBackend(GraphBackend):
             results.extend(self.execute(query, params))
         return results
 
-    def create_schema(self) -> None:
-        # Index a SHARED ``Embeddable`` label (every embedded node is tagged with
-        # it in add_embedding). The old index targeted ``Chunk`` — a label no node
-        # carries — so vector search silently returned nothing.
-        logger.info("Creating FalkorDB vector index for embeddings (Embeddable).")
-        # FalkorDB >=4 uses Cypher DDL for vector indexes; the older
-        # `db.idx.vector.create` procedure is not registered. Index a shared
-        # `:Embeddable` label (add_embedding tags nodes with it); FalkorDB
-        # backfills existing matching nodes when the index is created.
-        # Dim from the unified XDG config (config.kg_embedding_dim), never hardcoded.
-        from agent_utilities.core.config import config
+    # Native vector search is intentionally NOT served by FalkorDB. In the
+    # one-authority + mirrors architecture (CONCEPT:KG-2.74), vector search is
+    # served by the epistemic-graph engine authority (and the pgvector/AGE mirror);
+    # a graph mirror like FalkorDB only carries the node/edge topology. This is also
+    # a hard necessity: ``falkordb:latest``'s vector engine (CREATE VECTOR INDEX +
+    # ``vecf32`` writes / ``db.idx.vector.queryNodes``) crashes the server process on
+    # our workload, taking the whole container down. So FalkorDB is a graph-only
+    # mirror; embeddings are no-ops and ``semantic_search`` returns nothing (a
+    # documented parity gap the conformance suite skips, not a hard failure).
+    supports_native_vector_search: bool = False
 
-        dim = int(config.kg_embedding_dim or "768")
-        query = (
-            "CREATE VECTOR INDEX FOR (n:Embeddable) ON (n.embedding) "
-            f"OPTIONS {{dimension: {dim}, similarityFunction: 'cosine'}}"
+    def create_schema(self) -> None:
+        # Graph-only mirror: no vector index (see ``supports_native_vector_search``).
+        logger.info(
+            "FalkorDB backend ready (graph-only mirror; native vector search is "
+            "served by the engine authority, not FalkorDB)."
         )
-        try:
-            self.execute(query)
-        except Exception as e:
-            if "already" not in str(e).lower():
-                logger.warning(f"Could not create vector index in FalkorDB: {e}")
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        # Tag ``:Embeddable`` so the node enters the vector index regardless of label.
-        query = "MATCH (n {id: $id}) SET n:Embeddable, n.embedding = vecf32($embedding)"
-        try:
-            self.execute(query, {"id": node_id, "embedding": embedding})
-        except Exception as e:
-            logger.warning(f"Failed to add embedding in FalkorDB: {e}")
+        # No-op: FalkorDB is a graph-only mirror. Sending a vecf32 write to
+        # falkordb:latest crashes the server, and vectors live on the authority.
+        return
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5
     ) -> list[dict[str, Any]]:
-        """Perform a semantic vector search returning top matching nodes using FalkorDB."""
-        query = """
-        CALL db.idx.vector.queryNodes('Embeddable', 'embedding', $n_results, vecf32($query_embedding))
-        YIELD node, score
-        RETURN node
-        """
-        try:
-            return self.execute(
-                query, {"query_embedding": query_embedding, "n_results": n_results}
-            )
-        except Exception as e:
-            logger.error(f"FalkorDB semantic search failed: {e}")
-            return []
+        """No native vector search on FalkorDB (graph-only mirror) — see
+        ``supports_native_vector_search``. Returns ``[]`` so callers fall back to
+        the engine authority's vector path."""
+        return []
 
     def prune(self, criteria: dict[str, Any]) -> None:
         query = "MATCH (n) WHERE n.last_accessed < $timestamp DELETE n"
