@@ -29,9 +29,35 @@ logger = logging.getLogger(__name__)
 # Code extensions the engine parser ingests (mirrors eg-compute SUPPORTED_EXTENSIONS,
 # incl. the ast-extended grammar tier). Markdown is handled separately below.
 _CODE_EXTENSIONS = {
-    ".py", ".pyi", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".tsx",
-    ".go", ".rs", ".java", ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hxx",
-    ".hh", ".cs", ".rb", ".php", ".sh", ".bash", ".scala", ".sc", ".lua",
+    ".py",
+    ".pyi",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".ts",
+    ".mts",
+    ".cts",
+    ".tsx",
+    ".go",
+    ".rs",
+    ".java",
+    ".c",
+    ".h",
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".hpp",
+    ".hxx",
+    ".hh",
+    ".cs",
+    ".rb",
+    ".php",
+    ".sh",
+    ".bash",
+    ".scala",
+    ".sc",
+    ".lua",
 }
 
 _CONCEPT_PATTERN = re.compile(r"CONCEPT:([A-Z]+-[\d\.]+)(?:[:\s\-—]+([^<*\n]+))?")
@@ -123,7 +149,9 @@ def _ingest_markdown(
     return extracted
 
 
-def _replay_parse_result(result: dict[str, Any], graph: Any, RegistryNodeType: Any) -> int:
+def _replay_parse_result(
+    result: dict[str, Any], graph: Any, RegistryNodeType: Any
+) -> int:
     """Replay an engine ParseResult (nodes/edges) into the registry graph.
 
     Faithful to the previous hand-rolled extraction: SYMBOL nodes keyed by
