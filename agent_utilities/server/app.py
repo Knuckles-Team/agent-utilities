@@ -54,7 +54,7 @@ from ..base_utilities import __version__, to_boolean
 from .concurrency import AsyncioConcurrencyManager, RedisConcurrencyManager
 from .dependencies import inject_reload_app, resolve_model_registry, verify_api_key
 from .models import ReloadableApp
-from .routers import agent_ui, commands, core, human, interop, proxy
+from .routers import agent_ui, ard, commands, core, human, interop, proxy
 
 logger = logging.getLogger(__name__)
 
@@ -506,6 +506,9 @@ def build_agent_app(
         app.include_router(core.router)
         app.include_router(agent_ui.router)
         app.include_router(interop.router)
+        # ARD registry surface (ECO-4.95): /.well-known/ai-catalog.json + /search.
+        # Mounted before the optional SPA "/" mount so the well-known path resolves.
+        app.include_router(ard.router)
         app.include_router(human.router)
         app.include_router(commands.router)
         # CONCEPT:ORCH-1.34 — BYOK provider-normalizing proxy (/api/proxy/{provider}/stream).

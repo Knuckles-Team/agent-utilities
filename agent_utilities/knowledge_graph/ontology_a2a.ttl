@@ -10,6 +10,11 @@
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
+:ardMediaType a owl:DatatypeProperty ;
+    rdfs:label "ARD media type" ;
+    rdfs:comment "The ARD media type of a published/ingested resource (e.g. application/ai-skill, application/mcp-server+json)." ;
+    rdfs:range rdfs:Literal .
+
 :delegatesTo a owl:ObjectProperty ;
     rdfs:label "delegates to" ;
     rdfs:comment "Links an A2AAgentCard to another A2AAgentCard it may delegate work to." ;
@@ -21,6 +26,23 @@
     rdfs:comment "Links an A2AAgentCard to a Skill it advertises." ;
     rdfs:domain :A2AAgentCard ;
     rdfs:range :Skill .
+
+:federatesWith a owl:ObjectProperty,
+        owl:SymmetricProperty ;
+    rdfs:label "federates with" ;
+    rdfs:comment "Symmetric peer relationship between two ARD ResourceRegistries that surface each other's resources via federated search." ;
+    rdfs:domain :ResourceRegistry ;
+    rdfs:range :ResourceRegistry .
+
+:publisherDomain a owl:DatatypeProperty ;
+    rdfs:label "publisher domain" ;
+    rdfs:comment "The domain-anchored ARD publisher identity a resource's signature is checked against." ;
+    rdfs:range rdfs:Literal .
+
+:registeredIn a owl:ObjectProperty ;
+    rdfs:label "registered in" ;
+    rdfs:comment "Links a discoverable resource (MCPServer/A2AAgentCard/Skill) to the ResourceRegistry it was discovered in." ;
+    rdfs:range :ResourceRegistry .
 
 <http://knuckles.team/kg/a2a> a owl:Ontology ;
     rdfs:label "A2A Agent-Card Ontology" ;
@@ -44,5 +66,13 @@
     a standard A2A AgentCard (name, description, endpoint URL, version, provider,
     capabilities, and exposed skills).
     BFO:GenericallyDependentContinuant — a published interface descriptor.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ResourceRegistry a owl:Class ;
+    rdfs:label "Resource Registry" ;
+    rdfs:comment """An external Agentic Resource Discovery (ARD) registry exposing an
+    ai-catalog of discoverable resources (MCP servers, skills, agents) at a well-known
+    URL plus a POST /search API. BFO:GenericallyDependentContinuant.
+    CONCEPT:KG-2.188""" ;
     rdfs:subClassOf bfo:0000031 .
 
