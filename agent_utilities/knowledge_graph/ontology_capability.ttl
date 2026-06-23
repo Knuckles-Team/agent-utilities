@@ -159,6 +159,19 @@
     rdfs:comment "Service health checks, uptime tracking, and availability alerting." ;
     rdfs:subClassOf :ServiceCapability .
 
+:WarmForkFanoutCapability a owl:Class ;
+    rdfs:label "Warm-Fork Fan-out Capability" ;
+    rdfs:comment """Spawns isolated children from a copy-on-write memory snapshot of a
+warmed parent, so the cohort reuses imports/dependencies/JIT/model-weights already
+resident in the parent instead of cold-booting each child. Makes warm-start (vs
+cold-start) a first-class property of a sandbox execution backend; the per-node
+accelerator that complements queue-driven cross-node dispatch (ORCH-1.45). forkd
+(Firecracker microVM, x86_64+KVM, single-host) is the candidate provider; assessed in
+reports/forkd-comparative-analysis-2026-06-22.md.
+
+CONCEPT:ORCH-1.83 — warm-fork / CoW-snapshot fan-out substrate.""" ;
+    rdfs:subClassOf :SandboxExecutionCapability .
+
 :canServe a owl:ObjectProperty ;
     rdfs:label "can serve" ;
     rdfs:comment """Inferred property: a tool can serve a service when the service hasRequirement
@@ -245,6 +258,15 @@ CONCEPT:KG-2.7 — Capability Abstraction Layer""" ;
     rdfs:label "Plaintext Transport" ;
     rdfs:comment "An unencrypted transport capability (e.g. plain HTTP, raw TCP)." ;
     rdfs:subClassOf :TransportCapability .
+
+:SandboxExecutionCapability a owl:Class ;
+    rdfs:label "Sandbox Execution Capability" ;
+    rdfs:comment """Isolated execution of agent-generated code in a bounded backend
+(in-process subset VM, WASI, container, or microVM). The RLM sandbox tier provides this
+via capability-routed backends (local/monty/wasm/docker).
+
+CONCEPT:ORCH-1.38 — RLM sandbox tier. Related: OS-5.33 developer-workspace runtime.""" ;
+    rdfs:subClassOf :ServiceCapability .
 
 :VPNCapability a owl:Class ;
     rdfs:label "VPN Capability" ;
