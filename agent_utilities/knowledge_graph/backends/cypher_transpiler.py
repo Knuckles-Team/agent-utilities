@@ -302,10 +302,27 @@ def transpile(
         m_ret = _RETURN_CLAUSE.search(cypher_stripped)
         select_cols = []
         return_cols = []
+        is_count = False
         if m_ret:
             ret_raw = m_ret.group(1).strip()
             items = [item.strip() for item in ret_raw.split(",")]
             for item in items:
+                # ``RETURN count(r) AS c`` / ``count(*)`` — an aggregate over the matched
+                # edges, not a property projection. Emit ``count(*) AS <alias>`` (mirrors
+                # _build_traversal's count handling); without this branch the item matched
+                # nothing and the projection silently fell back to ``SELECT properties``,
+                # so ``rows[0]["c"]`` was a JSONB blob instead of the integer count.
+                m_count = re.search(
+                    r"count\s*\(\s*(?:\*|\w+)\s*\)\s*(?:AS\s+(\w+))?",
+                    item,
+                    re.IGNORECASE,
+                )
+                if m_count:
+                    cnt_alias = m_count.group(1) or "count"
+                    select_cols.append(f"count(*) AS {cnt_alias}")
+                    return_cols.append(cnt_alias)
+                    is_count = True
+                    continue
                 m_prop = re.search(
                     rf"{r_alias}\.(\w+)\s+(?:AS\s+)?(\w+)", item, re.IGNORECASE
                 )
@@ -341,7 +358,7 @@ def transpile(
         return TranspiledQuery(
             sql=sql,
             params=params_list,
-            query_type=QueryType.SELECT,
+            query_type=QueryType.COUNT if is_count else QueryType.SELECT,
             return_columns=return_cols,
         )
 
@@ -447,6 +464,14 @@ def transpile(
         # Determine return columns
         m_ret = _RETURN_CLAUSE.search(cypher_stripped)
         sel_cols = "*"
+        # ``projecting`` = the RETURN names specific properties (``RETURN n.x AS y, ...``)
+        # rather than the whole node (``RETURN n``). A projection must yield FLAT,
+        # alias-keyed rows; only a bare ``RETURN n`` is wrapped under the node alias by
+        # the backend (execute's ``{node_alias: {...}}``). Node properties are stored as
+        # top-level columns (the MERGE/INSERT auto-DDLs a column per property), so each
+        # item maps to ``"<prop>" AS "<alias>"`` — carrying the RETURN alias (previously
+        # dropped, which collapsed every projection into ``{'n': {...}}``).
+        projecting = False
         if m_ret:
             ret_raw = m_ret.group(1).strip()
             # Remove ORDER BY / LIMIT from return
@@ -455,10 +480,19 @@ def transpile(
             if ret_raw == alias:
                 sel_cols = "*"
             elif f"{alias}." in ret_raw:
-                # Extract specific columns
-                col_matches = re.findall(rf"{alias}\.(\w+)", ret_raw)
-                if col_matches:
-                    sel_cols = ", ".join(f'"{c}"' for c in col_matches)
+                cols_sql = []
+                for item in [it.strip() for it in ret_raw.split(",")]:
+                    m_item = re.search(
+                        rf"{alias}\.`?(\w+)`?(?:\s+AS\s+(\w+))?", item, re.IGNORECASE
+                    )
+                    if not m_item:
+                        continue
+                    col = m_item.group(1)
+                    out_alias = m_item.group(2) or col
+                    cols_sql.append(f'"{col}" AS "{out_alias}"')
+                if cols_sql:
+                    sel_cols = ", ".join(cols_sql)
+                    projecting = True
 
         if label:
             sql = f'SELECT {sel_cols} FROM "{label}"'
@@ -504,7 +538,9 @@ def transpile(
             params=where_vals,
             query_type=QueryType.SELECT,
             target_table=label,
-            node_alias=alias,
+            # Only wrap a bare ``RETURN n`` under the node alias; a property projection
+            # returns flat alias-keyed rows (node_alias=None).
+            node_alias=None if projecting else alias,
         )
 
     # Fallback: unknown pattern
