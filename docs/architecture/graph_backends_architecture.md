@@ -73,6 +73,41 @@ graph TB
     EG -->|"SPARQL via OWL/RDF layer (local, any data)"| SPARQL["W3C SPARQL endpoint\n(core/owl_bridge · pyjena_fuseki)"]
 ```
 
+## Durability — the engine is redb-authoritative BY DEFAULT (CONCEPT:KG-2.195)
+
+**The engine is a durable source of truth out of the box — not a rebuildable
+cache.** As of "THE FLIP" (CONCEPT:KG-2.195), a stock `epistemic-graph-server`
+built with the standard `--features full` includes the **`redb`** store, so its
+persist backend (`EPISTEMIC_GRAPH_PERSIST_BACKEND`) defaults to `redb` and runs in
+**authoritative mode** whenever a persist dir (`GRAPH_SERVICE_PERSIST_DIR`) is
+configured. An acked write survives a `kill -9`. The three guarantees that make
+"authoritative" safe (engine-side, CONCEPT:KG-2.187/KG-2.191):
+
+- **Commit-before-ack** — a durable mutation is fsync-committed to redb *before*
+  its response is acked, so an acked write is always on disk.
+- **Read-through-safe eviction** — the per-graph node cap stays enforced (memory
+  bounded) but a node is dropped from RAM only after redb confirms it on disk;
+  evicted nodes are served back from redb on a RAM miss. No data loss.
+- **Backpressure, not drop** — the redb writer blocks for capacity rather than
+  shedding a write.
+
+> **One-time migration on first authoritative boot.** When the engine first boots
+> authoritative and finds legacy snapshot (`.mp`) / WAL files but an empty redb
+> store, it runs a **one-time, idempotent, crash-safe `.mp`→redb migration**
+> (read-old → write-new) before it binds its socket; the old files are left in
+> place as a backstop. On a large KG (thousands of graphs / a multi-hundred-MB
+> commons) this can take **minutes** — see the engine's
+> [binary-promotion runbook](https://github.com/knuckles-team/epistemic-graph/blob/main/docs/deploy/binary-promotion.md)
+> for the deploy-time health-start-period handling.
+
+To opt back into the pre-flip **rebuildable-cache** model — the engine as a fast
+in-memory cache over an external durable system-of-record (a `fanout` mirror) —
+set `EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot` on the engine; the local `.mp`
+snapshot + WAL then exist only for fast warm restart. (A build without the `redb`
+feature is non-authoritative and boots clean with no warning.) This is an
+**engine-side** setting (`epistemic-graph-server` env), independent of the
+agent-utilities-side `GRAPH_BACKEND` mirror selection below.
+
 ## Engine authority vs. mirror comparison
 
 The first column is **the engine** — the one authority that serves reads and acks
@@ -89,7 +124,7 @@ stores that receive the replicated write stream for interop/BI/external-query/DR
 | SPARQL (via OWL/RDF layer) | ✅ local | ✅ local | ✅ local | ✅ local | ✅ local |
 | Graph Traversal (multi-hop) | ✅ native compute¹ | ✅ | ✅ (AGE) | ✅ | ✅ |
 | Connection Pooling | UDS client | File Lock | ✅ psycopg_pool | ✅ | — |
-| Persistence | **durable (built-in)** | File | Server | Server | Redis |
+| Persistence | **durable (built-in, redb-authoritative)** | File | Server | Server | Redis |
 | Zero Config | ✅ | ✅ | — | — | — |
 
 ¹ The engine is the authority and serves multi-hop traversal natively from its
@@ -199,6 +234,16 @@ requires pgvector; BM25 requires pg_search.
 | `GRAPH_FUSEKI_DATASET` | `agent_kg` | Fuseki dataset name |
 | `GRAPH_FUSEKI_USER` / `GRAPH_FUSEKI_PASSWORD` | — | Optional Fuseki credentials |
 | `KG_CONNECTIONS` | — | JSON list of named connections for the multi-connection registry (CONCEPT:KG-2.63). See below. |
+
+These are the **agent-utilities-side** (mirror-selection) variables. Engine
+durability is configured on the **`epistemic-graph-server`** process itself
+(CONCEPT:KG-2.195) and is independent of `GRAPH_BACKEND`:
+
+| Variable (engine-side) | Default | Description |
+|---|---|---|
+| `GRAPH_SERVICE_PERSIST_DIR` | unset | Engine persist dir. Set ⇒ the engine is a durable source of truth; absent ⇒ in-memory only |
+| `EPISTEMIC_GRAPH_PERSIST_BACKEND` | `redb` | `redb` = durable authoritative store (default — THE FLIP); `snapshot` = opt-in rebuildable-cache (`.mp` + WAL) |
+| `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` | (auto) | Defaults ON when the redb backend is active; rarely set by hand |
 
 ## Multiple Connections at Once (CONCEPT:KG-2.63)
 

@@ -35,9 +35,10 @@ write-delta** out of the box. It's **on by default** (`KG_WRITE_DELTA=1`).
 ## 0. Prerequisites
 
 A backend that persists `content_hash` and answers the prefetch — i.e. any real
-backend. The default `tiered` works everywhere; `neo4j` / `falkordb` / `age`
-(pggraph) / `fanout` all work. (Pure SPARQL mirrors like Stardog are *publish*
-targets, not the primary delta store.)
+backend. The default `epistemic_graph` (the engine alone) works everywhere;
+`fanout` (engine + mirrors), `neo4j` / `falkordb` / `age` (pggraph) all work too.
+(Pure SPARQL mirrors like Stardog are *publish* targets, not the primary delta
+store.)
 
 ---
 

@@ -47,7 +47,7 @@ and toggle the integrations you want.
 
 ```jsonc
 {
-  "graph_backend": "tiered",
+  "graph_backend": "fanout",
 
   // The shared/remote engine authority — every gateway/connector/worker points
   // at the SAME engine (one endpoint, or N shards). This is the system of record.

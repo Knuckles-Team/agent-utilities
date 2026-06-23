@@ -174,7 +174,7 @@ subprocess via `command`. Typical homelab setup: `graph-os` local stdio
     // local stdio child (always-on KG)
     "graph-os": {
       "command": "/path/.venv/bin/graph-os",
-      "env": { "GRAPH_BACKEND": "tiered" }
+      "env": { "GRAPH_BACKEND": "fanout" }
     },
     // remote streamable-http child via Caddy
     "github-mcp": {
