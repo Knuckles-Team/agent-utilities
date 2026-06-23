@@ -101,14 +101,16 @@ def test_create_cohort_fans_out_and_tags():
         if t["meta"].get("cohort_id") == cid
         and t["meta"]["type"] != SYNTHESIZE_TASK_TYPE
     ]
+    # papers → research_paper_fetch (Article nodes, KG-2.194); repos → codebase
     assert sorted(t["meta"]["type"] for t in members) == [
         "codebase",
-        "content_url",
-        "content_url",
+        "research_paper_fetch",
+        "research_paper_fetch",
     ]
-    # papers ride the real URL on source_url (content_url Path()-mangles target)
-    paper = next(t for t in members if t["meta"]["type"] == "content_url")
-    assert paper["source_url"].startswith("https://arxiv.org")
+    # each paper task carries a paper dict with the parsed arxiv id + url
+    paper = next(t for t in members if t["meta"]["type"] == "research_paper_fetch")
+    p = paper["meta"]["paper"]
+    assert p["id"] == "2606.18381" and p["url"].startswith("https://arxiv.org")
     # exactly one barrier gate, tagged but not a member
     assert eng.tasks[f"{cid}:synth"]["meta"]["type"] == SYNTHESIZE_TASK_TYPE
 
@@ -142,23 +144,38 @@ def test_empty_cohort_is_trivially_ready():
     assert ready and st["total"] == 0
 
 
-def test_finalize_runs_assimilate_and_marks_synthesized(monkeypatch):
+def test_cohort_source_ids_from_task_provenance():
+    """Provenance (KG-2.192): the cohort's source node ids are recovered from member
+    tasks' recorded article_id — failures (no article_id) contribute nothing."""
+    from agent_utilities.knowledge_graph.research.cohort import cohort_source_ids
+
     eng = _FakeEngine()
-    cid = create_cohort(eng, papers=["u1"], repos=[])["cohort_id"]
-    eng.set_status(f"{cid}:p0", "completed")
+    cid = create_cohort(eng, papers=["2606.1", "2606.2"], repos=[])["cohort_id"]
+    eng.tasks[f"{cid}:p0"]["status"] = "completed"
+    eng.tasks[f"{cid}:p0"]["meta"]["article_id"] = "article:scholarx:arxiv-2606.1"
+    eng.tasks[f"{cid}:p1"]["status"] = "failed"  # no article_id recorded
+    assert cohort_source_ids(eng, cid) == {"article:scholarx:arxiv-2606.1"}
+
+
+def test_finalize_is_scoped_and_marks_synthesized(monkeypatch):
+    eng = _FakeEngine()
+    cid = create_cohort(eng, papers=["2606.18381"], repos=[])["cohort_id"]
+    # simulate the research_paper_fetch handler: completed + recorded article_id
+    eng.tasks[f"{cid}:p0"]["status"] = "completed"
+    eng.tasks[f"{cid}:p0"]["meta"]["article_id"] = "article:arxiv-2606.18381"
 
     captured: dict = {}
 
-    def fake_pass(engine, *, force=False, **_kw):
-        captured["force"] = force
+    def fake_pass(engine, *, force=False, restrict_to=None, matrix_node_id="", **_kw):
+        captured.update(force=force, restrict_to=restrict_to, node=matrix_node_id)
         return {
-            "auto_satisfied": 3,
-            "related": 2,
-            "open_gaps": 5,
-            "synergy_bundles": 1,
+            "auto_satisfied": 1,
+            "related": 1,
+            "open_gaps": 1,
+            "synergy_bundles": 0,
             "feature_matrix": {
-                "node_id": "feature_matrix:latest",
-                "counts": {"total": 7, "novel": 5, "bundles": 1},
+                "node_id": matrix_node_id,
+                "counts": {"total": 1, "novel": 1},
             },
         }
 
@@ -167,13 +184,15 @@ def test_finalize_runs_assimilate_and_marks_synthesized(monkeypatch):
         fake_pass,
     )
 
-    res = finalize_cohort(eng, cid)
+    finalize_cohort(eng, cid)
+    # SCOPED to the cohort's article id (provenance → restrict_to), and a cohort-OWN
+    # matrix node (never clobbers the ecosystem feature_matrix:latest)
+    assert captured["restrict_to"] == {"article:arxiv-2606.18381"}
+    assert captured["node"] == f"feature_matrix:{cid}"
     assert captured["force"] is True
-    assert res["feature_matrix"]["counts"]["total"] == 7
     assert eng._nodes[cid]["status"] == "synthesized"
 
-    # the unified status surface reads it back (members + matrix counts)
     cs = cohort_status(eng, cid)
     assert cs["status"] == "synthesized"
-    assert cs["feature_matrix"]["total"] == 7
+    assert cs["feature_matrix"]["total"] == 1
     assert cs["members"]["completed"] == 1

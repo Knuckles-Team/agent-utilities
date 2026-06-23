@@ -27,6 +27,7 @@ Concept: research-cohort
 
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import UTC, datetime
@@ -53,6 +54,24 @@ def _decode(meta: Any) -> dict[str, Any]:
     return _decode_metadata(meta) or {}
 
 
+def _arxiv_id(ref: str) -> str:
+    """Bare arXiv id from a URL / ``arxiv:ID`` / bare id (else the ref unchanged)."""
+    s = str(ref).strip().rstrip("/")
+    m = re.search(r"(\d{4}\.\d{4,5})(v\d+)?$", s)
+    return m.group(1) if m else s
+
+
+def _paper_pdf_path(pid: str) -> str:
+    """Path to a pre-downloaded paper PDF in the research store, if it exists."""
+    try:
+        from ...core import paths
+
+        p = paths.research_dir() / "papers" / f"{pid}.pdf"
+        return str(p) if p.exists() else ""
+    except Exception:  # noqa: BLE001 — best-effort; empty → handler downloads
+        return ""
+
+
 def create_cohort(
     engine: Any,
     *,
@@ -63,9 +82,12 @@ def create_cohort(
 ) -> dict[str, Any]:
     """Fan a batch of papers + repos out as cohort-tagged tasks + a synthesize gate.
 
-    ``papers`` are arXiv/URL strings (ingested via the ``content_url`` lane);
-    ``repos`` are local paths / git URLs already on disk (the ``codebase`` lane).
-    Returns the ``cohort_id`` and the submitted job ids.
+    ``papers`` are arXiv ids / URLs ingested via the ``research_paper_fetch`` lane —
+    so each becomes an **Article** node (the matrix feature type), full-text from a
+    pre-downloaded PDF when present (CONCEPT:KG-2.194), and its ``article_id`` is
+    recorded on the task as durable cohort provenance (CONCEPT:KG-2.192). ``repos``
+    are local paths / git URLs ingested via the ``codebase`` lane. Returns the
+    ``cohort_id`` and the submitted job ids.
     """
     papers = [p for p in (papers or []) if p]
     repos = [r for r in (repos or []) if r]
@@ -89,17 +111,27 @@ def create_cohort(
     )
 
     members: list[str] = []
-    for i, url in enumerate(papers):
-        # skip_dedupe so the cohort member is its own tagged task even if the URL is
-        # already queued elsewhere; the write-layer content-hash delta still skips
-        # redundant graph writes downstream.
+    for i, ref in enumerate(papers):
+        pid = _arxiv_id(ref)
+        url = ref if str(ref).startswith("http") else f"https://arxiv.org/abs/{pid}"
+        # research_paper_fetch → an Article node via the research pipeline, using the
+        # pre-downloaded PDF for full text when present; the handler records the
+        # resulting article_id on the task (cohort provenance, KG-2.192).
         members.append(
             engine.submit_task(
-                url,
+                pid,
                 False,
-                {"source_url": url},
-                task_type="content_url",
-                extra_meta={"cohort_id": cohort_id},
+                {},
+                task_type="research_paper_fetch",
+                extra_meta={
+                    "cohort_id": cohort_id,
+                    "paper": {
+                        "id": pid,
+                        "url": url,
+                        "pdf_path": _paper_pdf_path(pid),
+                        "score": 1.0,
+                    },
+                },
                 job_id=f"{cohort_id}:p{i}",
                 skip_dedupe=True,
             )
@@ -188,6 +220,34 @@ def cohort_member_status(engine: Any, cohort_id: str) -> dict[str, int]:
     return counts
 
 
+def cohort_source_ids(engine: Any, cohort_id: str) -> set[str]:
+    """Graph node ids this cohort's members produced (CONCEPT:KG-2.192 provenance).
+
+    Each member task records the node it created (``research_paper_fetch`` stamps
+    ``article_id``), so the cohort's source set is recovered from durable task
+    provenance WITHOUT scanning the graph — this is exactly what scopes the matrix
+    to the cohort (CONCEPT:KG-2.193) instead of the whole 15k-feature graph.
+    """
+    ids: set[str] = set()
+    try:
+        rows = engine._control_cypher(
+            "MATCH (t:Task) RETURN t.status as s, t.metadata as meta"
+        )
+    except Exception:  # noqa: BLE001 — provenance read is best-effort
+        return ids
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        meta = _decode(row.get("meta"))
+        if meta.get("cohort_id") != cohort_id:
+            continue
+        for key in ("article_id", "node_id", "source_id"):
+            val = meta.get(key)
+            if val:
+                ids.add(str(val))
+    return ids
+
+
 def cohort_ready(
     engine: Any, cohort_id: str, *, deadline_unix: float = 0.0
 ) -> tuple[bool, dict[str, int]]:
@@ -214,11 +274,23 @@ def _read_cohort_node(engine: Any, cohort_id: str) -> dict[str, Any]:
 
 
 def finalize_cohort(engine: Any, cohort_id: str) -> dict[str, Any]:
-    """Run the assimilation pass over the cohort's ingested graph + materialize the
-    feature matrix, then mark the cohort ``synthesized``."""
+    """Run the assimilation pass SCOPED to the cohort's sources + materialize its
+    feature matrix, then mark the cohort ``synthesized``.
+
+    Scoping (CONCEPT:KG-2.193) makes this O(cohort) not O(graph): only the cohort's
+    Article ids (recovered from task provenance, KG-2.192) are matched/ranked, and
+    the matrix is materialized to the cohort's own node ``feature_matrix:<cohort>``
+    so it never clobbers the ecosystem-wide matrix.
+    """
     from .loop_controller import run_assimilation_pass
 
-    rep = run_assimilation_pass(engine, force=True)
+    restrict = cohort_source_ids(engine, cohort_id)
+    rep = run_assimilation_pass(
+        engine,
+        force=True,
+        restrict_to=restrict,
+        matrix_node_id=f"feature_matrix:{cohort_id}",
+    )
     matrix = rep.get("feature_matrix") or {}
     st = cohort_member_status(engine, cohort_id)
     try:

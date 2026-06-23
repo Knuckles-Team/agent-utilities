@@ -85,21 +85,25 @@ def build_feature_matrix(
     feature_types: tuple[str, ...] = _FEATURE_TYPES,
     concept_types: tuple[str, ...] = _CONCEPT_TYPES,
     generated_at: str = "",
+    restrict_to: set[str] | None = None,
 ) -> FeatureMatrix:
     """Assemble the comparative matrix from the post-assimilation graph.
 
-    Reads the coverage edges (``SATISFIED_BY``/``RELATES_TO``) in one bulk pass,
-    overlays leverage (:func:`rank_features`) and synergy membership
-    (:func:`synergy_bundles`, ``write=False`` — the edges were already written by
-    the assimilate pass, so we only READ here), and emits one row per feature.
+    Reads the coverage edges (``SATISFIED_BY``/``RELATES_TO``), overlays leverage
+    (:func:`rank_features`) and synergy membership (:func:`synergy_bundles`,
+    ``write=False`` — the edges were already written by the assimilate pass, so we
+    only READ here), and emits one row per feature.
+
+    ``restrict_to`` scopes the WHOLE build to a feature set (e.g. one research
+    cohort's sources, CONCEPT:KG-2.193): collection is per-id, coverage is read
+    per-id, and leverage/synergy are scoped — so a per-cohort matrix is O(cohort),
+    not the O(graph) whole-graph pull that doesn't scale to 10× corpora.
     """
-    features = _collect_rich(engine, feature_types)
+    features = _collect_rich(engine, feature_types, restrict_to=restrict_to)
     # Concept types are read by rank/synergy via the graph; kept in the signature
     # so callers can scope the registry the matrix is graded against.
     _ = concept_types
 
-    # Coverage edges: bulk traversal on a live backend, per-node fallback on test
-    # doubles / graphs with no bulk edge view (mirrors gap_analysis).
     covered: dict[str, tuple[str, float]] = {}
     related: dict[str, tuple[str, float]] = {}
     graph = getattr(engine, "graph", None)
@@ -116,11 +120,18 @@ def build_feature_matrix(
         elif rel == "RELATES_TO" and src not in related:
             related[src] = (str(dst), nov)
 
-    edges = iter_all_edges(graph) if graph is not None else None
+    # Coverage edges. SCOPED: read per-id out-edges over just the cohort's features
+    # (no whole-graph edge pull). Unscoped: bulk traversal, per-node fallback on
+    # test doubles / graphs with no bulk edge view (mirrors gap_analysis).
+    edges = (
+        None
+        if restrict_to is not None
+        else (iter_all_edges(graph) if graph is not None else None)
+    )
     if edges is not None:  # bulk path — one traversal
         for src, dst, props in edges:
             _record(src, dst, props)
-    elif graph is not None:  # per-node fallback (no bulk edge view)
+    elif graph is not None:  # per-node (scoped, or no bulk edge view)
         for fid in features:
             try:
                 for _s, dst, props in graph.out_edges(fid, data=True):
@@ -130,10 +141,16 @@ def build_feature_matrix(
 
     leverage = {
         r.feature_id: r.score
-        for r in rank_features(engine, feature_types=feature_types)
+        for r in rank_features(
+            engine,
+            feature_ids=(list(restrict_to) if restrict_to is not None else None),
+            feature_types=feature_types,
+        )
     }
 
-    syn = synergy_bundles(engine, feature_types=feature_types, write=False)
+    syn = synergy_bundles(
+        engine, feature_types=feature_types, write=False, restrict_to=restrict_to
+    )
     partners: dict[str, list[str]] = {}
     bundle_pillars: dict[str, list[str]] = {}
     for bundle in syn.bundles:
