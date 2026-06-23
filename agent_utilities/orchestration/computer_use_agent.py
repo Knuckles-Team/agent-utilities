@@ -16,6 +16,8 @@ running — provision it with ``cm_container_operations action=run image=...gui-
 
 from __future__ import annotations
 
+import asyncio
+import uuid
 from typing import Any
 
 from pydantic_ai import Agent
@@ -97,3 +99,62 @@ async def run_computer_use_task(
         run_deps.workspace = ws
         result = await agent.run(task, deps=run_deps)
     return str(result.output)
+
+
+DEFAULT_GUI_SANDBOX_IMAGE = "registry.arpa/homelab/gui-sandbox:latest"
+
+
+async def provision_and_run_computer_use(
+    task: str,
+    *,
+    host: str | None = None,
+    image: str = DEFAULT_GUI_SANDBOX_IMAGE,
+    manager_type: str | None = None,
+    engine: Any | None = None,
+    model: Any | None = None,
+    keep: bool = False,
+) -> str:
+    """One-shot: provision a gui-sandbox container on ``host``, run the computer-use
+    agent on ``task`` against it, then tear it down (unless ``keep``).
+
+    Reuses container-manager to start/remove the container over the ssh:// docker/podman
+    socket — so the sandbox can land on ANY inventory host. Returns the agent output.
+    The container-manager package is imported lazily (the [computer-use] extra).
+    """
+    try:
+        from container_manager_mcp.container_manager import create_manager
+    except ImportError as exc:  # pragma: no cover - optional dep
+        raise RuntimeError(
+            "computer-use requires the [computer-use] extra (container-manager-mcp)"
+        ) from exc
+
+    manager = create_manager(manager_type, host=host)
+    name = f"cu-sandbox-{uuid.uuid4().hex[:8]}"
+    info = await asyncio.to_thread(
+        manager.run_container,
+        image,
+        name,
+        None,
+        True,  # detach=True
+    )
+    container_id = info.get("id") or info.get("name") or name
+    try:
+        return await run_computer_use_task(
+            task,
+            container_id,
+            host=host,
+            manager_type=manager_type,
+            session_id=name,
+            engine=engine,
+            model=model,
+        )
+    finally:
+        if not keep:
+            try:
+                await asyncio.to_thread(
+                    manager.remove_container,
+                    container_id,
+                    True,  # force
+                )
+            except Exception:  # noqa: BLE001 - best-effort teardown
+                pass
