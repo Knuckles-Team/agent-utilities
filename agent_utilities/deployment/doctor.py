@@ -548,6 +548,64 @@ def _check_skills() -> dict[str, Any]:
     )
 
 
+def _check_warm_fork() -> dict[str, Any]:
+    """Report which warm-fork sandbox rungs are available on this host (CONCEPT:OS-5.59).
+
+    The forkserver rung (os.fork, zero infra) should be up on any Unix host incl. ARM; wasm
+    needs wasmtime + a payload; docker needs a daemon; firecracker needs KVM + forkd. Also
+    reports how many warm parents are currently pooled.
+    """
+    rungs: dict[str, dict[str, Any]] = {}
+    try:
+        from agent_utilities.rlm.sandboxes.registry import default_sandboxes
+
+        for b in default_sandboxes():
+            caps = b.capabilities
+            try:
+                available = bool(b.is_available())
+            except Exception:  # noqa: BLE001 - a probe must never crash the doctor
+                available = False
+            rungs[b.name] = {
+                "available": available,
+                "isolated": caps.isolated,
+                "warm_fork": caps.warm_fork,
+                "rank": caps.preference_rank,
+            }
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "warm_fork", "error", f"could not enumerate sandbox rungs: {exc}"
+        )
+
+    try:
+        from agent_utilities.runtime.warm_registry import WarmParentRegistry
+
+        pool = WarmParentRegistry.get().stats()
+    except Exception:  # noqa: BLE001
+        pool = {}
+
+    warm_rungs = sorted(
+        n for n, r in rungs.items() if r["warm_fork"] and r["available"]
+    )
+    data = {"rungs": rungs, "warm_rungs": warm_rungs, "pool": pool}
+    if warm_rungs:
+        return _result(
+            "warm_fork",
+            "ok",
+            f"native warm-fork available via: {', '.join(warm_rungs)}",
+            data=data,
+        )
+    return _result(
+        "warm_fork",
+        "warn",
+        "no warm-fork rung available — sandboxes will cold-start every run",
+        remediation=(
+            "forkserver needs a Unix host (os.fork); install the 'sandbox' extra for wasm "
+            "(wasmtime), or run a docker/podman daemon, to enable a warm-fork tier."
+        ),
+        data=data,
+    )
+
+
 # Registry: name -> callable. Order is the report order.
 CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
@@ -564,6 +622,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "observability": _check_observability,
     "bus": _check_bus,
     "skills": _check_skills,
+    "warm_fork": _check_warm_fork,
 }
 
 

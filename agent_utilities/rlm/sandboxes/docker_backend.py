@@ -26,98 +26,19 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
-import json
 import logging
 import os
 import shutil
-import struct
 import subprocess
 import tempfile
 import uuid
-from collections.abc import Mapping
 from pathlib import Path
 
 from ..telemetry import SandboxFatalError
+from . import _bridge
 from .base import Sandbox, SandboxCapabilities, SandboxEnv, SandboxResult
 
 logger = logging.getLogger(__name__)
-
-# JSON is the bridge + context wire format; only JSON-able namespace values cross into the
-# container (live refs can't be serialized — that's what the helper bridge is for).
-_JSONABLE = (str, int, float, bool, type(None), list, dict)
-
-# The fixed in-container runner. Reads /data/context.json + /data/usercode.py, wires helper
-# shims to the UDS bridge, execs the user code in an async wrapper, writes /data/result.json.
-_RUNNER_SCRIPT = r"""
-import asyncio, io, json, socket, struct, sys, traceback
-
-SOCK = "/data/bridge.sock"
-
-def _recvn(s, n):
-    buf = b""
-    while len(buf) < n:
-        chunk = s.recv(n - len(buf))
-        if not chunk:
-            raise ConnectionError("bridge closed")
-        buf += chunk
-    return buf
-
-def _bridge_call(name, args, kwargs):
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.connect(SOCK)
-    try:
-        payload = json.dumps({"helper": name, "args": list(args), "kwargs": kwargs}).encode()
-        s.sendall(struct.pack(">I", len(payload)) + payload)
-        n = struct.unpack(">I", _recvn(s, 4))[0]
-        resp = json.loads(_recvn(s, n))
-    finally:
-        s.close()
-    if not resp.get("ok"):
-        raise RuntimeError(resp.get("error", "bridge error"))
-    return resp["result"]
-
-def _make_shim(name, is_async):
-    if is_async:
-        async def shim(*a, **k):
-            return _bridge_call(name, a, k)
-    else:
-        def shim(*a, **k):
-            return _bridge_call(name, a, k)
-    return shim
-
-def main():
-    ctx = json.load(open("/data/context.json"))
-    code = open("/data/usercode.py").read()
-
-    ns = {"__builtins__": __builtins__}
-    ns.update(ctx.get("vars", {}))
-    for name in ctx.get("async_helpers", []):
-        ns[name] = _make_shim(name, True)
-    for name in ctx.get("sync_helpers", []):
-        ns[name] = _make_shim(name, False)
-
-    wrapped = "async def __main__():\n"
-    for line in code.splitlines():
-        wrapped += "    " + line + "\n"
-    wrapped += "    return None\n"
-
-    buf = io.StringIO()
-    old = sys.stdout
-    sys.stdout = buf
-    error = None
-    try:
-        exec(wrapped, ns)
-        asyncio.run(ns["__main__"]())
-    except Exception as e:
-        traceback.print_exc(file=buf)
-        error = str(e)
-    finally:
-        sys.stdout = old
-    json.dump({"stdout": buf.getvalue(), "error": error}, open("/data/result.json", "w"))
-
-main()
-"""
 
 
 class DockerSandbox(Sandbox):
@@ -186,8 +107,15 @@ class DockerSandbox(Sandbox):
         sock_path = tmpdir / "bridge.sock"
         server: asyncio.AbstractServer | None = None
         try:
-            self._write_inputs(tmpdir, code, env)
-            server = await self._start_bridge(sock_path, env)
+            _bridge.write_inputs(
+                tmpdir,
+                code,
+                vars_payload=env.vars,
+                tool_sources=env.tool_sources,
+                helpers=env.helpers,
+                runner_data_dir="/data",
+            )
+            server = await _bridge.start_bridge(sock_path, env.helpers)
             # The container process may run under a different uid (rootless/userns-remapped
             # docker), so it needs traverse on the dir AND connect (write) on the socket file.
             os.chmod(tmpdir, 0o777)  # nosec B103 — throwaway sandbox dir; container uid differs
@@ -216,71 +144,6 @@ class DockerSandbox(Sandbox):
                 with contextlib.suppress(Exception):
                     await server.wait_closed()
             shutil.rmtree(tmpdir, ignore_errors=True)
-
-    # ── inputs ───────────────────────────────────────────────────────────────
-    def _write_inputs(self, tmpdir: Path, code: str, env: SandboxEnv) -> None:
-        async_helpers, sync_helpers = self._classify_helpers(env.helpers)
-        vars_payload = {k: v for k, v in env.vars.items() if isinstance(v, _JSONABLE)}
-        ctx = {
-            "vars": vars_payload,
-            "async_helpers": async_helpers,
-            "sync_helpers": sync_helpers,
-        }
-        (tmpdir / "context.json").write_text(json.dumps(ctx, default=str))
-        usercode = "\n".join([*env.tool_sources.values(), code])
-        (tmpdir / "usercode.py").write_text(usercode)
-        (tmpdir / "runner.py").write_text(_RUNNER_SCRIPT)
-
-    @staticmethod
-    def _classify_helpers(
-        helpers: Mapping[str, object],
-    ) -> tuple[list[str], list[str]]:
-        """Split helpers into (async, sync) so the in-container shims match the call sites.
-
-        A helper the RLM glue ``await``s (``rlm_query`` etc.) must be an async shim; ``FINAL_VAR``
-        and other plain calls must be sync. We detect coroutine functions on the host — bound
-        ``async def`` methods report correctly.
-        """
-        async_names, sync_names = [], []
-        for name, fn in helpers.items():
-            if inspect.iscoroutinefunction(fn):
-                async_names.append(name)
-            else:
-                sync_names.append(name)
-        return async_names, sync_names
-
-    # ── bridge ───────────────────────────────────────────────────────────────
-    async def _start_bridge(
-        self, sock_path: Path, env: SandboxEnv
-    ) -> asyncio.AbstractServer:
-        """UDS server dispatching one framed JSON request to the matching host helper."""
-
-        async def handle(
-            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-        ) -> None:
-            try:
-                n = struct.unpack(">I", await reader.readexactly(4))[0]
-                req = json.loads(await reader.readexactly(n))
-                fn = env.helpers.get(req["helper"])
-                if fn is None:
-                    resp = {"ok": False, "error": f"unknown helper {req['helper']!r}"}
-                else:
-                    result = fn(*req.get("args", []), **req.get("kwargs", {}))
-                    if inspect.isawaitable(result):
-                        result = await result
-                    resp = {"ok": True, "result": result}
-            except Exception as e:  # noqa: BLE001 - report bridge/helper errors to the container
-                resp = {"ok": False, "error": str(e)}
-            try:
-                data = json.dumps(resp, default=str).encode()
-                writer.write(struct.pack(">I", len(data)) + data)
-                await writer.drain()
-            finally:
-                writer.close()
-                with contextlib.suppress(Exception):
-                    await writer.wait_closed()
-
-        return await asyncio.start_unix_server(handle, path=str(sock_path))
 
     # ── container ──────────────────────────────────────────────────────────────
     async def _run_container(
@@ -329,13 +192,9 @@ class DockerSandbox(Sandbox):
         else:
             container_log = (raw or b"").decode(errors="replace")
 
-        result_path = tmpdir / "result.json"
-        if result_path.exists():
-            try:
-                data = json.loads(result_path.read_text())
-                return data.get("stdout", ""), data.get("error"), True
-            except Exception as e:  # noqa: BLE001 - corrupt result == failed run
-                logger.warning("docker result.json unreadable: %s", e)
+        stdout, error, wrote = _bridge.read_result(tmpdir)
+        if wrote:
+            return stdout, error, True
         return container_log, None, False
 
     @staticmethod

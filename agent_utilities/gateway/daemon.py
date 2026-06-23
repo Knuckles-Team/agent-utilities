@@ -113,6 +113,15 @@ def stop_host_daemon() -> None:
         except Exception as e:  # noqa: BLE001
             logger.debug("engine checkpoint on shutdown skipped: %s", e)
     try:
+        # CONCEPT:OS-5.58 — tear down any warm-fork parents this host was pooling.
+        from agent_utilities.runtime.warm_registry import WarmParentRegistry
+
+        reaped = WarmParentRegistry.drain_active()
+        if reaped:
+            logger.info("Drained %d warm-fork parent(s) on shutdown.", len(reaped))
+    except Exception as e:  # noqa: BLE001
+        logger.debug("warm-parent drain on shutdown skipped: %s", e)
+    try:
         from agent_utilities.knowledge_graph.core.host_lock import release_host_lock
 
         release_host_lock()

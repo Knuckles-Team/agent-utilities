@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 447
+total_concepts: 454
 total_pillars: 21
 pillars:
 - AHE-3
@@ -4370,6 +4370,45 @@ concepts:
   - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: a low-value/high-volume
+- id: ORCH-1.83
+  name: WarmForkFanoutCapability
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/sandboxes/base.py
+  - agent_utilities/runtime/warm_registry.py
+  doc: WarmForkFanoutCapability
+- id: ORCH-1.86
+  name: Shared host-helper bridge for isolated sandbox backends
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/sandboxes/_bridge.py
+  - agent_utilities/rlm/sandboxes/base.py
+  doc: Shared host-helper bridge for isolated sandbox backends
+- id: ORCH-1.87
+  name: native warm-fork via os.fork; isolated, host callbacks
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/sandboxes/forkserver_backend.py
+  - agent_utilities/rlm/sandboxes/registry.py
+  doc: native warm-fork via os.fork; isolated, host callbacks
+- id: ORCH-1.88
+  name: ORCH-1.88
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/sandboxes/wasm_backend.py
+  doc: ORCH-1.88
+- id: ORCH-1.89
+  name: container_fork sandbox
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/sandboxes/container_fork_backend.py
+  - agent_utilities/rlm/sandboxes/registry.py
+  doc: container_fork sandbox
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
@@ -4878,6 +4917,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   - agent_utilities/mcp/tools/analysis_tools.py
   - agent_utilities/mcp/tools/state_tools.py
+  - agent_utilities/runtime/warm_registry.py
   - agent_utilities/server/routers/commands.py
   doc: Unified scheduling engine, one intelligent scheduler for all recurring work
 - id: OS-5.45
@@ -4957,6 +4997,23 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: returns per-lane/stage latency percentiles + token/cost + the parallelism factor
+- id: OS-5.58
+  name: Host-singleton warm-parent pool for the warm-fork sandbox family
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/gateway/daemon.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/rlm/sandboxes/base.py
+  - agent_utilities/runtime/warm_registry.py
+  doc: Host-singleton warm-parent pool for the warm-fork sandbox family
+- id: OS-5.59
+  name: OS-5.59
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  doc: OS-5.59
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

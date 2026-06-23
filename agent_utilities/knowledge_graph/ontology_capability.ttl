@@ -177,6 +177,33 @@ reports/forkd-comparative-analysis-2026-06-22.md.
 CONCEPT:ORCH-1.83 — warm-fork / CoW-snapshot fan-out substrate.""" ;
     rdfs:subClassOf :SandboxExecutionCapability .
 
+:WarmSnapshot a owl:Class ;
+    rdfs:label "Warm Snapshot" ;
+    rdfs:comment """A content-addressed warmed parent (imports/deps/JIT/weights resident) that a
+WarmForkFanoutCapability forks children from. Snapshots stack into diff-chains via
+:derivedFrom (base -> +numpy -> +pandas), so the warm-parent registry can answer "is there an
+existing snapshot that is a superset of what I need?" as a graph query rather than re-warming —
+the native, KG-modelled replacement for forkd's flat snapshot hub index.
+
+CONCEPT:ORCH-1.86 — warm-fork lifecycle protocol + snapshot chain.""" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :producedByCapability ;
+            owl:someValuesFrom :WarmForkFanoutCapability ] .
+
+:derivedFrom a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:label "derived from" ;
+    rdfs:comment """Diff-snapshot-chain edge: a WarmSnapshot derived from a base WarmSnapshot
+(adds a layer on top of the base's resident state). Transitive, so a chain head's full ancestry
+is inferable; the registry walks it to find a reusable superset parent (CONCEPT:ORCH-1.86).""" ;
+    rdfs:domain :WarmSnapshot ;
+    rdfs:range :WarmSnapshot .
+
+:producedByCapability a owl:ObjectProperty ;
+    rdfs:label "produced by capability" ;
+    rdfs:comment "Links a WarmSnapshot to the WarmForkFanoutCapability rung that warmed it." ;
+    rdfs:domain :WarmSnapshot ;
+    rdfs:range :WarmForkFanoutCapability .
+
 :canServe a owl:ObjectProperty ;
     rdfs:label "can serve" ;
     rdfs:comment """Inferred property: a tool can serve a service when the service hasRequirement
