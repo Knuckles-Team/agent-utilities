@@ -70,7 +70,72 @@ _PG_POOL_MAX = 10
 # graph-os MCP child would try to open the same mirror file and contend on the lock.
 _SINGLE_WRITER_BACKENDS = frozenset({"ladybug", "kuzu"})
 
+# Supported backend-type tokens (a mirror target that is not a kg_connections name
+# is treated as a bare backend type — anything outside this set is an operator
+# misconfiguration, not a transient driver miss). Mirrors the dispatch in
+# ``create_backend`` / the "Unknown graph backend type" error message.
+_KNOWN_BACKEND_TYPES = frozenset(
+    {
+        "epistemic_graph",
+        "fanout",
+        "memory",
+        "file",
+        "postgresql",
+        "age",
+        "jena_fuseki",
+        "stardog",
+        "ladybug",
+        "falkordb",
+        "neo4j",
+    }
+)
+
 _ACTIVE_BACKEND: Any = None
+
+
+def _parse_mirror_targets(raw: Any) -> list[str]:
+    """Parse ``GRAPH_MIRROR_TARGETS`` into a clean list of mirror names.
+
+    CONCEPT:KG-2.203 — tolerant of every shape this value arrives in:
+
+    * already a list (``config.json`` native, ``["a","b"]``) — used as-is;
+    * a JSON-array *string* (``config.json`` injects list settings into the env
+      as a JSON string: ``'["prod-neo4j","team-falkor"]'`` or ``"['a','b']"``);
+    * a comma-separated string (``"prod-neo4j, team-falkor"``, trailing commas ok);
+    * a single bare value (``"prod-neo4j"``).
+
+    The previous fanout reader did a naive ``split(",")`` on the raw string, so a
+    JSON array became fragments like ``'["prod-neo4j"'`` / ``'"team-falkor"]'`` —
+    each then misread as a backend type ("Unknown graph backend type"). We try
+    ``json.loads`` first (a list result wins); otherwise we comma-split and strip
+    stray whitespace / quotes / brackets per item. Empties are filtered out.
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple)):
+        return [str(t).strip() for t in raw if str(t).strip()]
+    s = str(raw).strip()
+    if not s:
+        return []
+    # JSON first: handles the env-injected '["a","b"]' shape losslessly.
+    try:
+        import json as _json
+
+        parsed = _json.loads(s)
+    except Exception:
+        parsed = None
+    if isinstance(parsed, list):
+        return [str(t).strip() for t in parsed if str(t).strip()]
+    if isinstance(parsed, str) and parsed.strip():
+        return [parsed.strip()]
+    # Fall back to comma-split, defensively stripping any leftover JSON
+    # punctuation (brackets / quotes) from each fragment.
+    return [
+        item
+        for raw_item in s.split(",")
+        if (item := raw_item.strip().strip("[]").strip().strip("'\"").strip())
+    ]
+
 
 # Sentinel parked in ``_ACTIVE_BACKEND`` while a composite backend (fanout) builds
 # its members, so a recursively-built member never claims the global active slot —
@@ -159,24 +224,11 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
     """
     from agent_utilities.core.config import config as _cfg
 
-    targets = setting("GRAPH_MIRROR_TARGETS") or _cfg.graph_mirror_targets or []
-    if isinstance(targets, str):
-        # config.json injects list values into the env as a JSON string; also
-        # accept a plain comma list. (A naive comma-split would mangle the JSON.)
-        s = targets.strip()
-        if s.startswith("["):
-            import json as _json
-
-            try:
-                parsed = _json.loads(s)
-                targets = parsed if isinstance(parsed, list) else []
-            except Exception:
-                targets = []
-        else:
-            targets = [t.strip() for t in s.split(",") if t.strip()]
+    targets = _parse_mirror_targets(
+        setting("GRAPH_MIRROR_TARGETS") or _cfg.graph_mirror_targets or []
+    )
     # CONCEPT:KG-2.89 — derive the mirror set from connections with role="mirror";
     # the explicit GRAPH_MIRROR_TARGETS above stays an optional override/addition.
-    targets = list(targets) if isinstance(targets, list) else list(targets or [])
     role_mirrors = [
         str(s.get("name") or "").strip()
         for s in (_cfg.kg_connections or [])
@@ -462,15 +514,30 @@ def create_backend(
             )
             return None
 
-        target_names = (
+        # CONCEPT:KG-2.203 — tolerant parse: accepts a JSON-array string
+        # ('["prod-neo4j","team-falkor"]', the shape config.json injects into the
+        # env), a comma list, or a single value. The old naive comma-split turned
+        # a JSON array into fragments ('["prod-neo4j"' / '"team-falkor"]') that were
+        # each misread as a backend type, so every mirror was silently dropped.
+        target_names = _parse_mirror_targets(
             setting("GRAPH_MIRROR_TARGETS") or _cfg.graph_mirror_targets or []
         )
-        if isinstance(target_names, str):
-            target_names = [t.strip() for t in target_names.split(",") if t.strip()]
         mirrors: dict[str, GraphBackend] = {}
         for name in target_names:
             if name == authority_name:
                 continue  # never mirror the authority onto itself
+            # Distinguish a genuine misconfiguration (a value that is neither a
+            # known kg_connections name nor a supported backend type) from a
+            # transient driver/reachability miss — the former is an operator error
+            # worth a clear, specific warning.
+            if name not in conn_specs and name not in _KNOWN_BACKEND_TYPES:
+                logger.warning(
+                    "fanout: mirror target '%s' is not a known kg_connections name "
+                    "nor a supported backend type; skipping. Check "
+                    "GRAPH_MIRROR_TARGETS.",
+                    name,
+                )
+                continue
             member = _build_member(_spec_for(name))
             if member is None:
                 logger.warning(
