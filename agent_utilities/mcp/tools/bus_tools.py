@@ -13,9 +13,32 @@ from __future__ import annotations
 
 import json
 
+from fastmcp import Context
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+
+def _session_identity(ctx: Context | None) -> str:
+    """Derive a stable per-session id from the served FastMCP request (CONCEPT:ECO-4.92).
+
+    A session that calls ``graph_bus`` without passing ``agent_id`` can still be
+    auto-registered + presence-tracked: FastMCP injects a ``Context`` on served requests whose
+    ``session_id`` is stable for the life of the MCP connection (the ``client_id`` is the
+    fallback). Headless/in-process calls have no Context, so this returns "" and the caller
+    supplies the id explicitly — we never fabricate an identity. Prefixed so an auto-derived id
+    never collides with an operator-chosen ``agent_id``.
+    """
+    if ctx is None:
+        return ""
+    for attr in ("session_id", "client_id"):
+        try:
+            val = getattr(ctx, attr, None)
+        except Exception:  # noqa: BLE001 — Context attrs can raise off a live request
+            val = None
+        if val:
+            return f"session:{val}"
+    return ""
 
 
 def register_bus_tools(mcp):
@@ -35,7 +58,11 @@ def register_bus_tools(mcp):
             "objective to the fleet as a Loop, governed by bus.dispatch), 'leave' (agent_id), "
             "'status'. Mesh/federation (ECO-4.86): 'register_hub' (agent_id=name + url), "
             "'list_hubs', 'federate' (group [+scope] → forward a message group to peer hubs), "
-            "'federate_in' (apply a forwarded group). Durable + cross-host: state lives in the KG."
+            "'federate_in' (apply a forwarded group). Durable + cross-host: state lives in the KG. "
+            "Store-and-forward (ECO-4.91): a 'send' to a topic is also LEFT for peers who "
+            "subscribe later (replayed once via a per-(agent,topic) cursor; subscribe with "
+            "replay_recent=true to backfill a recent window). Auto-presence (ECO-4.92): merely "
+            "using any action keeps this session online + rosterable — no explicit 'register' needed."
         ),
         tags=["graph-os", "messaging", "bus", "a2a"],
     )
@@ -96,11 +123,38 @@ def register_bus_tools(mcp):
             default="commons",
             description="Marking scope for federation: commons|org|private (federate).",
         ),
+        replay_recent: bool = Field(
+            default=False,
+            description="Subscribe: backfill a bounded recent topic window for a late joiner.",
+        ),
+        ctx: Context | None = None,
     ) -> str:
         from agent_utilities.messaging.bus import AgentBus
 
         engine = kg_server._get_engine()
         bus = AgentBus.instance(engine)
+
+        # CONCEPT:ECO-4.92 — auto-register + presence: a session that has this tool appears
+        # online to peers without an explicit ``register`` call. Resolve the acting id (the
+        # explicit agent_id/sender, else the stable served-session identity) and TOUCH the bus
+        # so any action keeps the caller rosterable + bumps last_seen. ``touch`` auto-creates the
+        # :BusAgent on first reference and is idempotent + best-effort.
+        acting_id = agent_id or sender or _session_identity(ctx)
+        if acting_id:
+            bus.touch(acting_id)
+            # Back-fill a derived id so per-id actions below operate on the same participant.
+            if not agent_id and action in (
+                "receive",
+                "subscribe",
+                "unsubscribe",
+                "heartbeat",
+                "ack",
+                "leave",
+                "deregister",
+            ):
+                agent_id = acting_id
+            if not sender and action in ("send", "dispatch"):
+                sender = acting_id
 
         if action == "register":
             caps = [c.strip() for c in capabilities.split(",") if c.strip()]
@@ -143,7 +197,9 @@ def register_bus_tools(mcp):
         if action == "receive":
             return json.dumps(bus.receive(agent_id, since=since), default=str)
         if action == "subscribe":
-            return json.dumps({"ok": bus.subscribe(agent_id, topic)})
+            return json.dumps(
+                {"ok": bus.subscribe(agent_id, topic, replay_recent=replay_recent)}
+            )
         if action == "unsubscribe":
             return json.dumps({"ok": bus.unsubscribe(agent_id, topic)})
         if action == "ack":

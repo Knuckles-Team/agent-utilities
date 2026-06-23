@@ -212,7 +212,9 @@
     rdfs:label "BusMessage" ;
     rdfs:comment """CONCEPT:KG-2.141 — a durable agent-to-agent bus message delivered to one
     recipient Agent (the AgentBus mailbox record, ECO-4.84). A topic fan-out writes one
-    BusMessage per recipient sharing a msg_group, so a federation relay can dedup across hubs.""" .
+    BusMessage per recipient sharing a msg_group, so a federation relay can dedup across hubs.
+    Store-and-forward (CONCEPT:ECO-4.91) also writes a topic-log variant (recipient="",
+    kind="topic", expires_at) replayed to late subscribers via a BusTopicCursor.""" .
 
 :Topic a owl:Class ;
     rdfs:label "Topic" ;
@@ -228,6 +230,12 @@
     rdfs:label "BusSubscription" ;
     rdfs:comment """CONCEPT:KG-2.141 — a BusAgent's subscription to a Topic, modeled as a node
     (not an edge) so membership resolves in one hop on every backend (ECO-4.84).""" .
+
+:BusTopicCursor a owl:Class ;
+    rdfs:label "BusTopicCursor" ;
+    rdfs:comment """CONCEPT:ECO-4.91 — a per-(BusAgent, Topic) replay cursor for store-and-forward
+    topic messages: a dedicated node (never a property on the shared Topic, which the backend's
+    upsert would clobber) so each agent reads each stored topic message at most once.""" .
 
 :hasBusMessage a owl:ObjectProperty ;
     rdfs:label "hasBusMessage" ;
