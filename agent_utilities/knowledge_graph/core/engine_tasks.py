@@ -239,6 +239,8 @@ _ENRICH_INTERVAL = 20.0
 _FILE_WATCH_INTERVAL = 30.0
 _HYGIENE_INTERVAL = 86400.0
 _TASK_REAPER_INTERVAL = 120.0
+# Warm-fork parent + dev-workspace idle reap (CONCEPT:OS-5.58). Background; never preempts work.
+_WARM_PARENT_REAP_INTERVAL = 300.0
 _EMBED_BACKFILL_IDLE_INTERVAL = 30.0
 _EMBED_BACKFILL_BUSY_SLEEP = 1.0
 
@@ -930,6 +932,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         # Goals-as-contracts SLA watch (CONCEPT:ORCH-1.78): escalate breached goals.
         # Default-on; no-ops when no goals carry an sla_seconds.
         _maint("goal_sla", "goal_sla", 300.0)
+        # Warm-fork parent + dev-workspace idle reap (CONCEPT:OS-5.58). Default-on;
+        # no-ops when no warm parents / idle workspaces exist.
+        _maint("warm_parent_reap", "warm_parent_reap", _WARM_PARENT_REAP_INTERVAL)
 
         for spec in specs:
             try:
@@ -938,6 +943,33 @@ class TaskManagerMixin(GraphEngineProtocol):
                 logger.debug(
                     "register maintenance schedule %s failed: %s", spec.name, e
                 )
+
+    def _tick_warm_parent_reap(self) -> None:
+        """Reap idle warm-fork parents + idle dev-workspace containers (CONCEPT:OS-5.58).
+
+        Background maintenance: closes warm parents (forkserver processes, warmed containers,
+        microVMs) idle past the registry TTL, and adopts the previously-orphaned
+        ``DockerWorkspace.reap_idle`` (OS-5.33) so leaked dev-workspace containers are cleaned on
+        the same tick. No-ops cheaply when nothing is pooled.
+        """
+        try:
+            from agent_utilities.runtime.warm_registry import WarmParentRegistry
+
+            reaped = WarmParentRegistry.reap_active()
+            if reaped:
+                logger.info("Reaped %d idle warm-fork parent(s).", len(reaped))
+        except Exception as e:  # noqa: BLE001 — reap is best-effort
+            logger.debug("warm-parent reap skipped: %s", e)
+        try:
+            from agent_utilities.runtime.docker_workspace import DockerWorkspace
+
+            workspaces = DockerWorkspace.reap_idle()
+            if workspaces:
+                logger.info(
+                    "Reaped %d idle dev-workspace container(s).", len(workspaces)
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("dev-workspace reap skipped: %s", e)
 
     def _tick_goal_sla(self) -> None:
         """Evaluate open goals against their SLA + escalate breaches (ORCH-1.78)."""
