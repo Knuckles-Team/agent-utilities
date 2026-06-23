@@ -493,7 +493,12 @@ class LoopController:
         # the robust ConceptMatcher (id + embedding-recall + LLM-judge) decides
         # covered (SATISFIED_BY) vs related-novel (RELATES_TO) — replacing the old
         # single-cosine auto_satisfy that recognised 0/21. (CONCEPT:KG-2.75)
-        enrich_concepts(self.engine)
+        # WHOLE-GRAPH op (iterates every node to find vectorless concepts): skip it
+        # for a SCOPED (cohort) pass (CONCEPT:KG-2.193) — the registry is embedded
+        # ecosystem-wide once, and the matcher recalls from the engine HNSW; a cohort
+        # finalize must not re-scan the whole graph (which resets the socket at scale).
+        if restrict_to is None:
+            enrich_concepts(self.engine)
         gap = ConceptMatcher().satisfy(
             self.engine,
             feature_types=_FEATURE_TYPES,
