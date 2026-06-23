@@ -87,12 +87,18 @@ flowchart TB
   `:derivedFrom` (transitive), so warm-parent reuse ("is there a snapshot that is a superset of
   what I need?") is a graph query — the KG-native replacement for forkd's flat hub index.
 
-## Observability & visibility
+## Observability & control
 
 `agent-utilities-doctor`'s `warm_fork` check (OS-5.59) reports per-rung availability and the
 live pooled-parent count: `ok` when any warm rung is up (forkserver everywhere), `warn` + a fix
-hint otherwise. forkd's report (`reports/forkd-comparative-analysis-2026-06-22.md`) holds the
-comparative analysis that motivated this.
+hint otherwise. The **`graph_sandbox`** tool (CONCEPT:ORCH-1.93) exposes the same runtime on both
+operator surfaces (MCP `graph_sandbox` + REST `POST /graph/sandbox`, dispatching through the one
+`_execute_tool` core): `status` (per-rung availability + pooled-parent count + per-rung reward
+EMA), `reap` (close idle warm parents + idle dev-workspaces now), `warm` (pre-pay a named rung's
+start-up so the next fan-out forks cheaply). Code execution itself stays inside the governed RLM
+loop — the surface is lifecycle + visibility only. forkd's report
+(`reports/forkd-comparative-analysis-2026-06-22.md`) holds the comparative analysis that
+motivated this.
 
 ## Adaptive tier selection (ORCH-1.91)
 
@@ -120,6 +126,7 @@ honest, safe win is warm-sharing the reusable construction artifacts, not `os.fo
 
 Landed: the protocol + registry + bridge + reaper tick + ontology (Phase 0); the `forkserver`,
 `wasm`-Wizer, and `container_fork` rungs (Phases 1–3); the doctor check; reward-EMA adaptive
-routing (Phase 5); dispatch-tier warm-share of the SkillsToolset (Phase 6). Remaining (tracked in
-the plan): the `firecracker` rung behind a one-host KVM spike (Phase 4, parked); and the
-`graph_sandbox` MCP+REST operator surface (Phase 7).
+routing (Phase 5); dispatch-tier warm-share of the SkillsToolset (Phase 6); the `graph_sandbox`
+MCP+REST operator surface (Phase 7). Remaining: the `firecracker` rung behind a one-host KVM
+spike (Phase 4, parked) — a forkd-backed peer rung driving `forkd-controller`, ranked 25, gated
+by `forkd doctor`; `branch` (mid-execution snapshot) lands with it as the microVM-only verb.
