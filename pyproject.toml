@@ -14,41 +14,28 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3"]
 requires-python = ">=3.11,<3.15"
+# LEAN BASE (the serving/connector floor). Only light, portable, pure-Python (or
+# small-native) libs that the bare-import / config / gateway path actually touches.
+# Everything heavy — the engine client, the agent runtime (pydantic-ai/dspy), code
+# parsing (tree-sitter, now delegated to the engine), llama-index, kafka, monty, acp,
+# rss, ladybug — moved to optional extras so `pip install agent-utilities` (and any
+# connector's `[mcp]`) stays small. See "Dependency discipline" in AGENTS.md.
 dependencies = [
-    "tree-sitter>=0.25.2",
-    "requests>=2.34.2",
-    "urllib3>=2.7.0",
     "pydantic[email]>=2.13.4",
     "pydantic-settings>=2.14.1",
     "PyYAML>=6.0.3",
     "python-dotenv>=1.2.2",
-    "ladybug>=0.17.1",
-    "epistemic-graph>=0.31.0",
+    "requests>=2.34.2",
+    "urllib3>=2.7.0",
     "cryptography>=48.0.0,<49",
     "pathspec>=1.1.1",
     "platformdirs>=4.10.0",
     "packaging>=24.2,<26",
     "psutil>=7.2.2",
-    # CONCEPT:KG-2.121 — robust RSS/Atom/RDF parsing for the native `rss` feed
-    # connector (handles RSS 0.9x/1.0/2.0 + Atom + malformed feeds + date/enclosure
-    # normalization). Pure-Python, single small dep; imported lazily in the connector.
-    "feedparser>=6.0.0",
-    "tree-sitter-python>=0.25.0",
-    "tree-sitter-javascript>=0.25.0",
-    "tree-sitter-typescript>=0.23.2",
     "filelock>=3.29.4",
-    "dspy-ai>=3.2.1",
-    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.106.0,<2.0.0",
-    "confluent-kafka>=2.14.2",
-    "llama-index-core>=0.14.22",
-    "llama-index-llms-openai>=0.7.9",
-    "llama-index-embeddings-openai>=0.6.0",
-    "pydantic-acp>=0.9.6",
+    # Tiny pure-Python safe-XML parser used on the hydration path; kept in base so the
+    # XML path is never unguarded.
     "defusedxml>=0.7.1",
-    # CONCEPT:ORCH-1.38 — monty is the default fast/isolated RLM sandbox tier. Small pure-Rust
-    # wheel, no transitive deps; the backend import is guarded so absence degrades to the local
-    # floor. Experimental 0.0.x: pinned below 0.1 to avoid surprise API breaks.
-    "pydantic-monty>=0.0.18,<0.1.0",
 ]
 
 [[project.authors]]
@@ -59,10 +46,24 @@ email = "knucklessg1@gmail.com"
 text = "MIT"
 
 [project.optional-dependencies]
-# CONCEPT:ORCH-1.38 — heavier sandbox tiers. monty (core dep) needs nothing here; the
-# CPython-WASI/wasm tier needs wasmtime, kept optional so the base install stays light.
+# CONCEPT:ORCH-1.38 — RLM sandbox tiers. `monty` is the default fast/isolated tier
+# (small pure-Rust wheel, no transitive deps; backend import guarded so absence degrades
+# to the local floor); the CPython-WASI/wasm tier needs `wasmtime`. Both kept here so the
+# base install stays light — the RLM router degrades to the local floor when neither is present.
 sandbox = [
-    "wasmtime>=45.0.0"
+    "wasmtime>=45.0.0",
+    "pydantic-monty>=0.0.18,<0.1.0"
+]
+# The Rust epistemic-graph compute engine client (KG compute, code AST parsing via the
+# engine's native tree-sitter, vector/graph algorithms). Pulled by `serving` and `agent`,
+# NOT by `mcp` — a pure tool server never needs the engine.
+engine = [
+    "epistemic-graph>=0.33.0"
+]
+# CONCEPT:KG-2.121 — native RSS/Atom feed connector (robust feed parsing). Pulled by
+# `serving` (ingestion) and lazily imported by the connector; absent from the lean core.
+feeds = [
+    "feedparser>=6.0.0"
 ]
 kafka = [
     "aiokafka>=0.14.0"
@@ -83,12 +84,13 @@ mcp = [
     "httpx>=0.28.1"
 ]
 agent = [
-    "agent-utilities[mcp,ag-ui,terminal]>=0.51.0",
+    "agent-utilities[mcp,engine,ag-ui,terminal,sandbox]>=0.51.0",
     "universal-skills>=0.45.0",
     "skill-graphs>=0.38.0",
     "pydantic-ai-skills>=0.11.0",
     "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.106.0,<2.0.0",
-    "pydantic-graph>=1.106.0"
+    "pydantic-graph>=1.106.0",
+    "dspy-ai>=3.2.1"
 ]
 # Server-side agent runtime WITHOUT the frontend component libraries. `agent`
 # pulls `ag-ui` (agent-webui) + `terminal` (agent-terminal-ui), which a serving
@@ -98,12 +100,13 @@ agent = [
 # agent actually needs at serve time, minus those two frontend libs. Used by
 # `[serving]`. See AGENTS.md "Dependency discipline".
 agent-headless = [
-    "agent-utilities[mcp]>=0.51.0",
+    "agent-utilities[mcp,engine,sandbox]>=0.51.0",
     "universal-skills>=0.45.0",
     "skill-graphs>=0.38.0",
     "pydantic-ai-skills>=0.11.0",
     "pydantic-ai-slim[fastmcp,openai,a2a,web,cli]>=1.106.0,<2.0.0",
-    "pydantic-graph>=1.106.0"
+    "pydantic-graph>=1.106.0",
+    "dspy-ai>=3.2.1"
 ]
 agent-google = [
     "pydantic-ai-slim[google]>=1.106.0,<2.0.0"
@@ -148,7 +151,10 @@ embeddings = [
     "llama-index-core>=0.14.22"]
 embeddings-openai = [
     "agent-utilities[embeddings]>=0.51.0",
-    "llama-index-embeddings-openai>=0.6.0"]
+    "llama-index-embeddings-openai>=0.6.0",
+    # OpenAI LLM bindings (previously provided unconditionally via base); the embeddings
+    # plane that talks to OpenAI needs it.
+    "llama-index-llms-openai>=0.7.9"]
 embeddings-huggingface = [
     "agent-utilities[embeddings]>=0.51.0",
     "llama-index-embeddings-huggingface>=0.7.0"]
@@ -209,7 +215,16 @@ serving = [
     #     `agent-headless` extra (same skill/runtime stack, no frontends).
     #   - documents: pymupdf (~62 MB) is the host daemon's PDF ingestion reader
     #     (engine_tasks._pdf_file_extractor); the MCP query/serving surface never parses PDFs.
-    "agent-utilities[mcp,graph,embeddings,neo4j,falkordb,owl,auth,metrics,agent-headless]",
+    #
+    #   - graph (ladybug): a contrib MIRROR backend only (primary store is engine + postgres);
+    #     it is opt-in via `[graph]`, never shipped on the serving default. neo4j/falkordb stay
+    #     because they remain actively-selectable mirrors; ladybug does not.
+    #
+    # `engine` (epistemic-graph) + `feeds` (feedparser) moved OUT of base, so the serving
+    # plane re-acquires them here: the host daemon needs the engine client (KG compute +
+    # code AST parsing) and the rss connector (feed ingestion). Code parsing is delegated to
+    # the engine's native tree-sitter — no Python tree-sitter on the serving plane.
+    "agent-utilities[mcp,engine,feeds,embeddings,neo4j,falkordb,owl,auth,metrics,agent-headless]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
@@ -272,7 +287,9 @@ test = [
     "opentelemetry-instrumentation-starlette",
     "opentelemetry-instrumentation-fastapi",
     "opentelemetry-instrumentation-asgi",
-    "agent-utilities[agent,graph,acp,owl,finance,event-kafka]"
+    # `agent` already implies mcp+engine+sandbox+dspy; add `feeds` (rss ingestion tests)
+    # and the explicit backend extras the suite exercises.
+    "agent-utilities[agent,engine,feeds,sandbox,graph,acp,owl,finance,event-kafka]"
 ]
 # CONCEPT:KG-2.0 / KG-2.7 — live cross-backend parity + enterprise-profile e2e.
 # Pulls every storage/queue/SPARQL driver plus testcontainers so
@@ -282,7 +299,7 @@ test-backends = [
     "testcontainers>=4.14.2"
 ]
 all = [
-    "agent-utilities[mcp,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,ann,browser,test,owl,stardog,vault,auth,finance,messaging]>=0.51.0"]
+    "agent-utilities[mcp,engine,feeds,agent,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,acp,documents,graph,ann,sandbox,browser,test,owl,stardog,vault,auth,finance,messaging]>=0.51.0"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:mcp_server"
