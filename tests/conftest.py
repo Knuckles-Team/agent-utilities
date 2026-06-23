@@ -8,10 +8,10 @@ os.environ.setdefault("LOGFIRE_SEND_TO_LOGFIRE", "false")
 os.environ.setdefault("ENABLE_GRAPH_INTEGRATION", "false")
 os.environ.setdefault("AGENT_UTILITIES_TESTING", "true")
 os.environ.setdefault("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "False")
-# The out-of-box default backend is "tiered" (epistemic_graph + LadybugDB).
+# The out-of-box default backend is "epistemic_graph" (the durable engine).
 # Pin the unit suite to the pure-ephemeral in-memory backend so tests never
 # touch disk / take a file lock. Integration tests that exercise
-# tiered/ladybug/postgres override this via their own env or by passing an
+# fanout/ladybug/postgres override this via their own env or by passing an
 # explicit ``backend_type=`` to ``create_backend()``.
 os.environ.setdefault("GRAPH_BACKEND", "memory")
 import shutil
@@ -44,6 +44,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.backends import set_active_backend
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
 
 @pytest.fixture(autouse=True)
 def _isolate_os_environ():

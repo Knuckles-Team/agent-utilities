@@ -14,9 +14,9 @@ guided version is the **`agent-utilities-deployment`** skill (alias `self-setup`
 
 | Profile | For | Externals |
 |---|---|---|
-| **tiny** | laptop / Claude self-setup / edge | none — in-process L1 + LadybugDB L2 |
-| **single-node-prod** | one durable host | Postgres/pg-age, optional OpenBao/Langfuse |
-| **enterprise** | multi-node fleet | swarm, Postgres, Kafka, Keycloak, observability |
+| **tiny** | laptop / Claude self-setup / edge | none — the embedded epistemic-graph engine is the whole database |
+| **single-node-prod** | one durable host | optional Postgres/pg-age mirror, optional OpenBao/Langfuse |
+| **enterprise** | multi-node fleet | swarm, Postgres/Neo4j mirrors, Kafka, Keycloak, observability |
 
 These are the rungs of [deployment-configurations.md](deployment-configurations.md);
 the per-flag detail lives in [configuration.md](../architecture/configuration.md).
@@ -56,8 +56,9 @@ Use the `secret-vault-manager` skill to unseal/seed. On a laptop, a plain `.env`
 
 Run the [databases recipe](../recipes/databases.md) / `database-environment-setup`
 skill: Stardog (prod) or local `/api/sparql` (dev) + a Postgres with AGE + pgvector +
-pg_search, durable backend wiring, and graph backfill into AGE. The **tiny** profile
-skips this — its LadybugDB L2 is built in.
+pg_search, mirror fan-out wiring (`GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS`),
+and graph backfill into the AGE mirror. The **tiny** profile skips this entirely —
+the embedded epistemic-graph engine is the whole database, no mirror needed.
 
 ## 5. Launch
 

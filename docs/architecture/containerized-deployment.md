@@ -19,7 +19,7 @@ plane, and submit work onto one durable queue:
 
 | Service | Process | Role | Served surface |
 |---|---|---|---|
-| **epistemic-graph engine** | Rust `epistemic-graph` | L0/L1 data store; serves a Unix Domain Socket (UDS), optionally TCP | engine socket / `tcp://…:9090` (no HTTP) |
+| **epistemic-graph engine** | Rust `epistemic-graph` | the ONE database — authority/system of record (compute + cache + semantic + durable persistence); serves a Unix Domain Socket (UDS), optionally TCP | engine socket / `tcp://…:9090` (no HTTP) |
 | **graph-os-host** | `agent_utilities.gateway.daemon` (`KG_DAEMON_ROLE=host`) | the single KG host daemon — maintenance scheduler, task/ingest workers, embed-backfill, write-fanout to mirrors, owns the host-lock | none (no port) |
 | **graph-os** | `agent_utilities.mcp.kg_server` (`KG_DAEMON_ROLE=client`) | the graph-os **MCP surface** over streamable-http, JWT-authenticated | `graph-os.arpa` |
 | **mcp-multiplexer** | `agent_utilities.mcp.multiplexer` | fronts the **whole fleet** (dynamic `find_tools`/`load_tools`); JWT auth + Eunomia zero-trust policy | `mcp-multiplexer.arpa` |
@@ -150,7 +150,7 @@ environment:
   - PORT=8000
   - PYTHONPATH=/au                  # editable: import agent_utilities from the mount
   - KG_DAEMON_ROLE=client           # serves MCP; the host daemon is the sibling
-  - GRAPH_BACKEND=tiered
+  - GRAPH_BACKEND=fanout            # engine authority + mirrors (was the removed `tiered`)
   - AGENT_UTILITIES_CONFIG_DIR=/root/.config/agent-utilities
   - MCP_AUTH_TYPE=${MCP_AUTH_TYPE:-jwt}   # jwt validates the Keycloak bearer at ingress
   - AUTH_JWT_JWKS_URI=http://keycloak.arpa/realms/master/protocol/openid-connect/certs
@@ -160,7 +160,7 @@ volumes:
   - /home/apps/workspace/agent-packages/agent-utilities:/au:ro
   - /tmp/epistemic-graph.sock:/tmp/epistemic-graph.sock
   - /home/genius/.config/agent-utilities:/root/.config/agent-utilities:ro
-  - agent_utilities_data:/root/.local/share/agent-utilities   # snapshots / L1 cache
+  - agent_utilities_data:/root/.local/share/agent-utilities   # engine snapshots / cache
 command:
   - sh
   - -c
@@ -255,7 +255,7 @@ apps/<service>` or `openbao-mcp`; the per-service `OPENBAO_TOKEN` carries the
 | Secret | Used by | Purpose |
 |---|---|---|
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_AUDIENCE` / `OIDC_TOKEN_URL` (+ `MCP_CLIENT_AUTH=oidc-client-credentials`) | multiplexer, messaging daemon, every spawned agent | Keycloak client-credentials bearer to reach the jwt-protected fleet |
-| `GRAPH_DB_URI` | host daemon, graph-os | L3 Postgres KG store |
+| `GRAPH_DB_URI` | host daemon, graph-os | Postgres KG **mirror** DSN |
 | `STATE_DB_URI` | host daemon, graph-os | durable checkpoints/sessions/**queue** Postgres |
 | provider keys (`LLM_API_KEY`, `ANTHROPIC_API_KEY`, …) | graph-os, messaging, connectors | model inference |
 | `TELEGRAM_BOT_TOKEN` (+ Slack/Mattermost/…) | messaging daemon | enable each chat backend |

@@ -4,13 +4,13 @@ The Knowledge Graph is the cognitive substrate of the `agent-utilities` ecosyste
 
 ## Overview
 
-The UIG unifies **NetworkX** (for high-performance topological algorithms) and **LadybugDB/Neo4j/FalkorDB** (for persistent Cypher queries and hybrid vector search). It follows a 12-phase topological pipeline to ingest and analyze workspaces.
+The UIG is built on **one database — the epistemic-graph engine authority** (the Rust-native engine doing compute, in-memory cache, semantic/ontology, and durable persistence), with **NetworkX** retained as an ephemeral in-memory scratchpad for high-performance topological algorithms. Writes fan out to optional durable **mirrors** (Postgres/pg-age, Neo4j, FalkorDB, LadybugDB) for interop and DR. It follows a 12-phase topological pipeline to ingest and analyze workspaces.
 
 ## Core Components
 
 - **Graph Engine (`engine.py`)**: The central coordinator for graph operations, linking, and querying.
 - **Pipeline (`pipeline/`)**: A 12-phase ingestion pipeline that transforms raw code and metadata into a rich intelligence graph.
-- **Backends (`backends/`)**: Hot-swappable persistence layers supporting LadybugDB (default), Neo4j, and FalkorDB.
+- **Backends (`backends/`)**: The epistemic-graph engine authority plus hot-swappable durable mirrors (Postgres/pg-age, Neo4j, FalkorDB, LadybugDB) that receive the engine's fan-out write stream.
 - **Knowledge Base (`kb/`)**: An LLM-maintained personal wiki system for domain-specific research and documentation.
 - **Maintenance (`maintenance.py`)**: Autonomous routines for vector enrichment, pruning, and summarization.
 - **Codemaps (`codemaps.py`)**: Structural codebase analysis and impact prediction.
@@ -35,6 +35,6 @@ async def search_kg(ctx: RunContext[AgentDeps], query: str):
 
 ## Maintenance
 
-- **Persistence**: Ensure `GRAPH_BACKEND` is configured correctly (defaults to `ladybug`).
+- **Persistence**: Ensure `GRAPH_BACKEND` is configured correctly (defaults to `epistemic_graph` — the engine authority; durable by itself).
 - **Pruning**: The `GraphMaintainer` runs periodically to remove low-importance nodes (PageRank < 0.05).
 - **Schema**: All nodes and edges follow the Pydantic schemas defined in `agent_utilities/models/knowledge_graph.py`.

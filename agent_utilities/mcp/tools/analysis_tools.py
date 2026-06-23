@@ -2547,22 +2547,17 @@ def register_analysis_tools(mcp):
                 )
 
                 backend = get_active_backend()
-                # Locate the FanOutBackend. It is either the active backend
-                # (GRAPH_BACKEND=fanout) or — the common case — the durable L3 of a
-                # tiered backend (GRAPH_BACKEND=tiered + GRAPH_MIRROR_TARGETS), which
-                # tees pg-age writes to the mirrors. Also unwrap a BrainGuarded proxy
-                # (its inner backend is the ``inner`` property).
+                # Locate the FanOutBackend (the active backend when
+                # GRAPH_BACKEND=fanout: the engine authority teeing writes to its
+                # mirrors). Also unwrap a BrainGuarded proxy (inner backend is the
+                # ``inner`` property).
                 cand = getattr(backend, "inner", backend)
-                fan = None
-                if isinstance(cand, FanOutBackend):
-                    fan = cand
-                elif isinstance(getattr(cand, "l3", None), FanOutBackend):
-                    fan = cand.l3
+                fan = cand if isinstance(cand, FanOutBackend) else None
                 if fan is None:
                     return json.dumps(
                         {
                             "error": "No fanout mirror active (set GRAPH_MIRROR_TARGETS "
-                            "with GRAPH_BACKEND=tiered or fanout).",
+                            "with GRAPH_BACKEND=fanout).",
                             "backend": type(backend).__name__,
                         }
                     )

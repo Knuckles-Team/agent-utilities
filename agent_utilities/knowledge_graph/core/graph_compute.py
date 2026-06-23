@@ -18,6 +18,83 @@ logger = logging.getLogger(__name__)
 # (replaces GRAPH_SERVICE_CHECKPOINT_INTERVAL).
 _CHECKPOINT_INTERVAL_S = 60
 
+# Linux prctl(2) option to deliver a signal to the calling thread when its
+# parent dies — used to lifecycle-couple an embedded engine to its spawner.
+_PR_SET_PDEATHSIG = 1
+
+# Children spawned in *coupled* mode (the embedded/tiny path) so the embedded
+# engine dies with this process. The parent-death signal (Linux) is the primary
+# guard; this registry backs an atexit + SIGTERM/SIGINT handler so the child is
+# reaped on a clean interpreter exit too. Detached daemons (graph-os-host /
+# enterprise shards) are NOT tracked here — they intentionally outlive us.
+_coupled_children: list[Any] = []
+_coupled_handlers_installed = False
+
+
+def _set_pdeathsig() -> None:
+    """preexec_fn: ask the kernel to SIGTERM this child when its parent dies.
+
+    Best-effort and Linux-only (``prctl`` via ``ctypes``). On any other platform
+    — or if libc/prctl is unavailable — this is a no-op and the atexit/signal
+    handler remains the coupling mechanism. Runs in the forked child between
+    fork and exec, so it must stay tiny and dependency-free.
+    """
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        import signal as _signal
+
+        libc.prctl(_PR_SET_PDEATHSIG, _signal.SIGTERM, 0, 0, 0)
+    except Exception:  # noqa: BLE001 — coupling is best-effort
+        pass
+
+
+def _terminate_coupled_children() -> None:
+    """Terminate every coupled embedded engine we spawned. Idempotent."""
+    while _coupled_children:
+        child = _coupled_children.pop()
+        try:
+            if child.poll() is None:
+                child.terminate()
+        except Exception:  # noqa: BLE001 — teardown must never raise
+            pass
+
+
+def _install_coupled_handlers() -> None:
+    """Register the atexit + SIGTERM/SIGINT teardown for coupled children once.
+
+    The parent-death signal handles the hard-kill case on Linux; this covers the
+    clean-exit and signalled-shutdown cases (and is the only mechanism on
+    non-Linux). Existing signal handlers are chained, not clobbered.
+    """
+    global _coupled_handlers_installed
+    if _coupled_handlers_installed:
+        return
+    import atexit
+    import signal
+
+    atexit.register(_terminate_coupled_children)
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            prev = signal.getsignal(_sig)
+
+            def _handler(signum: int, frame: Any, _prev: Any = prev) -> None:
+                _terminate_coupled_children()
+                if callable(_prev) and _prev not in (
+                    signal.SIG_IGN,
+                    signal.SIG_DFL,
+                ):
+                    _prev(signum, frame)
+
+            signal.signal(_sig, _handler)
+        except (ValueError, OSError, RuntimeError):
+            # Not on the main thread (e.g. inside a server worker) — the atexit
+            # hook still covers clean shutdown; skip the signal handler.
+            pass
+    _coupled_handlers_installed = True
+
 
 def _load_or_create_engine_secret() -> str:
     """Load (or generate once) the per-install engine HMAC secret.
@@ -78,6 +155,56 @@ def resolve_engine_auth(config: Any) -> tuple[str | None, bool]:
     if config.graph_service_auth_secret:
         return config.graph_service_auth_secret, False
     return _load_or_create_engine_secret(), False
+
+
+def ensure_local_engine() -> Any | None:
+    """Scan-or-spawn a coupled embedded engine for an embedded/tiny deployment.
+
+    CONCEPT:OS-5.61 — embedded auto-provision. For a server that has no remote
+    engine configured (the resolved endpoint is local per
+    :func:`shard_topology.is_local_endpoint`) this provisions the ONE engine
+    authority as a lifecycle-coupled child via the EXISTING scan-or-spawn
+    machinery — instantiating a :class:`GraphComputeEngine`, whose ``__init__``
+    runs the lock-guarded (``engine_lock.engine_spawn_guard``) scan-or-spawn and
+    spawns coupled by default. Host-reuse via ``host_lock``/``engine_lock`` means
+    co-located servers share the ONE engine; this adds no new locking.
+
+    Off unless the embedded path is enabled (``EPISTEMIC_GRAPH_AUTOSTART=1``) and
+    no-op when ``GRAPH_SERVICE_ENDPOINTS`` points at a remote (``tcp://``) shard.
+    Returns the engine handle (also used to key teardown) or ``None`` when it
+    did not provision anything. Best-effort: never raises.
+    """
+    from agent_utilities.core.config import AgentConfig
+
+    from .shard_topology import is_local_endpoint, resolve_endpoints
+
+    if setting("EPISTEMIC_GRAPH_AUTOSTART", "") != "1":
+        return None
+    try:
+        config = AgentConfig()
+        endpoints = resolve_endpoints(config)
+        # Embedded only: a single, local-by-construction endpoint. A remote shard
+        # (or multi-shard topology) is enterprise — never auto-provision a local
+        # stand-in for it (same fail-loud contract as the autostart guard).
+        if len(endpoints) != 1 or not is_local_endpoint(endpoints[0]):
+            return None
+        # Triggers the existing scan-or-spawn (coupled by default).
+        return GraphComputeEngine()
+    except Exception as exc:  # noqa: BLE001 — provisioning is best-effort
+        logger.warning(
+            "ensure_local_engine: could not provision embedded engine: %s", exc
+        )
+        return None
+
+
+def teardown_local_engine(_engine: Any | None = None) -> None:
+    """Tear down any coupled embedded engine this process spawned.
+
+    Pairs with :func:`ensure_local_engine` for server shutdown. The coupled
+    children are also reaped by the atexit/SIGTERM handler, so this is the
+    explicit early-teardown hook for a graceful server stop. Idempotent.
+    """
+    _terminate_coupled_children()
 
 
 class GraphComputeEngine:
@@ -307,6 +434,7 @@ class GraphComputeEngine:
         sys: Any,
         time: Any,
         Path: Any,
+        coupled: bool = True,
     ) -> Any:
         """Spawn the local epistemic-graph engine and return a connected client.
 
@@ -315,7 +443,19 @@ class GraphComputeEngine:
         connect confirmed the engine is still down — so this is the sole spawner
         for ``sock``. Mirrors the prior inline autostart: durable ``--persist-dir``
         + checkpoint, the same auth secret the client uses (CONCEPT:OS-5.14).
+
+        ``coupled`` (CONCEPT:OS-5.61 — embedded auto-provision) selects the child
+        lifecycle. This is the embedded/tiny path's default: the engine is the
+        ONE authority and is lifecycle-coupled to its spawner — it gets a
+        parent-death signal (Linux ``prctl``) plus an atexit/SIGTERM/SIGINT
+        teardown so the embedded engine dies with the process that needs it.
+        Pass ``coupled=False`` for an explicit long-lived daemon (graph-os-host /
+        enterprise shard) that must outlive the launcher: that detaches the child
+        into its own session as before. ``KG_ENGINE_DETACHED=1`` forces the
+        detached behaviour for the autostart path too.
         """
+        if setting("KG_ENGINE_DETACHED", "") == "1":
+            coupled = False
         from epistemic_graph.client import SyncEpistemicGraphClient
 
         logger.info(
@@ -354,13 +494,31 @@ class GraphComputeEngine:
             child_env.pop("GRAPH_SERVICE_AUTH_SECRET", None)
         else:
             child_env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret or ""
-        subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env=child_env,
-        )
+        if coupled:
+            # Embedded/tiny path: the engine's lifetime is tied to ours. Do NOT
+            # start a new session (that would detach it); instead arm the
+            # parent-death signal in the child and track it for atexit/SIGTERM
+            # teardown so the embedded engine never outlives its spawner.
+            child = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=False,
+                preexec_fn=_set_pdeathsig,
+                env=child_env,
+            )
+            _coupled_children.append(child)
+            _install_coupled_handlers()
+        else:
+            # Explicit long-lived daemon (graph-os-host / enterprise shard):
+            # detach into its own session so it survives this launcher.
+            subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                env=child_env,
+            )
         time.sleep(1.0)
         return SyncEpistemicGraphClient.connect(**connect_kwargs)
 
@@ -937,11 +1095,11 @@ class GraphComputeEngine:
             self.add_edge(src, tgt, props)
 
     def drop_graph(self) -> bool:
-        """Unload this engine's named graph from the running engine (free L1 memory).
+        """Unload this engine's named graph from the engine authority (free memory).
 
         The engine-side per-graph unload behind the KG-2.62 pool eviction hook:
         deletes the tenant's named graph from the engine process. **Lossy unless
-        the data is durably mirrored to L3** (tiered backend), so the pool only
+        the data is durably mirrored to a backend mirror**, so the pool only
         calls this when ``KG_ENGINE_POOL_DROP_ON_EVICT`` is set. Returns True on
         success. Never raises — eviction must not crash a request.
         """

@@ -26,51 +26,54 @@ Useful extras (compose with `agent-utilities[mcp,graph,postgresql]`):
 |-------|------|
 | `mcp` | FastMCP server stack (`graph-os`, `mcp-multiplexer`) |
 | `graph` | Graph compute / retrieval deps |
-| `postgresql` | `psycopg` driver for the PostgreSQL durable tier |
+| `postgresql` | `psycopg` driver for the optional Postgres/pg-age mirror |
 | `owl` / `stardog` | OWL ontology + SPARQL reasoning |
 | `auth` / `vault` | JWT/OIDC auth + OpenBao secrets |
 
-`ladybug` (the embedded default L2 store) is a **core dependency** — it is always
-installed, so the out-of-box experience needs no database server.
+The epistemic-graph engine is the one database and ships with the wheel, so the
+out-of-box experience needs no external database server. Mirror drivers
+(`postgresql`, `neo4j`, `falkordb`) are only required when you fan writes out to
+those mirrors.
 
 ---
 
 ## 2. The out-of-box default: a single self-contained binary
 
-When `GRAPH_BACKEND` is unset, agent-utilities uses the **`tiered`** backend:
+When `GRAPH_BACKEND` is unset, agent-utilities runs the **`epistemic_graph`**
+engine alone — the one database, the authority for all reads and writes:
 
 ```
-L1  epistemic_graph   (Rust-native, always included — fast in-process compute)
-L2  LadybugDB         (embedded, no server — durable persistence)
+epistemic-graph engine   (Rust-native, always included)
+  · authority / system of record (durable persistence)
+  · in-memory cache + native graph compute + semantic/ontology reasoning
 ```
 
 This runs entirely in one process with **no external system dependencies** (no
 Postgres, Neo4j, or FalkorDB server required). It is the recommended default for
-local development, edge/offline agents, demos, and small single-node deployments.
+local development, edge/offline agents, demos, single-node, and most production
+deployments.
 
 ```bash
 # Nothing to configure — just run:
 graph-os                     # or: python -m agent_utilities.mcp.kg_server
 ```
 
-The LadybugDB file lives at the XDG path
-`~/.local/share/agent-utilities/kg/knowledge_graph.db` (override with
-`GRAPH_DB_PATH`).
+The engine's durable store lives at the XDG path
+`~/.local/share/agent-utilities/kg/` (override with `GRAPH_DB_PATH`).
 
 ### Backend selection cheat-sheet
 
 | Goal | Env |
 |------|-----|
-| Zero-infra default (epistemic_graph + LadybugDB) | *(unset)* |
+| Default — the engine only (self-contained, zero-infra) | *(unset)* |
 | Pure ephemeral, in-memory (tests/CI) | `GRAPH_BACKEND=memory` |
-| Durable PostgreSQL L2 (production) | `GRAPH_BACKEND=tiered` + `GRAPH_DB_URI=postgresql://…` |
-| Force a specific tiered L2 | `GRAPH_BACKEND_L2=postgresql` *(or `ladybug`)* |
-| Single PostgreSQL backend (no L1 tier) | `GRAPH_BACKEND=postgresql` + `GRAPH_DB_URI=…` |
-| Opt-in contrib backend | `GRAPH_BACKEND=neo4j|falkordb|ladybug` |
+| Engine + mirrors for interop/BI/DR | `GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS=postgresql` + `GRAPH_DB_URI=postgresql://…` |
 
-> The tiered L2 **auto-switches to PostgreSQL** as soon as a DSN
-> (`GRAPH_DB_URI` / `PGGRAPH_DSN`) is configured, so your existing production
-> config keeps using Postgres unchanged — only the *default* is zero-infra.
+> The engine is always the authority and always serves every read. A mirror
+> (Postgres, Neo4j, FalkorDB, Ladybug) only receives an **asynchronous, lossless**
+> copy of committed writes via a durable replay-on-reconnect outbox — it is never
+> on the read path. Enable mirrors only when you need external query, business
+> intelligence, or disaster recovery.
 
 ---
 
@@ -235,7 +238,7 @@ Point a client (Claude Code, Antigravity, Windsurf, OpenCode) at the servers:
     "graph-os": {
       "command": "graph-os",
       "args": ["--transport", "stdio"],
-      "env": { "GRAPH_BACKEND": "tiered" }
+      "env": { "GRAPH_BACKEND": "epistemic_graph" }
     }
   }
 }
@@ -254,17 +257,20 @@ Compose files live under `docker/`:
 | File | Purpose |
 |------|---------|
 | `docker/mcp.compose.yml` | `graph-os` MCP server (streamable-http) |
-| `docker/pg-age.compose.yml` | PostgreSQL + pgvector + pg-age (durable L2) |
-| `docker/neo4j.compose.yml`, `docker/falkordb.compose.yml` | Opt-in contrib backends |
+| `docker/pg-age.compose.yml` | PostgreSQL + pgvector + pg-age (optional mirror) |
+| `docker/neo4j.compose.yml`, `docker/falkordb.compose.yml` | Optional mirrors |
 | `docker/kafka-kraft.compose.yml` | Redpanda/Kafka reactive event ledger |
 
 ```bash
-# Zero-infra: just the MCP server (LadybugDB L2 inside the container)
+# Zero-infra: just the MCP server (the engine is the database, inside the container)
 docker compose -f docker/mcp.compose.yml up -d
 
-# Add a durable PostgreSQL L2:
+# Add a Postgres/pg-age mirror for interop/BI/DR:
 docker compose -f docker/pg-age.compose.yml up -d
-# then set GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
+# then enable fan-out:
+#   GRAPH_BACKEND=fanout
+#   GRAPH_MIRROR_TARGETS=postgresql
+#   GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
 ```
 
 ---
@@ -272,17 +278,19 @@ docker compose -f docker/pg-age.compose.yml up -d
 ## 8. Production hardening
 
 Set `APP_PROFILE=production` to enable the profile guard
-(`agent_utilities.core.profile_guard`). In production it **refuses single-host /
-in-memory defaults** and requires durable, shardable backends:
+(`agent_utilities.core.profile_guard`). In production it **refuses in-memory
+defaults** and requires a durable, shardable engine plus a real event broker:
 
-- `GRAPH_BACKEND=tiered` **with** `GRAPH_DB_URI=postgresql://…` (or
-  `GRAPH_BACKEND_L2=postgresql`) — a bare LadybugDB L2 is rejected.
+- a durable engine — the embedded `epistemic_graph` engine (default), or a
+  shared/remote engine via `GRAPH_SERVICE_ENDPOINTS`; the pure `memory` backend
+  is rejected.
 - `a2a_broker` = `kafka`/`nats`, `a2a_storage` = `postgresql`/`redis`.
 - `kafka_bootstrap_servers` set (the reactive event ledger needs a real broker).
 
 ```bash
 export APP_PROFILE=production
-export GRAPH_BACKEND=tiered
+export GRAPH_BACKEND=fanout        # engine authority + mirrors for interop/DR
+export GRAPH_MIRROR_TARGETS=postgresql
 export GRAPH_DB_URI=postgresql://agent:agent@pg-age.internal:5432/agent_kg
 export KAFKA_BOOTSTRAP_SERVERS=redpanda-0:9092,redpanda-1:9092
 ```
@@ -295,9 +303,9 @@ operator can fix them all at once.
 ## 9. Verify a deployment
 
 ```bash
-# Resolve the active backend (should print TieredGraphBackend / LadybugBackend by default)
+# Resolve the active backend (should print the epistemic-graph engine by default)
 python -c "from agent_utilities.knowledge_graph.backends import create_backend as c; \
-b=c(); print(type(b).__name__, type(getattr(b,'l3',None)).__name__)"
+b=c(); print(type(b).__name__)"
 
 # graph-os exposes the standard args
 graph-os --help
@@ -309,5 +317,5 @@ curl -s localhost:8004/health
 curl -s -XPOST localhost:8000/api/graph/query -d '{"cypher":"MATCH (n) RETURN count(n)"}'
 ```
 
-See also: [Configuration](configuration.md) · [Tiered Graph Engine](tiered_graph_engine.md)
+See also: [Configuration](configuration.md) · [Graph Engine (Authority + Mirrors)](graph_engine.md)
 · [Deploying Graph Databases](graph-db-deployment.md).

@@ -4,26 +4,35 @@
 > [supported deployment configurations](../guides/deployment-configurations.md#rung-a-zero-infra-dev)
 > guide, which lists every default this tier relies on.
 
-For a laptop, a dev box, or an edge node. **No databases, no external services.**
-The knowledge graph runs entirely on this machine (the Rust engine as a local
-daemon plus embedded LadybugDB); the only thing you need is a model provider
-(a hosted API key, or a local vLLM/Ollama endpoint).
+For a laptop, a dev box, or an edge node. **No databases, no external services,
+no container stack.** The knowledge graph runs entirely on this machine: the
+epistemic-graph engine *is* the one database — compute, in-memory cache,
+semantic/ontology reasoning, **and** durable persistence in a single engine. It
+auto-spins-up as a **self-contained, lifecycle-coupled embedded child** of
+whatever needs it (graph-os, or a connector's `agent_server.py`) and dies with
+that process. There are **no mirror databases** (Postgres/pg-age, Neo4j,
+FalkorDB, Ladybug are optional write-only fan-out targets you do not configure
+here). The only thing you need is a model provider (a hosted API key, or a local
+vLLM/Ollama endpoint).
 
 ## What runs
 
 | Component | How |
 |---|---|
 | agent-utilities | pip/uv install, in-process |
-| Knowledge graph | `GRAPH_BACKEND=tiered` → `epistemic_graph` (L1) + embedded LadybugDB (L2) |
+| Knowledge graph | the **epistemic-graph engine authority** — one embedded engine, durable on disk (`--persist-dir`), no mirrors |
+| Engine lifecycle | auto-spun-up + **lifecycle-coupled** (`EPISTEMIC_GRAPH_AUTOSTART=1`, on by default for tiny) — dies with its spawner |
 | **OWL/RDF + reasoning** | **on by default** — local OWL-RL inference (epistemic-graph) over the LPG, no external triplestore |
 | **SPARQL** | **local endpoint** at `GET/POST {gateway}/api/sparql` (rdflib materialization + engine `GetTriples` fast path) — zero external deps |
 | graph-os MCP | optional, `uv run graph-os` (stdio) |
 | External services | **none** |
 
-OWL/RDF is a **core, always-on** layer here — not an enterprise add-on. The tiny
-profile consumes the bundled ontologies, infers new relationships, and serves
-SPARQL **locally** with no Fuseki/Stardog. (Fuseki/Stardog are an *optional*
-enterprise scale-out, configured only in the [enterprise recipe](enterprise.md).)
+There is **no 5-container requirement** for tiny — the engine is the only moving
+part, and it is embedded. OWL/RDF is a **core, always-on** layer here, not an
+enterprise add-on: the tiny profile consumes the bundled ontologies, infers new
+relationships, and serves SPARQL **locally** with no Fuseki/Stardog.
+(Fuseki/Stardog are an *optional* enterprise scale-out, configured only in the
+[enterprise recipe](enterprise.md).)
 
 ## Steps
 
@@ -43,13 +52,17 @@ cp .env.example .env            # then edit the model provider line
 ## `.env` (generalized)
 
 ```dotenv
-# --- Knowledge graph: zero-infra default (this is already the default) ---
+# --- Knowledge graph: the engine is the one authority; no mirrors configured ---
 GRAPH_BACKEND=tiered
 
-# --- Engine: auto-spawn the local Rust engine on first connect ---
-# Off by default; without it the `epistemic-graph-server` daemon (ships with
-# the epistemic-graph wheel) must already be running. Autostart only ever
-# applies to the local endpoint.
+# --- Engine: auto-spawn the embedded engine, lifecycle-coupled to its spawner ---
+# ON BY DEFAULT for the tiny profile. The embedded engine is a self-contained,
+# durable child (it persists to disk); it is tied to the lifetime of the process
+# that spun it up (graph-os or a connector's agent_server) and is reaped when
+# that process exits. Autostart only ever applies to the local endpoint; pointing
+# GRAPH_SERVICE_ENDPOINTS at a remote engine disables it (that's the enterprise
+# path). Set KG_ENGINE_DETACHED=1 only when you explicitly want a long-lived
+# daemon that outlives the launcher.
 EPISTEMIC_GRAPH_AUTOSTART=1
 
 # --- Model provider: pick ONE ---
@@ -77,8 +90,11 @@ Or via MCP — register `graph-os` in your IDE's `mcp_config.json`:
 
 ## When to graduate
 
-The moment you want the KG to survive restarts on a server, or to share it across
-processes/containers, move to [Single-node prod](single-node-prod.md) — it's a
-one-line `GRAPH_DB_URI` change. The full progression (auth, durable state,
-multi-host scale-out, autonomy) is the
+The embedded engine is already durable across restarts of *its own process*. The
+moment you want the engine to run independently of any one agent process, or to
+share it across containers/hosts, move to
+[Single-node prod](single-node-prod.md) — there the same engine runs as its own
+container; [enterprise](enterprise.md) points everything at a shared/remote
+engine via `GRAPH_SERVICE_ENDPOINTS` and adds optional mirrors. The full
+progression (auth, multi-host scale-out, autonomy) is the
 [deployment configurations ladder](../guides/deployment-configurations.md).

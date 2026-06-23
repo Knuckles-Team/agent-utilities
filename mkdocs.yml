@@ -72,7 +72,7 @@ nav:
       - MCP Fleet Auth & Monitoring Runbook: guides/mcp-fleet-auth-and-monitoring-runbook.md
       - Enabling Autonomous Evolution: guides/autonomous-evolution.md
       - AGI→ASI Implementation Guide: guides/agi-to-asi-implementation.md
-      - Tiered Graph Engine: guides/tiered_graph_engine.md
+      - Graph Engine (Authority + Mirrors): guides/graph_engine.md
   - Worked Examples:
       - Ontology → Workflow End-to-End: examples/ontology-to-workflow.md
       - Queue-Driven Dispatch Walkthrough: examples/queue-dispatch-walkthrough.md

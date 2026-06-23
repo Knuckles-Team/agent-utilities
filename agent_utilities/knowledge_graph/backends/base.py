@@ -8,8 +8,29 @@ Backends may optionally support SPARQL via ``supports_sparql`` / ``execute_sparq
 """
 
 import json
+import re
 from abc import ABC, abstractmethod
 from typing import Any
+
+
+def sanitize_label(label: str) -> str:
+    """Reduce a label/relationship to a transpiler-safe identifier (``\\w+``)."""
+    s = re.sub(r"\W+", "_", str(label or "Node")).strip("_")
+    return s or "Node"
+
+
+# Cypher clauses that mutate the graph. A query containing any of these (even
+# alongside a leading MATCH) is treated as a write (e.g. a fan-out backend mirrors
+# it to its mirror stores).
+_WRITE_RE = re.compile(
+    r"\b(CREATE|MERGE|SET|DELETE|REMOVE|DROP|DETACH|FOREACH|LOAD\s+CSV)\b",
+    re.IGNORECASE,
+)
+
+
+def is_write(query: str) -> bool:
+    """True if the Cypher query mutates the graph."""
+    return bool(_WRITE_RE.search(query or ""))
 
 
 def coerce_cypher_property(value: Any) -> Any:

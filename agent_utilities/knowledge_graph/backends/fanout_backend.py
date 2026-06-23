@@ -4,15 +4,14 @@
 
 CONCEPT:KG-2.74 — Concurrent Multi-Store Mirroring.
 
-Generalises the two-tier :class:`TieredGraphBackend` (L1 + one durable L3) into a
-**one-authority, N-mirror** store: a single configurable **authority** backend
+The **one-authority, N-mirror** store: a single configurable **authority** backend
 serves every read and acks every write synchronously, and each write is then
 mirrored — losslessly and asynchronously — to any number of durable backends.
 
 The shape, and why each piece is here:
 
-* **One authority, reads + write-ack.** The authority (e.g. the epistemic-graph
-  L1 working store, or Postgres) is the source of truth: reads and
+* **One authority, reads + write-ack.** The authority (normally the epistemic-graph
+  engine — the one database) is the source of truth: reads and
   ``semantic_search`` go there, and a write returns as soon as the authority
   commits **and** the mutation is durably enqueued for the mirrors. Reads are
   therefore always consistent; mirrors are eventually-consistent (seconds of lag).
@@ -21,8 +20,7 @@ The shape, and why each piece is here:
   per-mirror drainer thread applies entries in append order and advances a
   persisted cursor; a mirror that is offline or slow keeps its unapplied tail and
   **replays from its cursor on reconnect / restart** — a transient outage never
-  drops a write. (Contrast the tiered write-behind queue, which is in-memory and
-  lost on crash.)
+  drops a write (vs. an in-memory write-behind queue, which is lost on crash).
 * **One drainer per mirror = natural single-writer.** Because each mirror is
   applied by exactly one thread, a single-writer store (LadybugDB / Kuzu, file-
   locked) is serialised for free — no special-casing, it is simply the slowest
@@ -30,8 +28,7 @@ The shape, and why each piece is here:
 * **Reconcile drift-repair backstop.** :meth:`reconcile` does a full authority→
   mirror re-sync and reports exact remaining drift — the backstop for the only
   un-mirrorable window (a crash between the authority commit and the outbox
-  append) and for a mirror whose outbox tail was lost. It reuses the proven
-  node/edge enumeration + drift counting of :class:`TieredGraphBackend`.
+  append) and for a mirror whose outbox tail was lost.
 
 Selected via ``GRAPH_BACKEND=fanout`` with ``graph_authority`` +
 ``graph_mirror_targets`` naming connections declared in ``kg_connections``
@@ -48,8 +45,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .base import GraphBackend
+from .base import is_write as _is_write
 from .outbox import GraphOutbox, OutboxEntry
-from .tiered_backend import _is_write
 
 logger = logging.getLogger(__name__)
 

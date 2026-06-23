@@ -115,7 +115,8 @@ def test_configure_backend_persists_keys(monkeypatch, tmp_path):
     cfg = json.loads((tmp_path / "config.json").read_text())
     assert cfg["GRAPH_DB_URI"] == "postgresql://agent:pw@h:5432/agent_kg"
     assert cfg["GRAPH_PG_AGE"] == "1"
-    assert cfg["GRAPH_BACKEND"] == "tiered"
+    assert cfg["GRAPH_BACKEND"] == "fanout"
+    assert json.loads(cfg["GRAPH_MIRROR_TARGETS"]) == ["age"]
     # Live process env is set too (cross-process signalling).
     import os
 

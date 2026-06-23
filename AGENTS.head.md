@@ -65,7 +65,7 @@ you loop over). The whole thing is built to need only this repo URL.
 | Profile | Infra | MCP fleet | Secrets | Skill |
 |---|---|---|---|---|
 | `tiny` | none (in-process) | none | `.env` | `agent-utilities-deployment` |
-| `single-node-prod` | Postgres/pg-age (+Docker) | core connectors | OpenBao or `.env` | `agent-utilities-deployment` |
+| `single-node-prod` | Postgres/pg-age mirror (+Docker) | core connectors | OpenBao or `.env` | `agent-utilities-deployment` |
 | `enterprise` | Swarm · Vault · SSO · DNS · ingress · observability | all connectors | OpenBao | `agent-os-genesis` |
 
 ## Working Discipline — think, simplify, stay surgical, verify (READ FIRST)
@@ -138,12 +138,16 @@ target_id=<capability_id> corrected_value={"reads_avoided":true,"files_read":N,
   through the out-of-process MessagePack/UDS client (`epistemic_graph.client`,
   with `pool.py` `ConnectionPool`/`ShardRouter`). There is **no PyO3**. Entry:
   `domains/finance/*` and `knowledge_graph/core/graph_compute.py`.
-- **Knowledge graph (layered).** `knowledge_graph/facade.py` (`KnowledgeGraph`) is
-  the single object the execution plane uses; it composes L0 compute (Rust client),
-  L1 store (`backends/` — Postgres + epistemic_graph primary; neo4j/falkordb/ladybug
-  demoted to `backends/contrib/`), and L2 semantic (`core/owl_bridge.py`, SHACL gate).
-  `retrieval/capability_index.py` (`CapabilityIndex`, HNSW) powers `designate()` and
-  reward write-back (`record_outcome`).
+- **Knowledge graph (one engine authority + mirrors).** `knowledge_graph/facade.py`
+  (`KnowledgeGraph`) is the single object the execution plane uses. The
+  **epistemic-graph engine is the ONE authority** (compute + in-memory cache +
+  semantic + durable persistence) — it serves all reads and acks all writes;
+  `core/owl_bridge.py` (+ SHACL gate) is the semantic layer over it. Writes fan out
+  to optional durable **mirrors** under `backends/` (Postgres/pg-age primary;
+  neo4j/falkordb/ladybug under `backends/contrib/`) for interop/BI/DR — there is
+  **no L0/L1/L2/L3 tier vocabulary**. `retrieval/capability_index.py`
+  (`CapabilityIndex`, HNSW) powers `designate()` and reward write-back
+  (`record_outcome`).
 - **Routing.** `graph/routing/` is a strategy package (`Router`/`RoutingStrategy`)
   stranglering the monolith `graph/_router_impl.py`; strategies under
   `routing/strategies/` (fast_path, workflow_context, policy). `graph/planning/`
@@ -237,7 +241,7 @@ discipline*.) Core (`agent-utilities`) is the lean serving plane; heavy work is 
   service), reached over MCP. The core `domains/finance` stays light (no torch/sklearn — already
   re-homed); new finance compute goes to emerald-exchange, not into core.
 - **Heavy compute · vector similarity · ANN · graph algorithms · any KG compute** → the Rust
-  **`epistemic-graph`** engine (the L0 compute plane). **Always ask "can the engine do this?" before
+  **`epistemic-graph`** engine (the one database authority). **Always ask "can the engine do this?" before
   writing an O(N) cosine/graph loop in Python.** Python orchestrates; the engine computes.
 
 **Ontology — extend the canonical, never sprawl a new `.ttl`.** The ontology is ONE consolidated

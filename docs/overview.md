@@ -197,7 +197,7 @@ graph TD
 | KG-2.7 | Transaction Proxy | Centralized gateway and transactional persistence layer |
 | KG-2.7 | Rust-Native High-Performance Compute | High-performance quantitative execution, graph traversal, and epistemic reasoning via the out-of-process epistemic-graph engine (MessagePack/UDS client; no PyO3) plus Rustworkx |
 | KG-2.7 | Event Backbone | Protocol-based pub/sub with MemoryEventBackend (default) and RedpandaEventBackend (distributed) |
-| KG-2.7 | Query Router | Cost-based query planner routing to L1 Rust / L2 Cache / L3 Persistent / L4 Vector tiers |
+| KG-2.7 | Query Router | Cost-based query planner routing reads across the engine authority's compute, cache, persistent, and vector paths |
 | KG-2.11 | Bi-Temporal Memory Layers | Event-time vs storage-time + valid_from/valid_to on the graph; as-of queries and event-time contradiction precedence; procedural memory layer |
 | KG-2.12 | Memory-First Retrieval (HyDE) | HyDE query expansion + dual thresholds + self-correcting two-pass + quantitative-fidelity ledger over the hybrid retriever |
 | KG-2.13 | Background Learning Engine | Async, semaphore-bounded learner emitting typed, outcome-grounded ADD/UPDATE/DELETE bi-temporal memory edits |
@@ -207,7 +207,7 @@ graph TD
 | KG-2.18 | Evidence-Weighted Memory | Bayesian trust feedback loop + recall/usage telemetry + generation lineage extending the quality gate |
 | KG-2.19 | Self-Curating Wiki | Delta-skip (SHA-256) continuous ingest of a markdown knowledge vault, reusing the ingestion engine + synthesis |
 | KG-2.20 | Rust-Native Finance Compute Suite | epistemic-graph quant kernels (KG-2.20f/g/h/i): market-making (Avellaneda-Stoikov/GLT/logit), microstructure (OFI/VPIN/microprice/Hawkes), sizing (Kelly/Bayesian/empirical), validation (purged-CPCV/DSR/PBO/Brier), forensic scores, state-space/stat-arb (Kalman/OU/ADF), signal combination (alpha-engine/IR=IC√N) |
-| KG-2.21 | Working Set Manager | LRU-evicting subgraph cache for L1 Rust engine with 50K node cap |
+| KG-2.21 | Working Set Manager | LRU-evicting subgraph cache for the Rust engine authority with 50K node cap |
 | KG-2.22 | Data Science Primitives | Rust-backed OLS / K-means / PCA / estimators (ridge/lasso/RF/GB/SVR) replacing scikit-learn on the hot path, parity-validated |
 | KG-2.7 | Single Company Brain | Extensible operational state layer encompassing Ontology Bridges, Enterprise Architecture Repositories, and Entailment-Aware Permissions |
 | KG-2.49 | Remote VCS Enumeration | Enterprise-scale ingestion: enumerate every repository across a GitHub org/user or GitLab instance/groups (keyset / affiliation pagination) into a manifest for bulk workspace onboarding (repository-manager `vcs_enumerator`) |
@@ -383,7 +383,7 @@ flowchart TD
 |-----------|------------------|
 | `PolicyIngestor` (KG-2.2) | Ingests external constitutions as PolicyNodes |
 | `IntelligencePipeline` (KG-2.0) | Bulk codebase ingestion via graph-os MCP native ingestion |
-| `graph_analyze` (KG-2.0) | Parallelized L1→L2→L3→OWL analysis per pillar |
+| `graph_analyze` (KG-2.0) | Parallelized engine + OWL analysis per pillar |
 | `concept_map.md` | Source of truth for 70 canonical concepts to cross-reference |
 | `constitution.md` | Assimilation Governance rules enforced during SDD |
 

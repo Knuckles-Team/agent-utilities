@@ -162,16 +162,16 @@ def configure_backend(
     dsn: str | None = None,
     *,
     enable_age: bool = True,
-    backend: str = "tiered",
+    backend: str = "fanout",
     mirror_targets: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Point the durable tier at pg-age by persisting the existing graph keys.
+    """Wire pg-age as a mirror of the engine authority by persisting the graph keys.
 
-    Sets ``GRAPH_DB_URI`` (the durable L3 DSN), ``GRAPH_PG_AGE`` (native
-    openCypher on AGE) and ``GRAPH_BACKEND`` (``tiered`` by default — L1
-    epistemic-graph working store + pg-age L3). Optionally records
-    ``GRAPH_MIRROR_TARGETS`` for fanout (KG-2.74). The active backend is reset so
-    the next :func:`create_backend` rebuilds against the new config; a running
+    Sets ``GRAPH_DB_URI`` (the pg-age mirror DSN), ``GRAPH_PG_AGE`` (native
+    openCypher on AGE) and ``GRAPH_BACKEND`` (``fanout`` by default — the
+    epistemic-graph engine is the authority and writes fan out to pg-age). Records
+    ``GRAPH_MIRROR_TARGETS`` (KG-2.74). The active backend is reset so the next
+    :func:`create_backend` rebuilds against the new config; a running
     gateway/daemon applies it on restart.
     """
     resolved = _resolve_dsn(dsn)
@@ -181,11 +181,12 @@ def configure_backend(
     }
     if enable_age:
         values["GRAPH_PG_AGE"] = "1"
+    # Default the mirror target to pg-age when fanout is requested without an
+    # explicit set, so the DSN above is actually mirrored to.
+    if not mirror_targets and backend == "fanout":
+        mirror_targets = ["age"]
     if mirror_targets:
         values["GRAPH_MIRROR_TARGETS"] = json.dumps(mirror_targets)
-        if backend == "tiered":
-            # tiered + mirror targets tees durable writes through a fanout L3.
-            values["GRAPH_BACKEND"] = "tiered"
 
     cfg_path = _persist_settings(values)
 
@@ -279,7 +280,7 @@ def register_stardog_mirror(
     """Register Stardog as a ``role="mirror"`` graph connection (CONCEPT:KG-2.89).
 
     Once registered, ``_build_mirror_set`` auto-includes it, so under
-    ``GRAPH_BACKEND=tiered``/``fanout`` every KG write (incl. LeanIX/ServiceNow
+    ``GRAPH_BACKEND=fanout`` every KG write (incl. LeanIX/ServiceNow
     ingests) replicates into Stardog via the durable fan-out outbox. Credentials
     default to the existing ``STARDOG_*`` settings. The connection is persisted to
     config.json so it survives restart. Pair with :func:`backfill_to_age`'s
@@ -318,27 +319,27 @@ def register_stardog_mirror(
         "endpoint": spec["endpoint"],
         "database": spec["database"],
         "persisted": True,
-        "note": "KG writes now fan out to Stardog (GRAPH_BACKEND=tiered/fanout). "
+        "note": "KG writes now fan out to Stardog (GRAPH_BACKEND=fanout). "
         "Run 'reconcile' (or backfill_to_age) to backfill existing data.",
     }
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Step 4 — backfill the working graph into the durable AGE tier
+# Step 4 — backfill the engine authority into the pg-age mirror
 # ──────────────────────────────────────────────────────────────────────────
 def backfill_to_age() -> dict[str, Any]:
-    """Reconcile the L1 working graph into the durable AGE tier (KG-2.7).
+    """Reconcile the engine authority into the pg-age mirror (KG-2.7).
 
-    Resolves a tiered backend (the active one, or a freshly built one if config
+    Resolves a fanout backend (the active one, or a freshly built one if config
     now selects pg-age), runs the idempotent MERGE reconcile, and returns the
-    drift report plus durability counters. ``nodes_missing == 0`` means the
-    durable copy matches L1.
+    drift report plus mirror counters. ``nodes_missing == 0`` means the mirror
+    matches the engine authority.
     """
-    backend = _resolve_tiered_backend()
+    backend = _resolve_reconcilable_backend()
     if backend is None:
         return {
             "status": "error",
-            "error": "No durable (tiered/pg-age) backend active. Run configure_backend first.",
+            "error": "No fanout (engine + pg-age mirror) backend active. Run configure_backend first.",
         }
     try:
         summary = backend.reconcile_to_durable()
@@ -354,7 +355,7 @@ def backfill_to_age() -> dict[str, Any]:
     }
 
 
-def _resolve_tiered_backend() -> Any:
+def _resolve_reconcilable_backend() -> Any:
     """Find an active backend exposing ``reconcile_to_durable`` (unwrap proxies)."""
     from agent_utilities.knowledge_graph.backends import (
         create_backend,

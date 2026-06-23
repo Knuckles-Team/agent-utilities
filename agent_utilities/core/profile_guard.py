@@ -39,12 +39,11 @@ PROD_PROFILE_VALUES = frozenset({"prod", "production"})
 #: ``graph_persistence_type`` values that are single-host / non-production.
 UNSAFE_GRAPH_PERSISTENCE = frozenset({"file", "sqlite"})
 
-#: ``GRAPH_BACKEND`` values that are single-host / embedded and therefore not
-#: production-durable on their own. ``tiered`` is evaluated separately because
-#: its durability depends on the resolved L2 tier.
-UNSAFE_GRAPH_BACKEND = frozenset(
-    {"memory", "file", "epistemic_graph", "ladybug", "falkordb"}
-)
+#: ``GRAPH_BACKEND`` values that are ephemeral / embedded-single-host and therefore
+#: not production-durable. ``epistemic_graph`` (the engine) and ``fanout`` (engine +
+#: mirrors) are durable authorities and are NOT listed; ``memory``/``file`` are
+#: ephemeral, and ``ladybug``/``falkordb`` are embedded single-host stores.
+UNSAFE_GRAPH_BACKEND = frozenset({"memory", "file", "ladybug", "falkordb"})
 
 #: ``a2a_broker`` values that are single-process / non-production.
 UNSAFE_A2A_BROKER = frozenset({"in-memory", "in_memory", "inmemory", "memory"})
@@ -102,32 +101,20 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
             f"use a distributed backend (e.g. 'postgresql')."
         )
 
-    # Graph backend selection (mirrors ``create_backend`` resolution). The
-    # out-of-box default is the zero-infra ``tiered`` backend whose L2 is an
-    # embedded LadybugDB — fine for dev, but single-host for prod. Require a
-    # durable L2 (a Postgres DSN or graph_backend_l2=postgresql) in production.
+    # Graph backend selection (mirrors ``create_backend`` resolution). The engine
+    # (epistemic_graph) is the durable authority and the zero-infra default;
+    # ``fanout`` adds async mirrors. Both survive a restart. Only the ephemeral
+    # ``memory``/``file`` backends are unsafe for production.
     graph_backend = (
-        (getattr(config, "graph_backend", "tiered") or "tiered").strip().lower()
+        (getattr(config, "graph_backend", "epistemic_graph") or "epistemic_graph")
+        .strip()
+        .lower()
     )
-    has_pg_dsn = bool(
-        (getattr(config, "graph_db_uri", None) or "").strip()
-        or (getattr(config, "pggraph_dsn", None) or "").strip()
-    )
-    if graph_backend == "tiered":
-        l2 = (getattr(config, "graph_backend_l2", None) or "").strip().lower() or (
-            "postgresql" if has_pg_dsn else "ladybug"
-        )
-        if l2 not in ("postgres", "postgresql", "pggraph"):
-            offending.append(
-                f"graph_backend=tiered resolves to a single-host L2 ({l2!r}); set "
-                f"graph_db_uri to a Postgres/pggraph DSN (or "
-                f"graph_backend_l2='postgresql') for a durable, shardable prod tier."
-            )
-    elif graph_backend in UNSAFE_GRAPH_BACKEND:
+    if graph_backend in UNSAFE_GRAPH_BACKEND:
         offending.append(
-            f"graph_backend={graph_backend!r} is single-host/embedded and cannot "
-            f"survive a restart across nodes; use 'postgresql' or "
-            f"'tiered' with a Postgres L2 (graph_db_uri) for prod."
+            f"graph_backend={graph_backend!r} is ephemeral and cannot survive a "
+            f"restart; use 'epistemic_graph' (the durable engine) or 'fanout' "
+            f"(engine + durable mirrors) for prod."
         )
 
     broker = (getattr(config, "a2a_broker", "") or "").strip().lower()

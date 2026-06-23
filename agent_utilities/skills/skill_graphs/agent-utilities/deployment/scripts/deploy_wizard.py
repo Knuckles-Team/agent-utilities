@@ -46,7 +46,7 @@ TIER_BLURB = {
 PROFILES: dict[str, dict] = {
     "test": {
         "graph_backend": "memory",  # pure in-memory EpistemicGraph (no disk)
-        "graph_backend_l2": None,
+        "graph_mirror_targets": None,
         "graph_db_uri": None,
         "app_profile": None,
         "deploy": "uvx",
@@ -63,8 +63,8 @@ PROFILES: dict[str, dict] = {
         "debug": True,
     },
     "dev": {
-        "graph_backend": "tiered",  # epistemic_graph L1 + LadybugDB L2 (no server)
-        "graph_backend_l2": "ladybug",
+        "graph_backend": "epistemic_graph",  # the engine is the whole DB (no server)
+        "graph_mirror_targets": None,
         "graph_db_uri": None,
         "app_profile": None,
         "deploy": "uvx",
@@ -81,8 +81,8 @@ PROFILES: dict[str, dict] = {
         "debug": False,
     },
     "prod-small": {
-        "graph_backend": "tiered",  # L1 + PostgreSQL durable L2
-        "graph_backend_l2": "postgresql",
+        "graph_backend": "fanout",  # engine authority + pg-age mirror
+        "graph_mirror_targets": "age",
         "graph_db_uri": "postgresql://agent:agent@pggraph:5432/agent_kg",
         "app_profile": "production",
         "deploy": "docker",
@@ -99,8 +99,8 @@ PROFILES: dict[str, dict] = {
         "debug": False,
     },
     "prod-scale": {
-        "graph_backend": "tiered",  # L1 + pooled PostgreSQL/pgGraph durable L2
-        "graph_backend_l2": "postgresql",
+        "graph_backend": "fanout",  # engine authority + pooled pg-age mirror
+        "graph_mirror_targets": "age",
         "graph_db_uri": "postgresql://agent:agent@pggraph:5432/agent_kg",
         "app_profile": "production",
         "deploy": "kubernetes",
@@ -200,7 +200,7 @@ def interview(tier: str) -> dict:
     s = dict(PROFILES[tier])
     s["tier"] = tier
 
-    print(f"\nRecommended baseline for \033[1m{tier}\033[0m " f"({TIER_BLURB[tier]}):")
+    print(f"\nRecommended baseline for \033[1m{tier}\033[0m ({TIER_BLURB[tier]}):")
     print(f"  backend   : {_backend_summary(s)}")
     print(f"  deploy    : {s['deploy']}")
     print(
@@ -225,37 +225,30 @@ def interview(tier: str) -> dict:
         return s
 
     section("2. Knowledge-graph backend")
-    print("  memory     → pure in-memory, ephemeral (tests/CI)")
-    print("  tiered     → epistemic_graph L1 + L2 store (recommended)")
-    print("  postgresql → single PostgreSQL backend (no L1 compute tier)")
-    s["graph_backend"] = ask_choice(
-        "GRAPH_BACKEND", ["memory", "tiered", "postgresql"], s["graph_backend"]
+    print("  memory          → pure in-memory, ephemeral (tests/CI)")
+    print(
+        "  epistemic_graph → the engine IS the database "
+        "(compute + cache + semantic + durable); zero-infra (recommended)"
     )
-    if s["graph_backend"] == "tiered":
-        print(
-            "    L2 (durable tier): ladybug = embedded/no server; "
-            "postgresql = durable/shardable"
+    print(
+        "  fanout          → engine authority + mirrors "
+        "(Postgres/Neo4j/FalkorDB) for interop / BI / DR"
+    )
+    s["graph_backend"] = ask_choice(
+        "GRAPH_BACKEND", ["memory", "epistemic_graph", "fanout"], s["graph_backend"]
+    )
+    if s["graph_backend"] == "fanout":
+        print("    Mirrors receive every write, losslessly, from the engine authority.")
+        s["graph_mirror_targets"] = ask(
+            "GRAPH_MIRROR_TARGETS (CSV connection names, e.g. age,neo4j)",
+            s.get("graph_mirror_targets") or "age",
         )
-        s["graph_backend_l2"] = ask_choice(
-            "GRAPH_BACKEND_L2",
-            ["ladybug", "postgresql"],
-            s["graph_backend_l2"] or "ladybug",
-        )
-        if s["graph_backend_l2"] == "postgresql":
-            s["graph_db_uri"] = ask(
-                "GRAPH_DB_URI",
-                s["graph_db_uri"] or "postgresql://agent:agent@pggraph:5432/agent_kg",
-            )
-        else:
-            s["graph_db_uri"] = None
-    elif s["graph_backend"] == "postgresql":
-        s["graph_backend_l2"] = None
         s["graph_db_uri"] = ask(
-            "GRAPH_DB_URI",
+            "GRAPH_DB_URI (pg-age mirror DSN)",
             s["graph_db_uri"] or "postgresql://agent:agent@pggraph:5432/agent_kg",
         )
     else:
-        s["graph_backend_l2"] = None
+        s["graph_mirror_targets"] = None
         s["graph_db_uri"] = None
 
     section("3. Deployment target")
@@ -312,11 +305,9 @@ def interview(tier: str) -> dict:
 
 
 def _backend_summary(s: dict) -> str:
-    if s["graph_backend"] == "tiered":
-        l2 = s.get("graph_backend_l2") or (
-            "postgresql" if s.get("graph_db_uri") else "ladybug"
-        )
-        return f"tiered (epistemic_graph + {l2})"
+    if s["graph_backend"] == "fanout":
+        mirrors = s.get("graph_mirror_targets") or "age"
+        return f"fanout (engine authority + mirrors: {mirrors})"
     return s["graph_backend"]
 
 
@@ -324,15 +315,8 @@ def _warn_production_safety(s: dict) -> None:
     if s.get("app_profile") != "production":
         return
     problems = []
-    l2 = s.get("graph_backend_l2")
-    if (
-        s["graph_backend"] == "tiered"
-        and l2 != "postgresql"
-        and not s.get("graph_db_uri")
-    ):
-        problems.append("backend resolves to a single-host LadybugDB L2")
     if s["graph_backend"] in ("memory", "file", "ladybug"):
-        problems.append(f"GRAPH_BACKEND={s['graph_backend']} is single-host")
+        problems.append(f"GRAPH_BACKEND={s['graph_backend']} is ephemeral/single-host")
     if s["a2a_broker"] in ("in-memory",):
         problems.append("a2a_broker=in-memory loses messages on restart")
     if not s.get("kafka_bootstrap_servers"):
@@ -345,8 +329,8 @@ def _warn_production_safety(s: dict) -> None:
         for p in problems:
             print(f"    - {p}")
         print(
-            "  Set a Postgres L2 (GRAPH_DB_URI), a real broker, and Kafka, or "
-            "drop APP_PROFILE."
+            "  Use GRAPH_BACKEND=epistemic_graph (the durable engine) or 'fanout', "
+            "a real broker, and Kafka, or drop APP_PROFILE."
         )
 
 
@@ -366,8 +350,7 @@ def build_config_json(s: dict) -> dict:
         "routing_strategy": "hybrid",
         # graph_backend is the authoritative selector (also exported via env)
         "graph_backend": s["graph_backend"],
-        "graph_backend_l1": "epistemic_graph",
-        "graph_backend_l2": s.get("graph_backend_l2"),
+        "graph_mirror_targets": s.get("graph_mirror_targets"),
         "graph_db_uri": s.get("graph_db_uri"),
         "secrets_backend": s["secrets_backend"],
         "a2a_broker": s["a2a_broker"],
@@ -392,10 +375,8 @@ def build_env(s: dict) -> str:
         "# agent-utilities backend environment (authoritative for backend selection)"
     ]
     lines.append(f"GRAPH_BACKEND={s['graph_backend']}")
-    if s["graph_backend"] == "tiered":
-        lines.append("GRAPH_BACKEND_L1=epistemic_graph")
-        if s.get("graph_backend_l2"):
-            lines.append(f"GRAPH_BACKEND_L2={s['graph_backend_l2']}")
+    if s["graph_backend"] == "fanout" and s.get("graph_mirror_targets"):
+        lines.append(f"GRAPH_MIRROR_TARGETS={s['graph_mirror_targets']}")
     if s.get("graph_db_uri"):
         lines.append(f"GRAPH_DB_URI={s['graph_db_uri']}")
     if s.get("app_profile"):
@@ -422,11 +403,11 @@ def build_run_commands(s: dict, extras: str) -> str:
         )
     if s["deploy"] == "docker":
         return (
-            "# Bring up the MCP server (+ Postgres L2 if selected):\n"
+            "# Bring up the MCP server (+ pg-age mirror if fanout selected):\n"
             "docker compose --env-file deploy.env -f docker/mcp.compose.yml up -d\n"
             + (
                 "docker compose -f docker/pggraph.compose.yml up -d\n"
-                if s.get("graph_backend_l2") == "postgresql"
+                if s.get("graph_backend") == "fanout"
                 else ""
             )
         )
@@ -440,10 +421,8 @@ def build_run_commands(s: dict, extras: str) -> str:
 def build_k8s(s: dict, extras: str) -> str:
     """A minimal but complete K8s manifest set (no charts exist in-repo)."""
     env_items = [("GRAPH_BACKEND", s["graph_backend"])]
-    if s["graph_backend"] == "tiered":
-        env_items.append(("GRAPH_BACKEND_L1", "epistemic_graph"))
-        if s.get("graph_backend_l2"):
-            env_items.append(("GRAPH_BACKEND_L2", s["graph_backend_l2"]))
+    if s["graph_backend"] == "fanout" and s.get("graph_mirror_targets"):
+        env_items.append(("GRAPH_MIRROR_TARGETS", s["graph_mirror_targets"]))
     if s.get("graph_db_uri"):
         env_items.append(("GRAPH_DB_URI", s["graph_db_uri"]))
     if s.get("app_profile"):
@@ -454,7 +433,7 @@ def build_k8s(s: dict, extras: str) -> str:
         f'            - name: {k}\n              value: "{v}"' for k, v in env_items
     )
     replicas = 3 if s["tier"] == "prod-scale" else 1
-    return f"""# Generated by deploy_wizard.py — tier={s['tier']}
+    return f"""# Generated by deploy_wizard.py — tier={s["tier"]}
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -478,11 +457,11 @@ spec:
           image: ghcr.io/knuckles-team/agent-utilities:latest
           args: ["python", "-m", "agent_utilities"]
           ports:
-            - containerPort: {s['port']}
+            - containerPort: {s["port"]}
           env:
 {env_yaml}
           readinessProbe:
-            httpGet: {{path: /health, port: {s['port']}}}
+            httpGet: {{path: /health, port: {s["port"]}}}
             initialDelaySeconds: 10
           resources:
             requests: {{cpu: "1", memory: "2Gi"}}
@@ -497,20 +476,20 @@ spec:
   selector: {{app: agent-utilities}}
   ports:
     - port: 80
-      targetPort: {s['port']}
+      targetPort: {s["port"]}
 """
 
 
 def build_compose_override(s: dict) -> str:
-    return f"""# Generated by deploy_wizard.py — tier={s['tier']}
+    return f"""# Generated by deploy_wizard.py — tier={s["tier"]}
 # Use with: docker compose --env-file deploy.env -f docker/mcp.compose.yml \\
 #   -f docker-compose.override.yml up -d
 services:
   kg-server-mcp:
     env_file: [deploy.env]
     environment:
-      - HOST={s['host']}
-      - PORT={s['port']}
+      - HOST={s["host"]}
+      - PORT={s["port"]}
       - TRANSPORT=streamable-http
 """
 

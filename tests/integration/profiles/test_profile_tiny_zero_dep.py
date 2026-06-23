@@ -44,10 +44,9 @@ _FORBIDDEN_DRIVERS = (
 @pytest.fixture(autouse=True)
 def _tiny_profile_env(monkeypatch, tmp_path):
     """Pin the process to the tiny (zero-dep) deployment profile for this module."""
-    monkeypatch.setenv("GRAPH_BACKEND", "tiered")
-    monkeypatch.setenv("GRAPH_BACKEND_L1", "epistemic_graph")
-    monkeypatch.setenv("GRAPH_BACKEND_L2", "ladybug")
-    # Tiered opens the single-writer LadybugDB L2 only for the host role.
+    monkeypatch.setenv("GRAPH_BACKEND", "epistemic_graph")
+    # The engine is the whole database for tiny; pin the host role for parity with
+    # the singleton-host daemon path.
     monkeypatch.setenv("KG_DAEMON_ROLE", "host")
     monkeypatch.setenv("GRAPH_DB_PATH", str(tmp_path / "tiny_kg.db"))
     monkeypatch.setenv("OWL_BACKEND", "owlready2")
@@ -73,8 +72,7 @@ def test_cold_import_pulls_no_external_service_drivers():
     """
     probe = (
         "import os, sys, json\n"
-        "os.environ['GRAPH_BACKEND'] = 'tiered'\n"
-        "os.environ['GRAPH_BACKEND_L2'] = 'ladybug'\n"
+        "os.environ['GRAPH_BACKEND'] = 'epistemic_graph'\n"
         "os.environ.pop('GRAPH_DB_URI', None)\n"
         "os.environ.pop('STATE_DB_URI', None)\n"
         "os.environ.pop('KAFKA_BOOTSTRAP_SERVERS', None)\n"

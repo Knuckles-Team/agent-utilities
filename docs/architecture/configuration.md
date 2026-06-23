@@ -49,10 +49,11 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 
 | Flag | Default | What it sets |
 |---|---|---|
-| `GRAPH_DB_URI` / `PGGRAPH_DSN` | none | Durable L3 Postgres/pg-age DSN |
-| `GRAPH_BACKEND` / `GRAPH_BACKEND_L1` | `tiered` / `epistemic_graph` | Backend selection |
+| `GRAPH_DB_URI` / `PGGRAPH_DSN` | none | Postgres/pg-age **mirror** DSN |
+| `GRAPH_BACKEND` | `epistemic_graph` | Engine mode: `epistemic_graph` (engine authority alone) or `fanout` (engine + mirrors). The `tiered`/`GRAPH_BACKEND_L1` scheme is removed |
+| `GRAPH_AUTHORITY` / `GRAPH_MIRROR_TARGETS` | `epistemic_graph` / unset | Read source-of-truth + the fan-out mirror set (mirror names from `KG_CONNECTIONS`); `GRAPH_MIRROR_TARGETS` supersedes the removed `GRAPH_BACKEND_L2` |
 | `EPISTEMIC_GRAPH_SOCKET` | `/tmp/epistemic-graph.sock` | Rust engine UDS |
-| `GRAPH_PERSISTENCE_PATH`, `GRAPH_SERVICE_PERSIST_DIR` | data dir | L1 snapshot dir |
+| `GRAPH_PERSISTENCE_PATH`, `GRAPH_SERVICE_PERSIST_DIR` | data dir | Engine durable snapshot dir |
 | `GRAPH_DB_HOST/PORT/NAME/USER/PASSWORD/PATH` | — | DSN parts (legacy; prefer `GRAPH_DB_URI`) |
 | `GRAPH_FUSEKI_URL/USER/PASSWORD/DATASET` | — | SPARQL endpoint (optional backend) |
 | `GITLAB_INSTANCES` | none | JSON list of GitLab instances to index/query — the multi-tenant source of truth shared by the KG GitLab indexer and the `gitlab-api` connector registry. Each entry `{"name":<str>,"url":<str>,"token":<str>,"verify_ssl":<bool>}`. Unset → single-host `GITLAB_URL`/`GITLAB_TOKEN` (CONCEPT:KG-2.9g) |
@@ -77,7 +78,7 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `KG_ACL_DEFAULT_ALLOW` | `false` | With `KG_BRAIN_ENFORCE` on: allow nodes WITHOUT an ACL (escape hatch from the fail-closed default-deny) (CONCEPT:OS-5.14) |
 | `KG_SERVED_PROFILE` | `true` | Fail-closed served-security profile for network MCP transports: refuse to start without `AUTH_JWT_JWKS_URI`, auto-enable auth + enforcement. `0` = serve open (local dev only) (CONCEPT:OS-5.14) |
 | `KG_ENGINE_POOL_SIZE` | `0` | Max warm per-tenant engine clients per process (elastic LRU pool over KG-2.58 routing); `0` = per-use construction (CONCEPT:KG-2.62) |
-| `KG_ENGINE_POOL_DROP_ON_EVICT` | `false` | On pool eviction also unload the tenant's named graph from the engine to reclaim memory — **only safe when L3 mirrors the data** (CONCEPT:KG-2.62) |
+| `KG_ENGINE_POOL_DROP_ON_EVICT` | `false` | On pool eviction also unload the tenant's named graph from the engine to reclaim memory — **only safe when a durable mirror holds the data** (CONCEPT:KG-2.62) |
 | `GATEWAY_METRICS` | `true` | Python-tier Prometheus middleware + `GET /metrics` on the gateway (CONCEPT:OS-5.23) |
 | `GATEWAY_RATE_LIMIT` | `0` (off) | Per-tenant token-bucket rate limit, sustained req/s; buckets are per-process (CONCEPT:OS-5.23) |
 | `GATEWAY_RATE_BURST` | `0` (→ 2× rate) | Token-bucket burst capacity (CONCEPT:OS-5.23) |
@@ -132,7 +133,7 @@ Original inventory (for reference):
 | `KG_FILE_WATCH` | `1` | SDD/skills/config file-watch (L635) |
 | `KG_HYGIENE_DAEMON` | `1` | memory decay/dedup (L645) |
 | `KG_TASK_REAPER_DAEMON` | `1` | zombie-task recovery (L657) |
-| `KG_RECONCILE_DURABLE` | `1` | L1→L2/L3 autoheal (L609) |
+| `KG_RECONCILE_DURABLE` | `1` | engine→mirror autoheal (L609) |
 | `KG_CONCEPT_CODE_LINK` | `1` | concept↔code bridge |
 | `GRAPH_DIRECT_DISPATCH` | `true` | sync dispatch |
 | `KG_RETRIEVAL_QUALITY_GATE` | `true` | relevance filter |
@@ -388,8 +389,8 @@ therefore environment-settable; none are internal-only.
 
 | Flag | Default | What it sets |
 |---|---|---|
-| `GRAPH_PERSISTENCE_TYPE` | `file` | L1 persistence mode |
-| `GRAPH_BACKEND_L2` | `None` (auto) | Explicit L2 backend; unset auto-selects (LadybugDB, or PostgreSQL when a DSN is configured) |
+| `GRAPH_PERSISTENCE_TYPE` | `file` | Engine durable-persistence mode |
+| `GRAPH_BACKEND_L2` | — | **Removed.** Replaced by `GRAPH_MIRROR_TARGETS` (the fan-out mirror set; LadybugDB or PostgreSQL named in `KG_CONNECTIONS`) |
 | `GRAPH_COMPUTE_BACKEND` | `rust` | Compute tier selection |
 | `GRAPH_SERVICE_SOCKET` | `None` (XDG runtime dir) | Engine UDS path; default `$XDG_RUNTIME_DIR/epistemic-graph.sock` |
 | `GRAPH_SERVICE_TCP_ADDR` | `None` | Engine TCP address (e.g. `0.0.0.0:9100`); `GRAPH_SERVICE_ENDPOINTS` overrides both |
@@ -540,7 +541,7 @@ unchanged); for the `setting()` rows, the value is config.json-/env-overridable:
 | `KG_CARD_MODEL` | `lite` | `core/engine_tasks.py` | `lite` or `heavy` model for enrichment cards |
 | `KG_LLM_TIMEOUT` / `KG_LLM_MAX_RETRIES` | `30` / `1` | `enrichment/cards.py` | Enrichment LLM call timeout (s) / retries |
 | `KG_EMBED_BACKFILL_INTERVAL` / `KG_EMBED_BACKFILL_BUSY_SLEEP` | `30` / `1` | `core/engine_tasks.py` | Embedding-backfill idle/busy sleep (s) |
-| `KG_RECONCILE_INTERVAL` | `900` | `core/engine_tasks.py` | L1→L2/L3 reconcile tick (s) |
+| `KG_RECONCILE_INTERVAL` | `900` | `core/engine_tasks.py` | engine→mirror reconcile tick (s) |
 | `KG_HYGIENE_INTERVAL` | `86400` | `core/engine_tasks.py` | Memory decay/dedup tick (s) |
 | `KG_TASK_REAPER_INTERVAL` | `120` | `core/engine_tasks.py` | Zombie-task reaper tick (s) |
 | `KG_TASK_ORPHAN_GRACE_SEC` | `90` | `core/engine_tasks.py` | Grace before an orphaned task is reclaimed |

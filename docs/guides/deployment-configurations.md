@@ -66,10 +66,11 @@ The relevant processes (console scripts from `pyproject.toml
 ## Rung (a): Zero-infra dev
 
 **What you get:** the full platform on one machine with no external services.
-The knowledge graph runs on the default `tiered` backend — the
-`epistemic_graph` Rust engine as the L1 working store plus embedded LadybugDB
-as the L2 durable store (`GRAPH_BACKEND_L2` resolves to `ladybug` when unset)
-— all state in per-host SQLite files under the XDG data dir, agent turns
+The knowledge graph runs on the default `epistemic_graph` backend — the
+`epistemic-graph` Rust engine is the one database (the authority), providing
+durable persistence, in-memory cache, graph compute, and ontology reasoning in a
+single self-contained process with no mirrors — all platform state in per-host
+SQLite files under the XDG data dir, agent turns
 executed in-process (`AGENT_DISPATCH_BACKEND=inline` is the default), and no
 authentication. **What you don't get:** identity (callers are trusted as-is
 and a one-time startup warning says so), durability beyond this host, more
@@ -98,8 +99,7 @@ OPENAI_API_KEY=sk-your-key
 # GEMINI_API_KEY, ...), or OPENAI_BASE_URL for a local vLLM/Ollama endpoint.
 
 # -- Defaults, listed explicitly (do not need to be set) --
-#GRAPH_BACKEND=tiered              # L1 epistemic_graph + L2 LadybugDB, embedded
-#GRAPH_BACKEND_L1=epistemic_graph
+#GRAPH_BACKEND=epistemic_graph     # the engine IS the database; self-contained, no mirrors
 #KG_DAEMON_ROLE=auto               # flock host-lock elects ONE host per machine
 #STATE_DB_URI=                     # unset = per-host SQLite state files
 #TASK_QUEUE_BACKEND=               # unset = auto: sqlite (no STATE_DB_URI)
@@ -263,8 +263,10 @@ process — and the schema/locking groundwork for multi-host. One flag,
 `STATE_DB_URI`, externalizes ALL durable platform state (durable-execution
 checkpoints, sessions/turns/goals, the KG task + staging queue) onto one
 shared Postgres through a single connection pool (CONCEPT:OS-5.16–5.18,
-[state externalization](../architecture/state_externalization.md)). A second
-DSN, `GRAPH_DB_URI`, gives the tiered KG a durable Postgres/pg-age tier.
+[state externalization](../architecture/state_externalization.md)). The engine
+remains the graph authority; turning on `GRAPH_BACKEND=fanout` with a
+`GRAPH_DB_URI` adds an asynchronous Postgres/pg-age **mirror** for interop and DR
+(never on the read path).
 **What you don't get:** horizontal scale-out of ingest or agent execution
 (still one host doing the work), autonomy.
 
@@ -292,7 +294,7 @@ with init scripts from `docker/pg-age-init/`:
 
 ```bash
 docker compose -f docker/pg-age.compose.yml up -d
-# A separate logical DB for platform state keeps it apart from the graph tier:
+# A separate logical DB for platform state keeps it apart from the graph mirror:
 docker exec agent-pg-age psql -U agent -d agent_kg -c 'CREATE DATABASE agent_state'
 ```
 
@@ -311,14 +313,16 @@ AUTH_JWT_ISSUER=https://keycloak.example.internal/realms/agents
 AUTH_JWT_AUDIENCE=agent-utilities
 KG_BRAIN_ENFORCE=1
 
-# ---- plus: durable state (OS-5.16) + durable graph tier ----
+# ---- plus: durable state (OS-5.16) + async graph mirror ----
 
 # ONE flag moves checkpoints + sessions/turns/goals + the KG task queue
 # onto shared Postgres (unset = the per-host SQLite files of rungs a/b)
 STATE_DB_URI=postgresql://agent:agent@localhost:5433/agent_state
 #STATE_DB_POOL_SIZE=8              # default: max connections in the ONE shared pool
 
-# Durable Postgres/pg-age tier for the tiered KG backend
+# Async Postgres/pg-age MIRROR of the engine graph (interop/BI/DR; off the read path)
+GRAPH_BACKEND=fanout
+GRAPH_MIRROR_TARGETS=postgresql
 GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
 
 # Task queue: leave unset — auto resolves to postgres because STATE_DB_URI is
@@ -402,6 +406,8 @@ AUTH_JWT_ISSUER=https://keycloak.example.internal/realms/agents
 AUTH_JWT_AUDIENCE=agent-utilities
 KG_BRAIN_ENFORCE=1
 STATE_DB_URI=postgresql://agent:agent@pg.example.internal:5433/agent_state
+GRAPH_BACKEND=fanout
+GRAPH_MIRROR_TARGETS=postgresql
 GRAPH_DB_URI=postgresql://agent:agent@pg.example.internal:5433/agent_kg
 # (EPISTEMIC_GRAPH_AUTOSTART dropped: remote tcp:// shards are never
 #  auto-spawned — an unreachable shard is a fail-loud ConnectionError.)

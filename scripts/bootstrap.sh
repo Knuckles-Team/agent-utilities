@@ -2,7 +2,7 @@
 # Day-0 Tiny-tier bootstrap for agent-utilities.
 #
 # Idempotent: creates a venv, installs the package, writes a zero-infra .env
-# (GRAPH_BACKEND=tiered — no databases or external services), and runs a smoke
+# (GRAPH_BACKEND=epistemic_graph — no databases or external services), and runs a smoke
 # test that exercises the in-process knowledge graph (no model provider needed).
 #
 # Usage:  ./scripts/bootstrap.sh
@@ -37,10 +37,11 @@ fi
 
 # 3. Zero-infra .env (only if absent — never clobber)
 if [ ! -f .env ]; then
-  log "Writing zero-infra .env (GRAPH_BACKEND=tiered)..."
+  log "Writing zero-infra .env (GRAPH_BACKEND=epistemic_graph)..."
   cat > .env <<'ENV'
-# Zero-infra default: in-process epistemic_graph (L1) + embedded LadybugDB (L2).
-GRAPH_BACKEND=tiered
+# Zero-infra default: the epistemic-graph engine is the whole database
+# (compute + cache + semantic + durable), a self-contained binary.
+GRAPH_BACKEND=epistemic_graph
 AGENT_ID=local-developer
 # Add a model provider when you want LLM-backed agents, e.g.:
 # OPENAI_API_KEY=sk-...

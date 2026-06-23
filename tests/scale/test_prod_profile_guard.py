@@ -22,7 +22,7 @@ def _make_config(**overrides):
     # pydantic-settings would otherwise source them from a leaked os.environ (test
     # order pollution — e.g. a DSN set by an earlier test). Reset to None unless a
     # test overrides them, so each scenario is pinned regardless of run order.
-    for field in ("graph_db_uri", "pggraph_dsn", "graph_backend_l2"):
+    for field in ("graph_db_uri", "pggraph_dsn", "graph_mirror_targets"):
         if field not in overrides:
             setattr(cfg, field, None)
     for key, value in overrides.items():
@@ -134,21 +134,24 @@ def test_collect_violations_is_profile_independent():
     assert collect_production_violations(_prod_config()) == []
 
 
-def test_tiered_with_ladybug_l2_fails_under_prod():
-    # The zero-infra default (tiered + embedded LadybugDB L2) is single-host and
-    # must be rejected in production unless a durable L2 is configured.
-    cfg = _prod_config(graph_backend="tiered", graph_backend_l2=None, graph_db_uri=None)
+def test_embedded_single_host_backend_fails_under_prod():
+    # An embedded single-host store (ladybug) is not a durable prod authority and
+    # must be rejected; the authority is the engine (epistemic_graph) or fanout.
+    cfg = _prod_config(graph_backend="ladybug", graph_db_uri=None)
     with pytest.raises(ProductionProfileError) as exc:
         assert_production_safe(cfg, profile="prod")
-    assert any("graph_backend=tiered" in o for o in exc.value.offending)
+    assert any("ladybug" in o for o in exc.value.offending)
 
 
-def test_tiered_with_postgres_dsn_passes_under_prod():
-    # A DSN auto-promotes the tiered L2 to PostgreSQL -> production-safe.
-    cfg = _prod_config(
-        graph_backend="tiered",
-        graph_backend_l2=None,
-        graph_db_uri="postgresql://agent:agent@pg:5432/kg",
-    )
+def test_engine_authority_passes_under_prod():
+    # The epistemic-graph engine IS the durable authority -> production-safe.
+    cfg = _prod_config(graph_backend="epistemic_graph")
+    assert_production_safe(cfg, profile="prod")
+    assert collect_production_violations(cfg) == []
+
+
+def test_fanout_engine_plus_mirrors_passes_under_prod():
+    # Engine authority + async mirrors -> production-safe.
+    cfg = _prod_config(graph_backend="fanout", graph_mirror_targets=["age"])
     assert_production_safe(cfg, profile="prod")
     assert collect_production_violations(cfg) == []

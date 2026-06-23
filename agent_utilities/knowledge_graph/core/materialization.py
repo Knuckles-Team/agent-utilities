@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Backends whose writes must filter properties to declared columns (mirror of the
 # engine's ``_SCHEMA_BACKED``) so the free default SET clause is correct on them.
-_SCHEMA_BACKED = {"LadybugBackend", "PostgreSQLBackend", "TieredGraphBackend"}
+_SCHEMA_BACKED = {"LadybugBackend", "PostgreSQLBackend"}
 
 # Properties that must NOT contribute to the content hash: the hash itself, and
 # volatile provenance/observation timestamps that change every ingest.

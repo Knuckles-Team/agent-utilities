@@ -942,21 +942,21 @@ class AgentConfig(BaseSettings):
 
     routing_strategy: str = Field(default="hybrid", alias="ROUTING_STRATEGY")
     graph_persistence_type: str = Field(default="file", alias="GRAPH_PERSISTENCE_TYPE")
-    # Knowledge-graph backend selection (mirrors create_backend resolution). The
-    # out-of-box default is the zero-infra "tiered" backend (epistemic_graph L1 +
-    # LadybugDB L2). L2 auto-switches to PostgreSQL when a DSN is configured.
-    graph_backend: str = Field(default="tiered", alias="GRAPH_BACKEND")
-    graph_backend_l1: str = Field(default="epistemic_graph", alias="GRAPH_BACKEND_L1")
-    graph_backend_l2: str | None = Field(default=None, alias="GRAPH_BACKEND_L2")
+    # Knowledge-graph backend selection (mirrors create_backend resolution).
+    # epistemic-graph is the ONE database — the authority that does compute, cache,
+    # semantic and durable persistence in a single engine. The out-of-box default is
+    # ``epistemic_graph`` (the self-contained engine, zero-infra). Set ``fanout`` to
+    # add MIRRORS (Postgres/Neo4j/FalkorDB/Ladybug): the engine remains the authority
+    # serving every read, and each write fans out losslessly to the mirrors.
+    graph_backend: str = Field(default="epistemic_graph", alias="GRAPH_BACKEND")
     graph_db_uri: str | None = Field(default=None, alias="GRAPH_DB_URI")
-    # Concurrent N-way mirroring (CONCEPT:KG-2.74). When GRAPH_BACKEND=fanout, the
-    # graph is served from ONE authority store and every write is mirrored,
-    # losslessly, to the named mirror connections. ``graph_authority`` names the
-    # source-of-truth connection (a ``kg_connections`` name, or a bare backend
-    # type like ``epistemic_graph``/``age``); ``graph_mirror_targets`` is the JSON
-    # list of mirror connection names. Both resolve against ``kg_connections``
-    # (CONCEPT:KG-2.63), so the DSN/host/creds live in one place. Zero-infra
-    # default is unchanged: only built when a mirror set is configured.
+    # Mirrors (CONCEPT:KG-2.74). When GRAPH_BACKEND=fanout, the graph is served from
+    # ONE authority (the engine) and every write is mirrored, losslessly, to the named
+    # mirror connections. ``graph_authority`` names the source-of-truth connection (a
+    # ``kg_connections`` name, or a bare backend type like ``epistemic_graph``/``age``);
+    # ``graph_mirror_targets`` is the JSON list of mirror connection names. Both resolve
+    # against ``kg_connections`` (CONCEPT:KG-2.63), so the DSN/host/creds live in one
+    # place. Zero-infra default is unchanged: mirrors are only built when configured.
     graph_authority: str = Field(default="epistemic_graph", alias="GRAPH_AUTHORITY")
     graph_mirror_targets: list[str] | None = Field(
         default=None, alias="GRAPH_MIRROR_TARGETS"
@@ -2104,20 +2104,20 @@ def _init_lazy_config():
 
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT"] = cfg.otel_exporter_otlp_endpoint
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_HEADERS"] = cfg.otel_exporter_otlp_headers
-    _LAZY_CACHE[
-        "DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"
-    ] = cfg.otel_exporter_otlp_public_key
-    _LAZY_CACHE[
-        "DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"
-    ] = cfg.otel_exporter_otlp_secret_key
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"] = (
+        cfg.otel_exporter_otlp_public_key
+    )
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"] = (
+        cfg.otel_exporter_otlp_secret_key
+    )
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
 
     _LAZY_CACHE["DEFAULT_LANGFUSE_PUBLIC_KEY"] = cfg.langfuse_public_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_SECRET_KEY"] = cfg.langfuse_secret_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE[
-        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"
-    ] = cfg.langfuse_dataset_capture_threshold
+    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
+        cfg.langfuse_dataset_capture_threshold
+    )
 
     _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
     _LAZY_CACHE["DEFAULT_A2A_BROKER_URL"] = cfg.a2a_broker_url
@@ -2191,9 +2191,9 @@ def _init_lazy_config():
         _kg_model.id if _kg_model else None
     ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
     _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
-    _LAZY_CACHE[
-        "DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
-    ] = cfg.knowledge_graph_sync_background
+    _LAZY_CACHE["DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"] = (
+        cfg.knowledge_graph_sync_background
+    )
     _LAZY_CACHE["DEFAULT_GRAPH_DIRECT_EXECUTION"] = cfg.graph_direct_execution
 
     # --- Parallel Engine Defaults ---
@@ -2203,9 +2203,9 @@ def _init_lazy_config():
     _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
     _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
     _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE[
-        "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"
-    ] = cfg.enable_progressive_synthesis
+    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
+        cfg.enable_progressive_synthesis
+    )
 
     _LAZY_CACHE["AGENT_API_KEY"] = cfg.agent_api_key
     _LAZY_CACHE["ENABLE_API_AUTH"] = cfg.enable_api_auth
@@ -3092,14 +3092,14 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"][
-                            "PYTHONWARNINGS"
-                        ] = "ignore:urllib3 (2.3.0) or chardet"
+                        cfg["env"]["PYTHONWARNINGS"] = (
+                            "ignore:urllib3 (2.3.0) or chardet"
+                        )
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"][
-                                "PYTHONWARNINGS"
-                            ] += ",ignore:urllib3 (2.3.0) or chardet"
+                            cfg["env"]["PYTHONWARNINGS"] += (
+                                ",ignore:urllib3 (2.3.0) or chardet"
+                            )
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.

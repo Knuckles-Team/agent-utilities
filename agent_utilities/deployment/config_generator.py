@@ -51,30 +51,35 @@ _PLACEHOLDER_PG = "postgresql://agent:CHANGE_ME@localhost:5432/agent_kg"
 
 _PROFILE_PRESETS: dict[str, dict[str, Any]] = {
     "tiny": {
-        # Zero-infra: in-process L1 + embedded LadybugDB L2. Nothing external.
-        "GRAPH_BACKEND": "tiered",
+        # Zero-infra: the epistemic-graph engine IS the whole database (compute +
+        # cache + semantic + durable), auto-provisioned as a lifecycle-coupled child
+        # the first time the KG is touched. Nothing external.
+        "GRAPH_BACKEND": "epistemic_graph",
+        "EPISTEMIC_GRAPH_AUTOSTART": "1",
         "APP_PROFILE": "dev",
         "SECRETS_BACKEND": "inmemory",
     },
     "single-node-prod": {
-        # One host, durable pg-age tier, gateway hardened, secrets in sqlite/vault.
+        # One host: the engine is the authority; pg-age is an async mirror (interop/
+        # BI/DR). Gateway hardened, secrets in sqlite/vault.
         "APP_PROFILE": "production",
-        "GRAPH_BACKEND": "tiered",
+        "GRAPH_BACKEND": "fanout",
         "GRAPH_DB_URI": _PLACEHOLDER_PG,
         "GRAPH_PG_AGE": "1",
-        "GRAPH_BACKEND_L2": "postgresql",
+        "GRAPH_MIRROR_TARGETS": "age",
         "GATEWAY_METRICS": "1",
         "SECRETS_BACKEND": "sqlite",
         "KAFKA_BOOTSTRAP_SERVERS": "",  # optional on one host; doctor will note it
     },
     "enterprise": {
-        # Multi-node: durable state, queue dispatch, auth fail-closed, vault,
-        # event backbone, observability. Hand off swarm to the agent-os-genesis (day0) skill.
+        # Multi-node: shared/remote engine authority + pg-age mirror, durable state,
+        # queue dispatch, auth fail-closed, vault, event backbone, observability.
+        # Hand off swarm to the agent-os-genesis (day0) skill.
         "APP_PROFILE": "production",
-        "GRAPH_BACKEND": "tiered",
+        "GRAPH_BACKEND": "fanout",
         "GRAPH_DB_URI": _PLACEHOLDER_PG,
         "GRAPH_PG_AGE": "1",
-        "GRAPH_BACKEND_L2": "postgresql",
+        "GRAPH_MIRROR_TARGETS": "age",
         "STATE_DB_URI": _PLACEHOLDER_PG,
         "TASK_QUEUE_BACKEND": "kafka",
         "AGENT_DISPATCH_BACKEND": "queue",
@@ -114,8 +119,7 @@ def _is_secret(env_key: str) -> bool:
 _RESTART_REQUIRED: frozenset[str] = frozenset(
     {
         "GRAPH_BACKEND",
-        "GRAPH_BACKEND_L1",
-        "GRAPH_BACKEND_L2",
+        "GRAPH_MIRROR_TARGETS",
         "GRAPH_DB_URI",
         "STATE_DB_URI",
         "GRAPH_AUTHORITY",

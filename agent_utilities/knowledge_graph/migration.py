@@ -32,8 +32,7 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from .backends.base import GraphBackend
-from .backends.tiered_backend import _sanitize_label
+from .backends.base import GraphBackend, sanitize_label
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +91,7 @@ def _iter_source_nodes(source: Any) -> Iterator[tuple[str, str, dict[str, Any]]]
             clean = _clean_props(props)
             # Derive the label from the CLEANED props so a node whose only ``type``
             # lived under a backticked key still gets its real label.
-            label = _sanitize_label(clean.get("type") or clean.get("label") or "Node")
+            label = sanitize_label(clean.get("type") or clean.get("label") or "Node")
             clean.setdefault("type", label)
             yield str(nid), label, clean
         return
@@ -107,7 +106,7 @@ def _iter_source_nodes(source: Any) -> Iterator[tuple[str, str, dict[str, Any]]]
             continue
         node = r.get("node")
         clean = _clean_props(dict(node) if isinstance(node, dict) else {})
-        label = _sanitize_label(r.get("label") or clean.get("type") or "Node")
+        label = sanitize_label(r.get("label") or clean.get("type") or "Node")
         clean.setdefault("type", label)
         yield str(nid), label, clean
 
@@ -116,7 +115,7 @@ def _iter_source_edges(source: Any) -> Iterator[tuple[str, str, str, dict[str, A
     """Yield ``(source_id, target_id, rel_type, props)`` from the source."""
     graph = _compute_graph(source)
     if graph is not None:
-        # Reuse the L1 edge enumeration shape from TieredGraphBackend._l1_edges.
+        # Enumerate edges from the engine's in-memory graph view.
         view = getattr(graph, "edges", None)
         seq: Any = None
         if view is not None:
