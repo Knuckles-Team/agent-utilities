@@ -97,11 +97,24 @@ def _feature_refs(nid: str, data: dict[str, Any]) -> list[str]:
 
 
 def _node_data_by_id(graph: Any, nid: str) -> dict[str, Any] | None:
-    """Fetch ONE node's data by id without a whole-graph pull (CONCEPT:KG-2.193).
+    """Fetch ONE node's full data by id without a whole-graph pull (CONCEPT:KG-2.193).
 
-    Uses the NX-compatible node view (``graph.nodes()[id]`` / ``graph.nodes[id]``);
-    returns ``None`` on any miss so the caller can degrade to a full scan.
+    The live ``GraphComputeEngine`` facade exposes a per-id properties fetch
+    (``get_node_properties`` / ``_get_node_properties``) that does a single engine
+    round-trip — NOT a ``GetNodes`` whole-graph list, which on a large multi-tenant
+    engine returns a huge payload and resets the socket. We prefer that; only a
+    test-double dict graph falls through to the NX-style ``nodes()[id]`` view.
+    Returns ``None`` on a miss so the caller can degrade to a full scan.
     """
+    for meth in ("get_node_properties", "_get_node_properties"):
+        fn = getattr(graph, meth, None)
+        if callable(fn):
+            try:
+                data = fn(nid)
+            except Exception:  # noqa: BLE001 — try the next access path
+                continue
+            # the engine returns {} for a missing id — treat as not-found
+            return data if isinstance(data, dict) and data else None
     try:
         nodes = graph.nodes
         view = nodes() if callable(nodes) else nodes
