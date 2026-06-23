@@ -51,6 +51,10 @@ rules:
   - {kind: workspace.write, target: "*", tier: auto}
   - {kind: workspace.edit, target: "*", tier: auto}
   - {kind: workspace.browse, target: "*", tier: auto}
+  # GUI computer-use (CONCEPT:OS-5.57): sandboxed desktop control. auto+notify so
+  # the agent loop runs while every desktop mutation is audited; capture is
+  # read-only and bypasses the gate. Tighten to approval_required for sign-off.
+  - {kind: workspace.computer_use, target: "*", tier: auto_notify}
   # Playbook dispatch is auto+notify: a playbook's mutating steps re-enter
   # the gate individually with their concrete kinds.
   - {kind: run_playbook, target: "*", tier: auto_notify}

@@ -83,6 +83,9 @@ def register_agent_tools(
     # CONCEPT:ORCH-1.47 / KG-2.65 — knowledge-grounded SWE tools (code-intelligence
     # + dev-workspace actions). Default OFF; the swe_engineer agent enables it.
     DEFAULT_SWE_TOOLS = to_boolean(string=setting("SWE_TOOLS", "False"))
+    DEFAULT_COMPUTER_USE_TOOLS = to_boolean(
+        string=setting("COMPUTER_USE_TOOLS", "False")
+    )
 
     def _is_tool_registered(name: str) -> bool:
         """Check if a tool with the given name is already registered on the agent."""
@@ -238,6 +241,16 @@ def register_agent_tools(
     # enables it. The workspace tools no-op safely when no workspace is attached.
     if DEFAULT_SWE_TOOLS:
         register_swe_tools(agent, _safe_tool=_safe_tool)
+
+    # 11b. Computer-Use Tools (CONCEPT:ORCH-1.85) — GUI capture + click/type on a
+    # gui-sandbox desktop via deps.workspace's ComputerUseDriver (ECO-4.93). Default
+    # OFF (opt-in like SWE); needs a provisioned sandbox + the [computer-use] extra.
+    # The tools no-op safely when no workspace/driver is attached.
+    if DEFAULT_COMPUTER_USE_TOOLS:
+        from .computer_use_tools import COMPUTER_USE_TOOLS
+
+        for tool in COMPUTER_USE_TOOLS:
+            _safe_tool(tool)
 
     # 12. MCP Management Tools
     _safe_tool(trigger_mcp_sync)

@@ -32,6 +32,11 @@
     rdfs:comment "Team messaging, file sync, calendar, and real-time collaboration." ;
     rdfs:subClassOf :ServiceCapability .
 
+:ComputerUseCapability a owl:Class ;
+    rdfs:label "Computer-Use Capability" ;
+    rdfs:comment "GUI computer-use: driving a sandbox desktop (screenshot + mouse/keyboard) to operate applications (CONCEPT:KG-2.185)." ;
+    rdfs:subClassOf :ServiceCapability .
+
 :ContainerOrchestrationCapability a owl:Class ;
     rdfs:label "Container Orchestration Capability" ;
     rdfs:comment "Container lifecycle management, scheduling, and service deployment." ;
