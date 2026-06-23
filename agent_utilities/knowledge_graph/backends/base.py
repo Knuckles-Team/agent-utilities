@@ -68,6 +68,22 @@ class GraphBackend(ABC):
         """Initialize required database schema (DDL for Ladybug, etc)."""
         pass
 
+    def compare_and_set_node_fields(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> bool:
+        """Atomic compare-and-set on a node's fields (CONCEPT:KG-2.141).
+
+        Optional capability: backends that support an atomic conditional update
+        (engine L1, tiered) override this; the default declines so a caller can
+        feature-detect rather than silently no-op.
+        """
+        raise NotImplementedError(  # ABSTRACT-OK — optional CAS capability
+            f"{type(self).__name__} does not support compare_and_set_node_fields"
+        )
+
     # ------------------------------------------------------------------
     # Vector / Embedding Support
     # ------------------------------------------------------------------

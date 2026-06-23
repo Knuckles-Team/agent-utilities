@@ -220,7 +220,7 @@ def _budget_for_group(group: str) -> int | None:
     else:
         return None
     val = mapping.get(group)
-    if val is None:
+    if not isinstance(val, (int, float, str)):
         return None
     try:
         b = int(val)

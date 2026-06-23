@@ -3509,10 +3509,10 @@ class TaskManagerMixin(GraphEngineProtocol):
                 query = str(target)
 
                 # Fetch metadata to track depth
-                res = self._control_cypher(
+                trows = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
                 )
-                t_props = res[0]["t"] if res else {}
+                t_props = trows[0]["t"] if trows else {}
                 current_depth = int(t_props.get("current_depth", 0))
                 max_depth = int(t_props.get("max_depth", DEFAULT_KG_ANALYSIS_MAX_DEPTH))
 
@@ -3634,10 +3634,10 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # (gitlab/servicenow) blocking the rest in a sequential inline loop.
                 from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
-                res = self._control_cypher(
+                mrows = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t.sync_mode as m", {"id": job_id}
                 )
-                mode = str((res[0].get("m") if res else None) or "delta")
+                mode = str((mrows[0].get("m") if mrows else None) or "delta")
                 sync_res = sync_source(self, str(target), mode=mode)
                 self._update_task_status(
                     job_id,
@@ -3697,10 +3697,10 @@ class TaskManagerMixin(GraphEngineProtocol):
                 query = str(target)
 
                 # Fetch metadata to track top_k if provided
-                res = self._control_cypher(
+                srows = self._control_cypher(
                     "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
                 )
-                t_props = res[0]["t"] if res else {}
+                t_props = srows[0]["t"] if srows else {}
                 top_k = int(t_props.get("top_k", 10))
 
                 try:

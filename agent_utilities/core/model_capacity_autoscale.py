@@ -433,7 +433,7 @@ class AdaptiveCapacityController:
             m = self.last_metrics
             avg = self._avg_recent_latency()
             grad = self._gradient()
-            snap = {
+            snap: dict[str, object] = {
                 "model": self.model_key,
                 "model_name": self.model_name,
                 "metrics_url": self.metrics_url,
@@ -687,10 +687,10 @@ def _get_controller(
                 gpu_group=gpu_group,
                 fetcher=fetcher or _http_get,
                 gradient_target=tun["gradient_target"],
-                window=tun["window"],
-                update_samples=tun["update_samples"],
+                window=int(tun["window"]),
+                update_samples=int(tun["update_samples"]),
                 update_interval_s=tun["update_interval_s"],
-                metrics_enabled=tun["metrics_enabled"],
+                metrics_enabled=bool(tun["metrics_enabled"]),
             )
             _controllers[k] = ctrl
         else:
