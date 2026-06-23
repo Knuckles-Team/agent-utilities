@@ -23,7 +23,10 @@ class _Graph:
         self._in: dict = {}
 
     def nodes(self, data=False):
-        return list(self._n.items()) if data else list(self._n)
+        # data=True → NX-style (id, data) items; data=False → the dict itself, which
+        # supports BOTH iteration (keys) AND [id] lookup (the per-id scoped fetch path,
+        # CONCEPT:KG-2.193) so build_feature_matrix(restrict_to=...) stays O(cohort).
+        return list(self._n.items()) if data else self._n
 
     def add_edge(self, src, dst, props):
         self._out.setdefault(src, []).append((src, dst, props))
@@ -137,3 +140,39 @@ def test_materialize_writes_feature_matrix_node_idempotently():
     s2 = materialize_feature_matrix(eng, matrix)
     assert s2["node_id"] == s1["node_id"] == "feature_matrix:latest"
     assert s2["counts"] == s1["counts"]
+
+
+def test_scoped_matrix_restricts_to_cohort_sources():
+    """restrict_to scopes the WHOLE build to a feature subset (CONCEPT:KG-2.193) —
+    per-id collection + per-id coverage + scoped leverage/synergy."""
+    eng = _engine()
+    m = build_feature_matrix(eng, restrict_to={"f_kg"})
+    ids = {r.feature_id for r in m.rows}
+    assert ids == {"f_kg"}  # only the cohort source, not the whole graph
+    row = m.rows[0]
+    assert row.coverage == "related" and row.concept_id == "KG-2.99"
+    assert row.novelty_score == 0.7
+    assert m.counts["total"] == 1
+    # a covered feature outside the scope is excluded entirely
+    m2 = build_feature_matrix(eng, restrict_to={"f_orch", "f_ahe"})
+    assert {r.feature_id for r in m2.rows} == {"f_orch", "f_ahe"}
+
+
+def test_scoped_matrix_uses_per_id_fetch_not_full_scan(monkeypatch):
+    """Scoped build must NOT iterate the whole graph — it fetches only restrict_to ids."""
+    eng = _engine()
+
+    def _boom(*a, **k):  # nodes(data=True) = the whole-graph pull; must not be called
+        raise AssertionError("whole-graph nodes(data=True) called in scoped mode")
+
+    # allow no-arg nodes() (per-id view) but fail the data=True full scan
+    real = eng.graph.nodes
+
+    def _guard(data=False):
+        if data:
+            _boom()
+        return real(data=False)
+
+    monkeypatch.setattr(eng.graph, "nodes", _guard)
+    m = build_feature_matrix(eng, restrict_to={"f_kg"})
+    assert {r.feature_id for r in m.rows} == {"f_kg"}

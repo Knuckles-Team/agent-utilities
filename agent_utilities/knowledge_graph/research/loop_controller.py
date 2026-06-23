@@ -450,16 +450,29 @@ class LoopController:
             return None
         return None
 
-    def _run_assimilate(self, *, force: bool = False) -> dict[str, Any]:
+    def _run_assimilate(
+        self,
+        *,
+        force: bool = False,
+        restrict_to: set[str] | None = None,
+        matrix_node_id: str = "feature_matrix:latest",
+    ) -> dict[str, Any]:
         """Run dedup → auto-satisfy → synergy → rank over the feature graph.
 
         Idempotent: if the input watermark is unchanged since the last cycle (and
         not ``force``), skip the work. The ranked gaps are exclusion-filtered to
         ``open_features`` (satisfied/superseded/implemented features are never
         re-proposed). CONCEPT:KG-2.7.
+
+        ``restrict_to`` scopes satisfy/synergy/rank/matrix to a feature set (e.g. a
+        research cohort's sources, CONCEPT:KG-2.193) so per-cohort synthesis is
+        O(cohort), and the matrix is materialized to ``matrix_node_id`` (a cohort
+        gets its own node instead of overwriting the ecosystem-wide one).
         """
         pre = self._state_watermark()
-        if not force and pre and pre == self._load_watermark():
+        # The watermark guards the WHOLE-graph cycle; a scoped (cohort) pass always
+        # runs — its delta isn't reflected in the global watermark.
+        if not force and restrict_to is None and pre and pre == self._load_watermark():
             return {"skipped": True, "reason": "unchanged", "watermark": pre}
 
         from ..assimilation import (
@@ -479,10 +492,16 @@ class LoopController:
         # single-cosine auto_satisfy that recognised 0/21. (CONCEPT:KG-2.75)
         enrich_concepts(self.engine)
         gap = ConceptMatcher().satisfy(
-            self.engine, feature_types=_FEATURE_TYPES, concept_types=_CONCEPT_TYPES
+            self.engine,
+            feature_types=_FEATURE_TYPES,
+            concept_types=_CONCEPT_TYPES,
+            restrict_to=restrict_to,
         )
-        syn = synergy_bundles(self.engine)
-        ranked = rank_features(self.engine)
+        syn = synergy_bundles(self.engine, restrict_to=restrict_to)
+        ranked = rank_features(
+            self.engine,
+            feature_ids=(list(restrict_to) if restrict_to is not None else None),
+        )
 
         # Materialize the comparative feature/innovation matrix from the now-
         # assimilated graph (CONCEPT:KG-2.173) — default-ON so every cycle emits the
@@ -495,9 +514,11 @@ class LoopController:
             from ..assimilation.feature_matrix import build_feature_matrix, materialize
 
             matrix = build_feature_matrix(
-                self.engine, generated_at=datetime.now(UTC).isoformat()
+                self.engine,
+                generated_at=datetime.now(UTC).isoformat(),
+                restrict_to=restrict_to,
             )
-            matrix_summary = materialize(self.engine, matrix)
+            matrix_summary = materialize(self.engine, matrix, node_id=matrix_node_id)
         except Exception as e:  # noqa: BLE001 — best-effort, never fails the cycle
             logger.debug("feature matrix materialize failed: %s", e)
 
@@ -1225,6 +1246,8 @@ def run_assimilation_pass(
     top_n: int = 5,
     force: bool = False,
     synth_fn: Any = None,
+    restrict_to: set[str] | None = None,
+    matrix_node_id: str = "feature_matrix:latest",
 ) -> dict[str, Any]:
     """Run only the graph-compute assimilation middle (CONCEPT:KG-2.7).
 
@@ -1242,7 +1265,9 @@ def run_assimilation_pass(
         from ..core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
-    rep = LoopController(engine)._run_assimilate(force=force)
+    rep = LoopController(engine)._run_assimilate(
+        force=force, restrict_to=restrict_to, matrix_node_id=matrix_node_id
+    )
     # Synthesis is idempotent — plans upsert by ``plan_id`` — so run it whenever a
     # caller asks for it, even if the rank pass was skipped as "unchanged".
     # Previously synthesis was gated behind the rank watermark, so a prior bare

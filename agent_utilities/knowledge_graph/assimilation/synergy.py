@@ -30,7 +30,7 @@ from agent_utilities.core.config import setting
 
 from ...models.knowledge_graph import RegistryEdgeType
 from .dedup import iter_all_edges
-from .gap_analysis import _FEATURE_TYPES, open_features
+from .gap_analysis import _FEATURE_TYPES, _node_data_by_id, open_features
 
 _EXCLUDED_RELS = {"SUPERSEDES", "SATISFIED_BY"}
 
@@ -67,15 +67,43 @@ def _pillar_of(data: dict[str, Any]) -> str:
     return ""
 
 
-def _feature_nodes(engine: Any, feature_types: tuple[str, ...]) -> dict[str, dict]:
+def _feature_nodes(
+    engine: Any,
+    feature_types: tuple[str, ...],
+    restrict_to: set[str] | None = None,
+) -> dict[str, dict]:
     graph = getattr(engine, "graph", None)
     if graph is None:
         return {}
+    wanted = {t.lower() for t in feature_types}  # case-insensitive (live labels)
+    # SCOPED (CONCEPT:KG-2.193): fetch only the requested ids per-id — avoids the
+    # whole-graph node pull that makes per-cohort synthesis O(graph) not O(cohort).
+    if restrict_to is not None:
+        scoped: dict[str, dict] = {}
+        for nid in restrict_to:
+            data = _node_data_by_id(graph, nid)
+            if data is None:
+                continue
+            if str(data.get("type", "")).lower() in wanted:
+                scoped[nid] = data
+        if scoped or not restrict_to:
+            return scoped
+        # per-id view unavailable (returned nothing) → fall through to a filtered
+        # full scan so correctness never depends on the view supporting [id].
+        try:
+            return {
+                nid: data
+                for nid, data in graph.nodes(data=True)
+                if nid in restrict_to
+                and isinstance(data, dict)
+                and str(data.get("type", "")).lower() in wanted
+            }
+        except TypeError:  # pragma: no cover
+            return {}
     try:
         node_iter = graph.nodes(data=True)
     except TypeError:  # pragma: no cover
         return {}
-    wanted = {t.lower() for t in feature_types}  # case-insensitive (live labels)
     return {
         nid: data
         for nid, data in node_iter
@@ -160,9 +188,15 @@ def synergy_bundles(
     feature_types: tuple[str, ...] = _FEATURE_TYPES,
     min_pillars: int = 2,
     write: bool = True,
+    restrict_to: set[str] | None = None,
 ) -> SynergyReport:
-    """Flag cross-pillar feature communities as synergy bundles."""
-    nodes = _feature_nodes(engine, feature_types)
+    """Flag cross-pillar feature communities as synergy bundles.
+
+    ``restrict_to`` scopes detection to a specific feature set (e.g. one research
+    cohort), so synergy among the cohort's own sources is found without an O(graph)
+    pull (CONCEPT:KG-2.193).
+    """
+    nodes = _feature_nodes(engine, feature_types, restrict_to=restrict_to)
     report = SynergyReport()
     if len(nodes) < 2:
         return report
@@ -225,11 +259,16 @@ def rank_features(
     feature_ids: list[str] | None = None,
     feature_types: tuple[str, ...] = _FEATURE_TYPES,
 ) -> list[RankedFeature]:
-    """Rank open gaps by leverage = ``source_count × (1 + centrality)``."""
-    nodes = _feature_nodes(engine, feature_types)
+    """Rank open gaps by leverage = ``source_count × (1 + centrality)``.
+
+    When ``feature_ids`` is given, node collection is SCOPED to those ids
+    (CONCEPT:KG-2.193) so ranking a cohort never pulls the whole graph.
+    """
+    scope = set(feature_ids) if feature_ids is not None else None
+    nodes = _feature_nodes(engine, feature_types, restrict_to=scope)
     ids = (
-        set(feature_ids)
-        if feature_ids is not None
+        scope
+        if scope is not None
         else set(open_features(engine, feature_types=feature_types))
     )
     ids &= set(nodes)
