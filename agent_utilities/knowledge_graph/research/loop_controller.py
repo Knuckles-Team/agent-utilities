@@ -484,7 +484,10 @@ class LoopController:
         )
         from ..assimilation.gap_analysis import _CONCEPT_TYPES, _FEATURE_TYPES
 
-        dedup = dedup_features(self.engine)
+        # Feature dedup is a WHOLE-GRAPH ecosystem op (SUPERSEDES clustering); skip it
+        # for a SCOPED (cohort) pass (CONCEPT:KG-2.193) so finalize stays O(cohort) —
+        # a cohort's matrix doesn't need ecosystem-wide dedup.
+        dedup = None if restrict_to is not None else dedup_features(self.engine)
         # Ensure the ecosystem Concept registry is embedded so the matcher's
         # retrieval stage has vectors (idempotent; skips already-embedded). Then
         # the robust ConceptMatcher (id + embedding-recall + LLM-judge) decides
@@ -534,7 +537,7 @@ class LoopController:
 
         return {
             "skipped": False,
-            "duplicates_superseded": dedup.duplicates_superseded,
+            "duplicates_superseded": dedup.duplicates_superseded if dedup else 0,
             "auto_satisfied": gap.satisfied,
             "related": gap.related,
             "used_llm": gap.used_llm,
