@@ -569,6 +569,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_loops": "/graph/loops",
     "graph_schedules": "/graph/schedules",
     "graph_feeds": "/graph/feeds",
+    "graph_sandbox": "/graph/sandbox",
 }
 
 

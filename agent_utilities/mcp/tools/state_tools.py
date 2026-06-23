@@ -326,6 +326,103 @@ def register_state_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_schedules"] = graph_schedules
 
     @mcp.tool(
+        name="graph_sandbox",
+        description=(
+            "Inspect and control the native warm-fork sandbox runtime (CONCEPT:ORCH-1.93). "
+            "The RLM code-execution tier boots a runtime warm once and forks children from "
+            "copy-on-write state (forkserver/os.fork, Wizer-warmed wasm, warm container pool, "
+            "firecracker microVM) instead of cold-booting per snippet. action in 'status' "
+            "(per-rung availability + pooled warm-parent count + per-rung reward EMA), 'reap' "
+            "(close idle warm parents now + idle dev-workspaces), 'warm' (pre-pay a rung's "
+            "start-up so the next fan-out forks cheaply — name it with rung). Code execution "
+            "itself stays inside the governed RLM loop; this surface is lifecycle + visibility."
+        ),
+        tags=["graph-os", "sandbox", "warm-fork"],
+    )
+    async def graph_sandbox(
+        action: str = Field(default="status", description="status|reap|warm"),
+        rung: str = Field(
+            default="", description="Rung to warm (warm): forkserver|container_fork|..."
+        ),
+    ) -> str:
+        """Status / reap / warm the warm-fork sandbox rungs (CONCEPT:ORCH-1.93, OS-5.58)."""
+        import json as _json
+
+        try:
+            if action == "status":
+                from agent_utilities.deployment.doctor import _check_warm_fork
+                from agent_utilities.rlm.sandboxes.reward import SandboxRewardTracker
+
+                res = _check_warm_fork()
+                data = res.get("data") or {}
+                return _json.dumps(
+                    {
+                        "action": "status",
+                        "status": res.get("status"),
+                        "detail": res.get("detail"),
+                        "rungs": data.get("rungs", {}),
+                        "warm_rungs": data.get("warm_rungs", []),
+                        "pool": data.get("pool", {}),
+                        "rewards": SandboxRewardTracker.get().snapshot(),
+                    },
+                    default=str,
+                )
+
+            from agent_utilities.runtime.warm_registry import WarmParentRegistry
+
+            if action == "reap":
+                reaped = WarmParentRegistry.get().reap()
+                workspaces: list[str] = []
+                try:
+                    from agent_utilities.runtime.docker_workspace import DockerWorkspace
+
+                    workspaces = DockerWorkspace.reap_idle()
+                except Exception:  # noqa: BLE001 - dev-workspace reap is best-effort
+                    pass
+                return _json.dumps(
+                    {
+                        "action": "reap",
+                        "reaped_parents": reaped,
+                        "reaped_workspaces": workspaces,
+                        "pool": WarmParentRegistry.get().stats(),
+                    }
+                )
+
+            if action == "warm":
+                if not rung:
+                    return _json.dumps({"error": "warm needs a rung name"})
+                from agent_utilities.rlm.sandboxes.base import ForkableSandbox
+                from agent_utilities.rlm.sandboxes.registry import default_sandboxes
+
+                backend = next((b for b in default_sandboxes() if b.name == rung), None)
+                if backend is None or not isinstance(backend, ForkableSandbox):
+                    return _json.dumps(
+                        {"error": f"{rung!r} is not a warm-fork rung on this host"}
+                    )
+                registry = WarmParentRegistry.get()
+                spec = backend.warm_spec()
+                already = registry.acquire(spec.key) is not None
+                if not already:
+                    parent = await backend.warm(spec)
+                    registry.register(
+                        spec.key, parent, close=parent.close, kind=backend.name
+                    )
+                return _json.dumps(
+                    {
+                        "action": "warm",
+                        "rung": rung,
+                        "already_warm": already,
+                        "pool": registry.stats(),
+                    }
+                )
+
+            return _json.dumps({"error": f"unknown action {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return _json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["graph_sandbox"] = graph_sandbox
+
+    @mcp.tool(
         name="graph_feeds",
         description=(
             "Manage the unified RSS/Atom feed registry (CONCEPT:KG-2.121/2.122). "
