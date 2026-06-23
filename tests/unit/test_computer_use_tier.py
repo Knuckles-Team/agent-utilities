@@ -145,10 +145,10 @@ async def test_input_op_execs_and_succeeds():
     obs = await driver.run(ComputerUseAction(op="click", x=3, y=4))
     assert isinstance(obs, ScreenObservation)
     assert not obs.error
-    # The exec command is wrapped with DISPLAY=:1 and contains the xdotool call.
+    # The exec drops to the sandbox user and sets DISPLAY, and contains the xdotool call.
     cmd, _binary = fake.calls[-1]
-    assert cmd[:2] == ["env", "DISPLAY=:1"]
-    assert "xdotool" in cmd
+    assert cmd[:3] == ["runuser", "-u", "sandbox"]
+    assert "DISPLAY=:1" in cmd and "xdotool" in cmd
 
 
 pytestmark = pytest.mark.anyio

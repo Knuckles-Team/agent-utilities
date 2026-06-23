@@ -704,6 +704,51 @@ class GraphComputeEngine:
         """
         return self._client.graph.index_repository(files)
 
+    def observe_screen(
+        self,
+        png: bytes,
+        *,
+        session_id: str,
+        frame_seq: int = 0,
+        prev_frame_id: str = "",
+        prev_hash: int = 0,
+        elements: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Materialise a captured desktop frame as durable graph entities in ONE
+        round-trip (CONCEPT:KG-2.185).
+
+        Turns the screenshot ``png`` (only its dimensions + content hash persist) plus
+        the AT-SPI ``elements`` (``[{role,name,x,y,w,h}, ...]``) into a
+        ``ComputerUseSession`` + ``ScreenObservation`` frame + one ``UIElement`` per
+        accessible, returning a ``ScreenObservationResult`` (nodes/edges + frame_id,
+        hash, changed). Requires an engine advertising ``ObserveScreen`` — gate on
+        :attr:`supports_observe_screen`.
+        """
+        return self._client.graph.observe_screen(
+            png,
+            session_id=session_id,
+            frame_seq=frame_seq,
+            prev_frame_id=prev_frame_id,
+            prev_hash=prev_hash,
+            elements=elements or [],
+        )
+
+    @property
+    def supports_observe_screen(self) -> bool:
+        """Whether the connected engine supports the ``ObserveScreen`` enrichment (KG-2.185).
+
+        Cached. Lets the computer-use driver fall back to a11y-only grounding against
+        an engine built before ``ObserveScreen`` existed.
+        """
+        cached = getattr(self, "_supports_observe_screen", None)
+        if cached is None:
+            try:
+                cached = bool(self._client.supports("ObserveScreen"))
+            except Exception:
+                cached = False
+            self._supports_observe_screen = cached
+        return cached
+
     @property
     def supports_index_repository(self) -> bool:
         """Whether the connected engine supports the resolved ``IndexRepository`` op.
