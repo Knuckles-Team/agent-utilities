@@ -528,7 +528,14 @@ def create_agent(
         except Exception as exc:  # noqa: BLE001 — best-effort, never block agent creation
             logger.debug(f"XDG skills dir unavailable: {exc}")
 
-        skills = SkillsToolset(directories=skill_dirs)
+        # CONCEPT:ORCH-1.92 — warm-share the SkillsToolset across the fan-out cohort: the
+        # directory scan + SKILL.md parse is deterministic per skill-dir set, so build it once
+        # and reuse it (pydantic-ai toolsets attach to many agents). Falls back to a fresh build.
+        from agent_utilities.agent.warm_skills import get_or_build_skills_toolset
+
+        skills = get_or_build_skills_toolset(
+            skill_dirs, lambda: SkillsToolset(directories=skill_dirs)
+        )
         agent_toolsets.append(skills)
         logger.info(f"Loaded {len(skill_dirs)} Skills")
 

@@ -418,7 +418,13 @@ class RLMEnvironment:
         """Lazily build (and cache) this environment's router over the available backends."""
         router = getattr(self, "_sandbox_router", None)
         if router is None:
-            router = SandboxRouter(default_sandboxes())
+            # CONCEPT:ORCH-1.91 — feed the per-rung reward EMA so a persistently failing rung is
+            # routed around (bounded; steady-state order is unchanged).
+            from .sandboxes.reward import SandboxRewardTracker
+
+            router = SandboxRouter(
+                default_sandboxes(), reward_fn=SandboxRewardTracker.get().reward
+            )
             self._sandbox_router = router
         return router
 
@@ -444,11 +450,16 @@ class RLMEnvironment:
             code, force=None if forced == "auto" else forced
         )
 
+        from .sandboxes.reward import SandboxRewardTracker
+
+        rewards = SandboxRewardTracker.get()
         last_reject: SandboxRejected | None = None
         for backend in chain:
             try:
                 result = await backend.execute(code, env)
             except SandboxRejected as rej:
+                # A rejection is a capability mismatch, NOT a backend failure — don't penalise
+                # the rung's reward; just escalate to the next tier.
                 last_reject = rej
                 logger.info(
                     "Sandbox %s rejected snippet (%s); escalating.",
@@ -456,7 +467,14 @@ class RLMEnvironment:
                     rej.reason,
                 )
                 continue
-            # SandboxFatalError is intentionally NOT caught — it fast-fails the run (ORCH-1.29).
+            except SandboxFatalError:
+                # Irreversible infra death on this rung (CONCEPT:ORCH-1.91): penalise its reward
+                # so the router prefers a healthier capable rung next time, then fast-fail the run
+                # (ORCH-1.29 semantics unchanged — still not swallowed).
+                rewards.record(backend.name, success=False)
+                raise
+            # Success: reward the rung, sync the namespace back, return.
+            rewards.record(backend.name, success=True)
             self.vars.update(result.updated_vars)
             if backend is not chain[0]:
                 logger.debug("RLM snippet ran on escalated backend %s", backend.name)

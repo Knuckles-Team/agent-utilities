@@ -94,11 +94,32 @@ live pooled-parent count: `ok` when any warm rung is up (forkserver everywhere),
 hint otherwise. forkd's report (`reports/forkd-comparative-analysis-2026-06-22.md`) holds the
 comparative analysis that motivated this.
 
+## Adaptive tier selection (ORCH-1.91)
+
+The router is reward-aware: `SandboxRewardTracker` (`rlm/sandboxes/reward.py`) keeps a per-rung
+success/failure EMA (the reward-EMA pattern of `CapabilityIndex.record_outcome`, applied to the
+sandbox-routing domain without coupling the hot path to the KG retrieval layer). `repl.execute`
+records success per run and failure on `SandboxFatalError`; `SandboxRouter` orders the capable
+chain by a **bounded** reward-nudged score (`rank - 10*(reward-0.5)`), so a persistently failing
+rung drops by ~one tier and a healthy one rises by ~one, while steady-state preserves the
+deterministic rank order (and no `reward_fn` ⇒ pure rank, unchanged). This matters because a
+`SandboxFatalError` fast-fails the whole run — routing around a wedged rung avoids that.
+
+## Dispatch-tier warm-fork (ORCH-1.92)
+
+When a swarm fans out (`graph/parallel_engine.py`) or a worker handles many same-config turns,
+`create_agent` rebuilds the **SkillsToolset** (a directory scan + `SKILL.md` parse) every time.
+That artifact is deterministic per skill-dir set and connection-free, so it is built **once** and
+warm-shared across the cohort via the same `WarmParentRegistry` (`agent/warm_skills.py`,
+pooled under `kind="skills_toolset"`); each agent still opens its own per-run MCP connections.
+Forking the orchestrator process itself is deliberately **not** done — it holds a live asyncio
+loop + open MCP/stdio fds (unsafe), and the in-process worker already amortises imports — so the
+honest, safe win is warm-sharing the reusable construction artifacts, not `os.fork`.
+
 ## Status & remaining work
 
 Landed: the protocol + registry + bridge + reaper tick + ontology (Phase 0); the `forkserver`,
-`wasm`-Wizer, and `container_fork` rungs (Phases 1–3); the doctor check. Remaining (each gated
-or invasive, tracked in the plan): the `firecracker` rung behind a one-host KVM spike (Phase 4);
-reward-EMA adaptive tier selection via `CapabilityIndex.record_outcome` (Phase 5); dispatch-tier
-warm-fork — forking a warmed agent-parent in `parallel_engine`/`agent_dispatch_worker` instead of
-cold `create_agent` (Phase 6); and the `graph_sandbox` MCP+REST operator surface (Phase 7).
+`wasm`-Wizer, and `container_fork` rungs (Phases 1–3); the doctor check; reward-EMA adaptive
+routing (Phase 5); dispatch-tier warm-share of the SkillsToolset (Phase 6). Remaining (tracked in
+the plan): the `firecracker` rung behind a one-host KVM spike (Phase 4, parked); and the
+`graph_sandbox` MCP+REST operator surface (Phase 7).

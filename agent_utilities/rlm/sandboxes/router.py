@@ -17,23 +17,47 @@ rejects an unsupported import — escalation is the safety net, not a static gue
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from .analyzer import Analyzer, AstAnalyzer, CodeRequirements
 from .base import Sandbox
 
 logger = logging.getLogger(__name__)
 
+# CONCEPT:ORCH-1.91 — how far a rung's reward-EMA may shift its effective rank. Rungs are spaced
+# ~5 apart (monty 0, wasm 10, forkserver 15, container_fork 18, docker 20, local 30); a weight of
+# 10 maps reward∈[0,1] (centered 0.5) to a ±5 shift — so a *fully broken* rung drops by ~one tier
+# and a *fully healthy* one rises by ~one, while steady-state (~0.5) preserves the rank order.
+_REWARD_WEIGHT = 10.0
+
 
 class SandboxRouter:
     """Selects an ordered escalation chain of backends for a snippet."""
 
-    def __init__(self, backends: list[Sandbox], analyzer: Analyzer | None = None):
+    def __init__(
+        self,
+        backends: list[Sandbox],
+        analyzer: Analyzer | None = None,
+        *,
+        reward_fn: Callable[[str], float] | None = None,
+    ):
         if not backends:
             raise ValueError("SandboxRouter needs at least one backend")
         self._backends = backends
         self._analyzer = analyzer or AstAnalyzer()
+        # Optional reward-EMA per backend name (CONCEPT:ORCH-1.91): when supplied, a persistently
+        # failing rung is routed around. Default None => pure deterministic rank order (unchanged).
+        self._reward_fn = reward_fn
         # The floor: lowest-preference (highest rank) backend that runs anything.
         self._floor = max(backends, key=lambda b: b.capabilities.preference_rank)
+
+    def _score(self, backend: Sandbox) -> float:
+        """Effective ordering score: rank, nudged by the bounded reward shift (lower = first)."""
+        rank = float(backend.capabilities.preference_rank)
+        if self._reward_fn is None:
+            return rank
+        reward = self._reward_fn(backend.name)
+        return rank - _REWARD_WEIGHT * (reward - 0.5)
 
     def select(self, code: str, *, force: str | None = None) -> list[Sandbox]:
         """Return the escalation chain for ``code``.
@@ -59,7 +83,8 @@ class SandboxRouter:
         chain = [
             b for b in self._backends if b.is_available() and self._satisfies(b, req)
         ]
-        chain.sort(key=lambda b: b.capabilities.preference_rank)
+        # Primary order is the reward-nudged score; ties break on raw rank for determinism.
+        chain.sort(key=lambda b: (self._score(b), b.capabilities.preference_rank))
 
         # Guarantee the floor anchors the tail even if a capability check excluded it
         # (it shouldn't, since it satisfies everything — but never return an empty chain).
