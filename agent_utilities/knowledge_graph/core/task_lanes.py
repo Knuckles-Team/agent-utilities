@@ -75,6 +75,10 @@ TASK_LANES: dict[str, dict] = {
                 "fleet_event_triage",
                 "deploy_watch",
                 "synthesize",
+                # CONCEPT:KG-2.172 — the research-cohort barrier gate: polls member
+                # readiness then runs assimilation + feature matrix. Coordination
+                # work, kept off the throughput lanes.
+                "cohort_synthesize",
             }
         ),
         "model_role": "judge",

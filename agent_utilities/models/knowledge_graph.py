@@ -406,6 +406,7 @@ class RegistryNodeType(StrEnum):
     FEATURE_MATRIX = (
         "feature_matrix"  # comparative feature/innovation matrix (KG-2.173)
     )
+    RESEARCH_COHORT = "research_cohort"  # a batch of papers+repos + barrier (KG-2.172)
 
     # Enterprise Standardization & Consolidation Engine (CONCEPT:KG-2.49)
     # An enterprise standard is an interface-type contract per capability domain
