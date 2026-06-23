@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 471
+total_concepts: 472
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1454,6 +1454,14 @@ concepts:
   code_paths:
   - agent_utilities/ecosystem/ard_federation.py
   doc: ARD federation relay
+- id: ECO-4.98
+  name: bus register under the served auth profile
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/bus_tools.py
+  - agent_utilities/messaging/bus.py
+  doc: bus register under the served auth profile
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -1520,7 +1528,7 @@ concepts:
   - agent_utilities/mcp/kg_coordinator.py
   doc: Centralized KG Coordination Protocol
 - id: KG-2.0
-  name: Provides git-like transactional mutation for KG evolution
+  name: / KG-2.106 — code AST parsing delegated to the epistemic-graph engine
   pillar: KG-2
   status: live
   code_paths:
@@ -1569,7 +1577,7 @@ concepts:
   - agent_utilities/models/schema_definition.py
   - agent_utilities/tools/kg_share_tools.py
   - agent_utilities/tools/knowledge_tools.py
-  doc: Provides git-like transactional mutation for KG evolution
+  doc: / KG-2.106 — code AST parsing delegated to the epistemic-graph engine
 - id: KG-2.1
   name: routes skill evolution through the single graph-native
   pillar: KG-2
@@ -2754,6 +2762,7 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/backends/__init__.py
   - agent_utilities/knowledge_graph/backends/base.py
+  - agent_utilities/knowledge_graph/backends/contrib/falkordb_backend.py
   - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/outbox.py
@@ -3593,6 +3602,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/automation/research_pipeline.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/cohort.py
   doc: so a cohort ingests
@@ -4734,6 +4744,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ontology/permissioning.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/bus_tools.py
   - agent_utilities/observability/correlation.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/security/brain_context.py
