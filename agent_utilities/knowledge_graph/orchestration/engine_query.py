@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # this set is a control-plane read and is routed to the control backend; anything
 # else (content labels, or a label-less pattern that might match content) stays on
 # the content backend.
-_CONTROL_PLANE_LABELS = frozenset({"task", "schedule"})
+_CONTROL_PLANE_LABELS = frozenset({"task", "schedule", "loop", "deadlettertask"})
 # Node-pattern label extractor: matches the label after a ':' inside a
 # ``(var:Label`` / ``(:Label`` pattern (Cypher node patterns only).
 _NODE_LABEL_RE = re.compile(r"\(\s*\w*\s*:\s*([A-Za-z_][A-Za-z0-9_]*)")
