@@ -122,11 +122,27 @@ Forking the orchestrator process itself is deliberately **not** done — it hold
 loop + open MCP/stdio fds (unsafe), and the in-process worker already amortises imports — so the
 honest, safe win is warm-sharing the reusable construction artifacts, not `os.fork`.
 
-## Status & remaining work
+## Firecracker microVM rung (ORCH-1.90)
 
-Landed: the protocol + registry + bridge + reaper tick + ontology (Phase 0); the `forkserver`,
-`wasm`-Wizer, and `container_fork` rungs (Phases 1–3); the doctor check; reward-EMA adaptive
-routing (Phase 5); dispatch-tier warm-share of the SkillsToolset (Phase 6); the `graph_sandbox`
-MCP+REST operator surface (Phase 7). Remaining: the `firecracker` rung behind a one-host KVM
-spike (Phase 4, parked) — a forkd-backed peer rung driving `forkd-controller`, ranked 25, gated
-by `forkd doctor`; `branch` (mid-execution snapshot) lands with it as the microVM-only verb.
+The strongest-isolation rung: each child is its own Firecracker microVM (KVM hardware isolation).
+`firecracker_backend.py` is the peer-backend wrapper around **forkd**, driving its controller REST
+API with stdlib `urllib` only (no new dependency). The warm parent is a forkd *snapshot* (booted
++ warmed out-of-band via `forkd from-image`/`forkd pull`); `run_forked` spawns one microVM child
+from it, evals the snippet, and tears it down. It carries the microVM-only `branch` verb —
+snapshot a *running* child into a new parent (fork mid-execution), which `os.fork`/container rungs
+cannot do. It is **detection-gated**: `is_available()` is true only where a reachable
+`forkd-controller` exists (implies x86_64+KVM+forkd), so on every other host it never registers
+and the router uses a cheaper rung. `host_callbacks=False` in v1 (the microVM guest can't reach
+the host UDS bridge without a vsock/TCP bridge — future work), rank 25. Config: `FORKD_URL`,
+`FORKD_TOKEN`, `FORKD_SNAPSHOT_TAG`.
+
+## Status
+
+All rungs landed: the protocol + registry + bridge + reaper tick + ontology (Phase 0); the
+`forkserver`, `wasm`-Wizer, and `container_fork` rungs (Phases 1–3); reward-EMA adaptive routing
+(Phase 5); dispatch-tier SkillsToolset warm-share (Phase 6); the `graph_sandbox` MCP+REST operator
+surface (Phase 7); the `firecracker` microVM rung (Phase 4); plus the doctor check. **Open item:**
+the firecracker rung's *live* microVM forking is exercised only on an x86_64+KVM host running
+forkd (run `forkd doctor` on an R-series Swarm worker, build a snapshot, point `FORKD_URL` at the
+controller) — the backend ships detection-gated and unit-verified against the forkd REST contract;
+standing up forkd on a KVM host is the remaining operator step.

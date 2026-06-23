@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 462
+total_concepts: 463
 total_pillars: 21
 pillars:
 - AHE-3
@@ -4441,6 +4441,14 @@ concepts:
   - agent_utilities/rlm/sandboxes/container_fork_backend.py
   - agent_utilities/rlm/sandboxes/registry.py
   doc: container_fork sandbox
+- id: ORCH-1.90
+  name: forkd-backed microVM, the strongest-isolation rung
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/rlm/sandboxes/firecracker_backend.py
+  - agent_utilities/rlm/sandboxes/registry.py
+  doc: forkd-backed microVM, the strongest-isolation rung
 - id: ORCH-1.91
   name: feed the per-rung reward EMA so a persistently failing rung is
   pillar: ORCH-1
