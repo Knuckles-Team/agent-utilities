@@ -643,8 +643,11 @@ So the default for any non-trivial change is:
    Do all edits, builds, and tests under that path. (`/home/apps/worktrees/` is the convention.)
 2. **Commit early and often.** A working-tree reset can only wipe *uncommitted* changes — committing
    is what protects the work. Commit each coherent step; don't leave a large diff uncommitted.
-3. **Merge to `main` locally at the end, in one go** (fast-forward / no-op-safe), then **clean
-   up**: remove the worktree and delete the now-merged branch
+3. **Before merging back, sync `main` INTO your branch and resolve conflicts THERE, then
+   merge to `main` locally** (now a clean fast-forward). `main` drifts while you're checked
+   out, so always `git merge origin/main` *down into* the feature branch first and fix every
+   conflict on the branch — never resolve conflicts against the shared `main` tree. Then
+   **clean up**: remove the worktree and delete the now-merged branch
    (`git worktree remove <path> && git branch -d <topic>`, or `rm_worktree remove <repo>
    <branch> --delete-branch`; `git worktree prune` clears stale entries). Push only when
    the user asks. See *Finishing work in a worktree* below for the full sequence.
@@ -844,6 +847,27 @@ file as a known, unavoidable limitation. Only commit once `pre-commit run
 --all-files` passes cleanly; if a check legitimately cannot pass, stop and explain
 why rather than bypassing it.
 
+**ALL gates, always green — pre-commit AND CI.** "Green" means more than the
+pre-commit hooks: **every CI gate must pass and stay passing — never knowingly merge
+a regression.** Before merging to `main`, the full gate suite must be green:
+- **Every guardrail gate** (`guardrails.yml`): `check_no_stub`, `check_concepts`,
+  `check_prompt_schema --strict`, `check_genesis_manifest`, `check_ontology`,
+  `check_retrieval_quality`, `check_eval_corpus`, `check_reliability_corpus`,
+  `check_sprawl`, `check_no_env_sprawl`, `check_surface_parity`, the
+  `tests/gates` meta-tests, and `test_prod_profile_guard` — run the ones your change
+  could touch locally; **a gate red on `main` is a release-blocker, fix it (even if a
+  sibling introduced it) rather than merging over it.**
+- **The CI parity tests** — the unit backend-cypher conformance AND the live
+  cross-backend matrix (`backend-parity-nightly`: pggraph/neo4j/falkordb/fuseki
+  conformance against the engine authority). A change that touches the backends,
+  transpiler, ontology, config, or env vars **must keep the parity matrix green**;
+  validate `-m live` locally (testcontainers + an engine) when you touch that surface.
+- **`pipeline.yml` (build/test/release) and `pages.yml`** stay green too.
+After pushing, **verify the workflows actually went green** (GitHub MCP `gith__actions`
+`list_runs status=failure` on `main`, or the run URL) — a push is not "done" until CI
+is confirmed green. If a gate cannot pass, stop and explain; never disable or
+`continue-on-error` a blocking gate to get a merge through.
+
 ## Working with Git Worktrees (multi-session)
 
 Multiple agents/sessions work the `agent-packages/*` repos concurrently. **Do not
@@ -870,8 +894,16 @@ alone).
 1. **Pre-commit green** — `pre-commit run --all-files`; resolve every issue per the
    *Quality Bar* above (including pre-existing), no `--no-verify`.
 2. **Commit** in the worktree.
-3. **Merge to main locally** — `rm_worktree merge <repo> <branch> --into main`
-   (or `git merge --no-ff`). Push only when the user asks.
-4. **Clean up** — remove the worktree and delete the merged branch:
+3. **Sync `main` INTO your feature branch FIRST, and resolve every conflict there.**
+   `main` drifts a lot while a worktree is checked out, so merge `main` *down* into the
+   branch — `git -C <worktree> fetch origin && git -C <worktree> merge origin/main` (or
+   `rm_worktree sync <repo> <branch>` where available) — and resolve all conflicts **in the
+   feature branch**, re-running the gates after. This is the safety valve: conflict
+   resolution happens on your isolated branch, never on the shared `main` tree, so the
+   merge back is guaranteed clean.
+4. **Merge to main locally** — now a clean **fast-forward** (no conflicts, since the branch
+   already contains `main`): `rm_worktree merge <repo> <branch> --into main` (or
+   `git merge --ff-only`). Push only when the user asks.
+5. **Clean up** — remove the worktree and delete the merged branch:
    `rm_worktree remove <repo> <branch> --delete-branch`; `rm_worktree prune` clears
    stale entries. (Raw-git: `git worktree remove <path> && git branch -d <branch>`.)
