@@ -78,7 +78,14 @@ class RLMConfig(BaseModel):
     )
 
     sandbox: Literal[
-        "auto", "local", "monty", "wasm", "forkserver", "container_fork", "docker"
+        "auto",
+        "local",
+        "monty",
+        "wasm",
+        "forkserver",
+        "container_fork",
+        "docker",
+        "firecracker",
     ] = Field(
         default_factory=lambda: setting("RLM_SANDBOX", "auto"),  # type: ignore[arg-type]
         description=(

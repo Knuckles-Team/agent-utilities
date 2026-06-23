@@ -66,13 +66,25 @@ def default_sandboxes() -> list[Sandbox]:
     except Exception as e:  # noqa: BLE001 - optional backend
         logger.debug("container_fork sandbox not registered: %s", e)
 
-    # docker / podman (Phase 4) — full isolation, host callbacks via UDS bridge.
+    # docker / podman — full isolation, host callbacks via UDS bridge.
     try:
         from .docker_backend import DockerSandbox
 
         backends.append(DockerSandbox())
     except Exception as e:  # noqa: BLE001 - optional backend
         logger.debug("docker sandbox not registered: %s", e)
+
+    # firecracker (CONCEPT:ORCH-1.90) — forkd-backed microVM, the strongest-isolation rung.
+    # Registered only where a reachable forkd controller exists (implies x86_64+KVM+forkd);
+    # otherwise it never appears and the router uses a cheaper rung.
+    try:
+        from .firecracker_backend import FirecrackerSandbox
+
+        fc = FirecrackerSandbox()
+        if fc.is_available():
+            backends.append(fc)
+    except Exception as e:  # noqa: BLE001 - optional backend
+        logger.debug("firecracker sandbox not registered: %s", e)
 
     # local — unconditional floor.
     backends.append(LocalSandbox())
