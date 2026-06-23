@@ -735,9 +735,7 @@ def register_write_ingest_tools(mcp):
                         "URLs> and/or target_path=<JSON list of repo paths>."
                     )
                 return _json.dumps(
-                    create_cohort(
-                        engine, papers=papers, repos=repos, goal=description
-                    ),
+                    create_cohort(engine, papers=papers, repos=repos, goal=description),
                     indent=2,
                 )
 
@@ -765,6 +763,22 @@ def register_write_ingest_tools(mcp):
                     engine.profile_report(group_by=(corpus_name or "lane").strip()),
                     indent=2,
                 )
+
+            elif action == "fleet_relevance":
+                # CONCEPT:AHE-3.63 — grade every ingested research source against the
+                # whole 80+ agent-packages fleet; surface every >threshold match.
+                # corpus_name = threshold percent (default 5.0).
+                import json as _json
+
+                from agent_utilities.knowledge_graph.research.fleet_relevance import (
+                    grade_fleet,
+                )
+
+                try:
+                    thr = float(corpus_name) if corpus_name else 5.0
+                except ValueError:
+                    thr = 5.0
+                return _json.dumps(grade_fleet(engine, threshold_pct=thr), indent=2)
 
             elif action == "rebuild_indexes":
                 engine.build_indexes()
