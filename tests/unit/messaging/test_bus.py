@@ -370,3 +370,143 @@ async def test_graph_bus_tool_live_path(monkeypatch):
     await call(action="send", sender="a", to="b", payload="ping")
     received = await call(action="receive", agent_id="b")
     assert [m["payload"] for m in received["messages"]] == ["ping"]
+
+
+# ── Served-profile auth: a failed write surfaces WHY; auth gates register (ECO-4.98) ──
+
+
+class _DenyingGraph(_FakeGraph):
+    """An engine whose ``add_node`` is denied — the served-profile/ACL failure mode.
+
+    Mirrors what happens under ``KG_BRAIN_ENFORCE`` when a bus write is rejected by
+    the engine: ``add_node`` raises, so ``_add_node`` returns False. The point of
+    ECO-4.98 is that this must NOT be swallowed as a benign ``ok:false``.
+    """
+
+    def add_node(self, node_id, node_type, properties=None):  # noqa: D401
+        raise PermissionError("write denied for graph '__commons__' (tenant ACL)")
+
+
+def test_register_failure_surfaces_error_not_silent_false():
+    """A denied :BusAgent write returns ok:false WITH an explanatory error (ECO-4.98)."""
+    AgentBus._instance = None
+    bus = AgentBus(engine=_DenyingGraph())
+    res = bus.register("agent-x", capabilities=["code"])
+    assert res["ok"] is False
+    # The real denial reason is surfaced — never a silent benign false.
+    assert "error" in res and res["error"]
+    assert "PermissionError" in res["error"]
+    assert "denied" in res["error"]
+    # And the bus stashed the reason for any caller that introspects it.
+    assert "PermissionError" in bus._last_write_error
+
+
+def test_register_missing_engine_surfaces_error():
+    """With no durable store, register still explains why it could not land (ECO-4.98)."""
+    AgentBus._instance = None
+    bus = AgentBus(engine=object())  # no add_node attribute
+    res = bus.register("agent-y")
+    assert res["ok"] is False
+    assert "error" in res and "no active engine" in res["error"]
+
+
+@pytest.mark.asyncio
+async def test_graph_bus_authenticated_register_lands_under_served_profile(monkeypatch):
+    """Served profile: an AUTHENTICATED MCP caller registers and the node lands (ECO-4.98)."""
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
+
+    AgentBus._instance = None
+    fake = _FakeGraph()
+    monkeypatch.setattr("agent_utilities.mcp.kg_server._get_engine", lambda: fake)
+    # Enforced-auth posture.
+    monkeypatch.setattr("agent_utilities.mcp.kg_server._kg_auth_required", lambda: True)
+    monkeypatch.setattr("agent_utilities.mcp.kg_server._PROCESS_ACTOR", None)
+    # A validated MCP Bearer token mints an authenticated service actor.
+    authed = ActorContext(
+        actor_id="svc-account",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=(),
+        tenant_id="",
+        authenticated=True,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.mcp.kg_server._actor_from_mcp_token", lambda: authed
+    )
+
+    graph_bus = _make_graph_bus()
+    res = await _bus_call(graph_bus, action="register", agent_id="auth-agent")
+    assert res["ok"] is True and "error" not in res
+    roster = await _bus_call(graph_bus, action="roster")
+    assert "auth-agent" in {a["agent_id"] for a in roster["roster"]}
+
+
+@pytest.mark.asyncio
+async def test_graph_bus_unauthenticated_register_rejected_with_error(monkeypatch):
+    """Served profile: an UNauthenticated MCP register is rejected WITH an error (ECO-4.98)."""
+    AgentBus._instance = None
+    fake = _FakeGraph()
+    monkeypatch.setattr("agent_utilities.mcp.kg_server._get_engine", lambda: fake)
+    monkeypatch.setattr("agent_utilities.mcp.kg_server._kg_auth_required", lambda: True)
+    monkeypatch.setattr("agent_utilities.mcp.kg_server._PROCESS_ACTOR", None)
+    monkeypatch.setattr(
+        "agent_utilities.mcp.kg_server._actor_from_mcp_token", lambda: None
+    )
+
+    graph_bus = _make_graph_bus()
+    res = await _bus_call(graph_bus, action="register", agent_id="anon-agent")
+    assert res["ok"] is False
+    assert "error" in res and "KG_AUTH_REQUIRED" in res["error"]
+    # The denied register never landed the node.
+    assert "busagent:anon-agent" not in fake.nodes
+    # …but read-only presence stays reachable for an unauthenticated caller.
+    roster = await _bus_call(graph_bus, action="roster")
+    assert "roster" in roster
+
+
+def _make_graph_bus():
+    """Register the graph_bus MCP tool against a capturing fake server and return it."""
+    captured: dict = {}
+
+    class _MCP:
+        def tool(self, **kw):
+            def deco(fn):
+                captured["fn"] = fn
+                return fn
+
+            return deco
+
+    from agent_utilities.mcp.tools.bus_tools import register_bus_tools
+
+    register_bus_tools(_MCP())
+    return captured["fn"]
+
+
+async def _bus_call(graph_bus, **kw):
+    """Call the raw graph_bus fn with all params defaulted (Field defaults aren't applied)."""
+    base = dict(
+        agent_id="",
+        sender="",
+        to="",
+        topic="",
+        payload="",
+        objective="",
+        kind="develop",
+        priority="normal",
+        provider="",
+        host="",
+        capabilities="",
+        session_id="",
+        message_id="",
+        since=0,
+        online_only=False,
+        reason="",
+        url="",
+        group="",
+        origin="",
+        scope="commons",
+        replay_recent=False,
+        ctx=None,
+    )
+    base.update(kw)
+    return json.loads(await graph_bus(**base))
