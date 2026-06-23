@@ -166,6 +166,67 @@ class TestBulkIngestGate:
         assert obj._bulk_ingest_active() is False
 
 
+# ── per-lane/stage profiling (CONCEPT:OS-5.55) ──────────────────────────────
+class TestProfileReport:
+    def _mixin(self, rows: list[dict]):
+        from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
+
+        obj = TaskManagerMixin.__new__(TaskManagerMixin)
+        obj._control_cypher = MagicMock(return_value=rows)  # type: ignore[attr-defined]
+        return obj
+
+    def _row(self, status: str, **meta: object) -> dict:
+        from agent_utilities.knowledge_graph.core.engine_tasks import _encode_metadata
+
+        return {"status": status, "meta": _encode_metadata(meta)}
+
+    def test_groups_by_lane_with_percentiles_and_parallelism(self):
+        rows = [
+            self._row(
+                "completed",
+                lane="ingestion",
+                type="document",
+                duration_ms=100,
+                started_at="2026-06-22T00:00:00+00:00",
+                completed_at="2026-06-22T00:00:00.100+00:00",
+                tokens=10,
+            ),
+            self._row(
+                "completed",
+                lane="ingestion",
+                type="document",
+                duration_ms=300,
+                started_at="2026-06-22T00:00:00+00:00",
+                completed_at="2026-06-22T00:00:00.300+00:00",
+                tokens=30,
+            ),
+            self._row(
+                "failed",
+                lane="research",
+                type="research_paper_fetch",
+                duration_ms=50,
+                started_at="2026-06-22T00:00:00+00:00",
+                completed_at="2026-06-22T00:00:00.050+00:00",
+            ),
+        ]
+        rep = self._mixin(rows).profile_report(window_sec=0, group_by="lane")
+        assert rep["group_by"] == "lane"
+        assert set(rep["groups"]) == {"ingestion", "research"}
+        ing = rep["groups"]["ingestion"]
+        assert ing["count"] == 2 and ing["completed"] == 2
+        assert ing["p50_ms"] == 200.0  # interpolated midpoint of [100, 300]
+        assert ing["max_ms"] == 300.0
+        assert ing["tokens"] == 40
+        assert rep["groups"]["research"]["failed"] == 1
+        # total task ms (450) over wall span (300ms) → 1.5x pipelining
+        assert rep["parallelism_factor"] == 1.5
+
+    def test_empty_on_cypher_failure(self):
+        obj = self._mixin([])
+        obj._control_cypher = MagicMock(side_effect=RuntimeError("down"))
+        assert obj.profile_report() == {}
+
+
 # ── batched parse (CONCEPT:KG-2.16): extractor + pipeline routing ───────────
 class TestBatchExtract:
     def test_order_and_hashes_preserved(self):
