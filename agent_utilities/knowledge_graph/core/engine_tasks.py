@@ -3242,7 +3242,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                     paper.get("title", ""),
                     paper.get("abstract", ""),
                     paper.get("authors", []),
-                    pdf_path=None,
+                    # honor a pre-downloaded PDF (CONCEPT:KG-2.194) so a cohort ingests
+                    # the full paper TEXT as an Article instead of an abstract page.
+                    pdf_path=paper.get("pdf_path") or None,
                     source_url=paper.get("url", ""),
                     relevance_score=float(paper.get("score", 0.0) or 0.0),
                     domains=paper.get("domains"),

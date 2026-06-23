@@ -96,19 +96,59 @@ def _feature_refs(nid: str, data: dict[str, Any]) -> list[str]:
     return refs
 
 
+def _node_data_by_id(graph: Any, nid: str) -> dict[str, Any] | None:
+    """Fetch ONE node's data by id without a whole-graph pull (CONCEPT:KG-2.193).
+
+    Uses the NX-compatible node view (``graph.nodes()[id]`` / ``graph.nodes[id]``);
+    returns ``None`` on any miss so the caller can degrade to a full scan.
+    """
+    try:
+        nodes = graph.nodes
+        view = nodes() if callable(nodes) else nodes
+        data = view[nid]
+        return data if isinstance(data, dict) else None
+    except Exception:  # noqa: BLE001 — any view/lookup miss → caller decides
+        return None
+
+
 def _collect_rich(
-    engine: Any, node_types: tuple[str, ...]
+    engine: Any,
+    node_types: tuple[str, ...],
+    restrict_to: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """id → full node ``data`` for the target types (case-insensitive label match)."""
+    """id → full node ``data`` for the target types (case-insensitive label match).
+
+    ``restrict_to`` collects ONLY those ids via per-id fetch (CONCEPT:KG-2.193) so a
+    per-cohort pass is O(cohort) not O(graph); falls back to a filtered full scan if
+    the node view can't be indexed by id.
+    """
     out: dict[str, dict[str, Any]] = {}
     graph = getattr(engine, "graph", None)
     if graph is None:
         return out
+    wanted = {t.lower() for t in node_types}
+    if restrict_to is not None:
+        for nid in restrict_to:
+            data = _node_data_by_id(graph, nid)
+            if data is not None and str(data.get("type", "")).lower() in wanted:
+                out[nid] = data
+        if out or not restrict_to:
+            return out
+        # per-id view unavailable → filtered full scan (correctness over speed)
+        try:
+            return {
+                nid: data
+                for nid, data in graph.nodes(data=True)
+                if nid in restrict_to
+                and isinstance(data, dict)
+                and str(data.get("type", "")).lower() in wanted
+            }
+        except TypeError:  # pragma: no cover - non-standard graph
+            return out
     try:
         node_iter = graph.nodes(data=True)
     except TypeError:  # pragma: no cover - non-standard graph
         return out
-    wanted = {t.lower() for t in node_types}
     for nid, data in node_iter:
         if isinstance(data, dict) and str(data.get("type", "")).lower() in wanted:
             out[nid] = data
