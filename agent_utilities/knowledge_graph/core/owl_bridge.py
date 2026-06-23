@@ -111,6 +111,11 @@ PROMOTABLE_NODE_TYPES: set[str] = {
     "loop",
     # Unified feed ingestion (CONCEPT:KG-2.122) — first-class RSS/Atom feed sources.
     "feedsource",
+    # Computer-use (GUI) runtime entities (CONCEPT:KG-2.185 / 2.186 / ORCH-1.84).
+    "computerusesession",
+    "screenobservation",
+    "uielement",
+    "guiaction",
     "file",
     "symbol",
     "module",
