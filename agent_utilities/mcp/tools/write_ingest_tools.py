@@ -383,7 +383,7 @@ def register_write_ingest_tools(mcp):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'ingest_url' content-aware single-URL ingest (CONCEPT:KG-2.7): target_path=URL → fetch via the unified resolver (ArchiveBox→crawl4ai→requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page→paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegation-router / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:KG-2.7): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) — always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal).",
+            description="Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'ingest_url' content-aware single-URL ingest (CONCEPT:KG-2.7): target_path=URL → fetch via the unified resolver (ArchiveBox→crawl4ai→requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page→paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegation-router / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:KG-2.7): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) — always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal). Research evolution (CONCEPT:KG-2.172): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:OS-5.55) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
@@ -699,6 +699,70 @@ def register_write_ingest_tools(mcp):
                 tp = target_path if isinstance(target_path, str) else ""
                 return _json.dumps(
                     engine.prioritize_task(job_id, (tp or "high").strip().lower()),
+                    indent=2,
+                )
+
+            elif action == "cohort_create":
+                # CONCEPT:KG-2.172 — batch-ingest N papers + M repos as one research
+                # cohort whose barrier synthesizes the comparative feature matrix
+                # (KG-2.173) once every member drains. base_path = JSON list of paper
+                # URLs/ids; target_path = JSON list of repo paths; description = goal.
+                import json as _json
+
+                from agent_utilities.knowledge_graph.research.cohort import (
+                    create_cohort,
+                )
+
+                def _aslist(v: str) -> list[str]:
+                    v = (v or "").strip()
+                    if not v:
+                        return []
+                    try:
+                        parsed = _json.loads(v)
+                        return (
+                            [str(x) for x in parsed]
+                            if isinstance(parsed, list)
+                            else [str(parsed)]
+                        )
+                    except (ValueError, TypeError):
+                        return [s.strip() for s in v.split(",") if s.strip()]
+
+                papers = _aslist(base_path)
+                repos = _aslist(target_path)
+                if not papers and not repos:
+                    return (
+                        "Error: cohort_create needs base_path=<JSON list of paper "
+                        "URLs> and/or target_path=<JSON list of repo paths>."
+                    )
+                return _json.dumps(
+                    create_cohort(
+                        engine, papers=papers, repos=repos, goal=description
+                    ),
+                    indent=2,
+                )
+
+            elif action == "cohort_status":
+                import json as _json
+
+                from agent_utilities.knowledge_graph.research.cohort import (
+                    cohort_status,
+                )
+
+                cid = (job_id or target_path or "").strip()
+                if not cid:
+                    return "Error: job_id=<cohort_id> required for cohort_status"
+                return _json.dumps(cohort_status(engine, cid), indent=2)
+
+            elif action == "profile":
+                # CONCEPT:OS-5.55 — per-lane/stage latency percentiles + token/cost +
+                # the parallelism factor (Σ task ms ÷ wall ms). corpus_name picks the
+                # grouping dimension: lane (default) | type | tkind.
+                import json as _json
+
+                if not hasattr(engine, "profile_report"):
+                    return "Error: profiling not available on this engine."
+                return _json.dumps(
+                    engine.profile_report(group_by=(corpus_name or "lane").strip()),
                     indent=2,
                 )
 
