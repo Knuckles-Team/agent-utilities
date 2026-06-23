@@ -253,3 +253,50 @@ class TestEdgeCases:
         params = {"id": "a1", "_clearance_level": 999}
         tq = transpile(cypher, params, KNOWN_TABLES)
         assert "_clearance_level" not in str(tq.params)
+
+
+class TestNodePropertyProjection:
+    """CONCEPT:KG-2.7 — a labeled-node MATCH...RETURN property projection must yield FLAT,
+    alias-keyed rows (node_alias=None), carrying each RETURN ``AS`` alias; only a bare
+    ``RETURN n`` is wrapped under the node alias by the backend."""
+
+    def test_property_projection_carries_aliases_and_clears_node_alias(self):
+        cypher = (
+            "MATCH (n:Agent) WHERE n.id = $id "
+            "RETURN n.name AS name, n.importance_score AS importance"
+        )
+        tq = transpile(cypher, {"id": "x"}, KNOWN_TABLES)
+        assert tq.query_type == QueryType.SELECT
+        assert '"name" AS "name"' in tq.sql
+        assert '"importance_score" AS "importance"' in tq.sql
+        # Flat projection → NOT wrapped under the node alias by the backend.
+        assert tq.node_alias is None
+
+    def test_return_id_alias_preserved(self):
+        # ``id`` is a real top-level column; the alias must still be carried.
+        tq = transpile(
+            "MATCH (n:Agent) WHERE n.id = $id RETURN n.id AS id",
+            {"id": "x"},
+            KNOWN_TABLES,
+        )
+        assert '"id" AS "id"' in tq.sql
+        assert tq.node_alias is None
+
+    def test_bare_return_node_still_wraps(self):
+        # ``RETURN n`` returns the whole node → backend wraps under the node alias.
+        tq = transpile(
+            "MATCH (n:Agent) WHERE n.id = $id RETURN n", {"id": "x"}, KNOWN_TABLES
+        )
+        assert tq.node_alias == "n"
+
+    def test_bound_id_edge_count_projects_count(self):
+        # CONCEPT:KG-2.7 — bound-endpoint edge pattern with count(r): emit count(*) AS c,
+        # not the silent ``SELECT properties`` fallback.
+        cypher = (
+            "MATCH (s:Agent)-[r:PROVIDES]->(t:Tool) "
+            "WHERE s.id = $sid AND t.id = $tid RETURN count(r) AS c"
+        )
+        tq = transpile(cypher, {"sid": "a", "tid": "b"}, KNOWN_TABLES)
+        assert tq.query_type == QueryType.COUNT
+        assert "count(*) AS c" in tq.sql
+        assert "properties" not in tq.sql
