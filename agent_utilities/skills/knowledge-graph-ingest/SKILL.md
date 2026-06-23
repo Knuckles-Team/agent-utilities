@@ -316,10 +316,11 @@ MATCH (s:Document)-[:MENTIONS]->(c:Concept) RETURN count(DISTINCT c)
 -- OWL edges present: PROVIDES, IMPLEMENTS, CALLS, CONTAINS, MENTIONS, ADDRESSES
 ```
 
-NOTE: the L1 epistemic interpreter cannot traverse relationships — relationship
-`MATCH (a:L1)-[:R]->(b:L2)` reads are routed to L3 (pggraph `kg_edges`) by the
-TieredGraphBackend. **Negation (`WHERE NOT (c)-[:R]->()`) is NOT transpiled** —
-compute set-differences in code (see `topic_resolver.unresolved_topics`).
+NOTE: the engine serves relationship traversal natively from its own compute over
+its durable store; under `fanout`, a Postgres/pg-age mirror (`kg_edges`) keeps a
+queryable copy via the `FanOutBackend`. **Negation (`WHERE NOT (c)-[:R]->()`) is
+NOT transpiled** — compute set-differences in code (see
+`topic_resolver.unresolved_topics`).
 
 ## OWL cross-category relationship expectations
 

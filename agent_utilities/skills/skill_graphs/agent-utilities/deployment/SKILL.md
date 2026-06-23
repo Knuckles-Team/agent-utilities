@@ -4,7 +4,7 @@ description: >-
   Interactive, use-case-driven deployment of agent-utilities. Interviews the
   operator (just testing, dev, small production, or production at scale), then
   recommends and generates a complete deployment — knowledge-graph backend
-  (memory / tiered+LadybugDB / tiered+PostgreSQL), run target (uvx, Docker,
+  (memory / epistemic_graph / fanout + PostgreSQL mirror), run target (uvx, Docker,
   Kubernetes), the XDG config.json, and a backend .env. Run the wizard
   (scripts/deploy_wizard.py) or conduct the interview yourself using the matrix
   below. Triggers on "deploy agent-utilities", "how do I run agent-utilities",
@@ -51,18 +51,27 @@ recommendations. Always confirm before writing files.
 | Tier | When | Backend | Deploy | Notes |
 |------|------|---------|--------|-------|
 | **test** | CI, throwaway, smoke | `memory` (ephemeral, no disk) | `uvx` | no UI/auth/infra |
-| **dev** | local dev, one user, persistent | `tiered` = epistemic_graph + **LadybugDB** (no server) | `uvx` or `docker` | UI optional, sqlite secrets |
-| **prod-small** | a team / single node | `tiered` + **PostgreSQL** L2 | `docker` | auth on, Vault, NATS, OTel |
-| **prod-scale** | thousands of users, multi-node, HA | `tiered` + pooled **PostgreSQL/pgGraph** | `kubernetes` | OIDC, Vault, Kafka, `APP_PROFILE=production` |
+| **dev** | local dev, one user, persistent | `epistemic_graph` (the engine alone — durable, redb-authoritative, no server) | `uvx` or `docker` | UI optional, sqlite secrets |
+| **prod-small** | a team / single node | `fanout` + a **PostgreSQL** mirror | `docker` | auth on, Vault, NATS, OTel |
+| **prod-scale** | thousands of users, multi-node, HA | `fanout` + pooled **PostgreSQL/pg-age** mirror | `kubernetes` | OIDC, Vault, Kafka, `APP_PROFILE=production` |
 
 ### Step 2 — Backend (`GRAPH_BACKEND`)
 
+The **epistemic-graph engine is the ONE authority** — it serves reads, acks
+writes, AND persists durably (redb-authoritative by default, CONCEPT:KG-2.195):
+it is a durable source of truth out of the box, not a rebuildable cache. There is
+**no L1/L2 tier vocabulary** — pick the engine alone, or the engine + optional
+mirrors:
+
 - `memory` — pure in-memory, ephemeral. Tests/CI only.
-- `tiered` — epistemic_graph L1 + an L2 store. **Recommended.** Ask the L2:
-  - `ladybug` — embedded, no server (zero-infra default).
-  - `postgresql` — durable + shardable; ask for `GRAPH_DB_URI`. The L2
-    auto-switches to Postgres whenever a DSN is set.
-- `postgresql` — single backend, no L1 compute tier.
+- `epistemic_graph` — the engine alone. **Recommended default.** Self-contained,
+  zero-infra, durable. On first boot with a persist dir it runs a one-time
+  `.mp`→redb migration (see the engine binary-promotion runbook).
+- `fanout` — the engine authority **plus optional mirrors** (interop/BI/DR). Set
+  `GRAPH_MIRROR_TARGETS` and name a mirror:
+  - `age`/`postgresql` — durable, queryable Postgres/pg-age mirror; ask for
+    `GRAPH_DB_URI`.
+  - `ladybug`/`neo4j`/`falkordb` — other mirror targets.
 
 ### Step 3 — Deploy target
 
@@ -86,8 +95,9 @@ because env vars are authoritative for backend resolution.
 ### Step 5 — Production safety
 
 If `APP_PROFILE=production`, the profile guard (`core/profile_guard`) **rejects**
-single-host defaults. Require: a Postgres L2 (`GRAPH_DB_URI` or
-`GRAPH_BACKEND_L2=postgresql`), a real `a2a_broker` (kafka/nats), durable
+ephemeral single-host defaults. Require: `GRAPH_BACKEND=epistemic_graph` (the
+durable engine) or `fanout` with a Postgres mirror (`GRAPH_DB_URI`), a real
+`a2a_broker` (kafka/nats), durable
 `a2a_storage` (postgresql/redis), and `kafka_bootstrap_servers`. The wizard prints
 exactly which choices would be rejected before you apply.
 
@@ -95,7 +105,7 @@ exactly which choices would be rejected before you apply.
 
 ```bash
 python -c "from agent_utilities.knowledge_graph.backends import create_backend as c; \
-b=c(); print(type(b).__name__, type(getattr(b,'l3',None)).__name__)"
+b=c(); print(type(b).__name__)"   # EpistemicGraphBackend (default) or FanOutBackend
 graph-os --help            # standard --transport/--host/--port
 curl -s localhost:8004/health
 curl -s -XPOST localhost:9000/api/graph/query -d '{"cypher":"MATCH (n) RETURN count(n)"}'

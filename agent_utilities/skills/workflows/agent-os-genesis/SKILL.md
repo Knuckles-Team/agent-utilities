@@ -557,8 +557,10 @@ profile-gated; the **tiny** profile runs only Step A1.
 [depends_on: Step 0]
 Install agent-utilities dependencies on the target host(s): `uv sync` (or
 `pip install -e ".[all]"`). For **tiny**, write the zero-infra `.env`
-(`GRAPH_BACKEND=tiered`) and run `agent-utilities/scripts/bootstrap.sh` (which
-also runs a KG smoke test) — the tiny profile **stops here**.
+(`GRAPH_BACKEND=epistemic_graph` — the engine alone is the durable,
+redb-authoritative source of truth, no external DB) and run
+`agent-utilities/scripts/bootstrap.sh` (which also runs a KG smoke test) — the
+tiny profile **stops here**.
 - **Install mode is per Step 0 `install_mode`:** `deploy-baremetal` → `uv tool install
   agent-utilities` (prod) or `pip/uv install -e ".[all]"` (dev/test, editable);
   `deploy-container` → pull the pre-built `graph-os` image (Step A2). Prefer **pypi for
@@ -589,7 +591,20 @@ container `command: graph-os`, streamable-http :8000) as a Portainer GitOps stac
 pinned to the **KG host node (R820)** with `KG_DAEMON_ROLE=host` — it owns the
 single consolidated KG daemon. Also start `mcp-multiplexer` federating graph-os +
 the connector fleet, and (optionally) the REST gateway `graph-os-daemon` (:8100).
-For durable profiles, point `GRAPH_DB_URI` at the pggraph tier (Step A4).
+
+**Backend — the engine is a durable source of truth (CONCEPT:KG-2.195).** The
+epistemic-graph engine is the ONE authority: it serves reads, acks writes, AND
+persists durably (**redb-authoritative by default** — built with `--features
+full`, an acked write survives a crash; it is NOT a rebuildable cache). Provision
+graph-os + agent-utilities-messaging with **`GRAPH_BACKEND=fanout`** (engine
+authority + optional mirrors) — `single-node-prod`/`enterprise` use it; the
+removed `tiered` value fails bootstrap with "Unknown graph backend type 'tiered'".
+For durable profiles add the pggraph **mirror** (`GRAPH_BACKEND=fanout` +
+`GRAPH_MIRROR_TARGETS=age` + `GRAPH_DB_URI` at the pggraph tier, Step A4) for
+interop/BI/DR. **First-boot migration:** the engine's persist dir is on a durable
+volume, and on its first authoritative boot it runs a one-time `.mp`→redb
+migration (minutes on a large KG; the socket is not bound until it finishes) — see
+the engine binary-promotion runbook for the deploy-time health-start-period.
 
 **Multiplexer outbound auth (CONCEPT:OS-5.32):** set `MCP_CLIENT_AUTH=oidc-client-credentials`,
 `OIDC_CLIENT_ID=mcp-multiplexer`, `OIDC_CLIENT_SECRET` (OpenBao ref from Step 13),

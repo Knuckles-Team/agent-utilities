@@ -215,7 +215,8 @@ def interview(tier: str) -> dict:
     if s["app_profile"]:
         print(
             "  APP_PROFILE=production → the profile guard will REQUIRE a "
-            "durable Postgres L2, a real broker, and Kafka."
+            "durable backend (epistemic_graph or fanout + Postgres mirror), "
+            "a real broker, and Kafka."
         )
 
     if not ask_bool(
