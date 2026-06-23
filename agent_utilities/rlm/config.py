@@ -77,7 +77,7 @@ class RLMConfig(BaseModel):
         description="Force the monty sandbox (fast in-process isolation with host callbacks). Overrides use_wasm/use_container.",
     )
 
-    sandbox: Literal["auto", "local", "monty", "wasm", "docker"] = Field(
+    sandbox: Literal["auto", "local", "monty", "wasm", "forkserver", "docker"] = Field(
         default_factory=lambda: setting("RLM_SANDBOX", "auto"),  # type: ignore[arg-type]
         description=(
             "CONCEPT:ORCH-1.38 — sandbox selection. 'auto' engages the capability-driven "
