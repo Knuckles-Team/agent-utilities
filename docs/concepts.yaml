@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 456
+total_concepts: 461
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1424,6 +1424,13 @@ concepts:
   - agent_utilities/mcp/tools/bus_tools.py
   - agent_utilities/messaging/bus.py
   doc: auto-register + online presence on any bus touch
+- id: ECO-4.93
+  name: / ORCH-1.84 — Computer-use driver tier for the workspace runtime
+  pillar: ECO-4
+  status: live
+  code_paths:
+  - agent_utilities/runtime/computer_use_tier.py
+  doc: / ORCH-1.84 — Computer-use driver tier for the workspace runtime
 - id: EE-033
   name: closes the priors→weights loop
   pillar: EE-033
@@ -3537,6 +3544,14 @@ concepts:
   - agent_utilities/automation/research_pipeline.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   doc: generalized cross-lane parallelization
+- id: KG-2.185
+  name: / 2.186 / ORCH-1.84
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  doc: / 2.186 / ORCH-1.84
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4378,6 +4393,23 @@ concepts:
   - agent_utilities/rlm/sandboxes/base.py
   - agent_utilities/runtime/warm_registry.py
   doc: WarmForkFanoutCapability
+- id: ORCH-1.84
+  name: ORCH-1.84
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/runtime/events.py
+  doc: ORCH-1.84
+- id: ORCH-1.85
+  name: GUI capture + click/type on a
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/orchestration/computer_use_agent.py
+  - agent_utilities/tools/computer_use_tools.py
+  - agent_utilities/tools/tool_registry.py
+  doc: GUI capture + click/type on a
 - id: ORCH-1.86
   name: Shared host-helper bridge for isolated sandbox backends
   pillar: ORCH-1
@@ -5014,6 +5046,13 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: returns per-lane/stage latency percentiles + token/cost + the parallelism factor
+- id: OS-5.57
+  name: driving a desktop in a gui-sandbox
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/action_policy.py
+  doc: driving a desktop in a gui-sandbox
 - id: OS-5.58
   name: so they are idle-reaped and counted alongside the sandbox warm parents
   pillar: OS-5
