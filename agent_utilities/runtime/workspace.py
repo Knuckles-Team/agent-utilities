@@ -26,6 +26,7 @@ from .bridge import ActionDispatcher, WorkspaceState
 
 if TYPE_CHECKING:
     from .browser_tier import BrowserDriver
+    from .computer_use_tier import ComputerUseDriver
 from .events import (  # noqa: F401  (re-exported for callers)
     Action,
     ErrorObservation,
@@ -82,6 +83,7 @@ class DevWorkspace:
         policy_gate: PolicyGate | None = None,
         mirror: ProvenanceMirror | None = None,
         browser: BrowserDriver | None = None,
+        computer_use: ComputerUseDriver | None = None,
     ) -> None:
         self.backend = backend
         self.run_id = run_id
@@ -89,6 +91,7 @@ class DevWorkspace:
         self._policy_gate = policy_gate
         self._mirror = mirror if mirror is not None else ProvenanceMirror()
         self._browser = browser  # optional ECO-4.44 browser driver
+        self._computer_use = computer_use  # optional ECO-4.93 computer-use driver
         self._dispatcher = ActionDispatcher()
         self._state: WorkspaceState | None = None
         self._step = 0
@@ -138,7 +141,11 @@ class DevWorkspace:
 
         self._mirror.mirror_action(action)
         observation = await self._dispatcher.dispatch(
-            action, self.backend, self.state, browser=self._browser
+            action,
+            self.backend,
+            self.state,
+            browser=self._browser,
+            computer_use=self._computer_use,
         )
         observation = self._stamp(observation)
         self._mirror.mirror_observation(action, observation, self.backend.root)

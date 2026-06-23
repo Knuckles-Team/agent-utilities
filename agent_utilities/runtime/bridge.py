@@ -28,6 +28,7 @@ from .events import (
     BrowseAction,
     CmdOutputObservation,
     CmdRunAction,
+    ComputerUseAction,
     ErrorObservation,
     FileContentObservation,
     FileEditAction,
@@ -44,6 +45,7 @@ from .events import (
 
 if TYPE_CHECKING:
     from .browser_tier import BrowserDriver
+    from .computer_use_tier import ComputerUseDriver
     from .events import Action, Observation
     from .workspace import WorkspaceBackend
 
@@ -107,6 +109,7 @@ class ActionDispatcher:
         backend: WorkspaceBackend,
         state: WorkspaceState,
         browser: BrowserDriver | None = None,
+        computer_use: ComputerUseDriver | None = None,
     ) -> Observation:
         try:
             if isinstance(action, CmdRunAction):
@@ -123,6 +126,8 @@ class ActionDispatcher:
                 return self._port(action, backend)
             if isinstance(action, BrowseAction):
                 return await self._browse(action, browser)
+            if isinstance(action, ComputerUseAction):
+                return await self._computer_use(action, computer_use)
             if isinstance(action, AgentFinishAction):
                 return NullObservation()
         except Exception as exc:  # noqa: BLE001 - any backend/FS error -> typed observation
@@ -272,3 +277,12 @@ class ActionDispatcher:
 
         driver = browser if browser is not None else NullBrowserDriver()
         return await driver.browse(action)
+
+    # ── computer-use (optional tier, ECO-4.93) ─────────────────────────────────
+    async def _computer_use(
+        self, action: ComputerUseAction, computer_use: ComputerUseDriver | None
+    ) -> Observation:
+        from .computer_use_tier import NullComputerUseDriver
+
+        driver = computer_use if computer_use is not None else NullComputerUseDriver()
+        return await driver.run(action)

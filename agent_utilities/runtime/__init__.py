@@ -19,6 +19,10 @@ Typical use::
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .computer_use_tier import ComputerUseDriver
 
 from .docker_workspace import DockerWorkspace
 from .local_workspace import LocalWorkspace
@@ -46,6 +50,7 @@ def create_workspace(
     policy_gate: PolicyGate | None = None,
     image: str = "python:3.11-slim",
     root: str | None = None,
+    computer_use: ComputerUseDriver | None = None,
 ) -> DevWorkspace:
     """Build a :class:`DevWorkspace`, picking the isolation tier when available.
 
@@ -60,4 +65,10 @@ def create_workspace(
         backend = candidate if candidate.is_available() else LocalWorkspace()
     else:
         backend = LocalWorkspace(root=root)
-    return DevWorkspace(backend, run_id=rid, actor=actor, policy_gate=policy_gate)
+    return DevWorkspace(
+        backend,
+        run_id=rid,
+        actor=actor,
+        policy_gate=policy_gate,
+        computer_use=computer_use,
+    )
