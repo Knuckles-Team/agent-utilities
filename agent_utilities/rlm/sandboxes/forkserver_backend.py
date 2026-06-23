@@ -188,4 +188,4 @@ def _shutdown_forkserver(ctx: object) -> None:
 
         fs = forkserver._forkserver  # noqa: SLF001 - stdlib singleton; only clean stop available
         if getattr(fs, "_forkserver_pid", None) is not None:
-            fs._stop()  # noqa: SLF001
+            fs._stop()  # type: ignore[attr-defined]  # noqa: SLF001 — stdlib-private stop

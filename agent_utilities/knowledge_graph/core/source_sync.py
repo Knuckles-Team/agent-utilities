@@ -2916,7 +2916,7 @@ def _ard_entities(
         if not eid:
             continue
         meta = getattr(doc, "metadata", None) or {}
-        record = meta.get("record") if isinstance(meta, dict) else {}
+        record = r if isinstance((r := meta.get("record")), dict) else {}
         media = str((meta or {}).get("ard_media_type") or "")
         node_type = "Skill" if media == "application/ai-skill" else "MCPServer"
         node_id = f"ard:{registry_name}:{_slug(eid)}"
