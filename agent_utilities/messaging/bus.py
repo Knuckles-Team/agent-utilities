@@ -22,6 +22,8 @@ Loop, so one agent can hand work to the fleet, not just chat.
 
 CONCEPT:ECO-4.84 — AgentBus federated agent-to-agent communication bus over the KG
 CONCEPT:KG-2.141 — :Agent / :Topic / :BusMessage presence + mailbox node model
+CONCEPT:ECO-4.91 — store-and-forward topic log + per-(agent,topic) replay cursor (leave a message)
+CONCEPT:ECO-4.92 — auto-register + online presence on any bus touch (no explicit register)
 
 See Also:
     - ``messaging/service.py`` (ECO-4.48) — the sibling *human*-reach core this mirrors.
@@ -53,10 +55,22 @@ _AGENT_LABEL = "BusAgent"
 _TOPIC_PREFIX = "topic:"
 _SUB_PREFIX = "bussub:"
 _MSG_PREFIX = "busmsg:"
+# Store-and-forward topic log + per-(agent,topic) replay cursor (CONCEPT:ECO-4.91).
+_TOPICMSG_PREFIX = "topicmsg:"
+_TCURSOR_PREFIX = "bustcur:"
 
 # A registered agent is "online" if it heartbeat within this many seconds; the roster
 # computes presence lazily from ``last_seen`` so no reaper process is needed for liveness.
 DEFAULT_STALE_AFTER_S = 90.0
+
+# Store-and-forward retention for the durable topic log (CONCEPT:ECO-4.91). A stored topic
+# message stays replayable to late subscribers until it expires; the reaper prunes it after.
+TOPIC_MSG_TTL_S = (
+    86_400.0  # 24h — long enough for a peer to come back, still bounded growth.
+)
+# A brand-new subscriber replays only messages newer than its subscription by default (no
+# history dump). An optional bounded "recent" lookback lets a fresh joiner catch up.
+TOPIC_REPLAY_RECENT_S = 3_600.0  # 1h, used only when replay_recent=True on subscribe.
 
 
 class AgentBus:
@@ -198,6 +212,29 @@ class AgentBus:
         props.pop("id", None)
         return self._add_node(f"{_AGENT_PREFIX}{agent_id}", _AGENT_LABEL, props)
 
+    def touch(self, agent_id: str) -> bool:
+        """Keep a participant online by merely *using* the bus (CONCEPT:ECO-4.92).
+
+        Auto-registers ``agent_id`` on first reference (so a session that has the ``graph_bus``
+        tool appears in the roster without an explicit ``register`` call) and refreshes
+        ``last_seen`` on every subsequent action, so any bus touch counts as presence. Returns
+        whether a node now exists. Idempotent and best-effort; never raises into the action.
+        """
+        if not agent_id:
+            return False
+        rows = self._query(
+            f"MATCH (a:{_AGENT_LABEL} {{agent_id: $aid}}) RETURN a", {"aid": agent_id}
+        )
+        if rows:
+            # Existing node: preserve its blob (capabilities/provider) and only bump presence —
+            # a bare {last_seen} write would clobber the rest of the blob on upsert.
+            props = dict(self._props(rows[0], "a"))
+            props.update(status="online", last_seen=time.time())
+            props.pop("id", None)
+            return self._add_node(f"{_AGENT_PREFIX}{agent_id}", _AGENT_LABEL, props)
+        # No node yet → auto-register a minimal :BusAgent so the agent is immediately rosterable.
+        return self.register(agent_id, kind="agent").get("ok", False)
+
     def deregister(self, agent_id: str) -> bool:
         """Mark a participant ``offline`` (graceful leave)."""
         rows = self._query(
@@ -260,16 +297,32 @@ class AgentBus:
     # Subscriptions are first-class nodes (not edges): the live AGE backend doesn't reliably
     # resolve 2-hop edge traversals with a node-property filter, so a 1-hop ``:BusSubscription``
     # read is the robust model. (Found in live E2E.)
-    def subscribe(self, agent_id: str, topic: str) -> bool:
-        """Subscribe a participant to a topic (idempotent; creates the topic if new)."""
+    def subscribe(
+        self, agent_id: str, topic: str, *, replay_recent: bool = False
+    ) -> bool:
+        """Subscribe a participant to a topic (idempotent; creates the topic if new).
+
+        Late-subscriber replay (CONCEPT:ECO-4.91): a per-(agent,topic) cursor is seeded so the
+        next ``receive`` replays the durable topic log from this subscription forward — a fresh
+        subscriber does NOT get the whole history dumped on it. Pass ``replay_recent=True`` to
+        backfill a bounded recent window (:data:`TOPIC_REPLAY_RECENT_S`) so a joiner can catch
+        up on what it just missed. The cursor baseline is only seeded once (re-subscribing keeps
+        the existing cursor so it doesn't re-replay already-read messages).
+        """
         if not (agent_id and topic):
             return False
         self._add_node(f"{_TOPIC_PREFIX}{topic}", "Topic", {"name": topic})
-        return self._add_node(
+        ok = self._add_node(
             f"{_SUB_PREFIX}{agent_id}:{topic}",
             "BusSubscription",
             {"agent_id": agent_id, "topic": topic, "status": "active"},
         )
+        if self._topic_cursor(agent_id, topic) is None:
+            baseline = time.time()
+            if replay_recent:
+                baseline -= TOPIC_REPLAY_RECENT_S
+            self._set_topic_cursor(agent_id, topic, baseline)
+        return ok
 
     def unsubscribe(self, agent_id: str, topic: str) -> bool:
         """Mark a subscription inactive (upsert on the same node id — survives no edge-delete)."""
@@ -285,12 +338,44 @@ class AgentBus:
         rows = self._query(
             "MATCH (s:BusSubscription {topic: $t}) RETURN s", {"t": topic}
         )
-        subs = {
-            str(aid)
+        subs: set[str] = {
+            str(p.get("agent_id"))
             for p in (self._props(r, "s") for r in rows)
-            if p.get("status", "active") == "active" and (aid := p.get("agent_id"))
+            if p.get("status", "active") == "active" and p.get("agent_id")
         }
         return sorted(subs)
+
+    def _active_topics(self, agent_id: str) -> list[str]:
+        """The topics ``agent_id`` is actively subscribed to (for backlog replay)."""
+        rows = self._query(
+            "MATCH (s:BusSubscription {agent_id: $aid}) RETURN s", {"aid": agent_id}
+        )
+        topics: set[str] = {
+            str(p.get("topic"))
+            for p in (self._props(r, "s") for r in rows)
+            if p.get("status", "active") == "active" and p.get("topic")
+        }
+        return sorted(topics)
+
+    # ── Per-(agent,topic) replay cursor (CONCEPT:ECO-4.91) ────────────
+    # A dedicated cursor NODE per (agent, topic) — NOT a property on the shared :Topic node:
+    # the durable backend replaces a node's whole property blob on upsert, so storing each
+    # agent's cursor on the topic would clobber every other agent's. Per-agent nodes are safe.
+    def _topic_cursor(self, agent_id: str, topic: str) -> float | None:
+        rows = self._query(
+            "MATCH (c:BusTopicCursor {agent_id: $aid, topic: $t}) RETURN c",
+            {"aid": agent_id, "t": topic},
+        )
+        if not rows:
+            return None
+        return float(self._props(rows[0], "c").get("last_ts", 0) or 0)
+
+    def _set_topic_cursor(self, agent_id: str, topic: str, last_ts: float) -> None:
+        self._add_node(
+            f"{_TCURSOR_PREFIX}{agent_id}:{topic}",
+            "BusTopicCursor",
+            {"agent_id": agent_id, "topic": topic, "last_ts": float(last_ts)},
+        )
 
     # ── Messaging (governed; :BusMessage durable mailbox) ────────────
     def send(
@@ -324,15 +409,31 @@ class AgentBus:
                 "error": f"policy {decision.decision}: {decision.reason}",
             }
 
-        recipients = [to] if to else self._subscribers(topic)
-        recipients = [r for r in recipients if r and r != sender]
-        if not recipients:
-            _metrics.BUS_MESSAGES.labels(kind=kind, outcome="no_recipient").inc()
-            return {"ok": True, "delivered": [], "note": "no recipients"}
-
         group = uuid.uuid4().hex[:12]
         now = time.time()
         meta_json = json.dumps(meta or {}, default=str)
+
+        recipients = [to] if to else self._subscribers(topic)
+        recipients = [r for r in recipients if r and r != sender]
+
+        # Store-and-forward (CONCEPT:ECO-4.91): a TOPIC message is also written to a durable
+        # topic log so a peer who subscribes LATER (or was offline) still gets it on replay —
+        # whether or not there are current subscribers. This is the "leave a message" path.
+        stored = False
+        if topic:
+            stored = self._store_topic_message(
+                group=group,
+                sender=sender,
+                topic=topic,
+                payload=payload,
+                meta_json=meta_json,
+                created=now,
+            )
+
+        if not recipients:
+            _metrics.BUS_MESSAGES.labels(kind=kind, outcome="no_recipient").inc()
+            return {"ok": True, "delivered": [], "stored": stored}
+
         delivered: list[str] = []
         for rcpt in recipients:
             mid = f"{_MSG_PREFIX}{group}:{rcpt}"
@@ -352,9 +453,53 @@ class AgentBus:
             ):
                 self._add_edge(f"{_AGENT_PREFIX}{rcpt}", mid, "HAS_BUS_MESSAGE")
                 delivered.append(rcpt)
+                if topic:
+                    # This current subscriber already got the message per-recipient, so advance
+                    # its topic-replay cursor past this entry — the backlog replay in ``receive``
+                    # must NOT hand it the same message again (no double-delivery, CONCEPT:ECO-4.91).
+                    self._set_topic_cursor(rcpt, topic, now)
         _metrics.BUS_MESSAGES.labels(kind=kind, outcome="delivered").inc(len(delivered))
         _metrics.BUS_SEND_DURATION.observe(time.time() - start)
-        return {"ok": True, "msg_group": group, "delivered": delivered}
+        out = {"ok": True, "msg_group": group, "delivered": delivered}
+        if topic:
+            out["stored"] = stored
+        return out
+
+    def _store_topic_message(
+        self,
+        *,
+        group: str,
+        sender: str,
+        topic: str,
+        payload: str,
+        meta_json: str,
+        created: float,
+    ) -> bool:
+        """Persist a durable, replayable topic-log entry (CONCEPT:ECO-4.91).
+
+        Reuses the ``:BusMessage`` shape (so federation/group dedup keep working) with a
+        ``recipient=""`` sentinel + ``kind="topic"`` marker and an ``expires_at`` for the reaper.
+        Keyed by ``msg_group`` so a re-send/forward is an idempotent upsert. ``receive`` replays
+        these to subscribers via the per-(agent,topic) cursor — they're never matched by the
+        per-recipient ``recipient=$aid`` query, so they don't double-deliver.
+        """
+        mid = f"{_TOPICMSG_PREFIX}{group}"
+        return self._add_node(
+            mid,
+            "BusMessage",
+            {
+                "msg_group": group,
+                "sender": sender,
+                "recipient": "",
+                "topic": topic,
+                "payload": payload,
+                "meta": meta_json,
+                "kind": "topic",
+                "status": "stored",
+                "created": created,
+                "expires_at": created + TOPIC_MSG_TTL_S,
+            },
+        )
 
     def receive(self, agent_id: str, *, since: int = 0) -> dict[str, Any]:
         """Return the messages for ``agent_id`` after the ``since`` cursor, plus a new cursor.
@@ -362,6 +507,13 @@ class AgentBus:
         ``since`` is the count this reader has already consumed; the returned ``cursor`` is the
         new total to pass next time — the same at-least-once cursor model as
         ``agent_channel.receive``. Durable, so it works cross-host and across engine restarts.
+
+        Also replays the durable TOPIC backlog (CONCEPT:ECO-4.91) for every topic this agent is
+        subscribed to: messages stored after the agent's per-(agent,topic) cursor are returned
+        once, and the cursor is advanced so each topic message is read at most once. Topic
+        backlog is delivered alongside the per-recipient inbox; ``since`` governs only the latter
+        (the topic cursors are independent timestamps), so a reader keeps passing back the same
+        ``cursor`` from the per-recipient slice as before.
         """
         if not agent_id:
             return {"messages": [], "cursor": since}
@@ -372,20 +524,91 @@ class AgentBus:
         msgs = [self._props(r, "m") for r in rows]
         msgs.sort(key=lambda m: (float(m.get("created", 0) or 0), str(m.get("id", ""))))
         new = msgs[since:] if since < len(msgs) else []
-        shaped = [
-            {
-                "id": m.get("id"),
-                "msg_group": m.get("msg_group"),
-                "sender": m.get("sender"),
-                "topic": m.get("topic", ""),
-                "payload": m.get("payload", ""),
-                "meta": _safe_json(m.get("meta")),
-                "status": m.get("status", "sent"),
-                "created": float(m.get("created", 0) or 0),
-            }
-            for m in new
-        ]
+        shaped = [self._shape_message(m) for m in new]
+        # Late-subscriber topic backlog replay (CONCEPT:ECO-4.91).
+        shaped.extend(self._replay_topic_backlog(agent_id))
+        shaped.sort(key=lambda m: m["created"])
         return {"messages": shaped, "cursor": len(msgs)}
+
+    @staticmethod
+    def _shape_message(m: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": m.get("id"),
+            "msg_group": m.get("msg_group"),
+            "sender": m.get("sender"),
+            "topic": m.get("topic", ""),
+            "payload": m.get("payload", ""),
+            "meta": _safe_json(m.get("meta")),
+            "status": m.get("status", "sent"),
+            "created": float(m.get("created", 0) or 0),
+        }
+
+    def _replay_topic_backlog(self, agent_id: str) -> list[dict[str, Any]]:
+        """Pull each subscribed topic's durable log entries newer than this agent's cursor.
+
+        Per-(agent,topic) cursors make each topic message read at most once per agent; current
+        subscribers already had their cursor advanced at send time, so they don't get a duplicate
+        (CONCEPT:ECO-4.91). The cursor is advanced to the newest replayed message's timestamp.
+        """
+        out: list[dict[str, Any]] = []
+        now = time.time()
+        for topic in self._active_topics(agent_id):
+            cursor = self._topic_cursor(agent_id, topic)
+            if cursor is None:
+                cursor = (
+                    now  # no baseline (never seeded) → only future messages, none now.
+                )
+            rows = self._query(
+                "MATCH (m:BusMessage {topic: $t, kind: 'topic'}) RETURN m", {"t": topic}
+            )
+            pending = [
+                p
+                for p in (self._props(r, "m") for r in rows)
+                if p.get("recipient", "") == ""
+                and float(p.get("created", 0) or 0) > cursor
+                and float(p.get("expires_at", 0) or 0) > now
+                and p.get("sender") != agent_id
+            ]
+            if not pending:
+                continue
+            pending.sort(key=lambda m: float(m.get("created", 0) or 0))
+            out.extend(self._shape_message(m) for m in pending)
+            newest = float(pending[-1].get("created", 0) or 0)
+            self._set_topic_cursor(agent_id, topic, max(cursor, newest))
+        return out
+
+    def prune_topic_log(self, *, now: float | None = None) -> int:
+        """Reaper: delete durable topic-log messages whose TTL has expired (CONCEPT:ECO-4.91).
+
+        Bounds KG growth — mirrors ``inbox.retry_unanswered`` as the bus's housekeeping pass.
+        Returns the number pruned. Best-effort; a backend without ``delete_node`` is a no-op.
+        """
+        now = time.time() if now is None else now
+        engine = self._resolve_engine()
+        delete_node = getattr(engine, "delete_node", None)
+        rows = self._query("MATCH (m:BusMessage {kind: 'topic'}) RETURN m", {})
+        expired = [
+            p
+            for p in (self._props(r, "m") for r in rows)
+            if float(p.get("expires_at", 0) or 0) <= now and p.get("id")
+        ]
+        if not callable(delete_node):
+            return 0
+        pruned = 0
+        for p in expired:
+            try:
+                delete_node(p["id"])
+                pruned += 1
+            except Exception as exc:  # noqa: BLE001 — housekeeping is best-effort
+                logger.debug(
+                    "[ECO-4.91] prune topic msg %s failed: %s", p.get("id"), exc
+                )
+        if pruned:
+            logger.info(
+                "[CONCEPT:ECO-4.91] bus reaper pruned %d expired topic message(s).",
+                pruned,
+            )
+        return pruned
 
     def ack(self, agent_id: str, message_id: str) -> bool:
         """Mark a delivered message processed (e.g. once its dispatched work was claimed)."""
