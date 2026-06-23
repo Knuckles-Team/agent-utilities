@@ -43,11 +43,19 @@ long-lived container that the gateway and connectors share.
 > (`cypher_support="subset"`). See
 > [Graph Backend Architecture → Extension Dependencies](../architecture/graph_backends_architecture.md#extension-dependencies).
 
+> **The engine is redb-authoritative by default (CONCEPT:KG-2.195).** Built with
+> `--features full`, the engine persists durably to its `--persist-dir` volume and
+> is a real source of truth — an acked write survives a crash, it is NOT a
+> rebuildable cache. On its first authoritative boot it runs a one-time
+> `.mp`→redb migration (which can take minutes on a large KG); the optional pg-age
+> mirror below is for interop/BI/DR, not for durability.
+
 ## Steps
 
 ```bash
 # 1. Bring up the epistemic-graph engine as its own durable container.
-#    This is the one authority (persists to its --persist-dir volume).
+#    This is the one authority — redb-authoritative, persists to its
+#    --persist-dir volume (an acked write survives a crash).
 docker compose -f docker/epistemic-graph.compose.yml up -d
 export GRAPH_SERVICE_ENDPOINTS=unix:///run/epistemic-graph/engine.sock  # or tcp://
 
