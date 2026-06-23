@@ -68,6 +68,14 @@ class SandboxCapabilities:
     """Advertises the persistent developer-workspace contract (OS-5.33), NOT the snippet
     contract. The snippet router never selects a workspace backend; this flag exists so the two
     runtimes share one capability vocabulary without the router conflating them."""
+    warm_fork: bool = False
+    """Implements the warm-fork lifecycle (CONCEPT:ORCH-1.86): a warmed parent is paid for
+    once, then children are spawned from copy-on-write state instead of cold-booting each.
+    Backends advertising this also implement :class:`ForkableSandbox`. It is a *property of how
+    the backend spawns*, orthogonal to the routing filters above — the router does not gate on
+    it; ``execute`` still works (warm-or-reuse a parent, fork one child, run). It exists so the
+    capability layer and the warm-parent registry can reason about which rungs amortise startup
+    across a fan-out cohort (CONCEPT:ORCH-1.83 :WarmForkFanoutCapability)."""
 
 
 @dataclass
@@ -142,3 +150,95 @@ class Sandbox(abc.ABC):
 
     def __repr__(self) -> str:
         return f"<Sandbox {self.name!r} rank={self.capabilities.preference_rank}>"
+
+
+@dataclass
+class WarmSpec:
+    """The content-addressable description of a warm parent (CONCEPT:ORCH-1.86).
+
+    Two parents with the same ``key`` are interchangeable, so the registry can reuse one
+    instead of paying warm-up again. ``preload`` names the heavy imports the parent loads
+    before snapshotting (the cost we amortise across the fork cohort); ``base_key`` lets a
+    spec declare it derives from another (the diff-snapshot-chain edge, CONCEPT:ORCH-1.83 —
+    "is there a warm parent that is a superset of what I need?").
+    """
+
+    backend: str
+    preload: tuple[str, ...] = ()
+    base_key: str | None = None
+    extra: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def key(self) -> str:
+        """Stable content hash of the spec — the registry/pool key."""
+        import hashlib
+
+        payload = repr(
+            (self.backend, tuple(self.preload), self.base_key, tuple(self.extra))
+        )
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+@dataclass
+class ParentHandle:
+    """A live warmed parent a backend forks children from. ``ref`` is backend-private (a
+    forkserver context, a warmed container id, a microVM snapshot tag). Borrow/idle accounting
+    is the warm-parent registry's job; ``close`` tears the parent down (sync, idempotent)."""
+
+    backend: str
+    spec: WarmSpec
+    ref: Any
+    close: Callable[[], None] = lambda: None
+
+
+class ForkableSandbox(Sandbox):
+    """A :class:`Sandbox` that spawns via warm-fork (CONCEPT:ORCH-1.86) instead of cold-boot.
+
+    A rung implements just two atoms — :meth:`warm` (pay start-up once for a :class:`WarmSpec`)
+    and :meth:`run_forked` (fork ONE copy-on-write child off a warm parent, run the snippet,
+    return its :class:`SandboxResult`) — plus :meth:`warm_spec` describing its parent. It then
+    gets a working :meth:`Sandbox.execute` *for free* from this base: execute warms-or-reuses a
+    parent through the host :class:`~agent_utilities.runtime.warm_registry.WarmParentRegistry`
+    (CONCEPT:OS-5.58) and forks one child. Fan-out is simply many concurrent ``execute`` /
+    ``run_forked`` calls — each forks its own child off the *one* warm parent, which is the
+    copy-on-write amortisation (imports/deps/weights resident once, shared across the cohort).
+
+    Mid-execution ``branch`` (snapshot a *running* child into a new parent) is a microVM-only
+    capability (it needs a memory snapshot os.fork can't take) and is therefore NOT on this
+    base — the ``firecracker`` rung adds it as its own method.
+
+    Subclasses set ``capabilities.warm_fork = True``. :meth:`warm` / :meth:`run_forked` MUST
+    raise :class:`~agent_utilities.rlm.telemetry.SandboxFatalError` on irreversible
+    infrastructure failure (dead daemon, lost snapshot) so callers fast-fail.
+    """
+
+    @abc.abstractmethod
+    def warm_spec(self) -> WarmSpec:
+        """The :class:`WarmSpec` describing this rung's warm parent (its registry/pool key)."""
+
+    @abc.abstractmethod
+    async def warm(self, spec: WarmSpec) -> ParentHandle:
+        """Boot + warm a parent for ``spec`` (pay the expensive start-up once)."""
+
+    @abc.abstractmethod
+    async def run_forked(
+        self, parent: ParentHandle, code: str, env: SandboxEnv
+    ) -> SandboxResult:
+        """Fork one CoW child off ``parent``, run ``code`` against ``env``, return the result."""
+
+    async def execute(self, code: str, env: SandboxEnv) -> SandboxResult:
+        """Warm-or-reuse a parent (host registry, OS-5.58), then fork one child to run ``code``.
+
+        Concrete for every forkable rung — the warm-fork win is structural here: the registry
+        hands back an already-warmed parent across calls, so only the first ``execute`` pays
+        start-up and every subsequent one is a cheap fork.
+        """
+        from agent_utilities.runtime.warm_registry import WarmParentRegistry
+
+        registry = WarmParentRegistry.get()
+        spec = self.warm_spec()
+        parent = registry.acquire(spec.key)
+        if parent is None:
+            parent = await self.warm(spec)
+            registry.register(spec.key, parent, close=parent.close, kind=self.name)
+        return await self.run_forked(parent, code, env)

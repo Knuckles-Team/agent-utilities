@@ -78,17 +78,25 @@ main()
 def _resolve_payload() -> Path | None:
     """Locate the CPython-WASI payload: ``$RLM_WASM_PYTHON`` first, then the platform cache.
 
-    Returns the path if it exists, else ``None`` (backend stays unavailable). Provisioning
-    (download + checksum) is an out-of-band step — see the module docstring.
+    A **Wizer-preinitialized** payload (CONCEPT:ORCH-1.88, ``python-warm*.wasm``) is preferred
+    when present: Wizer snapshots the CPython-WASI heap *after* the heavy imports run, so
+    instantiating it skips the per-run ``import`` cost — the build-time analogue of the
+    ``forkserver`` rung's runtime warm-fork, and it works on any platform incl. ARM. Build one
+    with ``scripts/build_wasm_warm_payload.sh``. Falls back to a cold ``python-*.wasm``/
+    ``python.wasm``. Returns ``None`` (backend unavailable) if nothing is provisioned.
     """
     env = setting("RLM_WASM_PYTHON")
     if env and Path(env).is_file():
         return Path(env)
     cache = Path(platformdirs.user_cache_dir("agent-utilities")) / "rlm-wasm"
     if cache.is_dir():
-        for candidate in sorted(cache.glob("python-*.wasm")) + sorted(
-            cache.glob("python.wasm")
-        ):
+        # Warm (Wizer-preinitialized) payloads first, then cold payloads.
+        ordered = (
+            sorted(cache.glob("python-warm*.wasm"))
+            + sorted(cache.glob("python-*.wasm"))
+            + sorted(cache.glob("python.wasm"))
+        )
+        for candidate in ordered:
             if candidate.is_file():
                 return candidate
     return None
