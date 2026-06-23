@@ -130,6 +130,13 @@ class ProvenanceMirror:
             return f"{kind} {getattr(action, 'path', '')}"
         if kind == "test_run":
             return f"test {getattr(action, 'selector', '') or '<suite>'}"
+        if kind == "computer_use":
+            op = getattr(action, "op", "")
+            target = getattr(action, "element_id", "") or (
+                f"@{getattr(action, 'x', '')},{getattr(action, 'y', '')}"
+            )
+            detail = getattr(action, "text", "") or getattr(action, "keys", "")
+            return f"gui {op} {detail or target}".strip()
         if kind == "agent_finish":
             return getattr(action, "summary", "")[:200]
         return kind
@@ -143,4 +150,12 @@ class ProvenanceMirror:
             return getattr(observation, "report", "")
         if kind == "error":
             return f"error: {getattr(observation, 'message', '')[:200]}"
+        if kind == "screen":
+            err = getattr(observation, "error", "")
+            if err:
+                return f"screen error: {err[:160]}"
+            n = len(getattr(observation, "elements", []) or [])
+            w = getattr(observation, "width", 0)
+            h = getattr(observation, "height", 0)
+            return f"screen {w}x{h}, {n} elements"
         return kind
