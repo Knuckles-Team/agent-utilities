@@ -892,13 +892,44 @@ class IngestionEngine:
             structure = "prose"
 
         windows = self._enrichment_windows(text)
+
+        # Both enrichment passes fan their windows out with bounded concurrency
+        # (CONCEPT:KG-2.174 — generalized cross-lane parallelization). vLLM batches
+        # server-side, so an N-window document costs ~N/concurrency instead of N
+        # sequential round-trips. CONCEPT:ORCH-1.59 — the ceiling is local-inference
+        # capacity (KG_LLM_CONCURRENCY) MINUS the reserved interactive slot, so this
+        # background sweep can never starve the slot the messaging responder /
+        # graph-os-spawned agents need to answer. ONE semaphore is shared across both
+        # passes (they run sequentially: concepts, then facts) to bound total in-flight
+        # LLM work. Concurrent graph writes are already the production reality — the
+        # durable task-worker pool runs `compute_ingest_worker_count()` ingest threads
+        # at once — so off-threading the sync concept extractor is safe.
+        import asyncio
+
+        from agent_utilities.core.config import RESERVED_INTERACTIVE_INSTANCES
+
+        _capacity = setting("KG_LLM_CONCURRENCY", 4)
+        sem = asyncio.Semaphore(max(1, _capacity - RESERVED_INTERACTIVE_INSTANCES))
+
         concepts = 0
-        if enrich_concepts:
-            # Concept extraction uses the sync lite-LLM client; run per window.
-            for window in windows:
-                concepts += self._extract_and_link_concepts(
-                    source_id, window, source_type, title
-                )
+        if enrich_concepts and windows:
+            # Concept extraction uses the SYNC lite-LLM client; off-thread each window
+            # so they extract concurrently (was a serial per-window loop).
+            async def _concepts_for(window: str) -> int:
+                async with sem:
+                    return await asyncio.to_thread(
+                        self._extract_and_link_concepts,
+                        source_id,
+                        window,
+                        source_type,
+                        title,
+                    )
+
+            c_results = await asyncio.gather(
+                *(_concepts_for(w) for w in windows), return_exceptions=True
+            )
+            concepts = sum(r for r in c_results if isinstance(r, int))
+
         facts = 0
         # Skip the open LLM fact pass ONLY for a genuinely small structured record
         # (a single window of CSV/form/table). Multi-window content is a real
@@ -906,20 +937,9 @@ class IngestionEngine:
         # always be mined — never skip it, or we silently lose its facts.
         skip_facts = structure == "structured" and len(windows) <= 1
         if enrich_facts and windows and not skip_facts:
-            # Fact extraction is the measured bottleneck (~tens of seconds/window on the
-            # chat model). It is async, so fan the windows out concurrently with bounded
-            # concurrency — vLLM batches requests, turning an N× sequential cost into
-            # ~N/concurrency. CONCEPT:ORCH-1.59 — the ceiling is the local-inference
-            # capacity (KG_LLM_CONCURRENCY) MINUS the reserved interactive slot, so this
-            # background sweep can never consume the slot the messaging responder /
-            # graph-os-spawned agents need to answer.
-            import asyncio
-
-            from agent_utilities.core.config import RESERVED_INTERACTIVE_INSTANCES
-
-            _capacity = setting("KG_LLM_CONCURRENCY", 4)
-            sem = asyncio.Semaphore(max(1, _capacity - RESERVED_INTERACTIVE_INSTANCES))
-
+            # Fact extraction is the measured bottleneck (~tens of seconds/window on
+            # the chat model). It is async, so fan the windows out concurrently under
+            # the shared semaphore.
             async def _facts_for(window: str) -> int:
                 async with sem:
                     return await self._extract_facts_into_graph(
@@ -1262,7 +1282,7 @@ class IngestionEngine:
             if path.is_file():
                 result = self._ingest_document_file(manifest, path)
             elif path.is_dir():
-                result = self._ingest_document_dir(manifest, path)
+                result = await self._ingest_document_dir(manifest, path)
             else:
                 return IngestionResult(
                     manifest=manifest, status="failed", error=f"Not found: {source}"
@@ -1405,12 +1425,23 @@ class IngestionEngine:
         ".flac",
     }
 
-    def _ingest_document_dir(
+    async def _ingest_document_dir(
         self, manifest: IngestionManifest, root: Path
     ) -> IngestionResult:
         """Ingest every document file under ``root`` via the canonical unit, so a
-        directory yields exactly the same node shape as its files would alone."""
+        directory yields exactly the same node shape as its files would alone.
+
+        Files ingest CONCURRENTLY (CONCEPT:KG-2.174 — generalized cross-lane
+        parallelization): each unit's sync ``_ingest_document_file`` is off-threaded
+        and fanned out under a bounded semaphore (sized to the ingest worker count),
+        so a directory of N docs costs ~N/concurrency instead of N sequential
+        read+LLM passes. Covers every lane that ingests a directory — downloaded
+        papers, crawled web pages, a repo's docs.
+        """
+        import asyncio
         import json as _json
+
+        from ..core.engine_tasks import compute_ingest_worker_count
 
         files = [
             p
@@ -1426,17 +1457,26 @@ class IngestionEngine:
                 details={"reason": "no document files found", "root": str(root)},
             )
 
-        nodes = edges = docs = 0
-        enrichable: list[dict[str, Any]] = []
-        for f in files:
+        sem = asyncio.Semaphore(max(1, compute_ingest_worker_count()))
+
+        async def _one(f: Path) -> IngestionResult:
             sub = IngestionManifest(
                 content_type=manifest.content_type,
                 source_uri=str(f),
                 metadata={**manifest.metadata, "source_url": str(f)},
                 force=manifest.force,
             )
-            res = self._ingest_document_file(sub, f)
-            if res.status == "success":
+            async with sem:
+                return await asyncio.to_thread(self._ingest_document_file, sub, f)
+
+        results = await asyncio.gather(
+            *(_one(f) for f in files), return_exceptions=True
+        )
+
+        nodes = edges = docs = 0
+        enrichable: list[dict[str, Any]] = []
+        for res in results:
+            if isinstance(res, IngestionResult) and res.status == "success":
                 docs += 1
                 nodes += res.nodes_created or 0
                 edges += res.edges_created or 0

@@ -268,7 +268,11 @@ class TestSkillIngestion:
             )
         )
         assert result.status == "success"
-        assert result.nodes_created == 1
+        # KG-2.7 standardization: a skill is ingested like a document — one Skill
+        # node PLUS its instruction-body chunks (for semantic search), not just the
+        # node. So nodes_created is 1 (the skill) + the number of body chunks.
+        assert result.details["chunks"] >= 1
+        assert result.nodes_created == 1 + result.details["chunks"]
         assert result.details["skill_name"] == "test-skill"
         engine.kg.ingest_agent_skill.assert_called_once()
 

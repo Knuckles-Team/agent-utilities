@@ -142,7 +142,9 @@ class TestBulkIngestGate:
         from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
         obj = TaskManagerMixin.__new__(TaskManagerMixin)
-        obj.query_cypher = MagicMock(return_value=rows)  # type: ignore[attr-defined]
+        # :Task status/metadata is the CONTROL plane, so _bulk_ingest_active reads
+        # via _control_cypher (CONCEPT:KG-2.148), not the data-plane query_cypher.
+        obj._control_cypher = MagicMock(return_value=rows)  # type: ignore[attr-defined]
         return obj
 
     def _meta(self, task_type: str) -> str:
@@ -160,7 +162,7 @@ class TestBulkIngestGate:
 
     def test_query_failure_degrades_to_false(self):
         obj = self._mixin([])
-        obj.query_cypher = MagicMock(side_effect=RuntimeError("engine down"))
+        obj._control_cypher = MagicMock(side_effect=RuntimeError("engine down"))
         assert obj._bulk_ingest_active() is False
 
 
