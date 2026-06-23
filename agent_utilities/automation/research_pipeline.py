@@ -631,6 +631,27 @@ class ResearchPipelineRunner:
         article_id = f"article:scholarx:{safe_id}"
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
+        # When invoked with only an id + a PDF (a research cohort, CONCEPT:KG-2.194),
+        # title/abstract arrive empty — extract them from the PDF so the Article node
+        # carries real TEXT. ConceptMatcher builds its match text from name/abstract/
+        # content and embeds it on-the-fly; an empty node has no text to recall against
+        # and is scored as spuriously "novel". So fill content from the PDF here.
+        if pdf_path and not (title.strip() or abstract.strip()):
+            try:
+                from ..knowledge_graph.extraction.readers import read_any
+
+                full = (read_any(str(pdf_path)) or "").strip()
+                if full:
+                    if not title.strip():
+                        first = next(
+                            (ln.strip() for ln in full.splitlines() if ln.strip()), ""
+                        )
+                        title = first[:300] or paper_id
+                    if not abstract.strip():
+                        abstract = full[:6000]
+            except Exception as e:  # noqa: BLE001 — best-effort; fall back to id-only
+                logger.warning(f"cohort PDF text extraction failed for {paper_id}: {e}")
+
         # Try ScholarX bridge first (handles PersonNodes, SourceNodes)
         bridge = self._get_scholarx_bridge()
         if bridge:
