@@ -933,23 +933,32 @@ class ResearchPipelineRunner:
 
         report.papers_discovered = len(papers)
 
-        # Score and classify each paper
-        for paper_data in papers[: self.config.max_papers_per_run]:
+        # Score + ingest every paper CONCURRENTLY (CONCEPT:KG-2.174 — generalized
+        # cross-lane parallelization). Each paper's full/abstract ingest (the heavy
+        # PDF + LLM work) is independent, so they fan out under a bounded semaphore
+        # sized to the ingest worker count; vLLM batches server-side, turning an
+        # N-paper run from N sequential ingests into ~N/concurrency. The per-paper
+        # helper is pure (returns its record, mutates no shared state), so counters
+        # are tallied race-free after the gather.
+        import asyncio
+
+        from ..knowledge_graph.core.engine_tasks import compute_ingest_worker_count
+
+        sem = asyncio.Semaphore(max(1, compute_ingest_worker_count()))
+
+        async def _process_one(paper_data: dict[str, Any]) -> IngestedPaperRecord:
             paper_id = paper_data.get("id", "")
             title = paper_data.get("title", "")
             abstract = paper_data.get("abstract", "")
             authors = paper_data.get("authors", [])
             url = paper_data.get("url", "")
-
             record = IngestedPaperRecord(paper_id=paper_id, title=title)
 
             # Dedup check
             if self._is_paper_known(paper_id):
                 record.status = "already_known"
                 record.tier = "skipped"
-                report.papers_already_known += 1
-                report.records.append(record)
-                continue
+                return record
 
             # Score relevance (cheap keyword prefilter) then let the ConceptMatcher
             # drive the tier by NOVELTY: a paper we already have (low novelty) is
@@ -965,48 +974,59 @@ class ResearchPipelineRunner:
 
             try:
                 if score >= self.config.relevant_threshold:
-                    # Full ingestion
-                    article_id = await self.ingest_paper_full(
-                        paper_id=paper_id,
-                        title=title,
-                        abstract=abstract,
-                        authors=authors,
-                        source_url=url,
-                        relevance_score=score,
-                        domains=domains,
-                    )
+                    async with sem:  # bound the heavy full-PDF + LLM ingest
+                        article_id = await self.ingest_paper_full(
+                            paper_id=paper_id,
+                            title=title,
+                            abstract=abstract,
+                            authors=authors,
+                            source_url=url,
+                            relevance_score=score,
+                            domains=domains,
+                        )
                     record.tier = "relevant"
                     record.article_id = article_id
                     record.status = "ingested_full"
-                    report.papers_relevant += 1
-
                 elif score >= self.config.marginal_threshold:
-                    # Abstract-only ingestion
-                    article_id = await self.ingest_paper_marginal(
-                        paper_id=paper_id,
-                        title=title,
-                        abstract=abstract,
-                        authors=authors,
-                        source_url=url,
-                        relevance_score=score,
-                        domains=domains,
-                    )
+                    async with sem:
+                        article_id = await self.ingest_paper_marginal(
+                            paper_id=paper_id,
+                            title=title,
+                            abstract=abstract,
+                            authors=authors,
+                            source_url=url,
+                            relevance_score=score,
+                            domains=domains,
+                        )
                     record.tier = "marginal"
                     record.article_id = article_id
                     record.status = "ingested_abstract"
-                    report.papers_marginal += 1
-
                 else:
                     record.tier = "skipped"
                     record.status = "below_threshold"
-                    report.papers_skipped += 1
-
             except Exception as e:
                 record.status = f"error: {e}"
-                report.errors.append(f"{paper_id}: {e}")
                 logger.error(f"[CONCEPT:KG-2.6] Ingestion error for {paper_id}: {e}")
+            return record
 
+        records = await asyncio.gather(
+            *(_process_one(p) for p in papers[: self.config.max_papers_per_run])
+        )
+
+        # Tally counters race-free from the returned records (the helper is pure).
+        for record in records:
             report.records.append(record)
+            status = record.status
+            if status == "already_known":
+                report.papers_already_known += 1
+            elif status == "ingested_full":
+                report.papers_relevant += 1
+            elif status == "ingested_abstract":
+                report.papers_marginal += 1
+            elif status == "below_threshold":
+                report.papers_skipped += 1
+            elif status.startswith("error: "):
+                report.errors.append(f"{record.paper_id}: {status[len('error: ') :]}")
 
         # Run OWL reasoning
         if report.papers_relevant > 0 or report.papers_marginal > 0:
