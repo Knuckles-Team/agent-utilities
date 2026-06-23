@@ -21,6 +21,15 @@ from .breadth_ingest import (
 )
 from .concept_matcher import ConceptMatcher, FeatureMatch, Match, MatchReport
 from .dedup import DedupReport, dedup_features
+from .feature_matrix import (
+    FeatureMatrix,
+    FeatureMatrixRow,
+    build_feature_matrix,
+    render_markdown,
+)
+from .feature_matrix import (
+    materialize as materialize_feature_matrix,
+)
 from .gap_analysis import GapReport, is_closed, open_features
 from .ingest import (
     IngestReport,
@@ -55,6 +64,11 @@ from .synergy import (
 )
 
 __all__ = [
+    "FeatureMatrix",
+    "FeatureMatrixRow",
+    "build_feature_matrix",
+    "render_markdown",
+    "materialize_feature_matrix",
     "DedupReport",
     "dedup_features",
     "GapReport",

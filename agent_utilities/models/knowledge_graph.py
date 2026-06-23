@@ -403,6 +403,9 @@ class RegistryNodeType(StrEnum):
     # Research Assimilation Engine (CONCEPT:KG-2.7)
     SDD_FEATURE = "sdd_feature"
     REQUIREMENT = "requirement"  # PRD/BRD/SOW/tasks ingest (reuses DECISION for chat)
+    FEATURE_MATRIX = (
+        "feature_matrix"  # comparative feature/innovation matrix (KG-2.173)
+    )
 
     # Enterprise Standardization & Consolidation Engine (CONCEPT:KG-2.49)
     # An enterprise standard is an interface-type contract per capability domain
@@ -2002,9 +2005,9 @@ class OrganizationNode(RegistryNode):
     org_id: str = Field(description="Stable slug, e.g. 'acme-corp'")
     legal_name: str | None = None
     domain: str | None = Field(default=None, description="Primary DNS domain")
-    org_type: Literal[
-        "company", "team", "vendor", "opensource", "regulator"
-    ] = "company"
+    org_type: Literal["company", "team", "vendor", "opensource", "regulator"] = (
+        "company"
+    )
     parent_org_id: str | None = Field(
         default=None, description="Points to another OrganizationNode"
     )

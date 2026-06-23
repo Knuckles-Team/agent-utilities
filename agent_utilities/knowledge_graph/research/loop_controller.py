@@ -484,6 +484,23 @@ class LoopController:
         syn = synergy_bundles(self.engine)
         ranked = rank_features(self.engine)
 
+        # Materialize the comparative feature/innovation matrix from the now-
+        # assimilated graph (CONCEPT:KG-2.173) — default-ON so every cycle emits the
+        # deliverable: coverage rows, leverage-ranked novel gaps, and the cross-source
+        # synergy bundles (the combine-to-surpass candidates).
+        matrix_summary: dict[str, Any] = {}
+        try:
+            from datetime import UTC, datetime
+
+            from ..assimilation.feature_matrix import build_feature_matrix, materialize
+
+            matrix = build_feature_matrix(
+                self.engine, generated_at=datetime.now(UTC).isoformat()
+            )
+            matrix_summary = materialize(self.engine, matrix)
+        except Exception as e:  # noqa: BLE001 — best-effort, never fails the cycle
+            logger.debug("feature matrix materialize failed: %s", e)
+
         watermark = self._state_watermark()
         try:
             self.engine.add_node(
@@ -511,6 +528,7 @@ class LoopController:
                 }
                 for r in ranked[:20]
             ],
+            "feature_matrix": matrix_summary,
             "watermark": watermark,
         }
 
