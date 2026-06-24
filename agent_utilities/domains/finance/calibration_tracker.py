@@ -50,7 +50,14 @@ def _engine() -> Any:
     try:
         from epistemic_graph.client import SyncEpistemicGraphClient
 
-        _ENGINE_CLIENT = SyncEpistemicGraphClient.connect()
+        from agent_utilities.knowledge_graph.core.engine_resolver import (
+            client_connect_kwargs,
+        )
+
+        # Centralized resolution (CONCEPT:OS-5.63): honour a remote/sharded/insecure
+        # deployment instead of the engine's bare env defaults. No autostart — this
+        # path degrades to the local numpy kernel when the engine is unreachable.
+        _ENGINE_CLIENT = SyncEpistemicGraphClient.connect(**client_connect_kwargs())
         logger.info("epistemic-graph engine connected for calibration scoring")
     except Exception as exc:  # noqa: BLE001 — degrade to local Brier
         logger.debug("epistemic-graph engine unavailable for calibration: %s", exc)

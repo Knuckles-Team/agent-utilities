@@ -46,9 +46,14 @@ PROFILES_META = {
         "install_mode": "deploy-baremetal",
         "idp": "none",
         "ontology_host": "local",
-        # The ONE engine authority runs as a lifecycle-coupled embedded child,
-        # auto-spun-up on demand (EPISTEMIC_GRAPH_AUTOSTART). No engine container.
+        # The ONE engine authority runs as a SHARED local daemon, auto-spun-up
+        # on demand by the single resolver (CONCEPT:OS-5.63) on the lean wheel:
+        # detached + reference-counted (self-stops ~60s after the last client
+        # disconnects; set engine_lifecycle=persistent for a long-living engine).
+        # No engine container. Other entrypoints on the host share the one engine.
         "engine": "embedded",
+        "engine_lifecycle": "refcounted",
+        "engine_idle_shutdown_secs": 60,
     },
     "single-node-prod": {
         "summary": "one durable, secured host (Postgres/pg-age) + the core MCP connectors",
@@ -207,6 +212,10 @@ def build() -> dict:
             "ontology_host": meta["ontology_host"],
             # epistemic-graph engine deployment shape (embedded|container|remote).
             "engine": meta["engine"],
+            # Autostarted-engine lifecycle (CONCEPT:OS-5.63): refcounted (shared,
+            # auto-stops when idle — tiny default) vs persistent (long-living).
+            "engine_lifecycle": meta.get("engine_lifecycle", "refcounted"),
+            "engine_idle_shutdown_secs": meta.get("engine_idle_shutdown_secs", 60),
         }
 
     return {

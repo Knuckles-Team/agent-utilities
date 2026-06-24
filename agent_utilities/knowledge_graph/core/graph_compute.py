@@ -31,6 +31,47 @@ _coupled_children: list[Any] = []
 _coupled_handlers_installed = False
 
 
+# Cache the engine binary's --idle-shutdown-secs support per binary path so the
+# graceful-degradation probe (a single `--help` exec) runs at most once.
+_idle_shutdown_support: dict[str, bool] = {}
+
+
+def _engine_supports_idle_shutdown(server_path: str) -> bool:
+    """Whether the installed engine binary advertises ``--idle-shutdown-secs``.
+
+    CONCEPT:OS-5.63 — engine-flag graceful degradation. A sibling agent is adding
+    this flag to the engine; against an OLDER engine binary that doesn't know it,
+    passing the flag would make the spawn fail. So we probe ``--help``
+    once per binary path and only pass the flag when it appears. The probe is
+    best-effort: a failure to introspect is treated as "supported" only when the
+    binary is missing entirely (the spawn will fail for another reason and be
+    reported); a successful --help that lacks the flag means "not supported".
+    """
+    cached = _idle_shutdown_support.get(server_path)
+    if cached is not None:
+        return cached
+    import subprocess  # nosec B404 — introspect our own engine binary
+
+    supported = False
+    try:
+        out = subprocess.run(  # nosec B603 — fixed argv, our own binary
+            [server_path, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        haystack = f"{out.stdout}\n{out.stderr}"
+        supported = "--idle-shutdown-secs" in haystack
+    except FileNotFoundError:
+        # No binary yet — let the spawn proceed and fail loudly for the real
+        # reason; don't suppress the flag based on a missing binary.
+        supported = False
+    except Exception:  # noqa: BLE001 — introspection is best-effort
+        supported = False
+    _idle_shutdown_support[server_path] = supported
+    return supported
+
+
 def _set_pdeathsig() -> None:
     """preexec_fn: ask the kernel to SIGTERM this child when its parent dies.
 
@@ -163,10 +204,13 @@ def ensure_local_engine() -> Any | None:
     CONCEPT:OS-5.61 — embedded auto-provision. For a server that has no remote
     engine configured (the resolved endpoint is local per
     :func:`shard_topology.is_local_endpoint`) this provisions the ONE engine
-    authority as a lifecycle-coupled child via the EXISTING scan-or-spawn
-    machinery — instantiating a :class:`GraphComputeEngine`, whose ``__init__``
-    runs the lock-guarded (``engine_lock.engine_spawn_guard``) scan-or-spawn and
-    spawns coupled by default. Host-reuse via ``host_lock``/``engine_lock`` means
+    authority as a lifecycle-COUPLED child via the EXISTING scan-or-spawn
+    machinery — instantiating a :class:`GraphComputeEngine` with ``coupled=True``,
+    whose ``__init__`` runs the lock-guarded (``engine_lock.engine_spawn_guard``)
+    scan-or-spawn (the resolver's autostart leg, CONCEPT:OS-5.63). The explicit
+    ``coupled=True`` is the true single-process embedded case: the engine dies
+    with this process (vs the resolver's DEFAULT detached+supervised engine that
+    other entrypoints share). Host-reuse via ``host_lock``/``engine_lock`` means
     co-located servers share the ONE engine; this adds no new locking.
 
     Off unless the embedded path is enabled (``EPISTEMIC_GRAPH_AUTOSTART=1``) and
@@ -188,8 +232,9 @@ def ensure_local_engine() -> Any | None:
         # stand-in for it (same fail-loud contract as the autostart guard).
         if len(endpoints) != 1 or not is_local_endpoint(endpoints[0]):
             return None
-        # Triggers the existing scan-or-spawn (coupled by default).
-        return GraphComputeEngine()
+        # Triggers the resolver's scan-or-spawn; coupled=True selects the
+        # embedded lifetime-bound child (vs the default detached engine).
+        return GraphComputeEngine(coupled=True)
     except Exception as exc:  # noqa: BLE001 — provisioning is best-effort
         logger.warning(
             "ensure_local_engine: could not provision embedded engine: %s", exc
@@ -221,12 +266,11 @@ class GraphComputeEngine:
 
         from agent_utilities.core.config import AgentConfig
 
+        from .engine_resolver import resolve_engine
         from .shard_topology import (
-            is_local_endpoint,
             record_shard_connect,
             resolve_endpoints,
             resolve_routing_graph,
-            shard_endpoint_for,
         )
 
         self.graph: dict[str, Any] = {}
@@ -266,22 +310,25 @@ class GraphComputeEngine:
         # the graph's HRW-owning shard (identity with one endpoint). True async
         # connection pooling callers should use epistemic_graph.pool.ShardRouter,
         # which shares this exact placement function. (CONCEPT:KG-2.58)
-        endpoint = shard_endpoint_for(graph_name, endpoints)
-        # Explicit endpoint override (CONCEPT:KG-2.58 / Phase D — dedicated ingest
-        # engine): the ingest path pins its parse + community-scratch work to a
-        # SEPARATE engine process, isolated from the query engine and the background
-        # daemons (embedding backfill / reconcile / poll). Bypasses HRW so the caller
-        # controls placement; the caller is responsible for only passing a reachable
-        # endpoint (it health-gates + falls back to the query engine otherwise).
+        # ONE engine resolver (CONCEPT:OS-5.63): remote → share-running-local →
+        # autostart-shared-supervised. The resolver owns endpoint placement (HRW),
+        # the local-vs-remote classification, the share-probe, the auth secret,
+        # and whether autostart is permitted — so this chokepoint carries no
+        # inline autostart sequence. ``endpoint`` here is the dedicated-engine
+        # override for the ingest path (CONCEPT:KG-2.58 / Phase D): it pins parse +
+        # community-scratch work to a SEPARATE engine, bypassing HRW (the caller
+        # health-gates it and falls back to the query engine).
         endpoint_override = kwargs.get("endpoint")
-        if endpoint_override:
-            endpoint = str(endpoint_override)
-        # Engine auth (CONCEPT:OS-5.14): resolve the shared HMAC secret —
-        # configured, or generated once and persisted under the XDG data dir —
-        # and export it so sibling clients (the epistemic_graph pool and any
-        # direct SyncEpistemicGraphClient user falls back to this env var) and
-        # spawned engines agree. KG_ENGINE_INSECURE=1 opts out for dev.
-        auth_secret, engine_insecure = resolve_engine_auth(config)
+        resolved = resolve_engine(
+            config, graph_name, endpoint_override=endpoint_override
+        )
+        endpoint = resolved.endpoint
+        auth_secret = resolved.auth_secret
+        engine_insecure = resolved.insecure
+        idle_shutdown_secs = resolved.idle_shutdown_secs
+        # Export the shared secret so sibling clients (the epistemic_graph pool and
+        # any direct SyncEpistemicGraphClient user falling back to this env var) and
+        # spawned engines agree on it (CONCEPT:OS-5.14).
         if auth_secret:
             os.environ.setdefault("GRAPH_SERVICE_AUTH_SECRET", auth_secret)
         connect_kwargs = {
@@ -308,15 +355,9 @@ class GraphComputeEngine:
         breaker = get_breaker(endpoint)
         breaker.before_call()  # fast-fail BEFORE attempting a connect when open
 
-        # Autostart governs only the LOCAL engine (CONCEPT:KG-2.58): in sharded
-        # mode a remote (tcp://) shard is a hard contract — auto-spawning a
-        # local stand-in would silently split that shard's graphs into
-        # invisible islands (same fail-loud convention as KG-2.55). The flock
-        # host role (host_lock.py) likewise elects a daemon owner for the
-        # local engine only.
-        autostart_allowed = setting("EPISTEMIC_GRAPH_AUTOSTART", "") == "1" and (
-            not sharded or is_local_endpoint(endpoint)
-        )
+        # The resolver already gated this to a LOCAL endpoint the process may
+        # spawn (never a remote/sharded shard — that stays fail-loud below).
+        autostart_allowed = resolved.autostart_allowed
 
         try:
             self._client = SyncEpistemicGraphClient.connect(**connect_kwargs)
@@ -349,6 +390,11 @@ class GraphComputeEngine:
                                 **connect_kwargs
                             )
                         except Exception:  # noqa: BLE001 - still down; we spawn
+                            # Detached + supervised (CONCEPT:OS-5.63): the engine
+                            # survives this spawner so OTHER entrypoints on the
+                            # host share it (NOT coupled=pdeathsig), and it
+                            # self-terminates ``idle_shutdown_secs`` after its last
+                            # client disconnects (0 = persistent, never auto-stop).
                             self._client = self._autostart_engine(
                                 connect_kwargs,
                                 sock,
@@ -358,6 +404,8 @@ class GraphComputeEngine:
                                 sys,
                                 time,
                                 Path,
+                                coupled=bool(kwargs.get("coupled", False)),
+                                idle_shutdown_secs=idle_shutdown_secs,
                             )
                 except ConnectionError:
                     record_shard_connect(endpoint, False)
@@ -435,6 +483,7 @@ class GraphComputeEngine:
         time: Any,
         Path: Any,
         coupled: bool = True,
+        idle_shutdown_secs: int = 0,
     ) -> Any:
         """Spawn the local epistemic-graph engine and return a connected client.
 
@@ -445,14 +494,22 @@ class GraphComputeEngine:
         + checkpoint, the same auth secret the client uses (CONCEPT:OS-5.14).
 
         ``coupled`` (CONCEPT:OS-5.61 — embedded auto-provision) selects the child
-        lifecycle. This is the embedded/tiny path's default: the engine is the
-        ONE authority and is lifecycle-coupled to its spawner — it gets a
-        parent-death signal (Linux ``prctl``) plus an atexit/SIGTERM/SIGINT
-        teardown so the embedded engine dies with the process that needs it.
-        Pass ``coupled=False`` for an explicit long-lived daemon (graph-os-host /
-        enterprise shard) that must outlive the launcher: that detaches the child
-        into its own session as before. ``KG_ENGINE_DETACHED=1`` forces the
-        detached behaviour for the autostart path too.
+        lifecycle. ``coupled=True`` (the ``ensure_local_engine`` / true
+        single-process case) lifecycle-couples the engine to its spawner — it
+        gets a parent-death signal (Linux ``prctl``) plus an atexit/SIGTERM/SIGINT
+        teardown so it dies with the process that needs it. ``coupled=False`` (the
+        resolver's autostart leg, CONCEPT:OS-5.63, and the graph-os-host /
+        enterprise shard) detaches the child into its own session so it OUTLIVES
+        the launcher and OTHER entrypoints on the host share it.
+        ``KG_ENGINE_DETACHED=1`` forces detached for the autostart path too.
+
+        ``idle_shutdown_secs`` (CONCEPT:OS-5.63 — supervised, reference-counted)
+        is passed to a detached engine as ``--idle-shutdown-secs <secs>`` so it
+        self-terminates that many seconds after its LAST client disconnects
+        (robust to client crashes). ``0`` = persistent: NO flag passed, the engine
+        runs forever like a local service. A coupled engine ignores this (its
+        spawner already bounds its lifetime). The flag is omitted gracefully if
+        the installed engine binary does not advertise it (older engine).
         """
         if setting("KG_ENGINE_DETACHED", "") == "1":
             coupled = False
@@ -484,6 +541,17 @@ class GraphComputeEngine:
                 "--checkpoint-interval",
                 str(_CHECKPOINT_INTERVAL_S),
             ]
+        # Reference-counted supervision (CONCEPT:OS-5.63): a DETACHED engine that
+        # outlives its spawner needs a self-shutdown so a crashed/exited fleet of
+        # clients doesn't leave it running forever. >0 → arm idle shutdown;
+        # 0 → persistent (omit the flag, engine runs forever like a service). A
+        # coupled engine is already lifetime-bound to its spawner, so skip it.
+        if (
+            not coupled
+            and idle_shutdown_secs > 0
+            and _engine_supports_idle_shutdown(server_path)
+        ):
+            cmd += ["--idle-shutdown-secs", str(idle_shutdown_secs)]
         # Engine auth (CONCEPT:OS-5.14): the spawned engine gets the SAME secret
         # this client authenticates with (the engine reads GRAPH_SERVICE_AUTH_SECRET).
         # With KG_ENGINE_INSECURE the explicit allow flag keeps refuse-insecure
