@@ -112,7 +112,7 @@ def _parse_mirror_targets(raw: Any) -> list[str]:
     """
     if raw is None:
         return []
-    if isinstance(raw, (list, tuple)):
+    if isinstance(raw, list | tuple):
         return [str(t).strip() for t in raw if str(t).strip()]
     s = str(raw).strip()
     if not s:
