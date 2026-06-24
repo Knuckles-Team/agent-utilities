@@ -58,7 +58,7 @@ sandbox = [
 # engine's native tree-sitter, vector/graph algorithms). Pulled by `serving` and `agent`,
 # NOT by `mcp` — a pure tool server never needs the engine.
 engine = [
-    "epistemic-graph>=0.33.0"
+    "epistemic-graph>=0.31.0"
 ]
 # CONCEPT:KG-2.121 — native RSS/Atom feed connector (robust feed parsing). Pulled by
 # `serving` (ingestion) and lazily imported by the connector; absent from the lean core.
@@ -134,7 +134,7 @@ browser = [
 # docker[ssh] + tunnel-manager deps), so the actuator never re-implements
 # exec-over-ssh. Imported lazily by the driver; absent from lean core.
 computer-use = [
-    "container-manager-mcp>=1.45.0"]
+    "container-manager-mcp>=1.43.0"]
 acp = [
     "pydantic-acp>=0.9.6",
     "acpkit[pydantic]>=0.9.6"

@@ -179,6 +179,10 @@ class WarmSpec:
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
+def _noop_close() -> None:
+    """Default no-op teardown for a :class:`ParentHandle` with no backend resource."""
+
+
 @dataclass
 class ParentHandle:
     """A live warmed parent a backend forks children from. ``ref`` is backend-private (a
@@ -188,7 +192,7 @@ class ParentHandle:
     backend: str
     spec: WarmSpec
     ref: Any
-    close: Callable[[], None] = lambda: None
+    close: Callable[[], None] = _noop_close
 
 
 class ForkableSandbox(Sandbox):

@@ -11,6 +11,12 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+:BusTopicCursor a owl:Class ;
+    rdfs:label "BusTopicCursor" ;
+    rdfs:comment """CONCEPT:ECO-4.91 — a per-(BusAgent, Topic) replay cursor for store-and-forward
+    topic messages: a dedicated node (never a property on the shared Topic, which the backend's
+    upsert would clobber) so each agent reads each stored topic message at most once.""" .
+
 :SkillProposal a owl:Class ;
     rdfs:label "Skill Proposal" ;
     rdfs:comment "CONCEPT:KG-2.90 — a propose-only atomic-skill candidate the background distiller synthesizes from a mapped process/task of any connected system; reviewed+approved by a human before it materializes." .
@@ -108,6 +114,12 @@
 :goalText a owl:DatatypeProperty ;
     rdfs:range xsd:string .
 
+:hasBusMessage a owl:ObjectProperty ;
+    rdfs:label "hasBusMessage" ;
+    rdfs:comment "CONCEPT:KG-2.141 — BusAgent -[:HAS_BUS_MESSAGE]-> BusMessage: a participant's durable bus inbox edge (ECO-4.84)." ;
+    rdfs:domain :BusAgent ;
+    rdfs:range :BusMessage .
+
 :hasContext a owl:ObjectProperty ;
     rdfs:label "hasContext" ;
     rdfs:comment "CONCEPT:ORCH-1.39 — links a RunTrace (a spawned run) to the ContextBlob it consumed (provenance)." ;
@@ -142,6 +154,12 @@
     rdfs:domain :Model ;
     rdfs:range xsd:string .
 
+:lastSeen a owl:DatatypeProperty ;
+    rdfs:label "last seen" ;
+    rdfs:comment "CONCEPT:KG-2.141 — unix timestamp of a BusAgent's most recent heartbeat on the bus (ECO-4.84)." ;
+    rdfs:domain :BusAgent ;
+    rdfs:range xsd:double .
+
 :maxAttempts a owl:DatatypeProperty ;
     rdfs:label "max attempts" ;
     rdfs:domain :Task ;
@@ -154,6 +172,12 @@
 :orchestrates a owl:ObjectProperty ;
     rdfs:comment "Workflow → the agents/skills it orchestrates." ;
     rdfs:domain :Workflow .
+
+:presenceStatus a owl:DatatypeProperty ;
+    rdfs:label "presence status" ;
+    rdfs:comment "CONCEPT:KG-2.141 — a BusAgent's bus presence (online|offline), computed from lastSeen vs a staleness window (ECO-4.84)." ;
+    rdfs:domain :BusAgent ;
+    rdfs:range xsd:string .
 
 :prioBucket a owl:DatatypeProperty ;
     rdfs:label "priority bucket" ;
@@ -187,6 +211,12 @@
     rdfs:comment "An Agent or Team that addresses a Goal." ;
     rdfs:range :Goal .
 
+:subscribesToTopic a owl:ObjectProperty ;
+    rdfs:label "subscribesToTopic" ;
+    rdfs:comment "CONCEPT:KG-2.141 — BusSubscription -> the Topic it subscribes a BusAgent to (ECO-4.84)." ;
+    rdfs:domain :BusSubscription ;
+    rdfs:range :Topic .
+
 :systemPrompt a owl:DatatypeProperty ;
     rdfs:domain :Agent ;
     rdfs:range xsd:string .
@@ -216,50 +246,10 @@
     Store-and-forward (CONCEPT:ECO-4.91) also writes a topic-log variant (recipient="",
     kind="topic", expires_at) replayed to late subscribers via a BusTopicCursor.""" .
 
-:Topic a owl:Class ;
-    rdfs:label "Topic" ;
-    rdfs:comment "CONCEPT:KG-2.141 — a named pub/sub channel on the AgentBus that BusAgents subscribe to (ECO-4.84)." .
-
-:BusAgent a owl:Class ;
-    rdfs:label "BusAgent" ;
-    rdfs:comment """CONCEPT:KG-2.141 — a participant on the AgentBus (a session: Claude/other-LLM/
-    any provider, any host), with presence + capabilities (ECO-4.84). A dedicated class (not the
-    typed orchestration :Agent) so bus props land in the generic node store across backends.""" .
-
 :BusSubscription a owl:Class ;
     rdfs:label "BusSubscription" ;
     rdfs:comment """CONCEPT:KG-2.141 — a BusAgent's subscription to a Topic, modeled as a node
     (not an edge) so membership resolves in one hop on every backend (ECO-4.84).""" .
-
-:BusTopicCursor a owl:Class ;
-    rdfs:label "BusTopicCursor" ;
-    rdfs:comment """CONCEPT:ECO-4.91 — a per-(BusAgent, Topic) replay cursor for store-and-forward
-    topic messages: a dedicated node (never a property on the shared Topic, which the backend's
-    upsert would clobber) so each agent reads each stored topic message at most once.""" .
-
-:hasBusMessage a owl:ObjectProperty ;
-    rdfs:label "hasBusMessage" ;
-    rdfs:comment "CONCEPT:KG-2.141 — BusAgent -[:HAS_BUS_MESSAGE]-> BusMessage: a participant's durable bus inbox edge (ECO-4.84)." ;
-    rdfs:domain :BusAgent ;
-    rdfs:range :BusMessage .
-
-:subscribesToTopic a owl:ObjectProperty ;
-    rdfs:label "subscribesToTopic" ;
-    rdfs:comment "CONCEPT:KG-2.141 — BusSubscription -> the Topic it subscribes a BusAgent to (ECO-4.84)." ;
-    rdfs:domain :BusSubscription ;
-    rdfs:range :Topic .
-
-:presenceStatus a owl:DatatypeProperty ;
-    rdfs:label "presence status" ;
-    rdfs:comment "CONCEPT:KG-2.141 — a BusAgent's bus presence (online|offline), computed from lastSeen vs a staleness window (ECO-4.84)." ;
-    rdfs:domain :BusAgent ;
-    rdfs:range xsd:string .
-
-:lastSeen a owl:DatatypeProperty ;
-    rdfs:label "last seen" ;
-    rdfs:comment "CONCEPT:KG-2.141 — unix timestamp of a BusAgent's most recent heartbeat on the bus (ECO-4.84)." ;
-    rdfs:domain :BusAgent ;
-    rdfs:range xsd:double .
 
 :DeadLetterTask a owl:Class ;
     rdfs:label "Dead-Letter Task" ;
@@ -284,6 +274,10 @@
 
 :Tool a owl:Class ;
     rdfs:label "Tool" .
+
+:Topic a owl:Class ;
+    rdfs:label "Topic" ;
+    rdfs:comment "CONCEPT:KG-2.141 — a named pub/sub channel on the AgentBus that BusAgents subscribe to (ECO-4.84)." .
 
 :derivedFrom a owl:ObjectProperty ;
     rdfs:label "derived from" ;
@@ -316,6 +310,12 @@
 
 :Skill a owl:Class ;
     rdfs:label "Skill" .
+
+:BusAgent a owl:Class ;
+    rdfs:label "BusAgent" ;
+    rdfs:comment """CONCEPT:KG-2.141 — a participant on the AgentBus (a session: Claude/other-LLM/
+    any provider, any host), with presence + capabilities (ECO-4.84). A dedicated class (not the
+    typed orchestration :Agent) so bus props land in the generic node store across backends.""" .
 
 :Prompt a owl:Class ;
     rdfs:label "Prompt" .
