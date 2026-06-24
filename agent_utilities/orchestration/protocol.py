@@ -11,7 +11,6 @@ dispatchers, and therefore do NOT need to implement this protocol.
 
 Conforming classes:
     - ``Orchestrator`` (orchestration/manager.py)
-    - ``CapabilityOrchestrator`` (capabilities/orchestrator.py)
     - ``AgentOrchestrationEngine`` (graph/graph_orchestrator.py)
     - ``KGDrivenExecutionEngine`` (graph/dynamic_graph_orchestrator.py)
     - ``ParallelEngine`` (graph/parallel_engine.py)

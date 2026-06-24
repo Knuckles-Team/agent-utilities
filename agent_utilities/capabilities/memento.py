@@ -41,8 +41,6 @@ from pydantic_ai.messages import (
     SystemPromptPart,
 )
 
-from agent_utilities.protocols.capability import CapabilityContext
-
 logger = logging.getLogger(__name__)
 
 
@@ -93,16 +91,6 @@ class MementoCompaction(AbstractCapability[Any]):
     min_block_tokens: int = 200
     enabled: bool = True
     source: str = "agent_runner"
-
-    @property
-    def capability_name(self) -> str:
-        return "memento_compaction"
-
-    def can_handle(self, context: CapabilityContext) -> bool:
-        return context.trigger_data.get("event") == "before_model_request"
-
-    async def execute(self, context: CapabilityContext) -> dict[str, Any]:
-        return {"status": "success", "action": "memento_compact"}
 
     async def for_run(self, ctx: RunContext[Any]) -> MementoCompaction:
         return replace(self)
