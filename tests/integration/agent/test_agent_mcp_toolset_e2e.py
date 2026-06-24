@@ -53,9 +53,13 @@ def _build_repository_manager_server():
 
 
 def _find_fastmcp_toolset(toolsets):
-    """Return the FastMCPToolset among ``toolsets`` (the rm wrapper), or None."""
+    """Return the MCPToolset among ``toolsets`` (the rm wrapper), or None.
+
+    v2 unified MCP clients under ``MCPToolset`` (the old ``FastMCPToolset`` is gone);
+    the factory wraps a FastMCP server instance with ``MCPToolset(server)``.
+    """
     for ts in toolsets:
-        if type(ts).__name__ == "FastMCPToolset" and getattr(ts, "client", None):
+        if type(ts).__name__ == "MCPToolset":
             return ts
     return None
 
@@ -93,11 +97,11 @@ async def test_repository_manager_toolset_assigned_and_tool_executes(
         auto_graph_trace=False,
     )
 
-    # The factory wrapped the FastMCP server in a FastMCPToolset and returned it.
+    # The factory wrapped the FastMCP server in an MCPToolset and returned it.
     assert initialized_toolsets, "factory returned no initialized toolsets"
     factory_ts = _find_fastmcp_toolset(initialized_toolsets)
     assert factory_ts is not None, (
-        "repository-manager server was not wrapped as a FastMCPToolset: "
+        "repository-manager server was not wrapped as an MCPToolset: "
         f"{[type(t).__name__ for t in initialized_toolsets]}"
     )
 
