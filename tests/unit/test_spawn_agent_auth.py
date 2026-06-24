@@ -5,17 +5,31 @@ its remote (SSE/streamable-HTTP) toolset. Those toolsets must carry the same
 service-account bearer the multiplexer attaches to its children, or a
 jwt-protected `*.arpa` server rejects the call `401`. These tests pin that the
 bearer (minted via `client_credentials.bearer_header`) reaches the toolset's
-httpx client, and that the path is inert/safe when auth is disabled.
+transport (pydantic-ai v2 carries auth headers on the MCP transport, which
+threads them into the lazily-built httpx client at connect time), and that the
+path is inert/safe when auth is disabled.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import httpx
 import pytest
 
 from agent_utilities.orchestration import agent_runner
+
+
+def _toolset_transport_headers(toolset: Any) -> dict[str, str]:
+    """Extract the auth headers a built MCP toolset will present.
+
+    pydantic-ai v2's ``MCPToolset`` wraps an ``fastmcp`` ``Client`` whose
+    ``transport`` (``StreamableHttpTransport``/``SSETransport``) holds the
+    headers; the httpx client is built lazily at connect time from those
+    headers, so we assert against the transport — the eager pre-v2
+    ``httpx.AsyncClient(headers=...)`` construction no longer happens at build.
+    """
+    transport = getattr(getattr(toolset, "client", None), "transport", None)
+    return dict(getattr(transport, "headers", None) or {})
 
 
 def test_spawn_auth_headers_returns_minted_bearer(
@@ -47,16 +61,6 @@ def test_spawn_auth_headers_degrades_on_error(
     assert agent_runner._spawn_auth_headers() == {}
 
 
-class _RecordingClient(httpx.AsyncClient):
-    """httpx.AsyncClient subclass that records the headers it was built with."""
-
-    captured: dict[str, Any] = {}
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        _RecordingClient.captured = dict(kwargs.get("headers") or {})
-        super().__init__(*args, **kwargs)
-
-
 def _remote_meta() -> dict[str, Any]:
     return {
         "type": "server",
@@ -73,15 +77,14 @@ def test_remote_toolset_carries_bearer_when_enabled(
         "agent_utilities.mcp.client_credentials.bearer_header",
         lambda _existing: {"Authorization": "Bearer TESTTOKEN"},
     )
-    monkeypatch.setattr("httpx.AsyncClient", _RecordingClient)
-    _RecordingClient.captured = {}
 
     config = agent_runner._build_execution_config(
         object(), "code-enhancer", _remote_meta()
     )
 
     assert config["mcp_toolsets"], "a remote toolset should be bound"
-    assert _RecordingClient.captured.get("Authorization") == "Bearer TESTTOKEN"
+    headers = _toolset_transport_headers(config["mcp_toolsets"][0])
+    assert headers.get("Authorization") == "Bearer TESTTOKEN"
 
 
 def test_remote_toolset_no_bearer_when_disabled(
@@ -90,12 +93,11 @@ def test_remote_toolset_no_bearer_when_disabled(
     monkeypatch.setattr(
         "agent_utilities.mcp.client_credentials.bearer_header", lambda _existing: {}
     )
-    monkeypatch.setattr("httpx.AsyncClient", _RecordingClient)
-    _RecordingClient.captured = {"sentinel": "unset"}
 
     config = agent_runner._build_execution_config(
         object(), "code-enhancer", _remote_meta()
     )
 
     assert config["mcp_toolsets"]
-    assert "Authorization" not in _RecordingClient.captured
+    headers = _toolset_transport_headers(config["mcp_toolsets"][0])
+    assert "Authorization" not in headers

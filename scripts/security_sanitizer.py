@@ -8,7 +8,15 @@ from pathlib import Path
 # Config
 # llms.txt is the deliberate root-level AI entry index (llms-txt convention,
 # like robots.txt) shipped by the docs/day-0 work — not garbage.
-ALLOWED_TXT_NAMES = {"requirements.txt", "requirements-dev.txt", "llms.txt"}
+# overrides.txt is the sanctioned uv dependency-override file (UV_OVERRIDE in
+# docker/Dockerfile, mirroring [tool.uv] override-dependencies) shipped by the
+# pydantic-ai v2 migration — a canonical packaging input, not scratch.
+ALLOWED_TXT_NAMES = {
+    "requirements.txt",
+    "requirements-dev.txt",
+    "llms.txt",
+    "overrides.txt",
+}
 TRANSIENT_PY_PATTERNS = [
     re.compile(r"^test_.*\.py$"),
     re.compile(r"^fix_.*\.py$"),
@@ -176,7 +184,7 @@ def scan_repository(repo_path: Path):
             if file_path.suffix == ".txt":
                 if file_path.name.lower() not in ALLOWED_TXT_NAMES:
                     violations.append(
-                        f"Non-standard root-level text file detected: '{file_path.name}'. Only 'requirements.txt' and 'requirements-dev.txt' are allowed."
+                        f"Non-standard root-level text file detected: '{file_path.name}'. Only {sorted(ALLOWED_TXT_NAMES)} are allowed."
                     )
             # Check transient py files
             elif file_path.suffix == ".py":
