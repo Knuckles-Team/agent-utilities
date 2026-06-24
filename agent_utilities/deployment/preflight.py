@@ -82,15 +82,54 @@ def _engine_binary_path() -> str | None:
     return shutil.which("epistemic-graph-server")
 
 
+def _engine_binary_tier(server_path: str) -> str:
+    """Probe the engine binary's tier/capabilities (CONCEPT:OS-5.63).
+
+    A too-lean wheel may lack the supervised idle-shutdown contract the resolver
+    relies on. Introspect ``--help`` once and report whether
+    ``--idle-shutdown-secs`` is advertised so an older/leaner binary is flagged.
+    Best-effort: returns ``"unknown"`` if the binary can't be introspected.
+    """
+    try:
+        out = subprocess.run(  # nosec B603 — fixed argv, our own binary
+            [server_path, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        haystack = f"{out.stdout}\n{out.stderr}"
+    except Exception:  # noqa: BLE001
+        return "unknown"
+    if "--idle-shutdown-secs" in haystack:
+        return "supervised"
+    return "lean"
+
+
 def _check_engine() -> dict[str, Any]:
-    """Engine binary presence — wheel-first, Rust only as a fallback."""
+    """Engine binary presence + tier — wheel-first, Rust only as a fallback."""
     found = _engine_binary_path()
     cargo = shutil.which("cargo")
     if found:
+        tier = _engine_binary_tier(found)
+        if tier == "lean":
+            return _result(
+                "engine_binary",
+                "warn",
+                f"epistemic-graph-server present ({found}) but does NOT advertise "
+                "`--idle-shutdown-secs` — reference-counted idle shutdown "
+                "(CONCEPT:OS-5.63) is unavailable; an autostarted engine will run "
+                "persistently. Upgrade the wheel for supervised idle shutdown.",
+                remediation="upgrade: `pip install -U agent-utilities` (lean/older engine binary)",
+            )
+        suffix = (
+            "; supports supervised idle shutdown"
+            if tier == "supervised"
+            else " (tier not introspectable)"
+        )
         return _result(
             "engine_binary",
             "ok",
-            f"epistemic-graph-server present ({found}); no Rust needed",
+            f"epistemic-graph-server present ({found}); no Rust needed{suffix}",
         )
     # Not installed yet — that's expected pre-install. The wheel provides it.
     cargo_note = (

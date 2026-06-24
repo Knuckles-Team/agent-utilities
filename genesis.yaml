@@ -31,6 +31,8 @@ profiles:
     idp: none
     ontology_host: local
     engine: embedded
+    engine_lifecycle: refcounted
+    engine_idle_shutdown_secs: 60
   single-node-prod:
     summary: one durable, secured host (Postgres/pg-age) + the core MCP connectors
     recipe: docs/recipes/single-node-prod.md
@@ -43,6 +45,8 @@ profiles:
     idp: keycloak
     ontology_host: local
     engine: container
+    engine_lifecycle: refcounted
+    engine_idle_shutdown_secs: 60
   enterprise:
     summary: multi-host Docker Swarm, full integration (Vault/SSO/DNS/ingress/observability + all connectors)
     recipe: docs/recipes/enterprise.md
@@ -55,6 +59,8 @@ profiles:
     idp: keycloak
     ontology_host: stardog
     engine: remote
+    engine_lifecycle: refcounted
+    engine_idle_shutdown_secs: 60
 run_plan:
   actions:
   - deploy-container

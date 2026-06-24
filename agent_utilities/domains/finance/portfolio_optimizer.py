@@ -55,7 +55,13 @@ class MeanVarianceOptimizer:
 
         from epistemic_graph.client import SyncEpistemicGraphClient
 
-        with SyncEpistemicGraphClient.connect() as client:
+        from agent_utilities.knowledge_graph.core.engine_resolver import (
+            client_connect_kwargs,
+        )
+
+        # Centralized resolution (CONCEPT:OS-5.63): same endpoint/auth the
+        # chokepoint uses, so a remote/sharded/insecure deployment is honoured.
+        with SyncEpistemicGraphClient.connect(**client_connect_kwargs()) as client:
             resp = client.finance.optimize_portfolio(
                 expected_returns,
                 cov_matrix,
@@ -106,7 +112,13 @@ class RiskParityOptimizer:
 
         from epistemic_graph.client import SyncEpistemicGraphClient
 
-        with SyncEpistemicGraphClient.connect() as client:
+        from agent_utilities.knowledge_graph.core.engine_resolver import (
+            client_connect_kwargs,
+        )
+
+        # Centralized resolution (CONCEPT:OS-5.63): same endpoint/auth the
+        # chokepoint uses, so a remote/sharded/insecure deployment is honoured.
+        with SyncEpistemicGraphClient.connect(**client_connect_kwargs()) as client:
             resp = client.finance.risk_parity(cov_matrix)
 
         weights = resp.get("weights", [])
@@ -173,7 +185,13 @@ class BlackLittermanOptimizer:
 
         from epistemic_graph.client import SyncEpistemicGraphClient
 
-        with SyncEpistemicGraphClient.connect() as client:
+        from agent_utilities.knowledge_graph.core.engine_resolver import (
+            client_connect_kwargs,
+        )
+
+        # Centralized resolution (CONCEPT:OS-5.63): same endpoint/auth the
+        # chokepoint uses, so a remote/sharded/insecure deployment is honoured.
+        with SyncEpistemicGraphClient.connect(**client_connect_kwargs()) as client:
             resp = client.finance.black_litterman(
                 market_weights, cov_matrix, views, pick_matrix, tau, risk_aversion
             )
