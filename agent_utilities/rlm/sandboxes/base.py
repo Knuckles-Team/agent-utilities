@@ -180,7 +180,8 @@ class WarmSpec:
 
 
 def _noop_close() -> None:
-    """Default no-op teardown for a :class:`ParentHandle` with no backend resource."""
+    """Default teardown for a :class:`ParentHandle` with no backend resource to free."""
+    return None
 
 
 @dataclass

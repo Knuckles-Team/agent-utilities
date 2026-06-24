@@ -70,7 +70,7 @@ graph TB
     OUTBOX --> M_LB
     OUTBOX --> M_SD
 
-    EG -->|"SPARQL via OWL/RDF layer (local, any data)"| SPARQL["W3C SPARQL endpoint\n(core/owl_bridge · pyjena_fuseki)"]
+    EG -->|"SPARQL via OWL/RDF layer (local - any data)"| SPARQL["W3C SPARQL endpoint\n(core/owl_bridge · pyjena_fuseki)"]
 ```
 
 ## Durability — the engine is redb-authoritative BY DEFAULT (CONCEPT:KG-2.195)
