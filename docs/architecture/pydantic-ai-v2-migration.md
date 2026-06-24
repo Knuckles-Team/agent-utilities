@@ -38,7 +38,7 @@ flowchart LR
       F[agent/factory.py]
       R[orchestration/agent_runner.py]
       B[graph/builder.py]
-      C[core/config.py<br/>coordinated KG]
+      C["core/config.py<br/>coordinated KG"]
     end
     callers --> H{{mcp/toolset_factory.py}}
     H -->|url ending /sse| SSE[SSETransport]

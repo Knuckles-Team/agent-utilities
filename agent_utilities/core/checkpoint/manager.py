@@ -29,10 +29,9 @@ from ...models.knowledge_graph import RegistryNodeType
 # execution no longer consumes a pluggable persistence object (``Graph.run()``
 # dropped the ``persistence=`` parameter). The checkpoint backends below
 # implement our OWN minimal persistence interface (``BaseStatePersistence``) and
-# are write-only snapshot stores. The live agent checkpointing path uses the
+# are write-only snapshot stores (``load_next``/``load_all`` are no-ops returning
+# ``Any | None`` / ``list[Any]``). The live agent checkpointing path uses the
 # hook-based capability in ``agent_utilities.capabilities.checkpointing``.
-NodeSnapshot = Any  # type: ignore[misc,assignment]
-EndSnapshot = Any  # type: ignore[misc,assignment]
 
 if TYPE_CHECKING:
     from ...knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -239,7 +238,7 @@ class PostgresBackend(BaseStatePersistence[StateT]):
                 True,
             )
 
-    async def load_next(self) -> NodeSnapshot[StateT] | None:
+    async def load_next(self) -> Any | None:
         return None
 
     async def load_all(self) -> list[Any]:
@@ -305,7 +304,7 @@ class RedisBackend(BaseStatePersistence[StateT]):
         }
         await r.hset(key, "end", json.dumps(data, default=str))
 
-    async def load_next(self) -> NodeSnapshot[StateT] | None:
+    async def load_next(self) -> Any | None:
         return None
 
     async def load_all(self) -> list[Any]:
