@@ -86,15 +86,17 @@ def test_write_fans_out_to_every_mirror(tmp_path):
         for i in range(20):
             fan.execute(f"CREATE (n:Doc {{id:'{i}'}})", is_write=True)
         # The per-mirror drainer is a background thread; the KG-2.74 contract is
-        # *eventual* convergence. On a heavily-loaded box the drainer can lag, so
-        # wait for the recorded count to reach 20 (poll up to a generous deadline)
-        # rather than asserting it the instant flush_mirrors first returns.
-        deadline = time.monotonic() + 60.0
+        # *eventual* convergence. Poll the recorded count to 20 rather than
+        # asserting it the instant flush_mirrors first returns (the drainer can
+        # lag the lag==0 signal momentarily). The 25s budget stays well under the
+        # per-test timeout so a genuine stall surfaces as a clear count assertion,
+        # not an opaque timeout.
+        deadline = time.monotonic() + 25.0
         while time.monotonic() < deadline:
             fan.flush_mirrors(timeout=1.0)
             if a.n_execute() == 20 and b.n_execute() == 20:
                 break
-            time.sleep(0.05)
+            time.sleep(0.02)
         assert a.n_execute() == 20
         assert b.n_execute() == 20
     finally:
