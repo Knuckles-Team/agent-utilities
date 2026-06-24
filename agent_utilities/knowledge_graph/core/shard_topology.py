@@ -109,14 +109,20 @@ def default_graph_name(config: Any = None) -> str:
 def resolve_endpoints(config: Any = None) -> list[str]:
     """Resolve the configured engine endpoint list (1 = today's single mode).
 
-    Precedence: ``graph_service_endpoints`` (GRAPH_SERVICE_ENDPOINTS, comma or
-    JSON list) → ``tcp://{graph_service_tcp_addr}`` → ``unix://{socket}`` →
+    Precedence: ``engine_endpoint`` (ENGINE_ENDPOINT, the remote override,
+    CONCEPT:OS-5.63) → ``graph_service_endpoints`` (GRAPH_SERVICE_ENDPOINTS, comma
+    or JSON list) → ``tcp://{graph_service_tcp_addr}`` → ``unix://{socket}`` →
     :data:`DEFAULT_LOCAL_ENDPOINT`. Endpoint strings are used VERBATIM as both
     the HRW hash input and the connect target so every client that hashes the
     same configured list (including async ``ShardRouter`` users) agrees on
     placement — configure them with explicit ``unix://`` / ``tcp://`` schemes.
     """
     cfg = _config(config)
+    # The explicit remote override (ENGINE_ENDPOINT) wins outright — the single
+    # "engine deployed on another host" endpoint (CONCEPT:OS-5.63).
+    engine_endpoint = getattr(cfg, "engine_endpoint", None)
+    if engine_endpoint and str(engine_endpoint).strip():
+        return [str(engine_endpoint).strip()]
     eps = [
         str(e).strip() for e in (cfg.graph_service_endpoints or []) if str(e).strip()
     ]

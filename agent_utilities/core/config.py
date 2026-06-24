@@ -1435,6 +1435,58 @@ class AgentConfig(BaseSettings):
     client auth token is sent and a spawned engine gets
     ``EPISTEMIC_GRAPH_ALLOW_INSECURE=1`` so binaries that refuse to start
     without a secret still come up. Default False = secure by default."""
+
+    engine_mode: str = Field(default="auto", alias="ENGINE_MODE")
+    """How this process reaches the ONE engine authority (CONCEPT:OS-5.63 — the
+    single resolver ``knowledge_graph/core/engine_resolver.resolve_engine``):
+
+    * ``auto`` (default) — derive behaviour from the existing ``graph_service_*``
+      fields: a configured remote (``GRAPH_SERVICE_ENDPOINTS`` / multi-shard /
+      ``GRAPH_SERVICE_TCP_ADDR``) is used as-is and never autostarted; a local
+      endpoint is shared if already running, else autostarted (shared,
+      supervised). This is the auto-bundled-engine default.
+    * ``remote`` — force the remote leg: connect to ``engine_endpoint`` (or the
+      configured ``graph_service_*`` endpoint) and NEVER autostart a local
+      stand-in (fail-loud if unreachable). "I deployed the engine in Docker on
+      another host."
+    * ``shared`` — prefer reusing an already-running LOCAL engine; autostart one
+      (detached, shared) only if none is up.
+    * ``embedded`` — always provision a LOCAL engine, autostarting it when absent.
+
+    No env-sprawl: read via ``config.engine_mode`` (a typed field), set in
+    ``config.json`` as ``ENGINE_MODE``."""
+
+    engine_endpoint: str | None = Field(default=None, alias="ENGINE_ENDPOINT")
+    """Explicit remote engine endpoint override for ``engine_mode=remote``
+    (CONCEPT:OS-5.63), e.g. ``tcp://engine.internal:9100`` — the "engine deployed
+    on another host" case. When set it is folded into the resolved endpoint list
+    exactly like a single ``GRAPH_SERVICE_ENDPOINTS`` entry. Unset → the existing
+    ``graph_service_*`` resolution applies."""
+
+    engine_lifecycle: str = Field(default="refcounted", alias="ENGINE_LIFECYCLE")
+    """Lifecycle of an AUTOSTARTED local engine (CONCEPT:OS-5.63):
+
+    * ``refcounted`` (default) — reference-counted idle shutdown: the engine
+      self-terminates ``engine_idle_shutdown_secs`` seconds after its LAST client
+      disconnects (robust to client crashes). The shared-tiny default — auto-stops
+      when idle.
+    * ``persistent`` — LONG-LIVING: the engine NEVER self-stops, even when idle
+      (it runs like a local service). Forces idle-shutdown off regardless of
+      ``engine_idle_shutdown_secs``.
+
+    A remote/cluster engine is inherently persistent — the resolver never passes
+    an idle-shutdown flag in remote mode."""
+
+    engine_idle_shutdown_secs: int = Field(
+        default=60, alias="ENGINE_IDLE_SHUTDOWN_SECS"
+    )
+    """Idle-shutdown grace (seconds) for a ``refcounted`` autostarted engine
+    (CONCEPT:OS-5.63). ``> 0`` → the autostart leg passes
+    ``--idle-shutdown-secs <secs>`` so the engine stops that many seconds after
+    its last client disconnects. ``<= 0`` (or ``engine_lifecycle=persistent``) →
+    NO flag is passed and the engine is long-living (never auto-stops). Default
+    60s. Gracefully omitted against an older engine binary that doesn't advertise
+    the flag."""
     graph_service_checkpoint_secs: int = Field(
         default=300, alias="GRAPH_SERVICE_CHECKPOINT_SECS"
     )
@@ -2104,20 +2156,20 @@ def _init_lazy_config():
 
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT"] = cfg.otel_exporter_otlp_endpoint
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_HEADERS"] = cfg.otel_exporter_otlp_headers
-    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"] = (
-        cfg.otel_exporter_otlp_public_key
-    )
-    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"] = (
-        cfg.otel_exporter_otlp_secret_key
-    )
+    _LAZY_CACHE[
+        "DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"
+    ] = cfg.otel_exporter_otlp_public_key
+    _LAZY_CACHE[
+        "DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"
+    ] = cfg.otel_exporter_otlp_secret_key
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
 
     _LAZY_CACHE["DEFAULT_LANGFUSE_PUBLIC_KEY"] = cfg.langfuse_public_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_SECRET_KEY"] = cfg.langfuse_secret_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
-        cfg.langfuse_dataset_capture_threshold
-    )
+    _LAZY_CACHE[
+        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"
+    ] = cfg.langfuse_dataset_capture_threshold
 
     _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
     _LAZY_CACHE["DEFAULT_A2A_BROKER_URL"] = cfg.a2a_broker_url
@@ -2191,9 +2243,9 @@ def _init_lazy_config():
         _kg_model.id if _kg_model else None
     ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
     _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
-    _LAZY_CACHE["DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"] = (
-        cfg.knowledge_graph_sync_background
-    )
+    _LAZY_CACHE[
+        "DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
+    ] = cfg.knowledge_graph_sync_background
     _LAZY_CACHE["DEFAULT_GRAPH_DIRECT_EXECUTION"] = cfg.graph_direct_execution
 
     # --- Parallel Engine Defaults ---
@@ -2203,9 +2255,9 @@ def _init_lazy_config():
     _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
     _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
     _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
-        cfg.enable_progressive_synthesis
-    )
+    _LAZY_CACHE[
+        "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"
+    ] = cfg.enable_progressive_synthesis
 
     _LAZY_CACHE["AGENT_API_KEY"] = cfg.agent_api_key
     _LAZY_CACHE["ENABLE_API_AUTH"] = cfg.enable_api_auth
@@ -3092,14 +3144,14 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"]["PYTHONWARNINGS"] = (
-                            "ignore:urllib3 (2.3.0) or chardet"
-                        )
+                        cfg["env"][
+                            "PYTHONWARNINGS"
+                        ] = "ignore:urllib3 (2.3.0) or chardet"
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"]["PYTHONWARNINGS"] += (
-                                ",ignore:urllib3 (2.3.0) or chardet"
-                            )
+                            cfg["env"][
+                                "PYTHONWARNINGS"
+                            ] += ",ignore:urllib3 (2.3.0) or chardet"
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.

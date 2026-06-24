@@ -117,27 +117,76 @@ def _check_config() -> dict[str, Any]:
 
 def _check_engine() -> dict[str, Any]:
     try:
+        from agent_utilities.core.config import AgentConfig
+        from agent_utilities.knowledge_graph.core.engine_resolver import resolve_engine
         from agent_utilities.knowledge_graph.core.shard_topology import (
+            default_graph_name,
             shard_topology_status,
         )
 
-        st = shard_topology_status(probe=True, timeout=0.5)
+        cfg = AgentConfig()
+        st = shard_topology_status(cfg, probe=True, timeout=0.5)
+        resolved = resolve_engine(cfg, default_graph_name(cfg))
     except Exception as exc:  # noqa: BLE001
         return _result("engine", "error", f"shard topology probe failed: {exc}")
+    st["resolved_mode"] = resolved.mode
     endpoints = st.get("endpoints", [])
     reachable = [e for e in endpoints if e.get("reachable")]
+
+    # CONCEPT:OS-5.63 — report the RESOLVED mode (how this process reaches the
+    # engine), not just transport reachability.
+    if resolved.mode == "remote":
+        if reachable:
+            return _result(
+                "engine",
+                "ok",
+                f"engine reachable at remote endpoint {resolved.endpoint!r} "
+                f"({len(reachable)}/{len(endpoints)} endpoint(s)) — resolved mode=remote (deployed elsewhere)",
+                data=st,
+            )
+        return _result(
+            "engine",
+            "fail",
+            f"configured remote engine {resolved.endpoint!r} is unreachable — "
+            "remote mode never autostarts a local stand-in (fail-loud)",
+            remediation="start the remote engine (Docker/host) or fix ENGINE_ENDPOINT / GRAPH_SERVICE_ENDPOINTS",
+            skill="agent-utilities-deployment",
+            data=st,
+        )
+
     if reachable:
         return _result(
             "engine",
             "ok",
-            f"epistemic-graph engine reachable ({len(reachable)}/{len(endpoints)} endpoint(s), mode={st.get('mode')})",
+            f"engine reachable at {resolved.endpoint!r} — resolved mode=shared "
+            "(reusing the already-running local engine)",
+            data=st,
+        )
+
+    # Nothing up locally — describe the autostart behaviour the resolver WILL
+    # take on first use, including the idle-shutdown lifecycle.
+    if resolved.autostart_allowed:
+        if resolved.idle_shutdown_secs > 0:
+            life = (
+                f"reference-counted (auto-stops {resolved.idle_shutdown_secs}s "
+                "after the last client disconnects)"
+            )
+        else:
+            life = "persistent (never auto-stops — runs like a local service)"
+        return _result(
+            "engine",
+            "warn",
+            f"no engine running yet at {resolved.endpoint!r} — resolved mode=autostart: "
+            f"a detached, supervised engine will be spawned on first use, {life}",
+            remediation="no action needed (auto-provisions on demand); start eagerly with `graph-os-daemon` if preferred",
+            skill="agent-utilities-deployment",
             data=st,
         )
     return _result(
         "engine",
         "fail",
-        f"no epistemic-graph engine endpoint reachable ({len(endpoints)} configured)",
-        remediation="start the engine/gateway: `graph-os-daemon` (or `cargo run -p epistemic-graph`)",
+        f"no epistemic-graph engine endpoint reachable ({len(endpoints)} configured) and autostart disabled",
+        remediation="start the engine/gateway: `graph-os-daemon` (or `cargo run -p epistemic-graph`), or set engine_mode=embedded",
         skill="agent-utilities-deployment",
         data=st,
     )

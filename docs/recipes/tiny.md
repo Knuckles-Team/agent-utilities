@@ -21,7 +21,7 @@ vLLM/Ollama endpoint).
 |---|---|
 | agent-utilities | pip/uv install, in-process |
 | Knowledge graph | the **epistemic-graph engine authority** — one embedded engine, durable on disk (`--persist-dir`), no mirrors |
-| Engine lifecycle | auto-spun-up + **lifecycle-coupled** (`EPISTEMIC_GRAPH_AUTOSTART=1`, on by default for tiny) — dies with its spawner |
+| Engine lifecycle | auto-spun-up as a **shared local daemon, reference-counted** (CONCEPT:OS-5.63): the ONE resolver autostarts a detached engine on first use and it self-stops ~60s after the last client disconnects. Set `engine_lifecycle=persistent` for a **long-living** engine that never auto-stops (warm, like a local service). A remote engine (enterprise) is inherently persistent. |
 | **OWL/RDF + reasoning** | **on by default** — local OWL-RL inference (epistemic-graph) over the LPG, no external triplestore |
 | **SPARQL** | **local endpoint** at `GET/POST {gateway}/api/sparql` (rdflib materialization + engine `GetTriples` fast path) — zero external deps |
 | graph-os MCP | optional, `uv run graph-os` (stdio) |
@@ -55,15 +55,23 @@ cp .env.example .env            # then edit the model provider line
 # --- Knowledge graph: the engine is the one authority; no mirrors configured ---
 GRAPH_BACKEND=epistemic_graph
 
-# --- Engine: auto-spawn the embedded engine, lifecycle-coupled to its spawner ---
-# ON BY DEFAULT for the tiny profile. The embedded engine is a self-contained,
-# durable child (it persists to disk); it is tied to the lifetime of the process
-# that spun it up (graph-os or a connector's agent_server) and is reaped when
-# that process exits. Autostart only ever applies to the local endpoint; pointing
-# GRAPH_SERVICE_ENDPOINTS at a remote engine disables it (that's the enterprise
-# path). Set KG_ENGINE_DETACHED=1 only when you explicitly want a long-lived
-# daemon that outlives the launcher.
-EPISTEMIC_GRAPH_AUTOSTART=1
+# --- Engine: the ONE resolver auto-provisions a SHARED local engine (OS-5.63) ---
+# Default for tiny: engine_mode=auto autostarts a detached, durable engine on
+# first use (it persists to disk via --persist-dir). Because it is detached, every
+# entrypoint on this host (graph-os, a connector's agent_server, the gateway)
+# SHARES the ONE engine. It is reference-counted: it self-stops
+# ENGINE_IDLE_SHUTDOWN_SECS (default 60) after its LAST client disconnects.
+ENGINE_MODE=auto
+ENGINE_LIFECYCLE=refcounted          # auto-stops when idle (the tiny default)
+ENGINE_IDLE_SHUTDOWN_SECS=60
+#
+# Prefer a warm engine that never auto-stops, even when idle (runs like a local
+# service)? Make it LONG-LIVING instead:
+#   ENGINE_LIFECYCLE=persistent       # (or ENGINE_IDLE_SHUTDOWN_SECS=0)
+#
+# A configured remote engine (ENGINE_ENDPOINT / GRAPH_SERVICE_ENDPOINTS) switches
+# to engine_mode=remote and is never autostarted — that's the enterprise path.
+# Set EPISTEMIC_GRAPH_AUTOSTART=0 for a connect-only process (no autostart).
 
 # --- Model provider: pick ONE ---
 OPENAI_API_KEY=sk-REDACTED
