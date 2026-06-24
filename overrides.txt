@@ -1,0 +1,12 @@
+# uv dependency override (uv pip install --override overrides.txt / UV_OVERRIDE).
+#
+# pydantic-acp 0.9.7 (the optional `[acp]` extra) over-pins
+# `pydantic-ai-slim==1.106.0`, but its code is verified-compatible with pydantic-ai
+# v2 — every pydantic_ai symbol it imports exists in 2.0.0. This relaxes that
+# transitive pin to the v2 floor so any acp-inclusive extra ([acp], [test], [all])
+# resolves cleanly on v2 instead of being dragged back to 1.106.
+#
+# Mirrors `[tool.uv] override-dependencies` in pyproject.toml (which covers
+# uv lock/sync; this file covers `uv pip install`). Remove both once pydantic-acp
+# ships a v2-compatible release. See docs/architecture/pydantic-ai-v2-migration.md.
+pydantic-ai-slim>=2.0.0,<3.0.0

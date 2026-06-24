@@ -32,8 +32,12 @@ jobs:
 
       - name: Install test-backends extras
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[test-backends]"
+          python -m pip install --upgrade pip uv
+          # [test-backends] pulls the optional [acp] extra, whose pydantic-acp
+          # over-pins pydantic-ai-slim==1.106.0. Plain pip can't relax a transitive
+          # pin, so install via uv with the committed override (relaxes it to the v2
+          # floor; pydantic-acp's code is v2-compatible). See overrides.txt.
+          uv pip install --system --override overrides.txt -e ".[test-backends]"
 
       - name: Run the live backend parity matrix
         env:
