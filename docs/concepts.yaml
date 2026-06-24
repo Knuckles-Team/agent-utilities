@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 473
+total_concepts: 474
 total_pillars: 21
 pillars:
 - AHE-3
@@ -701,6 +701,7 @@ concepts:
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/mcp/server_factory.py
   - agent_utilities/mcp/tools/ontology_tools.py
+  - agent_utilities/mcp/toolset_factory.py
   - agent_utilities/mcp_utilities.py
   - agent_utilities/messaging/__init__.py
   - agent_utilities/messaging/backends/__init__.py
@@ -5165,6 +5166,28 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/server/__init__.py
   doc: embedded auto-provision. For a server that has no remote
+- id: OS-5.63
+  name: One engine resolver auto-provisioning every entrypoint by precedence remote then share-running-local
+    then autostart-shared-supervised
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/deployment/doctor.py
+  - agent_utilities/deployment/preflight.py
+  - agent_utilities/domains/finance/calibration_tracker.py
+  - agent_utilities/domains/finance/composite_backtest.py
+  - agent_utilities/domains/finance/copy_trade.py
+  - agent_utilities/domains/finance/credit_quality.py
+  - agent_utilities/domains/finance/forensic_screener.py
+  - agent_utilities/domains/finance/pattern_classifier.py
+  - agent_utilities/domains/finance/portfolio_optimizer.py
+  - agent_utilities/domains/finance/risk_manager.py
+  - agent_utilities/knowledge_graph/core/engine_resolver.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/shard_topology.py
+  doc: One engine resolver auto-provisioning every entrypoint by precedence remote then share-running-local
+    then autostart-shared-supervised
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
