@@ -13,7 +13,13 @@ import argparse
 import json
 import sys
 
-from .config_generator import PROFILES, config_doctor, config_reference, write_config
+from .config_generator import (
+    PROFILES,
+    config_doctor,
+    config_reference,
+    generate_mcp_config,
+    write_config,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,6 +47,25 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     sub.add_parser("reference", help="Print every option grouped by subsystem (JSON).")
+
+    m = sub.add_parser(
+        "mcp",
+        help="Print the minimal mcp_config.json (graph-os + mcp-multiplexer) to register.",
+    )
+    m.add_argument("--profile", choices=list(PROFILES), default="tiny")
+    m.add_argument(
+        "--fleet",
+        dest="fleet",
+        action="store_true",
+        default=True,
+        help="Include mcp-multiplexer (the whole fleet). Default.",
+    )
+    m.add_argument(
+        "--no-fleet",
+        dest="fleet",
+        action="store_false",
+        help="Emit only graph-os (a single KG, no multiplexer).",
+    )
 
     hf = sub.add_parser(
         "harness-fence",
@@ -72,6 +97,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if res.get("healthy") else 1
     if args.command == "reference":
         print(json.dumps(config_reference(), indent=2, default=str))
+        return 0
+    if args.command == "mcp":
+        print(json.dumps(generate_mcp_config(args.profile, fleet=args.fleet), indent=2))
         return 0
     if args.command == "harness-fence":
         from pathlib import Path

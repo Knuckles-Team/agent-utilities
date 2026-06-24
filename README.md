@@ -332,7 +332,11 @@ The detailed architectural diagrams and deep-dive documentation for `agent-utili
 
 ## External Agent Discovery (mcp_config.json)
 
-Register the Knowledge Graph in your IDE's `mcp_config.json` using the standard CLI pattern:
+Register the platform in your IDE's `mcp_config.json` using the standard CLI pattern.
+**Generate it with `setup-config mcp` (doctor-driven) — don't hand-write it.** Pick
+which server to keep: **`graph-os`** exposes *just the Knowledge Graph* (the `go__*`
+tools of one KG backend), while **`mcp-multiplexer`** fronts *the whole fleet* — it
+runs in dynamic mode and loads graph-os plus every `*-mcp` server on demand.
 
 ```json
 {
@@ -343,6 +347,16 @@ Register the Knowledge Graph in your IDE's `mcp_config.json` using the standard 
       "env": {
         "AGENT_ID": "local-developer",
         "WORKSPACE_PATH": "${workspaceFolder}"
+      }
+    },
+    "mcp-multiplexer": {
+      "command": "uv",
+      "args": ["run", "mcp-multiplexer"],
+      "env": {
+        "AGENT_ID": "local-developer",
+        "WORKSPACE_PATH": "${workspaceFolder}",
+        "MCP_MULTIPLEXER_MODE": "dynamic",
+        "MCP_CONFIG": "${workspaceFolder}/mcp_config.json"
       }
     }
   }

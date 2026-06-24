@@ -16,6 +16,7 @@ from agent_utilities.deployment import (
     config_doctor,
     config_reference,
     generate_config,
+    generate_mcp_config,
     write_config,
 )
 
@@ -64,6 +65,59 @@ def test_write_config_roundtrips(tmp_path):
     assert res["keys"] >= 250
     loaded = json.loads(out.read_text())
     assert loaded["GRAPH_DB_URI"] == generate_config("single-node-prod")["GRAPH_DB_URI"]
+
+
+# ── minimal mcp_config (OS-5.65) ────────────────────────────────────────────
+def test_generate_mcp_config_includes_both_servers():
+    cfg = generate_mcp_config("tiny")
+    servers = cfg["mcpServers"]
+    # graph-os = just the KG; mcp-multiplexer = the whole fleet — both offered.
+    assert set(servers) == {"graph-os", "mcp-multiplexer"}
+    assert servers["graph-os"]["command"] == "uv"
+    assert servers["graph-os"]["args"] == ["run", "graph-os"]
+    assert servers["mcp-multiplexer"]["args"] == ["run", "mcp-multiplexer"]
+
+
+def test_generate_mcp_config_multiplexer_dynamic_mode_and_child_config():
+    mux = generate_mcp_config("tiny")["mcpServers"]["mcp-multiplexer"]
+    assert mux["env"]["MCP_MULTIPLEXER_MODE"] == "dynamic"
+    assert mux["env"]["MCP_CONFIG"] == "${workspaceFolder}/mcp_config.json"
+
+
+def test_generate_mcp_config_envs_are_minimal():
+    # Only workspace/agent (+ the multiplexer's mode/MCP_CONFIG) — no model/secrets.
+    servers = generate_mcp_config("tiny")["mcpServers"]
+    assert set(servers["graph-os"]["env"]) == {"AGENT_ID", "WORKSPACE_PATH"}
+    assert set(servers["mcp-multiplexer"]["env"]) == {
+        "AGENT_ID",
+        "WORKSPACE_PATH",
+        "MCP_MULTIPLEXER_MODE",
+        "MCP_CONFIG",
+    }
+
+
+def test_generate_mcp_config_no_fleet_is_graph_os_only():
+    cfg = generate_mcp_config("tiny", fleet=False)
+    assert set(cfg["mcpServers"]) == {"graph-os"}
+
+
+def test_generate_mcp_config_unknown_profile():
+    with pytest.raises(ValueError):
+        generate_mcp_config("bogus")
+
+
+def test_setup_config_mcp_subcommand_emits_valid_json(capsys):
+    from agent_utilities.deployment.cli import main
+
+    rc = main(["mcp"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert set(out["mcpServers"]) == {"graph-os", "mcp-multiplexer"}
+
+    rc = main(["mcp", "--no-fleet"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert set(out["mcpServers"]) == {"graph-os"}
 
 
 # ── reference ──────────────────────────────────────────────────────────────
