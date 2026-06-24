@@ -224,7 +224,7 @@ graph TD
     end
 
     subgraph Initialization_Phase ["2. Graph Initialization (Runtime)"]
-        Config -->|Per-server resilient load| Loader["<b>builder.py</b><br/><i>MCPServerStdio per server</i><br/>⚠️ Skips missing env-vars<br/>❌ Logs failed servers clearly"]
+        Config -->|Per-server resilient load| Loader["<b>builder.py</b><br/><i>MCPToolset per server</i><br/>⚠️ Skips missing env-vars<br/>❌ Logs failed servers clearly"]
         KG_Registry --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
         Loader -->|mcp_toolsets| graphNode
         Builder -->|Register Nodes| Specialists["<b>Specialist Superstates</b><br/>(Python, TS, GitLab, etc.)"]

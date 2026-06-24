@@ -28,7 +28,7 @@ These nodes ensure that every evolutionary step is materialized in the Epistemic
 
 ## Modernized Orchestration: GraphBuilder API
 
-In conjunction with GEPA enhancements, the underlying graph execution topology has been modernized. The legacy manual `Graph()` instantiation logic in `kg_graph_factory.py` has been fully deprecated in favor of the `GraphBuilder` API from `pydantic_graph.beta`.
+In conjunction with GEPA enhancements, the underlying graph execution topology has been modernized. The legacy manual `Graph()` instantiation logic in `kg_graph_factory.py` has been fully deprecated in favor of the `GraphBuilder` API from `pydantic_graph` (top level as of pydantic-graph v2; was `pydantic_graph.beta` in v1).
 
 ### Key Lifecycle Changes
 

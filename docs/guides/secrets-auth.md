@@ -245,7 +245,7 @@ explicit origins.**
 
 ## MCP Token Forwarding
 
-When the agent server invokes MCP tools via subprocess (`MCPServerStdio`),
+When the agent server invokes MCP tools via subprocess (`MCPToolset` stdio transport),
 the user's session token is automatically forwarded:
 
 1. The server stores the user's token in `SecretsClient` or `AGENT_USER_TOKEN`
