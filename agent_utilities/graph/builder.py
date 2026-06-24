@@ -857,31 +857,18 @@ def create_agent(
     # (Loading toolsets logic preserved...)
     if not DEFAULT_VALIDATION_MODE:
         if mcp_url:
-            import httpx
-            from pydantic_ai.mcp import MCPServerSSE, MCPServerStreamableHTTP
+            from agent_utilities.mcp.toolset_factory import build_http_toolset
 
             if is_loopback_url(
                 mcp_url, kwargs.get("current_host"), kwargs.get("current_port")
             ):
                 pass
-            elif mcp_url.lower().endswith("/sse"):
-                _mcp_toolsets.append(
-                    MCPServerSSE(
-                        mcp_url,
-                        http_client=httpx.AsyncClient(
-                            verify=kwargs.get("ssl_verify", DEFAULT_SSL_VERIFY),
-                            timeout=60,
-                        ),
-                    )
-                )
             else:
                 _mcp_toolsets.append(
-                    MCPServerStreamableHTTP(
+                    build_http_toolset(
                         mcp_url,
-                        http_client=httpx.AsyncClient(
-                            verify=kwargs.get("ssl_verify", DEFAULT_SSL_VERIFY),
-                            timeout=60,
-                        ),
+                        verify=kwargs.get("ssl_verify", DEFAULT_SSL_VERIFY),
+                        timeout=60,
                     )
                 )
 

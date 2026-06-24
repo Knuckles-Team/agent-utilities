@@ -88,8 +88,9 @@ agent = [
     "universal-skills>=0.45.0",
     "skill-graphs>=0.38.0",
     "pydantic-ai-skills>=0.11.0",
-    "pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.106.0,<2.0.0",
-    "pydantic-graph>=1.106.0",
+    "pydantic-ai-slim[mcp,openai,anthropic,ag-ui,ui,web,cli]>=2.0.0,<3.0.0",
+    "pydantic-graph>=2.0.0,<3.0.0",
+    "fasta2a[pydantic-ai]>=0.6.1",
     "dspy-ai>=3.2.1"
 ]
 # Server-side agent runtime WITHOUT the frontend component libraries. `agent`
@@ -104,24 +105,25 @@ agent-headless = [
     "universal-skills>=0.45.0",
     "skill-graphs>=0.38.0",
     "pydantic-ai-skills>=0.11.0",
-    "pydantic-ai-slim[fastmcp,openai,a2a,web,cli]>=1.106.0,<2.0.0",
-    "pydantic-graph>=1.106.0",
+    "pydantic-ai-slim[mcp,openai,anthropic,web,cli]>=2.0.0,<3.0.0",
+    "pydantic-graph>=2.0.0,<3.0.0",
+    "fasta2a[pydantic-ai]>=0.6.1",
     "dspy-ai>=3.2.1"
 ]
 agent-google = [
-    "pydantic-ai-slim[google]>=1.106.0,<2.0.0"
+    "pydantic-ai-slim[google]>=2.0.0,<3.0.0"
 ]
 agent-groq = [
-    "pydantic-ai-slim[groq]>=1.106.0,<2.0.0"
+    "pydantic-ai-slim[groq]>=2.0.0,<3.0.0"
 ]
 agent-mistral = [
-    "pydantic-ai-slim[mistral]>=1.106.0,<2.0.0"
+    "pydantic-ai-slim[mistral]>=2.0.0,<3.0.0"
 ]
 agent-anthropic = [
-    "pydantic-ai-slim[anthropic]>=1.106.0,<2.0.0"
+    "pydantic-ai-slim[anthropic]>=2.0.0,<3.0.0"
 ]
 agent-huggingface = [
-    "pydantic-ai-slim[huggingface]>=1.106.0,<2.0.0"
+    "pydantic-ai-slim[huggingface]>=2.0.0,<3.0.0"
 ]
 ag-ui = [
     "agent-webui>=0.41.0"]
@@ -163,7 +165,7 @@ embeddings-ollama = [
     "llama-index-embeddings-ollama>=0.9.0"]
 logfire = [
     "agent-utilities[agent]>=0.51.0",
-    "pydantic-ai-slim[logfire]>=1.106.0,<2.0.0"
+    "pydantic-ai-slim[logfire]>=2.0.0,<3.0.0"
 ]
 graph = [
     "ladybug>=0.17.1"

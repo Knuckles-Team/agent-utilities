@@ -286,7 +286,11 @@ def build_agent_app(
             except ImportError:
                 pass
 
-        a2a_app = _agent_instance.to_a2a(
+        # pydantic-ai v2 removed Agent.to_a2a(); the bridge now lives in fasta2a.
+        from fasta2a.pydantic_ai import agent_to_a2a
+
+        a2a_app = agent_to_a2a(
+            _agent_instance,
             name=_name,
             description=DEFAULT_AGENT_DESCRIPTION,
             version=__version__,

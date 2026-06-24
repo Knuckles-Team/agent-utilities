@@ -823,9 +823,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts[
-            "mementos"
-        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
 
     # CONCEPT:KG-2.134 — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
@@ -887,7 +887,7 @@ def _build_execution_config(
             url = agent_meta["url"]
             if url.startswith("stdio://"):
                 # Stdio-based MCP server — need to parse command
-                from pydantic_ai.mcp import MCPServerStdio
+                from agent_utilities.mcp.toolset_factory import build_stdio_toolset
 
                 parts = url.replace("stdio://", "").split(" ", 1)
                 command = parts[0]
@@ -929,11 +929,9 @@ def _build_execution_config(
                     if "PATH" in os.environ:
                         env_vars["PATH"] = setting("PATH")
 
-                    server = MCPServerStdio(
-                        command=command, args=args, env=env_vars, timeout=30.0
-                    )
+                    server = build_stdio_toolset(command, args, env=env_vars)
                     logger.debug(
-                        "[agent_runner] Created MCPServerStdio command=%s args=%s",
+                        "[agent_runner] Created stdio MCPToolset command=%s args=%s",
                         command,
                         args,
                     )
@@ -951,36 +949,17 @@ def _build_execution_config(
                     for k in ["TERM", "COLORTERM", "FORCE_COLOR"]:
                         merged_env.pop(k, None)
                     config["mcp_toolsets"].append(
-                        MCPServerStdio(
-                            command=command, args=args, env=merged_env, timeout=30.0
-                        )
+                        build_stdio_toolset(command, args, env=merged_env)
                     )
-            elif url.lower().endswith("/sse"):
-                import httpx
-                from pydantic_ai.mcp import MCPServerSSE
-
-                config["mcp_toolsets"].append(
-                    MCPServerSSE(
-                        url,
-                        http_client=httpx.AsyncClient(
-                            verify=DEFAULT_SSL_VERIFY,
-                            timeout=60,
-                            headers=_spawn_auth_headers() or None,
-                        ),
-                    )
-                )
             else:
-                import httpx
-                from pydantic_ai.mcp import MCPServerStreamableHTTP
+                from agent_utilities.mcp.toolset_factory import build_http_toolset
 
                 config["mcp_toolsets"].append(
-                    MCPServerStreamableHTTP(
+                    build_http_toolset(
                         url,
-                        http_client=httpx.AsyncClient(
-                            verify=DEFAULT_SSL_VERIFY,
-                            timeout=60,
-                            headers=_spawn_auth_headers() or None,
-                        ),
+                        headers=_spawn_auth_headers() or None,
+                        verify=DEFAULT_SSL_VERIFY,
+                        timeout=60,
                     )
                 )
         except Exception as e:
@@ -1158,10 +1137,8 @@ async def _execute_focused_tools(
     agent is biased to call independent tools in parallel; ActionPolicy still governs each call.
     Reuses :func:`_execute_single_server` (which binds a LIST of toolsets) for the loop itself.
     """
-    import httpx
-    from pydantic_ai.mcp import MCPServerSSE, MCPServerStreamableHTTP
-
     from agent_utilities.core.config import DEFAULT_SSL_VERIFY
+    from agent_utilities.mcp.toolset_factory import build_http_toolset
 
     servers = [s for s in (getattr(shape, "tool_servers", ()) or ()) if s]
     if not servers:
@@ -1170,15 +1147,13 @@ async def _execute_focused_tools(
     toolsets: list[Any] = []
     for srv in servers:
         url = _fleet_server_url(srv)
-        client = httpx.AsyncClient(
-            verify=DEFAULT_SSL_VERIFY,
-            timeout=60,
-            headers=_spawn_auth_headers() or None,
-        )
         toolsets.append(
-            MCPServerSSE(url, http_client=client)
-            if url.lower().endswith("/sse")
-            else MCPServerStreamableHTTP(url, http_client=client)
+            build_http_toolset(
+                url,
+                headers=_spawn_auth_headers() or None,
+                verify=DEFAULT_SSL_VERIFY,
+                timeout=60,
+            )
         )
 
     focused_config = dict(config)

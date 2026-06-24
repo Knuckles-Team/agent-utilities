@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 
 from pydantic import TypeAdapter
 
@@ -25,21 +25,14 @@ from agent_utilities.core.config import setting
 
 from ...models.knowledge_graph import RegistryNodeType
 
-try:
-    from pydantic_graph.persistence import (
-        BaseStatePersistence,
-        EndSnapshot,
-        NodeSnapshot,
-    )
-except ImportError:
-    BaseStatePersistence = Any  # type: ignore
-    NodeSnapshot = Any  # type: ignore
-    EndSnapshot = Any  # type: ignore
-
-try:
-    from pydantic_graph.persistence.file import FileStatePersistence
-except ImportError:
-    FileStatePersistence = None  # type: ignore
+# pydantic-ai v2 removed the ``pydantic_graph.persistence`` package, and graph
+# execution no longer consumes a pluggable persistence object (``Graph.run()``
+# dropped the ``persistence=`` parameter). The checkpoint backends below
+# implement our OWN minimal persistence interface (``BaseStatePersistence``) and
+# are write-only snapshot stores. The live agent checkpointing path uses the
+# hook-based capability in ``agent_utilities.capabilities.checkpointing``.
+NodeSnapshot = Any  # type: ignore[misc,assignment]
+EndSnapshot = Any  # type: ignore[misc,assignment]
 
 if TYPE_CHECKING:
     from ...knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -48,6 +41,32 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 StateT = TypeVar("StateT")
+
+
+class BaseStatePersistence(Generic[StateT]):
+    """Minimal checkpoint-persistence interface implemented by the backends below.
+
+    v2 graph execution no longer resumes from persistence, so the snapshot
+    writers default to no-ops and ``load_next``/``load_all`` to empty; concrete
+    backends (file/postgres/redis) override the writers to record snapshots.
+    """
+
+    async def snapshot_node(self, state: StateT, next_node: Any) -> None:
+        return None
+
+    async def snapshot_node_if_new(
+        self, snapshot_id: str, state: StateT, next_node: Any
+    ) -> None:
+        return None
+
+    async def snapshot_end(self, state: StateT, end: Any) -> None:
+        return None
+
+    async def load_next(self) -> Any | None:
+        return None
+
+    async def load_all(self) -> list[Any]:
+        return []
 
 
 # The installed pydantic-graph BaseStatePersistence interface (the backends below implement it):
@@ -70,40 +89,65 @@ def _state_json(state: Any) -> str:
 
 
 class FileBackend(BaseStatePersistence[StateT]):
-    """JSON-based file persistence — forwards to pydantic-graph ``FileStatePersistence``."""
+    """JSON-file snapshot store.
+
+    v2 removed pydantic-graph's ``FileStatePersistence``, so this writes
+    snapshots to a JSON array itself. Write-only (graph resume from persistence
+    is gone in v2), so ``load_next``/``load_all`` inherit the empty defaults.
+    """
 
     def __init__(self, json_file: str | Path):
-        if FileStatePersistence is None:
-            raise ImportError("pydantic-graph file persistence is not available.")
         self.path = Path(json_file)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._internal = FileStatePersistence(json_file=self.path)
+        self._run_id = ""
+
+    @asynccontextmanager
+    async def record_run(self, snapshot_id: str) -> Any:
+        self._run_id = snapshot_id
+        yield
+
+    def _append(self, record: dict[str, Any]) -> None:
+        existing: list[Any] = []
+        if self.path.exists():
+            try:
+                existing = json.loads(self.path.read_text())
+            except (OSError, ValueError):
+                existing = []
+        existing.append(record)
+        self.path.write_text(json.dumps(existing, default=str))
 
     async def snapshot_node(self, state: StateT, next_node: Any) -> None:
-        await self._internal.snapshot_node(state, next_node)
+        self._append(
+            {
+                "run_id": self._run_id,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "node_id": _node_identifier(next_node),
+                "state": _state_json(state),
+                "is_end": False,
+            }
+        )
 
     async def snapshot_node_if_new(
         self, snapshot_id: str, state: StateT, next_node: Any
     ) -> None:
-        await self._internal.snapshot_node_if_new(snapshot_id, state, next_node)
+        await self.snapshot_node(state, next_node)
 
     async def snapshot_end(self, state: StateT, end: Any) -> None:
-        await self._internal.snapshot_end(state, end)
-
-    def record_run(self, snapshot_id: str) -> Any:
-        return self._internal.record_run(snapshot_id)
-
-    async def load_next(self) -> NodeSnapshot[StateT] | None:
-        return await self._internal.load_next()
-
-    async def load_all(self) -> list[Any]:
-        return await self._internal.load_all()
+        self._append(
+            {
+                "run_id": self._run_id,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "output": getattr(end, "data", str(end)),
+                "state": _state_json(state),
+                "is_end": True,
+            }
+        )
 
     def set_graph_types(self, graph: Any) -> None:
-        self._internal.set_graph_types(graph)
+        return None
 
     def should_set_types(self) -> bool:
-        return self._internal.should_set_types()
+        return False
 
 
 class PostgresBackend(BaseStatePersistence[StateT]):

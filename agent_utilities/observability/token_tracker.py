@@ -370,8 +370,9 @@ class TokenUsageTracker:
         Parameters
         ----------
         usage_metadata : Any
-            A pydantic-ai ``Usage`` object with ``request_tokens``,
-            ``response_tokens``, etc.
+            A pydantic-ai ``RunUsage`` object with ``input_tokens``,
+            ``output_tokens``, etc. (v1 ``request_tokens``/``response_tokens``
+            are still read as a fallback).
         agent_name : str
             The agent that made the call.
         model_name : str
@@ -394,8 +395,14 @@ class TokenUsageTracker:
             model_name=model_name,
             session_id=session_id,
             user_id=user_id,
-            prompt_tokens=getattr(usage_metadata, "request_tokens", 0) or 0,
-            response_tokens=getattr(usage_metadata, "response_tokens", 0) or 0,
+            # pydantic-ai v2 renamed request_tokens/response_tokens to
+            # input_tokens/output_tokens; prefer the new names, fall back to the old.
+            prompt_tokens=getattr(usage_metadata, "input_tokens", None)
+            or getattr(usage_metadata, "request_tokens", 0)
+            or 0,
+            response_tokens=getattr(usage_metadata, "output_tokens", None)
+            or getattr(usage_metadata, "response_tokens", 0)
+            or 0,
             thoughts_tokens=getattr(usage_metadata, "thoughts_tokens", 0)
             or getattr(usage_metadata, "details", {}).get("thoughts_tokens", 0)
             or 0,
