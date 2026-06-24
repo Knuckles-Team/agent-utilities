@@ -283,7 +283,12 @@ def _check_mcp_fleet(live: bool = False) -> dict[str, Any]:
 
         path = get_mcp_config_path()
         if not path or not Path(path).exists():
-            return _result("mcp_fleet", "skip", "no mcp_config.json found in workspace")
+            return _result(
+                "mcp_fleet",
+                "skip",
+                "no mcp_config.json found in workspace",
+                remediation="`setup-config mcp` to generate the minimal config (graph-os + mcp-multiplexer)",
+            )
         import importlib.util as _u
 
         spec = _u.find_spec("scripts.validate_mcp_config")

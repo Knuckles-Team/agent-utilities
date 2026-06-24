@@ -206,6 +206,56 @@ def _default_config_path() -> Path:
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Minimal mcp_config.json (mcpServers) — doctor-driven, NOT hand-written.
+# ──────────────────────────────────────────────────────────────────────────
+def generate_mcp_config(profile: str = "tiny", *, fleet: bool = True) -> dict[str, Any]:
+    """Return the minimal ``{"mcpServers": {...}}`` an IDE registers.
+
+    CONCEPT:OS-5.65 doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+
+    Two console scripts front the platform, and which one you register decides what
+    the agent sees:
+
+    - **graph-os** = *just the Knowledge Graph* — the ``go__*`` tools of one KG
+      backend (``uv run graph-os``). Register this for a single, self-contained KG.
+    - **mcp-multiplexer** = *the whole fleet* — runs in dynamic mode and fronts
+      graph-os **plus every ``*-mcp`` server on demand** (``uv run mcp-multiplexer``;
+      only meta-tools + always-on servers are visible, the rest load via
+      ``find_tools`` / ``load_tools``). Register this for the fleet.
+
+    ``graph-os`` is ALWAYS included; ``mcp-multiplexer`` is included when ``fleet``
+    (the default) so the emitted config offers both — pick by deleting the one you
+    don't want. Envs stay MINIMAL: only workspace path / agent id (and the
+    multiplexer's mode + its child-fleet ``MCP_CONFIG`` pointer) live here — model
+    selection, routing, and secrets live in the XDG ``config.json``, NOT the MCP env.
+    """
+    if profile not in PROFILES:
+        raise ValueError(f"Unknown profile {profile!r}; choose one of {PROFILES}.")
+    servers: dict[str, Any] = {
+        "graph-os": {
+            "command": "uv",
+            "args": ["run", "graph-os"],
+            "env": {
+                "AGENT_ID": "local-developer",
+                "WORKSPACE_PATH": "${workspaceFolder}",
+            },
+        },
+    }
+    if fleet:
+        servers["mcp-multiplexer"] = {
+            "command": "uv",
+            "args": ["run", "mcp-multiplexer"],
+            "env": {
+                "AGENT_ID": "local-developer",
+                "WORKSPACE_PATH": "${workspaceFolder}",
+                "MCP_MULTIPLEXER_MODE": "dynamic",
+                "MCP_CONFIG": "${workspaceFolder}/mcp_config.json",
+            },
+        }
+    return {"mcpServers": servers}
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Grouped reference — every option under its config.py subsystem section.
 # ──────────────────────────────────────────────────────────────────────────
 _SECTION_RE = re.compile(r"^\s*#\s*[-─=]{2,}\s*(.+?)\s*[-─=]{2,}\s*$")
