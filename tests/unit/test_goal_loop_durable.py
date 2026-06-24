@@ -21,6 +21,16 @@ from agent_utilities.core import sessions as _sessions
 
 @pytest.fixture
 def loop_env(tmp_path, monkeypatch):
+    # These are LIVE-PATH tests: run_goal_loop spins a real IntelligenceGraphEngine
+    # whose iteration validation only fires when the engine is reachable. With no
+    # isolated test engine (a bare pre-commit run), run_loop fails internally and
+    # the side-effect marker is never written, so skip rather than report a
+    # spurious failure. CI / canonical autostart the engine and run these for real.
+    import tests.conftest as _ct
+
+    if not getattr(_ct, "_TEST_ENGINE_AVAILABLE", False):
+        pytest.skip("epistemic-graph engine not reachable; goal-loop live path needs it")
+
     db = tmp_path / "sessions.db"
     conn = sqlite3.connect(str(db))
     conn.executescript(_sessions._SQLITE_DDL)
