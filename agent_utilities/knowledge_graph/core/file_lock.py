@@ -1,4 +1,6 @@
-"""Cross-platform advisory file-lock primitives (CONCEPT:OS-5.64).
+"""Cross-platform advisory file-lock primitives.
+
+CONCEPT:OS-5.64 — Cross-platform locks plus per-OS process spawn, endpoints and doctor hints.
 
 The KG's single-instance guards (:mod:`host_lock`, :mod:`engine_lock`) and the
 liveness probe rely on advisory ``flock``. ``fcntl.flock`` is **POSIX-only**, so

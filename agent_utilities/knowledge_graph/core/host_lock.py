@@ -50,13 +50,24 @@ class KGHostAlreadyRunning(RuntimeError):
 
 
 def _lock_path() -> Path:
-    """Return the host-lock path under the user runtime dir (created if needed)."""
-    try:
-        import platformdirs
+    """Return the host-lock path under the user runtime dir (created if needed).
 
-        base = Path(platformdirs.user_runtime_dir("agent-utilities"))
-    except Exception:  # pragma: no cover - platformdirs always present in practice
-        base = Path(setting("XDG_RUNTIME_DIR") or "/tmp") / "agent-utilities"  # nosec B108 — XDG fallback, not a security-sensitive temp path
+    ``AGENT_UTILITIES_RUNTIME_DIR`` (the package's standing runtime-root override,
+    see :func:`agent_utilities.cli.runtime_dir`) wins when set — this isolates the
+    singleton lock for parallel stacks and lets tests point the lock at a tmp dir
+    (subprocess-safe: children inherit the env), so they never collide with a live
+    daemon's real lock. Otherwise platformdirs' user runtime dir is used.
+    """
+    override = setting("AGENT_UTILITIES_RUNTIME_DIR")
+    if override:
+        base = Path(override) / "agent-utilities"
+    else:
+        try:
+            import platformdirs
+
+            base = Path(platformdirs.user_runtime_dir("agent-utilities"))
+        except Exception:  # pragma: no cover - platformdirs always present in practice
+            base = Path(setting("XDG_RUNTIME_DIR") or "/tmp") / "agent-utilities"  # nosec B108 — XDG fallback, not a security-sensitive temp path
     base.mkdir(parents=True, exist_ok=True)
     return base / "kg_daemon_host.lock"
 
