@@ -349,7 +349,13 @@ async def test_docker_network_is_isolated():
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 async def test_docker_timeout_is_fatal():
+    # Spins a real Docker container and WAITS for an app-level timeout to fire on
+    # an infinite loop. On a saturated box, container startup + the spin window
+    # can exceed the fast suite's per-test budget, so this real-resource timing
+    # test is marked ``slow`` (excluded from the ``-m "not slow"`` pre-commit
+    # gate, exercised in the full/nightly run) rather than flaking under load.
     from agent_utilities.rlm.telemetry import SandboxFatalError
 
     sb = _docker_or_skip(timeout_secs=6)
