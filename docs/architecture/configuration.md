@@ -204,6 +204,7 @@ opt-in, all off by default, single typed source of truth.
 | `KG_LOOP_TOPICS` | `5` | hot topics processed per cycle |
 | `KG_BREADTH_LIBRARY_ROOTS` | `""` | comma-separated OSS library roots auto-ingested by the breadth step (deployment-specific; empty = no-op) |
 | `KG_BREADTH_REPO_ROOTS` | `""` | comma-separated code-repo roots auto-ingested by the breadth step |
+| `AGENT_THINKING_EFFORT` | `""` | pydantic-ai v2 native extended thinking on every built agent: `low`/`medium`/`high` (empty = off). Opt-in because reasoning is expensive (more tokens/latency); runs natively where the provider supports it and no-ops elsewhere. Read via `setting()` in `agent/factory.py`; per-agent override = the `create_agent(thinking_effort=...)` arg. |
 
 | Family | Count | Notes |
 |---|---|---|

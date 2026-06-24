@@ -272,6 +272,13 @@ def create_agent(
     output_eviction: bool = True,
     eviction_threshold_chars: int = 80_000,
     memento_compaction: bool = True,
+    # v2 synergy (opt-in — both are expensive/behavior-changing):
+    #   thinking_effort: native provider extended thinking ('low'|'medium'|'high');
+    #     falls back to the AGENT_THINKING_EFFORT config setting. None/"" = off.
+    #   defer_tool_loading: keep agent-local toolsets out of the prompt as a compact
+    #     catalog, loaded on demand by the model.
+    thinking_effort: str | None = None,
+    defer_tool_loading: bool = False,
 ) -> tuple[Agent[Any, Any], list[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
 
@@ -581,6 +588,17 @@ def create_agent(
     if include_teams:
         agent_capabilities.append(TeamCapability())
 
+    # CONCEPT:ORCH-1.58 (v2 synergy) — native provider-side extended thinking. Opt-in
+    # because reasoning is expensive: enabled via the thinking_effort arg or the
+    # AGENT_THINKING_EFFORT config setting. It runs natively where the provider supports
+    # reasoning and no-ops elsewhere, and composes with the per-call sampling profile
+    # (which still threads vLLM enable_thinking via extra_body) attached below.
+    _thinking_effort = thinking_effort or setting("AGENT_THINKING_EFFORT", "")
+    if _thinking_effort:
+        from pydantic_ai.capabilities import Thinking
+
+        agent_capabilities.append(Thinking(effort=_thinking_effort))
+
     # Unified Hooks
     all_hooks = hooks or []
     if auto_graph_trace:
@@ -601,6 +619,16 @@ def create_agent(
             all_hooks.append(rlm_large_output_hook)
         except ImportError:
             pass
+
+    # CONCEPT (v2 synergy) — on-demand tool loading: keep agent-local toolsets out of
+    # the prompt as a one-line catalog until the model loads them, cutting prompt bloat
+    # for tool-heavy agents. Opt-in (default off) because it changes tool visibility.
+    # Orthogonal to the cross-process multiplexer (find_tools/load_tools).
+    if defer_tool_loading and agent_toolsets:
+        agent_toolsets = [
+            ts.defer_loading() if hasattr(ts, "defer_loading") else ts
+            for ts in agent_toolsets
+        ]
 
     agent = Agent(
         model=model,

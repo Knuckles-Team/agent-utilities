@@ -59,6 +59,25 @@ flowchart LR
 - `agent-webui` narrowed from the full `pydantic-ai` meta to `pydantic-ai-slim[ui]` (it uses the v2
   `Agent.to_web()`).
 
+## Native ergonomics wired (synergy)
+
+Two v2-native capabilities are wired into the agent factory as **opt-in** synergy (opt-in
+because both are expensive / behavior-changing; our richer custom systems — KG memory,
+ontological guardrails, multi-tier Monty sandbox, multiplexer, held-turns — stay):
+
+- **`Thinking(effort=)`** — native provider extended thinking, added to every built agent when
+  `create_agent(thinking_effort='low'|'medium'|'high')` or the `AGENT_THINKING_EFFORT` config
+  setting is set (default off). It runs natively where the provider supports reasoning and
+  no-ops elsewhere, and composes with the per-call sampling profile (which still threads the
+  vLLM `enable_thinking` knob via `extra_body`).
+- **`defer_tool_loading=True`** (`create_agent` arg) — wraps agent-local toolsets in v2's
+  `DeferredLoadingToolset` so they appear as a compact catalog and load on demand, cutting
+  prompt bloat for tool-heavy agents. Orthogonal to the cross-process multiplexer
+  (`find_tools`/`load_tools`).
+
+v2 also **auto-injects `ToolSearch` and a pending-message-drain (mid-run steering) capability**
+natively — both visible in every built agent's `root_capability` tree.
+
 ## Native protocol adapters vs. our plugins
 
 v2's native UI/protocol adapters live in `pydantic_ai.ui`: **AG-UI** (`ag_ui`) and **Vercel AI**
