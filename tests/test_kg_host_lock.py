@@ -15,7 +15,23 @@ import sys
 import textwrap
 import time
 
+import pytest
+
 PY = sys.executable
+
+
+@pytest.fixture(autouse=True)
+def _isolated_runtime_dir(tmp_path, monkeypatch):
+    """Point the host lock at a per-test tmp runtime dir so it never collides with a
+    LIVE ``graph-os`` daemon's real lock on the box.
+
+    ``host_lock._lock_path`` honours ``AGENT_UTILITIES_RUNTIME_DIR`` (the package's
+    standing runtime-root override); setting it via the environment isolates BOTH the
+    in-process tests and the subprocesses they spawn (children inherit ``os.environ``),
+    so the acquire/release, the LOCK_SH liveness probe, and the second-host-blocks
+    assertions all run against an isolated lock file regardless of any real daemon.
+    """
+    monkeypatch.setenv("AGENT_UTILITIES_RUNTIME_DIR", str(tmp_path))
 
 
 def _fresh_module():
