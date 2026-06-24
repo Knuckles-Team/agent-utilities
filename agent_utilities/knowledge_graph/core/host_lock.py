@@ -26,7 +26,6 @@ the engine's task-manager ``__init__`` and the result is read everywhere via
 from __future__ import annotations
 
 import atexit
-import fcntl
 import json
 import logging
 import os
@@ -36,6 +35,12 @@ from pathlib import Path
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.knowledge_graph.core.file_lock import (
+    LockUnavailable,
+    lock_exclusive_nb,
+    lock_shared_nb,
+    unlock,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +86,7 @@ def _try_acquire() -> bool:
     path = _lock_path()
     fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_exclusive_nb(fd)
     except (BlockingIOError, OSError):
         os.close(fd)
         return False
@@ -186,16 +191,18 @@ def host_daemon_running() -> bool:
     # FAILS while it runs and SUCCEEDS once it's gone. This neither blocks nor steals the
     # lock (LOCK_SH is incompatible with the held LOCK_EX), and it's immune to a stale
     # lockfile left by a released-but-not-deleted lock (no exclusive holder ⇒ SH succeeds).
+    # On Windows the lock byte must exist to lock it; O_RDWR (vs O_RDONLY) lets the
+    # msvcrt shared-probe acquire+release. POSIX is happy with read-only too.
     try:
-        fd = os.open(str(path), os.O_RDONLY)
+        fd = os.open(str(path), os.O_RDWR if os.name == "nt" else os.O_RDONLY)
     except OSError:
         return False
     try:
-        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
-    except OSError:
+        lock_shared_nb(fd)
+    except (LockUnavailable, OSError):
         return True  # an exclusive lock is held → a live host daemon is running
     else:
-        fcntl.flock(fd, fcntl.LOCK_UN)  # nobody holds it → no host
+        unlock(fd)  # nobody holds it → no host
         return False
     finally:
         os.close(fd)
@@ -213,7 +220,7 @@ def release_host_lock() -> None:
     if fd is None:
         return
     try:
-        fcntl.flock(fd, fcntl.LOCK_UN)
+        unlock(fd)
     except Exception:  # pragma: no cover
         pass
     try:

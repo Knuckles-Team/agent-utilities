@@ -28,7 +28,6 @@ launching a second engine by hand. It does make our own autostart path single-in
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import hashlib
 import json
 import logging
@@ -40,6 +39,11 @@ from pathlib import Path
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.knowledge_graph.core.file_lock import (
+    LockUnavailable,
+    lock_exclusive_nb,
+    unlock,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,10 +120,10 @@ def engine_spawn_guard(
     try:
         while True:
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                lock_exclusive_nb(fd)
                 acquired = True
                 break
-            except (BlockingIOError, OSError):
+            except (LockUnavailable, BlockingIOError, OSError):
                 if time.monotonic() >= deadline:
                     h = engine_lock_holder(socket_path) or {}
                     logger.warning(
@@ -138,7 +142,7 @@ def engine_spawn_guard(
     finally:
         try:
             if acquired:
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                unlock(fd)
         except Exception:  # pragma: no cover
             pass
         with contextlib.suppress(Exception):
