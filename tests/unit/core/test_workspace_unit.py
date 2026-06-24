@@ -51,12 +51,14 @@ def test_initialize_workspace(temp_workspace):
     assert main_agent.exists()
     assert mcp_config.exists()
 
-    # The main_agent.json template must be valid JSON with the new schema.
+    # The main_agent.json template must be valid JSON in the canonical
+    # StructuredPrompt shape (CONCEPT:ORCH-1.80): task/instructions.core_directive/
+    # tools replace the legacy name/content/capabilities keys.
     data = json.loads(main_agent.read_text(encoding="utf-8"))
-    assert data["name"] == "main-agent"
+    assert data["task"] == "main-agent"
     assert data["type"] == "prompt"
-    assert "content" in data and data["content"].startswith("# Main Agent")
-    assert "workspace-manager" in data["capabilities"]
+    assert data["instructions"]["core_directive"].startswith("# Main Agent")
+    assert "workspace-manager" in data["tools"]
 
     # mcp_config.json must also be valid JSON.
     assert json.loads(mcp_config.read_text(encoding="utf-8")) == {"mcpServers": {}}

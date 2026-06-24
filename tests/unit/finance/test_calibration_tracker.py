@@ -32,6 +32,29 @@ class _FakeBackend:
     def add_edge(self, src, tgt, rel_type=None):
         self.edges.append((src, tgt, rel_type))
 
+    # The KG persist path now writes via the materialization core's UNWIND
+    # MERGE batches (write_batch -> write_entities -> execute_batch,
+    # CONCEPT:KG-2.9), so decode those into the same (id, type, props) /
+    # (src, tgt, rel) shape the assertions inspect.
+    def execute(self, query, params=None):
+        return []  # content-hash prefetch -> nothing stored -> full write
+
+    def execute_batch(self, query, batch):
+        import re as _re
+
+        node_label = _re.search(r"MERGE \(n:([^\s{]+)", query)
+        rel_type = _re.search(r"MERGE \(s\)-\[r:([^\]]+)\]", query)
+        if node_label:
+            label = node_label.group(1).strip("`")
+            for row in batch or []:
+                props = {k: v for k, v in row.items() if k != "id"}
+                self.nodes.append((row.get("id"), label, props))
+        elif rel_type:
+            rel = rel_type.group(1).strip("`")
+            for row in batch or []:
+                self.edges.append((row.get("source"), row.get("target"), rel))
+        return []
+
 
 def test_brier_local_matches_formula():
     # forecasts perfectly right -> 0; coin flips -> 0.25.
