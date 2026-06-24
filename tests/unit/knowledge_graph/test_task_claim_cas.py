@@ -48,6 +48,14 @@ class _ClaimHarness:
     def _get_host_token(self) -> str:
         return self._tok
 
+    # The claim CAS now routes through the control-plane accessor
+    # (CONCEPT:KG-2.148): ``_control`` falls back to ``self.backend`` when no
+    # isolated ``control_backend`` is set, so binding the real property keeps the
+    # CAS pointed at the mocked backend in these tests.
+    control_backend = None
+    _control = TaskManagerMixin._control
+    _control_cypher = TaskManagerMixin._control_cypher
+
     # Bind the real method under test.
     _claim_next_task = TaskManagerMixin._claim_next_task
 
