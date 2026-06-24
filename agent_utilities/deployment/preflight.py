@@ -45,6 +45,45 @@ PROFILES = ("tiny", "single-node-prod", "enterprise")
 COMPONENTS = ("agent-terminal-ui", "agent-webui", "geniusbot")
 
 
+def _os_family() -> str:
+    """Coarse OS family for per-OS remediation hints: ``windows`` / ``macos`` /
+    ``linux`` / ``other`` (CONCEPT:OS-5.64)."""
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    return "other"
+
+
+def _per_os_install_hint(tool: str) -> str:
+    """Per-OS package-manager hint for installing ``tool`` (best-effort, advisory).
+
+    Keeps remediation platform-aware so a Windows/macOS operator isn't told to run
+    ``apt-get``. Pure string formatting — no shelling out.
+    """
+    fam = _os_family()
+    table = {
+        "docker": {
+            "linux": "install Docker Engine (`curl -fsSL https://get.docker.com | sh`); enterprise also needs Swarm",
+            "macos": "install Docker Desktop (`brew install --cask docker`) and start it",
+            "windows": "install Docker Desktop (`winget install Docker.DockerDesktop` or `choco install docker-desktop`) with the WSL2 backend",
+        },
+        "rust": {
+            "linux": "install via rustup (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)",
+            "macos": "install via rustup (`brew install rustup-init && rustup-init`) or the rustup script",
+            "windows": "install via rustup (`winget install Rustlang.Rustup`); the MSVC build tools are also required",
+        },
+        "node": {
+            "linux": "install Node>=18 (e.g. `nvm install 18` or your distro package) and `corepack enable`",
+            "macos": "install Node>=18 (`brew install node`) and `corepack enable`",
+            "windows": "install Node>=18 (`winget install OpenJS.NodeJS.LTS`) and `corepack enable`",
+        },
+    }
+    return table.get(tool, {}).get(fam, f"install {tool} for your platform")
+
+
 # ── individual checks (each returns one _result; never raises) ──────────────
 def _check_python() -> dict[str, Any]:
     v = sys.version_info
@@ -135,7 +174,7 @@ def _check_engine() -> dict[str, Any]:
     cargo_note = (
         f"Rust toolchain present at {cargo} (fallback build available)"
         if cargo
-        else "Rust not installed — only needed if no prebuilt wheel exists for this platform"
+        else f"Rust not installed — only needed if no prebuilt wheel exists for this platform ({_per_os_install_hint('rust')})"
     )
     return _result(
         "engine_binary",
@@ -160,7 +199,7 @@ def _check_docker(profile: str) -> dict[str, Any]:
         "docker",
         "fail",
         f"profile {profile!r} needs a container runtime but docker is not on PATH",
-        remediation="install Docker Engine (and, for enterprise, Docker Swarm)",
+        remediation=_per_os_install_hint("docker"),
         skill="infrastructure-orchestrator",
     )
 

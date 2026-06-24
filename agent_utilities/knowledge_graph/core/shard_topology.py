@@ -79,8 +79,38 @@ __all__ = [
 #: default lives on ``AgentConfig.kg_default_graph`` (KG_DEFAULT_GRAPH).
 DEFAULT_GRAPH = "__commons__"
 
-#: The historical single-endpoint default (matches the engine's own fallback).
-DEFAULT_LOCAL_ENDPOINT = "unix:///tmp/epistemic-graph.sock"  # nosec B108
+
+def _platform_default_endpoint() -> str:
+    """The per-platform default local endpoint (CONCEPT:OS-5.64).
+
+    Mirrors the engine's own per-platform default transport (``src/main.rs``):
+
+    * **Unix:** a UDS at ``$XDG_RUNTIME_DIR/epistemic-graph.sock`` (when the dir
+      exists) else ``/tmp/epistemic-graph.sock`` — ``unix://`` scheme.
+    * **Windows:** Tokio has no AF_UNIX listener, so the engine's default
+      transport is TCP loopback (``127.0.0.1:8765``, overridable via
+      ``GRAPH_SERVICE_TCP_FALLBACK_ADDR`` engine-side). The client therefore
+      defaults to the same ``tcp://127.0.0.1:8765`` so a zero-config Windows
+      install reaches an autostarted engine.
+    """
+    import os as _os
+    import sys as _sys
+
+    from agent_utilities.core.config import setting
+
+    if _os.name == "nt" or _sys.platform.startswith("win"):
+        return "tcp://127.0.0.1:8765"
+    xdg = setting("XDG_RUNTIME_DIR")  # sanctioned accessor (no bare os.environ)
+    if xdg and _os.path.isdir(str(xdg)):
+        return f"unix://{_os.path.join(str(xdg), 'epistemic-graph.sock')}"
+    return "unix:///tmp/epistemic-graph.sock"  # nosec B108
+
+
+#: The single-endpoint default (matches the engine's own per-platform fallback).
+#: Computed once at import — on Windows this is a ``tcp://`` loopback (no UDS),
+#: on Unix a ``unix://`` socket. Kept as a module constant for the many callers
+#: that reference it; the resolver also re-derives it lazily where config is None.
+DEFAULT_LOCAL_ENDPOINT = _platform_default_endpoint()
 
 # Tenant ids come from JWT claims (org_id/tid/...) and may contain arbitrary
 # characters; graph names should stay shell/file/metric friendly.

@@ -518,7 +518,14 @@ class GraphComputeEngine:
         logger.info(
             "epistemic-graph Tokio service not running. Auto-starting daemon (single-instance guard held)..."
         )
-        server_path = str(Path(sys.executable).parent / "epistemic-graph-server")
+        # The maturin wheel installs the binary next to the interpreter; on Windows
+        # it carries a `.exe` suffix (Scripts/epistemic-graph-server.exe).
+        _server_exe = (
+            "epistemic-graph-server.exe"
+            if os.name == "nt"
+            else "epistemic-graph-server"
+        )
+        server_path = str(Path(sys.executable).parent / _server_exe)
         cmd = [server_path]
         if sock:
             cmd += ["--socket-path", str(sock)]
@@ -567,26 +574,41 @@ class GraphComputeEngine:
             # start a new session (that would detach it); instead arm the
             # parent-death signal in the child and track it for atexit/SIGTERM
             # teardown so the embedded engine never outlives its spawner.
-            child = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=False,
-                preexec_fn=_set_pdeathsig,
-                env=child_env,
-            )
+            #
+            # `preexec_fn` is POSIX-only — on Windows subprocess.Popen REFUSES it
+            # (ValueError). The parent-death signal is Linux-only anyway, so on
+            # non-POSIX we pass no preexec_fn and rely entirely on the
+            # atexit/SIGTERM/SIGINT teardown registered by _install_coupled_handlers
+            # (the documented cross-platform coupling mechanism).
+            coupled_kwargs: dict[str, Any] = {
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+                "env": child_env,
+            }
+            if os.name == "posix":
+                coupled_kwargs["start_new_session"] = False
+                coupled_kwargs["preexec_fn"] = _set_pdeathsig
+            child = subprocess.Popen(cmd, **coupled_kwargs)  # nosec B603
             _coupled_children.append(child)
             _install_coupled_handlers()
         else:
             # Explicit long-lived daemon (graph-os-host / enterprise shard):
-            # detach into its own session so it survives this launcher.
-            subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-                env=child_env,
-            )
+            # detach so it survives this launcher. On POSIX that's a new session;
+            # on Windows there is no setsid — DETACHED_PROCESS + a new process group
+            # detaches the child from the launcher's console/job instead.
+            detach_kwargs: dict[str, Any] = {
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+                "env": child_env,
+            }
+            if os.name == "posix":
+                detach_kwargs["start_new_session"] = True
+            else:  # Windows
+                detach_kwargs["creationflags"] = (
+                    subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
+                    | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+                )
+            subprocess.Popen(cmd, **detach_kwargs)  # nosec B603
         time.sleep(1.0)
         return SyncEpistemicGraphClient.connect(**connect_kwargs)
 
