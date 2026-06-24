@@ -63,7 +63,7 @@ def test_load_mcp_servers_from_config_missing():
     assert servers == []
 
 
-@patch("pydantic_ai.mcp.load_mcp_servers")
+@patch("pydantic_ai.mcp.load_mcp_toolsets")
 def test_load_mcp_servers_from_config_success(mock_load):
     config_data = {
         "mcpServers": {
