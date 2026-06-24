@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pydantic_graph.beta import StepContext
+from pydantic_graph import StepContext
 
 from agent_utilities.graph.state import GraphDeps, GraphState
 from agent_utilities.graph.verification import join_step, wide_search_joiner_step

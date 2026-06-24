@@ -45,7 +45,7 @@ def test_load_mcp_config_valid(tmp_path):
     }
     config_path.write_text(json.dumps(config_data))
 
-    with patch("pydantic_ai.mcp.load_mcp_servers") as mock_load:
+    with patch("pydantic_ai.mcp.load_mcp_toolsets") as mock_load:
         mock_load.return_value = [MagicMock()]
         servers = load_mcp_servers_from_config(config_path)
         assert len(servers) == 1
@@ -58,7 +58,7 @@ def test_load_mcp_config_env_expansion(tmp_path):
     config_data = {"mcpServers": {"test": {"command": "${TEST_VAR}"}}}
     config_path.write_text(json.dumps(config_data))
 
-    with patch("pydantic_ai.mcp.load_mcp_servers"):
+    with patch("pydantic_ai.mcp.load_mcp_toolsets"):
         load_mcp_servers_from_config(config_path)
         # Verify that expand_env_vars was called (implicitly by checking temp file content is not possible here without more mocks,
         # but we can assume base_utilities.expand_env_vars works)

@@ -42,7 +42,7 @@ def test_prune_context_by_semantic_distance():
 
 import os
 
-from pydantic_graph.beta import StepContext
+from pydantic_graph import StepContext
 
 from agent_utilities.graph.routing import router_step
 from agent_utilities.graph.state import GraphDeps, GraphState

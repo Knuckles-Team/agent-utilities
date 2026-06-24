@@ -502,13 +502,13 @@ def test_create_agent_loopback_mcp_url_skipped(
 def test_create_agent_mcp_url_connection_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Exception during MCPServerSSE instantiation is caught and logged."""
+    """Exception during MCP toolset construction is caught and logged."""
     monkeypatch.setattr(agent_factory, "DEFAULT_VALIDATION_MODE", False)
     monkeypatch.setattr(agent_factory, "is_loopback_url", lambda *a, **k: False)
-    # Force MCPServerSSE to raise on instantiation
+    # Force MCP toolset construction to raise (v2 routes through build_http_toolset)
     monkeypatch.setattr(
         agent_factory,
-        "MCPServerSSE",
+        "build_http_toolset",
         MagicMock(side_effect=RuntimeError("connection refused")),
     )
     agent, mcp_toolsets = agent_factory.create_agent(
@@ -526,11 +526,11 @@ def test_create_agent_mcp_url_connection_error(
 def test_create_agent_mcp_url_streamable_http(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Non-/sse URL uses MCPServerStreamableHTTP (line 318-324)."""
+    """Non-/sse URL is built via the MCP toolset factory (streamable HTTP)."""
     monkeypatch.setattr(agent_factory, "DEFAULT_VALIDATION_MODE", False)
     monkeypatch.setattr(agent_factory, "is_loopback_url", lambda *a, **k: False)
-    mock_streamable = MagicMock(return_value=MagicMock(http_client=None))
-    monkeypatch.setattr(agent_factory, "MCPServerStreamableHTTP", mock_streamable)
+    mock_build = MagicMock(return_value=MagicMock())
+    monkeypatch.setattr(agent_factory, "build_http_toolset", mock_build)
     agent, mcp_toolsets = agent_factory.create_agent(
         name="TestStreamable",
         mcp_url="http://mcp.example.com/api",
@@ -538,16 +538,16 @@ def test_create_agent_mcp_url_streamable_http(
         enable_skills=False,
         enable_universal_tools=False,
     )
-    mock_streamable.assert_called_once()
+    mock_build.assert_called_once()
     assert agent is not None
 
 
 def test_create_agent_mcp_url_sse_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """URL ending in /sse uses MCPServerSSE (line 311-317)."""
+    """URL ending in /sse is built via the MCP toolset factory."""
     monkeypatch.setattr(agent_factory, "DEFAULT_VALIDATION_MODE", False)
     monkeypatch.setattr(agent_factory, "is_loopback_url", lambda *a, **k: False)
-    mock_sse = MagicMock(return_value=MagicMock(http_client=None))
-    monkeypatch.setattr(agent_factory, "MCPServerSSE", mock_sse)
+    mock_build = MagicMock(return_value=MagicMock())
+    monkeypatch.setattr(agent_factory, "build_http_toolset", mock_build)
     agent, mcp_toolsets = agent_factory.create_agent(
         name="TestSSE",
         mcp_url="http://mcp.example.com/sse",
@@ -555,7 +555,7 @@ def test_create_agent_mcp_url_sse_path(monkeypatch: pytest.MonkeyPatch) -> None:
         enable_skills=False,
         enable_universal_tools=False,
     )
-    mock_sse.assert_called_once()
+    mock_build.assert_called_once()
     assert agent is not None
 
 
@@ -567,7 +567,7 @@ def test_create_agent_mcp_url_with_tool_tags(
     monkeypatch.setattr(agent_factory, "is_loopback_url", lambda *a, **k: False)
     fake_server = MagicMock()
     monkeypatch.setattr(
-        agent_factory, "MCPServerStreamableHTTP", MagicMock(return_value=fake_server)
+        agent_factory, "build_http_toolset", MagicMock(return_value=fake_server)
     )
     mock_filter = MagicMock(return_value=fake_server)
     monkeypatch.setattr(agent_factory, "filter_tools_by_tag", mock_filter)
@@ -591,7 +591,7 @@ def test_create_agent_mcp_url_isolate_mcp(
     monkeypatch.setattr(agent_factory, "is_loopback_url", lambda *a, **k: False)
     fake_server = MagicMock()
     monkeypatch.setattr(
-        agent_factory, "MCPServerStreamableHTTP", MagicMock(return_value=fake_server)
+        agent_factory, "build_http_toolset", MagicMock(return_value=fake_server)
     )
     agent, initialized = agent_factory.create_agent(
         name="TestIsolate",
@@ -726,7 +726,7 @@ def test_create_agent_external_mcp_toolsets(monkeypatch: pytest.MonkeyPatch) -> 
 def test_create_agent_external_mcp_toolsets_fastmcp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """External FastMCP toolset is wrapped in FastMCPToolset."""
+    """External FastMCP server instance is wrapped in an MCPToolset (v2)."""
     monkeypatch.setattr(agent_factory, "DEFAULT_VALIDATION_MODE", False)
 
     class FastMCP:
@@ -735,7 +735,7 @@ def test_create_agent_external_mcp_toolsets_fastmcp(
     fake = FastMCP()
 
     wrap_mock = MagicMock(return_value=MagicMock())
-    monkeypatch.setattr(agent_factory, "FastMCPToolset", wrap_mock)
+    monkeypatch.setattr(agent_factory, "MCPToolset", wrap_mock)
 
     agent, initialized = agent_factory.create_agent(
         name="TestFastMCP",
