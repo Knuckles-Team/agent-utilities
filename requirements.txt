@@ -14,4 +14,5 @@ pathspec>=1.1.1
 tree-sitter-python>=0.25.0
 tree-sitter-javascript>=0.25.0
 tree-sitter-typescript>=0.23.2
-pydantic-ai-slim[fastmcp,openai,a2a,ag-ui,web,cli]>=1.106.0,<2.0.0
+pydantic-ai-slim[mcp,openai,anthropic,ag-ui,ui,web,cli]>=2.0.0,<3.0.0
+fasta2a[pydantic-ai]>=0.6.1

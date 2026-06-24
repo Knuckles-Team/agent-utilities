@@ -427,8 +427,22 @@ class GraphState:
             except (TypeError, ValueError):
                 return 0
 
-        req_tokens = _to_int(getattr(result_usage, "request_tokens", 0))
-        res_tokens = _to_int(getattr(result_usage, "response_tokens", 0))
+        # pydantic-ai v2 renamed Usage.request_tokens/response_tokens to
+        # input_tokens/output_tokens; prefer the new names, fall back to the old.
+        req_tokens = _to_int(
+            getattr(
+                result_usage,
+                "input_tokens",
+                getattr(result_usage, "request_tokens", 0),
+            )
+        )
+        res_tokens = _to_int(
+            getattr(
+                result_usage,
+                "output_tokens",
+                getattr(result_usage, "response_tokens", 0),
+            )
+        )
         tot_tokens = _to_int(getattr(result_usage, "total_tokens", 0))
 
         self.session_usage.input_tokens += req_tokens

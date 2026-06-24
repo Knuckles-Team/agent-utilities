@@ -18,12 +18,10 @@ from typing import Any, Literal
 
 import httpx
 from pydantic_ai import Agent, DeferredToolRequests, ModelSettings
-from pydantic_ai.mcp import (
-    MCPServerSSE,
-    MCPServerStreamableHTTP,
-)
+from pydantic_ai.mcp import MCPToolset
 
 from agent_utilities.core.config import setting
+from agent_utilities.mcp.toolset_factory import build_http_toolset
 
 
 def load_mcp_servers(config_path: str) -> Any:
@@ -31,21 +29,6 @@ def load_mcp_servers(config_path: str) -> Any:
     from agent_utilities.mcp_utilities import load_mcp_config
 
     return load_mcp_config(config_path)
-
-
-# Guarded import for fastmcp (may have broken installation)
-try:
-    from pydantic_ai.toolsets.fastmcp import FastMCPToolset
-
-    _FASTMCP_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
-    _FASTMCP_AVAILABLE = False
-
-    # Fallback definition when fastmcp module is missing
-    class FastMCPToolset:  # type: ignore
-        def __init__(self, *args, **kwargs) -> None:
-            self.args = args
-            self.kwargs = kwargs
 
 
 from agent_utilities.base_utilities import (
@@ -360,20 +343,9 @@ def create_agent(
             )
         else:
             try:
-                if mcp_url.lower().endswith("/sse"):
-                    server = MCPServerSSE(
-                        mcp_url,
-                        http_client=httpx.AsyncClient(
-                            verify=ssl_verify, timeout=DEFAULT_TIMEOUT
-                        ),
-                    )
-                else:
-                    server = MCPServerStreamableHTTP(
-                        mcp_url,
-                        http_client=httpx.AsyncClient(
-                            verify=ssl_verify, timeout=DEFAULT_TIMEOUT
-                        ),
-                    )
+                server = build_http_toolset(
+                    mcp_url, verify=ssl_verify, timeout=DEFAULT_TIMEOUT
+                )
                 initialized_mcp_toolsets.append(
                     filter_tools_by_tag(server, tool_tags) if tool_tags else server
                 )
@@ -437,7 +409,8 @@ def create_agent(
 
                 ts = None
                 if type(server).__name__ == "FastMCP":
-                    ts = FastMCPToolset(server)
+                    # v2: a FastMCP server instance is wrapped directly by MCPToolset
+                    ts = MCPToolset(server)
                 else:
                     ts = server
 
@@ -640,6 +613,11 @@ def create_agent(
         tool_timeout=DEFAULT_TOOL_TIMEOUT,
         deps_type=AgentDeps,
         capabilities=agent_capabilities,
+        # pydantic-ai v2 default; set explicitly. Function tools requested
+        # alongside an output/deferred tool now run — side-effecting tools are
+        # kept safe by the tool_guard ApprovalRequiredToolset (they become
+        # DeferredToolRequests and never auto-run before human approval).
+        end_strategy="graceful",
     )
 
     if output_style:

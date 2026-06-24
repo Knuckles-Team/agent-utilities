@@ -323,9 +323,9 @@ async def router_step(
                         ctx.state.output_data, dict
                     ):
                         ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
-                        ctx.state.output_data[
-                            "kg_specialist_configs"
-                        ] = kg_result.specialist_configs
+                        ctx.state.output_data["kg_specialist_configs"] = (
+                            kg_result.specialist_configs
+                        )
 
                     emit_graph_event(
                         deps.event_queue,
@@ -694,7 +694,9 @@ async def router_step(
                 )
                 raise ValueError("LLM planning timed out") from None
 
-            usage = stream.usage()
+            usage = stream.usage  # v2: property (was a method in v1)
+            if callable(usage):
+                usage = usage()
             if asyncio.iscoroutine(usage):
                 usage = await usage
             ctx.state._update_usage(usage)
@@ -1486,7 +1488,9 @@ async def mcp_server_step(
                         node="mcp_server_execution",
                     )
                 output = await stream.get_output()
-            usage = stream.usage()
+            usage = stream.usage  # v2: property (was a method in v1)
+            if callable(usage):
+                usage = usage()
             if asyncio.iscoroutine(usage):
                 usage = await usage
             ctx.state._update_usage(usage)

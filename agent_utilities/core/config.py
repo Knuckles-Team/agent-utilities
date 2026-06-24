@@ -2104,20 +2104,20 @@ def _init_lazy_config():
 
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT"] = cfg.otel_exporter_otlp_endpoint
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_HEADERS"] = cfg.otel_exporter_otlp_headers
-    _LAZY_CACHE[
-        "DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"
-    ] = cfg.otel_exporter_otlp_public_key
-    _LAZY_CACHE[
-        "DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"
-    ] = cfg.otel_exporter_otlp_secret_key
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY"] = (
+        cfg.otel_exporter_otlp_public_key
+    )
+    _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY"] = (
+        cfg.otel_exporter_otlp_secret_key
+    )
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
 
     _LAZY_CACHE["DEFAULT_LANGFUSE_PUBLIC_KEY"] = cfg.langfuse_public_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_SECRET_KEY"] = cfg.langfuse_secret_key
     _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE[
-        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"
-    ] = cfg.langfuse_dataset_capture_threshold
+    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
+        cfg.langfuse_dataset_capture_threshold
+    )
 
     _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
     _LAZY_CACHE["DEFAULT_A2A_BROKER_URL"] = cfg.a2a_broker_url
@@ -2191,9 +2191,9 @@ def _init_lazy_config():
         _kg_model.id if _kg_model else None
     ) or _LAZY_CACHE["DEFAULT_LITE_LLM_MODEL_ID"]
     _LAZY_CACHE["DEFAULT_KG_ANALYSIS_MAX_DEPTH"] = cfg.kg_analysis_max_depth
-    _LAZY_CACHE[
-        "DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"
-    ] = cfg.knowledge_graph_sync_background
+    _LAZY_CACHE["DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND"] = (
+        cfg.knowledge_graph_sync_background
+    )
     _LAZY_CACHE["DEFAULT_GRAPH_DIRECT_EXECUTION"] = cfg.graph_direct_execution
 
     # --- Parallel Engine Defaults ---
@@ -2203,9 +2203,9 @@ def _init_lazy_config():
     _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
     _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
     _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE[
-        "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"
-    ] = cfg.enable_progressive_synthesis
+    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
+        cfg.enable_progressive_synthesis
+    )
 
     _LAZY_CACHE["AGENT_API_KEY"] = cfg.agent_api_key
     _LAZY_CACHE["ENABLE_API_AUTH"] = cfg.enable_api_auth
@@ -3044,7 +3044,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
         MCPToolSet in newer versions, but returned as list of servers here).
 
     """
-    from pydantic_ai.mcp import load_mcp_servers
+    from pydantic_ai.mcp import load_mcp_toolsets
 
     from agent_utilities.base_utilities import expand_env_vars
 
@@ -3092,14 +3092,14 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"][
-                            "PYTHONWARNINGS"
-                        ] = "ignore:urllib3 (2.3.0) or chardet"
+                        cfg["env"]["PYTHONWARNINGS"] = (
+                            "ignore:urllib3 (2.3.0) or chardet"
+                        )
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"][
-                                "PYTHONWARNINGS"
-                            ] += ",ignore:urllib3 (2.3.0) or chardet"
+                            cfg["env"]["PYTHONWARNINGS"] += (
+                                ",ignore:urllib3 (2.3.0) or chardet"
+                            )
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.
@@ -3128,10 +3128,8 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
                 from agent_utilities.core.config import DEFAULT_VALIDATION_MODE
 
                 if not DEFAULT_VALIDATION_MODE:
-                    import httpx
-                    from pydantic_ai.mcp import MCPServerSSE
-
                     from agent_utilities.mcp.kg_coordinator import KGCoordinator
+                    from agent_utilities.mcp.toolset_factory import build_http_toolset
 
                     kg_host = os.getenv("KG_SERVER_HOST", "127.0.0.1")
                     kg_port = int(os.getenv("KG_SERVER_PORT", "8100"))
@@ -3147,11 +3145,11 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
                         modified = True
 
                         # Create SSE client directly
-                        coordinated_kg_server = MCPServerSSE(
+                        coordinated_kg_server = build_http_toolset(
                             f"http://{kg_host}:{kg_port}/sse",
-                            http_client=httpx.AsyncClient(timeout=60),
+                            timeout=60,
+                            toolset_id="agent-utilities-kg",
                         )
-                        coordinated_kg_server.id = "agent-utilities-kg"
                     except Exception as e:
                         logger.error(f"Failed to coordinate centralized KG server: {e}")
 
@@ -3165,7 +3163,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
             tmp_path = tmp.name
 
         try:
-            servers = load_mcp_servers(tmp_path)
+            servers = load_mcp_toolsets(tmp_path)
             # Re-attach IDs from config
             config_data = json.loads(expanded_content)
             mcp_servers_cfg = config_data.get("mcpServers", {})
@@ -3188,7 +3186,7 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
             if coordinated_kg_server is not None:
                 servers.append(coordinated_kg_server)
                 logger.info(
-                    "Coordinated KG check: successfully appended MCPServerSSE client for agent-utilities-kg"
+                    "Coordinated KG check: successfully appended MCP toolset client for agent-utilities-kg"
                 )
 
             return servers

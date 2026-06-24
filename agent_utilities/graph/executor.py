@@ -987,13 +987,13 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         target_server_name = (agent_info.mcp_server or "").lower().replace("-", "_")
         if target_server_name and not matched_toolsets:
             try:
-                from pydantic_ai.mcp import load_mcp_servers
+                from pydantic_ai.mcp import load_mcp_toolsets
 
                 from agent_utilities.core.workspace import resolve_mcp_config_path
 
                 mcp_path = resolve_mcp_config_path(None)
                 if mcp_path and mcp_path.exists():
-                    all_servers = load_mcp_servers(mcp_path)
+                    all_servers = load_mcp_toolsets(mcp_path)
                     for srv in all_servers:
                         srv_id = getattr(srv, "id", getattr(srv, "name", str(srv)))
                         current = srv_id.lower().replace("-", "_")
@@ -1732,7 +1732,9 @@ async def _execute_specialized_step(
                     node=prompt_name,
                 )
             res = await stream.get_output()
-        usage = stream.usage()
+        usage = stream.usage  # v2: property (was a method in v1)
+        if callable(usage):
+            usage = usage()
         if asyncio.iscoroutine(usage):
             usage = await usage
         ctx.state._update_usage(usage)
