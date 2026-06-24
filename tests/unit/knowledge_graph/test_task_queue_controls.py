@@ -25,6 +25,15 @@ class _QHarness:
     def query_cypher(self, q, params=None):
         return self.backend.execute(q, params or {})
 
+    @property
+    def _control(self):
+        # KG-2.148: control-plane ops route here; the in-memory harness uses ONE
+        # backend for content + control (no isolated __control__ graph in tests).
+        return self.backend
+
+    def _control_cypher(self, cypher, params=None):
+        return self.backend.execute(cypher, params or {})
+
     def _get_host_token(self):
         return self._tok
 

@@ -137,6 +137,7 @@ _GRAPH_CACHE = _BuiltGraphCache()
 
 def _graph_cache_key(
     *,
+    name: str,
     tag_prompts: dict[str, str],
     router_model: str | None,
     agent_model: str | None,
@@ -146,14 +147,18 @@ def _graph_cache_key(
 ) -> str:
     """A stable hash of the STRUCTURAL graph inputs (CONCEPT:ORCH-1.64).
 
-    Keys on what changes the topology: the set of routing tags, the models, the routing
-    strategy, the sub-agent tags, and whether custom nodes are present. A change in
-    discovery (new agent registered) changes the tag/sub-agent set and so invalidates the
-    key naturally. Excludes per-run values (toolsets, timeouts, api keys, the query).
+    Keys on what changes the built graph's identity: the graph ``name`` (which the
+    builder stamps onto the returned graph, so two same-topology graphs with
+    different names are distinct objects), the set of routing tags, the models, the
+    routing strategy, the sub-agent tags, and whether custom nodes are present. A
+    change in discovery (new agent registered) changes the tag/sub-agent set and so
+    invalidates the key naturally. Excludes per-run values (toolsets, timeouts, api
+    keys, the query).
     """
     import hashlib
 
     parts = [
+        str(name),
         "|".join(sorted(tag_prompts.keys())),
         str(router_model),
         str(agent_model),
@@ -491,6 +496,7 @@ def create_agent(
     # serve the cache when the structure is toolset-free (the messaging chat default). When a
     # run binds toolsets, we build fresh (correctness over the micro-optimisation).
     _cache_key = _graph_cache_key(
+        name=name,
         tag_prompts=tag_prompts,
         router_model=router_model,
         agent_model=agent_model,

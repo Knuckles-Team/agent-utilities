@@ -331,6 +331,7 @@ def test_graph_cache_key_is_structural_only() -> None:
     from agent_utilities.graph.builder import _graph_cache_key
 
     base = dict(
+        name="A",
         router_model="r",
         agent_model="m",
         routing_strategy="hybrid",
@@ -342,6 +343,13 @@ def test_graph_cache_key_is_structural_only() -> None:
     k3 = _graph_cache_key(tag_prompts={"a": "x"}, **base)  # different tag set
     assert k1 == k2
     assert k1 != k3
+    # The graph ``name`` is stamped onto the returned graph, so two same-topology
+    # graphs with different names are distinct objects and MUST NOT share a cache
+    # entry (CONCEPT:ORCH-1.64 — otherwise a cached agent leaks the prior name).
+    k_other_name = _graph_cache_key(
+        tag_prompts={"a": "x", "b": "y"}, **{**base, "name": "B"}
+    )
+    assert k1 != k_other_name
 
 
 # ─────────────────────────── ORCH-1.65 — off-loop KG ───────────────────────────
