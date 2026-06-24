@@ -55,7 +55,7 @@ graph TD
     subgraph Initialization_Phase ["3. Graph Initialization (Runtime)"]
         Config -->|Per-server loading| Loader["<b>builder.py</b><br/><i>Per-server resilient load</i><br/>Skips servers with missing env-vars"]
         Roster --> Builder["<b>builder.py</b><br/><i>initialize_graph_from_workspace()</i>"]
-        Loader -->|MCPServerStdio| ToolPool["<b>mcp_toolsets</b>"]
+        Loader -->|MCPToolset| ToolPool["<b>mcp_toolsets</b>"]
         Builder -->|Register Registry Nodes| Specialists["<b>Specialist Superstates</b>"]
         Specialists -->|Compile| GraphAgent["<b>Pydantic Graph Agent</b>"]
     end

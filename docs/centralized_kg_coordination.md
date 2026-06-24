@@ -22,12 +22,12 @@ sequenceDiagram
     Coord->>ExtServer: Ping HTTP/SSE status (port 8100)
     alt Centralized Server is Active
         ExtServer-->>Coord: Alive (200 OK)
-        Coord-->>AgentServer: Return MCPServerSSE client (:8100)
+        Coord-->>AgentServer: Return MCPToolset client (:8100)
     else Centralized Server is Inactive
         Coord->>Coord: Spawn background daemon process<br/>(uv run python -m agent_utilities.mcp.kg_server --transport sse --port 8100)
         Coord->>ExtServer: Poll port until active
         ExtServer-->>Coord: Active
-        Coord-->>AgentServer: Return MCPServerSSE client (:8100)
+        Coord-->>AgentServer: Return MCPToolset client (:8100)
     end
 ```
 

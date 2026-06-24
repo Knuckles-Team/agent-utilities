@@ -99,6 +99,7 @@ nav:
       - GeniusBot Cockpit: pillars/6_geniusbot_cockpit.md
   - Architecture:
       - C4 Architecture: pillars/architecture_c4.md
+      - Pydantic AI v2 Migration: architecture/pydantic-ai-v2-migration.md
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
       - Entrypoint Unification (one orchestrator): architecture/entrypoint-unification.md
       - Codebase Context via the KG (query, don't grep): architecture/codebase-context.md
