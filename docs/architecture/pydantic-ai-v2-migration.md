@@ -66,7 +66,29 @@ v2's native UI/protocol adapters live in `pydantic_ai.ui`: **AG-UI** (`ag_ui`) a
 chat). These are **not** ACP. Zed's **Agent Client Protocol** is still provided by our external
 plugin (`protocols/acp_adapter.py` + `acp_providers.py` on `pydantic-acp` + `acpkit`).
 
-> **Known limitation:** the current `pydantic-acp` (0.9.7) hard-pins `pydantic-ai-slim==1.106.0`,
-> so the `acp` extra cannot be co-installed with v2. ACP is **not** part of the `serving` extra, so
-> graph-os is unaffected; the `acp` extra is unusable on v2 until `pydantic-acp` ships a
-> v2-compatible release. Track and re-enable then.
+### ACP on v2 — reconciled via dependency override
+
+`pydantic-acp` (0.9.7, the optional `[acp]` extra) declares `pydantic-ai-slim==1.106.0`, but this
+is an **over-strict metadata pin, not a real code incompatibility**: every pydantic_ai symbol
+pydantic-acp imports — `AgentRunResultEvent`, `ModelRequestContext`, `CombinedCapability`,
+`DeferredToolResults`, `ToolApproved`/`ToolDenied`, `FunctionModel`, `OutputSpec`, … — exists in
+2.0.0, and `pydantic_acp` (incl. `create_acp_agent`, `AcpSessionContext`, `acp.schema`) imports and
+runs unchanged on pydantic-ai 2.0.0. (`acpkit` does not pin pydantic-ai outside its unused `dev`
+extra.)
+
+We therefore relax that one transitive pin with a **dependency override** rather than forking or
+dropping ACP:
+
+- `pyproject.toml` `[tool.uv] override-dependencies = ["pydantic-ai-slim>=2.0.0,<3.0.0"]` — for
+  `uv lock` / `uv sync`.
+- `overrides.txt` (repo root) — the same override for `uv pip install --override overrides.txt` /
+  `UV_OVERRIDE`.
+- `docker/Dockerfile` builder sets `ENV UV_OVERRIDE=/src/overrides.txt` (no-op for `[serving]`, which
+  has no acp; future-proofs acp-inclusive images).
+- CI: `backend-parity-nightly` (which pulls `[test-backends]` → `[acp]`) installs via
+  `uv pip install --override overrides.txt` (plain pip cannot relax a transitive pin).
+
+With the override, `[acp]`/`[test]`/`[all]` resolve to pydantic-ai-slim **2.0.0** + pydantic-acp
+0.9.7 + acpkit 0.9.7 + agent-client-protocol 0.9.0 cleanly. Remove the override once pydantic-acp
+ships a release whose pin admits v2. **Plain `pip install .[acp]` is unsupported** (no override
+mechanism) — use uv.

@@ -21,6 +21,10 @@ RUN apt-get update \
 # Installing the source tree in the build context removes that race entirely — the
 # image always matches the committed code. `.dockerignore` keeps the context lean.
 COPY . /src
+# Relax pydantic-acp's over-strict `pydantic-ai-slim==1.106.0` transitive pin to the
+# v2 floor for any acp-inclusive extra. No-op for [serving] (no acp); future-proofs
+# acp-inclusive images. Mirrors pyproject [tool.uv] override-dependencies.
+ENV UV_OVERRIDE=/src/overrides.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --upgrade --break-system-packages --prerelease=allow "/src[serving]"
 # Prune build cruft from /usr/local so the final image carries only runtime files.

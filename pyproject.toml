@@ -397,6 +397,17 @@ module = [
 ]
 disable_error_code = ["attr-defined"]
 
+[tool.uv]
+# pydantic-acp 0.9.7 (the optional `[acp]` extra) over-pins
+# `pydantic-ai-slim==1.106.0`, but its code is verified-compatible with v2 — every
+# pydantic_ai symbol it imports (AgentRunResultEvent, ModelRequestContext,
+# CombinedCapability, DeferredToolResults, ToolApproved/Denied, FunctionModel,
+# OutputSpec, …) exists in 2.0.0. Override that transitive pin so `[acp]`
+# co-installs on the v2 floor instead of dragging the resolver back to 1.106.
+# Remove once pydantic-acp ships a v2-compatible release.
+# See docs/architecture/pydantic-ai-v2-migration.md.
+override-dependencies = ["pydantic-ai-slim>=2.0.0,<3.0.0"]
+
 [dependency-groups]
 
 
