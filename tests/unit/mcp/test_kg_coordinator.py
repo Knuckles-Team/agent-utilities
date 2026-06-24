@@ -78,7 +78,7 @@ def test_kg_coordinator_spawn_server(
     mock_popen.assert_called_once()
 
 
-@patch("pydantic_ai.mcp.load_mcp_servers")
+@patch("pydantic_ai.mcp.load_mcp_toolsets")
 @patch("agent_utilities.mcp.kg_coordinator.KGCoordinator.get_kg_client")
 def test_load_config_intercepts_kg(mock_get_client, mock_load_mcp):
     config_data = {
@@ -112,8 +112,9 @@ def test_load_config_intercepts_kg(mock_get_client, mock_load_mcp):
         assert servers[0].id == "test-server"
         assert servers[1].id == "agent-utilities-kg"
 
-        # Check that it is MCPServerSSE
-        assert type(servers[1]).__name__ == "MCPServerSSE"
+        # v2: the coordinated KG client is a unified MCPToolset (built via the
+        # toolset factory) rather than the removed MCPServerSSE class.
+        assert type(servers[1]).__name__ == "MCPToolset"
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)

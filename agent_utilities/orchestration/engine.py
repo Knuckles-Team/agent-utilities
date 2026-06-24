@@ -1046,7 +1046,10 @@ class AgentOrchestrationEngine:
 
         """
 
-        from pydantic_graph.beta.graph import EndMarker
+        try:
+            from pydantic_graph import EndMarker  # v2: promoted to top level
+        except ImportError:  # pydantic-graph v1
+            from pydantic_graph.beta.graph import EndMarker
 
         if run_id is None:
             run_id = uuid4().hex

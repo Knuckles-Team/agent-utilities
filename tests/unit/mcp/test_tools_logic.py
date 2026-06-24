@@ -40,14 +40,14 @@ def test_load_mcp_config_expansion(tmp_path):
 
     with patch.dict(os.environ, {"TEST_KEY": "expanded-value"}):
         with patch(
-            "pydantic_ai.mcp.load_mcp_servers", side_effect=mock_load_side_effect
+            "pydantic_ai.mcp.load_mcp_toolsets", side_effect=mock_load_side_effect
         ) as mock_load:
             servers = load_mcp_servers_from_config(config_path)
 
             assert len(servers) == 1
             assert mock_load.called
 
-            # Verify the temp file passed to load_mcp_servers had expanded content
+            # Verify the temp file passed to load_mcp_toolsets had expanded content
             content = captured_content["data"]
             assert content["mcpServers"]["test-server"]["args"] == ["expanded-value"]
             # Verify Suppress RequestsDependencyWarning is added
