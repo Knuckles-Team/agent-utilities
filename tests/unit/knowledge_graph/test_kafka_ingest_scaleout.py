@@ -574,6 +574,11 @@ class _DepthHarness:
     def query_cypher(self, q, params=None):
         return self._rows
 
+    # The :Task count now reads the isolated control plane (CONCEPT:KG-2.148);
+    # here it shares the same fake rows.
+    def _control_cypher(self, q, params=None):
+        return self._rows
+
 
 def test_ingest_queue_depth_combines_queue_and_tasks():
     h = _DepthHarness(qsize=4, task_rows=[{"c": 3}])

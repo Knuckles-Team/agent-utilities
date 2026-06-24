@@ -356,7 +356,9 @@ class ConceptMatcher:
         # in its HNSW via add_embedding/enrich_concepts, not on the node property),
         # recall candidates from the engine HNSW and filter to concept ids — instead
         # of the empty in-memory cosine index. (CONCEPT:KG-2.193)
-        recall_fn = self._hnsw_recall_fn(engine, set(concepts)) if not concept_vecs else None
+        recall_fn = (
+            self._hnsw_recall_fn(engine, set(concepts)) if not concept_vecs else None
+        )
 
         for fid, fdata in features.items():
             if restrict_to and fid not in restrict_to:

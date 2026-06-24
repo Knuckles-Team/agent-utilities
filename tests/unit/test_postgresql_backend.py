@@ -22,6 +22,10 @@ def mock_backend():
     backend._pool_max = 2
     backend._pggraph_schema = "public"
     backend._known_tables = {"Agent", "Tool", "Memory"}
+    # Subset of _known_tables carrying the universal node shape (mirrors
+    # PostgreSQLBackend.__init__; read by execute()/ensure_label_table for the
+    # label-less UNION projection, CONCEPT:KG-2.9).
+    backend._node_tables = {"Agent", "Tool", "Memory"}
     backend._pggraph_available = False
     backend._pgvector_available = False
     backend._paradedb_available = False

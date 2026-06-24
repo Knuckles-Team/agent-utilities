@@ -51,7 +51,14 @@ class _FakeConn:
 
 def _stub(known: set[str]) -> tuple[SimpleNamespace, list[str]]:
     log: list[str] = []
-    return SimpleNamespace(_known_tables=known, _conn=lambda: _FakeConn(log)), log
+    # ``_node_tables`` mirrors the real backend: ensure_label_table records the
+    # newly-created table in it too (universal node shape, CONCEPT:KG-2.9).
+    return (
+        SimpleNamespace(
+            _known_tables=known, _node_tables=set(known), _conn=lambda: _FakeConn(log)
+        ),
+        log,
+    )
 
 
 @pytest.mark.concept("CONCEPT:KG-2.8")

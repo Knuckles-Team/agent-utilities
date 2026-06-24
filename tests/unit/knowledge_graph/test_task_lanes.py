@@ -55,7 +55,7 @@ def test_select_pending_task_is_type_fair_within_lane():
             tks.append(params["tk"])
         return []
 
-    stub = SimpleNamespace(query_cypher=fake_query)
+    stub = SimpleNamespace(query_cypher=fake_query, _control_cypher=fake_query)
     ing = set(lane_task_types("ingestion"))
     TaskManagerMixin._select_pending_task(stub)
     assert ing.issubset(set(tks))  # every ingestion type was tried
@@ -78,7 +78,7 @@ def test_select_pending_task_is_lane_fair():
             seen.append(params["lane"])
         return []  # nothing pending → exercises the full rotation + legacy fallthrough
 
-    stub = SimpleNamespace(query_cypher=fake_query)
+    stub = SimpleNamespace(query_cypher=fake_query, _control_cypher=fake_query)
     TaskManagerMixin._select_pending_task(stub)
     first_lane_a = seen[0]
     assert set(seen) == set(LANE_NAMES)  # every lane was tried
@@ -98,7 +98,7 @@ def test_lane_metrics_reports_per_lane_congestion():
             return [{"c": 4}]
         return [{"c": 0}]
 
-    stub = SimpleNamespace(query_cypher=fake_query)
+    stub = SimpleNamespace(query_cypher=fake_query, _control_cypher=fake_query)
     m = TaskManagerMixin.lane_metrics(stub)
     for lane in LANE_NAMES:
         assert m[lane]["pending"] == 4
