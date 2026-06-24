@@ -24,8 +24,6 @@ from typing import Any
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability
 
-from agent_utilities.protocols.capability import CapabilityContext
-
 # Multi-agent team coordination capability
 
 logger = logging.getLogger(__name__)
@@ -50,16 +48,6 @@ class TeamCapability(AbstractCapability[Any]):
 
     team_id: str | None = None
     members: list[str] = field(default_factory=list)
-
-    @property
-    def capability_name(self) -> str:
-        return "team_capability"
-
-    def can_handle(self, context: CapabilityContext) -> bool:
-        return context.trigger_data.get("event") == "team_action"
-
-    async def execute(self, context: CapabilityContext) -> dict[str, Any]:
-        return {"status": "success", "action": "team"}
 
     async def for_run(self, ctx: RunContext[Any]) -> TeamCapability:
         return replace(self)

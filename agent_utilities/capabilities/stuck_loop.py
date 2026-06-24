@@ -22,8 +22,6 @@ from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
-from agent_utilities.protocols.capability import CapabilityContext
-
 # Guarded import for pydantic_ai.capabilities (not available in all versions)
 try:
     from pydantic_ai.capabilities import AbstractCapability
@@ -94,16 +92,6 @@ class StuckLoopDetection(AbstractCapability[Any]):
     _result_history: list[tuple[str, str]] = field(
         default_factory=list, init=False, repr=False
     )
-
-    @property
-    def capability_name(self) -> str:
-        return "stuck_loop_detection"
-
-    def can_handle(self, context: CapabilityContext) -> bool:
-        return context.trigger_data.get("event") == "after_tool_call"
-
-    async def execute(self, context: CapabilityContext) -> dict[str, Any]:
-        return {"status": "success", "action": "loop_check"}
 
     def __post_init__(self) -> None:
         if self.max_repeated < 2:

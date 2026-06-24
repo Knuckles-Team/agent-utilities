@@ -18,8 +18,6 @@ from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelRequest, SystemPromptPart
 
-from agent_utilities.protocols.capability import CapabilityContext
-
 logger = logging.getLogger(__name__)
 
 
@@ -36,16 +34,6 @@ class ContextLimitWarner(AbstractCapability[Any]):
 
     _has_warned: bool = field(default=False, init=False, repr=False)
     _has_criticized: bool = field(default=False, init=False, repr=False)
-
-    @property
-    def capability_name(self) -> str:
-        return "context_limit_warner"
-
-    def can_handle(self, context: CapabilityContext) -> bool:
-        return context.trigger_data.get("event") == "before_model_run"
-
-    async def execute(self, context: CapabilityContext) -> dict[str, Any]:
-        return {"status": "success", "action": "warn_context"}
 
     async def for_run(self, ctx: RunContext[Any]) -> ContextLimitWarner:
         return replace(self)
