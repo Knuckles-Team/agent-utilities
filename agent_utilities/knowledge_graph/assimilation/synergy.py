@@ -111,12 +111,20 @@ def _feature_nodes(
     }
 
 
+#: above this many ids, one bulk edge traversal amortizes better than per-node
+#: round-trips; at/below it, per-node ``out_edges`` is BOUNDED — it touches only the
+#: ids' own edges, never the whole-graph edge list (which on a 166K-node engine is a
+#: gigabyte-scale payload that overloads the connection). (CONCEPT:KG-2.193)
+_ADJ_BULK_THRESHOLD = 1000
+
+
 def _adjacency(engine: Any, ids: set[str]) -> dict[str, set[str]]:
     """Undirected feature-feature adjacency from non-duplicate edges.
 
-    BATCHED: one bulk edge traversal (:func:`~assimilation.dedup.iter_all_edges`)
-    instead of ``O(ids)`` per-node ``out_edges`` round-trips — the live-backend
-    scaling fix; falls back to per-node when no bulk edge view exists.
+    For a SMALL id set (a scoped/cohort pass) this fetches edges PER-NODE over just
+    those ids — bounded work — instead of pulling every edge in the graph. For a
+    large set it uses one bulk edge traversal (amortized). Falls back to per-node
+    when no bulk edge view exists.
     """
     adj: dict[str, set[str]] = {i: set() for i in ids}
     graph = getattr(engine, "graph", None)
@@ -131,12 +139,15 @@ def _adjacency(engine: Any, ids: set[str]) -> dict[str, set[str]]:
         adj[src].add(dst)
         adj[dst].add(src)
 
-    edges = iter_all_edges(graph)
-    if edges is not None:  # bulk path
-        for src, dst, props in edges:
-            _link(src, dst, props)
-        return adj
-    for nid in ids:  # per-node fallback
+    # Bounded per-node path for scoped sets; bulk only when the set is large enough
+    # to amortize a whole-graph edge pull.
+    if len(ids) > _ADJ_BULK_THRESHOLD:
+        edges = iter_all_edges(graph)
+        if edges is not None:  # bulk path
+            for src, dst, props in edges:
+                _link(src, dst, props)
+            return adj
+    for nid in ids:  # bounded per-node (scoped) — only the ids' own edges
         try:
             out = graph.out_edges(nid, data=True)
         except (TypeError, AttributeError):  # pragma: no cover
