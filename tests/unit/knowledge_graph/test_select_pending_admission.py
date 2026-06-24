@@ -42,6 +42,12 @@ class _SelectHarness:
                 return [{"id": self._rows[tk], "meta": None}]
         return []
 
+    # :Task selection now reads the isolated control plane via _control_cypher
+    # (CONCEPT:KG-2.148); in these tests the control plane is the same fake query
+    # source, so delegate to query_cypher.
+    def _control_cypher(self, query: str, params: dict | None = None):
+        return self.query_cypher(query, params)
+
     _select_pending_task = TaskManagerMixin._select_pending_task
 
 

@@ -113,12 +113,31 @@ def test_durable_transpiler_recognises_contract(name, cypher, params):
 
 
 def _inprocess_backends():
-    """Backend instances that run fully in-process (no external server)."""
+    """Backend instances that run fully in-process (no external server).
+
+    The epistemic-graph backend binds a ``SyncEpistemicGraphClient`` at
+    construction, which connects to the engine's Tokio service. CI runs an
+    engine, but a bare dev box (or a hermetic unit run with no engine) has none,
+    so guard the bind: when the engine is unreachable the entry is emitted as a
+    skip-marked param instead of raising at *collection* time (which would abort
+    the whole module). The contract still runs wherever an engine is up.
+    """
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,
     )
 
-    backends = [("epistemic_graph", EpistemicGraphBackend())]
+    try:
+        backends = [("epistemic_graph", EpistemicGraphBackend())]
+    except Exception as exc:  # engine not reachable in this environment
+        backends = [
+            pytest.param(
+                "epistemic_graph",
+                None,
+                marks=pytest.mark.skip(
+                    reason=f"epistemic-graph engine unreachable: {exc}"
+                ),
+            )
+        ]
     try:
         from agent_utilities.knowledge_graph.backends import (
             LADYBUG_AVAILABLE,

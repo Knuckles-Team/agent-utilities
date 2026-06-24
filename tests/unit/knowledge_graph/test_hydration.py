@@ -160,85 +160,13 @@ def test_hydrate_servicenow(mock_engine):
     assert mock_run.call_args[0][1] == "servicenow"
 
 
-@patch.dict(
-    os.environ,
-    {
-        "JIRA_URL": "https://jira.example.com",
-        "JIRA_TOKEN": "jira-tok",
-        "JIRA_PROJECT_KEYS": "PROJ",
-    },
-)
-def test_hydrate_jira(mock_engine):
-    mock_jira_class = MagicMock()
-    mock_client = MagicMock()
-    mock_jira_class.return_value = mock_client
-
-    mock_client.search_issues.return_value = {
-        "issues": [
-            {
-                "key": "PROJ-123",
-                "fields": {
-                    "summary": "Fix broken auth loop",
-                    "status": {"name": "In Progress"},
-                    "priority": {"name": "High"},
-                    "assignee": {"accountId": "user-abc", "displayName": "Alice Smith"},
-                },
-            }
-        ]
-    }
-
-    modules = {
-        "atlassian_agent": MagicMock(),
-        "atlassian_agent.api_client": MagicMock(),
-    }
-    with patch.dict("sys.modules", modules):
-        modules["atlassian_agent.api_client"].JiraApi = mock_jira_class
-
-        manager = HydrationManager()
-        res = manager.hydrate_source(mock_engine, "jira")
-
-        assert res["status"] == "ok"
-        assert res["nodes_hydrated"] == 2
-        assert res["relations_hydrated"] == 1
-
-
-@patch.dict(
-    os.environ,
-    {
-        "PLANE_URL": "https://plane.example.com",
-        "PLANE_TOKEN": "plane-tok",
-        "PLANE_PROJECT_IDS": "proj-1",
-    },
-)
-def test_hydrate_plane(mock_engine):
-    mock_plane_class = MagicMock()
-    mock_client = MagicMock()
-    mock_plane_class.return_value = mock_client
-
-    mock_client.get_project_issues.return_value = {
-        "results": [
-            {
-                "id": "issue-xyz",
-                "name": "Implement dark mode support",
-                "state": {"name": "Backlog"},
-                "priority": "medium",
-            }
-        ]
-    }
-
-    modules = {
-        "plane_agent": MagicMock(),
-        "plane_agent.api_client": MagicMock(),
-    }
-    with patch.dict("sys.modules", modules):
-        modules["plane_agent.api_client"].PlaneApi = mock_plane_class
-
-        manager = HydrationManager()
-        res = manager.hydrate_source(mock_engine, "plane")
-
-        assert res["status"] == "ok"
-        assert res["nodes_hydrated"] == 2
-        assert res["relations_hydrated"] == 1
+# ``jira``/``plane`` are no longer generic ``HydrationManager`` sources: they
+# were re-homed to first-class delta connectors (``source_sync._sync_jira`` /
+# ``_sync_plane``, CONCEPT:KG-2.123/2.124/2.125), so ``CAPABILITY_REGISTRY`` no
+# longer carries them and ``hydrate_source(..., "jira"|"plane")`` correctly
+# raises ``Unknown hydration source``. The stale ``test_hydrate_jira`` /
+# ``test_hydrate_plane`` cases that exercised the removed generic path were
+# deleted (No-Legacy: delete the test of a deleted path).
 
 
 @patch.dict(

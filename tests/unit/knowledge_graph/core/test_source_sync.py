@@ -253,13 +253,14 @@ def test_sweep_all_sources_classifies_results(monkeypatch):
     assert "servicenow" in out["errors"]
     assert "jira" not in out["synced"] and "jira" not in out["errors"]
     # synced: leanix + gitlab; errors: servicenow; skipped: archivebox (no new
-    # snapshots) + the unconfigured delta handlers (rss/freshrss/fleet_connectors)
-    # whose fake_sync raises "not configured". ``fleet`` is excluded from the sweep,
-    # so it never enters any bucket. The MCP-backed trackers (jira/confluence/plane,
+    # snapshots) + the unconfigured always-on delta handlers (ard/rss/freshrss/
+    # fleet_connectors) whose fake_sync raises "not configured". ``fleet`` is
+    # excluded from the sweep, so it never enters any bucket. The MCP-backed
+    # trackers (jira/confluence/plane + the other ``*-mcp`` trackers,
     # CONCEPT:KG-2.154) are NOT candidates here: the hermetic test env has no
-    # mcp_config, so their ``*-mcp`` servers env-detect as unconfigured and the
+    # mcp_config, so their servers env-detect as unconfigured and the
     # candidate-builder drops them (no wasted connector_sync task).
-    assert out["counts"] == {"synced": 2, "skipped": 4, "errors": 1}
+    assert out["counts"] == {"synced": 2, "skipped": 5, "errors": 1}
 
 
 # ── MCP-backed trackers as configured-via-mcp_config candidates (KG-2.154) ────

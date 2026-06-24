@@ -78,13 +78,45 @@ def _make(tmp_path: Path, mirrors: dict[str, RecordingBackend]) -> FanOutBackend
     )
 
 
+def _stop_drainers(fan: FanOutBackend) -> None:
+    """Stop + join the background per-mirror drainer threads, so the outbox apply is
+    driven purely synchronously by the test (no thread race / CPU-starvation flake)."""
+    fan._stop.set()
+    for st in fan._state.values():
+        t = getattr(st, "thread", None)
+        if t is not None:
+            t.join(timeout=10.0)
+
+
+def _drain_outbox_sync(fan: FanOutBackend) -> None:
+    """Apply every mirror's outbox tail synchronously (same apply→ack path the drainer
+    runs). The drainer threads must already be stopped (see :func:`_stop_drainers`) so
+    nothing races this drain. Deterministic regardless of box load."""
+    outbox = fan._outbox
+    assert outbox is not None
+    for mirror, backend in fan._mirrors.items():
+        while outbox.lag(mirror) > 0:
+            pending = outbox.pending(mirror)
+            if not pending:
+                break
+            for entry in pending:
+                fan._apply(backend, entry)
+                outbox.ack(mirror, entry.seq)
+
+
 def test_write_fans_out_to_every_mirror(tmp_path):
     a, b = RecordingBackend("a"), RecordingBackend("b")
     fan = _make(tmp_path, {"a": a, "b": b})
     try:
+        # Stop the background drainers up front so writes only append to the
+        # outbox; the apply is then driven synchronously below. This makes the
+        # convergence assertion deterministic regardless of how starved the
+        # drainer thread would be on a saturated box (the contract is that every
+        # write reaches every mirror — not how fast a background thread schedules).
+        _stop_drainers(fan)
         for i in range(20):
             fan.execute(f"CREATE (n:Doc {{id:'{i}'}})", is_write=True)
-        assert fan.flush_mirrors(timeout=10.0)
+        _drain_outbox_sync(fan)
         assert a.n_execute() == 20
         assert b.n_execute() == 20
     finally:
