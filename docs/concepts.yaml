@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 476
+total_concepts: 477
 total_pillars: 21
 pillars:
 - AHE-3
@@ -5204,6 +5204,13 @@ concepts:
   code_paths:
   - agent_utilities/deployment/config_generator.py
   doc: doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+- id: OS-5.67
+  name: OS-5.67
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/deployment/doctor.py
+  doc: OS-5.67
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
