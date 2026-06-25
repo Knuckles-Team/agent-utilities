@@ -1,0 +1,55 @@
+# workspace.yml — annotated minimal template
+#
+# The canonical map of your ecosystem's git repositories. agent-utilities reads
+# this to bootstrap (clone missing repos), to self-configure KG ingestion breadth
+# (every repo here is a code-context source), and during genesis.
+#
+# Place this file at the WORKSPACE ROOT (e.g. /home/apps/workspace/workspace.yml).
+# agent-utilities also auto-seeds a default copy at
+# ~/.config/agent-utilities/workspace.yml if none exists; the root file (which an
+# operator actually edits) takes precedence.
+#
+# Validate it any time with:  agent-utilities-doctor --only workspace_config
+# Full schema + every consumed key:  docs/guides/workspace-config.md
+
+# ── top-level identity ──────────────────────────────────────────────────────
+name: "My Agent Workspace"            # human label (advisory)
+# `path` is the ABSOLUTE base dir under which every repo below is cloned/resolved.
+# Each repo lands at <path>/<...subdirs...>/<repo-name>. If omitted, the bootstrap
+# falls back to the current working directory (a warning).
+path: "/home/apps/workspace"
+description: "Main development environment."   # advisory
+
+# ── repositories at the workspace root ──────────────────────────────────────
+# A list of { url, description }. `url` is REQUIRED and is the git clone URL; the
+# repo's on-disk name is derived from the URL basename (minus ".git").
+# `description` is advisory (used for the KG/catalog).
+repositories:
+  - url: "https://github.com/Knuckles-Team/pipelines.git"
+    description: "CI pipelines for the ecosystem."
+
+# ── nested subdirectories (recursive) ───────────────────────────────────────
+# Each key is a directory name created under `path`. A subdirectory node may
+# itself carry `description`, `repositories`, and further `subdirectories` — the
+# loader walks this recursively, so a repo at
+#   subdirectories.agent-packages.subdirectories.skills.repositories[0]
+# is cloned to  <path>/agent-packages/skills/<repo-name>.
+subdirectories:
+  agent-packages:
+    description: "Core utility packages and agent implementations."
+    repositories:
+      - url: "https://github.com/Knuckles-Team/agent-utilities.git"
+        description: "The framework / KG engine."
+    subdirectories:
+      skills:
+        description: "Agent capabilities and skill graphs."
+        repositories:
+          - url: "https://github.com/Knuckles-Team/universal-skills.git"
+            description: "Central skill repository."
+
+# ── KG ingestion toggles (consumed by the KG breadth/ingestion loop) ────────
+graph:
+  enabled: true        # opt the workspace into KG breadth ingestion
+  multimodal: true     # ingest non-code artifacts too
+  incremental: true    # delta-sync rather than full re-ingest
+  groups: []           # optional explicit group/repo filter (empty = all)
