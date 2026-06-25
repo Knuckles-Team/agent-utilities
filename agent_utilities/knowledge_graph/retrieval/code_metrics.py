@@ -252,13 +252,15 @@ def import_cycles(
 
 
 def build_code_metrics(
-    engine: Any, scope: str = "", top_k: int = 10
+    engine: Any, scope: str = "", top_k: int = 10, render_limit: int = 250
 ) -> dict[str, Any]:
     """The Graphify-style structural analysis of the ``:Code`` subgraph.
 
     Returns summary counts (file types / relations / confidence), god nodes (degree),
     communities, and surprising connections — the durable, KG-native equivalent of
-    the tutorial's NetworkX analysis cell.
+    the tutorial's NetworkX analysis cell. Also returns a bounded ``graph`` render
+    payload (top ``render_limit`` nodes by degree + the edges among them) so a single
+    call drives the force-directed canvas (size=degree, color=community, KG-2.214).
     """
     nodes, edges = load_code_subgraph(engine, scope)
     if not nodes:
@@ -299,6 +301,26 @@ def build_code_metrics(
         for cid, members in sorted(by_comm.items(), key=lambda kv: len(kv[1]), reverse=True)
     ]
 
+    # Bounded render payload (CONCEPT:KG-2.214): the top nodes by degree + edges
+    # among them, so the force-directed canvas stays responsive on large graphs.
+    render_ids = set(
+        sorted(node_ids, key=lambda n: degrees.get(n, 0), reverse=True)[: max(1, render_limit)]
+    )
+    render = {
+        "nodes": [_node_view(n) for n in render_ids],
+        "edges": [
+            {
+                "source": e["src"],
+                "target": e["dst"],
+                "rel": e["rel"],
+                "confidence": e["confidence"],
+            }
+            for e in edges
+            if e["src"] in render_ids and e["dst"] in render_ids
+        ],
+        "truncated": len(node_ids) > len(render_ids),
+    }
+
     return {
         "status": "ok",
         "scope": scope or None,
@@ -314,6 +336,7 @@ def build_code_metrics(
         "surprising_connections": surprising_connections(
             edges, node_comm, degrees, top_n=max(1, top_k)
         ),
+        "graph": render,
     }
 
 
