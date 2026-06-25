@@ -84,8 +84,8 @@ them; this guide covers the keys the agent-utilities loader parses.
 ```mermaid
 flowchart LR
     YML[workspace.yml] --> L[workspace_config.py loader]
-    L -->|clone_missing_projects| BOOT[Bootstrap: git clone every repo<br/>under path]
-    L -->|workspace_project_roots| KG[KG breadth ingestion<br/>self-configures repo roots — KG-2.7]
+    L -->|clone_missing_projects| BOOT["Bootstrap: git clone every repo<br/>under path"]
+    L -->|workspace_project_roots| KG["KG breadth ingestion<br/>self-configures repo roots — KG-2.7"]
     L -->|fleet_target_profiles| REL[Fleet relevance keyword profiles]
     L -->|find_workspace_manifest| DOC[doctor: ingestion_coverage + workspace_config — OS-5.67]
     YML -.maintenance/services.-> EXT[repository-manager / fleet reconciler]
