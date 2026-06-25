@@ -243,6 +243,7 @@ class CardStore:
             return out
         if self.mode == "graph":
             return self._get_many_graph(hashes)
+        assert self._conn is not None  # sqlite mode → connection is set
         try:
             with self._lock:
                 for i in range(0, len(hashes), self._SQLITE_VARS):
@@ -273,6 +274,7 @@ class CardStore:
 
         now = datetime.now(UTC).isoformat()
         rows = [(h, s, json.dumps(r), now) for h, s, r in items]
+        assert self._conn is not None  # sqlite mode → connection is set
         try:
             with self._lock:
                 self._conn.executemany(
