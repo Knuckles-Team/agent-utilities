@@ -4,12 +4,25 @@ from __future__ import annotations
 """Pluggable Secrets Manager.
 
 CONCEPT:OS-5.1 — Secrets & Authentication
+CONCEPT:OS-5.66 — Engine-backed encrypted secret store
 
-Provides encrypted secrets storage with three pluggable backends:
+Provides encrypted secrets storage with two backends:
 
-- **InEpistemicGraphBackend** (default): Fernet-encrypted dict, zero-config, lost on restart.
-- **SQLiteBackend**: Persistent encrypted storage using standard sqlite3 + Fernet.
-- **VaultBackend**: HashiCorp Vault integration via ``hvac`` (optional dependency).
+- **InEpistemicGraphBackend** (default everywhere): a *durable*, engine-backed
+  store. Secrets live as ``:Secret`` nodes in a dedicated ``__secrets__``
+  epistemic-graph graph; the secret VALUE is held as an **encrypted node
+  property** (sealed by the engine's encryption-at-rest, CONCEPT:KG-2.231
+  ChaCha20-Poly1305 over redb value blobs, keyed by
+  ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` + KMS seam). The key NAME and metadata stay
+  queryable plaintext. There is **no local-disk / RAM fallback**: even the
+  zero-infra ``tiny`` profile gets a real engine, because
+  ``GraphComputeEngine`` auto-starts the pre-bundled pi-tier engine binary on
+  demand (the OS-5.63 resolver) — the pi wheel ships the encrypted store too.
+- **VaultBackend**: HashiCorp Vault / OpenBao integration via ``hvac`` — the
+  enterprise path (UNTOUCHED by OS-5.66).
+
+:class:`SQLiteBackend` remains ONLY as the read source for the one-time on-disk
+migration off the legacy ``secrets.db``; it is never selected as a live backend.
 
 Usage::
 
@@ -28,6 +41,7 @@ URI reference resolution::
 
 
 import abc
+import contextlib
 import json
 import logging
 import sqlite3
@@ -40,6 +54,18 @@ from pydantic import BaseModel, Field, SecretStr
 from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
+
+#: The dedicated engine graph that holds secret nodes, isolated from all other
+#: content/control-plane writes (mirrors the ``__control__`` isolation pattern,
+#: CONCEPT:KG-2.148). Its value blobs are sealed by the engine's
+#: encryption-at-rest when ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` is configured.
+#: (Named ``__secrets__`` — a system ``__…__`` graph like ``__control__`` /
+#: ``__commons__`` — kept as a single constant so the dedicated-graph name is the
+#: one place to change it.)
+SECRETS_GRAPH = "__secrets__"
+
+#: Node label for a stored secret in the ``__secrets__`` graph.
+SECRET_LABEL = "Secret"
 
 
 # ---------------------------------------------------------------------------
@@ -151,48 +177,88 @@ class SecretsBackend(abc.ABC):
 
 
 # ---------------------------------------------------------------------------
-# InMemory Backend (default)
+# Engine-backed Backend (the durable default)
 # ---------------------------------------------------------------------------
 
 
+def _node_id(key: str) -> str:
+    """Deterministic engine node id for a secret key (namespaced + escaped)."""
+    return f"secret:{key}"
+
+
 class InEpistemicGraphBackend(SecretsBackend):
-    """Fernet-encrypted in-memory backend.
+    """Durable, engine-backed secrets store — the name is finally true.
 
-    Secrets are encrypted at rest in a Python dict and lost on process exit.
-    Suitable for development, testing, and short-lived agent sessions.
-
+    CONCEPT:OS-5.66 — Engine-backed encrypted secret store
     CONCEPT:OS-5.1 — Secrets & Authentication
+
+    Secrets are stored as ``:Secret`` nodes in a dedicated ``__secrets__``
+    epistemic-graph graph (isolated from all other content/control-plane
+    writes — cf. the ``__control__`` pattern, CONCEPT:KG-2.148). The split
+    mirrors :class:`SQLiteBackend`:
+
+    - the secret **value** is held as the encrypted ``value`` node property —
+      sealed on disk by the engine's encryption-at-rest (CONCEPT:KG-2.231,
+      ChaCha20-Poly1305 over redb value blobs, keyed by
+      ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` + the KMS seam);
+    - the key **name** and **metadata** stay queryable plaintext properties
+      (``key``, ``metadata``, ``label``) so ``list``/lookup work over the
+      engine's labeled-fetch without decrypting anything.
+
+    The master key is no longer a sibling ``.key`` file co-located with the
+    ciphertext: the engine resolves ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` (or its
+    KMS) at the storage layer, so the key and the ciphertext live apart.
+
+    This is the secret store in *every* profile. There is no local-disk / RAM
+    fallback: ``GraphComputeEngine`` auto-starts the pre-bundled pi-tier engine
+    on demand (the OS-5.63 resolver), so an engine — and therefore the encrypted
+    ``__secrets__`` graph — is always available, even on a Pi.
     """
 
-    def __init__(self, master_key: bytes | None = None) -> None:
-        if master_key is None:
-            master_key = Fernet.generate_key()
-        self._fernet = Fernet(master_key)
-        self._store: dict[str, bytes] = {}
+    def __init__(self, graph: Any | None = None) -> None:
+        if graph is None:
+            from agent_utilities.knowledge_graph.core.graph_compute import (
+                GraphComputeEngine,
+            )
+
+            graph = GraphComputeEngine(graph_name=SECRETS_GRAPH, backend_type="rust")
+        self._graph = graph
 
     def get(self, key: str) -> str | None:
-        cipher = self._store.get(key)
-        if cipher is None:
+        props = self._graph._get_node_properties(_node_id(key))
+        if not props:
             return None
-        try:
-            return self._fernet.decrypt(cipher).decode()
-        except InvalidToken:
-            logger.warning("Failed to decrypt secret '%s' — corrupt or wrong key.", key)
-            return None
+        val = props.get("value")
+        return val if isinstance(val, str) else None
 
     def set(self, key: str, value: str, **metadata: Any) -> None:
-        self._store[key] = self._fernet.encrypt(value.encode())
-        logger.info("Secret '%s' stored (in-memory).", key)
+        self._graph.add_node(
+            _node_id(key),
+            {
+                "label": SECRET_LABEL,
+                "node_type": SECRET_LABEL,
+                "key": key,
+                "value": value,
+                "metadata": json.dumps(metadata) if metadata else "{}",
+            },
+        )
+        logger.info("Secret '%s' stored (engine, graph=%s).", key, SECRETS_GRAPH)
 
     def delete(self, key: str) -> bool:
-        existed = key in self._store
-        self._store.pop(key, None)
+        nid = _node_id(key)
+        existed = self._graph.has_node(nid)
         if existed:
-            logger.info("Secret '%s' deleted (in-memory).", key)
+            self._graph.remove_node(nid)
+            logger.info("Secret '%s' deleted (engine).", key)
         return existed
 
     def list_keys(self) -> list[str]:
-        return sorted(self._store.keys())
+        rows = self._graph.get_nodes_by_label(SECRET_LABEL)
+        keys: list[str] = []
+        for _nid, props in rows:
+            if isinstance(props, dict) and isinstance(props.get("key"), str):
+                keys.append(props["key"])
+        return sorted(keys)
 
 
 # ---------------------------------------------------------------------------
@@ -745,6 +811,66 @@ class SecretsClient:
 
 
 # ---------------------------------------------------------------------------
+# One-time on-disk migration off the legacy ``secrets.db``
+# ---------------------------------------------------------------------------
+
+
+def _legacy_sqlite_path() -> Path:
+    return Path("~/.agent-utilities/secrets.db").expanduser()
+
+
+def _migrate_legacy_sqlite(backend: InEpistemicGraphBackend) -> int:
+    """One-time migration: legacy ``secrets.db`` → the encrypted ``__secrets__`` graph.
+
+    CONCEPT:OS-5.66 — the No-Legacy on-disk exception (read-old → write-new →
+    delete-old). On first engine-backed boot, if the old Fernet SQLite store
+    exists, decrypt every secret via its sibling ``.key`` file, write it into the
+    engine-backed encrypted store, then delete the db + key file. Idempotent: if
+    the files are gone, this is a no-op.
+
+    Returns the number of secrets migrated.
+    """
+    db_path = _legacy_sqlite_path()
+    if not db_path.exists():
+        return 0
+    key_file = db_path.with_suffix(".key")
+    try:
+        legacy = SQLiteBackend(db_path=db_path)
+        migrated = 0
+        for key in legacy.list_keys():
+            value = legacy.get(key)
+            if value is None:
+                continue
+            backend.set(key, value)
+            migrated += 1
+        # Release the SQLite handle before deleting the files.
+        with contextlib.suppress(Exception):
+            legacy._conn.close()
+    except Exception:
+        logger.exception(
+            "Legacy secrets migration failed; leaving %s in place.", db_path
+        )
+        return 0
+
+    for path in (
+        db_path,
+        key_file,
+        db_path.with_suffix(".db-wal"),
+        db_path.with_suffix(".db-shm"),
+    ):
+        with contextlib.suppress(OSError):
+            if path.exists():
+                path.unlink()
+    logger.info(
+        "Migrated %d secret(s) from %s into the encrypted __secrets__ graph "
+        "and removed the legacy db + key file.",
+        migrated,
+        db_path,
+    )
+    return migrated
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
@@ -753,12 +879,16 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
     """Create a ``SecretsClient`` from configuration.
 
     CONCEPT:OS-5.1 — Secrets & Authentication
+    CONCEPT:OS-5.66 — Engine-backed encrypted secret store
 
     The backend is selected by ``config.backend``:
 
-    - ``"inmemory"`` (default): Encrypted in-memory dict.
-    - ``"sqlite"``: Persistent encrypted SQLite.
-    - ``"vault"``: HashiCorp Vault KV v2.
+    - ``"inmemory"`` (default everywhere): the durable engine-backed
+      ``__secrets__`` store (the OS-5.63 resolver auto-starts the pi-tier engine
+      when nothing is running, so this works even in the ``tiny`` profile), with
+      a one-time legacy ``secrets.db`` migration on first boot. No local-disk /
+      RAM fallback.
+    - ``"vault"``: HashiCorp Vault / OpenBao KV v2 (enterprise, UNTOUCHED).
 
     Args:
         config: Secrets configuration. If ``None``, reads from environment
@@ -787,18 +917,9 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
             master_key=setting("AGENT_SECRETS_MASTER_KEY"),
         )
 
-    master_key_bytes: bytes | None = None
-    if config.master_key:
-        master_key_bytes = config.master_key.encode()
-
-    if config.backend == "sqlite":
-        path = config.sqlite_path or "~/.agent-utilities/secrets.db"
-        backend: SecretsBackend = SQLiteBackend(
-            db_path=path, master_key=master_key_bytes
-        )
-    elif config.backend == "vault":
+    if config.backend == "vault":
         url = config.vault_url or "http://127.0.0.1:8200"
-        backend = VaultBackend(
+        backend: SecretsBackend = VaultBackend(
             url=url,
             mount_point=config.vault_mount,
             auth_method=config.vault_auth_method,
@@ -809,11 +930,17 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
             secret_id=config.vault_secret_id,
             k8s_sa_token_path=config.vault_k8s_sa_token_path,
         )
-    else:
-        backend = InEpistemicGraphBackend(master_key=master_key_bytes)
+        logger.info("SecretsClient initialised with 'vault' backend.")
+        return SecretsClient(backend=backend)
 
-    logger.info("SecretsClient initialised with '%s' backend.", config.backend)
-    return SecretsClient(backend=backend)
+    # Default everywhere: the durable engine-backed encrypted ``__secrets__``
+    # store. The OS-5.63 resolver auto-starts the pi-tier engine when nothing is
+    # running, so this is the store even in the zero-infra ``tiny`` profile —
+    # there is no local-disk / RAM fallback (CONCEPT:OS-5.66).
+    engine_backend = InEpistemicGraphBackend()
+    _migrate_legacy_sqlite(engine_backend)
+    logger.info("SecretsClient initialised with engine-backed backend.")
+    return SecretsClient(backend=engine_backend)
 
 
 # ---------------------------------------------------------------------------

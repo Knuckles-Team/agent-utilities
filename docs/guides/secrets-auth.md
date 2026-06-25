@@ -11,8 +11,8 @@ and authentication across the agent ecosystem.
 
 The `SecretsClient` provides a unified, pluggable interface for storing and
 retrieving sensitive values (API keys, tokens, SSH credentials, etc.). It
-ships with three backends and supports URI-style references for maximum
-flexibility.
+ships with two live backends and supports URI-style references for maximum
+flexibility (CONCEPT:OS-5.66).
 
 ```
 ┌─────────────────────────────┐
@@ -20,11 +20,28 @@ flexibility.
 │  get_or_env() / resolve_ref │
 └────────┬────────────────────┘
          │  (pluggable)
-   ┌─────┴──────┬──────────────┐
-   │ InMemory   │   SQLite     │  Vault (hvac)
-   │ (default)  │ (persistent) │  (enterprise)
-   └────────────┴──────────────┘
+   ┌─────┴───────────────────┬──────────────┐
+   │ InEpistemicGraphBackend │  Vault (hvac) │
+   │ (engine-encrypted,      │  (enterprise) │
+   │  default everywhere)    │               │
+   └─────────────────────────┴──────────────┘
 ```
+
+The default `InEpistemicGraphBackend` is a **durable, engine-backed** store:
+secrets live as `:Secret` nodes in a dedicated `__secrets__` epistemic-graph
+graph, the secret **value** held as an encrypted node property sealed by the
+engine's encryption-at-rest (ChaCha20-Poly1305 over the redb value blobs, keyed
+by `EPISTEMIC_GRAPH_ENCRYPTION_KEY` + the KMS seam — CONCEPT:KG-2.231), while the
+key **name** + metadata stay queryable plaintext. It is the store in **every**
+profile — even zero-infra `tiny`, because `GraphComputeEngine` auto-starts the
+pre-bundled pi-tier engine on demand (the OS-5.63 resolver). The master key now
+lives in `EPISTEMIC_GRAPH_ENCRYPTION_KEY`/KMS, no longer in a sibling `.key` file
+co-located with the ciphertext.
+
+`SQLiteBackend` is retained ONLY as the read source for a one-time migration off
+the legacy `~/.agent-utilities/secrets.db` (read-old → write-new → delete-old,
+run automatically on first engine-backed boot). It is never selected as a live
+backend.
 
 ## Quick Start
 
@@ -67,24 +84,19 @@ secret-manager list
 secret-manager delete gitlab/token
 ```
 
-## Backends### InMemory (Default)
+## Backends
 
-- **Zero config** — works out of the box
-- Values encrypted with [Fernet](https://cryptography.io/en/latest/fernet/) (AES-128-CBC)
-- Lost on process restart
-- Best for: development, testing, short-lived agent sessions
+### Engine-encrypted `__secrets__` store (Default everywhere)
 
-### SQLite (Persistent)
-
-- Standard `sqlite3` database + Fernet field-level encryption
-- Auto-generates encryption key file (`.key`) alongside the DB
-- Key names visible; values encrypted at rest
-- Best for: CLI/TUI usage, local development with persistence
-
-```bash
-export SECRETS_BACKEND=sqlite
-export SECRETS_SQLITE_PATH=~/.agent-utilities/secrets.db
-```
+- **Zero config** — works out of the box; durable across restart
+- Secrets are `:Secret` nodes in a dedicated `__secrets__` engine graph
+- The secret **value** is an encrypted node property (engine encryption-at-rest,
+  ChaCha20-Poly1305, keyed by `EPISTEMIC_GRAPH_ENCRYPTION_KEY`/KMS); the key
+  **name** + metadata stay queryable plaintext
+- Works on every profile (the OS-5.63 resolver auto-starts the pi-tier engine for
+  `tiny`); there is **no** local-disk / RAM fallback
+- One-time migration off the legacy `~/.agent-utilities/secrets.db` runs on first
+  engine-backed boot, then deletes the old db + `.key` file
 
 ### HashiCorp Vault & OpenBao (Enterprise / Open Source)
 
@@ -106,11 +118,24 @@ export VAULT_TOKEN=hvs.xxx
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `SECRETS_BACKEND` | `inmemory` | Backend type: `inmemory`, `sqlite`, `vault` |
-| `SECRETS_SQLITE_PATH` | `~/.agent-utilities/secrets.db` | SQLite database file path |
+| `SECRETS_BACKEND` | `inmemory` | `inmemory` → the durable engine-encrypted `__secrets__` store (default everywhere); `vault` → enterprise OpenBao/Vault |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | *(unset → encryption off)* | Engine encryption-at-rest key material / KMS seam that seals the `__secrets__` value blobs (CONCEPT:KG-2.231) |
 | `SECRETS_VAULT_URL` | `http://127.0.0.1:8200` | Vault server URL |
 | `SECRETS_VAULT_MOUNT` | `secret` | Vault KV v2 mount point |
-| `AGENT_SECRETS_MASTER_KEY` | *(auto-generated)* | Base64-encoded Fernet key for encryption |
+
+> The `inmemory` backend id is retained for config compatibility but now resolves
+> to the engine-backed `__secrets__` store. The secret value is sealed by the
+> engine (`EPISTEMIC_GRAPH_ENCRYPTION_KEY`), so the master key and the ciphertext
+> no longer share a directory.
+
+### Two surfaces — `graph_secret` MCP tool + `/graph/secret` REST route
+
+Secrets are reachable from the **gateway (REST)** and the **MCP server**, not just
+a Python import. The `graph_secret` MCP tool and the `/graph/secret` REST twin both
+dispatch into the one `SecretsClient` core. Actions: `set` / `get` / `list` /
+`delete`. Mutations (`set` / `delete`) are governed by the ActionPolicy gate
+(`secret.set` / `secret.delete`, `approval_required`); `get` / `list` are reads and
+not gated. `list` returns key names only — never values.
 
 ## How to Load Secrets
 

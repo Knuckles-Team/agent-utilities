@@ -64,3 +64,8 @@ rules:
   - {kind: deploy_service, target: "*", tier: approval_required}
   - {kind: redeploy_stack, target: "*", tier: approval_required}
   - {kind: merge_promotion, target: "*", tier: approval_required}
+  # Secret-store mutations (CONCEPT:OS-5.66): writing/deleting a secret in the
+  # engine-encrypted __secrets__ store is sensitive — approval_required. Reads
+  # (secret.get / secret.list) are not gated, mirroring the read posture.
+  - {kind: secret.set, target: "*", tier: approval_required}
+  - {kind: secret.delete, target: "*", tier: approval_required}

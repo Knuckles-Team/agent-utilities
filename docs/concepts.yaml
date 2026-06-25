@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 476
+total_concepts: 478
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3428,6 +3428,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  - agent_utilities/security/secrets_client.py
   doc: Schedule lives on the control graph; read it from there
 - id: KG-2.150
   name: the agent-utilities checkout
@@ -3616,6 +3617,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
   doc: tolerant of every shape this value arrives in
+- id: KG-2.231
+  name: KG-2.231
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/security/secrets_client.py
+  doc: KG-2.231
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -5204,6 +5212,15 @@ concepts:
   code_paths:
   - agent_utilities/deployment/config_generator.py
   doc: doctor-driven minimal mcp_config — graph-os plus mcp-multiplexer
+- id: OS-5.66
+  name: Engine-backed encrypted secret store
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/secret_tools.py
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/security/secrets_client.py
+  doc: Engine-backed encrypted secret store
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
