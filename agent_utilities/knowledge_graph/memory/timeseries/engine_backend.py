@@ -29,7 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .base import TimeSeriesBackend, TimeSeriesDataPoint
@@ -39,12 +39,12 @@ logger = logging.getLogger(__name__)
 
 def _to_ns(dt: datetime) -> int:
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return int(dt.timestamp() * 1_000_000_000)
 
 
 def _from_ns(ns: int) -> datetime:
-    return datetime.fromtimestamp(ns / 1_000_000_000, tz=timezone.utc)
+    return datetime.fromtimestamp(ns / 1_000_000_000, tz=UTC)
 
 
 def _series_id(symbol: str, tags: dict[str, str] | None) -> str:

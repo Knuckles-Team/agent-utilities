@@ -64,9 +64,7 @@ def _load_baseline_snapshot(backend: Any, repo: str) -> dict[str, Any] | None:
     return None
 
 
-def _save_baseline_snapshot(
-    backend: Any, repo: str, snapshot: dict[str, Any]
-) -> None:
+def _save_baseline_snapshot(backend: Any, repo: str, snapshot: dict[str, Any]) -> None:
     """Persist the refreshed baseline snapshot for ``repo`` (engine node or file)."""
     if backend is not None:
         backend.execute(
