@@ -127,6 +127,11 @@ DEFAULT_POLICY: dict[str, Any] = {
         {"kind": "deploy_service", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "redeploy_stack", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "merge_promotion", "target": "*", "tier": TIER_APPROVAL},
+        # Secret-store mutations (CONCEPT:OS-5.66): writing or deleting a secret in
+        # the engine-encrypted ``__secrets__`` store is sensitive — approval_required.
+        # (Reads — secret.get / secret.list — are not gated, mirroring read posture.)
+        {"kind": "secret.set", "target": "*", "tier": TIER_APPROVAL},
+        {"kind": "secret.delete", "target": "*", "tier": TIER_APPROVAL},
     ],
 }
 

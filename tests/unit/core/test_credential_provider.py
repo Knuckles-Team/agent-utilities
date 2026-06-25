@@ -29,8 +29,14 @@ from agent_utilities.security.source_credentials import (
 
 @pytest.fixture
 def secrets() -> SecretsClient:
-    """An in-memory secrets client seeded with a few source secrets."""
-    client = SecretsClient(backend=InEpistemicGraphBackend())
+    """An engine-backed secrets client (unique throwaway graph) seeded with a few
+    source secrets. The unique graph keeps each test isolated (CONCEPT:OS-5.66)."""
+    import uuid
+
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    graph = GraphComputeEngine(graph_name=f"__secrets_test_{uuid.uuid4().hex[:12]}__")
+    client = SecretsClient(backend=InEpistemicGraphBackend(graph=graph))
     client.set("pulselink/x/session", json.dumps({"auth_token": "AT", "ct0": "C0"}))
     client.set("pulselink/reddit/cs", "reddit-client-secret")
     client.set("github/token", "ghp_abc123")
@@ -98,7 +104,12 @@ def test_cookie_session_from_json_blob(secrets: SecretsClient) -> None:
 
 
 def test_cookie_session_from_cookie_string() -> None:
-    client = SecretsClient(backend=InEpistemicGraphBackend())
+    import uuid
+
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    graph = GraphComputeEngine(graph_name=f"__secrets_test_{uuid.uuid4().hex[:12]}__")
+    client = SecretsClient(backend=InEpistemicGraphBackend(graph=graph))
     client.set("s", "reddit_session=abc; token=xyz")
     cred = build_credential({"type": "cookie_session", "secret": "vault://s"}, client)
     assert cred.materialize().cookies == {"reddit_session": "abc", "token": "xyz"}

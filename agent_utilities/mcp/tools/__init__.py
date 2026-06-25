@@ -9,6 +9,7 @@ from agent_utilities.mcp.tools.bus_tools import register_bus_tools
 from agent_utilities.mcp.tools.ontology_tools import register_ontology_tools
 from agent_utilities.mcp.tools.query_tools import register_query_tools
 from agent_utilities.mcp.tools.reach_tools import register_reach_tools
+from agent_utilities.mcp.tools.secret_tools import register_secret_tools
 from agent_utilities.mcp.tools.state_tools import register_state_tools
 from agent_utilities.mcp.tools.write_ingest_tools import register_write_ingest_tools
 
@@ -20,4 +21,5 @@ __all__ = [
     "register_ontology_tools",
     "register_reach_tools",
     "register_bus_tools",
+    "register_secret_tools",
 ]
