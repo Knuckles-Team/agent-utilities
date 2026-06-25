@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Ephemeral REAL epistemic-graph engine for the test suite (CONCEPT:KG-2.237).
+"""Ephemeral REAL epistemic-graph engine for the test suite (CONCEPT:KG-2.238).
 
 USER DIRECTIVE: tests validate against the ACTUAL database we ship — NOT SQLite,
 NOT mocks. This module owns the lifecycle of ONE real ``epistemic-graph-server``
