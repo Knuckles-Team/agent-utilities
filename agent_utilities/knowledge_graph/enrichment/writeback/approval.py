@@ -1,15 +1,16 @@
-"""Approval queue for high-stakes write-backs (CONCEPT:KG-2.9 / KG-2.208).
+"""Approval queue for high-stakes write-backs (CONCEPT:KG-2.9 / KG-2.247).
 
 High-stakes sinks (finance trades, legal filings, destructive infra) must NEVER
 auto-execute. Their proposed writes are persisted here as ``pending`` proposals; a
 human/gate later ``approve``s a proposal id, which replays the exact ops through
 :func:`run_writeback` with an approval token.
 
-Dual-mode like ``DeltaManifest`` (CONCEPT:KG-2.208): when a durable graph backend
-(the epistemic-graph engine authority) is available, proposals live as
-``:WritebackProposal`` nodes ON THE ENGINE — queryable, beside the one authority —
-instead of a local ``writeback_proposals.json``. Only the zero-infra ``tiny``
-profile (no durable backend) keeps the JSON store under the data dir.
+Engine-only (CONCEPT:KG-2.247): proposals live as ``:WritebackProposal`` nodes ON
+THE ONE epistemic-graph engine authority — queryable, beside the graph — with NO
+local ``writeback_proposals.json`` fallback. When no engine backend is supplied
+the queue resolves the active engine backend (the OS-5.63 resolver auto-starts the
+pi-tier engine in prod; the KG-2.238 fixture provides a real ephemeral one in
+tests), raising a clear error if the engine is genuinely unreachable.
 """
 
 from __future__ import annotations
@@ -17,18 +18,11 @@ from __future__ import annotations
 import builtins
 import json
 import logging
-from pathlib import Path
 from typing import Any
-
-from agent_utilities.core.paths import data_dir
 
 logger = logging.getLogger(__name__)
 
 _LABEL = "WritebackProposal"
-
-
-def _store_path() -> Path:
-    return data_dir() / "writeback_proposals.json"
 
 
 def _node(row: Any) -> dict[str, Any] | None:
@@ -42,85 +36,45 @@ def _node(row: Any) -> dict[str, Any] | None:
 
 
 class ProposalQueue:
-    """Durable pending/approved write-back proposals, keyed by a stable id.
+    """Engine-backed pending/approved write-back proposals, keyed by a stable id.
 
-    Engine-graph mode (``:WritebackProposal`` nodes) when a durable backend is
-    passed/active; the JSON file fallback otherwise (CONCEPT:KG-2.208).
+    CONCEPT:KG-2.247 — proposals are ``:WritebackProposal`` nodes on the one
+    epistemic-graph engine authority; there is no JSON-file fallback.
     """
 
-    def __init__(self, path: str | Path | None = None, backend: Any = None) -> None:
-        from ...backends.base import is_durable_backend
+    def __init__(self, backend: Any = None) -> None:
+        from ...backends.base import (
+            is_engine_authority_backend,
+            require_engine_authority_backend,
+        )
 
-        if backend is None:
-            try:
-                from ...backends import get_active_backend
+        if is_engine_authority_backend(backend):
+            self._backend: Any = backend
+        else:
+            self._backend = require_engine_authority_backend(
+                "high-stakes write-back approval queue (CONCEPT:KG-2.247)"
+            )
 
-                backend = get_active_backend()
-            except Exception:  # noqa: BLE001 - no backend wired -> JSON fallback
-                backend = None
-        self._backend: Any = backend if is_durable_backend(backend) else None
-        self.mode = "graph" if self._backend is not None else "json"
-        self._path = Path(path) if path else _store_path()
-
-    # -- JSON fallback ----------------------------------------------------
-    def _load(self) -> dict[str, Any]:
-        try:
-            return json.loads(self._path.read_text())
-        except Exception:  # noqa: BLE001 - empty/missing store
-            return {"_seq": 0, "proposals": {}}
-
-    def _save(self, data: dict[str, Any]) -> None:
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(json.dumps(data, indent=2, default=str))
-        except Exception:  # noqa: BLE001
-            logger.warning("could not persist writeback proposals", exc_info=True)
-
-    # -- public API (dual-mode) ------------------------------------------
+    # -- public API ------------------------------------------------------
     def enqueue(
         self, target: str, ops: dict[str, Any], proposals: list[dict[str, Any]]
     ) -> str:
         clean_ops = {k: v for k, v in ops.items() if not k.startswith("_")}
-        if self.mode == "graph":
-            return self._enqueue_graph(target, clean_ops, proposals)
-        data = self._load()
-        seq = int(data.get("_seq", 0)) + 1
-        data["_seq"] = seq
-        pid = f"wbp:{target}:{seq}"
-        data.setdefault("proposals", {})[pid] = {
-            "id": pid,
-            "target": target,
-            "ops": clean_ops,
-            "proposals": proposals,
-            "status": "pending",
-        }
-        self._save(data)
-        return pid
+        return self._enqueue_graph(target, clean_ops, proposals)
 
     def list(self, status: str | None = None) -> list[dict[str, Any]]:
-        if self.mode == "graph":
-            return self._list_graph(status)
-        items = list(self._load().get("proposals", {}).values())
-        return [p for p in items if status is None or p.get("status") == status]
+        return self._list_graph(status)
 
     def get(self, pid: str) -> dict[str, Any] | None:
-        if self.mode == "graph":
-            return self._get_graph(pid)
-        return self._load().get("proposals", {}).get(pid)
+        return self._get_graph(pid)
 
     def mark(self, pid: str, status: str) -> None:
-        if self.mode == "graph":
-            self._backend.execute(
-                f"MATCH (p:{_LABEL} {{id: $id}}) SET p.status = $status",
-                {"id": pid, "status": status},
-            )
-            return
-        data = self._load()
-        if pid in data.get("proposals", {}):
-            data["proposals"][pid]["status"] = status
-            self._save(data)
+        self._backend.execute(
+            f"MATCH (p:{_LABEL} {{id: $id}}) SET p.status = $status",
+            {"id": pid, "status": status},
+        )
 
-    # -- engine-graph mode (CONCEPT:KG-2.208) ----------------------------
+    # -- engine-graph implementation (CONCEPT:KG-2.247) ------------------
     def _next_seq(self, target: str) -> int:
         rows = self._backend.execute(
             f"MATCH (p:{_LABEL}) WHERE p.target = $target RETURN count(p) AS c",
