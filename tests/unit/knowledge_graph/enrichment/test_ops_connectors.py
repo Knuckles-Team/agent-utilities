@@ -9,7 +9,6 @@ from agent_utilities.knowledge_graph.enrichment.extractors import (
     technitium_dns as dns_ext,
 )
 from agent_utilities.knowledge_graph.enrichment.writeback import (
-    approval,
     core,
     run_writeback,
 )
@@ -120,9 +119,10 @@ def test_dns_sink_standard_live(monkeypatch):
     assert client.added == [("example.com", "api", "A", "10.0.0.2")]
 
 
-def test_kafka_high_stakes_is_queued(monkeypatch, tmp_path):
+def test_kafka_high_stakes_is_queued(monkeypatch, tiny_engine):
+    # tiny_engine (KG-2.238): the engine-only approval queue persists on the REAL
+    # ephemeral engine — no JSON fallback (CONCEPT:KG-2.247).
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
-    monkeypatch.setattr(approval, "_store_path", lambda: tmp_path / "p.json")
 
     class FakeKafkaW:
         def __init__(self):
@@ -142,9 +142,8 @@ def test_kafka_high_stakes_is_queued(monkeypatch, tmp_path):
     assert client.produced == []
 
 
-def test_portainer_high_stakes_is_queued(monkeypatch, tmp_path):
+def test_portainer_high_stakes_is_queued(monkeypatch, tiny_engine):
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
-    monkeypatch.setattr(approval, "_store_path", lambda: tmp_path / "p.json")
     out = run_writeback(
         "portainer", client=object(), creations=[{"name": "newstack"}], dry_run=False
     )

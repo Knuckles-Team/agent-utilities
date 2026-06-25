@@ -3,11 +3,24 @@ from __future__ import annotations
 """Tests for code_health per-repo baseline deltas.
 
 CONCEPT:CE-039 — Baseline-aware new-vs-resolved deltas in the code-health sweep.
+CONCEPT:KG-2.248 — baselines are engine-only (``:CodeHealthBaseline`` nodes on the
+one engine authority, no local file cache), so these drive a real engine backend
+bound to the conftest ``engine_graph`` ephemeral tenant (CONCEPT:KG-2.238).
 """
 
-import json
+import pytest
 
 from agent_utilities.knowledge_graph.adaptation import code_health
+
+
+@pytest.fixture()
+def baseline_backend(engine_graph):
+    """An ``EpistemicGraphBackend`` on the REAL ephemeral engine tenant."""
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    return EpistemicGraphBackend(graph_name=engine_graph.graph_name)
 
 
 class _FakeBaselineModule:
@@ -30,27 +43,32 @@ class _FakeBaselineModule:
         }
 
 
-def test_first_run_has_no_delta_and_writes_cache(tmp_path, monkeypatch):
-    monkeypatch.setattr(code_health, "_BASELINE_DIR", tmp_path)
+def test_first_run_has_no_delta_and_writes_baseline(baseline_backend):
     report = {"findings": ["orphan a.py", "dead foo"]}
-    delta = code_health._baseline_delta(_FakeBaselineModule, "repoX", report)
-    assert delta == {}  # nothing to compare against on the first sweep
-    cache = tmp_path / "repoX.json"
-    assert cache.exists()
-    assert set(json.loads(cache.read_text())["fingerprints"]) == set(report["findings"])
-
-
-def test_second_run_reports_new_and_fixed(tmp_path, monkeypatch):
-    monkeypatch.setattr(code_health, "_BASELINE_DIR", tmp_path)
-    code_health._baseline_delta(_FakeBaselineModule, "repoX", {"findings": ["a", "b"]})
     delta = code_health._baseline_delta(
-        _FakeBaselineModule, "repoX", {"findings": ["a", "c"]}
+        _FakeBaselineModule, "repoX", report, baseline_backend
+    )
+    assert delta == {}  # nothing to compare against on the first sweep
+    # The snapshot was persisted on the engine, queryable back.
+    snap = code_health._load_baseline_snapshot(baseline_backend, "repoX")
+    assert snap is not None
+    assert set(snap["fingerprints"]) == set(report["findings"])
+
+
+def test_second_run_reports_new_and_fixed(baseline_backend):
+    code_health._baseline_delta(
+        _FakeBaselineModule, "repoX", {"findings": ["a", "b"]}, baseline_backend
+    )
+    delta = code_health._baseline_delta(
+        _FakeBaselineModule, "repoX", {"findings": ["a", "c"]}, baseline_backend
     )
     assert delta["new"] == 1  # "c" is new
     assert delta["fixed"] == 1  # "b" resolved
     assert delta["new_debt_score"] == 97
 
 
-def test_missing_module_degrades_gracefully(tmp_path, monkeypatch):
-    monkeypatch.setattr(code_health, "_BASELINE_DIR", tmp_path)
-    assert code_health._baseline_delta(None, "repoX", {"findings": ["a"]}) == {}
+def test_missing_module_degrades_gracefully(baseline_backend):
+    assert (
+        code_health._baseline_delta(None, "repoX", {"findings": ["a"]}, baseline_backend)
+        == {}
+    )

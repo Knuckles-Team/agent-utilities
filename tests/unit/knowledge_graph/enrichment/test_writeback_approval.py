@@ -1,11 +1,16 @@
-"""High-stakes write-back: risk-tier + approval queue (CONCEPT:KG-2.9)."""
+"""High-stakes write-back: risk-tier + approval queue (CONCEPT:KG-2.9 / KG-2.247).
+
+The approval queue is engine-only (``:WritebackProposal`` nodes, no JSON fallback),
+so these run against the REAL ephemeral engine the conftest provides (CONCEPT:
+KG-2.238) — ``ProposalQueue()`` / ``run_writeback`` resolve the engine authority
+via the OS-5.63 resolver, which is the session ``tiny_engine`` here.
+"""
 
 from __future__ import annotations
 
 import pytest
 
 from agent_utilities.knowledge_graph.enrichment.writeback import (
-    approval,
     core,
     run_writeback,
 )
@@ -34,10 +39,12 @@ class _HighStakesSink:
 
 
 @pytest.fixture
-def sink(monkeypatch, tmp_path):
+def sink(monkeypatch, tiny_engine):
+    # ``tiny_engine`` (CONCEPT:KG-2.238) ensures the REAL ephemeral engine is up so
+    # the engine-only ProposalQueue (no JSON fallback) has an authority to persist
+    # :WritebackProposal nodes on.
     s = _HighStakesSink()
     core.register_sink(s)
-    monkeypatch.setattr(approval, "_store_path", lambda: tmp_path / "proposals.json")
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)  # enabled
     yield s
     core._SINKS.pop("tesths", None)
