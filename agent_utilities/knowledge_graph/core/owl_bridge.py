@@ -714,20 +714,31 @@ class OWLBridge:
     def run_cycle(self, lightweight: bool = True) -> dict[str, Any]:
         """Full promote → reason → downfeed cycle. Returns stats.
 
-        If lightweight=True, performs fast local RDFS+ closures.
-        If False, executes full Description Logic reasoning via the OWL backend.
+        If lightweight=True, performs fast local RDFS+/OWL closure -- engine-native
+        first (``client.rdf.owl_reason``), Python last-resort -- and needs NO owlready2
+        backend (CONCEPT:KG-2.204): the engine reasons over the live graph directly, so
+        owl-backend promotion is skipped. If False, executes full Description Logic
+        reasoning via the (owlready2) OWL backend, which is then required.
         """
-        # The promote/reason cycle requires a real OWL backend; it is never run in
-        # the None case (graph_api builds a SPARQL-only bridge that uses query_sparql).
-        assert self.owl is not None, "OWL reasoning cycle requires an owl_backend"
-        self.owl.clear()
-
-        promoted_nodes = self._promote_stable_nodes()
-        promoted_edges = self._promote_stable_edges()
-
         if lightweight:
+            # Engine-native (or Python-fallback) closure runs over the live graph
+            # directly -- no owlready2 promotion, so it works with owl_backend=None.
+            if self.owl is not None:
+                self.owl.clear()
+                promoted_nodes = self._promote_stable_nodes()
+                promoted_edges = self._promote_stable_edges()
+            else:
+                promoted_nodes = 0
+                promoted_edges = 0
             inferences = self._lightweight_reasoning()
         else:
+            # Full DL reasoning still requires a real owlready2 backend.
+            assert (
+                self.owl is not None
+            ), "full-DL OWL reasoning cycle requires an owl_backend"
+            self.owl.clear()
+            promoted_nodes = self._promote_stable_nodes()
+            promoted_edges = self._promote_stable_edges()
             inferences = self.owl.reason()
 
         downfed = self._downfeed_inferences(inferences)
