@@ -4,7 +4,7 @@ import os
 import sys
 
 # Make this directory importable so ``_test_engine`` (the ephemeral real-engine
-# lifecycle helper, CONCEPT:KG-2.237) resolves regardless of pytest import-mode /
+# lifecycle helper, CONCEPT:KG-2.238) resolves regardless of pytest import-mode /
 # the absence of a ``tests/__init__.py``.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -47,7 +47,7 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "engine: test runs against the REAL ephemeral epistemic-graph engine "
-        "(requests the ``tiny_engine``/``engine_graph`` fixtures). CONCEPT:KG-2.237",
+        "(requests the ``tiny_engine``/``engine_graph`` fixtures). CONCEPT:KG-2.238",
     )
 
 
@@ -231,7 +231,7 @@ _SESSION_ENGINE_SOCKET: "str | None" = None
 def _session_engine():
     """Deploy ONE REAL ephemeral epistemic-graph engine for the whole test session.
 
-    USER DIRECTIVE (CONCEPT:KG-2.237): engine-backed tests validate against the
+    USER DIRECTIVE (CONCEPT:KG-2.238): engine-backed tests validate against the
     ACTUAL database we ship — NOT SQLite, NOT mocks — deployed ephemerally and
     destroyed/cleaned up after. This (autouse) session fixture subsumes the old
     ``start_epistemic_graph_server`` autostart so the engine is up for the *whole*
@@ -304,7 +304,7 @@ def _session_engine():
 def tiny_engine(_session_engine):
     """The session engine's socket path — or ``skip`` when no real engine exists.
 
-    CONCEPT:KG-2.237. Requesting this (or ``engine_graph``) is how a test OPTS IN
+    CONCEPT:KG-2.238. Requesting this (or ``engine_graph``) is how a test OPTS IN
     to the real database: on a box with no binary AND no Rust toolchain it skips
     with a clear message, whereas a test that merely tolerates the engine being
     absent should not request it (the autouse ``_session_engine`` already wired
@@ -324,7 +324,7 @@ def tiny_engine(_session_engine):
 def engine_graph(tiny_engine):
     """A FRESH, isolated REAL tenant graph on the session ``tiny_engine``.
 
-    CONCEPT:KG-2.237 — fast per-test isolation without a process per test: create
+    CONCEPT:KG-2.238 — fast per-test isolation without a process per test: create
     a uniquely-named tenant graph on the one running engine, yield a
     :class:`GraphComputeEngine` scoped to it, then DELETE it via the engine's
     tenant-purge (CONCEPT:KG-2.221) so per-test state never leaks into another
