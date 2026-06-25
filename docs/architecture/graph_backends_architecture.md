@@ -108,28 +108,36 @@ feature is non-authoritative and boots clean with no warning.) This is an
 **engine-side** setting (`epistemic-graph-server` env), independent of the
 agent-utilities-side `GRAPH_BACKEND` mirror selection below.
 
-## Derived stores route to the engine, not a local DB (dual-mode, CONCEPT:KG-2.204–2.209)
+## Derived stores route to the engine, NOT a local DB (engine-only, CONCEPT:KG-2.244–2.248)
 
 Auxiliary stores that used to keep their own local SQLite/JSON file *next to* the
-one engine authority now route through the durable backend when one is present,
-falling back to their zero-infra local store only for the `tiny` profile (no
-durable backend). They all share the predicate
-`knowledge_graph/backends/base.py::is_durable_backend` and the dual-mode shape of
-the `DeltaManifest` template (`mode = "graph" if durable else <local>`):
+one engine authority now route through the **engine unconditionally** — there is
+**no SQLite/JSON/file fallback**. Each resolves the engine-authority backend (the
+OS-5.63 resolver auto-starts the pi-tier engine in prod; the KG-2.238 test fixture
+provides a real ephemeral one) and raises a clear error if the engine is genuinely
+unreachable. They share the engine-only helpers in
+`knowledge_graph/backends/base.py` — `is_engine_authority_backend` /
+`require_engine_authority_backend` — and persist via the engine node API
+(`add_node` / `get_node_properties` / `nodes_by_label`, deterministic node ids), so
+the reads/writes work against the real engine (the in-process `execute()` Cypher
+subset can't do `WHERE … IN $list` / unscoped `MATCH`).
 
-| Store | Engine surface (durable) | Local fallback (`tiny`) | Concept |
+| Store | Engine surface (the only store) | Node id / scan | Concept |
 |---|---|---|---|
-| Ingestion delta manifest | `:IngestManifest` nodes | `kg_ingest_manifest.db` | KG-2.8 |
-| LLM card cache (`CardStore`) | `:CardCache` nodes (keyed by `ast_hash`) | `kg_card_cache.db` | KG-2.204 |
-| Registry graph (`RegistryPipeline`) | engine graph nodes/edges via the active backend | ladybug `registry_graph.db` | KG-2.205 |
-| Time-series memory | engine `client.timeseries.*` (eg-tsdb, `series.redb`) | `timeseries.db` | KG-2.206 |
-| Write-back proposals (`ProposalQueue`) | `:WritebackProposal` nodes | `writeback_proposals.json` | KG-2.208 |
-| Code-health baselines | `:CodeHealthBaseline` nodes | `~/.cache/.../code_health_baselines/*.json` | KG-2.209 |
+| LLM card cache (`CardStore`) | `:CardCache` nodes | `cardcache:<ast_hash>` (keyed) | KG-2.244 |
+| Registry graph (`RegistryPipeline`) | engine graph nodes/edges via the active backend | `persist_to_ladybug=False` | KG-2.245 |
+| Time-series memory | engine `client.timeseries.*` (eg-tsdb, `series.redb`) | series ids | KG-2.246 |
+| Write-back proposals (`ProposalQueue`) | `:WritebackProposal` nodes | `wbp:<target>:<seq>` + label scan | KG-2.247 |
+| Code-health baselines | `:CodeHealthBaseline` nodes | `codehealthbaseline:<repo>` (keyed) | KG-2.248 |
 
-These keep the platform's "one authority" discipline: when the engine is durable,
-auxiliary state is queryable beside the graph instead of scattered across host-local
-files. The local arm exists purely so the zero-infra `tiny` profile still works with
-nothing deployed. (Intentional non-store local files stay local by design: the
+> The **ingestion delta manifest** (`DeltaManifest`, `:IngestManifest` /
+> `kg_ingest_manifest.db`, CONCEPT:KG-2.9) is a SEPARATE, pre-existing store that
+> *keeps* its zero-infra SQLite fallback via `is_durable_backend` — it is NOT part
+> of this engine-only consolidation.
+
+These enforce the platform's "one authority" discipline: auxiliary state is
+queryable beside the graph, never scattered across host-local files, and never a
+SQLite straggler. (Intentional non-store local files stay local by design: the
 `STATE_DB_URI` state-store default, the mirror outbox, and RAM-only caches.)
 
 ## Engine authority vs. mirror comparison
