@@ -29,17 +29,53 @@ import pytest
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
 
-_BIN = (
-    Path(__file__).resolve().parents[3].parent
-    / "epistemic-graph"
-    / "target"
-    / "release"
-    / "epistemic-graph-server"
-)
+def _resolve_engine_binary() -> Path | None:
+    """Locate an epistemic-graph-server binary (worktree, canonical workspace, PATH)."""
+    import shutil
+
+    candidates: list[Path] = []
+    # 1) An epistemic-graph sibling of THIS repo's clone root (canonical layout).
+    here = Path(__file__).resolve()
+    for anc in here.parents:
+        if anc.name == "agent-utilities":
+            for tier in ("release", "debug"):
+                candidates.append(
+                    anc.parent / "epistemic-graph" / "target" / tier
+                    / "epistemic-graph-server"
+                )
+            break
+    # 2) The canonical workspace path (worktrees live outside the workspace).
+    for tier in ("release", "debug"):
+        candidates.append(
+            Path("/home/apps/workspace/agent-packages/epistemic-graph/target")
+            / tier
+            / "epistemic-graph-server"
+        )
+    # 3) Alongside the installed epistemic_graph package wheel.
+    try:
+        import epistemic_graph
+
+        pkg = Path(epistemic_graph.__file__).resolve().parent.parent
+        for tier in ("release", "debug"):
+            candidates.append(pkg / "target" / tier / "epistemic-graph-server")
+    except Exception:
+        pass
+    # 4) On PATH.
+    which = shutil.which("epistemic-graph-server")
+    if which:
+        candidates.append(Path(which))
+
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+_BIN = _resolve_engine_binary()
 
 
 def _server_has_rdf() -> bool:
-    if not _BIN.exists():
+    if _BIN is None or not _BIN.exists():
         return False
     try:
         blob = _BIN.read_bytes()
