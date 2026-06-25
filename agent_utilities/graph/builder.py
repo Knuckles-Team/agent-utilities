@@ -16,8 +16,6 @@ from typing import Any, Literal
 from pydantic_ai import Agent
 from pydantic_graph import End
 
-from agent_utilities.core.config import setting
-
 try:
     from pydantic_graph.graph_builder import Graph, GraphBuilder
     from pydantic_graph.step import StepContext
@@ -543,45 +541,29 @@ def create_agent(
         if DEFAULT_VALIDATION_MODE:
             logger.info("Registry Graph: Skipping initialization in VALIDATION_MODE.")
         else:
-            from agent_utilities.core.paths import data_dir
-            from agent_utilities.knowledge_graph.backends import get_active_backend
             from agent_utilities.knowledge_graph.backends.base import (
-                is_durable_backend,
+                require_engine_authority_backend,
             )
 
             ws = get_agent_workspace()
-            # Dual-mode like DeltaManifest (CONCEPT:KG-2.205): when a durable graph
-            # backend (the epistemic-graph engine authority) is active, persist the
-            # registry graph as nodes/edges ON THE ENGINE — never a local SQLite
-            # graph next to the one authority. Only the zero-infra ``tiny`` profile
-            # (no durable backend) keeps the local ladybug ``registry_graph.db``.
-            active_backend = get_active_backend()
-            durable = is_durable_backend(active_backend)
-            if durable:
-                registry_db = None
-                reg_config = PipelineConfig(
-                    workspace_path=str(ws),
-                    persist_to_ladybug=False,
-                )
-                reg_pipeline = RegistryPipeline(reg_config, backend=active_backend)
-                logger.debug(
-                    "Registry Graph: engine-backed via %s",
-                    type(active_backend).__name__,
-                )
-            else:
-                if setting("AGENT_UTILITIES_TESTING"):
-                    registry_db = (
-                        ws / ".agent_utilities_test" / "kg" / "registry_graph.db"
-                    )
-                else:
-                    registry_db = data_dir() / "kg" / "registry_graph.db"
-                registry_db.parent.mkdir(parents=True, exist_ok=True)
-                reg_config = PipelineConfig(
-                    workspace_path=str(ws),
-                    persist_to_ladybug=True,
-                    ladybug_path=str(registry_db),
-                )
-                reg_pipeline = RegistryPipeline(reg_config)
+            # Engine-only (CONCEPT:KG-2.245): the registry graph persists as
+            # nodes/edges ON THE ONE epistemic-graph engine authority — never a
+            # local ladybug ``registry_graph.db`` beside it. Resolve the engine
+            # backend (the OS-5.63 resolver auto-starts the pi-tier engine in prod;
+            # the KG-2.238 fixture provides a real ephemeral one in tests), raising
+            # a clear error if the engine is genuinely unreachable.
+            active_backend = require_engine_authority_backend(
+                "agent registry graph (CONCEPT:KG-2.245)"
+            )
+            reg_config = PipelineConfig(
+                workspace_path=str(ws),
+                persist_to_ladybug=False,
+            )
+            reg_pipeline = RegistryPipeline(reg_config, backend=active_backend)
+            logger.debug(
+                "Registry Graph: engine-backed via %s",
+                type(active_backend).__name__,
+            )
 
             # We run the pipeline synchronously here during initialization
             import asyncio
@@ -600,9 +582,9 @@ def create_agent(
                     logger.info("Running RegistryPipeline sync...")
                     asyncio.run(reg_pipeline.run())
                     knowledge_engine = IntelligenceGraphEngine(
-                        backend=active_backend if durable else None,
+                        backend=active_backend,
                         graph=reg_pipeline.graph,
-                        db_path=str(registry_db) if registry_db else None,
+                        db_path=None,
                     )
                 except Exception as e:
                     logger.debug(f"Knowledge engine initialization failed: {e}")
