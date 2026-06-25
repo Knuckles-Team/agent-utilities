@@ -47,8 +47,8 @@ class SPARQLEndpoint:
         """Initialize with an OWLBridge instance.
 
         Args:
-            owl_bridge: OWLBridge with _build_rdf_graph() and
-                _sparql_via_rdflib() methods.
+            owl_bridge: OWLBridge exposing query_sparql() (engine-native SPARQL
+                with a rdflib/regex last-resort fallback).
         """
         self._bridge = owl_bridge
 
@@ -62,7 +62,10 @@ class SPARQLEndpoint:
             return {"error": f"Unsupported format: {result_format}"}
 
         try:
-            raw_results = self._bridge._sparql_via_rdflib(query)
+            # CONCEPT:KG-2.242 — go through query_sparql so the query runs on the
+            # engine's native SPARQL surface (live graph) by default, with the rdflib
+            # materialization only as a no-engine last resort.
+            raw_results = self._bridge.query_sparql(query)
         except ImportError:
             return {"error": "rdflib not installed. Install with: pip install rdflib"}
         except Exception as e:

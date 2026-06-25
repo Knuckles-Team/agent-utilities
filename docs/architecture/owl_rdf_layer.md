@@ -9,14 +9,31 @@ dependencies**. Apache Jena Fuseki / Stardog are an *optional* enterprise
 scale-out (federation, a durable triplestore) — never required, and never on the
 critical path for the zero-dep "tiny" / Raspberry-Pi profile.
 
-## Why local-first
+## Engine-native semantic web (CONCEPT:KG-2.242)
 
-The fast/light inference substrate already exists: the Rust `epistemic-graph`
-engine ships a native OWL-RL reasoner (`reasoning.rs` / `RunDatalogReasoning`:
-subclass, subproperty, transitive, symmetric, inverse, domain/range,
-property-chains) plus VF2 pattern matching and a bulk `GetTriples` RDF-export op.
-So inference and SPARQL materialization run **in-process over UDS/MessagePack** —
-no triplestore deployment, no network hop.
+SPARQL, OWL DL reasoning, and SHACL are served by the **engine's native RDF
+surface** (`client.rdf.*`), not a Python rdflib/owlready2/pyshacl stack:
+
+- **SPARQL 1.1** — `client.rdf.sparql(query)` runs over the LIVE engine graph (the
+  RDF dataset maps onto the same property graph: a resource object → a typed edge, a
+  literal → a typed property cell preserving xsd datatype/`@lang`, `rdf:type` → the
+  engine `type` label). No rdflib materialization.
+- **OWL 2 (EL⁺/RL) reasoning** — `client.rdf.owl_reason(ontology, target_class)`
+  classifies the OWL axioms in the graph (plus passed Turtle) and materializes
+  **confidence/decay-weighted entailments** (inferred subclass edges + class
+  memberships), read-only. This is the memory-inference primitive.
+- **SHACL** — validation runs against the engine's RDF projection (`get_triples`);
+  the engine has no native SHACL op, so pyshacl remains the *validator* but the data
+  it sees comes from the engine, not a separate materialization.
+
+This native RDF/SPARQL/OWL surface is **pure-Rust** (oxrdf/oxttl/spargebra — no
+native C deps) and ships in **every** profile, the tiny **pi-tier** binary included.
+The `EngineResolver` (OS-5.63) auto-starts a pi-tier engine on demand, so the
+engine's semantic surface is always available — even on a Raspberry Pi. The Python
+rdflib/owlready2/pyshacl stack is demoted to a **true last-resort fallback** (only
+when no engine is reachable AND the libs happen to be installed); it is kept out of
+the serving plane (the `serving` extra no longer pulls `[owl]`), so `import
+agent_utilities` + a `kg_server` boot need none of them.
 
 ## Architecture
 
@@ -25,11 +42,11 @@ graph TB
     ING["Ingest / write path"] --> SH["SHACL gate\n(governance + value-type shapes)\nCONCEPT:KG-2.39"]
     SH --> LPG["LPG store\n(epistemic_graph | ladybug | pg-age/AGE | neo4j | falkordb)"]
 
-    subgraph "OWL/RDF layer — always-on, local"
-        TBOX["Bundled ontologies (TBox)\n30× ontology*.ttl\nloaded at startup"]
-        REASON["epistemic-graph reasoner\nRunDatalogReasoning (OWL-RL)\nCONCEPT:KG-2.17"]
+    subgraph "OWL/RDF layer — engine-native (CONCEPT:KG-2.242)"
+        TBOX["Bundled ontologies (TBox)\n+ pack object-property axioms\n(emitted as Turtle)"]
+        REASON["engine OWL 2 reasoner\nclient.rdf.owl_reason\n(EL⁺/RL, confidence-weighted)"]
         BRIDGE["OWLBridge\npromote → reason → downfeed"]
-        SPARQL["Local SPARQL endpoint\nGET/POST {gateway}/api/sparql"]
+        SPARQL["SPARQL endpoint\nGET/POST {gateway}/api/sparql\nclient.rdf.sparql (live graph)"]
     end
 
     LPG --> BRIDGE
@@ -38,8 +55,8 @@ graph TB
     REASON -->|inferred triples| BACKFEED["Durable back-feed\nlink_nodes(inferred=true)"]
     BACKFEED --> LPG
 
-    LPG -->|GetTriples bulk export\n(fast path)| MAT["rdflib materialization"]
-    MAT --> SPARQL
+    LPG -->|client.rdf.sparql\n(live engine graph)| SPARQL
+    SPARQL -. last-resort fallback .-> MAT["rdflib materialization\n(no-engine only)"]
     BRIDGE -. optional .-> FUSEKI["Jena Fuseki / Stardog\n(enterprise scale-out)"]
 ```
 
@@ -57,29 +74,30 @@ graph TB
 ## Local SPARQL
 
 `{gateway}/api/sparql` (GET `?query=` or POST `{"query": …}`) is served by
-`OWLBridge.query_sparql` and returns W3C SPARQL-JSON. Materialization uses a
-**fast path**: the engine's `GetTriples` op exports the whole graph as
-`[subject, predicate, object]` triples in **one call** (edges → `(s, rel, o)`,
-node type → `(id, rdf:type, label)`, scalar props → `(id, prop, literal)`), which
-feeds rdflib's mature SPARQL engine — rather than reimplementing SPARQL in Rust or
-making per-node round-trips. It falls back to per-node iteration on engines without
-`GetTriples`, and works **without `owlready2`** (the rdflib path needs only rdflib).
+`OWLBridge.query_sparql` and returns W3C SPARQL-JSON. By default it dispatches to
+the engine's native `client.rdf.sparql` (via `GraphComputeEngine.sparql`), which runs
+the SPARQL 1.1 query **over the live engine graph** in one round-trip — no rdflib
+materialization. The rdflib path (`_sparql_via_rdflib`, fed by the engine's
+`GetTriples` bulk export) remains only as the no-engine last resort, behind a final
+regex scan.
 
 ## SHACL validation
 
-The pre-commit SHACL gate (`pipeline/phases/shacl_gate.py`, on by default) validates
-materialized writes against the bundled `governance.shapes.ttl` **and** value-type
-generated shapes (`ValueType.to_shacl()`, CONCEPT:KG-2.39) — so value-type
-constraints (EmailAddress, Percentage, …) are enforced alongside governance rules.
+The SHACL gate (`pipeline/phases/shacl_gate.py`, on by default) validates writes
+against the bundled `governance.shapes.ttl` **and** value-type generated shapes
+(`ValueType.to_shacl()`, CONCEPT:KG-2.39). The data graph it validates is **sourced
+from the engine's RDF projection** (`get_triples` — one round-trip over the live
+graph, CONCEPT:KG-2.242), falling back to per-node LPG iteration only when no engine
+is reachable; pyshacl stays the validator (the engine has no native SHACL op).
 Violating nodes are quarantined, not silently dropped.
 
 ## Deployment posture
 
 | Profile | OWL reasoning | SPARQL | Triplestore |
 |---|---|---|---|
-| **tiny (Pi-3, zero-dep)** | ✅ local (engine OWL-RL) | ✅ local `/api/sparql` | none |
-| single-node prod | ✅ local | ✅ local | optional |
-| enterprise | ✅ local | ✅ local | + Jena Fuseki / Stardog (federation), `KG_FUSEKI_PUBLISH=1` |
+| **tiny (Pi-3, zero-dep)** | ✅ engine-native (pi-tier `client.rdf.owl_reason`) | ✅ engine-native `client.rdf.sparql` | none |
+| single-node prod | ✅ engine-native | ✅ engine-native | optional |
+| enterprise | ✅ engine-native | ✅ engine-native | + Jena Fuseki / Stardog (federation), `KG_FUSEKI_PUBLISH=1` |
 
 ## Reasoning *as* the research engine — one ontology over the whole ecosystem
 
@@ -147,9 +165,9 @@ emits a signed `seal_certificate`. Both surfaces are exposed identically — the
   Loop kinds (research stages + develop act→validate + skill execution).
 - `gateway/research_api.py` — granular `{prefix}/research/*` typed routes (single SoT);
   `graph_loops` MCP tool — the single entrypoint for long-running objectives.
-- `knowledge_graph/backends/owl/` — local `owlready2` backend + Stardog.
+- `knowledge_graph/backends/owl/` — `owlready2` backend + Stardog (full-DL last-resort fallback only).
 - `knowledge_graph/backends/sparql/jena_fuseki_backend.py` — optional Fuseki tier.
 - `gateway/graph_api.py` — `{prefix}/sparql` route + cached bridge.
-- `core/graph_compute.py::get_triples()` — bulk RDF export (engine `GetTriples`).
-- `epistemic-graph/src/reasoning.rs`, `src/server.rs` (`GetTriples`) — Rust substrate.
+- `core/graph_compute.py::sparql()/owl_reason()/add_triples()/get_triples()` — the engine-native RDF surface (CONCEPT:KG-2.242): `client.rdf.sparql`/`owl_reason`/`add_triples`/`GetTriples`.
+- `epistemic-graph` `crates/eg-rdf` (`rdf`/`sparql`/`owl` features, pure-Rust oxrdf/oxttl/spargebra) — the native RDF/SPARQL/OWL substrate (`client.rdf.*`).
 - `core/ontology_publisher.py` — bundled-ontology collection + optional Fuseki push.

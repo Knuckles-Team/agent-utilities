@@ -714,20 +714,31 @@ class OWLBridge:
     def run_cycle(self, lightweight: bool = True) -> dict[str, Any]:
         """Full promote → reason → downfeed cycle. Returns stats.
 
-        If lightweight=True, performs fast local RDFS+ closures.
-        If False, executes full Description Logic reasoning via the OWL backend.
+        If lightweight=True, performs fast local RDFS+/OWL closure -- engine-native
+        first (``client.rdf.owl_reason``), Python last-resort -- and needs NO owlready2
+        backend (CONCEPT:KG-2.242): the engine reasons over the live graph directly, so
+        owl-backend promotion is skipped. If False, executes full Description Logic
+        reasoning via the (owlready2) OWL backend, which is then required.
         """
-        # The promote/reason cycle requires a real OWL backend; it is never run in
-        # the None case (graph_api builds a SPARQL-only bridge that uses query_sparql).
-        assert self.owl is not None, "OWL reasoning cycle requires an owl_backend"
-        self.owl.clear()
-
-        promoted_nodes = self._promote_stable_nodes()
-        promoted_edges = self._promote_stable_edges()
-
         if lightweight:
+            # Engine-native (or Python-fallback) closure runs over the live graph
+            # directly -- no owlready2 promotion, so it works with owl_backend=None.
+            if self.owl is not None:
+                self.owl.clear()
+                promoted_nodes = self._promote_stable_nodes()
+                promoted_edges = self._promote_stable_edges()
+            else:
+                promoted_nodes = 0
+                promoted_edges = 0
             inferences = self._lightweight_reasoning()
         else:
+            # Full DL reasoning still requires a real owlready2 backend.
+            assert (
+                self.owl is not None
+            ), "full-DL OWL reasoning cycle requires an owl_backend"
+            self.owl.clear()
+            promoted_nodes = self._promote_stable_nodes()
+            promoted_edges = self._promote_stable_edges()
             inferences = self.owl.reason()
 
         downfed = self._downfeed_inferences(inferences)
@@ -743,127 +754,103 @@ class OWLBridge:
         return stats
 
     def _lightweight_reasoning(self) -> list[dict[str, Any]]:
-        """Lightweight RDFS+ reasoning — Rust-first with Python fallback.
+        """Lightweight OWL/RDFS+ reasoning -- engine-native first, Python last-resort.
 
-        CONCEPT:KG-2.23 — Rust-Accelerated Reasoning
-
-        Attempts to use the Rust Datalog engine (epistemic-graph) for
-        transitive/symmetric/domain-range/property-chain inference.
-        Falls back to Python networkx implementation if the Rust engine
-        is unavailable.
+        CONCEPT:KG-2.242 — OWL reasoning is demoted to the engine's native OWL 2
+        (EL+/RL) reasoner (``client.rdf.owl_reason``, confidence/decay-weighted). The
+        engine's RDF/OWL surface ships in every profile (the tiny/pi-tier binary
+        included), so the engine path is the default everywhere. The Python
+        ``_python_reasoning`` RDFS+ closure is the TRUE last-resort -- only when no
+        engine is reachable at all. Both paths emit the same inference-dict shape so
+        ``_downfeed_inferences`` is path-agnostic.
         """
         try:
-            return self._rust_reasoning()
-        except Exception:
-            logger.debug("Rust reasoning unavailable, falling back to Python RDFS+")
+            return self._engine_reasoning()
+        except Exception as e:  # noqa: BLE001 -- degrade to the Python last-resort
+            logger.debug(
+                "Engine OWL reasoning unavailable (%s); falling back to Python RDFS+.",
+                e,
+            )
             return self._python_reasoning()
 
-    def _rust_reasoning(self) -> list[dict[str, Any]]:
-        """Execute reasoning via the Rust Datalog engine.
+    def _engine_reasoning(self) -> list[dict[str, Any]]:
+        """Execute OWL entailment via the engine's native reasoner (the memory
+        inference primitive, CONCEPT:KG-2.242).
 
-        Uses epistemic-graph's compiled transitive/symmetric inference,
-        domain/range rules, and property chain composition.
+        Routes to ``self.graph.owl_reason`` (the engine ``OwlReason`` op): it
+        classifies the OWL axioms in the engine's RDF projection of the live graph
+        (plus any pack-declared object-property characteristics emitted as ontology
+        Turtle) and returns confidence/decay-weighted entailments -- inferred subclass
+        edges and class memberships -- which we convert to inference dicts. The engine
+        reasoner does not emit ``owl:inverseOf`` facts, so pack-declared inverse
+        closure is added on top (same as the Python path), keeping the two paths in
+        agreement (CONCEPT:KG-2.36).
+
+        Raises if the engine / ``owl`` feature is unavailable so the caller falls back
+        to :meth:`_python_reasoning`.
         """
-        try:
-            import importlib
+        if not hasattr(self.graph, "owl_reason"):
+            raise RuntimeError("engine OWL reasoning unavailable (no owl_reason op)")
 
-            EpistemicGraph = importlib.import_module("epistemic_graph").EpistemicGraph
-        except (ImportError, AttributeError) as exc:
-            raise RuntimeError("epistemic-graph not available") from exc
+        # Seed the reasoner with the pack-declared object-property characteristics so
+        # the engine classifies the active domain's transitive/symmetric edges
+        # (CONCEPT:KG-2.36). An empty ontology => reason over the graph's own axioms.
+        ontology = self._pack_axioms_turtle() or None
+        result = self.graph.owl_reason(ontology=ontology)
 
-        # Build a temporary Rust graph from the current in-memory networkx graph
-        eg = EpistemicGraph()
-        for node_id, attrs in self.graph.nodes(data=True):
-            eg.add_node(str(node_id), json.dumps(attrs))
-        for u, v, data in self.graph.edges(data=True):
-            try:
-                eg.add_edge(str(u), str(v), json.dumps(data))
-            except Exception:
-                pass  # Skip edges whose endpoints aren't in the graph
-
-        # Transitive properties
-        transitive_props = [
-            "part_of",
-            "depends_on",
-            "broader",
-            "narrower",
-            "inherits_from",
-            "inherits",  # class inheritance chains (CONCEPT:KG-2.100)
-        ]
-        # Symmetric properties
-        symmetric_props = [
-            "related_concept",
-            "exact_match",
-            "close_match",
-            "broad_match",
-            "similar_to",  # model-free code similarity (CONCEPT:KG-2.101)
-        ]
-        # Union pack-declared object-property characteristics so the compiled Datalog
-        # closure also covers the active domain's edges (CONCEPT:KG-2.36).
-        transitive_props = list(
-            dict.fromkeys(transitive_props + sorted(self._pack_transitive))
-        )
-        symmetric_props = list(
-            dict.fromkeys(symmetric_props + sorted(self._pack_symmetric))
-        )
-
-        # Run compiled Datalog reasoning
-        inferred = eg.infer_transitive(transitive_props, symmetric_props)
-
-        # Domain/range inference rules
-        domain_rules = [
-            ("authored_by", "Agent"),
-            ("executed_by", "Agent"),
-            ("created_by", "Agent"),
-        ]
-        range_rules = [
-            ("authored_by", "Artifact"),
-            ("produces", "Artifact"),
-        ]
-        dr_inferred = eg.infer_domain_range(domain_rules, range_rules)
-
-        # Property chain composition
-        chains = [
-            ("part_of", "part_of", "part_of"),  # transitivity
-            ("depends_on", "part_of", "depends_on"),  # dependency propagation
-        ]
-        chain_inferred = eg.infer_property_chains(chains)
-
-        # Convert Rust results to standard inference dicts
         inferences: list[dict[str, Any]] = []
-        for fact in inferred:
+        # Inferred class memberships (incl. exists-restriction / role-chain reached).
+        for pair in result.get("instances", []) or []:
+            if not pair or len(pair) != 2:
+                continue
+            inst, cls = pair
             inferences.append(
                 {
-                    "subject": fact.get("subject", ""),
-                    "predicate": fact.get("predicate", ""),
-                    "object": fact.get("object", ""),
-                    "inference_type": fact.get("inference_type", "rust_datalog"),
-                }
-            )
-        for fact in dr_inferred:
-            inferences.append(
-                {
-                    "subject": fact.get("subject", ""),
+                    "subject": str(inst),
                     "predicate": "rdf:type",
-                    "object": fact.get("type", ""),
-                    "inference_type": "domain_range_inference",
+                    "object": str(cls),
+                    "inference_type": "owl_engine_instance",
                 }
             )
-        for fact in chain_inferred:
+        # Inferred subclass hierarchy (the classification result).
+        for pair in result.get("subclasses", []) or []:
+            if not pair or len(pair) != 2:
+                continue
+            sub, sup = pair
             inferences.append(
                 {
-                    "subject": fact.get("subject", ""),
-                    "predicate": fact.get("predicate", ""),
-                    "object": fact.get("object", ""),
-                    "inference_type": "property_chain",
+                    "subject": str(sub),
+                    "predicate": "rdfs:subClassOf",
+                    "object": str(sup),
+                    "inference_type": "owl_engine_subclass",
                 }
             )
 
-        # Pack-declared inverse closure — the Rust transitive engine does not handle
+        # Pack-declared inverse closure -- the engine reasoner does not materialize
         # owl:inverseOf, so emit it here so both paths agree (CONCEPT:KG-2.36).
         inferences.extend(self._inverse_inferences())
 
         return inferences
+
+    def _pack_axioms_turtle(self) -> str:
+        """Render the pack-declared object-property characteristics as OWL Turtle.
+
+        CONCEPT:KG-2.36 — the engine reasons over OWL axioms; surface the active
+        pack's transitive/symmetric properties as ``owl:TransitiveProperty`` /
+        ``owl:SymmetricProperty`` declarations so the native reasoner closes them.
+        Returns an empty string when no pack characteristics are declared.
+        """
+        if not (self._pack_transitive or self._pack_symmetric):
+            return ""
+        lines = [
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .",
+            "@prefix au: <http://agent-utilities.dev/ontology#> .",
+        ]
+        for prop in sorted(self._pack_transitive):
+            lines.append(f"au:{prop} a owl:TransitiveProperty .")
+        for prop in sorted(self._pack_symmetric):
+            lines.append(f"au:{prop} a owl:SymmetricProperty .")
+        return "\n".join(lines) + "\n"
 
     def _python_reasoning(self) -> list[dict[str, Any]]:
         """Python fallback — RDFS+ reasoning on the in-memory networkx graph.
@@ -1172,12 +1159,15 @@ class OWLBridge:
     def query_sparql(self, sparql: str) -> list[dict[str, Any]]:
         """Execute a SPARQL query against the OWL backend or rdflib materialization.
 
-        CONCEPT:KG-2.6 — SPARQL Read-Only Endpoint
-
-        Supports three execution strategies in priority order:
-        1. Native OWL backend SPARQL (if available)
-        2. rdflib in-memory RDF graph materialization (preferred fallback)
-        3. Basic regex-based LPG scan (last resort)
+        CONCEPT:KG-2.242 — SPARQL is demoted to the engine's native SPARQL 1.1
+        surface (``client.rdf.sparql``), run over the LIVE engine graph rather than a
+        materialized rdflib copy. The engine RDF/SPARQL surface ships in every profile
+        (tiny/pi-tier binary included), so the engine path is the default everywhere.
+        Strategies, in priority order:
+        1. Engine-native SPARQL (``self.graph.sparql``) -- the default in every profile
+        2. Native OWL backend SPARQL (if an OWL backend exposes ``query_sparql``)
+        3. rdflib in-memory materialization -- TRUE last-resort (no engine + lib present)
+        4. Basic regex-based LPG scan (last resort)
 
         Args:
             sparql: A SPARQL SELECT, ASK, or CONSTRUCT query string.
@@ -1186,10 +1176,24 @@ class OWLBridge:
             List of result bindings as dicts. Each dict maps variable
             names to their bound values.
         """
+        # 1) Engine-native SPARQL over the live graph (the demoted-to-engine path;
+        #    the engine's native RDF/SPARQL surface is available in EVERY profile,
+        #    tiny/pi included, so this is the default path -- not a no-engine special
+        #    case). CONCEPT:KG-2.242.
+        if hasattr(self.graph, "sparql"):
+            try:
+                return list(self.graph.sparql(sparql))
+            except Exception as e:  # noqa: BLE001 -- fall through to Python last-resort
+                logger.debug(
+                    "Engine SPARQL unavailable (%s); falling back to Python.", e
+                )
+
+        # 2) A native OWL backend's own SPARQL implementation.
         if self.owl is not None and hasattr(self.owl, "query_sparql"):
             return self.owl.query_sparql(sparql)
 
-        # Try rdflib-based SPARQL execution
+        # 3) rdflib-based SPARQL execution -- the TRUE last-resort fallback (only when
+        #    no engine is reachable AND rdflib happens to be installed).
         try:
             return self._sparql_via_rdflib(sparql)
         except ImportError:
@@ -1200,6 +1204,7 @@ class OWLBridge:
         except Exception as e:
             logger.warning("rdflib SPARQL execution failed: %s. Falling back.", e)
 
+        # 4) Last-resort regex scan over the LPG.
         return self._sparql_fallback(sparql)
 
     def _build_rdf_graph(self) -> Any:
