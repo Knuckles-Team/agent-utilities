@@ -1468,6 +1468,41 @@ async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResp
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_analyze_code_metrics_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=code_metrics (CONCEPT:KG-2.210): Graphify-
+    style god nodes / communities / surprising connections over the :Code subgraph.
+    ``scope`` (or ``target``) = optional file_path/source_system substring;
+    ``top_k`` = section sizes."""
+    try:
+        scope = request.query_params.get("scope") or request.query_params.get(
+            "target", ""
+        )
+        top_k = int(request.query_params.get("top_k", "10"))
+        res = await _execute_tool(
+            "graph_analyze", action="code_metrics", target=scope, top_k=top_k
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+async def graph_analyze_arch_report_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=arch_report (CONCEPT:KG-2.213): the
+    regenerable architecture report (GRAPH_REPORT.md analog) as Markdown + metrics.
+    ``scope`` (or ``target``) = optional substring; ``top_k`` = section sizes."""
+    try:
+        scope = request.query_params.get("scope") or request.query_params.get(
+            "target", ""
+        )
+        top_k = int(request.query_params.get("top_k", "10"))
+        res = await _execute_tool(
+            "graph_analyze", action="arch_report", target=scope, top_k=top_k
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -2886,6 +2921,8 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/analyze/adr", graph_analyze_adr_endpoint, ["POST"])
     route("/graph/analyze/harness-gate", graph_analyze_harness_gate_endpoint, ["POST"])
     route("/graph/analyze/code-context", graph_analyze_code_context_endpoint, ["POST"])
+    route("/graph/analyze/code-metrics", graph_analyze_code_metrics_endpoint, ["GET"])
+    route("/graph/analyze/arch-report", graph_analyze_arch_report_endpoint, ["GET"])
     route("/graph/analyze/explain", graph_analyze_explain_endpoint, ["POST"])
     route(
         "/graph/analyze/cross-repo-usages",
