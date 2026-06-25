@@ -157,7 +157,7 @@ def code_connects(
 
     # Annotate each hop with the connecting edge (undirected match for the relation).
     hops: list[dict[str, Any]] = []
-    for a, b in zip(path, path[1:]):
+    for a, b in zip(path, path[1:], strict=False):
         rel, conf = None, None
         try:
             erows = engine.query_cypher(

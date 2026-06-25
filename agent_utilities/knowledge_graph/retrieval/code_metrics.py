@@ -111,8 +111,20 @@ def load_code_subgraph(
         src, dst = r.get("src"), r.get("dst")
         if not src or not dst:
             continue
-        _remember(src, r.get("src_name"), r.get("src_file"), r.get("src_lang"), r.get("src_kind"))
-        _remember(dst, r.get("dst_name"), r.get("dst_file"), r.get("dst_lang"), r.get("dst_kind"))
+        _remember(
+            src,
+            r.get("src_name"),
+            r.get("src_file"),
+            r.get("src_lang"),
+            r.get("src_kind"),
+        )
+        _remember(
+            dst,
+            r.get("dst_name"),
+            r.get("dst_file"),
+            r.get("dst_lang"),
+            r.get("dst_kind"),
+        )
         edges.append(
             {
                 "src": src,
@@ -290,7 +302,9 @@ def build_code_metrics(
             "community": node_comm.get(nid),
         }
 
-    gods = sorted(node_ids, key=lambda n: degrees.get(n, 0), reverse=True)[: max(1, top_k)]
+    gods = sorted(node_ids, key=lambda n: degrees.get(n, 0), reverse=True)[
+        : max(1, top_k)
+    ]
 
     # Group community membership for display (cap members so the payload stays lean).
     by_comm: dict[int, list[str]] = defaultdict(list)
@@ -298,13 +312,17 @@ def build_code_metrics(
         by_comm[cid].append(nodes.get(nid, {}).get("label") or nid)
     communities = [
         {"id": cid, "size": len(members), "members": sorted(members)[:25]}
-        for cid, members in sorted(by_comm.items(), key=lambda kv: len(kv[1]), reverse=True)
+        for cid, members in sorted(
+            by_comm.items(), key=lambda kv: len(kv[1]), reverse=True
+        )
     ]
 
     # Bounded render payload (CONCEPT:KG-2.214): the top nodes by degree + edges
     # among them, so the force-directed canvas stays responsive on large graphs.
     render_ids = set(
-        sorted(node_ids, key=lambda n: degrees.get(n, 0), reverse=True)[: max(1, render_limit)]
+        sorted(node_ids, key=lambda n: degrees.get(n, 0), reverse=True)[
+            : max(1, render_limit)
+        ]
     )
     render = {
         "nodes": [_node_view(n) for n in render_ids],
@@ -340,9 +358,7 @@ def build_code_metrics(
     }
 
 
-def build_arch_report(
-    engine: Any, scope: str = "", top_k: int = 10
-) -> dict[str, Any]:
+def build_arch_report(engine: Any, scope: str = "", top_k: int = 10) -> dict[str, Any]:
     """CONCEPT:KG-2.213 — a regenerable architecture report (GRAPH_REPORT.md analog).
 
     Composes :func:`build_code_metrics` with import-cycle detection into a Markdown
@@ -350,7 +366,11 @@ def build_arch_report(
     """
     metrics = build_code_metrics(engine, scope, top_k)
     if metrics.get("status") != "ok":
-        return {"status": metrics.get("status", "empty"), "metrics": metrics, "markdown": ""}
+        return {
+            "status": metrics.get("status", "empty"),
+            "metrics": metrics,
+            "markdown": "",
+        }
 
     _, edges = load_code_subgraph(engine, scope)
     node_ids = list({e["src"] for e in edges} | {e["dst"] for e in edges})
