@@ -125,7 +125,8 @@ async def test_run_graph_iter_yields_node_transitions():
     events = []
     with (
         patch("agent_utilities.core.config.load_node_agents_registry") as mock_registry,
-        patch("pydantic_graph.EndMarker", _FakeEndMarker),
+        patch("pydantic_graph.EndMarker", _FakeEndMarker, create=True),
+        patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker, create=True),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
@@ -159,7 +160,8 @@ async def test_run_graph_iter_state_snapshots():
     events = []
     with (
         patch("agent_utilities.core.config.load_node_agents_registry") as mock_registry,
-        patch("pydantic_graph.EndMarker", _FakeEndMarker),
+        patch("pydantic_graph.EndMarker", _FakeEndMarker, create=True),
+        patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker, create=True),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
@@ -242,7 +244,8 @@ async def test_run_graph_iter_drains_sideband():
     events = []
     with (
         patch("agent_utilities.core.config.load_node_agents_registry") as mock_registry,
-        patch("pydantic_graph.EndMarker", _FakeEndMarker),
+        patch("pydantic_graph.EndMarker", _FakeEndMarker, create=True),
+        patch("pydantic_graph.beta.graph.EndMarker", _FakeEndMarker, create=True),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
