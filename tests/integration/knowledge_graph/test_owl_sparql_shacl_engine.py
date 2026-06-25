@@ -84,9 +84,28 @@ def _server_has_rdf() -> bool:
     return b"OwlReason" in blob and b"AddTriples" in blob
 
 
+def _client_has_rdf() -> bool:
+    """The installed epistemic_graph client must expose the ``.rdf`` namespace.
+
+    A stale wheel (pre-KG-2.217/218) has no RdfClient, so the engine routing is
+    unreachable regardless of the binary -- skip rather than fail on a version skew.
+    """
+    try:
+        from epistemic_graph.client import EpistemicGraphClient
+    except Exception:
+        return False
+    import inspect
+
+    src = inspect.getsource(EpistemicGraphClient.__init__)
+    return "self.rdf" in src
+
+
 pytestmark = pytest.mark.skipif(
-    not _server_has_rdf(),
-    reason="engine binary without rdf/sparql/owl features (need pi/node/full tier)",
+    not (_server_has_rdf() and _client_has_rdf()),
+    reason=(
+        "needs an rdf/sparql/owl engine binary (pi/node/full tier) AND an "
+        "epistemic_graph client exposing the .rdf namespace (KG-2.217/218)"
+    ),
 )
 
 
