@@ -306,7 +306,9 @@ class TestLegacyMigration:
     """read-old → write-new → delete-old, on first engine-backed boot."""
 
     @pytest.mark.concept("CONCEPT:OS-5.66")
-    def test_migrates_and_deletes_legacy_db(self, engine_backend, tmp_path, monkeypatch):
+    def test_migrates_and_deletes_legacy_db(
+        self, engine_backend, tmp_path, monkeypatch
+    ):
         from agent_utilities.security import secrets_client as sc
 
         # Seed a legacy Fernet SQLite store with its sibling .key.
@@ -331,12 +333,12 @@ class TestLegacyMigration:
         assert not key_file.exists()
 
     @pytest.mark.concept("CONCEPT:OS-5.66")
-    def test_migration_is_noop_without_legacy_db(self, engine_backend, tmp_path, monkeypatch):
+    def test_migration_is_noop_without_legacy_db(
+        self, engine_backend, tmp_path, monkeypatch
+    ):
         from agent_utilities.security import secrets_client as sc
 
-        monkeypatch.setattr(
-            sc, "_legacy_sqlite_path", lambda: tmp_path / "absent.db"
-        )
+        monkeypatch.setattr(sc, "_legacy_sqlite_path", lambda: tmp_path / "absent.db")
         assert sc._migrate_legacy_sqlite(engine_backend) == 0
 
 

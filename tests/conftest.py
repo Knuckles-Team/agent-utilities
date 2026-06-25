@@ -201,8 +201,6 @@ def cleanup_build_artifacts():
         shutil.rmtree(_test_db_dir, ignore_errors=True)
 
 
-import subprocess
-import time
 import uuid
 
 
@@ -375,6 +373,7 @@ def engine_graph(tiny_engine):
     exactly this tenant.
     """
     from _test_engine import TEST_AUTH_SECRET
+
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
     # Re-assert the engine wiring per test: ``tiny_engine`` exports
@@ -460,6 +459,7 @@ def pytest_runtest_makereport(item, call):
                 "present, or export GRAPH_SERVICE_SOCKET, to run engine-backed "
                 "tests.",
             )
+
 
 # Optional heavy dependencies. These are mocked ONLY when genuinely absent, so the
 # suite still *collects* on a minimal env — but when the real library is installed

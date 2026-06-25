@@ -44,16 +44,23 @@ def test_graph_secret_registered_on_both_surfaces(registered):
 
 @pytest.mark.concept("CONCEPT:OS-5.66")
 @pytest.mark.asyncio
-async def test_set_get_list_delete_round_trip(registered, isolated_secrets, monkeypatch):
+async def test_set_get_list_delete_round_trip(
+    registered, isolated_secrets, monkeypatch
+):
     """Full CRUD through the shared action core (set is governed → allow it)."""
     # Allow secret.set/secret.delete for this test (default is approval_required).
     import agent_utilities.mcp.tools.secret_tools as st
 
-    monkeypatch.setattr(st, "_gate", lambda kind, target, reason: (True, {"tier": "auto"}))
+    monkeypatch.setattr(
+        st, "_gate", lambda kind, target, reason: (True, {"tier": "auto"})
+    )
 
     set_res = json.loads(
         await kg_server._execute_tool(
-            "graph_secret", action="set", key="svc/token", value="s3cr3t",
+            "graph_secret",
+            action="set",
+            key="svc/token",
+            value="s3cr3t",
             reason="test",
         )
     )
@@ -64,9 +71,7 @@ async def test_set_get_list_delete_round_trip(registered, isolated_secrets, monk
     )
     assert get_res["value"] == "s3cr3t"
 
-    list_res = json.loads(
-        await kg_server._execute_tool("graph_secret", action="list")
-    )
+    list_res = json.loads(await kg_server._execute_tool("graph_secret", action="list"))
     assert "svc/token" in list_res["keys"]
     # list never leaks values.
     assert "s3cr3t" not in json.dumps(list_res)
@@ -81,16 +86,23 @@ async def test_set_get_list_delete_round_trip(registered, isolated_secrets, monk
 
 @pytest.mark.concept("CONCEPT:OS-5.66")
 @pytest.mark.asyncio
-async def test_set_denied_by_policy_does_not_store(registered, isolated_secrets, monkeypatch):
+async def test_set_denied_by_policy_does_not_store(
+    registered, isolated_secrets, monkeypatch
+):
     """When ActionPolicy denies secret.set, nothing is written."""
     import agent_utilities.mcp.tools.secret_tools as st
 
     monkeypatch.setattr(
-        st, "_gate", lambda kind, target, reason: (False, {"decision": "queue_approval"})
+        st,
+        "_gate",
+        lambda kind, target, reason: (False, {"decision": "queue_approval"}),
     )
     res = json.loads(
         await kg_server._execute_tool(
-            "graph_secret", action="set", key="blocked/key", value="nope",
+            "graph_secret",
+            action="set",
+            key="blocked/key",
+            value="nope",
         )
     )
     assert res["error"] == "policy_denied"
@@ -103,7 +115,5 @@ async def test_set_denied_by_policy_does_not_store(registered, isolated_secrets,
 @pytest.mark.concept("CONCEPT:OS-5.66")
 @pytest.mark.asyncio
 async def test_unknown_action(registered):
-    res = json.loads(
-        await kg_server._execute_tool("graph_secret", action="bogus")
-    )
+    res = json.loads(await kg_server._execute_tool("graph_secret", action="bogus"))
     assert "unknown action" in res["error"]

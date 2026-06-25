@@ -78,8 +78,7 @@ class WritebackSink(Protocol):
 
     def run(
         self, ctx: WritebackContext, ops: dict[str, Any], *, dry_run: bool
-    ) -> WritebackResult:
-        ...
+    ) -> WritebackResult: ...
 
 
 def resolve_external_id(backend: Any, domain: str) -> Callable[[str], str | None]:
