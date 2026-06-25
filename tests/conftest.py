@@ -216,20 +216,27 @@ def isolate_graph_compute_engine(monkeypatch):
         break  # Only need one client for deletion
 
 
-# Set True once the isolated ``tiny_engine`` is started (or an external
+# Set True once the isolated session engine is deployed (or an external
 # ``GRAPH_SERVICE_SOCKET`` is provided). When it stays False, no engine is
 # reachable in this environment, so engine-backed tests are *skipped* rather than
 # hard-failing with ``ConnectionRefused`` — see ``pytest_runtest_makereport``.
 _TEST_ENGINE_AVAILABLE = False
 
+#: The session engine's socket path once deployed (``None`` ⇒ unavailable). The
+#: ``tiny_engine`` fixture returns this; ``engine_graph`` re-asserts it per test.
+_SESSION_ENGINE_SOCKET: "str | None" = None
 
-@pytest.fixture(scope="session")
-def tiny_engine():
-    """Deploy ONE REAL ephemeral epistemic-graph engine for the test session.
+
+@pytest.fixture(scope="session", autouse=True)
+def _session_engine():
+    """Deploy ONE REAL ephemeral epistemic-graph engine for the whole test session.
 
     USER DIRECTIVE (CONCEPT:KG-2.237): engine-backed tests validate against the
     ACTUAL database we ship — NOT SQLite, NOT mocks — deployed ephemerally and
-    destroyed/cleaned up after. This fixture:
+    destroyed/cleaned up after. This (autouse) session fixture subsumes the old
+    ``start_epistemic_graph_server`` autostart so the engine is up for the *whole*
+    session when available (the main case), while ``engine_graph`` layers per-test
+    tenant isolation on top:
 
     * resolves the engine binary (prebuilt wheel → sibling ``target`` → build the
       lean ``pi``-tier once and cache it — see ``tests/_test_engine.py``);
@@ -242,12 +249,13 @@ def tiny_engine():
     * on teardown shuts the engine down with a graceful **SIGTERM** (it
       checkpoints + exits cleanly) and removes the temp persist dir + socket.
 
-    If the engine genuinely cannot be obtained (no binary AND no Rust toolchain),
-    the fixture ``pytest.skip``s with a clear message — but on any normal dev/CI
-    box it runs a real engine. An externally-provided ``GRAPH_SERVICE_SOCKET``
-    (e.g. a shared host engine) is reused as-is and never torn down here.
+    When the engine genuinely cannot be obtained (no binary AND no Rust toolchain),
+    this fixture **degrades gracefully** — it yields with no engine and
+    engine-backed tests *skip* via ``pytest_runtest_makereport`` (it never skips
+    or fails the whole session). An externally-provided ``GRAPH_SERVICE_SOCKET``
+    (e.g. a shared host engine) is reused verbatim and never torn down here.
     """
-    global _TEST_ENGINE_AVAILABLE
+    global _TEST_ENGINE_AVAILABLE, _SESSION_ENGINE_SOCKET
     from _test_engine import (
         TEST_AUTH_SECRET,
         EngineUnavailable,
@@ -260,37 +268,56 @@ def tiny_engine():
     external = os.environ.get("GRAPH_SERVICE_SOCKET")
     if external:
         _TEST_ENGINE_AVAILABLE = True
+        _SESSION_ENGINE_SOCKET = external
         yield external
         return
 
     try:
         binary = resolve_engine_binary()
+        engine = EphemeralEngine(binary).start()
     except EngineUnavailable as exc:
-        pytest.skip(f"real epistemic-graph engine unavailable: {exc}")
-        return
-
-    engine = EphemeralEngine(binary)
-    try:
-        engine.start()
-    except EngineUnavailable as exc:
-        pytest.skip(f"real epistemic-graph engine failed to start: {exc}")
+        # No real engine obtainable — degrade to hermetic-skip mode (the
+        # makereport hook turns engine-unreachable errors into skips).
+        print(f"[session-engine] real engine unavailable: {exc}")
+        yield None
         return
 
     # Wire the client / EngineResolver to THIS engine for the whole session.
     # Set in os.environ (not monkeypatch) so it survives the per-test
-    # ``_isolate_os_environ`` snapshot/restore: it is part of the snapshot taken
-    # at the first test, so it is restored — never deleted — at each boundary.
+    # ``_isolate_os_environ`` snapshot/restore.
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     os.environ["GRAPH_SERVICE_SOCKET"] = engine.socket_path  # type: ignore[assignment]
     os.environ["GRAPH_SERVICE_AUTH_SECRET"] = TEST_AUTH_SECRET
     _TEST_ENGINE_AVAILABLE = True
+    _SESSION_ENGINE_SOCKET = engine.socket_path
     try:
         yield engine.socket_path
     finally:
         _TEST_ENGINE_AVAILABLE = False
+        _SESSION_ENGINE_SOCKET = None
         IntelligenceGraphEngine.set_active(None)
         engine.stop()
+
+
+@pytest.fixture(scope="session")
+def tiny_engine(_session_engine):
+    """The session engine's socket path — or ``skip`` when no real engine exists.
+
+    CONCEPT:KG-2.237. Requesting this (or ``engine_graph``) is how a test OPTS IN
+    to the real database: on a box with no binary AND no Rust toolchain it skips
+    with a clear message, whereas a test that merely tolerates the engine being
+    absent should not request it (the autouse ``_session_engine`` already wired
+    things up best-effort, and ``pytest_runtest_makereport`` skips it on a
+    connection error).
+    """
+    if not _session_engine:
+        pytest.skip(
+            "real epistemic-graph engine unavailable (no prebuilt binary and no "
+            "Rust toolchain to build the lean pi-tier) — cannot run this "
+            "engine-backed test against the real database."
+        )
+    return _session_engine
 
 
 @pytest.fixture()
