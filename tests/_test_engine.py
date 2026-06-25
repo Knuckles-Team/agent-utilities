@@ -198,10 +198,10 @@ class EphemeralEngine:
         self._persist_dir: str | None = None
         self.socket_path: str | None = None
         self._proc: subprocess.Popen[bytes] | None = None
-        self._log: "tempfile._TemporaryFileWrapper[bytes] | None" = None
+        self._log: tempfile._TemporaryFileWrapper[bytes] | None = None
 
     # -- lifecycle -----------------------------------------------------------
-    def start(self) -> "EphemeralEngine":
+    def start(self) -> EphemeralEngine:
         self._root = tempfile.mkdtemp(prefix="au_tiny_engine_")
         root = Path(self._root)
         self._persist_dir = str(root / "persist")
@@ -313,7 +313,7 @@ class EphemeralEngine:
             shutil.rmtree(self._root, ignore_errors=True)
         self._root = self._persist_dir = self.socket_path = None
 
-    def __enter__(self) -> "EphemeralEngine":
+    def __enter__(self) -> EphemeralEngine:
         return self.start()
 
     def __exit__(self, *exc: object) -> None:

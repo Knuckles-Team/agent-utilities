@@ -116,9 +116,7 @@ def test_cookie_session_from_cookie_string() -> None:
 
 
 def test_cookie_session_inline() -> None:
-    cred = build_credential(
-        {"type": "cookie_session", "cookies": {"a": "1"}}, None
-    )
+    cred = build_credential({"type": "cookie_session", "cookies": {"a": "1"}}, None)
     assert cred.materialize().cookies == {"a": "1"}
 
 

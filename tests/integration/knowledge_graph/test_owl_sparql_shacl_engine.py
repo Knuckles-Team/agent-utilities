@@ -100,9 +100,7 @@ def test_bridge_lightweight_reasoning_uses_engine(owl_graph):
     bridge = OWLBridge(graph=owl_graph, owl_backend=None, backend=None)
     inferences = bridge._engine_reasoning()
     types = {
-        (i["subject"], i["object"])
-        for i in inferences
-        if i["predicate"] == "rdf:type"
+        (i["subject"], i["object"]) for i in inferences if i["predicate"] == "rdf:type"
     }
     assert ("alice", "Agent") in types
     assert ("bob", "Agent") in types

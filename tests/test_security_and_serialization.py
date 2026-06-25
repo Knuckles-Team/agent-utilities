@@ -48,6 +48,7 @@ class TestSafeSerialization:
             loaded = json.load(f)
         assert loaded == data
 
+
 # CONCEPT:OS-5.0 Workspace Management
 @pytest.mark.concept("CONCEPT:ORCH-1.0")
 class TestWorkspaceTraversalGuard:
