@@ -122,6 +122,26 @@ def test_code_metrics_finds_god_node_and_communities():
     assert out["by_confidence"]["EXTRACTED"] >= 1
 
 
+def test_code_metrics_render_payload_for_canvas():
+    out = cm.build_code_metrics(FakeEngine(), top_k=5)
+    graph = out["graph"]
+    # every render node carries the fields the canvas needs (size+color).
+    assert graph["nodes"], "expected render nodes"
+    for n in graph["nodes"]:
+        assert {"id", "label", "degree", "community"} <= set(n)
+    # edges only connect rendered nodes.
+    ids = {n["id"] for n in graph["nodes"]}
+    for e in graph["edges"]:
+        assert e["source"] in ids and e["target"] in ids
+    assert graph["truncated"] is False
+
+
+def test_code_metrics_render_payload_truncates():
+    out = cm.build_code_metrics(FakeEngine(), top_k=5, render_limit=2)
+    assert out["graph"]["truncated"] is True
+    assert len(out["graph"]["nodes"]) == 2
+
+
 def test_code_metrics_surprising_connections_are_cross_community():
     out = cm.build_code_metrics(FakeEngine(), top_k=10)
     for bridge in out["surprising_connections"]:
