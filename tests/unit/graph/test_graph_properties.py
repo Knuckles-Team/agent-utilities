@@ -1,6 +1,6 @@
 """CONCEPT:ORCH-1.0"""
 
-from hypothesis import given
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from agent_utilities.models.knowledge_graph import (
@@ -8,12 +8,22 @@ from agent_utilities.models.knowledge_graph import (
     RegistryNodeType,
 )
 
+# These are pure-Pydantic property tests — they never touch the engine. But the
+# suite now runs the REAL ephemeral epistemic-graph engine (CONCEPT:KG-2.238)
+# alongside them, so the box is under heavy load and Hypothesis's *timing*-based
+# health checks (``too_slow`` example generation, the per-example ``deadline``)
+# fire non-deterministically — a flake that has nothing to do with the property
+# under test. Disable only the load-sensitive timing guards (the property's
+# correctness checks are untouched) so these pass deterministically regardless of
+# concurrent engine/suite load. Inputs are already small/bounded for cheap,
+# deterministic generation; any string/float value round-trips through the model.
+_LOAD_TOLERANT = settings(
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
 
-# Bound the text/list sizes so input generation stays cheap and deterministic:
-# unbounded ``st.text()`` example generation can trip Hypothesis's ``too_slow``
-# health check when the machine is under heavy load (e.g. the full suite running
-# real container-sandbox tests concurrently). Small bounded strategies cover the
-# same property (any string value round-trips) without the load-sensitive timing.
+
+@_LOAD_TOLERANT
 @given(
     st.text(min_size=1, max_size=32),
     st.floats(min_value=0.0, max_value=1.0),
@@ -38,6 +48,7 @@ def test_outcome_evaluation_node_properties(node_id, reward, criteria, feedback)
     assert node.type == RegistryNodeType.OUTCOME_EVALUATION
 
 
+@_LOAD_TOLERANT
 @given(
     st.floats(
         min_value=0.0,
