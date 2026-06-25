@@ -1334,6 +1334,49 @@ class GraphComputeEngine:
         fut = asyncio.run_coroutine_threadsafe(async_client._send("GetTriples"), loop)
         return fut.result() or []
 
+    def sparql(self, query: str) -> list[dict[str, str | None]]:
+        """Run a SPARQL 1.1 query over the LIVE engine graph (one round-trip).
+
+        CONCEPT:KG-2.242 — Engine-native SPARQL/OWL/SHACL: the Python semantic-web stack
+        (rdflib/owlready2/pyshacl) is demoted to the engine's native RDF surface. This
+        routes to the engine's native ``client.rdf.sparql`` so the
+        query executes against the engine's RDF projection of the live property graph
+        (resource object -> typed edge, literal -> typed property cell, ``rdf:type`` ->
+        the engine ``type`` label) -- NOT a rdflib materialization. Returns one dict per
+        result row keyed by projected variable. Raises if the engine/op is unavailable
+        (e.g. a server built without the ``sparql`` feature) so callers can fall back to
+        the rdflib path.
+        """
+        return list(self._client.rdf.sparql(query))
+
+    def owl_reason(
+        self, ontology: str | None = None, target_class: str | None = None
+    ) -> dict[str, Any]:
+        """Run the engine's native OWL 2 (EL+/RL) reasoner over the live graph.
+
+        CONCEPT:KG-2.242 — routes to ``client.rdf.owl_reason``: classifies the OWL
+        axioms in the graph (plus any extra ``ontology`` Turtle) and materializes
+        entailments, returning ``{"subclasses", "instances", "consistent",
+        "unsatisfiable"}`` (confidence/decay-weighted, read-only -- does NOT mutate the
+        graph). ``target_class`` restricts ``instances`` to that class's inferred
+        members. Raises if the engine/op is unavailable (server built without the
+        ``owl`` feature) so callers can fall back to the Python/owlready2 path.
+        """
+        return dict(
+            self._client.rdf.owl_reason(ontology=ontology, target_class=target_class)
+        )
+
+    def add_triples(
+        self, turtle: str | None = None, ntriples: str | None = None
+    ) -> dict[str, int]:
+        """Load Turtle or N-Triples into the engine's RDF dataset (one round-trip).
+
+        CONCEPT:KG-2.242 — routes to ``client.rdf.add_triples``. Used to seed OWL
+        axioms / RDF facts the native reasoner and SPARQL surface operate over. Raises
+        if the engine/op is unavailable.
+        """
+        return dict(self._client.rdf.add_triples(turtle=turtle, ntriples=ntriples))
+
     def degree_centrality_all(self) -> list[tuple[str, float]]:
         """Compute degree centrality for all nodes."""
         return self._client.analytics.degree_centrality_all()

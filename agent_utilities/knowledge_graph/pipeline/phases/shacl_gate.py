@@ -72,13 +72,66 @@ def _class_iri(node_type: str) -> str:
     return cleaned[:1].upper() + cleaned[1:]
 
 
+def _data_graph_from_engine_triples(graph: Any) -> Any | None:
+    """Build the SHACL data graph from the ENGINE's RDF projection (CONCEPT:KG-2.242).
+
+    Routes the SHACL *graph source* to the engine: pulls ``[s, p, o]`` triples from
+    the engine's native ``get_triples`` op (one round-trip over the live graph) and
+    maps them into the kg# namespace rdflib data graph SHACL validates. Returns
+    ``None`` when the engine/op is unavailable so the caller falls back to per-node
+    iteration of the LPG. pyshacl remains the validator (the engine has no native
+    SHACL method); only the data the validator sees now comes from the engine.
+    """
+    get_triples = getattr(graph, "get_triples", None)
+    if get_triples is None:
+        return None
+    try:
+        triples = get_triples()
+    except Exception:  # noqa: BLE001 -- engine/op unavailable -> caller falls back
+        return None
+    if not triples:
+        return None
+
+    import rdflib
+
+    g = rdflib.Graph()
+    kg = rdflib.Namespace(KG_NS)
+    g.bind("", kg)
+    g.bind("rdf", rdflib.RDF)
+    g.bind("rdfs", rdflib.RDFS)
+
+    subjects = {str(t[0]) for t in triples if len(t) == 3}
+    for t in triples:
+        if len(t) != 3:
+            continue
+        s, pred, o = str(t[0]), str(t[1]), t[2]
+        subj = kg[s.replace(" ", "_")]
+        if pred == "rdf:type":
+            g.add((subj, rdflib.RDF.type, kg[_class_iri(str(o))]))
+        elif str(o) in subjects:
+            g.add((subj, kg[pred], kg[str(o).replace(" ", "_")]))
+        else:
+            if isinstance(o, bool):
+                continue
+            g.add((subj, kg[pred], rdflib.Literal(o)))
+    return g
+
+
 def build_data_graph(graph: Any) -> Any:
-    """Materialize the in-memory LPG into an rdflib Graph in the kg# namespace.
+    """Materialize the LPG into an rdflib Graph in the kg# namespace.
+
+    The data SHACL validates is sourced from the ENGINE's RDF projection first
+    (``get_triples`` -- one round-trip over the live graph, CONCEPT:KG-2.242); when no
+    engine is reachable this falls back to per-node iteration of the LPG.
 
     Each node becomes ``kg:<id> rdf:type kg:<Class>`` plus its string/numeric
     properties as datatype-property assertions, so SHACL shapes targeting
     ``:Tool``/``:Agent``/``:ServiceCapability`` etc. can validate them.
     """
+    engine_graph = _data_graph_from_engine_triples(graph)
+    if engine_graph is not None:
+        return engine_graph
+
     import rdflib
 
     g = rdflib.Graph()

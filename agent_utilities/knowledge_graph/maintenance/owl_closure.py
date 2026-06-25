@@ -100,27 +100,21 @@ def run_closure(engine: Any, limit: int = 2000) -> dict[str, Any]:
     if graph is None:
         return _empty_summary("engine has no graph")
 
-    # Build the OWL backend + bridge. Missing owlready2 (the [owl] extra) degrades
-    # to a no-op — the reasoning cycle requires a real backend (OWLBridge.run_cycle
-    # asserts owl_backend is not None).
+    # CONCEPT:KG-2.242 — the lightweight closure reasons engine-native
+    # (``client.rdf.owl_reason`` over the live graph), so it needs NO owlready2
+    # backend: the bridge runs ``run_cycle(lightweight=True)`` with ``owl_backend=None``
+    # and the engine materializes the OWL/RDFS+ closure. owlready2 is a true
+    # last-resort fallback (used only for the full-DL cycle), kept out of this hot path.
     try:
-        from ..backends.owl import create_owl_backend
         from ..core.owl_bridge import OWLBridge
-    except Exception as exc:  # pragma: no cover - optional dependency absent
-        logger.debug("OWL dependencies unavailable, skipping closure: %s", exc)
-        return _empty_summary("owl dependencies not installed")
+    except Exception as exc:  # pragma: no cover - core import failure
+        logger.debug("OWLBridge unavailable, skipping closure: %s", exc)
+        return _empty_summary("owl bridge unavailable")
 
-    if not _ONTOLOGY_PATH.exists():
-        return _empty_summary(f"ontology not found: {_ONTOLOGY_PATH}")
-
-    # Backend construction can raise ImportError at call time when the optional
-    # owlready2 (the [owl] extra) is absent — create_owl_backend imports cleanly but
-    # fails when instantiated. Treat that as a clean skip, not a reasoning error.
-    try:
-        owl_backend = create_owl_backend(ontology_path=str(_ONTOLOGY_PATH))
-    except Exception as exc:  # pragma: no cover - optional dependency absent
-        logger.debug("OWL backend unavailable, skipping closure: %s", exc)
-        return _empty_summary("owl backend unavailable")
+    # owl_backend stays None: the engine reasons over the live graph directly. (The
+    # ontology file is no longer loaded into an owlready2 quadstore here -- the engine
+    # holds the graph; pack axioms are surfaced by the bridge as Turtle.)
+    owl_backend = None
 
     promoted = 0
     inferred_edges = 0

@@ -2,12 +2,13 @@
 """Unit tests for the background OWL-RL + SHACL closure job (CONCEPT:KG-2.6).
 
 Covers:
-  * The full promote → reason → downfeed → SHACL path with a fake OWL backend
-    (so it runs without the heavy ``owlready2`` extra — only rdflib/pyshacl, which
-    are core deps, are exercised). Asserts implied edges are materialized back
-    into the graph and the summary shape is correct.
-  * The graceful-degradation paths (no engine graph, OWL backend unavailable) —
-    every one returns a structured no-op summary and never raises.
+  * The full reason → downfeed → SHACL path. Reasoning is engine-native first
+    (``client.rdf.owl_reason``, CONCEPT:KG-2.242) with a pure-Python RDFS+ closure
+    last-resort, so the closure needs NO owlready2 backend (``owl_backend=None``);
+    over a plain networkx graph the Python transitive closure runs. Asserts implied
+    edges are materialized back into the graph and the summary shape is correct.
+  * The graceful-degradation path (no engine graph) returns a structured no-op
+    summary and never raises.
 """
 
 from __future__ import annotations
@@ -67,13 +68,15 @@ def _transitive_graph() -> nx.MultiDiGraph:
     return g
 
 
-def test_run_closure_materializes_inferred_edges(patched_backend):
+def test_run_closure_materializes_inferred_edges():
     g = _transitive_graph()
     summary = owl_closure.run_closure(_Engine(g), limit=2000)
 
     assert summary["status"] == "completed"
-    # 3 nodes + 2 edges promoted.
-    assert summary["promoted"] >= 5
+    # CONCEPT:KG-2.242 — engine-native closure needs no owlready2 promotion, so
+    # `promoted` is 0; over a plain networkx graph the Python RDFS+ transitive
+    # closure runs and materializes the implied edge back into the graph.
+    assert summary["promoted"] == 0
     # The transitive closure A->C is materialized back into the graph.
     assert summary["inferred_edges"] >= 1
     assert g.has_edge("symbol:A", "symbol:C")
@@ -140,19 +143,22 @@ def test_run_closure_none_engine_is_noop():
     assert summary["inferred_edges"] == 0
 
 
-def test_run_closure_backend_unavailable_degrades(monkeypatch):
-    """A missing owlready2 (backend construction raises) degrades to a clean skip."""
+def test_run_closure_runs_without_owlready2(monkeypatch):
+    """CONCEPT:KG-2.242 — the closure reasons engine-native (or via the Python
+    last-resort) and must NOT require owlready2: even if create_owl_backend would
+    raise, the closure never calls it and still completes."""
     import agent_utilities.knowledge_graph.backends.owl as owlmod
 
     def _boom(*a, **k):
         raise ImportError("owlready2 not installed")
 
+    # Patched to explode — proving the closure path never constructs an owl backend.
     monkeypatch.setattr(owlmod, "create_owl_backend", _boom)
-    summary = owl_closure.run_closure(_Engine(_transitive_graph()))
-    assert summary["status"] == "skipped"
-    assert summary["reason"] == "owl backend unavailable"
-    assert summary["conforms"] is True
-    assert summary["violations"] == []
+    g = _transitive_graph()
+    summary = owl_closure.run_closure(_Engine(g))
+    assert summary["status"] == "completed"
+    # Python RDFS+ closure still materializes the transitive edge.
+    assert g.has_edge("symbol:A", "symbol:C")
 
 
 def test_run_closure_reasoning_error_never_raises(patched_backend, monkeypatch):
