@@ -69,6 +69,8 @@ def test_second_run_reports_new_and_fixed(baseline_backend):
 
 def test_missing_module_degrades_gracefully(baseline_backend):
     assert (
-        code_health._baseline_delta(None, "repoX", {"findings": ["a"]}, baseline_backend)
+        code_health._baseline_delta(
+            None, "repoX", {"findings": ["a"]}, baseline_backend
+        )
         == {}
     )
