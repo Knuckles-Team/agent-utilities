@@ -232,7 +232,14 @@ serving = [
     # plane re-acquires them here: the host daemon needs the engine client (KG compute +
     # code AST parsing) and the rss connector (feed ingestion). Code parsing is delegated to
     # the engine's native tree-sitter — no Python tree-sitter on the serving plane.
-    "agent-utilities[mcp,engine,feeds,embeddings,neo4j,falkordb,owl,auth,metrics,agent-headless]",
+    #
+    # `owl` (rdflib/owlready2/pyshacl) is DELIBERATELY EXCLUDED from the serving plane
+    # (CONCEPT:KG-2.204): the semantic-web stack — SPARQL, OWL DL reasoning, SHACL — is
+    # demoted to the engine's native RDF/SPARQL/OWL surface (`client.rdf.*`), which ships
+    # in every profile (the pi-tier binary included). rdflib/owlready2/pyshacl are now a
+    # true last-resort Python fallback in the `[owl]` extra only, kept import-lazy so
+    # `import agent_utilities` + a kg_server boot pull none of them. See AGENTS.md dep rule.
+    "agent-utilities[mcp,engine,feeds,embeddings,neo4j,falkordb,auth,metrics,agent-headless]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
