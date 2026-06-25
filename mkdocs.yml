@@ -69,6 +69,7 @@ nav:
       - Deploying agent-utilities: guides/deployment.md
       - Configuration: guides/configuration.md
       - Configuration Reference & Flag Audit: architecture/configuration.md
+      - Workspace Manifest (workspace.yml): guides/workspace-config.md
       - MCP Fleet Auth & Monitoring Runbook: guides/mcp-fleet-auth-and-monitoring-runbook.md
       - Enabling Autonomous Evolution: guides/autonomous-evolution.md
       - AGI→ASI Implementation Guide: guides/agi-to-asi-implementation.md
