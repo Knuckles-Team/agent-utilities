@@ -147,7 +147,7 @@ Conventions to keep parity with this package:
 - let `testcontainers` pick the port — never bind the canonical homelab port.
 ```
 
-## The REAL ephemeral engine in tests — `tiny_engine` / `engine_graph` (CONCEPT:KG-2.237)
+## The REAL ephemeral engine in tests — `tiny_engine` / `engine_graph` (CONCEPT:KG-2.238)
 
 Engine-backed tests validate against the **ACTUAL database we ship** — never
 SQLite, never a mock — deployed ephemerally and destroyed afterwards. Two
