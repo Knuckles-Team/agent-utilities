@@ -25,16 +25,6 @@ logger = logging.getLogger(__name__)
 _LABEL = "WritebackProposal"
 
 
-def _node(row: Any) -> dict[str, Any] | None:
-    """Extract the node dict from an ``execute()`` row (``{'p': {...}}`` or flat)."""
-    if isinstance(row, dict):
-        inner = row.get("p")
-        if isinstance(inner, dict):
-            return inner
-        return row
-    return None
-
-
 class ProposalQueue:
     """Engine-backed pending/approved write-back proposals, keyed by a stable id.
 
@@ -69,23 +59,28 @@ class ProposalQueue:
         return self._get_graph(pid)
 
     def mark(self, pid: str, status: str) -> None:
-        self._backend.execute(
-            f"MATCH (p:{_LABEL} {{id: $id}}) SET p.status = $status",
-            {"id": pid, "status": status},
+        node = self._backend.get_node_properties(pid)
+        if not node:
+            return
+        # Re-upsert the node with the new status (the engine's add_node is an
+        # upsert keyed by node id).
+        self._backend.add_node(
+            pid,
+            label=_LABEL,
+            id=pid,
+            target=node.get("target"),
+            ops_json=node.get("ops_json") or "{}",
+            proposals_json=node.get("proposals_json") or "[]",
+            status=status,
         )
 
     # -- engine-graph implementation (CONCEPT:KG-2.247) ------------------
     def _next_seq(self, target: str) -> int:
-        rows = self._backend.execute(
-            f"MATCH (p:{_LABEL}) WHERE p.target = $target RETURN count(p) AS c",
-            {"target": target},
+        existing = self._backend.nodes_by_label(_LABEL)
+        same_target = sum(
+            1 for _nid, props in existing if (props or {}).get("target") == target
         )
-        for row in rows if isinstance(rows, list) else []:
-            if isinstance(row, dict):
-                val = row.get("c", row.get("count(p)"))
-                if val is not None:
-                    return int(val) + 1
-        return 1
+        return same_target + 1
 
     def _enqueue_graph(
         self,
@@ -95,16 +90,14 @@ class ProposalQueue:
     ) -> str:
         seq = self._next_seq(target)
         pid = f"wbp:{target}:{seq}"
-        self._backend.execute(
-            f"MERGE (p:{_LABEL} {{id: $id}}) SET "
-            "p.target = $target, p.ops_json = $ops, p.proposals_json = $props, "
-            "p.status = 'pending'",
-            {
-                "id": pid,
-                "target": target,
-                "ops": json.dumps(ops, default=str),
-                "props": json.dumps(proposals, default=str),
-            },
+        self._backend.add_node(
+            pid,
+            label=_LABEL,
+            id=pid,
+            target=target,
+            ops_json=json.dumps(ops, default=str),
+            proposals_json=json.dumps(proposals, default=str),
+            status="pending",
         )
         return pid
 
@@ -126,28 +119,17 @@ class ProposalQueue:
         }
 
     def _get_graph(self, pid: str) -> dict[str, Any] | None:
-        rows = self._backend.execute(
-            f"MATCH (p:{_LABEL} {{id: $id}}) RETURN p", {"id": pid}
-        )
-        for row in rows if isinstance(rows, list) else []:
-            node = _node(row)
-            if node:
-                return self._decode(node)
-        return None
+        node = self._backend.get_node_properties(pid)
+        return self._decode(node) if node else None
 
     def _list_graph(self, status: str | None) -> builtins.list[dict[str, Any]]:
-        if status is None:
-            rows = self._backend.execute(f"MATCH (p:{_LABEL}) RETURN p", {})
-        else:
-            rows = self._backend.execute(
-                f"MATCH (p:{_LABEL}) WHERE p.status = $status RETURN p",
-                {"status": status},
-            )
         out: builtins.list[dict[str, Any]] = []
-        for row in rows if isinstance(rows, list) else []:
-            node = _node(row)
-            if node:
-                out.append(self._decode(node))
+        for _nid, props in self._backend.nodes_by_label(_LABEL):
+            if not props:
+                continue
+            decoded = self._decode(props)
+            if status is None or decoded.get("status") == status:
+                out.append(decoded)
         return out
 
 
