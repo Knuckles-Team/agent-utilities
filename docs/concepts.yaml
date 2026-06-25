@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 476
+total_concepts: 481
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1905,6 +1905,7 @@ concepts:
   - agent_utilities/gateway/daemon.py
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py
+  - agent_utilities/knowledge_graph/backends/base.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
   - agent_utilities/knowledge_graph/core/conversation_ingestion.py
@@ -3616,6 +3617,42 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
   doc: tolerant of every shape this value arrives in
+- id: KG-2.204
+  name: when a durable graph backend is present the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/cards.py
+  doc: when a durable graph backend is present the
+- id: KG-2.205
+  name: when a durable graph
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/graph/builder.py
+  doc: when a durable graph
+- id: KG-2.206
+  name: Best-effort acquisition of a
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/timeseries/__init__.py
+  - agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py
+  doc: Best-effort acquisition of a
+- id: KG-2.208
+  name: when a durable graph backend
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/writeback/approval.py
+  doc: when a durable graph backend
+- id: KG-2.209
+  name: the local file cache is the zero-infra
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/code_health.py
+  doc: the local file cache is the zero-infra
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
