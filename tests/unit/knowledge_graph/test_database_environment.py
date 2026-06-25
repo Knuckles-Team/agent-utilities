@@ -195,6 +195,11 @@ def test_backfill_to_age_no_backend(monkeypatch):
 
 # ── verify_sparql ──────────────────────────────────────────────────────────
 class _FakeBridge:
+    # SPARQLEndpoint.execute now dispatches via query_sparql (CONCEPT:KG-2.204 —
+    # engine-native first, rdflib only as a no-engine last resort).
+    def query_sparql(self, query):
+        return [{"s": "http://example.org/Agent"}]
+
     def _sparql_via_rdflib(self, query):
         return [{"s": "http://example.org/Agent"}]
 
