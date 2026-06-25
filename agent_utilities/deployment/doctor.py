@@ -526,6 +526,65 @@ def _check_connector_coverage() -> dict[str, Any]:
     return _result("connector_coverage", "ok", detail, data=rep)
 
 
+def _check_workspace_config() -> dict[str, Any]:
+    """Validate the ``workspace.yml`` repository manifest (CONCEPT:OS-5.67).
+
+    ``workspace.yml`` is the canonical map of the ecosystem's repositories: the
+    bootstrap (``clone_missing_projects``), the read-only project enumeration that
+    self-configures KG ingestion breadth (``workspace_project_roots``, KG-2.7), and
+    genesis all parse it. A malformed manifest, a repository entry with no ``url``,
+    or an incoherent ``subdirectories`` shape silently shrinks what the platform
+    clones/ingests — so we validate it through the SAME loader (no re-parse) and
+    surface gaps as a doctor finding rather than a silent miss."""
+    try:
+        from agent_utilities.core.workspace_config import validate_workspace_yml
+
+        rep = validate_workspace_yml()
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "workspace_config", "skip", f"workspace.yml validator unavailable: {exc}"
+        )
+
+    if not rep["found"]:
+        return _result(
+            "workspace_config",
+            "skip",
+            "no workspace.yml found (not a workspace checkout)",
+            remediation=(
+                "copy docs/examples/workspace.yml to the workspace root (or the "
+                "agent-utilities XDG config dir) and edit it for your repos"
+            ),
+        )
+
+    where = rep.get("path", "?")
+    if rep["errors"]:
+        head = "; ".join(rep["errors"][:5]) + ("…" if len(rep["errors"]) > 5 else "")
+        return _result(
+            "workspace_config",
+            "fail",
+            f"workspace.yml at {where} has {len(rep['errors'])} error(s): {head}",
+            remediation=(
+                "fix the listed entries; see docs/guides/workspace-config.md for the "
+                "schema + an annotated template (docs/examples/workspace.yml)"
+            ),
+            skill="agent-utilities-deployment",
+            data=rep,
+        )
+    detail = f"workspace.yml valid at {where} — {rep['repo_count']} repositories"
+    if rep["warnings"]:
+        nwarn = len(rep["warnings"])
+        return _result(
+            "workspace_config",
+            "warn",
+            detail
+            + f", {nwarn} advisory warning(s): {rep['warnings'][0]}"
+            + ("…" if nwarn > 1 else ""),
+            remediation="see docs/guides/workspace-config.md for the full schema",
+            data=rep,
+        )
+    return _result("workspace_config", "ok", detail, data=rep)
+
+
 def _check_bus() -> dict[str, Any]:
     """Report agent-bus health: participants, online count, stale agents, mailbox backlog.
 
@@ -664,6 +723,7 @@ def _check_warm_fork() -> dict[str, Any]:
 CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
     "config": _check_config,
+    "workspace_config": _check_workspace_config,
     "engine": _check_engine,
     "graph_backend": _check_graph_backend,
     "graph_connections": _check_graph_connections,
