@@ -27,7 +27,11 @@ class FakeGraph:
 _RESULT = {
     "symbols_extracted": 5,
     "nodes": [
-        {"node_id": "table:users", "node_type": "DatabaseTable", "properties": {"name": "users"}},
+        {
+            "node_id": "table:users",
+            "node_type": "DatabaseTable",
+            "properties": {"name": "users"},
+        },
         {
             "node_id": "column:users.user_id",
             "node_type": "DatabaseColumn",
@@ -48,14 +52,24 @@ _RESULT = {
         {"node_id": "file:x", "node_type": "FILE", "properties": {}},
     ],
     "edges": [
-        {"source": "table:users", "target": "column:users.user_id", "edge_type": "hasColumn", "properties": {}},
+        {
+            "source": "table:users",
+            "target": "column:users.user_id",
+            "edge_type": "hasColumn",
+            "properties": {},
+        },
         {
             "source": "table:sessions",
             "target": "table:users",
             "edge_type": "referencesTable",
             "properties": {"confidence": "EXTRACTED"},
         },
-        {"source": "view:active_sessions", "target": "table:users", "edge_type": "references", "properties": {}},
+        {
+            "source": "view:active_sessions",
+            "target": "table:users",
+            "edge_type": "references",
+            "properties": {},
+        },
     ],
 }
 

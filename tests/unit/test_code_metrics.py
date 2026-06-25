@@ -153,8 +153,7 @@ def test_code_metrics_scope_filter():
     assert out["status"] == "ok"
     # every surfaced god node must touch the scoped file.
     assert all(
-        "auth.py" in (g["file_path"] or "") or g["label"]
-        for g in out["god_nodes"]
+        "auth.py" in (g["file_path"] or "") or g["label"] for g in out["god_nodes"]
     )
 
 
