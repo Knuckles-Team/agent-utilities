@@ -14,6 +14,7 @@ profile (no durable backend) keeps the JSON store under the data dir.
 
 from __future__ import annotations
 
+import builtins
 import json
 import logging
 from pathlib import Path
@@ -133,7 +134,10 @@ class ProposalQueue:
         return 1
 
     def _enqueue_graph(
-        self, target: str, ops: dict[str, Any], proposals: list[dict[str, Any]]
+        self,
+        target: str,
+        ops: dict[str, Any],
+        proposals: builtins.list[dict[str, Any]],
     ) -> str:
         seq = self._next_seq(target)
         pid = f"wbp:{target}:{seq}"
@@ -177,7 +181,7 @@ class ProposalQueue:
                 return self._decode(node)
         return None
 
-    def _list_graph(self, status: str | None) -> list[dict[str, Any]]:
+    def _list_graph(self, status: str | None) -> builtins.list[dict[str, Any]]:
         if status is None:
             rows = self._backend.execute(f"MATCH (p:{_LABEL}) RETURN p", {})
         else:
@@ -185,7 +189,7 @@ class ProposalQueue:
                 f"MATCH (p:{_LABEL}) WHERE p.status = $status RETURN p",
                 {"status": status},
             )
-        out: list[dict[str, Any]] = []
+        out: builtins.list[dict[str, Any]] = []
         for row in rows if isinstance(rows, list) else []:
             node = _node(row)
             if node:
