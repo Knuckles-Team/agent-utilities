@@ -14,9 +14,11 @@ from agent_utilities.security.browser_auth import (
     BaseBrowserAuthManager,
     BaseLoopbackCallbackHandler,
     BaseLoopbackCallbackServer,
-    get_secrets_client_persistent,
 )
-from agent_utilities.security.secrets_client import SecretsClient
+from agent_utilities.security.secrets_client import (
+    SecretsClient,
+    create_secrets_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +35,8 @@ XAI_ACCESS_TOKEN_REFRESH_SKEW_SECONDS = 120  # Refresh 2 mins before expiry
 
 
 def get_secrets_client_for_xai() -> SecretsClient:
-    """Resolve SecretsClient, defaulting to persistent SQLite if InMemory backend is configured."""
-    return get_secrets_client_persistent()
+    """Resolve the SecretsClient (durable engine-backed __secrets__ store by default)."""
+    return create_secrets_client()
 
 
 def validate_xai_oauth_endpoint(url: str, field: str) -> str:

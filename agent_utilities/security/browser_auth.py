@@ -23,25 +23,11 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 
 from agent_utilities.security.secrets_client import (
-    InEpistemicGraphBackend,
     SecretsClient,
-    SecretsConfig,
     create_secrets_client,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def get_secrets_client_persistent() -> SecretsClient:
-    """Resolve SecretsClient, defaulting to persistent SQLite if InMemory backend is configured."""
-    client = create_secrets_client()
-    if isinstance(client.backend, InEpistemicGraphBackend):
-        config = SecretsConfig(
-            backend="sqlite",
-            sqlite_path=os.path.expanduser("~/.agent-utilities/secrets.db"),
-        )
-        return create_secrets_client(config)
-    return client
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -159,7 +145,7 @@ class BaseBrowserAuthManager:
         self.redirect_host = redirect_host
         self.redirect_port = redirect_port
         self.redirect_path = redirect_path
-        self.secrets_client = secrets_client or get_secrets_client_persistent()
+        self.secrets_client = secrets_client or create_secrets_client()
         self.refresh_skew_seconds = refresh_skew_seconds
         self.oidc_discovery_url = oidc_discovery_url
         self.validate_endpoint_fn = validate_endpoint_fn
