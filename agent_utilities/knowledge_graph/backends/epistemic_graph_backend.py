@@ -1568,6 +1568,20 @@ class EpistemicGraphBackend(GraphBackend):
         except Exception:  # pragma: no cover - read best-effort
             return None
 
+    def nodes_by_label(
+        self, label: str, limit: int = 0
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Engine-side label scan (CONCEPT:KG-2.51) — ``(node_id, properties)`` for
+        every node carrying ``label`` (``limit=0`` ⇒ uncapped), via the engine's
+        label index. The reliable label-scan primitive the consolidated engine-only
+        stores (CONCEPT:KG-2.244-248) use for their ``list``/scan reads (the limited
+        ``execute()`` Cypher interpreter refuses an unscoped ``MATCH (n:L) RETURN n``).
+        """
+        try:
+            return self._graph.get_nodes_by_label(label, limit) or []
+        except Exception:  # pragma: no cover - read best-effort
+            return []
+
     def compare_and_set_node_fields(
         self,
         node_id: str,
