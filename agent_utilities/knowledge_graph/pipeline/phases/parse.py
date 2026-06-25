@@ -51,6 +51,9 @@ _CODE_EXTENSIONS = {
     ".hxx",
     ".hh",
     ".cs",
+    # SQL DDL → database ontology (CONCEPT:KG-2.212)
+    ".sql",
+    ".ddl",
     ".rb",
     ".php",
     ".sh",
@@ -159,10 +162,15 @@ def _replay_parse_result(
     ``file:<path>`` by IMPLEMENTS, plus calls_raw / depends_on_raw edges. The engine adds
     language/kind_detail/minhash (resolution inputs) which we carry through untouched.
     """
+    # SQL DDL extraction (CONCEPT:KG-2.212) emits database-ontology entities
+    # alongside the code SYMBOL path; map each engine node_type to its registry type.
+    db_types = {
+        "DatabaseTable": RegistryNodeType.DATABASE_TABLE,
+        "DatabaseColumn": RegistryNodeType.DATABASE_COLUMN,
+        "DatabaseView": RegistryNodeType.DATABASE_VIEW,
+    }
     for node in result.get("nodes", []) or []:
-        if node.get("node_type") != "SYMBOL":
-            # FILE nodes are created by the scan phase; nothing else is expected here.
-            continue
+        node_type = node.get("node_type")
         props = dict(node.get("properties", {}) or {})
         # The engine serializes everything as strings; coerce line for numeric consumers.
         if "line" in props:
@@ -170,13 +178,19 @@ def _replay_parse_result(
                 props["line"] = int(props["line"])
             except (TypeError, ValueError):
                 pass
-        symbol_type = props.pop("symbol_type", "Symbol")
-        graph.add_node(
-            node["node_id"],
-            type=RegistryNodeType.SYMBOL,
-            symbol_type=symbol_type,
-            **props,
-        )
+        if node_type == "SYMBOL":
+            symbol_type = props.pop("symbol_type", "Symbol")
+            graph.add_node(
+                node["node_id"],
+                type=RegistryNodeType.SYMBOL,
+                symbol_type=symbol_type,
+                **props,
+            )
+        elif node_type in db_types:
+            graph.add_node(node["node_id"], type=db_types[node_type], **props)
+        else:
+            # FILE nodes are created by the scan phase; nothing else is expected here.
+            continue
 
     for edge in result.get("edges", []) or []:
         graph.add_edge(

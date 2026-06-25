@@ -81,3 +81,14 @@ planners to dynamically reason about data layouts.""" ;
     rdfs:comment "An individual column within a database table." ;
     rdfs:subClassOf :ApplicationLayer .
 
+:DatabaseView a owl:Class ;
+    rdfs:label "Database View" ;
+    rdfs:comment "A SQL view (a named query over one or more tables). Extracted from CREATE VIEW DDL (CONCEPT:KG-2.212); its source tables are linked by :references." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:references a owl:ObjectProperty ;
+    rdfs:label "references" ;
+    rdfs:comment "Links a database view to a table it selects from (CONCEPT:KG-2.212)." ;
+    rdfs:domain :DatabaseView ;
+    rdfs:range :DatabaseTable .
+

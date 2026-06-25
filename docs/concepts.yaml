@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 488
+total_concepts: 492
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3619,12 +3619,46 @@ concepts:
   - agent_utilities/knowledge_graph/backends/__init__.py
   doc: tolerant of every shape this value arrives in
 - id: KG-2.210
-  name: /211
+  name: Graphify-style structural analytics over the
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/memory/timeseries/__init__.py
-  doc: /211
+  - agent_utilities/knowledge_graph/retrieval/code_metrics.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: Graphify-style structural analytics over the
+- id: KG-2.211
+  name: handled outside the single-anchor
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: handled outside the single-anchor
+- id: KG-2.212
+  name: emits database-ontology entities
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/pipeline/phases/parse.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: emits database-ontology entities
+- id: KG-2.213
+  name: a regenerable architecture report
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/code_metrics.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: a regenerable architecture report
+- id: KG-2.214
+  name: the top nodes by degree + edges
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/retrieval/code_metrics.py
+  doc: the top nodes by degree + edges
 - id: KG-2.231
   name: KG-2.231
   pillar: KG-2

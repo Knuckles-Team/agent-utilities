@@ -18,6 +18,10 @@ CODE_NAV_ACTIONS = frozenset(
     {"find_definition", "find_references", "trace_call_graph", "impact_of_change"}
 )
 
+#: Symbol→symbol path action (CONCEPT:KG-2.211) — handled outside the single-anchor
+#: Cypher template because it resolves TWO endpoints and runs a native path search.
+PATH_ACTIONS = frozenset({"connects"})
+
 # Columns returned for a :Code node (kept identical across actions for a stable shape).
 _CODE_COLS = (
     "{var}.id AS id, {var}.name AS name, {var}.file_path AS file_path, "
@@ -96,6 +100,86 @@ def build_code_nav_query(
             f"RETURN DISTINCT {cols.format(var='caller')} LIMIT {limit}"
         )
     return cypher, params
+
+
+def _resolve_symbol_id(engine, *, symbol: str, node_id: str) -> dict[str, Any] | None:
+    """Resolve a symbol name (or exact id) to its best :Code node row."""
+    if node_id:
+        cypher, params = build_code_nav_query(
+            action="find_definition", node_id=node_id, limit=1
+        )
+    else:
+        cypher, params = build_code_nav_query(
+            action="find_definition", symbol=symbol, limit=1
+        )
+    rows = engine.query_cypher(cypher, params)
+    return rows[0] if rows else None
+
+
+def code_connects(
+    engine,
+    *,
+    symbol: str = "",
+    node_id: str = "",
+    target_symbol: str = "",
+    target_node_id: str = "",
+) -> dict[str, Any]:
+    """CONCEPT:KG-2.211 — "what connects A to B": the shortest path between two
+    :Code symbols, rendered hop-by-hop with the relation + confidence of each edge.
+
+    Resolves both endpoints, runs the engine's native path search (BFS over the
+    resolved graph; tries A→B then B→A so an undirected connection is found), and
+    annotates each consecutive pair with the connecting edge. This is the durable,
+    KG-native equivalent of Graphify's ``path`` command.
+    """
+    src = _resolve_symbol_id(engine, symbol=symbol, node_id=node_id)
+    dst = _resolve_symbol_id(engine, symbol=target_symbol, node_id=target_node_id)
+    if not src:
+        return {"error": f"could not resolve source symbol '{symbol or node_id}'"}
+    if not dst:
+        return {
+            "error": f"could not resolve target symbol '{target_symbol or target_node_id}'"
+        }
+    src_id, dst_id = src.get("id"), dst.get("id")
+    if src_id == dst_id:
+        return {"error": "source and target resolve to the same symbol", "id": src_id}
+
+    path = engine.get_shortest_path(src_id, dst_id) or engine.get_shortest_path(
+        dst_id, src_id
+    )
+    if not path:
+        return {
+            "source": src_id,
+            "target": dst_id,
+            "connected": False,
+            "path": [],
+        }
+
+    # Annotate each hop with the connecting edge (undirected match for the relation).
+    hops: list[dict[str, Any]] = []
+    for a, b in zip(path, path[1:], strict=False):
+        rel, conf = None, None
+        try:
+            erows = engine.query_cypher(
+                "MATCH (x {id: $a})-[r]-(y {id: $b}) "
+                "RETURN type(r) AS rel, r.confidence AS confidence LIMIT 1",
+                {"a": a, "b": b},
+            )
+            if erows:
+                rel = erows[0].get("rel")
+                conf = erows[0].get("confidence")
+        except Exception:  # noqa: BLE001 — annotation is best-effort
+            pass
+        hops.append({"from": a, "to": b, "rel": rel, "confidence": conf})
+
+    return {
+        "source": src_id,
+        "target": dst_id,
+        "connected": True,
+        "length": len(path) - 1,
+        "path": path,
+        "hops": hops,
+    }
 
 
 def register_query_tools(mcp):
@@ -716,21 +800,32 @@ def register_query_tools(mcp):
             "Navigate the resolved code graph (CONCEPT:KG-2.9g). action: "
             "'find_definition' (locate a symbol's :Code node), 'find_references' "
             "(callers of a symbol), 'trace_call_graph' (transitive callees), "
-            "'impact_of_change' (transitive callers = blast radius). Start from a "
-            "symbol name or an exact node_id; optionally scope to a source_system "
+            "'impact_of_change' (transitive callers = blast radius), 'connects' "
+            "(shortest path between TWO symbols — set symbol/node_id AND "
+            "target_symbol/target_node_id — rendered hop-by-hop with each edge's "
+            "relation + confidence, CONCEPT:KG-2.211). Start from a symbol name or "
+            "an exact node_id; optionally scope to a source_system "
             "(e.g. 'gitlab:gitlab.com')."
         ),
         tags=["graph-os", "query", "code"],
     )
     def graph_code_nav(
         action: str = Field(
-            description="find_definition | find_references | trace_call_graph | impact_of_change"
+            description="find_definition | find_references | trace_call_graph | impact_of_change | connects"
         ),
         symbol: str = Field(
             default="", description="Symbol name to start from (function/class/method)."
         ),
         node_id: str = Field(
             default="", description="Exact :Code node id (overrides 'symbol' when set)."
+        ),
+        target_symbol: str = Field(
+            default="",
+            description="For action='connects': the destination symbol name.",
+        ),
+        target_node_id: str = Field(
+            default="",
+            description="For action='connects': the destination :Code node id.",
         ),
         source_system: str = Field(
             default="",
@@ -743,6 +838,30 @@ def register_query_tools(mcp):
         limit: int = Field(default=200, description="Max rows to return."),
     ) -> str:
         """Templated code-symbol navigation over the resolved KG code graph."""
+        engine = kg_server._get_engine()
+        if not engine:
+            return json.dumps({"error": "IntelligenceGraphEngine not active"})
+
+        # 'connects' resolves two endpoints + runs a native path search — it lives
+        # outside the single-anchor Cypher template.
+        if action in PATH_ACTIONS:
+            try:
+                return json.dumps(
+                    {
+                        "action": action,
+                        "results": code_connects(
+                            engine,
+                            symbol=symbol,
+                            node_id=node_id,
+                            target_symbol=target_symbol,
+                            target_node_id=target_node_id,
+                        ),
+                    },
+                    default=str,
+                )
+            except Exception as e:  # noqa: BLE001
+                return json.dumps({"error": str(e)})
+
         try:
             cypher, qparams = build_code_nav_query(
                 action=action,
@@ -755,9 +874,6 @@ def register_query_tools(mcp):
         except ValueError as e:
             return json.dumps({"error": str(e)})
 
-        engine = kg_server._get_engine()
-        if not engine:
-            return json.dumps({"error": "IntelligenceGraphEngine not active"})
         try:
             rows = engine.query_cypher(cypher, qparams)
             return json.dumps({"action": action, "results": rows}, default=str)
