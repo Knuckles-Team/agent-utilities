@@ -322,31 +322,24 @@ def engine_graph(tiny_engine):
         os.environ["GRAPH_SERVICE_AUTH_SECRET"] = TEST_AUTH_SECRET
 
     graph_name = f"engtest_{uuid.uuid4().hex[:16]}"
+    # GraphComputeEngine auto-creates its tenant graph on connect, so the graph
+    # exists immediately (reads on an empty graph succeed).
     compute = GraphComputeEngine(graph_name=graph_name)
-    # Materialize the tenant graph up-front so reads on an empty graph succeed.
     client = getattr(compute, "_client", None)
-    if client is not None:
-        try:
-            client.tenants.create(graph_name)
-        except Exception:
-            # Already exists / engine auto-creates on first write — fine.
-            pass
     try:
         yield compute
     finally:
         # Tenant-purge (CONCEPT:KG-2.221): delete the whole graph so no state
-        # leaks to the next test, then drop the connection.
+        # leaks into the next test's fresh tenant. The client is intentionally
+        # left OPEN: the autouse ``isolate_graph_compute_engine`` teardown (which
+        # tracks this engine because we created it during the test) then runs its
+        # own ``clear()``/``delete()`` on the live connection. Closing the client
+        # here would stop its event-loop thread and make that later, timeout-less
+        # ``clear()`` block forever — the per-test client thread is a daemon that
+        # the OS reaps at process exit, exactly as the existing teardown relies on.
         try:
             if client is not None:
                 client.tenants.delete(graph_name)
-        except Exception:
-            pass
-        # Close the underlying sync client connection (GraphComputeEngine has no
-        # close() of its own — the breaker proxy passes ``close`` through to the
-        # SyncEpistemicGraphClient).
-        try:
-            if client is not None:
-                client.close()
         except Exception:
             pass
 
