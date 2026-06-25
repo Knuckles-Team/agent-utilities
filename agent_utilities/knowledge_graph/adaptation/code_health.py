@@ -52,32 +52,29 @@ def _baseline_backend(engine: Any) -> Any:
     )
 
 
+def _baseline_node_id(repo: str) -> str:
+    return f"codehealthbaseline:{repo}"
+
+
 def _load_baseline_snapshot(backend: Any, repo: str) -> dict[str, Any] | None:
-    """Read the prior baseline snapshot for ``repo`` from the engine."""
+    """Read the prior baseline snapshot for ``repo`` from the engine (keyed read)."""
     try:
-        rows = backend.execute(
-            f"MATCH (b:{_BASELINE_LABEL} {{repo: $repo}}) RETURN b",
-            {"repo": repo},
-        )
-        for row in rows if isinstance(rows, list) else []:
-            node = row.get("b") if isinstance(row, dict) else None
-            if isinstance(node, dict) and node.get("snapshot_json"):
-                return json.loads(node["snapshot_json"])
+        node = backend.get_node_properties(_baseline_node_id(repo))
+        if node and node.get("snapshot_json"):
+            return json.loads(node["snapshot_json"])
     except Exception as e:  # noqa: BLE001 - baseline read best-effort
         logger.debug("code_health: baseline read failed for %s: %s", repo, e)
     return None
 
 
 def _save_baseline_snapshot(backend: Any, repo: str, snapshot: dict[str, Any]) -> None:
-    """Persist the refreshed baseline snapshot for ``repo`` as an engine node."""
-    backend.execute(
-        f"MERGE (b:{_BASELINE_LABEL} {{repo: $repo}}) SET "
-        "b.snapshot_json = $snapshot, b.updated_at = $ts",
-        {
-            "repo": repo,
-            "snapshot": json.dumps(snapshot),
-            "ts": time.time(),
-        },
+    """Persist the refreshed baseline snapshot for ``repo`` as an engine node (upsert)."""
+    backend.add_node(
+        _baseline_node_id(repo),
+        label=_BASELINE_LABEL,
+        repo=repo,
+        snapshot_json=json.dumps(snapshot),
+        updated_at=time.time(),
     )
 
 
