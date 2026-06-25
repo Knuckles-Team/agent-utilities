@@ -56,7 +56,9 @@ def _series_id(symbol: str, tags: dict[str, str] | None) -> str:
     if not tags:
         return f"ts:{symbol}"
     canon = json.dumps(tags, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha1(canon.encode("utf-8")).hexdigest()[:12]  # noqa: S324
+    digest = hashlib.sha1(  # noqa: S324 - non-crypto series-id key, not a security hash
+        canon.encode("utf-8"), usedforsecurity=False
+    ).hexdigest()[:12]
     return f"ts:{symbol}:{digest}"
 
 
