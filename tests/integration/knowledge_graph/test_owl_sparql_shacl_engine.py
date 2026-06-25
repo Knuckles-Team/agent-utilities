@@ -98,7 +98,7 @@ def engine_graph():
     GraphComputeEngine at it via GRAPH_SERVICE_SOCKET/SECRET (no autostart).
     """
     sock = tempfile.mktemp(suffix=".sock")
-    secret = "kg2204-test-secret"
+    secret = "kg2204-test-secret"  # sanitizer:ignore -- dummy test HMAC secret
     persist = tempfile.mkdtemp(prefix="kg2204-")
     proc = subprocess.Popen(
         [
