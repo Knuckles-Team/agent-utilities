@@ -235,29 +235,30 @@ class CardStore:
             self._backend = _resolve_engine_backend()
         logger.debug("CardStore: engine mode via %s", type(self._backend).__name__)
 
+    @staticmethod
+    def _node_id(ast_hash: str) -> str:
+        return f"cardcache:{ast_hash}"
+
     def get_many(self, hashes: list[str]) -> dict[str, tuple[str, list[str]]]:
         out: dict[str, tuple[str, list[str]]] = {}
         if not hashes:
             return out
-        try:
-            rows = self._backend.execute(
-                f"MATCH (c:{_CARD_LABEL}) WHERE c.ast_hash IN $hashes RETURN c",
-                {"hashes": list(hashes)},
-            )
-            for row in rows if isinstance(rows, list) else []:
-                node = row.get("c") if isinstance(row, dict) else None
-                if not isinstance(node, dict):
-                    continue
-                h = node.get("ast_hash")
-                if not h:
-                    continue
-                try:
-                    resp = json.loads(node.get("responsibilities_json") or "[]")
-                except (ValueError, json.JSONDecodeError):
-                    resp = []
-                out[h] = (node.get("summary", ""), resp)
-        except Exception as e:  # noqa: BLE001 - cache is best-effort
-            logger.debug("CardStore.get_many failed: %s", e)
+        # Content-addressed by a deterministic node id, so each hash is an O(1)
+        # keyed engine read (the engine's limited Cypher interpreter doesn't do
+        # ``WHERE x IN $list``; keyed reads are the reliable engine primitive).
+        for h in hashes:
+            try:
+                node = self._backend.get_node_properties(self._node_id(h))
+            except Exception as e:  # noqa: BLE001 - cache is best-effort
+                logger.debug("CardStore.get_many failed for %s: %s", h, e)
+                continue
+            if not node:
+                continue
+            try:
+                resp = json.loads(node.get("responsibilities_json") or "[]")
+            except (ValueError, json.JSONDecodeError):
+                resp = []
+            out[h] = (node.get("summary", ""), resp)
         return out
 
     def put_many(self, items: list[tuple[str, str, list[str]]]) -> None:
@@ -269,16 +270,13 @@ class CardStore:
         try:
             with self._lock:
                 for h, s, r in items:
-                    self._backend.execute(
-                        f"MERGE (c:{_CARD_LABEL} {{ast_hash: $ast_hash}}) SET "
-                        "c.summary = $summary, "
-                        "c.responsibilities_json = $resp, c.updated_at = $ts",
-                        {
-                            "ast_hash": h,
-                            "summary": s,
-                            "resp": json.dumps(r),
-                            "ts": now,
-                        },
+                    self._backend.add_node(
+                        self._node_id(h),
+                        label=_CARD_LABEL,
+                        ast_hash=h,
+                        summary=s,
+                        responsibilities_json=json.dumps(r),
+                        updated_at=now,
                     )
         except Exception as e:  # noqa: BLE001 - cache is best-effort
             logger.debug("CardStore.put_many failed: %s", e)
