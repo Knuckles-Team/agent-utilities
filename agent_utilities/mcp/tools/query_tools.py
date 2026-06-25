@@ -113,7 +113,12 @@ def register_query_tools(mcp):
         params: str = Field(default="{}", description="JSON-encoded query parameters."),
         scope: str = Field(
             default="local",
-            description="'local' for the internal KG, 'federated' to query an external graph endpoint.",
+            description=(
+                "'local' for the internal KG (Cypher), 'sql' to run read-only SQL over the "
+                "KG via the engine's DataFusion surface (e.g. SELECT ... FROM nodes — "
+                "CONCEPT:KG-2.243, same path as the pg-wire listener), or 'federated' to "
+                "query an external graph endpoint."
+            ),
         ),
         reference_id: str = Field(
             default="",
@@ -139,6 +144,29 @@ def register_query_tools(mcp):
     ) -> str:
         """Execute a read-only Cypher query against the Knowledge Graph. Use this to fetch graph data, explore relationships, and read node properties."""
         parsed_params = json.loads(params) if params else {}
+
+        if scope == "sql":
+            # CONCEPT:KG-2.243 — read-only SQL over the KG via the engine's
+            # DataFusion surface (the same path the pg-wire listener uses). The
+            # `cypher` arg carries the SQL string. RLS-governed + read-path-first
+            # (engine.sql refuses non-SELECT). Honors `target` fan-out like Cypher.
+            try:
+                entries, errors, fanout = kg_server._resolve_target_engines(target)
+            except Exception as e:
+                return json.dumps({"error": str(e)})
+            if not fanout:
+                _name, engine = entries[0]
+                try:
+                    return json.dumps(engine.sql(cypher), default=str)
+                except Exception as e:
+                    return json.dumps({"error": str(e)})
+            results, fan_errors = kg_server.fanout_execute(
+                entries, lambda name, engine: engine.sql(cypher)
+            )
+            return json.dumps(
+                {"targets": results, "errors": {**errors, **fan_errors}},
+                default=str,
+            )
 
         if scope == "federated":
             engine = kg_server._get_engine()
