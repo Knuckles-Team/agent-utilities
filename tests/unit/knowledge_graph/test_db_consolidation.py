@@ -13,7 +13,7 @@ and ``backend=None`` drives the local fallback.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from agent_utilities.knowledge_graph.backends.base import is_durable_backend
 
@@ -71,9 +71,7 @@ class _FakeDurableBackend:
             if in_m:
                 field, pname = in_m.group(1), in_m.group(2)
                 wanted = set(params.get(pname) or [])
-                return [
-                    {var: p} for p in bag.values() if p.get(field) in wanted
-                ]
+                return [{var: p} for p in bag.values() if p.get(field) in wanted]
             # {keyfield:$id}
             key_m = re.search(r"\{(\w+):\s*\$(\w+)\}", q)
             if key_m:
@@ -237,8 +235,9 @@ class _FakeTsClient:
         outer = self
 
         class _TS:
-            def register_series(self, sid, *, entity_id=None, field_names=None,
-                                metadata=None):
+            def register_series(
+                self, sid, *, entity_id=None, field_names=None, metadata=None
+            ):
                 props = {"series_id": sid, "field_names": list(field_names or [])}
                 if metadata:
                     props.update(metadata)
@@ -250,8 +249,7 @@ class _FakeTsClient:
 
             def range(self, sid, frm, to):
                 return [
-                    (ts, v) for ts, v in outer.series.get(sid, [])
-                    if frm <= ts < to
+                    (ts, v) for ts, v in outer.series.get(sid, []) if frm <= ts < to
                 ]
 
         class _Nodes:
@@ -283,14 +281,18 @@ def test_timeseries_engine_roundtrip() -> None:
     )
 
     be = EngineTimeSeriesBackend(client=_FakeTsClient())
-    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    t1 = datetime(2026, 1, 2, tzinfo=timezone.utc)
-    be.insert([
-        TimeSeriesDataPoint(symbol="AAPL", timestamp=t0,
-                            metrics={"px": 100.0, "vol": 5.0}),
-        TimeSeriesDataPoint(symbol="AAPL", timestamp=t1,
-                            metrics={"px": 101.0, "vol": 6.0}),
-    ])
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
+    t1 = datetime(2026, 1, 2, tzinfo=UTC)
+    be.insert(
+        [
+            TimeSeriesDataPoint(
+                symbol="AAPL", timestamp=t0, metrics={"px": 100.0, "vol": 5.0}
+            ),
+            TimeSeriesDataPoint(
+                symbol="AAPL", timestamp=t1, metrics={"px": 101.0, "vol": 6.0}
+            ),
+        ]
+    )
     got = be.query("AAPL", t0, t1)
     assert len(got) == 2
     assert got[0].metrics["px"] == 100.0
@@ -307,14 +309,18 @@ def test_timeseries_engine_tag_isolation() -> None:
     )
 
     be = EngineTimeSeriesBackend(client=_FakeTsClient())
-    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    t1 = datetime(2026, 1, 2, tzinfo=timezone.utc)
-    be.insert([
-        TimeSeriesDataPoint(symbol="X", timestamp=t0, metrics={"px": 1.0},
-                            tags={"venue": "a"}),
-        TimeSeriesDataPoint(symbol="X", timestamp=t0, metrics={"px": 2.0},
-                            tags={"venue": "b"}),
-    ])
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
+    t1 = datetime(2026, 1, 2, tzinfo=UTC)
+    be.insert(
+        [
+            TimeSeriesDataPoint(
+                symbol="X", timestamp=t0, metrics={"px": 1.0}, tags={"venue": "a"}
+            ),
+            TimeSeriesDataPoint(
+                symbol="X", timestamp=t0, metrics={"px": 2.0}, tags={"venue": "b"}
+            ),
+        ]
+    )
     only_a = be.query("X", t0, t1, tags={"venue": "a"})
     assert len(only_a) == 1
     assert only_a[0].metrics["px"] == 1.0
