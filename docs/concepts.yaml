@@ -3664,6 +3664,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/backends/base.py
+  - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
   - agent_utilities/knowledge_graph/enrichment/cards.py
   doc: the cache lives as
 - id: KG-2.245
