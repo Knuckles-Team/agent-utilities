@@ -1507,8 +1507,8 @@ class TaskManagerMixin(GraphEngineProtocol):
     def _card_store(self) -> Any:
         """Lazy, process-wide persistent card cache (keyed by ast_hash) so identical
         code is LLM-summarised once across runs/repos. Best-effort → ``None`` on
-        failure. Routes to ``:CardCache`` nodes on the durable engine authority when
-        one is present, else the zero-infra SQLite fallback. (CONCEPT:KG-2.8/KG-2.204)
+        failure. Engine-only: routes to ``:CardCache`` nodes on the one engine
+        authority (no SQLite fallback). (CONCEPT:KG-2.8/KG-2.244)
         """
         store = getattr(self, "_card_store_inst", None)
         if store is None:
