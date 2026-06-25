@@ -50,15 +50,75 @@ _NON_DURABLE_BACKENDS = {
 def is_durable_backend(backend: Any) -> bool:
     """True if writes through ``backend.execute()`` survive a restart.
 
-    The shared dual-mode predicate (CONCEPT:KG-2.8) consolidated stores reuse to
-    decide engine-graph mode vs. their zero-infra local fallback (DeltaManifest,
-    CardStore, the registry graph, …). A pure in-memory backend can't persist
-    graph-side, and a schema-constrained durable store (pggraph) can't hold an
-    arbitrary label — both → the local fallback.
+    The dual-mode predicate the **ingest DeltaManifest** (CONCEPT:KG-2.9) reuses to
+    decide engine-graph mode vs. its zero-infra local fallback. A pure in-memory
+    backend can't persist graph-side, and a schema-constrained durable store
+    (pggraph) can't hold an arbitrary label — both → the local fallback. (The
+    consolidated registry/card-cache/timeseries/writeback/code-health stores no
+    longer use this — they are engine-only; see ``is_engine_authority_backend``.)
     """
     if backend is None or not hasattr(backend, "execute"):
         return False
     return type(backend).__name__ not in _NON_DURABLE_BACKENDS
+
+
+# Backends that CANNOT hold arbitrary-label nodes through ``execute()`` — a
+# graph-native ``MERGE (n:SomeLabel …)`` errors against them. The consolidated
+# engine-only stores (CONCEPT:KG-2.244-248) route around these to the engine
+# authority. ``EpistemicGraphBackend`` (the engine client) IS the authority and
+# runs arbitrary-label Cypher, so — unlike the manifest's ``_NON_DURABLE_BACKENDS``
+# — it is NOT excluded here: the consolidated stores live ON the engine.
+_NON_LABEL_BACKENDS = {
+    "PostgreSQLBackend",
+}
+
+
+def is_engine_authority_backend(backend: Any) -> bool:
+    """True if ``backend`` can run arbitrary-label Cypher against the engine.
+
+    The predicate the consolidated engine-only stores (registry / card-cache /
+    timeseries / writeback / code-health, CONCEPT:KG-2.244-248) use to accept a
+    supplied backend as the engine authority. It admits the in-process engine
+    client (``EpistemicGraphBackend``) and any fan-out/durable backend with an
+    ``execute()``, and rejects only the schema-constrained relational stores that
+    have no arbitrary-label table (pggraph). There is no SQLite fallback — when no
+    engine backend is supplied the store resolves one via
+    :func:`require_engine_authority_backend`.
+    """
+    if backend is None or not hasattr(backend, "execute"):
+        return False
+    return type(backend).__name__ not in _NON_LABEL_BACKENDS
+
+
+def require_engine_authority_backend(consumer: str) -> Any:
+    """Return the active engine-authority backend, raising a clear error if absent.
+
+    The single entry point the consolidated engine-only stores (CONCEPT:KG-2.244-
+    248) use when no backend is supplied. It returns the active backend when it is
+    engine-capable; otherwise it builds a fresh in-process engine client backend
+    (``EpistemicGraphBackend``), which connects through the OS-5.63 resolver — the
+    resolver auto-starts the pi-tier engine in prod, and the KG-2.238 test fixture
+    provides a real ephemeral one. If the engine is genuinely unreachable this
+    raises ``RuntimeError`` (NEVER a SQLite fallback).
+
+    ``consumer`` names the calling store for the error message.
+    """
+    from . import get_active_backend
+
+    active = get_active_backend()
+    if is_engine_authority_backend(active):
+        return active
+    try:
+        from .epistemic_graph_backend import EpistemicGraphBackend
+
+        return EpistemicGraphBackend()
+    except Exception as exc:  # noqa: BLE001 — re-raise as a clear, typed error
+        raise RuntimeError(
+            f"{consumer} requires the epistemic-graph engine, but no engine is "
+            "reachable. The OS-5.63 resolver auto-starts the pi-tier engine in "
+            "prod and the KG-2.238 test fixture provides a real ephemeral one — "
+            f"there is no SQLite fallback. Underlying error: {exc}"
+        ) from exc
 
 
 def coerce_cypher_property(value: Any) -> Any:

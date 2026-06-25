@@ -199,97 +199,46 @@ def _parse_card_json(text: str) -> tuple[str, list[str]]:
 _CARD_LABEL = "CardCache"
 
 
+def _is_engine_backend(backend: Any) -> bool:
+    """True if ``backend`` can run arbitrary-label Cypher against the engine."""
+    from ..backends.base import is_engine_authority_backend
+
+    return is_engine_authority_backend(backend)
+
+
+def _resolve_engine_backend() -> Any:
+    """Acquire the engine-authority backend, raising a clear error if unreachable."""
+    from ..backends.base import require_engine_authority_backend
+
+    return require_engine_authority_backend("symbol-card cache (CONCEPT:KG-2.244)")
+
+
 class CardStore:
     """Content-addressed persistent cache of symbol cards, keyed by ``ast_hash``.
 
     Identical code (same AST hash) is summarised by the LLM once *ever* — across
-    ingest runs and across repos (vendored/copied code, re-ingests). Dual-mode like
-    ``DeltaManifest`` (CONCEPT:KG-2.204): when a durable graph backend is present the
-    cache lives as ``:CardCache`` nodes on the **one engine authority** (queryable,
-    no extra local DB); otherwise it falls back to the zero-infra SQLite store under
-    ``data_dir()``. Thread-safe and best-effort: any failure degrades to "no cache"
-    so card generation still proceeds. (CONCEPT:KG-2.8, #3)
+    ingest runs and across repos (vendored/copied code, re-ingests). Engine-only
+    (CONCEPT:KG-2.244): the cache lives as ``:CardCache`` nodes on the **one
+    epistemic-graph engine authority** (queryable, no extra local DB) — there is no
+    SQLite fallback. When no engine backend is supplied the store acquires the
+    active engine backend (the OS-5.63 resolver auto-starts the pi-tier engine in
+    prod; the KG-2.238 fixture provides a real ephemeral one in tests), raising a
+    clear error if the engine is genuinely unreachable. Thread-safe and
+    best-effort on read/write: a transient query failure degrades to "no cache" so
+    card generation still proceeds. (CONCEPT:KG-2.8, #3)
     """
 
-    _SQLITE_VARS = 900  # stay under SQLite's bound-parameter limit
-
-    def __init__(self, path: str | None = None, backend: Any = None) -> None:
-        import sqlite3
-
-        from ..backends.base import is_durable_backend
-
-        self._backend: Any = backend if is_durable_backend(backend) else None
-        self.mode = "graph" if self._backend is not None else "sqlite"
+    def __init__(self, backend: Any = None) -> None:
         self._lock = threading.Lock()
-        if self.mode == "graph":
-            logger.debug("CardStore: graph mode via %s", type(self._backend).__name__)
-            self._conn = None
-            return
-        if path is None:
-            from agent_utilities.core.paths import data_dir
-
-            path = str(data_dir() / "kg_card_cache.db")
-        self._conn = sqlite3.connect(path, check_same_thread=False)
-        self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS card_cache ("
-            "ast_hash TEXT PRIMARY KEY, summary TEXT NOT NULL, "
-            "responsibilities_json TEXT NOT NULL, updated_at TEXT NOT NULL)"
-        )
-        self._conn.commit()
+        self._backend: Any = backend if _is_engine_backend(backend) else None
+        if self._backend is None:
+            self._backend = _resolve_engine_backend()
+        logger.debug("CardStore: engine mode via %s", type(self._backend).__name__)
 
     def get_many(self, hashes: list[str]) -> dict[str, tuple[str, list[str]]]:
         out: dict[str, tuple[str, list[str]]] = {}
         if not hashes:
             return out
-        if self.mode == "graph":
-            return self._get_many_graph(hashes)
-        assert self._conn is not None  # sqlite mode → connection is set
-        try:
-            with self._lock:
-                for i in range(0, len(hashes), self._SQLITE_VARS):
-                    chunk = hashes[i : i + self._SQLITE_VARS]
-                    ph = ",".join("?" * len(chunk))
-                    rows = self._conn.execute(
-                        f"SELECT ast_hash, summary, responsibilities_json "
-                        f"FROM card_cache WHERE ast_hash IN ({ph})",
-                        chunk,
-                    ).fetchall()
-                    for h, summary, resp_json in rows:
-                        try:
-                            resp = json.loads(resp_json)
-                        except (ValueError, json.JSONDecodeError):
-                            resp = []
-                        out[h] = (summary, resp)
-        except Exception as e:  # noqa: BLE001 - cache is best-effort
-            logger.debug("CardStore.get_many failed: %s", e)
-        return out
-
-    def put_many(self, items: list[tuple[str, str, list[str]]]) -> None:
-        if not items:
-            return
-        if self.mode == "graph":
-            self._put_many_graph(items)
-            return
-        from datetime import UTC, datetime
-
-        now = datetime.now(UTC).isoformat()
-        rows = [(h, s, json.dumps(r), now) for h, s, r in items]
-        assert self._conn is not None  # sqlite mode → connection is set
-        try:
-            with self._lock:
-                self._conn.executemany(
-                    "INSERT OR REPLACE INTO card_cache "
-                    "(ast_hash, summary, responsibilities_json, updated_at) "
-                    "VALUES (?, ?, ?, ?)",
-                    rows,
-                )
-                self._conn.commit()
-        except Exception as e:  # noqa: BLE001 - cache is best-effort
-            logger.debug("CardStore.put_many failed: %s", e)
-
-    # ── Engine graph mode (CONCEPT:KG-2.204) ──────────────────────────────
-    def _get_many_graph(self, hashes: list[str]) -> dict[str, tuple[str, list[str]]]:
-        out: dict[str, tuple[str, list[str]]] = {}
         try:
             rows = self._backend.execute(
                 f"MATCH (c:{_CARD_LABEL}) WHERE c.ast_hash IN $hashes RETURN c",
@@ -308,10 +257,12 @@ class CardStore:
                     resp = []
                 out[h] = (node.get("summary", ""), resp)
         except Exception as e:  # noqa: BLE001 - cache is best-effort
-            logger.debug("CardStore.get_many (graph) failed: %s", e)
+            logger.debug("CardStore.get_many failed: %s", e)
         return out
 
-    def _put_many_graph(self, items: list[tuple[str, str, list[str]]]) -> None:
+    def put_many(self, items: list[tuple[str, str, list[str]]]) -> None:
+        if not items:
+            return
         from datetime import UTC, datetime
 
         now = datetime.now(UTC).isoformat()
@@ -330,7 +281,7 @@ class CardStore:
                         },
                     )
         except Exception as e:  # noqa: BLE001 - cache is best-effort
-            logger.debug("CardStore.put_many (graph) failed: %s", e)
+            logger.debug("CardStore.put_many failed: %s", e)
 
 
 def _card_for(c: CodeEntity, summary: str, resp: list[str]) -> CapabilityCard:
