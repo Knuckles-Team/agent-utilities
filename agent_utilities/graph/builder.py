@@ -544,20 +544,45 @@ def create_agent(
             logger.info("Registry Graph: Skipping initialization in VALIDATION_MODE.")
         else:
             from agent_utilities.core.paths import data_dir
+            from agent_utilities.knowledge_graph.backends import get_active_backend
+            from agent_utilities.knowledge_graph.backends.base import (
+                is_durable_backend,
+            )
 
             ws = get_agent_workspace()
-            if setting("AGENT_UTILITIES_TESTING"):
-                registry_db = ws / ".agent_utilities_test" / "kg" / "registry_graph.db"
+            # Dual-mode like DeltaManifest (CONCEPT:KG-2.205): when a durable graph
+            # backend (the epistemic-graph engine authority) is active, persist the
+            # registry graph as nodes/edges ON THE ENGINE — never a local SQLite
+            # graph next to the one authority. Only the zero-infra ``tiny`` profile
+            # (no durable backend) keeps the local ladybug ``registry_graph.db``.
+            active_backend = get_active_backend()
+            durable = is_durable_backend(active_backend)
+            if durable:
+                registry_db = None
+                reg_config = PipelineConfig(
+                    workspace_path=str(ws),
+                    persist_to_ladybug=False,
+                )
+                reg_pipeline = RegistryPipeline(reg_config, backend=active_backend)
+                logger.debug(
+                    "Registry Graph: engine-backed via %s",
+                    type(active_backend).__name__,
+                )
             else:
-                registry_db = data_dir() / "kg" / "registry_graph.db"
+                if setting("AGENT_UTILITIES_TESTING"):
+                    registry_db = (
+                        ws / ".agent_utilities_test" / "kg" / "registry_graph.db"
+                    )
+                else:
+                    registry_db = data_dir() / "kg" / "registry_graph.db"
+                registry_db.parent.mkdir(parents=True, exist_ok=True)
+                reg_config = PipelineConfig(
+                    workspace_path=str(ws),
+                    persist_to_ladybug=True,
+                    ladybug_path=str(registry_db),
+                )
+                reg_pipeline = RegistryPipeline(reg_config)
 
-            registry_db.parent.mkdir(parents=True, exist_ok=True)
-            reg_config = PipelineConfig(
-                workspace_path=str(ws),
-                persist_to_ladybug=True,
-                ladybug_path=str(registry_db),
-            )
-            reg_pipeline = RegistryPipeline(reg_config)
             # We run the pipeline synchronously here during initialization
             import asyncio
 
@@ -575,7 +600,9 @@ def create_agent(
                     logger.info("Running RegistryPipeline sync...")
                     asyncio.run(reg_pipeline.run())
                     knowledge_engine = IntelligenceGraphEngine(
-                        graph=reg_pipeline.graph, db_path=reg_config.ladybug_path
+                        backend=active_backend if durable else None,
+                        graph=reg_pipeline.graph,
+                        db_path=str(registry_db) if registry_db else None,
                     )
                 except Exception as e:
                     logger.debug(f"Knowledge engine initialization failed: {e}")

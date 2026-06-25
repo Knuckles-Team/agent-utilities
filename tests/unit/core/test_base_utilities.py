@@ -94,10 +94,10 @@ def test_retrieve_package_name():
 
 def test_save_load_model(tmp_path):
     data = {"key": "value"}
-    path = base_utilities.save_model(data, "test_model", str(tmp_path))
+    path = base_utilities.safe_save_model(data, "test_model", str(tmp_path))
     assert os.path.exists(path)
 
-    loaded = base_utilities.load_model(path)
+    loaded = base_utilities.safe_load_model(path)
     assert loaded == data
 
 
@@ -404,21 +404,21 @@ def test_load_env_vars_no_external_caller(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 # ---------------------------------------------------------------------------
-# save_model / load_model round-trip (already tested) + error branches
+# safe_save_model / safe_load_model round-trip + error branches
 # ---------------------------------------------------------------------------
 
 
 def test_save_model_default_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """save_model with default file_name='model' and custom path."""
+    """safe_save_model with a custom path round-trips a list via JSON."""
     monkeypatch.chdir(tmp_path)
     data = [1, 2, 3]
-    path = base_utilities.save_model(
+    path = base_utilities.safe_save_model(
         data, file_name="serialized", file_path=str(tmp_path)
     )
     assert Path(path).exists()
-    loaded = base_utilities.load_model(path)
+    loaded = base_utilities.safe_load_model(path)
     assert loaded == data
 
 

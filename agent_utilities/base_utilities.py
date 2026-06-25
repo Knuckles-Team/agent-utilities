@@ -12,7 +12,6 @@ import inspect
 import json
 import logging
 import os
-import pickle  # nosec B403
 import re
 import sys
 from abc import ABC, abstractmethod
@@ -359,68 +358,6 @@ def load_env_vars(override: bool = False) -> None:
 
     except Exception as e:
         logging.getLogger(__name__).error(f"Error loading .env file: {e}")
-
-
-def save_model(model: Any, file_name: str = "model", file_path: str = ".") -> str:
-    """Serialize a model object to a pickle file.
-
-    CONCEPT:ORCH-1.3 Serialization Safety
-
-    .. deprecated:: 0.2.40
-        Use ``safe_save_model`` / ``safe_load_model`` (JSON-based) for new code.
-        Pickle serialization is retained only for backward compatibility with
-        existing model files.
-
-    Args:
-        model: The model object to serialize.
-        file_name: Name of the output file without extension. Defaults to "model".
-        file_path: Directory path where the file should be saved. Defaults to ".".
-
-    Returns:
-        The absolute or relative path to the saved pickle file.
-
-    """
-    import warnings
-
-    warnings.warn(
-        "save_model uses pickle which has known security risks (CWE-502). "
-        "Consider using safe_save_model() for JSON-based serialization.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    pickle_file = os.path.join(file_path, f"{file_name}.pkl")
-    with open(pickle_file, "wb") as file:
-        pickle.dump(model, file)
-    return pickle_file
-
-
-def load_model(file: str) -> Any:
-    """Deserialize a model object from a pickle file.
-
-    CONCEPT:ORCH-1.3 Serialization Safety
-
-    .. deprecated:: 0.2.40
-        Use ``safe_load_model`` (JSON-based) for new code.
-
-    Args:
-        file: Path to the pickle file.
-
-    Returns:
-        The deserialized model object.
-
-    """
-    import warnings
-
-    warnings.warn(
-        "load_model uses pickle.load which has known security risks (CWE-502). "
-        "Consider using safe_load_model() for JSON-based deserialization.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    with open(file, "rb") as model_file:
-        load_func = pickle.load
-        model = load_func(model_file)  # nosec B301
-    return model
 
 
 def safe_save_model(model: Any, file_name: str = "model", file_path: str = ".") -> str:

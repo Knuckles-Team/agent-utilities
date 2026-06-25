@@ -27,7 +27,58 @@ _DEFAULT_ROOT = Path("/home/apps/workspace/agent-packages")
 _PER_REPO_TIMEOUT_S = 180
 # Per-repo baseline snapshots so each sweep can report *new vs. resolved* dead
 # pathways instead of a bare score — a regression is what matters, not legacy debt.
+# Stored as ``:CodeHealthBaseline`` nodes on the durable engine authority when one
+# is reachable (CONCEPT:KG-2.209); the local file cache is the zero-infra ``tiny``
+# fallback only.
 _BASELINE_DIR = Path.home() / ".cache" / "agent_utilities" / "code_health_baselines"
+_BASELINE_LABEL = "CodeHealthBaseline"
+
+
+def _baseline_backend(engine: Any) -> Any:
+    """The durable graph backend to persist baselines on, or ``None`` for the file
+    fallback. Reuses the shared dual-mode predicate (CONCEPT:KG-2.209)."""
+    from ..backends.base import is_durable_backend
+
+    backend = getattr(engine, "backend", None) or engine
+    return backend if is_durable_backend(backend) else None
+
+
+def _load_baseline_snapshot(backend: Any, repo: str) -> dict[str, Any] | None:
+    """Read the prior baseline snapshot for ``repo`` (engine node or file)."""
+    if backend is not None:
+        try:
+            rows = backend.execute(
+                f"MATCH (b:{_BASELINE_LABEL} {{repo: $repo}}) RETURN b",
+                {"repo": repo},
+            )
+            for row in rows if isinstance(rows, list) else []:
+                node = row.get("b") if isinstance(row, dict) else None
+                if isinstance(node, dict) and node.get("snapshot_json"):
+                    return json.loads(node["snapshot_json"])
+        except Exception as e:  # noqa: BLE001 - baseline read best-effort
+            logger.debug("code_health: baseline read failed for %s: %s", repo, e)
+        return None
+    cache = _BASELINE_DIR / f"{repo}.json"
+    if cache.exists():
+        return json.loads(cache.read_text())
+    return None
+
+
+def _save_baseline_snapshot(backend: Any, repo: str, snapshot: dict[str, Any]) -> None:
+    """Persist the refreshed baseline snapshot for ``repo`` (engine node or file)."""
+    if backend is not None:
+        backend.execute(
+            f"MERGE (b:{_BASELINE_LABEL} {{repo: $repo}}) SET "
+            "b.snapshot_json = $snapshot, b.updated_at = $ts",
+            {
+                "repo": repo,
+                "snapshot": json.dumps(snapshot),
+                "ts": time.time(),
+            },
+        )
+        return
+    _BASELINE_DIR.mkdir(parents=True, exist_ok=True)
+    (_BASELINE_DIR / f"{repo}.json").write_text(json.dumps(snapshot, indent=2))
 
 
 def _find_analyzer() -> Path | None:
@@ -57,25 +108,24 @@ def _load_baseline_module(analyzer: Path) -> Any | None:
 
 
 def _baseline_delta(
-    baseline_mod: Any, repo: str, report: dict[str, Any]
+    baseline_mod: Any, repo: str, report: dict[str, Any], backend: Any = None
 ) -> dict[str, Any]:
-    """Diff this run's findings against the cached per-repo baseline, then refresh
-    the cache. Returns ``{new, fixed, new_debt_score}`` (empty dict if unavailable)."""
+    """Diff this run's findings against the persisted per-repo baseline, then refresh
+    it. Baselines live on the durable engine (``backend``) when available, else the
+    local file cache. Returns ``{new, fixed, new_debt_score}`` (empty if unavailable)."""
     if baseline_mod is None:
         return {}
-    _BASELINE_DIR.mkdir(parents=True, exist_ok=True)
-    cache = _BASELINE_DIR / f"{repo}.json"
     delta: dict[str, Any] = {}
     try:
-        if cache.exists():
-            prior = json.loads(cache.read_text())
+        prior = _load_baseline_snapshot(backend, repo)
+        if prior is not None:
             d = baseline_mod.diff(report, prior)
             delta = {
                 "new": d["counts"]["new"],
                 "fixed": d["counts"]["fixed"],
                 "new_debt_score": d["new_debt_score"],
             }
-        cache.write_text(json.dumps(baseline_mod.snapshot(report), indent=2))
+        _save_baseline_snapshot(backend, repo, baseline_mod.snapshot(report))
     except Exception as e:  # noqa: BLE001
         logger.debug("code_health: baseline delta failed for %s: %s", repo, e)
     return delta
@@ -98,6 +148,7 @@ def run_code_health_sweep(
         return {"status": "skipped", "reason": "analyzer_unavailable"}
 
     baseline_mod = _load_baseline_module(analyzer)
+    baseline_backend = _baseline_backend(engine)
     root = repos_root or _DEFAULT_ROOT
     if not root.is_dir():
         return {"status": "skipped", "reason": "repos_root_missing"}
@@ -130,7 +181,7 @@ def run_code_health_sweep(
             continue
 
         counts = report.get("counts", {})
-        delta = _baseline_delta(baseline_mod, repo.name, report)
+        delta = _baseline_delta(baseline_mod, repo.name, report, baseline_backend)
         if delta.get("new"):
             regressions.append((repo.name, delta["new"]))
         try:

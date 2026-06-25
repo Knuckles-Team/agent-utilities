@@ -108,6 +108,30 @@ feature is non-authoritative and boots clean with no warning.) This is an
 **engine-side** setting (`epistemic-graph-server` env), independent of the
 agent-utilities-side `GRAPH_BACKEND` mirror selection below.
 
+## Derived stores route to the engine, not a local DB (dual-mode, CONCEPT:KG-2.204–2.209)
+
+Auxiliary stores that used to keep their own local SQLite/JSON file *next to* the
+one engine authority now route through the durable backend when one is present,
+falling back to their zero-infra local store only for the `tiny` profile (no
+durable backend). They all share the predicate
+`knowledge_graph/backends/base.py::is_durable_backend` and the dual-mode shape of
+the `DeltaManifest` template (`mode = "graph" if durable else <local>`):
+
+| Store | Engine surface (durable) | Local fallback (`tiny`) | Concept |
+|---|---|---|---|
+| Ingestion delta manifest | `:IngestManifest` nodes | `kg_ingest_manifest.db` | KG-2.8 |
+| LLM card cache (`CardStore`) | `:CardCache` nodes (keyed by `ast_hash`) | `kg_card_cache.db` | KG-2.204 |
+| Registry graph (`RegistryPipeline`) | engine graph nodes/edges via the active backend | ladybug `registry_graph.db` | KG-2.205 |
+| Time-series memory | engine `client.timeseries.*` (eg-tsdb, `series.redb`) | `timeseries.db` | KG-2.206 |
+| Write-back proposals (`ProposalQueue`) | `:WritebackProposal` nodes | `writeback_proposals.json` | KG-2.208 |
+| Code-health baselines | `:CodeHealthBaseline` nodes | `~/.cache/.../code_health_baselines/*.json` | KG-2.209 |
+
+These keep the platform's "one authority" discipline: when the engine is durable,
+auxiliary state is queryable beside the graph instead of scattered across host-local
+files. The local arm exists purely so the zero-infra `tiny` profile still works with
+nothing deployed. (Intentional non-store local files stay local by design: the
+`STATE_DB_URI` state-store default, the mirror outbox, and RAM-only caches.)
+
 ## Engine authority vs. mirror comparison
 
 The first column is **the engine** — the one authority that serves reads and acks
