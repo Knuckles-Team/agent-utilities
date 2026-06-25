@@ -211,6 +211,133 @@ def clone_missing_projects(yml_path: str | None = None) -> list[Path]:
     return project_paths
 
 
+def validate_workspace_yml(yml_path: str | None = None) -> dict[str, Any]:
+    """Validate a ``workspace.yml`` and return a structured report (no side effects).
+
+    Reuses :func:`load_workspace_yml` (the same loader the bootstrap/ingestion code
+    uses) and :func:`_extract_repositories` (the same recursive walk) so the report
+    reflects *exactly* what the platform consumes — it never re-parses with a second
+    schema. The report has::
+
+        {
+          "found": bool,            # a workspace.yml was located
+          "path": str | None,       # where it was loaded from
+          "parsed": bool,           # it is valid YAML mapping (not empty / not a list)
+          "errors": [str, ...],     # blocking problems (malformed / missing url)
+          "warnings": [str, ...],   # advisory problems (missing path / description)
+          "repo_count": int,        # repositories[*].url found across the tree
+        }
+
+    Errors (blocking): the file does not parse to a mapping; a ``repositories``
+    entry is not a mapping or is missing/empty ``url``; ``path`` is set but not a
+    string. Warnings (advisory): no top-level ``path`` (bootstrap falls back to
+    ``cwd``); no ``name``/``description``; a ``subdirectories`` value is not a
+    mapping; a repository has no ``description``.
+    """
+    if yml_path:
+        path: Path | None = Path(yml_path)
+    else:
+        # Prefer the workspace-root manifest (the canonical one the codebase-context
+        # coverage check uses) over the auto-generated XDG default, since that is the
+        # file an operator actually edits.
+        from agent_utilities.knowledge_graph.ingestion.coverage import (
+            find_workspace_manifest,
+        )
+
+        path = find_workspace_manifest() or get_workspace_yml_path()
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    report: dict[str, Any] = {
+        "found": False,
+        "path": str(path) if path else None,
+        "parsed": False,
+        "errors": errors,
+        "warnings": warnings,
+        "repo_count": 0,
+    }
+    if path is None or not path.exists():
+        return report
+    report["found"] = True
+
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+    except Exception as exc:  # noqa: BLE001 — surface the parse error as a finding
+        errors.append(f"YAML failed to parse: {exc}")
+        return report
+
+    if not isinstance(data, dict):
+        errors.append(
+            "top-level YAML is not a mapping (expected keys like name/path/"
+            "repositories/subdirectories)"
+        )
+        return report
+    report["parsed"] = True
+
+    if not data.get("name"):
+        warnings.append("missing top-level 'name'")
+    if not data.get("description"):
+        warnings.append("missing top-level 'description'")
+    raw_path = data.get("path")
+    if raw_path is None:
+        warnings.append("no top-level 'path' — bootstrap falls back to the cwd")
+    elif not isinstance(raw_path, str):
+        errors.append(f"'path' must be a string, got {type(raw_path).__name__}")
+
+    _validate_node(data, "<root>", errors, warnings)
+
+    try:
+        base = Path(str(data.get("path") or "."))
+        report["repo_count"] = len(_extract_repositories(data, base))
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"could not enumerate repositories: {exc}")
+
+    return report
+
+
+def _validate_node(
+    node: dict[str, Any],
+    where: str,
+    errors: list[str],
+    warnings: list[str],
+) -> None:
+    """Recursively validate the ``repositories`` / ``subdirectories`` shape.
+
+    Mirrors :func:`_extract_repositories`' traversal so coherence is checked over
+    exactly the structure the loader walks.
+    """
+    repos = node.get("repositories")
+    if repos is not None:
+        if not isinstance(repos, list):
+            errors.append(f"{where}: 'repositories' must be a list")
+        else:
+            for i, repo in enumerate(repos):
+                loc = f"{where}.repositories[{i}]"
+                if not isinstance(repo, dict):
+                    errors.append(f"{loc}: entry must be a mapping with a 'url'")
+                    continue
+                url = repo.get("url")
+                if not url or not isinstance(url, str):
+                    errors.append(f"{loc}: missing or non-string 'url'")
+                elif "/" not in url:
+                    errors.append(f"{loc}: 'url' {url!r} is not a well-formed repo URL")
+                if not repo.get("description"):
+                    warnings.append(f"{loc}: repository has no 'description'")
+
+    subdirs = node.get("subdirectories")
+    if subdirs is not None:
+        if not isinstance(subdirs, dict):
+            errors.append(f"{where}: 'subdirectories' must be a mapping")
+        else:
+            for name, child in subdirs.items():
+                child_where = f"{where}.subdirectories.{name}"
+                if not isinstance(child, dict):
+                    errors.append(f"{child_where}: must be a mapping")
+                    continue
+                _validate_node(child, child_where, errors, warnings)
+
+
 def workspace_project_roots(yml_path: str | None = None) -> list[str]:
     """Local paths of the workspace.yml-defined projects that exist on disk.
 
