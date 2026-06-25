@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 476
+total_concepts: 478
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3581,6 +3581,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/source_sync.py
   doc: ────────────────────────────
+- id: KG-2.189
+  name: or a raw Python
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  doc: or a raw Python
 - id: KG-2.192
   name: provenance
   pillar: KG-2
@@ -3616,6 +3623,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
   doc: tolerant of every shape this value arrives in
+- id: KG-2.205
+  name: read-only SQL over the KG via the engine
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: read-only SQL over the KG via the engine
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

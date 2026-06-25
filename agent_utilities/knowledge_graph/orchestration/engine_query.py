@@ -142,6 +142,60 @@ class QueryMixin(_Base):
             rows = filter_as_of(rows, as_of)
         return rows
 
+    def sql(self, query: str) -> list[dict[str, Any]]:
+        """Run read-only SQL over the KG via the engine's DataFusion surface (KG-2.205).
+
+        ``SELECT ... FROM nodes WHERE ... LIMIT ...`` is parsed/planned/executed by
+        the same engine path ``Method::Sql`` and the pg-wire listener use
+        (``eg_query::exec_sql_typed`` over an off-lock ``GraphView``). This makes
+        SQL-on-the-KG reachable natively over the graph-os MCP ``graph_query`` tool
+        (``scope='sql'``) and its REST twin ``/graph/query`` — not just over pg-wire
+        (CONCEPT:KG-2.189) or a raw Python ``client.query.sql()``.
+
+        Read-path-first: only ``SELECT``/``WITH``/``EXPLAIN`` statements are accepted;
+        mutations must go through ``kg_write`` so they get the engine's governed write
+        path. RLS is enforced engine-side (the off-lock ``GraphView`` honours the
+        actor's row-level filter), exactly as the pg-wire surface does.
+
+        The underlying engine client is reached through the active backend's
+        ``GraphComputeEngine`` (``backend.graph._client.query.sql``). A backend with no
+        engine client (e.g. a pure-Postgres mirror) raises a clear error rather than
+        silently returning nothing.
+        """
+        stripped = (query or "").lstrip()
+        head = stripped[:8].upper()
+        if not (
+            head.startswith("SELECT")
+            or head.startswith("WITH")
+            or head.startswith("EXPLAIN")
+        ):
+            raise ValueError(
+                "sql() is read-only: only SELECT/WITH/EXPLAIN are allowed "
+                "(use kg_write for mutations)."
+            )
+
+        graph = getattr(self.backend, "graph", None)
+        client = getattr(graph, "_client", None)
+        query_ns = getattr(client, "query", None)
+        sql_fn = getattr(query_ns, "sql", None)
+        if not callable(sql_fn):
+            raise RuntimeError(
+                "The active backend has no epistemic-graph SQL surface; "
+                "SQL-on-the-KG requires the engine backend (build with the "
+                "'query' feature)."
+            )
+        rows = sql_fn(query)
+        try:
+            from agent_utilities.knowledge_graph.core.secured_reads import (
+                filter_rows,
+                visible,
+            )
+
+            rows = visible(filter_rows(rows))
+        except Exception as exc:  # pragma: no cover - never break a read
+            logger.debug("sql() row filtering skipped: %s", exc)
+        return rows
+
     def resolve_temporal_contradiction(
         self,
         fact_a_id: str,
