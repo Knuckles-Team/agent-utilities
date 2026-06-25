@@ -697,15 +697,15 @@ def test_two_workers_one_session_execute_serially(dispatch_db, fake_queue, monke
     active = {"n": 0, "max": 0}
     gate = threading.Lock()
 
-    # Stub the goal-loop body to a fast, deterministic no-op. This test asserts
-    # ONLY the per-session mutual-exclusion contract (the ``session_execution_guard``
-    # + claim serialize the two workers); it does NOT exercise the autonomous run
-    # loop. Calling the real ``_execute_goal_turn`` here ran the full
-    # ``LoopController.run_loop`` in each thread, which blocks indefinitely on the
-    # engine selector in this unit context (and was the source of the hang/flake —
-    # whether it returned at all was timing luck). The stub records concurrency and
-    # returns the same "completed" the real body returns, so the contract assertion
-    # is unchanged while the test is deterministic.
+    # Replace the goal-loop body with a fast, deterministic no-op. This test
+    # asserts ONLY the per-session mutual-exclusion contract (the
+    # ``session_execution_guard`` + claim serialize the two workers); it does NOT
+    # exercise the autonomous run loop. Calling the real ``_execute_goal_turn``
+    # here ran the full ``LoopController.run_loop`` in each thread, which blocks
+    # indefinitely on the engine selector in this unit context (and was the source
+    # of the hang/flake — whether it returned at all was timing luck). The no-op
+    # records concurrency and returns the same "completed" the real body returns,
+    # so the contract assertion is unchanged while the test is deterministic.
     def _tracked(spec):
         with gate:
             active["n"] += 1
