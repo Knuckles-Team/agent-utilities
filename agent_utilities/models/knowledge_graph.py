@@ -29,6 +29,10 @@ class RegistryNodeType(StrEnum):
     FILE = "file"
     SYMBOL = "symbol"
     MODULE = "module"
+    # Database ontology (CONCEPT:KG-2.212) — SQL DDL extraction
+    DATABASE_TABLE = "database_table"
+    DATABASE_COLUMN = "database_column"
+    DATABASE_VIEW = "database_view"
     CLIENT = "client"
     USER = "user"
     PREFERENCE = "preference"
