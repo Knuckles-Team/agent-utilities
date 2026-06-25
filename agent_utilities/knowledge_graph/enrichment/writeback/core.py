@@ -171,7 +171,7 @@ def run_writeback(
             return {"status": "error", "target": target, "error": str(e)}
         from .approval import ProposalQueue
 
-        pid = ProposalQueue().enqueue(target, ops, preview.proposals)
+        pid = ProposalQueue(backend=backend).enqueue(target, ops, preview.proposals)
         out = preview.as_dict()
         out.update(
             {
