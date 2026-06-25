@@ -30,13 +30,32 @@ def _server() -> FastMCP:
     return mcp
 
 
-def test_render_excludes_verbose_and_derives_toggles():
+def test_render_includes_condensed_and_verbose_sections():
     table = render_tools_table(_server())
     assert START in table and END in table
+    # condensed action-routed tools render in the default section
+    assert "Condensed action-routed tools" in table
     assert "| `svc_cmdb` | `CMDBTOOL` |" in table
     assert "| `svc_incidents` | `INCIDENTSTOOL` |" in table
-    assert "svc_get_cmdb_instance" not in table  # verbose excluded from README
-    assert "2 action-routed tools" in table
+    # verbose 1:1 tools are now INCLUDED in their own (collapsible) section
+    assert "Verbose 1:1 API-mapped tools" in table
+    assert "<details>" in table
+    assert "| `svc_get_cmdb_instance` |" in table
+    # summary distinguishes the two surfaces
+    assert "2 action-routed tool(s) (default) · 1 verbose 1:1 tool(s)" in table
+
+
+def test_render_omits_verbose_section_when_none():
+    mcp = FastMCP("t")
+
+    @mcp.tool(name="svc_cmdb", tags={"cmdb"})
+    def _c():
+        "Manage CMDB operations."
+
+    table = render_tools_table(mcp)
+    assert "Condensed action-routed tools" in table
+    assert "Verbose 1:1 API-mapped tools" not in table  # no verbose -> no section
+    assert "1 action-routed tool(s) (default) · 0 verbose 1:1 tool(s)" in table
 
 
 def test_sync_inserts_under_heading_and_is_idempotent(tmp_path):
