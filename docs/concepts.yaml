@@ -2194,13 +2194,6 @@ concepts:
   - agent_utilities/models/schema_pack.py
   - agent_utilities/models/schema_packs/research.py
   doc: Pack-Driven Retrieval Signals
-- id: KG-2.23
-  name: Rust-Accelerated Reasoning
-  pillar: KG-2
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/owl_bridge.py
-  doc: Rust-Accelerated Reasoning
 - id: KG-2.24
   name: Live Refreshable Artifact models + bounded-JSON + safe interpolation
   pillar: KG-2
@@ -2316,7 +2309,7 @@ concepts:
   - agent_utilities/models/schema_pack_loader.py
   doc: Schema-Pack Lifecycle and Audit
 - id: KG-2.36
-  name: reuses the pack-driven OWL closure notion. The
+  name: the engine reasons over OWL axioms; surface the active
   pillar: KG-2
   status: live
   code_paths:
@@ -2324,7 +2317,7 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/links.py
   - agent_utilities/models/schema_pack.py
   - agent_utilities/models/schema_packs/research.py
-  doc: reuses the pack-driven OWL closure notion. The
+  doc: the engine reasons over OWL axioms; surface the active
 - id: KG-2.37
   name: Research-State Domain Pack
   pillar: KG-2
@@ -3616,6 +3609,17 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
   doc: tolerant of every shape this value arrives in
+- id: KG-2.204
+  name: the engine reasons over the live graph directly, so
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/owl_bridge.py
+  - agent_utilities/knowledge_graph/core/sparql_http.py
+  - agent_utilities/knowledge_graph/maintenance/owl_closure.py
+  - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py
+  doc: the engine reasons over the live graph directly, so
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

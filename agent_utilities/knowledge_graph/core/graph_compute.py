@@ -1337,7 +1337,9 @@ class GraphComputeEngine:
     def sparql(self, query: str) -> list[dict[str, str | None]]:
         """Run a SPARQL 1.1 query over the LIVE engine graph (one round-trip).
 
-        CONCEPT:KG-2.204 — routes to the engine's native ``client.rdf.sparql`` so the
+        CONCEPT:KG-2.204 — Engine-native SPARQL/OWL/SHACL: the Python semantic-web stack
+        (rdflib/owlready2/pyshacl) is demoted to the engine's native RDF surface. This
+        routes to the engine's native ``client.rdf.sparql`` so the
         query executes against the engine's RDF projection of the live property graph
         (resource object -> typed edge, literal -> typed property cell, ``rdf:type`` ->
         the engine ``type`` label) -- NOT a rdflib materialization. Returns one dict per
