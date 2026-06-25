@@ -3,47 +3,33 @@
 Provides a unified interface for storing and querying high-frequency time-series data
 (OHLCV, tick data, streaming signals) natively within the memory layer.
 
-Supports pluggable backends (dual-mode like ``DeltaManifest`` — CONCEPT:KG-2.206):
-- ``engine`` — the epistemic-graph engine's native ``client.timeseries.*`` tsdb
-  (the one durable authority; points live beside the graph in ``series.redb``).
-- ``sqlite`` — the zero-infra local embedded fallback (the ``tiny`` profile).
-- ``auto`` (default) — engine when reachable, else the SQLite fallback.
+Engine-only (CONCEPT:KG-2.246): time-series points live on the **one
+epistemic-graph engine authority** via its native ``client.timeseries.*`` tsdb
+(eg-tsdb, CONCEPT:KG-2.210/211) — each series stored as ``(ts_ns, field-vector)``
+points in the engine's durable ``series.redb``, beside the graph. There is NO
+local SQLite fallback: the OS-5.63 resolver auto-starts the pi-tier engine in
+prod and the test fixture (CONCEPT:KG-2.238) provides a real ephemeral one, so an
+unreachable engine is a hard error, not a silent degrade to a straggler local DB.
 """
-
-import logging
 
 from .base import TimeSeriesBackend
 from .engine_backend import EngineTimeSeriesBackend
-from .sqlite_backend import SQLiteTimeSeriesBackend
-
-logger = logging.getLogger(__name__)
 
 
-def get_timeseries_backend(backend_type: str = "auto", **kwargs) -> TimeSeriesBackend:
-    """Return a time-series backend.
+def get_timeseries_backend(backend_type: str = "engine", **kwargs) -> TimeSeriesBackend:
+    """Return the engine-backed time-series backend.
 
-    ``backend_type``:
-        * ``"engine"`` — force the epistemic-graph tsdb backend (raises if the
-          engine is unreachable).
-        * ``"sqlite"`` — force the local embedded SQLite fallback.
-        * ``"auto"`` (default) — try the engine; on any failure, transparently
-          degrade to SQLite so the ``tiny`` zero-infra profile still works.
+    CONCEPT:KG-2.246 — there is one backend: the epistemic-graph engine tsdb. It
+    ``initialize()``s eagerly, raising a clear error when the engine is genuinely
+    unreachable (no SQLite fallback). ``backend_type`` is accepted only as
+    ``"engine"`` (the default) for call-site clarity; any other value is rejected.
     """
-    if backend_type == "engine":
-        be = EngineTimeSeriesBackend(**kwargs)
-        be.initialize()
-        return be
-    if backend_type == "sqlite":
-        return SQLiteTimeSeriesBackend(**kwargs)
-    if backend_type == "auto":
-        try:
-            be = EngineTimeSeriesBackend(**kwargs)
-            be.initialize()
-            return be
-        except Exception as e:  # noqa: BLE001 - degrade to zero-infra SQLite
-            logger.debug(
-                "timeseries: engine backend unavailable (%s); using SQLite fallback",
-                e,
-            )
-            return SQLiteTimeSeriesBackend(**kwargs)
-    raise ValueError(f"Unknown timeseries backend: {backend_type}")
+    if backend_type != "engine":
+        raise ValueError(
+            f"Unknown timeseries backend {backend_type!r}: the only backend is the "
+            "engine-backed tsdb ('engine'). The local SQLite fallback was removed "
+            "(CONCEPT:KG-2.246) — time-series lives on the one engine authority."
+        )
+    be = EngineTimeSeriesBackend(**kwargs)
+    be.initialize()
+    return be

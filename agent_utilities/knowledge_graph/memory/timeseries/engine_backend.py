@@ -1,4 +1,4 @@
-"""Engine-backed time-series memory backend (CONCEPT:KG-2.206).
+"""Engine-backed time-series memory backend (CONCEPT:KG-2.246).
 
 Routes the time-series memory abstraction onto the **one epistemic-graph engine
 authority** via its native ``client.timeseries.*`` namespace (eg-tsdb, CONCEPT:
@@ -7,9 +7,11 @@ each series as ``(ts_ns, [field0, field1, ...])`` points in its own durable
 ``series.redb``, so high-frequency points live beside the graph, not in a
 straggler local DB.
 
-Dual-mode like ``DeltaManifest``: the factory selects this engine arm when a
-durable engine is reachable; otherwise the zero-infra ``SQLiteTimeSeriesBackend``
-remains the ``tiny`` fallback.
+Engine-only: this is the sole time-series backend (the local SQLite fallback was
+removed). ``initialize()`` raises a clear error when the engine is genuinely
+unreachable — the OS-5.63 resolver auto-starts the pi-tier engine in prod and the
+test fixture (CONCEPT:KG-2.238) provides a real ephemeral one, so an unreachable
+engine is a hard failure, never a silent degrade.
 
 Mapping from the abstraction's ``TimeSeriesDataPoint`` (``symbol`` + ``datetime``
 + ``metrics: {name: float}`` + optional string ``tags``) onto the engine's
@@ -65,9 +67,10 @@ def _series_id(symbol: str, tags: dict[str, str] | None) -> str:
 class EngineTimeSeriesBackend(TimeSeriesBackend):
     """Time-series backend served by the epistemic-graph engine's tsdb namespace.
 
-    CONCEPT:KG-2.206. Best-effort acquisition of a ``SyncEpistemicGraphClient`` at
-    ``initialize()``; the factory only selects this arm when an engine is reachable,
-    so this raises if the client cannot be built (the factory degrades to SQLite).
+    CONCEPT:KG-2.246. Acquires a ``SyncEpistemicGraphClient`` at ``initialize()``
+    via the OS-5.63 resolver (which auto-starts the pi-tier engine when nothing is
+    running); raises a clear error if the engine is genuinely unreachable. There is
+    no SQLite fallback — the engine is the one time-series authority.
     """
 
     def __init__(self, client: Any = None):
@@ -84,7 +87,16 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
             client_connect_kwargs,
         )
 
-        self._client = SyncEpistemicGraphClient.connect(**client_connect_kwargs())
+        try:
+            self._client = SyncEpistemicGraphClient.connect(**client_connect_kwargs())
+        except Exception as exc:  # noqa: BLE001 — re-raise as a clear, typed error
+            raise RuntimeError(
+                "time-series memory requires the epistemic-graph engine, but no "
+                "engine is reachable. The OS-5.63 resolver auto-starts the pi-tier "
+                "engine in prod and the test fixture (KG-2.238) provides one — "
+                "there is no SQLite fallback (CONCEPT:KG-2.246). "
+                f"Underlying connect error: {exc}"
+            ) from exc
         logger.debug("EngineTimeSeriesBackend initialized via engine tsdb")
 
     def _ensure_client(self) -> Any:
