@@ -146,3 +146,55 @@ Conventions to keep parity with this package:
   suite;
 - let `testcontainers` pick the port — never bind the canonical homelab port.
 ```
+
+## The REAL ephemeral engine in tests — `tiny_engine` / `engine_graph` (CONCEPT:KG-2.237)
+
+Engine-backed tests validate against the **ACTUAL database we ship** — never
+SQLite, never a mock — deployed ephemerally and destroyed afterwards. Two
+first-class fixtures in `tests/conftest.py` (backed by `tests/_test_engine.py`)
+own this:
+
+- **`tiny_engine`** (session-scoped) — deploys **ONE** real
+  `epistemic-graph-server` for the whole session. It resolves the binary in
+  order: the prebuilt **wheel** binary (next to `sys.executable`) → the sibling
+  `epistemic-graph` checkout's `target/release`/`target/debug` → otherwise it
+  **builds the lean `pi`-tier binary once** (`cargo build --release
+  --no-default-features --features pi`) and caches it. The engine starts on an
+  **isolated ephemeral UDS socket** under a unique temp dir, with an isolated
+  temp `--persist-dir`, a test `GRAPH_SERVICE_AUTH_SECRET`, and
+  `--idle-shutdown-secs 120` (so a crashed suite self-reaps). It exports
+  `GRAPH_SERVICE_SOCKET` (+ the secret) so the client / `EngineResolver` connect
+  to **this** engine via the *shared* leg (CONCEPT:OS-5.63 — no autostart).
+  Teardown is a graceful **SIGTERM** (the engine checkpoints + exits cleanly,
+  CONCEPT:KG-2.223), then the temp persist dir + socket are removed — zero
+  residue. If no binary AND no Rust toolchain exist, it `skip`s with a clear
+  message; an externally-provided `GRAPH_SERVICE_SOCKET` (a shared host engine)
+  is reused verbatim.
+
+- **`engine_graph`** (function-scoped) — gives each test a **fresh, isolated
+  tenant graph** on the session engine: a uniquely-named tenant
+  (`GraphComputeEngine(graph_name=…)` auto-creates it) is yielded, then
+  **tenant-purged** (CONCEPT:KG-2.221) on teardown so per-test state never leaks.
+  This is fast isolation — one engine process, a fresh graph per test — not a new
+  process per test.
+
+Opt a test into the real DB by **requesting `engine_graph`** (or marking it
+`@pytest.mark.engine`). Example:
+
+```python
+import pytest
+
+pytestmark = pytest.mark.engine
+
+def test_node_roundtrip(engine_graph):
+    engine_graph.add_node("alpha", {"type": "Agent", "score": 7})
+    assert engine_graph.has_node("alpha")
+    assert engine_graph._client.nodes.properties("alpha")["score"] == 7
+```
+
+**The consolidation seam.** Once this fixture set lands, the consolidation lanes
+drop their SQLite fallbacks entirely and route to the engine unconditionally:
+they connect through the same `GRAPH_SERVICE_SOCKET` / `GraphComputeEngine` path
+the fixtures wire, so an engine-mode consolidation test just requests
+`engine_graph` and runs against the real durable engine (an integration
+follow-up).
