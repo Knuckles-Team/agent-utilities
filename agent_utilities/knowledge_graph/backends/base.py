@@ -33,6 +33,34 @@ def is_write(query: str) -> bool:
     return bool(_WRITE_RE.search(query or ""))
 
 
+# Backends for which a derived store (manifest, card cache, registry graph, …)
+# must fall back to its zero-infra local store instead of routing arbitrary
+# labelled nodes through ``backend.execute()``:
+#   - EpistemicGraphBackend: pure in-memory, not durable across a restart.
+#   - PostgreSQLBackend: schema-constrained tables have no arbitrary-label table,
+#     so a graph-native MERGE errors ("relation does not exist").
+# The epistemic-graph engine authority (reached through a fanout/durable backend)
+# holds arbitrary nodes, so the engine path keeps graph-native stores.
+_NON_DURABLE_BACKENDS = {
+    "EpistemicGraphBackend",
+    "PostgreSQLBackend",
+}
+
+
+def is_durable_backend(backend: Any) -> bool:
+    """True if writes through ``backend.execute()`` survive a restart.
+
+    The shared dual-mode predicate (CONCEPT:KG-2.8) consolidated stores reuse to
+    decide engine-graph mode vs. their zero-infra local fallback (DeltaManifest,
+    CardStore, the registry graph, …). A pure in-memory backend can't persist
+    graph-side, and a schema-constrained durable store (pggraph) can't hold an
+    arbitrary label — both → the local fallback.
+    """
+    if backend is None or not hasattr(backend, "execute"):
+        return False
+    return type(backend).__name__ not in _NON_DURABLE_BACKENDS
+
+
 def coerce_cypher_property(value: Any) -> Any:
     """Coerce a property value to something a Cypher backend (Neo4j/FalkorDB) accepts.
 
