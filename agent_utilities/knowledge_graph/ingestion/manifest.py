@@ -26,37 +26,13 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Backends for which the manifest must use the SQLite fallback instead of
-# graph-native :IngestManifest nodes:
-#   - PostgreSQLBackend: schema-constrained tables have no :IngestManifest table,
-#     so a graph-native MERGE errors ("relation does not exist").
-# SQLite under data_dir() is durable + robust, so it's the manifest store for
-# these. (The epistemic-graph engine authority holds arbitrary nodes, so the
-# fanout/engine path keeps graph-native manifests.)
-_NON_DURABLE_BACKENDS = {
-    "EpistemicGraphBackend",
-    "PostgreSQLBackend",
-}
+from ..backends.base import is_durable_backend as _is_durable_backend
 
 _LABEL = "IngestManifest"
 
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-def _is_durable_backend(backend: Any) -> bool:
-    """True if writes through ``backend.execute()`` survive a restart.
-
-    A pure in-memory backend cannot persist the manifest graph-side, so it is
-    treated as non-durable (→ SQLite fallback). A schema-backed durable store
-    (pggraph) is durable.
-    """
-    if backend is None:
-        return False
-    if not hasattr(backend, "execute"):
-        return False
-    return type(backend).__name__ not in _NON_DURABLE_BACKENDS
 
 
 def _key(graph_name: str, category: str, source_uri: str) -> str:

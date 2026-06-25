@@ -1,13 +1,12 @@
 """Tests for safe serialization functions (CONCEPT:ORCH-1.3 Serialization Safety).
 
-Verifies the JSON-based safe_save_model and safe_load_model functions
-provide equivalent functionality to the deprecated pickle-based alternatives
-without the CWE-502 security risk.
+Verifies the JSON-based safe_save_model and safe_load_model functions. The
+pickle-based save_model/load_model were removed (No-Legacy, CWE-502); JSON is the
+only serialization path.
 """
 
 import json
 import os
-import warnings
 
 import pytest
 
@@ -48,36 +47,6 @@ class TestSafeSerialization:
         with open(path) as f:
             loaded = json.load(f)
         assert loaded == data
-
-    def test_deprecated_save_model_warns(self, tmp_path):
-        """Legacy save_model emits a DeprecationWarning about CWE-502."""
-        from agent_utilities.base_utilities import save_model
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            save_model({"test": True}, file_name="deprecated", file_path=str(tmp_path))
-            assert len(w) == 1
-            assert issubclass(w[0].category, DeprecationWarning)
-            assert "CWE-502" in str(w[0].message)
-
-    def test_deprecated_load_model_warns(self, tmp_path):
-        """Legacy load_model emits a DeprecationWarning about CWE-502."""
-        from agent_utilities.base_utilities import load_model, save_model
-
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            path = save_model(
-                {"test": True}, file_name="dep_load", file_path=str(tmp_path)
-            )
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = load_model(path)
-            assert len(w) == 1
-            assert issubclass(w[0].category, DeprecationWarning)
-            assert "CWE-502" in str(w[0].message)
-            assert result == {"test": True}
-
 
 # CONCEPT:OS-5.0 Workspace Management
 @pytest.mark.concept("CONCEPT:ORCH-1.0")
