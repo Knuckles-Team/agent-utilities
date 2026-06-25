@@ -19,6 +19,26 @@ from agent_utilities.graph.state import GraphState
 from agent_utilities.orchestration.engine import AgentOrchestrationEngine
 
 
+def _patch_end_marker(fake):
+    """Patch ``EndMarker`` where ``engine.iter_graph`` actually resolves it.
+
+    ``engine.py`` imports it as ``from pydantic_graph import EndMarker`` with a
+    fallback to ``pydantic_graph.beta.graph`` for older releases. The two
+    pydantic-graph versions on our envs disagree on which location exists (newer:
+    top-level ``EndMarker``, no ``beta``; older: ``beta.graph.EndMarker``,
+    no top-level). Patch ONLY the location present in this interpreter — a blind
+    ``patch("pydantic_graph.beta.graph.EndMarker", create=True)`` raises when the
+    intermediate ``beta`` package is missing entirely. Returns the right
+    ``unittest.mock.patch`` context manager so the isinstance check binds the fake
+    regardless of the installed pydantic-graph version.
+    """
+    import pydantic_graph
+
+    if hasattr(pydantic_graph, "EndMarker"):
+        return patch("pydantic_graph.EndMarker", fake)
+    return patch("pydantic_graph.beta.graph.EndMarker", fake)
+
+
 class TestBuildStateSnapshot:
     """Unit tests for the _build_state_snapshot helper."""
 
@@ -125,7 +145,7 @@ async def test_run_graph_iter_yields_node_transitions():
     events = []
     with (
         patch("agent_utilities.core.config.load_node_agents_registry") as mock_registry,
-        patch("pydantic_graph.EndMarker", _FakeEndMarker),
+        _patch_end_marker(_FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
@@ -159,7 +179,7 @@ async def test_run_graph_iter_state_snapshots():
     events = []
     with (
         patch("agent_utilities.core.config.load_node_agents_registry") as mock_registry,
-        patch("pydantic_graph.EndMarker", _FakeEndMarker),
+        _patch_end_marker(_FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 
@@ -242,7 +262,7 @@ async def test_run_graph_iter_drains_sideband():
     events = []
     with (
         patch("agent_utilities.core.config.load_node_agents_registry") as mock_registry,
-        patch("pydantic_graph.EndMarker", _FakeEndMarker),
+        _patch_end_marker(_FakeEndMarker),
     ):
         mock_registry.return_value = MagicMock(agents=[])
 

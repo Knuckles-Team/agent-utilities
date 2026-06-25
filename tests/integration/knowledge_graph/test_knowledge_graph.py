@@ -15,7 +15,13 @@ from agent_utilities.models.knowledge_graph import (
 
 
 @pytest.fixture
-def mock_graph():
+def mock_graph(tiny_engine):
+    # CONCEPT:KG-2.238 — run against the REAL ephemeral engine. ``tiny_engine``
+    # guarantees a live engine for the session; the autouse
+    # ``isolate_graph_compute_engine`` fixture pins this GraphComputeEngine AND
+    # the IntelligenceGraphEngine the dependent tests build to ONE per-test
+    # tenant graph (and purges it on teardown), so the queries below see exactly
+    # this data with no cross-test leakage — no SQLite, no mocks.
     graph = GraphComputeEngine(backend_type="rust")
     # Add an agent
     graph.add_node(
@@ -69,6 +75,7 @@ async def test_intelligence_pipeline_mock(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.engine
 async def test_intelligence_engine_queries(mock_graph):
     engine = IntelligenceGraphEngine(db_path=":memory:")
 
@@ -81,6 +88,7 @@ async def test_intelligence_engine_queries(mock_graph):
     assert "search" in tools
 
 
+@pytest.mark.engine
 def test_intelligence_shortest_path(mock_graph):
     mock_graph.add_node(
         "T2", type=RegistryNodeType.TOOL, name="T2", mcp_server="TestBot"

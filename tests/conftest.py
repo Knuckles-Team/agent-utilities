@@ -1,6 +1,12 @@
 #!/usr/bin/python
 
 import os
+import sys
+
+# Make this directory importable so ``_test_engine`` (the ephemeral real-engine
+# lifecycle helper, CONCEPT:KG-2.238) resolves regardless of pytest import-mode /
+# the absence of a ``tests/__init__.py``.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
@@ -37,6 +43,11 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "concept(id): mark test as validating a specific documentation concept",
+    )
+    config.addinivalue_line(
+        "markers",
+        "engine: test runs against the REAL ephemeral epistemic-graph engine "
+        "(requests the ``tiny_engine``/``engine_graph`` fixtures). CONCEPT:KG-2.238",
     )
 
 
@@ -205,124 +216,159 @@ def isolate_graph_compute_engine(monkeypatch):
         break  # Only need one client for deletion
 
 
-# Set True once an isolated test engine is started (or an external
+# Set True once the isolated session engine is deployed (or an external
 # ``GRAPH_SERVICE_SOCKET`` is provided). When it stays False, no engine is
 # reachable in this environment, so engine-backed tests are *skipped* rather than
 # hard-failing with ``ConnectionRefused`` — see ``pytest_runtest_makereport``.
 _TEST_ENGINE_AVAILABLE = False
 
+#: The session engine's socket path once deployed (``None`` ⇒ unavailable). The
+#: ``tiny_engine`` fixture returns this; ``engine_graph`` re-asserts it per test.
+_SESSION_ENGINE_SOCKET: "str | None" = None
+
 
 @pytest.fixture(scope="session", autouse=True)
-def start_epistemic_graph_server():
-    import os
+def _session_engine():
+    """Deploy ONE REAL ephemeral epistemic-graph engine for the whole test session.
 
-    global _TEST_ENGINE_AVAILABLE
-    # An externally-managed isolated engine (its own socket) counts as available.
-    if os.environ.get("GRAPH_SERVICE_SOCKET"):
+    USER DIRECTIVE (CONCEPT:KG-2.238): engine-backed tests validate against the
+    ACTUAL database we ship — NOT SQLite, NOT mocks — deployed ephemerally and
+    destroyed/cleaned up after. This (autouse) session fixture subsumes the old
+    ``start_epistemic_graph_server`` autostart so the engine is up for the *whole*
+    session when available (the main case), while ``engine_graph`` layers per-test
+    tenant isolation on top:
+
+    * resolves the engine binary (prebuilt wheel → sibling ``target`` → build the
+      lean ``pi``-tier once and cache it — see ``tests/_test_engine.py``);
+    * starts it on an ISOLATED ephemeral UDS socket + temp ``--persist-dir`` with
+      a test auth secret and ``--idle-shutdown-secs`` (self-cleans if the suite
+      dies);
+    * exports ``GRAPH_SERVICE_SOCKET`` (+ the secret) so the client /
+      ``EngineResolver`` connect to THIS engine via the **shared** leg — no
+      autostart needed (CONCEPT:OS-5.63);
+    * on teardown shuts the engine down with a graceful **SIGTERM** (it
+      checkpoints + exits cleanly) and removes the temp persist dir + socket.
+
+    When the engine genuinely cannot be obtained (no binary AND no Rust toolchain),
+    this fixture **degrades gracefully** — it yields with no engine and
+    engine-backed tests *skip* via ``pytest_runtest_makereport`` (it never skips
+    or fails the whole session). An externally-provided ``GRAPH_SERVICE_SOCKET``
+    (e.g. a shared host engine) is reused verbatim and never torn down here.
+    """
+    global _TEST_ENGINE_AVAILABLE, _SESSION_ENGINE_SOCKET
+    from _test_engine import (
+        TEST_AUTH_SECRET,
+        EngineUnavailable,
+        EphemeralEngine,
+        resolve_engine_binary,
+    )
+
+    # An externally-managed engine (its own socket) is reused verbatim — don't
+    # start (or stop) one of our own.
+    external = os.environ.get("GRAPH_SERVICE_SOCKET")
+    if external:
         _TEST_ENGINE_AVAILABLE = True
+        _SESSION_ENGINE_SOCKET = external
+        yield external
+        return
 
-    if os.environ.get("AGENT_UTILITIES_TESTING") == "true":
-        # Check if epistemic-graph is built, if not build it
-        rust_dir = os.path.join(os.path.dirname(__file__), "../../epistemic-graph")
-        rust_dir = os.path.abspath(rust_dir)
-        if not os.path.isdir(rust_dir):
-            # Polyrepo / CI: the epistemic-graph source is not checked out as a
-            # sibling here, so we can't build/run the local engine. Skip starting
-            # it — config-only tests don't need a live engine; tests that do will
-            # skip when GRAPH_SERVICE_SOCKET is unset.
-            print(
-                "epistemic-graph source not present "
-                f"({rust_dir}); skipping engine startup."
-            )
-            yield None
-            return
-        socket_path = os.path.join(
-            os.path.dirname(__file__), ".test_epistemic_graph.sock"
-        )
-        socket_path = os.path.abspath(socket_path)
-
-        if os.path.exists(socket_path):
-            os.remove(socket_path)
-
-        # Use the PRE-BUILT engine binary; building the full engine inside the
-        # test session is too slow under load and contends on the shared cargo
-        # target lock with concurrent builds — it can exceed the per-test timeout
-        # and cascade every test into a setup ERROR. If the binary isn't built,
-        # engine-backed tests skip cleanly (via ``pytest_runtest_makereport``) —
-        # run ``cargo build --all-features`` first to enable them. (CI is polyrepo
-        # with no sibling source, so it already skips at the isdir check above;
-        # this path is the dev monorepo checkout.)
-        binary = os.path.join(rust_dir, "target", "debug", "epistemic-graph-server")
-        if not os.path.exists(binary):
-            print(
-                f"epistemic-graph-server not built ({binary}); engine-backed "
-                "tests will skip. Run `cargo build --all-features` in "
-                f"{rust_dir} to enable them."
-            )
-            yield None
-            return
-
-        print("Starting epistemic-graph-server (pre-built binary)...")
-        log_file = open(
-            os.path.join(tempfile.gettempdir(), ".test_epistemic_graph.log"), "w"
-        )
-        # Engine auth (CONCEPT:OS-5.14): run the test engine WITH a shared
-        # secret. Works with both engine generations — the old binary verifies
-        # client HMAC tokens against it; the new binary REFUSES to start
-        # without one. Exported to this process so every client (env fallback)
-        # authenticates.
-        test_secret = "agent-utilities-test-engine-secret"  # nosec B105 — test-only
-        os.environ["GRAPH_SERVICE_AUTH_SECRET"] = test_secret
-        # Start the pre-built server directly (no cargo → no build, no lock wait).
-        process = subprocess.Popen(
-            [binary, "--socket-path", socket_path],
-            cwd=rust_dir,
-            stdout=log_file,
-            stderr=log_file,
-            env={**os.environ, "GRAPH_SERVICE_AUTH_SECRET": test_secret},
-        )
-
-        # Wait for the socket. On crash or timeout, degrade to a hermetic skip
-        # (the makereport hook turns engine-unreachable errors into skips) rather
-        # than raising and erroring the whole session.
-        socket_ready = False
-        for _ in range(60):
-            if process.poll() is not None:
-                break
-            if os.path.exists(socket_path):
-                socket_ready = True
-                break
-            time.sleep(0.5)
-        if not socket_ready:
-            log_file.flush()
-            try:
-                with open(log_file.name) as f:
-                    logs = f.read()
-            except OSError:
-                logs = "<no logs captured>"
-            print(
-                "epistemic-graph-server did not become ready; engine-backed "
-                f"tests will skip.\nLogs (tail):\n{logs[-2000:]}"
-            )
-            if process.poll() is None:
-                process.terminate()
-                process.wait()
-            yield None
-            return
-
-        # Set environment variable so the client connects to this socket
-        os.environ["GRAPH_SERVICE_SOCKET"] = socket_path
-        _TEST_ENGINE_AVAILABLE = True
-
-        yield process
-
-        # Cleanup
-        process.terminate()
-        process.wait()
-        if os.path.exists(socket_path):
-            os.remove(socket_path)
-    else:
+    try:
+        binary = resolve_engine_binary()
+        engine = EphemeralEngine(binary).start()
+    except EngineUnavailable as exc:
+        # No real engine obtainable — degrade to hermetic-skip mode (the
+        # makereport hook turns engine-unreachable errors into skips).
+        print(f"[session-engine] real engine unavailable: {exc}")
         yield None
+        return
+
+    # Wire the client / EngineResolver to THIS engine for the whole session.
+    # Set in os.environ (not monkeypatch) so it survives the per-test
+    # ``_isolate_os_environ`` snapshot/restore.
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    os.environ["GRAPH_SERVICE_SOCKET"] = engine.socket_path  # type: ignore[assignment]
+    os.environ["GRAPH_SERVICE_AUTH_SECRET"] = TEST_AUTH_SECRET
+    _TEST_ENGINE_AVAILABLE = True
+    _SESSION_ENGINE_SOCKET = engine.socket_path
+    try:
+        yield engine.socket_path
+    finally:
+        _TEST_ENGINE_AVAILABLE = False
+        _SESSION_ENGINE_SOCKET = None
+        IntelligenceGraphEngine.set_active(None)
+        engine.stop()
+
+
+@pytest.fixture(scope="session")
+def tiny_engine(_session_engine):
+    """The session engine's socket path — or ``skip`` when no real engine exists.
+
+    CONCEPT:KG-2.238. Requesting this (or ``engine_graph``) is how a test OPTS IN
+    to the real database: on a box with no binary AND no Rust toolchain it skips
+    with a clear message, whereas a test that merely tolerates the engine being
+    absent should not request it (the autouse ``_session_engine`` already wired
+    things up best-effort, and ``pytest_runtest_makereport`` skips it on a
+    connection error).
+    """
+    if not _session_engine:
+        pytest.skip(
+            "real epistemic-graph engine unavailable (no prebuilt binary and no "
+            "Rust toolchain to build the lean pi-tier) — cannot run this "
+            "engine-backed test against the real database."
+        )
+    return _session_engine
+
+
+@pytest.fixture()
+def engine_graph(tiny_engine):
+    """A FRESH, isolated REAL tenant graph on the session ``tiny_engine``.
+
+    CONCEPT:KG-2.238 — fast per-test isolation without a process per test: create
+    a uniquely-named tenant graph on the one running engine, yield a
+    :class:`GraphComputeEngine` scoped to it, then DELETE it via the engine's
+    tenant-purge (CONCEPT:KG-2.221) so per-test state never leaks into another
+    test. Requesting this fixture is how a test opts into the REAL database.
+
+    Yields the bound :class:`GraphComputeEngine`; its ``.graph_name`` is the
+    unique tenant. The autouse ``isolate_graph_compute_engine`` namespacing is
+    irrelevant here — we pass an explicit ``graph_name`` so the engine targets
+    exactly this tenant.
+    """
+    from _test_engine import TEST_AUTH_SECRET
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    # Re-assert the engine wiring per test: ``tiny_engine`` exports
+    # ``GRAPH_SERVICE_SOCKET`` during its (session) setup, but the per-test
+    # ``_isolate_os_environ`` snapshots env BEFORE that setup ran for the first
+    # engine test and restores the snapshot (deleting the socket var) at each
+    # boundary. Setting it here — inside the function fixture, after that
+    # snapshot — guarantees every engine test connects to the running engine.
+    if isinstance(tiny_engine, str):
+        os.environ["GRAPH_SERVICE_SOCKET"] = tiny_engine
+        os.environ["GRAPH_SERVICE_AUTH_SECRET"] = TEST_AUTH_SECRET
+
+    graph_name = f"engtest_{uuid.uuid4().hex[:16]}"
+    # GraphComputeEngine auto-creates its tenant graph on connect, so the graph
+    # exists immediately (reads on an empty graph succeed).
+    compute = GraphComputeEngine(graph_name=graph_name)
+    client = getattr(compute, "_client", None)
+    try:
+        yield compute
+    finally:
+        # Tenant-purge (CONCEPT:KG-2.221): delete the whole graph so no state
+        # leaks into the next test's fresh tenant. The client is intentionally
+        # left OPEN: the autouse ``isolate_graph_compute_engine`` teardown (which
+        # tracks this engine because we created it during the test) then runs its
+        # own ``clear()``/``delete()`` on the live connection. Closing the client
+        # here would stop its event-loop thread and make that later, timeout-less
+        # ``clear()`` block forever — the per-test client thread is a daemon that
+        # the OS reaps at process exit, exactly as the existing teardown relies on.
+        try:
+            if client is not None:
+                client.tenants.delete(graph_name)
+        except Exception:
+            pass
 
 
 import importlib
