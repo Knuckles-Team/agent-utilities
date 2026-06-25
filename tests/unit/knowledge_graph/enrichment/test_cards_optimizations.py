@@ -3,12 +3,29 @@ trivial-skip, per-language prompt)."""
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.knowledge_graph.enrichment.cards import (
     CardStore,
     build_symbol_prompt,
     generate_symbol_cards,
 )
 from agent_utilities.knowledge_graph.enrichment.models import CodeEntity
+
+
+@pytest.fixture()
+def card_store(engine_graph):
+    """A :class:`CardStore` on the REAL ephemeral engine tenant (CONCEPT:KG-2.244).
+
+    The card cache is engine-only (no SQLite), so its persistent-store behaviour is
+    proven against the actual shipped database via the conftest ``engine_graph``
+    fixture (CONCEPT:KG-2.238) bound through an ``EpistemicGraphBackend``.
+    """
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+
+    return CardStore(backend=EpistemicGraphBackend(graph_name=engine_graph.graph_name))
 
 
 def _sym(
@@ -74,8 +91,8 @@ def test_trivial_symbols_skip_the_llm():
     assert calls["n"] == 1  # only the non-trivial symbol hit the LLM
 
 
-def test_persistent_store_avoids_relll_on_fresh_cache(tmp_path):
-    store = CardStore(path=str(tmp_path / "cards.db"))
+def test_persistent_store_avoids_relll_on_fresh_cache(card_store):
+    store = card_store
     calls = {"n": 0}
 
     def fake_llm(prompt: str) -> str:
@@ -96,8 +113,8 @@ def test_persistent_store_avoids_relll_on_fresh_cache(tmp_path):
     assert calls["n"] == 1  # still one — served from the persistent store
 
 
-def test_card_store_round_trip(tmp_path):
-    store = CardStore(path=str(tmp_path / "c.db"))
+def test_card_store_round_trip(card_store):
+    store = card_store
     store.put_many([("h1", "sum1", ["a", "b"]), ("h2", "sum2", [])])
     got = store.get_many(["h1", "h2", "missing"])
     assert got["h1"] == ("sum1", ["a", "b"])
