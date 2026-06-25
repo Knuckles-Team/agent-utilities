@@ -12,6 +12,8 @@ the equality-bucket + per-minute-sweep design behaves correctly.
 import time
 from unittest.mock import patch
 
+import pytest
+
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
 )
@@ -22,6 +24,20 @@ from agent_utilities.knowledge_graph.core.engine_tasks import (
 )
 
 HOST = "livehost:1:1700000000"
+
+
+@pytest.fixture()
+def backend(engine_graph) -> EpistemicGraphBackend:
+    """A queue backend bound to a FRESH, isolated REAL tenant graph per test.
+
+    CONCEPT:KG-2.238 — these tests run the queue primitives against the actual
+    ``EpistemicGraphBackend`` (the engine, not a mock). Binding to the
+    ``engine_graph`` fixture's uniquely-named tenant (tenant-purged on teardown)
+    makes every test start from an empty graph and leak nothing into the next,
+    so they pass deterministically regardless of run order — instead of all
+    instantiating ``EpistemicGraphBackend()`` against the shared default graph.
+    """
+    return EpistemicGraphBackend(graph_name=engine_graph.graph_name)
 
 
 class _QHarness:
@@ -91,8 +107,8 @@ def _sweep(h):
 # ---- bucketed priority claim --------------------------------------------------
 
 
-def test_claim_picks_lowest_bucket_first():
-    b = EpistemicGraphBackend()
+def test_claim_picks_lowest_bucket_first(backend):
+    b = backend
     _add(b, "bg", prio_bucket=3, meta={"target": "/bg", "type": "document"})
     _add(b, "crit", prio_bucket=0, meta={"target": "/crit", "type": "document"})
     _add(b, "norm", prio_bucket=2, meta={"target": "/norm", "type": "document"})
@@ -102,8 +118,8 @@ def test_claim_picks_lowest_bucket_first():
     assert h._claim_next_task() is None  # queue drained
 
 
-def test_claim_stamps_ownership_and_running():
-    b = EpistemicGraphBackend()
+def test_claim_stamps_ownership_and_running(backend):
+    b = backend
     _add(b, "j", prio_bucket=2, meta={"target": "/j", "type": "document"})
     h = _QHarness(b)
     job_id, meta = h._claim_next_task()
@@ -112,9 +128,9 @@ def test_claim_stamps_ownership_and_running():
     assert _status(b, "j") == "running"
 
 
-def test_legacy_priority_string_still_claimable():
+def test_legacy_priority_string_still_claimable(backend):
     """A pending node predating prio_bucket (only the legacy string) is claimed."""
-    b = EpistemicGraphBackend()
+    b = backend
     _add(b, "old", priority="high", meta={"target": "/old", "type": "document"})
     h = _QHarness(b)
     assert h._claim_next_task()[0] == "old"
@@ -123,8 +139,8 @@ def test_legacy_priority_string_still_claimable():
 # ---- delayed visibility (scheduled → pending) ---------------------------------
 
 
-def test_scheduled_future_not_promoted():
-    b = EpistemicGraphBackend()
+def test_scheduled_future_not_promoted(backend):
+    b = backend
     eta = time.time() + 3600
     _add(b, "s", status="scheduled", due_bucket=int(eta // 60), meta={"eta_unix": eta})
     h = _QHarness(b)
@@ -132,8 +148,8 @@ def test_scheduled_future_not_promoted():
     assert _status(b, "s") == "scheduled"  # not due yet
 
 
-def test_scheduled_due_is_promoted():
-    b = EpistemicGraphBackend()
+def test_scheduled_due_is_promoted(backend):
+    b = backend
     eta = time.time() - 5
     _add(b, "s", status="scheduled", due_bucket=int(eta // 60), meta={"eta_unix": eta})
     h = _QHarness(b)
@@ -144,8 +160,8 @@ def test_scheduled_due_is_promoted():
 # ---- dependency gating (blocked → pending / cancelled) ------------------------
 
 
-def test_blocked_waits_then_promotes_on_dep_complete():
-    b = EpistemicGraphBackend()
+def test_blocked_waits_then_promotes_on_dep_complete(backend):
+    b = backend
     _add(b, "dep", status="running", meta={"target": "/dep"})
     _add(b, "child", status="blocked", meta={"depends_on": ["dep"]})
     h = _QHarness(b)
@@ -156,8 +172,8 @@ def test_blocked_waits_then_promotes_on_dep_complete():
     assert _status(b, "child") == "pending"  # dep done → unblocked
 
 
-def test_blocked_cancelled_on_broken_dep():
-    b = EpistemicGraphBackend()
+def test_blocked_cancelled_on_broken_dep(backend):
+    b = backend
     _add(b, "dep", status="dead_letter", meta={"target": "/dep"})
     _add(b, "child", status="blocked", meta={"depends_on": ["dep"]})
     h = _QHarness(b)
@@ -165,8 +181,8 @@ def test_blocked_cancelled_on_broken_dep():
     assert _status(b, "child") == "cancelled"  # never run on a broken precondition
 
 
-def test_deps_state_tri():
-    b = EpistemicGraphBackend()
+def test_deps_state_tri(backend):
+    b = backend
     _add(b, "a", status="completed")
     _add(b, "bbad", status="failed")
     _add(b, "cwait", status="pending")
@@ -180,8 +196,8 @@ def test_deps_state_tri():
 # ---- app-level retry → backoff → dead-letter ---------------------------------
 
 
-def test_failure_reschedules_with_backoff():
-    b = EpistemicGraphBackend()
+def test_failure_reschedules_with_backoff(backend):
+    b = backend
     _add(
         b,
         "f",
@@ -196,8 +212,8 @@ def test_failure_reschedules_with_backoff():
     assert "claimed_by" not in m  # lease cleared so it can be re-claimed
 
 
-def test_failure_dead_letters_at_cap():
-    b = EpistemicGraphBackend()
+def test_failure_dead_letters_at_cap(backend):
+    b = backend
     _add(
         b,
         "f",
@@ -213,8 +229,8 @@ def test_failure_dead_letters_at_cap():
 # ---- prioritize_task numeric buckets -----------------------------------------
 
 
-def test_prioritize_accepts_numeric_bucket():
-    b = EpistemicGraphBackend()
+def test_prioritize_accepts_numeric_bucket(backend):
+    b = backend
     _add(b, "p", prio_bucket=2, meta={"target": "/p"})
     h = _QHarness(b)
     res = h.prioritize_task("p", 0)
