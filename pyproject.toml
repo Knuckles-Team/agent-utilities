@@ -57,14 +57,14 @@ sandbox = [
 # The Rust epistemic-graph compute engine client (KG compute, code AST parsing via the
 # engine's native tree-sitter, vector/graph algorithms). Pulled by `serving` and `agent`,
 # NOT by `mcp` — a pure tool server never needs the engine.
-# Floor pinned to the highest PUBLISHED lean wheel (0.31.0) so the lock resolves.
-# COORDINATE (CONCEPT:OS-5.63): the supervised reference-counted
-# `--idle-shutdown-secs` autostart contract lands in the engine wheel at 0.34.0 —
-# bump this floor to >=0.34.0 the moment that wheel is published (the resolver
-# degrades gracefully until then, omitting the flag against an older binary, so
-# this floor does not gate correctness — only the optional idle-shutdown feature).
+# Floor pinned to the PUBLISHED 1.0.0 wheel: its client ships `compare_and_set`
+# plus the `.rdf` / `.timeseries` / `.streaming` / `.txn` sub-clients and the
+# LPG→RDF projection config, and the wheel bundles the prebuilt
+# `epistemic-graph-server` binary (next to `sys.executable`) so the test fixture
+# resolves it with NO cargo build. The supervised reference-counted
+# `--idle-shutdown-secs` autostart contract (CONCEPT:OS-5.63) is in this wheel.
 engine = [
-    "epistemic-graph>=0.31.0"
+    "epistemic-graph>=1.0.0"
 ]
 # CONCEPT:KG-2.121 — native RSS/Atom feed connector (robust feed parsing). Pulled by
 # `serving` (ingestion) and lazily imported by the connector; absent from the lean core.
