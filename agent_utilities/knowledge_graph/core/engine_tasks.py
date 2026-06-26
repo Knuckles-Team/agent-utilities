@@ -1862,19 +1862,54 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception as e:  # noqa: BLE001
             logger.error("loop tick error: %s", e)
 
+    def _world_model_subscription(self) -> Any:
+        """Lazily-built reactive ``WorldModelTransition`` change-feed (CONCEPT:KG-2.251).
+
+        One subscription per daemon process, cached on the engine, so the SAI tick
+        consumes the engine's pushed change-events instead of re-scanning the whole
+        transition history every tick. Rebuilt transparently if it couldn't resolve
+        a streaming surface on first use (engine not yet connected).
+        """
+        sub = getattr(self, "_wm_subscription", None)
+        if sub is None or not getattr(sub, "available", False):
+            from agent_utilities.harness.world_model_task import (
+                world_model_subscription,
+            )
+
+            sub = world_model_subscription(self)
+            self._wm_subscription = sub
+        return sub
+
     def _tick_sai_factory(self) -> None:
         """One SAI-factory world-model specialization cycle (CONCEPT:AHE-3.29).
 
-        Grounds a learned dynamics model in persisted ``WorldModelTransition``
-        history and specializes its config via the SAI factory, persisting a
-        ``SaiFactoryCycle`` node. AU-native (no LLM/GPU). Throttled + opt-in via
-        ``KG_SAI_FACTORY``; a no-op when too little transition history exists.
+        REACTIVE (CONCEPT:KG-2.251): instead of re-querying the ENTIRE
+        ``WorldModelTransition`` history every tick, poll the engine's change-feed
+        subscription and only re-specialize when the engine pushed a NEW transition
+        since the last tick (the change that caused it) — or on cold-start
+        catch-up. When the engine has no streaming surface (``available`` False),
+        fall back to the periodic specialization so behaviour is never worse than
+        before. Grounds a learned dynamics model in the transition history and
+        persists a ``SaiFactoryCycle`` node. AU-native (no LLM/GPU). Throttled +
+        opt-in via ``KG_SAI_FACTORY``; a no-op when too little history exists.
         """
         try:
             from agent_utilities.harness.superhuman_gate import SuperhumanCertifier
             from agent_utilities.harness.world_model_task import (
                 specialize_world_model_from_engine,
             )
+
+            sub = self._world_model_subscription()
+            if sub.available:
+                # Non-blocking poll: O(new transitions) on the engine's pushed
+                # feed, NOT a full re-scan. Skip the expensive specialization when
+                # nothing changed since the last tick.
+                sub.poll(block_ms=0)
+                pending = sub.pending_state["pending"]
+                if pending == 0:
+                    logger.debug("SAI factory tick: no new transitions (reactive skip)")
+                    return
+                sub.pending_state["pending"] = 0
 
             summary = specialize_world_model_from_engine(
                 self, certifier=SuperhumanCertifier()
