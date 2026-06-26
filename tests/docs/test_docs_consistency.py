@@ -20,13 +20,17 @@ README = ROOT / "README.md"
 AGENTS = ROOT / "AGENTS.md"
 CONCEPTS = ROOT / "docs" / "concepts.yaml"
 
-# Headroom for the curated head (AGENTS.head.md — ~22.5 KiB of deliberate, cross-repo
-# governance standards: Working Discipline, Quality Bar, worktree workflow, config
-# discipline, etc.) plus the auto-generated, already-bounded project tree + concept table
-# (EXCLUDE_DIRS + MAX_ENTRIES/MAX_DEPTH summarization in gen_agents_md.py). The anti-bloat
-# guarantee comes from those generator controls, not from a tight byte ceiling; this just
-# catches a runaway regression (current full file is ~33 KiB).
-AGENTS_MAX_BYTES = 40 * 1024
+# Headroom for the curated head (AGENTS.head.md — ~57 KiB of deliberate, cross-repo
+# governance standards: Working Discipline, Quality Bar, dependency/sprawl/config
+# discipline, Wire-First, Native-by-default, Two-surfaces, secrets, worktree workflow,
+# No-Legacy, etc. — grown deliberately as the governance surface expanded) plus the
+# auto-generated, already-bounded project tree + concept table (EXCLUDE_DIRS +
+# MAX_ENTRIES/MAX_DEPTH summarization in gen_agents_md.py). The anti-bloat guarantee
+# comes from those generator controls — NOT from a tight byte ceiling: a runaway tree
+# leak (e.g. .hypothesis/node_modules) would add MBs, which this still trips. The ceiling
+# is a coarse backstop, recalibrated to the current curated-head reality (full file
+# ~71 KiB) with modest headroom for concept-table growth.
+AGENTS_MAX_BYTES = 80 * 1024
 
 
 def _run(script: str, *args: str) -> subprocess.CompletedProcess:
