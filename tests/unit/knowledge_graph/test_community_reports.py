@@ -72,7 +72,7 @@ def test_parse_theme_summary_bad_json_falls_back():
 
 @pytest.mark.asyncio
 async def test_execute_creates_community_report_live_path(monkeypatch):
-    # stub the lite LLM so no network call
+    # replace the lite LLM with a fake so no network call
     def fake_llm(prompt: str) -> str:
         return '{"theme": "Test Theme", "summary": "stub summary"}'
 
