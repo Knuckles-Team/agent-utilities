@@ -83,6 +83,58 @@ use them natively:
 per-item `has_node`, so the review known-check is O(1)-round-trip. It degrades
 gracefully (per-item `_is_known`) when the engine lacks bulk existence.
 
+## Per-hop profiling — where an ingest actually spends its time (OS-5.69/70/71)
+
+`profile_report` (CONCEPT:OS-5.55) already timed every queued task end-to-end per
+lane, but three things stayed invisible: the **token/cost** an ingest spent
+(CONCEPT:OS-5.69 — it reported `tokens=0`), the **per-stage** breakdown of a
+single ~5s ingest (CONCEPT:OS-5.70 — read vs LLM-extract vs embed vs graph-write),
+and **off-queue work** that never becomes a `:Task` (CONCEPT:OS-5.71 — embed
+backfill, concept-registry embedding, assimilation passes).
+
+One primitive closes all three: a **contextvar-scoped `IngestProfile`**
+(`knowledge_graph/core/ingest_profile.py`). An ingest activates one for its
+duration; the shared LLM (`make_llm_fn`) and embed (`make_embed_fn`) wrappers find
+it on the contextvar and record token usage automatically — no parameter
+threading. Ingest code times named stages into it (`with stage("read"): …`);
+off-queue passes activate one and persist a `:ProfileSpan` node on the
+`__control__` graph so the same report covers them. `profile_report` then folds
+`:Task` rows **and** `:ProfileSpan` rows together.
+
+```mermaid
+flowchart TB
+    subgraph ONE["One ingest unit — profile_ingest() contextvar"]
+        direction LR
+        S1["stage('read')<br/>read_any()"] --> S2["stage('extract')<br/>LLM concept extraction"]
+        S2 --> S3["embed<br/>make_embed_fn (auto-record)"]
+        S3 --> S4["graph-write<br/>add_node / edges"]
+    end
+    LLMW["make_llm_fn → record_llm_usage()"] -. "prompt/completion tokens" .-> PROF["IngestProfile<br/>stages_ms + tokens + cost (OS-5.69/70)"]
+    EMBW["make_embed_fn → record_embed_usage()"] -. "embed tokens" .-> PROF
+    ONE --> PROF
+    PROF -->|"on-queue: to_dict() into :Task.metadata.profile"| TASK[":Task nodes"]
+
+    subgraph OFFQ["Off-queue passes (OS-5.71)"]
+        BF["embed backfill"]
+        CR["concept-registry embedding"]
+        AS["assimilation passes"]
+    end
+    OFFQ -->|"profile_ingest() + record_offqueue_span()"| SPAN[":ProfileSpan nodes<br/>(__control__ graph)"]
+
+    TASK --> RPT["profile_report(group_by=lane|type|tkind)<br/>(OS-5.55)"]
+    SPAN --> RPT
+    RPT --> OUT["per-group: p50/p95/max_ms · tokens · cost ·<br/>stages_ms{read,extract,embed,write} ·<br/>dead_letter · parallelism_factor"]
+    OUT --> TOOL["graph_ingest action=profile<br/>(corpus_name → group_by)"]
+```
+
+**Reading the report.** `parallelism_factor` = Σ per-task `total_ms` ÷ wall-clock
+span — how much pipelining the staged lanes actually buy (a profiling run proves a
+speed-up by comparing the same corpus before/after). `dead_letter` surfaces poison
+tasks per group; `stages_ms` gives a per-stage `{p50, total, n}` so a slow ingest
+is attributable to a single hop. Surfaced through `graph_ingest action=profile`
+(`mcp/tools/write_ingest_tools.py`), whose `corpus_name` selects the grouping
+dimension.
+
 ## Why this scales 1 → N
 
 Reviews are LLM-free (keyword scoring) and now O(1)-round-trip for dedup, so the

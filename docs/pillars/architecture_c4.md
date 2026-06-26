@@ -192,6 +192,10 @@ C4Component
         Component(reasoner_router, "🔬 Reasoner Router", "Python", "KG-2.68: outcome-learning paradigm router — selects a reasoning paradigm via CapabilityIndex reward-EMA and feeds the scored result back. Entry: KnowledgeGraph.reason()")
         Component(world_model, "🔬 World Model", "Python", "KG-2.67: action-conditioned state×action→next_state+reward over the Markov kernel; rollout + graph-native trajectory persistence")
         Component(prog_synth, "🔬 Program Synthesis", "Python", "KG-2.69: inductive DSL search with an MDL/Occam (Solomonoff) selection prior")
+        Component(bounded_read, "Bounded Reads", "Python", "KG-2.261: iter_nodes_by_types — per-label fetch, O(#type) not O(graph); never dumps the 166K-node __commons__")
+        Component(engine_breaker, "Engine Breaker + Adaptive Retry", "Python", "KG-2.262: a transient ConnectionReset/BrokenPipe is retried (rides client reconnect) and NOT counted against the circuit breaker")
+        Component(ingest_profiler, "Ingest Profiler", "Python", "OS-5.69/70/71: contextvar IngestProfile — per-stage ms + token/cost, off-queue :ProfileSpan; profile_report(group_by) parallelism_factor")
+        Component(resp_guard, "Engine Response Guard", "Rust (epistemic-graph)", "KG-2.264: GetNodes capped at EPISTEMIC_GRAPH_MAX_RESPONSE_NODES (50000) → RESULT_TOO_LARGE; EG-011 write-lock wait/hold histograms")
     }
 
     Rel(engine, backend, "Cypher reads/writes via the engine authority")
@@ -232,6 +236,10 @@ C4Component
     Rel(reasoner_router, retrieval, "KG-2.68: routes paradigms via CapabilityIndex designate/record_outcome (reward-EMA)")
     Rel(reasoner_router, world_model, "Model-based planning paradigm")
     Rel(reasoner_router, prog_synth, "Inductive synthesis paradigm")
+    Rel(bounded_read, backend, "Type-scoped reads via get_nodes_by_label (KG-2.51)")
+    Rel(engine_breaker, epistemic_compute, "Guards every engine op; self-heals transient drops")
+    Rel(resp_guard, epistemic_compute, "Caps oversized dumps; lock-gap histograms (EG-011)")
+    Rel(ingest_profiler, pipeline, "Times read/extract/embed/write + token usage per ingest")
 ```
 
 ### Self-Improving Reasoning Substrate (cross-pillar)
@@ -280,6 +288,7 @@ C4Component
         Component(arpo, "🔬 Agent-Step PO (ARPO)", "Python", "AHE-3.15: graph/agent_step_po.py — entropy-gated branching + per-step credit into the capability reward-EMA (arXiv:2507.19849)")
         Component(vpo, "🔬 Test-Time Diversity (VPO)", "Python", "AHE-3.16: graph/test_time_diversity.py — effort-derived diverse best-of-k fan-out (arXiv:2605.22817)")
         Component(prefcorpus, "🔬 Preference-Corpus Reliability", "Python", "AHE-3.17: harness/preference_pairs.py — DPO-ready pair export + RAPPO/TI-DPO/InSPO refinements")
+        Component(memdata, "MemoryData Bake-off", "Python", "AHE-3.71/72/73/74: harness/memorydata/ — 6 graph-os retrieval configs scored EM/ROUGE-L vs 22 baselines; family-aware GraphOSRouterMethod + scoreboard")
     }
 
     Rel(eval, selfmodel, "Updates self-assessment scores")
@@ -299,6 +308,7 @@ C4Component
     Rel(arpo, rewardspine, "Per-step advantage via RewardDecomposer.step_advantages")
     Rel(vpo, eval, "Diverse best-of-k raises test-time pass@k")
     Rel(prefcorpus, trainsub, "DPO-ready preference pairs feed the trainers")
+    Rel(memdata, eval, "Retrieval-config bake-off scores feed evaluation evidence")
 ```
 
 > **Training substrate:** the reward spine + replay buffer feed the cross-repo
@@ -573,6 +583,9 @@ flowchart LR
             IS_TOPIC -->|"same group"| IS_HOST["KG-2.0: host engine worker pool"]
             IS_WORKER -->|"idempotent job_id claims"| IS_ENGINE["KG-2.7: epistemic-graph engine"]
             IS_TOPIC -.->|"lag + depth gauges"| IS_METRICS["OS-5.23: /metrics"]
+            IS_WORKER -->|"contextvar IngestProfile: stages_ms + tokens/cost"| IS_PROFILE["OS-5.69/70/71: graph_ingest action=profile → profile_report (p50/p95, parallelism_factor, dead_letter)"]
+            IS_ENGINE -.->|"GetNodes count > 50000"| IS_GUARD["KG-2.264: RESULT_TOO_LARGE guard + EG-011 write-lock wait/hold histograms"]
+            IS_ENGINE -->|"per-graph write lock contention"| IS_COAL["KG-2.182: write-coalescer (N writes → 1 txn) + __control__ split"]
         end
 
         subgraph SHARDING ["Engine Sharding Flow (KG-2.58 / OS-5.28)"]
