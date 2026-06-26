@@ -733,9 +733,9 @@ class OWLBridge:
             inferences = self._lightweight_reasoning()
         else:
             # Full DL reasoning still requires a real owlready2 backend.
-            assert (
-                self.owl is not None
-            ), "full-DL OWL reasoning cycle requires an owl_backend"
+            assert self.owl is not None, (
+                "full-DL OWL reasoning cycle requires an owl_backend"
+            )
             self.owl.clear()
             promoted_nodes = self._promote_stable_nodes()
             promoted_edges = self._promote_stable_edges()
@@ -1180,12 +1180,28 @@ class OWLBridge:
         #    the engine's native RDF/SPARQL surface is available in EVERY profile,
         #    tiny/pi included, so this is the default path -- not a no-engine special
         #    case). CONCEPT:KG-2.242.
+        #    The engine's RDF/SPARQL surface queries the engine's RDF dataset, which
+        #    only mirrors the property graph when that build projects the LPG into RDF
+        #    (or it was explicitly seeded via ``add_triples``). When the engine answers
+        #    with rows, it is authoritative. But an EMPTY result over a non-empty LPG
+        #    means the engine's RDF projection is not populated from the live property
+        #    graph -- so we fall through to the rdflib materialization (strategy 3),
+        #    which materializes the LPG itself, instead of returning a false empty. A
+        #    genuinely empty graph yields [] on both paths, so this never invents rows.
         if hasattr(self.graph, "sparql"):
             try:
-                return list(self.graph.sparql(sparql))
+                engine_rows = list(self.graph.sparql(sparql))
             except Exception as e:  # noqa: BLE001 -- fall through to Python last-resort
                 logger.debug(
                     "Engine SPARQL unavailable (%s); falling back to Python.", e
+                )
+            else:
+                if engine_rows:
+                    return engine_rows
+                logger.debug(
+                    "Engine SPARQL returned no rows; its RDF surface may not mirror "
+                    "the live property graph -- falling back to rdflib LPG "
+                    "materialization."
                 )
 
         # 2) A native OWL backend's own SPARQL implementation.
