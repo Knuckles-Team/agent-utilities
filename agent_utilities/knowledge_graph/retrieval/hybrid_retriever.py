@@ -125,100 +125,132 @@ class HybridRetriever:
         self._embed_model = value
         self._embed_model_initialized = True
 
-    def _vector_search_native(
-        self, query_emb: list[float], top_k: int, target_paths: list[str] | None = None
-    ) -> list[dict[str, Any]] | None:
-        """Native HNSW vector search, O(log N) — backend-agnostic.
+    def _engine_vector_search(
+        self,
+        query_emb: list[float],
+        top_k: int,
+        *,
+        threshold: float,
+        target_paths: list[str] | None = None,
+        corpus_doc_ids: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Vector candidates from the engine's native ANN (CONCEPT:KG-2.250).
 
-        Prefers the backend's own ``semantic_search`` (the engine's HNSW; works on
-        epistemic_graph / fanout / pgvector / etc.), then LadybugDB's
-        ``QUERY_VECTOR_INDEX`` procedure, then returns ``None`` so the caller's
-        brute-force fallback runs. Before this, only the Ladybug procedure was
-        tried, so on the epistemic_graph backend the native path always missed and
-        every semantic search degraded to an O(N) full-graph scan
-        (``_get_all_nodes_with_properties``), 8× per query in ``retrieve_hybrid``.
+        The vector neighbourhood is ALWAYS computed by the engine — never by an
+        O(N) Python cosine scan. Preferred path: ONE cross-modal unified plan
+        (``query.unified``, CONCEPT:KG-2.208) that the engine sequences over a
+        single off-lock snapshot — an optional ``Scan`` seed + the vector ``Rank``
+        leg, costed and executed in one round-trip. When the connected engine was
+        built WITHOUT the ``query`` feature (the lean ``pi`` tier), the same vector
+        index is reached through its native ``semantic_search`` ANN primitive
+        instead — still the engine's vector index, still O(log N), still no Python
+        scan. The returned ids are hydrated to full node dicts in one batched
+        property fetch and tagged with ``_score`` (the engine similarity).
+
+        ``corpus_doc_ids`` / ``target_paths`` further restrict the ranked
+        candidate set: corpus membership is an id-set intersection and
+        ``target_paths`` a substring match on the hydrated ``target_path`` — both
+        applied to the BOUNDED ranked candidate pool the engine returned, never as
+        a full-graph scan.
         """
-        if not self.engine.backend:
-            return None
+        graph = getattr(self.engine, "graph", None)
+        if graph is None:
+            return []
 
-        # Fast path: the backend's native vector index (HNSW), backend-agnostic.
-        search = getattr(self.engine.backend, "semantic_search", None)
-        if callable(search):
-            try:
-                rows = search(query_emb, max(top_k * 3, 10)) or []
-                results: list[dict[str, Any]] = []
-                for data in rows:
-                    if not isinstance(data, dict):
-                        continue
-                    if target_paths:
-                        path = data.get("target_path", "")
-                        if not path or not any(tp in path for tp in target_paths):
-                            continue
-                    data["id"] = data.get("id", "")
-                    data["_score"] = float(
-                        data.get("_similarity", data.get("_score", 0.0)) or 0.0
-                    )
-                    results.append(data)
-                if results:
-                    results.sort(key=lambda x: x["_score"], reverse=True)
-                    return results[:top_k]
-            except Exception as e:  # noqa: BLE001 — fall through to other paths
-                logger.debug("backend.semantic_search fast path failed: %s", e)
+        # Over-fetch so the post-rank corpus/path restriction still leaves a full
+        # window of candidates.
+        fetch_k = max(top_k * 3, 10)
+        if corpus_doc_ids or target_paths:
+            fetch_k = max(fetch_k, top_k * 8)
 
-        # Dynamically derive tables from schema — matches build_vector_indices()
-        from agent_utilities.models.schema_definition import SCHEMA
-
-        embedding_tables = [
-            node.name
-            for node in SCHEMA.nodes
-            if "embedding" in node.columns
-            and "FLOAT" in node.columns["embedding"].upper()
-        ]
-
-        if not embedding_tables:
-            return None
-
+        ranked: list[tuple[str, float]] = []
+        used_unified = False
         try:
-            results = []
-            for table in embedding_tables:
-                idx_name = f"idx_{table.lower()}_embedding"
-                try:
-                    res = self.engine.backend.execute(
-                        f"CALL QUERY_VECTOR_INDEX('{table}', '{idx_name}', $emb, $k) "
-                        f"YIELD node, distance RETURN node as data, (1.0 - distance) as score",
-                        {"emb": query_emb, "k": top_k * 3},
-                    )
-
-                    for row in res:
-                        if not isinstance(row, dict):
-                            continue
-                        data = row.get("data", {})
-                        if not data:
-                            continue
-
-                        if target_paths:
-                            path = data.get("target_path", "")
-                            if not path or not any(tp in path for tp in target_paths):
-                                continue
-
-                        data["id"] = data.get("id", "")
-                        data["_score"] = float(row.get("score", 0.0))
-                        results.append(data)
-                except Exception as e:
-                    logger.debug(
-                        "Native vector search failed for table %s: %s", table, e
-                    )
-
-            if not results:
-                return None
-
-            results.sort(key=lambda x: x["_score"], reverse=True)
-            return results[:top_k]
-        except Exception as e:
+            plan: list[dict[str, Any]] = [
+                {"Rank": {"query": [float(x) for x in query_emb]}},
+                {"Limit": {"k": fetch_k}},
+            ]
+            rows = graph.query_unified(plan)
+            used_unified = True
+            for row in rows or []:
+                rid = row.get("id")
+                if rid is None:
+                    continue
+                ranked.append((str(rid), float(row.get("score") or 0.0)))
+        except Exception as e:  # noqa: BLE001 — engine lacks the `query` feature
+            # No SQLite-style fallback: drop to the engine's native ANN primitive
+            # (the SAME vector index), NOT an O(N) Python cosine scan.
             logger.debug(
-                f"Native vector search failed, falling back to O(N) search: {e}"
+                "unified plan unavailable (engine built without `query`?): %s — "
+                "using native ANN primitive",
+                e,
             )
-            return None
+
+        if not used_unified:
+            ranked = [
+                (str(nid), float(score))
+                for nid, score in (graph.semantic_search(query_emb, fetch_k) or [])
+                if nid
+            ]
+
+        if not ranked:
+            return []
+
+        # Threshold on the engine similarity (CONCEPT:KG-2.6), then hydrate the
+        # surviving ids to full node dicts in ONE batched property fetch.
+        ids = [nid for nid, score in ranked if score > threshold]
+        if not ids:
+            return []
+        props = self._batch_node_properties(ids)
+
+        results: list[dict[str, Any]] = []
+        score_by_id = dict(ranked)
+        for nid in ids:
+            data = props.get(nid)
+            data = dict(data) if isinstance(data, dict) else {}
+            if corpus_doc_ids is not None and nid not in corpus_doc_ids:
+                continue
+            if target_paths:
+                path = str(data.get("target_path", ""))
+                if not path or not any(tp in path for tp in target_paths):
+                    continue
+            data["id"] = nid
+            data["_score"] = score_by_id.get(nid, 0.0)
+            results.append(data)
+            if len(results) >= top_k:
+                break
+        return results
+
+    def _batch_node_properties(self, ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Fetch properties for many node ids in ONE engine round-trip.
+
+        Uses the engine's batched ``properties_batch`` (CONCEPT:KG-2.16) when the
+        client exposes it, else the resident GraphComputeEngine projection — never
+        N per-id round-trips.
+        """
+        graph = getattr(self.engine, "graph", None)
+        out: dict[str, dict[str, Any]] = {}
+        client = getattr(graph, "_client", None)
+        nodes_ns = getattr(client, "nodes", None) if client is not None else None
+        batch = getattr(nodes_ns, "properties_batch", None)
+        if callable(batch):
+            try:
+                for nid, blob in (batch(ids) or {}).items():
+                    if isinstance(blob, dict):
+                        out[str(nid)] = blob
+                return out
+            except Exception as e:  # noqa: BLE001 — degrade to per-id projection
+                logger.debug("properties_batch failed: %s", e)
+        getter = getattr(graph, "_get_node_properties", None)
+        if callable(getter):
+            for nid in ids:
+                try:
+                    p = getter(nid)
+                    if isinstance(p, dict):
+                        out[nid] = p
+                except Exception:  # noqa: BLE001,S112
+                    continue
+        return out
 
     def _compute_positional_interactions(self, pos_a: int, pos_b: int) -> list[float]:
         """Computes the hyperedge interaction embedding for two positions.
@@ -379,99 +411,31 @@ class HybridRetriever:
             except Exception as e:
                 logger.debug("Relational-intent arm failed: %s", e)
 
-        # 1. Semantic Search (Vector)
+        # 1. Semantic Search (Vector) — ONE engine unified plan (CONCEPT:KG-2.250).
+        # The vector neighbourhood is computed by the engine's native ANN inside a
+        # single costed cross-modal plan (filter + vector ``Rank``), NOT by an O(N)
+        # Python cosine scan. There is no SQLite-style fallback: if the engine has
+        # no embeddings the arm is empty and we degrade to keyword search.
         base_nodes = []
         if self.embed_model and self.engine.backend:
             # Generate query embedding
             try:
                 query_emb = self.embed_model.get_text_embedding(query)
 
-                scored_nodes = []
-
-                # Fast path: Native HNSW Vector Index (CONCEPT:KG-2.0 Optimization)
-                # Skip if corpus_ids provided since HNSW doesn't support pre-filtering by ID natively yet
-                native_results = None
-                if not corpus_doc_ids:
-                    native_results = self._vector_search_native(
-                        query_emb, context_window, target_paths
-                    )
-
-                if native_results is not None:
-                    scored_nodes = native_results
-                    for node in scored_nodes:
-                        node["_score"] *= self._compute_query_weight(query)
-                else:
-                    # Fallback: O(N) brute force search
-                    if corpus_doc_ids:
-                        res = self.engine.backend.execute(
-                            "MATCH (n) WHERE n.embedding IS NOT NULL "
-                            "AND n.id IN $corpus_ids "
-                            "RETURN n.id as id, n.embedding as emb, n as data",
-                            {"corpus_ids": list(corpus_doc_ids)},
-                        )
-                    elif target_paths:
-                        # Push path filtering into Cypher — avoids deserializing 20K+ nodes
-                        path_conditions = " OR ".join(
-                            [
-                                f"n.target_path CONTAINS $tp{i}"
-                                for i in range(len(target_paths))
-                            ]
-                        )
-                        params: dict[str, Any] = {
-                            f"tp{i}": tp for i, tp in enumerate(target_paths)
-                        }
-                        res = self.engine.backend.execute(
-                            f"MATCH (n) WHERE n.embedding IS NOT NULL "
-                            f"AND ({path_conditions}) "
-                            f"RETURN n.id as id, n.embedding as emb, n as data",
-                            params,
-                        )
-                    else:
-                        # Label-scoped fallback: query high-value tables first
-                        # with limits to avoid scanning all 80K+ nodes
-                        res = []
-                        _SEARCH_TABLES = [
-                            ("Article", 500),  # Research papers — highest value
-                            ("Concept", 200),  # Concept nodes
-                            ("KBConcept", 200),  # KB concepts
-                            ("KBFact", 200),  # KB facts
-                            ("Agent", 100),  # Agents
-                            ("Tool", 200),  # Tools
-                            ("Skill", 100),  # Skills
-                            ("Code", 1000),  # Code — large, cap it
-                        ]
-                        for label, limit in _SEARCH_TABLES:
-                            try:
-                                rows = self.engine.backend.execute(
-                                    f"MATCH (n:{label}) WHERE n.embedding IS NOT NULL "
-                                    f"RETURN n.id as id, n.embedding as emb, n as data "
-                                    f"LIMIT {limit}"
-                                )
-                                res.extend(rows)
-                            except Exception as e:
-                                logger.debug("Failed to query label %s: %s", label, e)
-
-                    for row in res:
-                        if not isinstance(row, dict):
-                            continue
-                        node_emb = row.get("emb")
-                        if node_emb:
-                            sim = cosine_similarity(query_emb, node_emb)
-                            threshold = (
-                                relevance_threshold
-                                if relevance_threshold is not None
-                                else self._relevance_threshold
-                            )
-                            if sim > threshold:  # CONCEPT:KG-2.6 configurable threshold
-                                node_data = row.get("data")
-                                if not isinstance(node_data, dict):
-                                    node_data = {}
-
-                                node_data["id"] = row.get("id")
-                                node_data["_score"] = sim * self._compute_query_weight(
-                                    query
-                                )
-                                scored_nodes.append(node_data)
+                threshold = (
+                    relevance_threshold
+                    if relevance_threshold is not None
+                    else self._relevance_threshold
+                )
+                scored_nodes = self._engine_vector_search(
+                    query_emb,
+                    context_window,
+                    threshold=threshold,
+                    target_paths=target_paths,
+                    corpus_doc_ids=corpus_doc_ids,
+                )
+                for node in scored_nodes:
+                    node["_score"] *= self._compute_query_weight(query)
 
                 # 1b. Apply backlink-density boost (CONCEPT:KG-2.2)
                 if self._boost_strategy == "global":
