@@ -51,6 +51,8 @@ class DedupReport:
     low_entropy_skipped: int = 0
     # version-variant pairs LINKED (not merged) as VARIANT_OF (CONCEPT:AHE-3.70)
     variants_linked: int = 0
+    # proposals applied from the engine ResolveCandidates escalation (CONCEPT:KG-2.260)
+    engine_proposals: int = 0
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -258,6 +260,40 @@ def dedup_features(
                     "score": round(score, 6),
                 },
             )
+
+    # Server-side escalation (CONCEPT:KG-2.260): when the engine exposes the native
+    # ResolveCandidates op, escalate the ambiguous residual to it — embedding
+    # similarity + clustering yields same_as (merge) AND extends (variant) proposals
+    # the local name-only pass can't produce. Capability-gated + best-effort: a no-op
+    # until the engine ships the op, so it never breaks the pre-deploy path.
+    resolve_fn = getattr(engine, "resolve_candidates", None)
+    if name_res.residual_ids and callable(resolve_fn):
+        try:
+            proposals = resolve_fn(0.8, dup_threshold, None) or []
+        except Exception:  # noqa: BLE001 — escalation never breaks dedup
+            proposals = []
+        residual = set(name_res.residual_ids)
+        for prop in proposals:
+            members = [m for m in (prop.get("members") or []) if m in nodes]
+            if len(members) < 2 or residual.isdisjoint(members):
+                continue
+            canonical = prop.get("canonical") or members[0]
+            if prop.get("kind") == "extends":
+                report.engine_proposals += 1
+                for m in members:
+                    if m != canonical and write:
+                        engine.link_nodes(
+                            canonical,
+                            m,
+                            RegistryEdgeType.VARIANT_OF,
+                            properties={"_rel": "VARIANT_OF", "concept": "KG-2.260"},
+                        )
+            else:  # same_as → feed the duplicate clustering below
+                score = float(prop.get("score", dup_threshold))
+                for m in members:
+                    if m != canonical:
+                        report.engine_proposals += 1
+                        name_dup_pairs.append((canonical, m, score))
 
     dup_pairs = [(a, b, s) for a, b, s in pairs if s >= dup_threshold] + name_dup_pairs
     clusters = _clusters(list(ids), dup_pairs)
