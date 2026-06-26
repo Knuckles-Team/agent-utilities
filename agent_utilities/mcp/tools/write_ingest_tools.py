@@ -37,7 +37,7 @@ def register_write_ingest_tools(mcp):
             "Write nodes, relationships, or register external graphs to the Knowledge "
             "Graph. Actions: add_node, add_edge, delete_node, delete_edge, "
             "register_external_graph, bulk_ingest, compare_and_set, store_memory, "
-            "recall_memory, log_chat, submit_sdd, register_execution, check_loop. "
+            "recall_memory, recall_media, log_chat, submit_sdd, register_execution, check_loop. "
             "Use 'compare_and_set' for an atomic conditional update (optimistic "
             "concurrency / conditional state transitions / atomic reservations) so "
             "concurrent agents shaping the same node never lose each other's write."
@@ -49,7 +49,7 @@ def register_write_ingest_tools(mcp):
             description=(
                 "Action to perform (add_node, add_edge, delete_node, delete_edge, "
                 "register_external_graph, bulk_ingest, compare_and_set, store_memory, "
-                "recall_memory, log_chat, submit_sdd, register_execution, check_loop). "
+                "recall_memory, recall_media, log_chat, submit_sdd, register_execution, check_loop). "
                 "Use 'compare_and_set' for an ATOMIC conditional update — optimistic "
                 "concurrency / safe concurrent graph-shaping: it applies 'updates' only "
                 "if every field in 'conditions' still equals the node's current value "
@@ -223,6 +223,29 @@ def register_write_ingest_tools(mcp):
                             return "\n".join([str(r) for r in res])
                     except ImportError:
                         return "Error: memory module not available"
+                elif action == "recall_media":
+                    # CONCEPT:KG-2.251 — list durable :MediaAsset records (the
+                    # content-addressed media we persisted from chat). Returns
+                    # metadata (asset_id + content_digest + media_type), NOT raw
+                    # bytes (those are fetched by digest via MediaStore.fetch_bytes).
+                    # Optional filter: node_id=<message memory id> for a turn's media.
+                    where = "n.type = 'MediaAsset'"
+                    if node_id:
+                        where += f" AND n.message_id = '{node_id}'"
+                    try:
+                        rows = engine.graph_compute._client.query.cypher(
+                            f"MATCH (n) WHERE {where} RETURN "
+                            "n.id AS asset_id, n.content_digest AS digest, "
+                            "n.media_type AS media_type, n.mime_type AS mime_type, "
+                            "n.created_at AS created_at LIMIT 50"
+                        )
+                        return json.dumps(
+                            {"action": "recall_media", "assets": rows}, default=str
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        return json.dumps(
+                            {"action": "recall_media", "error": str(e)}, default=str
+                        )
                 elif action in (
                     "log_chat",
                     "submit_sdd",
