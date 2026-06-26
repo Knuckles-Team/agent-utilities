@@ -31,6 +31,13 @@ logger = logging.getLogger(__name__)
 # reaped. Mirrors DockerWorkspace.reap_idle's 3600s default.
 DEFAULT_IDLE_TTL_SECS = 1800.0
 
+# CONCEPT:ORCH-1.94 — a HARD wall-clock lifetime cap. A warm parent older than this is reaped even
+# if it is continuously borrowed/busy (so its idle clock never advances). Idle-reaping alone cannot
+# evict a parent whose forked child is spinning at 100% CPU — that is exactly the runaway a hard age
+# cap closes. The backend's own container/process self-expiry is the primary defence; this is the
+# in-registry backstop on the same budget.
+DEFAULT_MAX_AGE_SECS = 3600.0
+
 # Assumed resident footprint of one warm parent (imports + caches loaded). Used only to bound the
 # pool to available RAM; the real number varies by spec, so this is a conservative divisor.
 _WARM_PARENT_GIB = 1.5
@@ -96,9 +103,17 @@ class WarmParentRegistry:
         return cls._instance
 
     @classmethod
-    def reap_active(cls, max_idle_secs: float = DEFAULT_IDLE_TTL_SECS) -> list[str]:
+    def reap_active(
+        cls,
+        max_idle_secs: float = DEFAULT_IDLE_TTL_SECS,
+        max_age_secs: float = DEFAULT_MAX_AGE_SECS,
+    ) -> list[str]:
         """Reap the singleton if it exists; no-op (and don't instantiate) otherwise."""
-        return [] if cls._instance is None else cls._instance.reap(max_idle_secs)
+        return (
+            []
+            if cls._instance is None
+            else cls._instance.reap(max_idle_secs, max_age_secs)
+        )
 
     @classmethod
     def drain_active(cls) -> list[str]:
@@ -137,18 +152,28 @@ class WarmParentRegistry:
                 parent=parent, close=close, kind=kind, last_used=now, created=now
             )
 
-    def reap(self, max_idle_secs: float = DEFAULT_IDLE_TTL_SECS) -> list[str]:
-        """Close + drop parents idle longer than ``max_idle_secs``. Returns the reaped keys.
+    def reap(
+        self,
+        max_idle_secs: float = DEFAULT_IDLE_TTL_SECS,
+        max_age_secs: float = DEFAULT_MAX_AGE_SECS,
+    ) -> list[str]:
+        """Close + drop parents idle longer than ``max_idle_secs`` OR older than ``max_age_secs``.
 
-        Wired into the host maintenance tick (``_tick_warm_parent_reap``, CONCEPT:OS-5.58).
+        The age cap (CONCEPT:ORCH-1.94) is the strict-lifetime backstop: a parent whose forked
+        child is busy-looping refreshes neither ``last_used`` nor frees CPU, so idle-reaping never
+        evicts it — the hard age check does. Returns the reaped keys. Wired into the host
+        maintenance tick (``_tick_warm_parent_reap``, CONCEPT:OS-5.58).
         """
         now = time.time()
         with self._lock:
             stale = [
-                k for k, e in self._entries.items() if now - e.last_used > max_idle_secs
+                k
+                for k, e in self._entries.items()
+                if now - e.last_used > max_idle_secs or now - e.created > max_age_secs
             ]
             for key in stale:
-                self._evict_locked(key, reason="idle")
+                aged = now - self._entries[key].created > max_age_secs
+                self._evict_locked(key, reason="max_age" if aged else "idle")
             return stale
 
     def drain(self) -> list[str]:
