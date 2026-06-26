@@ -9,43 +9,14 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-def _prefer_engine_source_client() -> None:
-    """Make the TEST ``epistemic_graph`` client match the test engine BINARY.
-
-    CONCEPT:KG-2.238 — the ephemeral fixture (``tests/_test_engine.py``) deploys
-    the engine built from the sibling **``epistemic-graph`` SOURCE** checkout,
-    whose client (``epistemic_graph.client.NodeClient``) carries the new
-    ``compare_and_set`` plus the ``.rdf`` / ``.timeseries`` / ``.streaming`` /
-    ``.txn`` sub-clients. The ``epistemic_graph`` **wheel** that
-    ``uv run --all-extras`` installs is older (0.31.0) and LACKS them, so a test
-    that drives the source-built engine through the stale wheel client fails (no
-    ``compare_and_set``). To keep the test client in lockstep with the test
-    binary, we prepend the sibling engine source's package dir to ``sys.path``
-    **before** anything imports ``epistemic_graph`` — falling back silently to
-    the installed wheel when no source checkout is present (CI image / shipped
-    package). This is TEST-ENV ONLY: the package's runtime dependency is NOT
-    re-pointed (that would break installability) — only the test process's import
-    resolution is biased toward the source that built the engine it talks to.
-    """
-    if "epistemic_graph" in sys.modules:
-        return  # already imported — too late to reorder; leave it
-    here = os.path.abspath(os.path.dirname(__file__))
-    candidates = [
-        # …/agent-utilities/tests → …/agent-packages/epistemic-graph
-        os.path.normpath(os.path.join(here, "..", "..", "epistemic-graph")),
-        # canonical checkout (when running from a worktree under /home/apps/worktrees)
-        "/home/apps/workspace/agent-packages/epistemic-graph",
-    ]
-    for src in candidates:
-        pkg = os.path.join(src, "epistemic_graph", "__init__.py")
-        client = os.path.join(src, "epistemic_graph", "client.py")
-        if os.path.isfile(pkg) and os.path.isfile(client):
-            if src not in sys.path:
-                sys.path.insert(0, src)
-            return
-
-
-_prefer_engine_source_client()
+# CONCEPT:KG-2.238 — the ephemeral fixture (``tests/_test_engine.py``) deploys the
+# PUBLISHED ``epistemic-graph`` 1.0.0 wheel: its bundled ``epistemic-graph-server``
+# binary (resolved next to ``sys.executable``) and its client are the SAME release,
+# so the client (``epistemic_graph.client.NodeClient``) already carries
+# ``compare_and_set`` plus the ``.rdf`` / ``.timeseries`` / ``.streaming`` / ``.txn``
+# sub-clients. The historical sys.path shim that prepended the sibling engine SOURCE
+# checkout (needed only while the floor was the feature-poor 0.31.0 wheel) is removed:
+# the venv's installed 1.0.0 client and binary are in lockstep by construction.
 
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
