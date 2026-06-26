@@ -19,9 +19,12 @@ import logging
 import re
 import unicodedata
 from collections.abc import AsyncGenerator, Callable, Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from .extraction_schema import ExtractionSchema
 
 logger = logging.getLogger(__name__)
 
@@ -448,6 +451,7 @@ async def extract_facts(
     deduper: FactDeduper | None = None,
     stream_fn: StreamFn | None = None,
     prompt: str = FACT_EXTRACTION_PROMPT,
+    schema: ExtractionSchema | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Extract facts from ``text``, yielding events as they stream.
 
@@ -458,9 +462,21 @@ async def extract_facts(
     accumulated deduper suppresses repeats) is opt-in so the GPU cost is a
     deliberate choice. The same ``deduper`` may be passed across documents to
     dedup across files.
+
+    ``schema`` (CONCEPT:KG-2.255) — when an :class:`ExtractionSchema` is supplied,
+    its OWL classes + ``rdfs:domain/range`` are spliced into the prompt so the
+    model extracts ontology-typed, direction-constrained triples (we exceed
+    sift-kg's flat closed-vocab by sourcing it from the formal ontology and
+    keeping a controlled-overflow escape for off-ontology facts). ``None`` keeps
+    the unchanged free-vocab behaviour, so generic content never regresses.
     """
     if rounds < 1:
         rounds = 1
+    # Ontology-guided extraction: prepend the schema block so the closed-vocab +
+    # typed-relation guidance frames every round. Soft-closed (prompt prefers,
+    # never forbids) to preserve recall on off-ontology facts.
+    if schema is not None and not schema.is_empty:
+        prompt = f"{schema.prompt_block()}\n{prompt}"
     if stream_fn is None:
         stream_fn = make_streaming_extract_fn()
     if dedup and deduper is None:
