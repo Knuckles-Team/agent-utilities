@@ -320,6 +320,134 @@ def register_ontology_tools(mcp):
     kg_server.REGISTERED_TOOLS["ontology_leanix_sync"] = ontology_leanix_sync
 
     @mcp.tool(
+        name="graph_ontology",
+        description=(
+            "Hosted-ontology lifecycle CRUD (CONCEPT:KG-2.265) — manage arbitrary "
+            "OWL/RDF ontologies hosted in the running KG. action='load' (parse + "
+            "SHACL-validate + register a .ttl/OWL from a file path, URL, or raw "
+            "turtle text via `source`/`source_type`, idempotent on iri+version, and "
+            "load its axioms into the native reasoner), 'list' (every hosted "
+            "ontology with metadata: iri/version/#classes/#properties/#axioms/"
+            "loaded_at/active), 'get' (inspect one ontology's classes/properties/"
+            "axioms; serialize=true returns turtle), 'update' (load a NEW version, "
+            "superseding prior — versioned/bi-temporal), 'delete' (unload from the "
+            "hosted set + deactivate), 'validate' (run the valid/connected/SHACL "
+            "gate on a candidate WITHOUT committing), 'activate'/'deactivate' "
+            "(toggle participation in reasoning)."
+        ),
+        tags=["graph-os", "ontology", "lifecycle"],
+    )
+    def graph_ontology(
+        action: str = Field(
+            default="list",
+            description="load | list | get | update | delete | validate | activate | deactivate.",
+        ),
+        source: str = Field(
+            default="",
+            description="For load/update/validate: a .ttl/OWL file path, an HTTP(S) URL, or raw turtle/RDF text.",
+        ),
+        source_type: str = Field(
+            default="auto",
+            description="How to read `source`: 'file' | 'url' | 'text' | 'auto' (sniff).",
+        ),
+        iri: str = Field(
+            default="",
+            description="Ontology IRI (get/update/delete/activate/deactivate; optional override for load).",
+        ),
+        version: str = Field(
+            default="",
+            description="Ontology version (defaults to '1.0.0' on load; omit on get/delete to target the newest).",
+        ),
+        serialize: bool = Field(
+            default=False,
+            description="For action='get': also return the ontology re-serialized to turtle.",
+        ),
+        active_only: bool = Field(
+            default=False,
+            description="For action='list': only ontologies currently active for reasoning.",
+        ),
+        drop_inferences: bool = Field(
+            default=False,
+            description="For action='delete': also attempt to drop materialized inferences (engine-gap aware).",
+        ),
+    ) -> str:
+        """Load / list / inspect / version / unload / validate hosted ontologies."""
+        from agent_utilities.knowledge_graph.ontology.lifecycle import OntologyLifecycle
+
+        try:
+            try:
+                engine = kg_server._get_engine()
+            except Exception:  # noqa: BLE001 — offline → registry-only operations
+                engine = None
+            lc = OntologyLifecycle(engine=engine)
+
+            if action == "load":
+                if not source:
+                    return json.dumps({"error": "load requires `source`"})
+                return json.dumps(
+                    lc.load(
+                        source,
+                        source_type=source_type,
+                        version=version or None,
+                        iri=iri or None,
+                    ),
+                    default=str,
+                )
+            if action == "list":
+                return json.dumps(
+                    lc.list_ontologies(active_only=bool(active_only)), default=str
+                )
+            if action == "get":
+                if not iri:
+                    return json.dumps({"error": "get requires `iri`"})
+                return json.dumps(
+                    lc.get(iri, version=version or None, serialize=bool(serialize)),
+                    default=str,
+                )
+            if action == "update":
+                if not (source and iri and version):
+                    return json.dumps(
+                        {"error": "update requires `source`, `iri`, and `version`"}
+                    )
+                return json.dumps(
+                    lc.update(
+                        source, iri=iri, version=version, source_type=source_type
+                    ),
+                    default=str,
+                )
+            if action == "delete":
+                if not iri:
+                    return json.dumps({"error": "delete requires `iri`"})
+                return json.dumps(
+                    lc.delete(
+                        iri,
+                        version=version or None,
+                        drop_inferences=bool(drop_inferences),
+                    ),
+                    default=str,
+                )
+            if action == "validate":
+                if not source:
+                    return json.dumps({"error": "validate requires `source`"})
+                return json.dumps(
+                    lc.validate(source, source_type=source_type), default=str
+                )
+            if action in ("activate", "deactivate"):
+                if not iri:
+                    return json.dumps({"error": f"{action} requires `iri`"})
+                return json.dumps(
+                    lc.set_active(
+                        iri, version=version or None, active=(action == "activate")
+                    ),
+                    default=str,
+                )
+            return json.dumps({"error": f"unknown action: {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["graph_ontology"] = graph_ontology
+
+    @mcp.tool(
         name="graph_writeback",
         description="Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:KG-2.8/2.9). target='leanix'|'servicenow'|'erpnext'|'process'|'capability'. ops: inferences_json [{source,rel_type,target}] (relationships), enrichments_json [{node,patches,tag}], creations_json [{type,name}] (inventory CIs/items/fact sheets), retirements_json [{node}]. Fail-closed: live writes need the target's enable flag (e.g. LEANIX_ENABLE_WRITE / SERVICENOW_ENABLE_WRITE / ERPNEXT_ENABLE_WRITE / KG_PROCESS_WRITEBACK); dry_run=true (default) previews the exact proposed writes.",
         tags=["graph-os", "writeback"],
