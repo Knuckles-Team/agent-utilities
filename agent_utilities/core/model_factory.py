@@ -16,8 +16,6 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
-import httpx
-
 from agent_utilities.core.config import config, setting
 
 if TYPE_CHECKING:
@@ -278,6 +276,12 @@ def _create_model_impl(
 
     http_client = None
     if http_client is None:
+        # httpx ships in the ``[mcp]`` extra, not base — import it lazily so this
+        # core module (and everything that imports it, e.g. ``orchestration``)
+        # stays importable in the lean serving/CI install where httpx is absent
+        # (Dependency discipline). It is only needed once a model is actually built.
+        import httpx
+
         limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
         timeout_obj = httpx.Timeout(timeout, connect=30.0)
         http_client = httpx.AsyncClient(
