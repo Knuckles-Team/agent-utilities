@@ -39,8 +39,8 @@ class _NoCypherBackend:
         return []
 
 
-class _StubVectorGraph:
-    """Engine graph stub: the vector arm reads ``semantic_search`` (engine ANN)
+class _FakeVectorGraph:
+    """Engine-graph double: the vector arm reads ``semantic_search`` (engine ANN)
     and hydrates via ``_get_node_properties`` — the CONCEPT:KG-2.250 contract."""
 
     def __init__(self, hits, props):  # type: ignore[no-untyped-def]
@@ -204,9 +204,9 @@ class TestAttentionFilter:
         engine = _make_engine()
 
         # The vector arm reads the engine ANN (semantic_search) — not a Cypher
-        # `backend.execute` scan. Feed the test nodes through the engine-graph stub
+        # `backend.execute` scan. Feed the test nodes through the engine-graph double
         # and store each node's embedding so the active-task boost can read it back.
-        engine.graph = _StubVectorGraph(
+        engine.graph = _FakeVectorGraph(
             hits=[("hub", 1.0), ("leaf", 0.0)],
             props={
                 "hub": {"id": "hub", "name": "Dark Image", "embedding": [1.0, 0.0]},
@@ -253,8 +253,8 @@ class TestAttentionFilter:
         engine = _make_engine()
 
         # Engine ANN returns nodes WITHOUT an embedding property → the active-task
-        # boost falls back to word-overlap. Fed through the engine-graph stub.
-        engine.graph = _StubVectorGraph(
+        # boost falls back to word-overlap. Fed through the engine-graph double.
+        engine.graph = _FakeVectorGraph(
             hits=[("hub", 1.0), ("leaf", 0.0)],
             props={
                 "hub": {"id": "hub", "name": "Dark Image"},

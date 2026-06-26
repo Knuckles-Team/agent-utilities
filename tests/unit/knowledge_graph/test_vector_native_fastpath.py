@@ -94,7 +94,7 @@ def test_unseeded_search_uses_native_ann_not_a_scan() -> None:
     graph = _UnifiedGraph()
     r = _retriever(graph)
 
-    # No label → the unseeded kNN primitive, NOT an O(N) Python scan. (Our stub's
+    # No label → the unseeded kNN primitive, NOT an O(N) Python scan. (Our fake's
     # semantic_search returns [] so the arm is empty — the point is which engine
     # path is taken, asserted via the call counters.)
     r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0)
