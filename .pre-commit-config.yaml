@@ -68,24 +68,24 @@ repos:
   hooks:
   - id: check-mermaid
     name: Check Mermaid syntax
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/mermaid_linter.py
+    entry: python3 scripts/mermaid_linter.py
     language: system
     files: \.md$
     pass_filenames: true
   - id: check-stubs
     name: Check for Active Stubs and TODOs
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_stubs.py
+    entry: python3 scripts/check_stubs.py
     language: system
     types: [python]
   - id: check-no-env-sprawl
     name: Config-flag anti-sprawl (no new bare os.environ KG_/GRAPH_ reads)
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_no_env_sprawl.py
+    entry: python3 scripts/check_no_env_sprawl.py
     language: system
     pass_filenames: false
     always_run: true
   - id: check-concept-gaps
     name: Check Concept ID Gap contiguousness
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_concept_gaps.py
+    entry: python3 scripts/check_concept_gaps.py
     language: system
     files: concept_map\.md$
     pass_filenames: true
@@ -102,7 +102,7 @@ repos:
     exclude: ^agent_utilities/knowledge_graph/shapes/
   - id: check-ontology
     name: Ontology library — valid + connected (no unlinked/broken ontologies)
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_ontology.py
+    entry: python3 scripts/check_ontology.py
     language: system
     pass_filenames: false
     always_run: true
@@ -164,25 +164,25 @@ repos:
   # BLOCKING ---------------------------------------------------------------
   - id: guardrail-no-stub
     name: Guardrail — no production stubs
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_no_stub.py
+    entry: python3 scripts/check_no_stub.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-concept-freshness
     name: Guardrail — concept registry freshness
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_concepts.py
+    entry: python3 scripts/check_concepts.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-prompt-schema
     name: Guardrail — canonical prompt schema (StructuredPrompt)
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_prompt_schema.py --strict
+    entry: python3 scripts/check_prompt_schema.py --strict
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-genesis-manifest
     name: Guardrail — genesis.yaml freshness
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_genesis_manifest.py
+    entry: python3 scripts/check_genesis_manifest.py
     language: system
     pass_filenames: false
     always_run: true
@@ -191,7 +191,7 @@ repos:
     # Relative path so the gate analyzes the tree being committed (its script
     # derives ROOT/baseline from its own location) instead of an unrelated
     # absolute checkout — required for the gate to see this repo's source and
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_surface_parity.py
+    entry: python3 scripts/check_surface_parity.py
     language: system
     pass_filenames: false
     always_run: true
@@ -209,7 +209,7 @@ repos:
     always_run: true
   - id: guardrail-retrieval-quality
     name: Guardrail — retrieval quality (Recall@k / MRR floor)
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_retrieval_quality.py
+    entry: python3 scripts/check_retrieval_quality.py
     language: system
     pass_filenames: false
     always_run: true
@@ -226,7 +226,7 @@ repos:
   # botched-merge dividers, so this now runs BLOCKING.
   - id: guardrail-sprawl
     name: Guardrail — anti-sprawl
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_sprawl.py
+    entry: python3 scripts/check_sprawl.py
     language: system
     pass_filenames: false
     always_run: true
@@ -236,7 +236,7 @@ repos:
   # commits. Remove the `|| true` once the adapter seam has settled.
   - id: guardrail-coupling-advisory
     name: Guardrail — geniusbot coupling (ADVISORY, decoupling in flight)
-    entry: bash -c 'python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_coupling.py || true'
+    entry: bash -c 'python3 scripts/check_coupling.py || true'
     language: system
     pass_filenames: false
     always_run: true
@@ -245,19 +245,19 @@ repos:
   # a push can't fail a gate that pre-commit didn't already catch locally.
   - id: guardrail-eval-corpus
     name: Guardrail — eval corpus
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_eval_corpus.py
+    entry: python3 scripts/check_eval_corpus.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-reliability-corpus
     name: Guardrail — reliability corpus
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_reliability_corpus.py
+    entry: python3 scripts/check_reliability_corpus.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-liveness
     name: Guardrail — liveness ratchet
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_liveness.py
+    entry: python3 scripts/check_liveness.py
     language: system
     pass_filenames: false
     always_run: true
