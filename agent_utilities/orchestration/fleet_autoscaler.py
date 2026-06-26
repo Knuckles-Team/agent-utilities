@@ -402,3 +402,47 @@ class FleetAutoscaler:
 def autoscale_fleet(engine: Any) -> dict[str, Any]:
     """The leader-only maintenance-tick entry point (see ``engine_tasks``)."""
     return FleetAutoscaler(engine).evaluate()
+
+
+#: The control-plane node label whose committed changes move queue depth — a new
+#: :Task enqueued / claimed / completed changes the backlog the autoscaler tracks.
+TASK_LABEL = "Task"
+
+
+def fleet_autoscale_subscription(engine: Any) -> Any:
+    """Reactive change-feed subscription over control-plane ``:Task`` mutations.
+
+    CONCEPT:KG-2.253 — the poll→push seam for autoscaling: instead of waiting for
+    the next leader poll interval, the daemon polls this subscription and, when the
+    engine pushes a ``:Task`` change (the queue-depth signal moved), fires an
+    autoscale evaluation immediately — so scaling reacts to the change-EVENT, not
+    a fixed interval. The slow periodic ``_tick_fleet_autoscaler`` stays as the
+    safety-net reconcile.
+
+    Subscribes on the engine's **control graph** (``__control__`` — where ``:Task``
+    lives, CONCEPT:KG-2.148), resolved via the engine's control backend. The
+    handler bumps ``sub.pending_state["pending"]``; the caller reads it to decide
+    whether to evaluate now. Returns a
+    :class:`~agent_utilities.graph.reactive.EngineSubscription` whose ``.available``
+    is ``False`` (a permanent no-op) when no engine streaming surface exists — so
+    the periodic tick remains the correctness guarantee.
+    """
+    from agent_utilities.graph.reactive import subscribe
+
+    # The control plane (``__control__``) is where :Task is written; fall back to
+    # the engine's content compute, then to the passed object itself (e.g. a bare
+    # GraphComputeEngine), when no isolated control backend exists.
+    source = (
+        getattr(engine, "_control", None)
+        or getattr(engine, "graph_compute", None)
+        or engine
+    )
+
+    state = {"pending": 0}
+
+    def _on_task_change(_event: dict[str, Any]) -> None:
+        state["pending"] += 1
+
+    sub = subscribe(source, TASK_LABEL, _on_task_change)
+    sub.pending_state = state  # type: ignore[attr-defined]
+    return sub

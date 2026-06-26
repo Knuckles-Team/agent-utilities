@@ -127,6 +127,43 @@ def build_world_model_task(
     )
 
 
+#: The engine node label whose committed changes drive reactive re-specialization.
+WORLD_MODEL_TRANSITION_LABEL = "WorldModelTransition"
+
+
+def world_model_subscription(engine: Any) -> Any:
+    """Build the reactive change-feed subscription over ``WorldModelTransition``.
+
+    CONCEPT:KG-2.253 — the poll→push seam that replaces the every-tick full
+    history re-scan: the daemon polls this on its tick and only re-specializes the
+    world model when the engine pushed a NEW transition (or on cold-start
+    catch-up), instead of re-querying the entire transition corpus each time.
+
+    Resolves the engine's content-graph compute (``__commons__`` — where
+    :meth:`WorldModel.record_observation` writes the nodes) and subscribes to its
+    label-filtered CDC feed. The handler bumps a counter; the daemon reads
+    ``sub.pending_state["pending"]`` to decide whether the expensive
+    specialization is worth running. Returns a
+    :class:`~agent_utilities.graph.reactive.EngineSubscription` (its ``.available``
+    is ``False`` — a permanent no-op — when no engine streaming surface exists, so
+    the caller's periodic catch-up stays correct).
+    """
+    from agent_utilities.graph.reactive import subscribe
+
+    source = getattr(engine, "graph_compute", None) or engine
+
+    state = {"pending": 0}
+
+    def _on_transition(_event: dict[str, Any]) -> None:
+        state["pending"] += 1
+
+    sub = subscribe(source, WORLD_MODEL_TRANSITION_LABEL, _on_transition)
+    # Expose the live counter on the subscription so the tick can read/reset it
+    # without re-implementing handler bookkeeping.
+    sub.pending_state = state  # type: ignore[attr-defined]
+    return sub
+
+
 def transitions_from_engine(engine: Any, *, limit: int = 2000) -> list[Transition]:
     """Read persisted ``WorldModelTransition`` rows from the engine as tuples.
 
