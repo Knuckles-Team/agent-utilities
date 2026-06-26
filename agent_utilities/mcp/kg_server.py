@@ -532,6 +532,11 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_write": "/graph/write",
     "graph_ingest": "/graph/ingest",
     "graph_analyze": "/graph/analyze",
+    "graph_code": "/graph/code",
+    "graph_research": "/graph/research",
+    "graph_evaluate": "/graph/evaluate",
+    "graph_explain": "/graph/explain",
+    "graph_observe": "/graph/observe",
     "graph_orchestrate": "/graph/orchestrate",
     "graph_configure": "/graph/configure",
     "graph_context": "/graph/context",
@@ -658,6 +663,31 @@ async def graph_analyze_endpoint(request: Request) -> JSONResponse:
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+def _make_action_endpoint(tool_name: str):
+    """Build an action-routed REST endpoint for a focused analyze-suite tool — the REST
+    twin of the MCP tool, dispatching through the same ``_execute_tool`` core (KG-2.257)."""
+
+    async def _endpoint(request: Request) -> JSONResponse:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        try:
+            res = await _execute_tool(tool_name, **body)
+            return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        except Exception as e:
+            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+    return _endpoint
+
+
+graph_code_endpoint = _make_action_endpoint("graph_code")
+graph_research_endpoint = _make_action_endpoint("graph_research")
+graph_evaluate_endpoint = _make_action_endpoint("graph_evaluate")
+graph_explain_endpoint = _make_action_endpoint("graph_explain")
+graph_observe_endpoint = _make_action_endpoint("graph_observe")
 
 
 async def graph_orchestrate_endpoint(request: Request) -> JSONResponse:
@@ -2487,6 +2517,7 @@ def _build_server(bootstrap: bool = True):
 
     from agent_utilities.mcp.tools import (
         register_analysis_tools,
+        register_analyze_suite_tools,
         register_bus_tools,
         register_ontology_tools,
         register_query_tools,
@@ -2509,6 +2540,7 @@ def _build_server(bootstrap: bool = True):
             register_query_tools,
             register_write_ingest_tools,
             register_analysis_tools,
+            register_analyze_suite_tools,
             register_state_tools,
             register_ontology_tools,
             register_reach_tools,
@@ -2842,6 +2874,11 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/write", graph_write_endpoint, ["POST"])
     route("/graph/ingest", graph_ingest_endpoint, ["POST"])
     route("/graph/analyze", graph_analyze_endpoint, ["POST"])
+    route("/graph/code", graph_code_endpoint, ["POST"])
+    route("/graph/research", graph_research_endpoint, ["POST"])
+    route("/graph/evaluate", graph_evaluate_endpoint, ["POST"])
+    route("/graph/explain", graph_explain_endpoint, ["POST"])
+    route("/graph/observe", graph_observe_endpoint, ["POST"])
     route("/graph/orchestrate", graph_orchestrate_endpoint, ["POST"])
     route("/graph/configure", graph_configure_endpoint, ["POST"])
 

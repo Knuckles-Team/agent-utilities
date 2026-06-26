@@ -79,3 +79,11 @@ agent_utilities/domains/finance/visual_ta.py
 agent_utilities/knowledge_graph/retrieval/deploy_context.py
 agent_utilities/knowledge_graph/retrieval/entity_context.py
 agent_utilities/knowledge_graph/retrieval/ops_context.py
+# Observability/eval engine internals (CONCEPT:AHE-3.64/3.65/3.66, OS-5.68). These are
+# consumed on a live path — online_scoring by the host-daemon OnlineScoringSampler + the
+# exposed graph_analyze moat actions (trace_rootcause/prompt_regression/failure_cluster);
+# g_eval + tool_judge by EvalRunner / the sampler — not standalone operator tools. Like
+# the eval engine itself, they are library capabilities, not a per-module graph_* tool.
+agent_utilities/harness/online_scoring.py
+agent_utilities/harness/g_eval.py
+agent_utilities/harness/tool_judge.py

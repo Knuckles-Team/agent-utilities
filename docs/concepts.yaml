@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 506
+total_concepts: 507
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3353,7 +3353,7 @@ concepts:
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: every usage of a published symbol across the
 - id: KG-2.136
-  name: the universal context plane
+  name: route a question to its domain
   pillar: KG-2
   status: live
   code_paths:
@@ -3361,7 +3361,8 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/context_plane.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
-  doc: the universal context plane
+  - agent_utilities/mcp/tools/analyze_suite.py
+  doc: route a question to its domain
 - id: KG-2.137
   name: KG-2.137
   pillar: KG-2
@@ -3840,6 +3841,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/orchestration/fleet_autoscaler.py
   doc: Engine change-feed subscription primitive for poll→push reactivity
+- id: KG-2.257
+  name: the observability queries Opik CANNOT do
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/harness/trace_analytics.py
+  - agent_utilities/mcp/tools/analyze_suite.py
+  doc: the observability queries Opik CANNOT do
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
