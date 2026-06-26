@@ -53,7 +53,10 @@ class _Engine:
 
     def __init__(self, graph: Any) -> None:
         self.graph = graph
-        self.backend = graph  # truthy; the retriever gates the arm on it
+        # A truthy backend the vector arm gates on. Its ``execute`` returns nothing
+        # so the multi-hop traversal phase falls to the resident-graph BFS over the
+        # REAL engine (``self.graph``) — the engine path we are exercising.
+        self.backend = _NoCypherBackend()
         self.graph_compute = graph
 
     def _search_keyword(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
@@ -61,6 +64,13 @@ class _Engine:
         raise AssertionError(
             "keyword fallback was hit — the engine vector path returned nothing"
         )
+
+
+class _NoCypherBackend:
+    """Truthy backend whose Cypher ``execute`` yields nothing (forces BFS path)."""
+
+    def execute(self, _q: str, _p: Any = None) -> list[dict[str, Any]]:
+        return []
 
 
 def _retriever(graph: Any, *, embed: Any = None) -> HybridRetriever:
