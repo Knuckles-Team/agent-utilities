@@ -866,25 +866,6 @@ class GraphComputeEngine:
             or []
         )
 
-    @property
-    def supports_unified_query(self) -> bool:
-        """Whether the connected engine serves the ``UnifiedQuery`` plan op.
-
-        Cached. The unified cross-modal plan needs a ``query``-feature engine
-        (``node`` tier and up); the lean ``pi`` tier ships only the native ANN
-        (``semantic_search``). Lets the retriever drive filter+traverse+vector in
-        ONE plan where available and the native-ANN vector primitive otherwise —
-        both are the engine's own vector index, never an O(N) Python scan.
-        """
-        cached = getattr(self, "_supports_unified_query", None)
-        if cached is None:
-            try:
-                cached = bool(self._client.supports("UnifiedQuery"))
-            except Exception:
-                cached = False
-            self._supports_unified_query = cached
-        return cached
-
     def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
         """Embedding-free lexical capability gate via the engine (CONCEPT:EG-010).
 
