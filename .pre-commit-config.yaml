@@ -269,3 +269,56 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+# ── CI parity: gates that live in a CI workflow but had no pre-commit mirror ──
+# These close the remaining CI<->pre-commit parity gaps so that
+# `pre-commit run --all-files` (default stage) == the union of the non-deploy,
+# non-nightly CI gates, and `--hook-stage manual` adds the deploy/nightly build
+# gates. Nothing CI checks is left out; heavy gates are staged (not omitted).
+- repo: local
+  hooks:
+  # concept-governance.yml — Extend-Before-Invent gate. New CONCEPT: tags must
+  # carry a design doc + a registered pillar prefix. Relative entry so the diff
+  # runs against the repo being committed (the worktree), not the canonical
+  # checkout. Fast → default (pre-commit) stage, runs on every --all-files.
+  - id: check-concept-governance
+    name: CI parity — concept governance (Extend-Before-Invent)
+    entry: python3 scripts/check_concept_governance.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  # pages.yml — `mkdocs build` (the docs build step of the GitHub Pages deploy
+  # workflow). Staged manual/pre-push: it provisions an isolated mkdocs env and
+  # is heavier than a per-commit gate, and the deploy itself is push-to-main
+  # only. Run it via:  pre-commit run docs-build --hook-stage manual --all-files
+  - id: docs-build
+    name: CI parity — mkdocs docs build (pages.yml)
+    entry: bash -c 'mkdocs build --site-dir "$(mktemp -d)/site"'
+    language: python
+    additional_dependencies: [mkdocs-material, mkdocs-awesome-pages-plugin]
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
+  # pipeline.yml — `uv build` (the wheel/sdist build step of the PyPI release
+  # workflow). Mirrors the packaging build so a broken pyproject/packaging is
+  # caught locally instead of on the release push. Staged manual/pre-push.
+  # Run it via:  pre-commit run wheel-build --hook-stage manual --all-files
+  - id: wheel-build
+    name: CI parity — package build (pipeline.yml uv build)
+    entry: bash -c 'uv build --out-dir "$(mktemp -d)/dist"'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
+  # backend-parity-nightly.yml — the live cross-backend conformance matrix
+  # (testcontainers: pggraph/AGE, Neo4j, FalkorDB, Fuseki) + the embedded/
+  # in-process backends. VERY heavy: needs Docker + a sibling epistemic-graph
+  # checkout (../epistemic-graph) and runs the live suite. Nightly in CI, so
+  # staged manual only here (never on a normal commit/push).
+  # Run it via:  pre-commit run backend-parity --hook-stage manual --all-files
+  - id: backend-parity
+    name: CI parity — live backend conformance matrix (nightly)
+    entry: bash -c 'AGENT_UTILITIES_TESTING=true python3 -m pytest tests/integration/backends -m live -rs --timeout=900'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual]

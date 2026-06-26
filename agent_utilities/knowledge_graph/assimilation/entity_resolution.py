@@ -213,7 +213,7 @@ def _base_hash(shingle: str) -> int:
 
 def _perm_coeffs(num_perm: int = _NUM_PERM) -> list[tuple[int, int]]:
     """Deterministic ``(a, b)`` coefficients for ``num_perm`` hash permutations."""
-    rng = random.Random(0xA5F00D)  # fixed seed → reproducible signatures
+    rng = random.Random(0xA5F00D)  # nosec B311 — fixed-seed MinHash signature coefficients, not cryptographic
     return [
         (rng.randrange(1, _MERSENNE_PRIME), rng.randrange(0, _MERSENNE_PRIME))
         for _ in range(num_perm)
@@ -326,9 +326,9 @@ def resolve_entities(items: list[tuple[str, str]]) -> ResolutionResult:
 
         fuzzy_scores: dict[tuple[str, str], float] = {}
         for a, b in candidates:
-            j = _jaccard(shingles_by_key[a], shingles_by_key[b])
-            if j >= _JACCARD_THRESHOLD:
-                fuzzy_scores[(a, b)] = j
+            jac = _jaccard(shingles_by_key[a], shingles_by_key[b])
+            if jac >= _JACCARD_THRESHOLD:
+                fuzzy_scores[(a, b)] = jac
                 ra, rb = find(a), find(b)
                 if ra != rb:
                     parent[ra] = rb
