@@ -62,6 +62,32 @@ _current_session_id: contextvars.ContextVar[str | None] = contextvars.ContextVar
     "_current_session_id", default=None
 )
 
+# Always-on KG-native trace sink (CONCEPT:OS-5.68). The daemon/orchestrator injects a
+# facade-backed ``KGTraceBackend`` ONCE at startup via ``set_kg_trace_sink``; when set,
+# every traced call also persists a Trace/Span/Generation node so traces are
+# graph-queryable — independent of any Langfuse key. Left ``None`` in a bare process
+# (e.g. a unit import), so there is NO behavior change until a sink is wired.
+_kg_trace_sink: Any = None
+
+
+def set_kg_trace_sink(sink: Any) -> None:
+    """Install the always-on KG-native trace sink (a ``KGTraceBackend``). Called once
+    by the daemon/orchestrator at startup with a facade-backed backend (OS-5.68)."""
+    global _kg_trace_sink
+    _kg_trace_sink = sink
+
+
+def get_kg_trace_sink() -> Any:
+    """The installed KG-native trace sink, or ``None`` if none is wired."""
+    return _kg_trace_sink
+
+
+def _tracing_active() -> bool:
+    """Trace when EITHER a Langfuse key OR a KG-native sink is configured. So the
+    KG-native path makes tracing always-on without requiring any vendor key, while a
+    bare process with neither configured still short-circuits (zero overhead)."""
+    return bool(config.langfuse_secret_key) or _kg_trace_sink is not None
+
 
 def set_session_id(session_id: str) -> None:
     """Set the current Langfuse session ID for trace grouping.
@@ -127,7 +153,7 @@ def trace(
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not config.langfuse_secret_key:
+            if not _tracing_active():
                 return func(*args, **kwargs)
 
             parent_trace_id = _current_trace_id.get()
@@ -192,7 +218,7 @@ def trace(
 
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not config.langfuse_secret_key:
+            if not _tracing_active():
                 return await func(*args, **kwargs)
 
             parent_trace_id = _current_trace_id.get()
@@ -359,6 +385,35 @@ def _emit_trace(
         session_id: Optional session ID for grouping.
         is_root: Whether this is a root trace (vs child span).
     """
+    # Always-on KG-native sink (CONCEPT:OS-5.68): persist a Trace/Span/Generation node
+    # independent of Langfuse, so every traced call is graph-queryable. Best-effort —
+    # a sink failure never breaks the traced function.
+    sink = _kg_trace_sink
+    if sink is not None and hasattr(sink, "record_event"):
+        try:
+            md = metadata or {}
+            kind = "llm" if "generation" in (trace_type or "").lower() else "general"
+            sink.record_event(
+                trace_id=trace_id,
+                span_id=span_id,
+                name=name,
+                is_root=is_root,
+                kind=kind,
+                parent_span_id=parent_span_id,
+                session_id=session_id,
+                error=status_message if level == "ERROR" else None,
+                model=md.get("model"),
+                provider=md.get("provider"),
+                input_tokens=int(md.get("input_tokens", 0) or 0),
+                output_tokens=int(md.get("output_tokens", 0) or 0),
+                tags=tags,
+            )
+        except Exception as e:  # pragma: no cover - tracing must never break callers
+            logger.debug("KG trace emit failed: %s", e)
+
+    # Optional Langfuse fan-out (only when a Langfuse key is configured).
+    if not config.langfuse_secret_key:
+        return
     try:
         from agent_utilities.harness.trace_backend import (
             LangfuseTraceBackend,

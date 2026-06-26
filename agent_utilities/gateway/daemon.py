@@ -50,6 +50,17 @@ def start_host_daemon() -> Any:
                 _engine.start_task_workers()
         except Exception as e:  # noqa: BLE001
             logger.warning("host daemon: start_task_workers failed: %s", e)
+        # Always-on KG-native observability (CONCEPT:OS-5.68): install the trace sink
+        # backed by this host's engine, so every traced agent call persists a
+        # Trace/Span/Generation subgraph that is graph-queryable. One-time injection;
+        # best-effort (a failure here must never block the daemon).
+        try:
+            from agent_utilities.harness.trace_backend import KGTraceBackend
+            from agent_utilities.harness.tracing import set_kg_trace_sink
+
+            set_kg_trace_sink(KGTraceBackend(backend=_engine))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("host daemon: KG trace sink install failed: %s", e)
         logger.info("Gateway host daemon started: %s", daemon_status())
     # CONCEPT:ECO-4.73 — the inbound messaging router runs in its OWN process
     # (``agent-utilities-messaging`` / ``agent_utilities.messaging.daemon``), NOT here, so
