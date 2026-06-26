@@ -23,21 +23,22 @@ profiles:
     summary: zero-infra, all-local (laptop / Raspberry Pi) — homelab quick start
     recipe: docs/recipes/tiny.md
     docker: false
-    secrets: dotenv
+    secrets: engine-encrypted-or-dotenv
     servers: none
     skill: agent-utilities-deployment
     orchestrator: docker-compose
     install_mode: deploy-baremetal
     idp: none
     ontology_host: local
-    engine: embedded
+    engine: autostart
+    engine_tier: pi-max
     engine_lifecycle: refcounted
     engine_idle_shutdown_secs: 60
   single-node-prod:
     summary: one durable, secured host (Postgres/pg-age) + the core MCP connectors
     recipe: docs/recipes/single-node-prod.md
     docker: true
-    secrets: openbao-or-dotenv
+    secrets: openbao-or-engine-encrypted
     servers: core
     skill: agent-utilities-deployment
     orchestrator: docker-swarm
@@ -45,6 +46,7 @@ profiles:
     idp: keycloak
     ontology_host: local
     engine: container
+    engine_tier: node
     engine_lifecycle: refcounted
     engine_idle_shutdown_secs: 60
   enterprise:
@@ -59,6 +61,7 @@ profiles:
     idp: keycloak
     ontology_host: stardog
     engine: remote
+    engine_tier: cluster
     engine_lifecycle: refcounted
     engine_idle_shutdown_secs: 60
 run_plan:
@@ -82,6 +85,7 @@ run_plan:
   - other-oidc
   - none
   secrets_store:
+  - engine
   - vault
   - env
   ontology_hosts:
@@ -89,9 +93,15 @@ run_plan:
   - apache-jena
   - local
   engine:
-  - embedded
+  - autostart
   - container
   - remote
+  engine_tiers:
+  - pi
+  - pi-max
+  - node
+  - cluster
+  - full
   install_modes:
   - deploy-container
   - deploy-baremetal
@@ -128,8 +138,33 @@ preflight:
   always:
   - python>=3.11,<3.15
   - uv-or-pip
-  - epistemic-graph-server (from the agent-utilities wheel; Rust only as a fallback)
+  - epistemic-graph>=1.0.0 — a prebuilt multi-arch WHEEL (linux x86_64/aarch64, macOS, windows); a Pi
+    pip-installs the lean pi/pi-max tier and NEVER compiles. Rust toolchain only as a build-from-source
+    fallback.
   docker_when: profile != tiny
+engine:
+  version: epistemic-graph>=1.0.0
+  extra: pip install 'agent-utilities[engine]'  (bumps to the published wheel)
+  authority: redb-authoritative durable by default (CONCEPT:KG-2.195)
+  resolver: CONCEPT:OS-5.63 — remote -> share-running-local -> autostart the pi-tier binary; refcounted
+    (auto-stops idle) or persistent lifecycle
+  wheels: prebuilt multi-arch (linux x86_64/aarch64, macOS x86_64/arm64, windows) — the Pi tiers never
+    compile
+  docker_image: engine-as-a-DB multi-arch image (linux/amd64+arm64) for container/remote shapes (single-node-prod,
+    enterprise)
+  tiers:
+    pi: '~6.46MB lean Pi-3: graph+cypher+ann+rdf/sparql/owl+streaming (pure-Rust, no DataFusion/C)'
+    pi-max: '~6.96MB: pi + tsdb+blob+security/encryption-at-rest (still pure-Rust, no DataFusion/C)'
+    node: pi-max + SQL/DataFusion+GraphQL+Tantivy text+reasoning+wasm-udf+federation
+    cluster: node + multi-Raft replication+pgwire+distributed/cross-shard-2PC (HA)
+    full: all single-node features, size-optimized (no raft/pgwire)
+  secret_store:
+    graph: __secrets__
+    label: Secret
+    encryption_key_env: EPISTEMIC_GRAPH_ENCRYPTION_KEY
+    note: default embedded secret store (OS-5.66); needs a security-feature tier (pi-max/node/cluster/full).
+      Local SQLite caches (registry graph, card cache, time-series) also route to the engine — no SQLite
+      fallback.
 components:
   agent-terminal-ui:
     connect: http
