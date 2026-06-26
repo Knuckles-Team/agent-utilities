@@ -582,8 +582,16 @@ class IntelligenceGraphEngine(
             set_clause = self._get_set_clause(props, alias="r")
             edge_params = dict(props)
 
-        # Portable label lookup: Neo4j/FalkorDB expose ``labels(n)`` (a list);
-        # Kuzu/epistemic-graph/pggraph-transpiler use the singular ``label(n)``.
+        # Portable label lookup. Dialect is chosen from the backend's *declared
+        # capability* (``cypher_support``), NEVER its class name: full-openCypher
+        # stores (Neo4j/FalkorDB/Apache AGE) expose ``labels(n)`` (a LIST) and reject
+        # the singular ``label(n)`` ("Unknown function 'label'"); the bounded-subset
+        # stores (epistemic-graph / pggraph regex transpiler) use ``label(n)``. Using
+        # the capability — the same signal ``migration.py`` uses — is correct THROUGH
+        # a wrapper (a FanOutBackend delegates ``cypher_support`` to its authority), so
+        # a Neo4j/FalkorDB mirror or authority reached via the fan-out no longer gets a
+        # broken ``label(n)`` query that retries forever (CONCEPT:KG-2.74). The
+        # class-name ``_NESTED_UNSAFE`` set stays for nested-prop JSON encoding only.
         # Skipped entirely when the caller supplies the labels (bulk migration) — the
         # labels are normalised the same way the nodes were written so the indexed
         # ``MATCH (s:Label {id})`` resolves.
@@ -591,9 +599,8 @@ class IntelligenceGraphEngine(
             s_label = f":{self._normalize_label(source_label)}"
             t_label = f":{self._normalize_label(target_label)}"
         else:
-            _lbl_expr = (
-                "labels(n)[0]" if _backend_name in self._NESTED_UNSAFE else "label(n)"
-            )
+            _full_cypher = getattr(self.backend, "cypher_support", "full") == "full"
+            _lbl_expr = "labels(n)[0]" if _full_cypher else "label(n)"
             s_label_res = self.backend.execute(
                 f"MATCH (n) WHERE n.id = $id RETURN {_lbl_expr} as lbl",
                 {"id": source_id},

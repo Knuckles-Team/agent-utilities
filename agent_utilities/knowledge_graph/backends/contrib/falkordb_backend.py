@@ -63,7 +63,13 @@ class FalkorDBBackend(GraphBackend):
             k: _clean_param_value(coerce_cypher_property(v))
             for k, v in (params or {}).items()
         }
-        result = self.graph.query(query, params)
+        # Bind params only when there ARE any. FalkorDB's redis-graph client prepends a
+        # ``CYPHER `` parameter header whenever a (non-None) ``params`` map is supplied
+        # — even an EMPTY ``{}`` — and the server then rejects the headered query with
+        # "Missing parameters". Passing ``None`` for an empty map omits the header so a
+        # parameter-free mirror query applies cleanly instead of stalling/retrying
+        # forever (CONCEPT:KG-2.74).
+        result = self.graph.query(query, params or None)
         # Convert FalkorDB ResultSet to list of dicts
         output = []
         for row in result.result_set:
