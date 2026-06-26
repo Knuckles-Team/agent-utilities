@@ -53,7 +53,9 @@ def _live_endpoint() -> tuple[Any, str] | None:
         from agent_utilities.core.model_factory import create_model
 
         m = create_model()
-        model_name = getattr(m, "model_name", None) or getattr(m, "_model_name", "")
+        model_name = str(
+            getattr(m, "model_name", None) or getattr(m, "_model_name", "") or ""
+        )
         client = None
         for prov in (getattr(m, "provider", None), getattr(m, "_provider", None)):
             c = getattr(prov, "client", None) if prov is not None else None

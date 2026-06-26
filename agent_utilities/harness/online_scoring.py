@@ -61,7 +61,7 @@ def _run_metric_source(source: str, trace: dict[str, Any]) -> float:
     """Module-level (picklable) sandbox entry: compile user ``source``, call its
     ``metric(trace)``, return a clamped float. Runs INSIDE the sandbox subprocess."""
     ns: dict[str, Any] = {}
-    exec(source, ns)  # noqa: S102 - executed only inside the resource-bounded sandbox
+    exec(source, ns)  # nosec B102  # noqa: S102 - executed only inside the resource-bounded sandbox
     fn = ns.get("metric")
     if not callable(fn):
         raise ValueError("metric source must define a callable `metric(trace)`")
@@ -93,7 +93,7 @@ class OnlineScoringSampler:
 
     def _schedule(self, trace_id: str) -> None:
         """Fast hook: defer scoring to the pool so the traced call never blocks."""
-        if self.sample_rate < 1.0 and random.random() > self.sample_rate:
+        if self.sample_rate < 1.0 and random.random() > self.sample_rate:  # nosec B311 - sampling jitter, not cryptographic
             return
         pool = self._pool
         if pool is not None:
@@ -139,7 +139,7 @@ class OnlineScoringSampler:
         # 1) Production automation rules → OnlineScoreNode (one judge path).
         for rule in self.rules:
             score, reasoning = judge_criteria(rule.criteria)
-            node = OnlineScoreNode(
+            node: Any = OnlineScoreNode(
                 id=f"online_score:{trace_id}:{rule.dimension}",
                 name=f"{rule.dimension} score",
                 trace_id=trace_id,
