@@ -155,11 +155,22 @@ def create_model(
     ssl_verify: bool = True,
     timeout: float = 300.0,
     role: str | None = None,
+    reasoning_effort: str | None = "none",
 ):
     """Build a model and (when a KG trace sink is installed) wrap it so EVERY LLM call
     persists a GenerationNode with model/tokens/cost/latency — the always-on per-call
     observability chokepoint (CONCEPT:OS-5.68). The wrap is a no-op when no sink is wired
-    (zero overhead, e.g. unit tests), so default behavior is unchanged."""
+    (zero overhead, e.g. unit tests), so default behavior is unchanged.
+
+    ``reasoning_effort`` controls thinking on a reasoning chat model (the standard
+    ``qwen/qwen3.6-35b-a3b`` is one): it emits a long ``reasoning`` block and leaves
+    ``content`` null until thinking finishes, so a utility call with a modest ``max_tokens``
+    gets EMPTY content (``finish_reason=length``) — and a retry-on-empty path then blocks to
+    the 300s router/verifier timeout. Default ``"none"`` turns thinking off so the model
+    returns content directly (verified: only the top-level ``reasoning_effort`` request param
+    works on this vLLM build; ``enable_thinking``/``chat_template_kwargs``/``/no_think`` do
+    not). Pass an effort level (``"low"``/``"medium"``/``"high"``) or ``None`` per call to opt
+    back into reasoning for genuinely hard tasks."""
     model = _create_model_impl(
         provider=provider,
         model_id=model_id,
@@ -169,6 +180,7 @@ def create_model(
         ssl_verify=ssl_verify,
         timeout=timeout,
         role=role,
+        reasoning_effort=reasoning_effort,
     )
     try:
         from agent_utilities.harness.tracing import wrap_model_for_tracing
@@ -176,6 +188,23 @@ def create_model(
         return wrap_model_for_tracing(model)
     except Exception:  # pragma: no cover - never break model construction
         return model
+
+
+def _openai_reasoning_settings(effort: str | None) -> Any | None:
+    """Build OpenAI model settings that set ``reasoning_effort`` (or ``None`` for no override).
+
+    Threads through ``extra_body`` (merged top-level into the request by the OpenAI client)
+    rather than the typed ``openai_reasoning_effort`` field, because ``"none"`` is outside the
+    OpenAI effort enum pydantic-ai validates but IS the value this vLLM build honors to
+    suppress the reasoning block. Returns ``None`` when ``effort`` is ``None`` (caller keeps
+    the model's own default) or when pydantic-ai's OpenAI settings type is unavailable."""
+    if effort is None:
+        return None
+    try:
+        from pydantic_ai.models.openai import OpenAIChatModelSettings
+    except Exception:  # pragma: no cover - pydantic-ai shape changed
+        return None
+    return OpenAIChatModelSettings(extra_body={"reasoning_effort": effort})
 
 
 def _create_model_impl(
@@ -187,6 +216,7 @@ def _create_model_impl(
     ssl_verify: bool = True,
     timeout: float = 300.0,
     role: str | None = None,
+    reasoning_effort: str | None = "none",
 ):
     """Initialize a pydantic-ai Model instance.
 
@@ -226,6 +256,9 @@ def _create_model_impl(
 
     _model_id = model_id or "qwen/qwen3.6-35b-a3b"
     _provider = provider or "openai"
+    # Default reasoning OFF (content-bearing, fast) for every OpenAI-compatible model built
+    # here; opt back in per call with reasoning_effort=None / a level. See create_model docstring.
+    _rsettings = _openai_reasoning_settings(reasoning_effort)
 
     # Check if this model is defined in models.json, and override settings if so
     model_info = get_model_config(_model_id)
@@ -270,9 +303,13 @@ def _create_model_impl(
                 timeout=timeout,
             )
             openai_provider = OpenAIProvider(openai_client=openai_client)
-            return OpenAIChatModel(model_name=_model_id, provider=openai_provider)
+            return OpenAIChatModel(
+                settings=_rsettings, model_name=_model_id, provider=openai_provider
+            )
 
-        return OpenAIChatModel(model_name=_model_id, provider="openai")
+        return OpenAIChatModel(
+            settings=_rsettings, model_name=_model_id, provider="openai"
+        )
 
     elif _provider == "ollama":
         target_base_url = (
@@ -288,11 +325,15 @@ def _create_model_impl(
                 default_headers=custom_headers,
             )
             openai_provider = OpenAIProvider(openai_client=openai_client)
-            return OpenAIChatModel(model_name=_model_id, provider=openai_provider)
+            return OpenAIChatModel(
+                settings=_rsettings, model_name=_model_id, provider=openai_provider
+            )
 
         os.environ["OPENAI_BASE_URL"] = target_base_url
         os.environ["OPENAI_API_KEY"] = target_api_key
-        return OpenAIChatModel(model_name=_model_id, provider="openai")
+        return OpenAIChatModel(
+            settings=_rsettings, model_name=_model_id, provider="openai"
+        )
 
     elif _provider == "deepseek":
         target_base_url = (
@@ -312,7 +353,9 @@ def _create_model_impl(
                     timeout=timeout,
                 )
                 ds_provider = DeepSeekProvider(openai_client=openai_client)
-                return OpenAIChatModel(model_name=_model_id, provider=ds_provider)
+                return OpenAIChatModel(
+                    settings=_rsettings, model_name=_model_id, provider=ds_provider
+                )
         except ImportError:
             pass
 
@@ -321,7 +364,9 @@ def _create_model_impl(
             os.environ["OPENAI_API_KEY"] = target_api_key
         if target_base_url:
             os.environ["OPENAI_BASE_URL"] = target_base_url
-        return OpenAIChatModel(model_name=_model_id, provider="openai")
+        return OpenAIChatModel(
+            settings=_rsettings, model_name=_model_id, provider="openai"
+        )
 
     elif _provider == "anthropic":
         target_api_key = api_key or config.anthropic_api_key
@@ -413,12 +458,15 @@ def _create_model_impl(
                 timeout=timeout,
             )
             return OpenAIChatModel(
+                settings=_rsettings,
                 model_name=_model_id,
                 provider=OpenAIProvider(openai_client=custom_client),
             )
         os.environ["OPENAI_BASE_URL"] = target_base_url
         if target_api_key:
             os.environ["OPENAI_API_KEY"] = target_api_key
-        return OpenAIChatModel(model_name=_model_id, provider="openai")
+        return OpenAIChatModel(
+            settings=_rsettings, model_name=_model_id, provider="openai"
+        )
 
-    return OpenAIChatModel(model_name=_model_id, provider="openai")
+    return OpenAIChatModel(settings=_rsettings, model_name=_model_id, provider="openai")

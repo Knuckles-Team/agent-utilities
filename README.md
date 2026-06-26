@@ -81,8 +81,8 @@ graph runs in-process. Use it three ways:
 | You want to… | Use | Start |
 |---|---|---|
 | Build a standalone agent in Python | **Library** | `from agent_utilities import create_agent` |
-| Give an existing agent (Claude Code/Cursor/yours) the KG + tools | **MCP `graph-os`** | `uv run graph-os` |
-| Share one KG backend across many clients/containers | **MCP HTTP / REST gateway** | `uv run graph-os --transport streamable-http` / `python -m agent_utilities` (REST, default `:9000`) |
+| Give an existing agent (Claude Code/Cursor/yours) the KG + tools | **MCP `graph-os`** | `uvx --from agent-utilities graph-os` |
+| Share one KG backend across many clients/containers | **MCP HTTP / REST gateway** | `uvx --from agent-utilities graph-os --transport streamable-http` / `python -m agent_utilities` (REST, default `:9000`) |
 
 → Full trade-offs: **[Consumption Models](docs/guides/consumption-models.md)**.
 
@@ -462,8 +462,8 @@ queue-driven, policy-governed fleet (`STATE_DB_URI`, `GRAPH_SERVICE_ENDPOINTS`,
 You can quickly launch the graph-os MCP server (a thin FastMCP wrapper):
 
 ```bash
-uv run graph-os                       # stdio (default)
-uv run graph-os --transport streamable-http --host 0.0.0.0 --port 8004
+uvx --from agent-utilities graph-os                       # stdio (default)
+uvx --from agent-utilities graph-os --transport streamable-http --host 0.0.0.0 --port 8004
 ```
 
 Or start the standalone agent from your code:
