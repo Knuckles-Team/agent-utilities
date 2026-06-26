@@ -1494,7 +1494,9 @@ def register_analysis_tools(mcp):
                 )
 
                 scope = (target or query).strip()
-                arch_report = build_arch_report(engine, scope=scope, top_k=top_k)
+                arch_report: dict[str, Any] = build_arch_report(
+                    engine, scope=scope, top_k=top_k
+                )
                 # Persist the report as a durable node (best-effort) so it is
                 # queryable + refreshable, exceeding Graphify's static file.
                 if arch_report.get("status") == "ok":
