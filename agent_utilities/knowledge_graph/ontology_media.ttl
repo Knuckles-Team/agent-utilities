@@ -38,6 +38,14 @@ media type — audiobooks or ebooks). BFO:IndependentContinuant via System
     rdfs:domain :DownloadJob ;
     rdfs:range xsd:dateTime .
 
+:attachedToMessage a owl:ObjectProperty ;
+    rdfs:label "attached to message" ;
+    rdfs:comment """Links a :MediaAsset to the chat :Memory (ChatMessage) it arrived on,
+so "show me the chart they sent yesterday" resolves media from the conversation
+(CONCEPT:KG-2.251).""" ;
+    rdfs:domain :MediaAsset ;
+    rdfs:range :Memory .
+
 :belongsToCollection a owl:ObjectProperty ;
     rdfs:label "belongs to collection" ;
     rdfs:domain :MediaAsset ;
@@ -47,6 +55,13 @@ media type — audiobooks or ebooks). BFO:IndependentContinuant via System
     rdfs:label "completed date" ;
     rdfs:domain :DownloadJob ;
     rdfs:range xsd:dateTime .
+
+:contentDigest a owl:DatatypeProperty ;
+    rdfs:label "content digest" ;
+    rdfs:comment """The content address (hex digest) of a :Blob in the engine BLOB
+substrate — the stable, dedup key the bytes are fetched back by (CONCEPT:KG-2.206).""" ;
+    rdfs:domain :Blob ;
+    rdfs:range xsd:string .
 
 :downloadProgress a owl:DatatypeProperty ;
     rdfs:label "download progress (%)" ;
@@ -74,6 +89,14 @@ media type — audiobooks or ebooks). BFO:IndependentContinuant via System
     rdfs:label "file size (bytes)" ;
     rdfs:domain :MediaAsset ;
     rdfs:range xsd:long .
+
+:hasBlob a owl:ObjectProperty ;
+    rdfs:label "has blob" ;
+    rdfs:comment """Links a :MediaAsset to the content-addressed :Blob holding its bytes.
+Maintains the engine blob refcount (BlobRef) so a referenced blob is never GC'd
+(CONCEPT:KG-2.251).""" ;
+    rdfs:domain :MediaAsset ;
+    rdfs:range :Blob .
 
 :managedBy a owl:ObjectProperty ;
     rdfs:label "managed by" ;
@@ -121,6 +144,16 @@ Standards alignment: schema:MediaObject, schema:DownloadAction.""" ;
 MediaAssets into collections. BFO:IndependentContinuant via System.""" ;
     rdfs:subClassOf :System .
 
+:Blob a owl:Class ;
+    rdfs:label "Blob" ;
+    rdfs:comment """A content-addressed, deduplicated binary stored in the engine BLOB
+substrate (CONCEPT:KG-2.206), keyed by its content digest. The same bytes (an image,
+a voice note, a chart) resolve to ONE :Blob no matter how many :MediaAssets reference
+it. The bytes live in the engine, beside the graph; this node is the graph-side handle
+(its digest) so the blob is discoverable + GC-refcounted from the ontology
+(CONCEPT:KG-2.251).""" ;
+    rdfs:subClassOf :Dataset .
+
 :DownloadJob a owl:Class ;
     rdfs:label "Download Job" ;
     rdfs:comment """A download task tracked in qBittorrent or media-downloader.
@@ -135,37 +168,4 @@ BFO:GenericallyDependentContinuant via Dataset.
 Aligned to schema:MediaObject.""" ;
     rdfs:seeAlso schema:MediaObject ;
     rdfs:subClassOf :Dataset .
-
-:Blob a owl:Class ;
-    rdfs:label "Blob" ;
-    rdfs:comment """A content-addressed, deduplicated binary stored in the engine BLOB
-substrate (CONCEPT:KG-2.206), keyed by its content digest. The same bytes (an image,
-a voice note, a chart) resolve to ONE :Blob no matter how many :MediaAssets reference
-it. The bytes live in the engine, beside the graph; this node is the graph-side handle
-(its digest) so the blob is discoverable + GC-refcounted from the ontology
-(CONCEPT:KG-2.251).""" ;
-    rdfs:subClassOf :Dataset .
-
-:contentDigest a owl:DatatypeProperty ;
-    rdfs:label "content digest" ;
-    rdfs:comment """The content address (hex digest) of a :Blob in the engine BLOB
-substrate — the stable, dedup key the bytes are fetched back by (CONCEPT:KG-2.206).""" ;
-    rdfs:domain :Blob ;
-    rdfs:range xsd:string .
-
-:hasBlob a owl:ObjectProperty ;
-    rdfs:label "has blob" ;
-    rdfs:comment """Links a :MediaAsset to the content-addressed :Blob holding its bytes.
-Maintains the engine blob refcount (BlobRef) so a referenced blob is never GC'd
-(CONCEPT:KG-2.251).""" ;
-    rdfs:domain :MediaAsset ;
-    rdfs:range :Blob .
-
-:attachedToMessage a owl:ObjectProperty ;
-    rdfs:label "attached to message" ;
-    rdfs:comment """Links a :MediaAsset to the chat :Memory (ChatMessage) it arrived on,
-so "show me the chart they sent yesterday" resolves media from the conversation
-(CONCEPT:KG-2.251).""" ;
-    rdfs:domain :MediaAsset ;
-    rdfs:range :Memory .
 

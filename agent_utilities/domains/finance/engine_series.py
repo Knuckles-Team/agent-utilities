@@ -52,9 +52,7 @@ def _to_ns(index: pd.Index) -> list[int]:
     return [int(v.value) for v in ts]  # pandas Timestamp.value is ns since epoch
 
 
-def gap_fill_series(
-    series: pd.Series, step: str = "1D", *, client=None
-) -> pd.Series:
+def gap_fill_series(series: pd.Series, step: str = "1D", *, client=None) -> pd.Series:
     """LOCF gap-fill ``series`` onto a fixed ``step`` grid, computed IN-ENGINE.
 
     The engine's ``timeseries.gap_fill`` carries the last observation forward on a
@@ -68,7 +66,9 @@ def gap_fill_series(
     client = client or _client()
     if client is None:
         # No engine — degrade to the pandas equivalent so the caller still works.
-        grid = pd.date_range(series.index.min(), series.index.max(), freq=step, tz="UTC")
+        grid = pd.date_range(
+            series.index.min(), series.index.max(), freq=step, tz="UTC"
+        )
         return series.reindex(series.index.union(grid)).ffill().reindex(grid)
     sid = f"finseries:{uuid.uuid4().hex[:12]}"
     try:
@@ -83,7 +83,9 @@ def gap_fill_series(
         return pd.Series(vals, index=idx, name=series.name)
     except Exception as e:  # noqa: BLE001
         logger.debug("[CONCEPT:KG-2.252] gap_fill_series engine path failed: %s", e)
-        grid = pd.date_range(series.index.min(), series.index.max(), freq=step, tz="UTC")
+        grid = pd.date_range(
+            series.index.min(), series.index.max(), freq=step, tz="UTC"
+        )
         return series.reindex(series.index.union(grid)).ffill().reindex(grid)
     finally:
         if own_client:
@@ -93,9 +95,7 @@ def gap_fill_series(
                 pass
 
 
-def asof_align(
-    series: pd.Series, at: pd.Index, *, client=None
-) -> pd.Series:
+def asof_align(series: pd.Series, at: pd.Index, *, client=None) -> pd.Series:
     """ASOF-align ``series`` to the timestamps ``at`` (nearest at-or-before), IN-ENGINE.
 
     For each timestamp in ``at``, the engine returns ``series``'s value as of that
