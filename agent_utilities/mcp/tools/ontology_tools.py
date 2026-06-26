@@ -843,7 +843,9 @@ def register_ontology_tools(mcp):
     def ontology_derive(
         action: str = Field(
             default="compute",
-            description="'list' declarations, 'compute' one property, or 'compute_all'.",
+            description="'list' declarations, 'compute' one property, 'compute_all', "
+            "or 'discover_extensions' (propose ontology .ttl extensions from a text "
+            "sample, CONCEPT:KG-2.259).",
         ),
         object_json: str = Field(
             default="{}", description="JSON object dict the property is computed for."
@@ -852,15 +854,38 @@ def register_ontology_tools(mcp):
             default="", description="Derived-property name for action='compute'."
         ),
         object_type: str = Field(
-            default="", description="Optional object type for declaration resolution."
+            default="",
+            description="Optional object type for declaration resolution; the "
+            "content/source type for action='discover_extensions'.",
+        ),
+        sample_text: str = Field(
+            default="",
+            description="Representative document text for action='discover_extensions'.",
         ),
     ) -> str:
-        """Compute derived properties for an object against the live graph."""
+        """Compute derived properties / discover ontology extensions."""
         from agent_utilities.knowledge_graph.ontology.derived_properties import (
             DEFAULT_DERIVED_REGISTRY,
         )
 
         try:
+            if action == "discover_extensions":
+                # Ontology-aware schema discovery (KG-2.259): propose .ttl extensions
+                # from a text sample, diffed against the live ontology. Human/SHACL-
+                # gated — returns a proposal, never auto-merges.
+                from agent_utilities.knowledge_graph.enrichment.cards import (
+                    make_lite_llm_fn,
+                )
+                from agent_utilities.knowledge_graph.extraction.schema_discovery import (
+                    discover_schema_extensions,
+                    discovery_report,
+                )
+
+                texts = [sample_text] if sample_text else []
+                discovered = discover_schema_extensions(
+                    texts, object_type or "document", make_lite_llm_fn()
+                )
+                return json.dumps(discovery_report(discovered), default=str)
             if action == "list":
                 return json.dumps(
                     [
