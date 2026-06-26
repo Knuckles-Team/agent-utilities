@@ -5445,15 +5445,16 @@ concepts:
   - agent_utilities/deployment/doctor.py
   doc: OS-5.67
 - id: OS-5.68
-  name: persist a Trace/Span/Generation node
+  name: Returns the model UNCHANGED when no sink is installed
   pillar: OS-5
   status: live
   code_paths:
+  - agent_utilities/core/model_factory.py
   - agent_utilities/gateway/daemon.py
   - agent_utilities/harness/trace_backend.py
   - agent_utilities/harness/tracing.py
   - agent_utilities/models/knowledge_graph.py
-  doc: persist a Trace/Span/Generation node
+  doc: Returns the model UNCHANGED when no sink is installed
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

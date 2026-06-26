@@ -156,6 +156,38 @@ def create_model(
     timeout: float = 300.0,
     role: str | None = None,
 ):
+    """Build a model and (when a KG trace sink is installed) wrap it so EVERY LLM call
+    persists a GenerationNode with model/tokens/cost/latency — the always-on per-call
+    observability chokepoint (CONCEPT:OS-5.68). The wrap is a no-op when no sink is wired
+    (zero overhead, e.g. unit tests), so default behavior is unchanged."""
+    model = _create_model_impl(
+        provider=provider,
+        model_id=model_id,
+        base_url=base_url,
+        api_key=api_key,
+        custom_headers=custom_headers,
+        ssl_verify=ssl_verify,
+        timeout=timeout,
+        role=role,
+    )
+    try:
+        from agent_utilities.harness.tracing import wrap_model_for_tracing
+
+        return wrap_model_for_tracing(model)
+    except Exception:  # pragma: no cover - never break model construction
+        return model
+
+
+def _create_model_impl(
+    provider: str | None = None,
+    model_id: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    custom_headers: dict | None = None,
+    ssl_verify: bool = True,
+    timeout: float = 300.0,
+    role: str | None = None,
+):
     """Initialize a pydantic-ai Model instance.
 
     This factory handles the complexity of mapping standardized provider
