@@ -51,9 +51,20 @@ TEST_AUTH_SECRET = "agent-utilities-test-engine-secret"  # nosec B105 — test-o
 #: session of back-to-back tests sharing the one engine.
 IDLE_SHUTDOWN_SECS = 120
 
-#: The lean tier we build when no binary exists. Pure-Rust + small → fast to
-#: build and run, and a durable source of truth (redb-authoritative).
-BUILD_TIER = "pi"
+#: The lean tier we build when no binary exists. ``pi-max`` = the lean ``pi`` tier
+#: PLUS the ``blob`` (CONCEPT:KG-2.206) and ``tsdb`` (CONCEPT:KG-2.210/211)
+#: substrates the multimodal-memory + time-series tests exercise — still pure-Rust
+#: (no DataFusion, no openraft), so fast to build and run, and a durable source of
+#: truth (redb-authoritative). The bare ``pi`` tier omits blob+tsdb, so building it
+#: would leave those tests with a "method not available in this build" engine.
+BUILD_TIER = "pi-max"
+
+#: Engine cargo features a usable test binary MUST serve. A prebuilt binary found
+#: under ``target/`` from an unrelated build is reused ONLY if it serves these — a
+#: bare ``pi`` / ``server`` binary lacks ``blob``/``tsdb`` and would skip the
+#: multimodal + time-series suites; we rebuild ``pi-max`` instead of silently
+#: degrading. Probed once via :func:`_binary_serves_features` (CONCEPT:KG-2.251/252).
+REQUIRED_FEATURES = ("blob", "tsdb")
 
 #: How long to wait for the engine's socket to appear after spawn, and for the
 #: process to exit on graceful SIGTERM.
@@ -89,6 +100,41 @@ def _sibling_epistemic_graph_dir() -> Path | None:
     return None
 
 
+def _binary_serves_features(binary: Path) -> bool:
+    """Whether ``binary`` actually serves the :data:`REQUIRED_FEATURES` (blob+tsdb).
+
+    A prebuilt engine binary may have been built at a feature-slim tier (bare
+    ``pi``/``server``) that lacks the blob (CONCEPT:KG-2.206) and tsdb (CONCEPT:
+    KG-2.210/211) substrates. There is no static feature manifest on the binary, so
+    we probe it the only reliable way: start it ephemerally and attempt one blob +
+    one tsdb call. A "method not available in this server build" error ⇒ the
+    feature is absent ⇒ rebuild the capable ``pi-max`` tier instead.
+
+    Best-effort and fully self-cleaning; any failure to even probe returns ``False``
+    so we fall through to a known-capable build.
+    """
+    try:
+        eng = EphemeralEngine(binary).start()
+    except Exception:  # noqa: BLE001 — un-startable ⇒ treat as not-usable, rebuild
+        return False
+    try:
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        client = SyncEpistemicGraphClient.connect(
+            socket_path=eng.socket_path, graph_name="__feature_probe__"
+        )
+        try:
+            client.blob.store(b"probe")  # BlobBegin/Commit — needs `blob`
+            client.timeseries.append("__probe__", [(0, [1.0])])  # needs `tsdb`
+        finally:
+            client.close()
+        return True
+    except Exception:  # noqa: BLE001 — a not-built method surfaces as a RuntimeError
+        return False
+    finally:
+        eng.stop()
+
+
 def resolve_engine_binary() -> Path:
     """Locate (or build once) the real ``epistemic-graph-server`` binary.
 
@@ -104,9 +150,15 @@ def resolve_engine_binary() -> Path:
     Raises :class:`EngineUnavailable` when there is no binary, no sibling source,
     or no ``cargo`` to build with.
     """
-    # 1) Prebuilt wheel binary (production path).
+    # 1) Prebuilt wheel binary (production path) — but ONLY if it serves the
+    #    blob/tsdb substrates the multimodal + time-series suites need; a feature-
+    #    slim wheel binary is skipped in favour of building the capable pi-max tier.
     wheel_bin = Path(sys.executable).resolve().parent / _BINARY_NAME
-    if wheel_bin.is_file() and os.access(wheel_bin, os.X_OK):
+    if (
+        wheel_bin.is_file()
+        and os.access(wheel_bin, os.X_OK)
+        and _binary_serves_features(wheel_bin)
+    ):
         return wheel_bin
 
     rust_dir = _sibling_epistemic_graph_dir()
@@ -116,11 +168,14 @@ def resolve_engine_binary() -> Path:
             "epistemic-graph source checkout — cannot obtain a real engine."
         )
 
-    # 2) Already-built sibling binary (release preferred — smaller/faster).
+    # 2) Already-built sibling binary (release preferred — smaller/faster), again
+    #    only if it serves the required features (else fall through to a pi-max build).
     for profile in ("release", "debug"):
         cand = rust_dir / "target" / profile / _BINARY_NAME
         if cand.is_file() and os.access(cand, os.X_OK):
-            return cand
+            if _binary_serves_features(cand):
+                return cand
+            break
 
     # 3) Build the lean pi-tier binary ONCE, then cache it.
     cargo = shutil.which("cargo")
@@ -139,10 +194,11 @@ def resolve_engine_binary() -> Path:
 
 
 def _build_pi_binary(rust_dir: Path, cargo: str) -> Path | None:
-    """Build the lean ``pi``-tier server once; return the cached binary or None.
+    """Build the lean :data:`BUILD_TIER` (``pi-max``) server once; return it or None.
 
-    Pure-Rust + small (no DataFusion, no openraft) so this is fast. The result
-    lands at ``target/release/epistemic-graph-server`` and is reused forever.
+    Pure-Rust + small (no DataFusion, no openraft) so this is fast, and it carries
+    the blob+tsdb substrates (vs bare ``pi``). The result lands at
+    ``target/release/epistemic-graph-server`` and is reused forever.
     """
     print(
         f"[tiny_engine] no prebuilt binary — building lean `{BUILD_TIER}`-tier "
