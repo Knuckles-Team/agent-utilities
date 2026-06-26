@@ -405,6 +405,47 @@ class StructuredPrompt(BaseModel):
             return self.input
         return self.model_dump_json(indent=2, exclude_unset=True, exclude_none=True)
 
+    def version_hash(self) -> str:
+        """Content hash of the rendered prompt (CONCEPT:AHE-3.68) — addresses a version."""
+        import hashlib
+
+        return hashlib.sha256(self.render().encode("utf-8")).hexdigest()[:16]
+
+    def version(
+        self,
+        prompt_id: str | None = None,
+        *,
+        backend: Any = None,
+        parent_hash: str | None = None,
+    ) -> Any:
+        """Build (and optionally persist) a ``PromptVersionNode`` for this prompt.
+
+        A ``GenerationNode`` records the returned ``version_hash`` as its
+        ``prompt_version_id``, making 'which prompt version regressed which dimension'
+        a graph query — the prompt→experiment→regression half of the closed loop.
+        """
+        from agent_utilities.models.knowledge_graph import PromptVersionNode
+
+        pid = prompt_id or self.task
+        vhash = self.version_hash()
+        node = PromptVersionNode(
+            id=f"prompt_version:{pid}:{vhash}",
+            name=f"{pid}@{vhash}",
+            prompt_id=pid,
+            version_hash=vhash,
+            content=self.render()[:8000],
+            parent_hash=parent_hash,
+        )
+        if backend is not None and hasattr(backend, "add_node"):
+            try:
+                props = node.model_dump()
+                props.pop("id", None)
+                props["type"] = str(props.get("type", ""))
+                backend.add_node(node.id, **props)
+            except Exception:  # pragma: no cover - best-effort
+                pass
+        return node
+
     def _render_rules(self) -> str:
         """Render rules in both simple list and categorized dict formats."""
         if isinstance(self.rules, list):
