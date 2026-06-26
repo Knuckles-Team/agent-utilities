@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 492
+total_concepts: 494
 total_pillars: 21
 pillars:
 - AHE-3
@@ -1569,7 +1569,6 @@ concepts:
   - agent_utilities/knowledge_graph/pipeline/phases/resolve.py
   - agent_utilities/knowledge_graph/pipeline/phases/sync.py
   - agent_utilities/knowledge_graph/pipeline/phases/workspace_sync.py
-  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/memory_retriever.py
   - agent_utilities/knowledge_graph/self_model.py
   - agent_utilities/models/codemap.py
@@ -2131,6 +2130,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   doc: through the facade so orchestration code
 - id: KG-2.17
   name: decay scanner + semantic merge
@@ -3618,6 +3618,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
   doc: tolerant of every shape this value arrives in
+- id: KG-2.208
+  name: that the engine sequences over a
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+  doc: that the engine sequences over a
 - id: KG-2.210
   name: Graphify-style structural analytics over the
   pillar: KG-2
@@ -3730,6 +3738,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/adaptation/code_health.py
   doc: engine-only, no file cache. Returns
+- id: KG-2.250
+  name: KG-2.250
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+  doc: KG-2.250
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
