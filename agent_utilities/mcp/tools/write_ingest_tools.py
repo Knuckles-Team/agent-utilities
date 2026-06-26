@@ -1292,7 +1292,7 @@ def register_write_ingest_tools(mcp):
             default="summary",
             description=(
                 "summary | by_model | by_project | by_agent | tools | activity | "
-                "sessions | session_detail | top_sessions | search | traces"
+                "sessions | session_detail | top_sessions | search | traces | series"
             ),
         ),
         from_date: str = Field(default="", description="ISO start (started_at >=)."),
@@ -1353,6 +1353,30 @@ def register_write_ingest_tools(mcp):
                 if not query:
                     return "Error: query required for search"
                 out = [e.model_dump() for e in svc.search(query, limit=limit)]
+            elif action == "series":
+                # CONCEPT:KG-2.252 — per-agent token usage over time from the engine
+                # tsdb (native range/window), not a Python re-scan. ``from_date``/
+                # ``to_date`` are epoch seconds; ``model`` carries the bucket field
+                # (default total_tokens); ``limit`` carries the window size in seconds
+                # (0 = raw points). agent= the series key.
+                from agent_utilities.observability.token_tracker import (
+                    query_token_series,
+                )
+
+                try:
+                    start = float(from_date) if from_date else 0.0
+                    end = float(to_date) if to_date else 4.0e18
+                except ValueError:
+                    return "Error: series from_date/to_date must be epoch seconds"
+                pts = query_token_series(
+                    agent,
+                    start,
+                    end,
+                    field=model or "total_tokens",
+                    window_s=float(limit) if limit else None,
+                    agg=origin or "sum",
+                )
+                out = [{"ts": t, "value": v} for t, v in pts]
             else:
                 return f"Error: unknown usage_query action '{action}'"
             return _json.dumps(out, default=str)
