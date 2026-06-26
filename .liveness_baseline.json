@@ -3,7 +3,7 @@
     "orphan_modules": 174,
     "dead_definitions": 544,
     "never_executed": 0,
-    "untyped_seams": 1100,
+    "untyped_seams": 1102,
     "orphan_read_keys": 50,
     "facade_handlers": 58,
     "placeholder_markers": 220
