@@ -136,6 +136,55 @@ and the router uses a cheaper rung. `host_callbacks=False` in v1 (the microVM gu
 the host UDS bridge without a vsock/TCP bridge — future work), rank 25. Config: `FORKD_URL`,
 `FORKD_TOKEN`, `FORKD_SNAPSHOT_TAG`.
 
+## Zombie protection — three independent reapers (ORCH-1.94)
+
+A warm parent that the orchestrator never `close()`s — or that a **daemon restart
+drops from the in-memory registry** while its forked child keeps spinning — becomes
+a zombie. A real incident left five `container_fork` sandboxes pinning ~5 cores at
+~98% CPU for days. The defence is **three layers that do not depend on each other**,
+all hard-capped at `WARM_CONTAINER_MAX_AGE_S = 3600`s (no env knob), so a failure in
+any one is still caught by the next.
+
+```mermaid
+flowchart TB
+    subgraph L1["Layer 1 · kernel self-expiry (in the container)"]
+        PID1["PID 1 = timeout --signal=KILL 3600 sleep infinity<br/>container_fork_backend.py"]
+        LBL["labels: agent_utilities.rlm.sandbox=&lt;name&gt;<br/>+ .max_age_s=3600"]
+        PID1 -->|"hard age cap, no host involvement"| KILL1["container SIGKILLed at 3600s"]
+    end
+    subgraph L2["Layer 2 · registry max-age reap (in-process)"]
+        REG["WarmParentRegistry.reap_active()<br/>runtime/warm_registry.py"]
+        REG -->|"now - created &gt; DEFAULT_MAX_AGE_SECS (3600)<br/>even if busy child never refreshes last_used"| EVICT["evict reason=max_age<br/>(idle TTL = 1800s)"]
+    end
+    subgraph L3["Layer 3 · stateless orphan sweep (survives restart)"]
+        SWEEP["reap_orphaned_sandboxes()<br/>container_fork_backend.py"]
+        SWEEP -->|"docker ps -a --filter label=agent_utilities.rlm.sandbox"| FOUND["exited → rm -f;<br/>running &amp; StartedAt age &gt; 3600 → rm -f"]
+    end
+
+    TICK["_tick_warm_parent_reap (maint, OS-5.58)<br/>engine_tasks.py"] --> REG
+    TICK --> SWEEP
+    TICK --> DW["DockerWorkspace.reap_idle (OS-5.33)"]
+```
+
+- **Layer 1 — kernel self-expiry + labels.** `warm()` runs the pool container with
+  PID 1 = `timeout --signal=KILL 3600 sleep infinity`, so the kernel inside the
+  container SIGKILLs it at the hard age cap with zero host involvement. It also
+  stamps two labels (`agent_utilities.rlm.sandbox` = backend name, and
+  `…​.max_age_s` = 3600) that the stateless sweep keys on.
+- **Layer 2 — registry max-age reap.** `WarmParentRegistry.reap_active` evicts not
+  just idle parents (TTL 1800s) but any parent whose **`created` age exceeds 3600s**
+  — the case a busy forked child causes, because it never refreshes `last_used` so
+  idle-reaping alone can't see it.
+- **Layer 3 — stateless orphan sweep.** `reap_orphaned_sandboxes` lists
+  `docker/podman ps -a --filter label=agent_utilities.rlm.sandbox`, always removes
+  exited/dead containers, and `rm -f`s running ones whose inspected `StartedAt` age
+  exceeds the cap. Because it works purely from container labels + the runtime, it
+  catches zombies the in-memory registry can no longer see (the daemon-restart
+  case).
+
+All three run on the same `_tick_warm_parent_reap` maintenance tick (OS-5.58),
+each in its own best-effort `try/except`.
+
 ## Status
 
 All rungs landed: the protocol + registry + bridge + reaper tick + ontology (Phase 0); the
