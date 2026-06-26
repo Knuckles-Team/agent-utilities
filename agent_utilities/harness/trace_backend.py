@@ -776,6 +776,7 @@ class KGTraceBackend(TraceBackend):
             entry = {"trace": trace, "spans": [], "generations": []}
             self._traces[trace_id] = entry
             self._evict_if_needed()
+        assert entry is not None  # set above when new_trace; else the cache hit
         trace = entry["trace"]
         if error:
             trace.status = "error"

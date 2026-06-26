@@ -3354,18 +3354,22 @@ class TaskManagerMixin(GraphEngineProtocol):
                 meta = _decode_metadata(rows[0]["m"]) if rows else {}
                 paper = meta.get("paper", {})
                 runner = ResearchPipelineRunner(engine=self)  # type: ignore[arg-type]  # self is the engine
-                article_id = await runner.ingest_paper_full(
-                    paper.get("id", ""),
-                    paper.get("title", ""),
-                    paper.get("abstract", ""),
-                    paper.get("authors", []),
-                    # honor a pre-downloaded PDF (CONCEPT:KG-2.194) so a cohort ingests
-                    # the full paper TEXT as an Article instead of an abstract page.
-                    pdf_path=paper.get("pdf_path") or None,
-                    source_url=paper.get("url", ""),
-                    relevance_score=float(paper.get("score", 0.0) or 0.0),
-                    domains=paper.get("domains"),
-                )
+                from .ingest_profile import profile_ingest
+
+                # OS-5.69/70 — profile token usage + per-stage timing for this paper.
+                with profile_ingest(str(paper.get("id", ""))) as _prof:
+                    article_id = await runner.ingest_paper_full(
+                        paper.get("id", ""),
+                        paper.get("title", ""),
+                        paper.get("abstract", ""),
+                        paper.get("authors", []),
+                        # honor a pre-downloaded PDF (CONCEPT:KG-2.194) so a cohort
+                        # ingests the full paper TEXT as an Article, not an abstract.
+                        pdf_path=paper.get("pdf_path") or None,
+                        source_url=paper.get("url", ""),
+                        relevance_score=float(paper.get("score", 0.0) or 0.0),
+                        domains=paper.get("domains"),
+                    )
                 self._update_task_status(
                     job_id,
                     "completed",
@@ -3374,6 +3378,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         "type": task_type,
                         "article_id": article_id,
                         "score": paper.get("score"),
+                        "profile": _prof.to_dict(),
                     },
                 )
                 return
@@ -4763,6 +4768,17 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
         except Exception:  # noqa: BLE001
             return {}
+        # OS-5.71 — fold in off-queue profile spans (assimilation, embed-backfill,
+        # concept-registry embedding) so the report covers paths that never become
+        # :Task nodes. They carry a task-shaped envelope (type='offqueue:<kind>').
+        try:
+            spans = self._control_cypher(
+                "MATCH (s:ProfileSpan) RETURN 'completed' as status, s.metadata as meta"
+            )
+            if spans:
+                rows = list(rows or []) + list(spans)
+        except Exception:  # noqa: BLE001 — spans are best-effort, never block the report
+            pass
         cutoff = None
         if window_sec:
             try:
@@ -4801,6 +4817,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "cost": 0.0,
                     "nodes": 0,
                     "edges": 0,
+                    "llm_calls": 0,
+                    "embed_calls": 0,
+                    "_stages": {},
                 },
             )
             grp["count"] += 1
@@ -4815,8 +4834,20 @@ class TaskManagerMixin(GraphEngineProtocol):
             if dur > 0:
                 grp["_durations"].append(dur)
             usage = meta.get("usage") or {}
-            grp["tokens"] += int(meta.get("tokens", usage.get("total", 0)) or 0)
-            grp["cost"] += float(meta.get("cost", usage.get("cost", 0)) or 0)
+            # OS-5.69/70 — the ingest profile carries real token usage + per-stage
+            # timing (read/extract/embed/write), so the report is no longer tokens=0
+            # and can show WHERE ingest time goes.
+            prof = meta.get("profile") or {}
+            grp["tokens"] += int(
+                meta.get("tokens", usage.get("total", prof.get("total_tokens", 0))) or 0
+            )
+            grp["cost"] += float(
+                meta.get("cost", usage.get("cost", prof.get("cost", 0))) or 0
+            )
+            grp["llm_calls"] += int(prof.get("llm_calls", 0) or 0)
+            grp["embed_calls"] += int(prof.get("embed_calls", 0) or 0)
+            for _sname, _sms in (prof.get("stages_ms") or {}).items():
+                grp["_stages"].setdefault(_sname, []).append(float(_sms or 0))
             grp["nodes"] += int(
                 meta.get("nodes_added", meta.get("nodes_created", 0)) or 0
             )
@@ -4837,6 +4868,15 @@ class TaskManagerMixin(GraphEngineProtocol):
             grp["p95_ms"] = round(_pct(durs, 95), 1)
             grp["max_ms"] = round(durs[-1], 1) if durs else 0.0
             grp["cost"] = round(grp["cost"], 4)
+            # per-stage p50 / total across the group's ingests (OS-5.70)
+            grp["stages_ms"] = {
+                s: {
+                    "p50": round(_pct(sorted(v), 50), 1),
+                    "total": round(sum(v), 1),
+                    "n": len(v),
+                }
+                for s, v in grp.pop("_stages").items()
+            }
 
         total_ms = sum(g["total_ms"] for g in groups.values())
         wall_ms = (max(ends) - min(starts)) * 1000.0 if starts and ends else 0.0

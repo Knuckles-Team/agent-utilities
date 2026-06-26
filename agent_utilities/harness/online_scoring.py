@@ -175,7 +175,7 @@ class OnlineScoringSampler:
                 continue
             score, reasoning = judge_criteria(assertion)
             passed = score >= 0.5
-            node = AssertionResultNode(
+            ar_node = AssertionResultNode(
                 id=f"assertion_result:{trace_id}:{getattr(case, 'id', '')}",
                 name="assertion result",
                 trace_id=trace_id,
@@ -184,8 +184,8 @@ class OnlineScoringSampler:
                 status="passed" if passed else "failed",
                 reasoning=reasoning,
             )
-            self._persist(node, trace_id)
-            written.append(node)
+            self._persist(ar_node, trace_id)
+            written.append(ar_node)
             if not passed and self.eval_corpus is not None:
                 # The failing (prod) trace becomes/refreshes a regression case so the same
                 # break is caught from now on (CONCEPT:AHE-3.64 closes with AHE-3.61).
