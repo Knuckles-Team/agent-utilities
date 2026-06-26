@@ -475,6 +475,90 @@ export KG_CONNECTIONS='[{"name":"pg-age","backend":"age","uri":"postgresql://age
 graph-os
 ```
 
+## Engine stability backstops — surviving the `__commons__` firehose
+
+The engine is one process behind a MessagePack socket holding a multi-tenant
+graph (`__commons__` carries 166K+ nodes, each with a 1024-dim embedding). Three
+failure modes were hardened after a stress run wedged the engine; each backstop
+fixes a specific one.
+
+```mermaid
+flowchart TB
+    subgraph CLIENT["agent-utilities (engine client)"]
+        BR["iter_nodes_by_types() / get_node_data()<br/>core/bounded_read.py — KG-2.261"]
+        BRK["BreakerClientProxy._guard()<br/>core/engine_breaker.py — KG-2.262"]
+    end
+    subgraph ENGINE["epistemic-graph (Rust)"]
+        GUARD["GetNodes handler:<br/>oversize_dump_error(node_count, cap)<br/>handlers/graph_ops.rs — KG-2.264"]
+        CAP["max_response_nodes()<br/>EPISTEMIC_GRAPH_MAX_RESPONSE_NODES<br/>default 50000 (0 = off) — state.rs"]
+        LABEL["GetNodesByLabel (bounded, NOT capped)"]
+        LOCK["per-graph topology write lock"]
+        COAL["write_coalescer.apply_batch()<br/>N writes to 1 core.txn() — KG-2.182"]
+    end
+
+    BR -->|"per-label fetch, O(#type) not O(graph)"| LABEL
+    BR -. "AVOIDS unbounded nodes(data=True)<br/>166K x 1024-dim, 1GB frame, ConnectionReset" .-> GUARD
+    GUARD --> CAP
+    GUARD -->|"count > cap"| TOOBIG["RESULT_TOO_LARGE to ResultTooLargeError"]
+    BRK -->|"ConnectionReset/BrokenPipe = transient"| RETRY["retry x2, 0.25s backoff<br/>rides client._reconnect, breaker NOT tripped"]
+    COAL --> LOCK
+```
+
+### The three backstops
+
+- **Bounded reads (KG-2.261, `core/bounded_read.py`).** A whole-graph
+  `graph.nodes(data=True)` materializes every node into one MessagePack frame — a
+  gigabyte payload that overloads and resets the connection. `iter_nodes_by_types`
+  iterates by **type** through the engine-side bounded label fetch
+  (`get_nodes_by_label`, KG-2.51), and **trusts** an empty bounded result rather
+  than falling back to a full scan; `get_node_data` fetches one node by id. A
+  type-filtered reader becomes O(#type), not O(graph).
+- **Adaptive transient retry (KG-2.262, `core/engine_breaker.py`).** A single
+  dropped connection mid-op is transient — the client transparently reconnects on
+  its next call. `_guard` now retries the op a bounded `_MAX_TRANSIENT_RETRIES`
+  (=2) with exponential backoff and records a `"retry"` outcome **without**
+  counting it against the circuit breaker, so a brief blip self-heals instead of
+  cascading N callers into a tripped breaker.
+- **Engine response guard (KG-2.264, epistemic-graph).** The engine itself caps
+  the unbounded full-graph dump: `oversize_dump_error` checks the cheap
+  `node_count()` against `max_response_nodes()` (env
+  `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`, default **50000**, `0` disables) **before**
+  materializing, and returns `RESULT_TOO_LARGE:` (surfaced client-side as
+  `ResultTooLargeError`). Only the `GetNodes` dump is capped — `GetNodesByLabel`
+  and per-id reads stay bounded and uncapped.
+
+### The H1 finding — write-lock starvation (EG-011)
+
+A profiling/stress run confirmed **H1**: under sustained ingestion every write
+funnels through the **`__commons__` per-graph topology write lock**, so it
+serializes and starves reads. Measured: a `semantic_search` that is **~0.02s
+idle** climbs to **~14s** under the ingestion firehose (and a single `nodes.add`
+to `__commons__` took ~13s), with the engine pinning roughly one core. Two
+histograms (CONCEPT:EG-011, `epistemic_graph/src/metrics.rs`) make the gap
+observable:
+
+| metric (labelled `{graph}`) | measures |
+|---|---|
+| `epistemic_graph_write_lock_wait_seconds` | enqueue to lock acquired (the **starvation** cost) |
+| `epistemic_graph_write_lock_hold_seconds` | how long each coalesced batch holds the lock (the **contention** cost) |
+
+```mermaid
+flowchart LR
+    ING["ingestion firehose<br/>(writes to __commons__)"] --> WLOCK{{"per-graph write lock"}}
+    READ["semantic_search<br/>0.02s idle to ~14s under load"] --> WLOCK
+    WLOCK -. "wait_seconds (starvation)" .-> HW["EG-011 histograms"]
+    WLOCK -. "hold_seconds (contention)" .-> HW
+    WLOCK --> FIX1["write_coalescer: N writes to 1 txn/batch<br/>(KG-2.182, ~57x fewer acquisitions)"]
+    WLOCK --> FIX2["split control plane onto __control__ graph<br/>(distinct GraphCore = distinct lock)"]
+```
+
+The fixes attack both axes: the **write-coalescer (KG-2.182)** turns many
+concurrent single-op writes into one lock acquisition per batch (~57× fewer
+acquisitions in the engine benchmark), and routing the scheduler/control plane
+onto a separate **`__control__`** engine graph gives it its own lock so ingestion
+on `__commons__` can never starve it (distinct graphs already isolate — each
+`GraphCore` has its own lock).
+
 ## Implementing a New Backend
 
 1. Inherit from `GraphBackend` in `backends/base.py`
