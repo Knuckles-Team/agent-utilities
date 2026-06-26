@@ -756,7 +756,7 @@ class KGTraceBackend(TraceBackend):
 
         entry = self._traces.get(trace_id)
         new_trace = entry is None
-        if new_trace:
+        if entry is None:
             trace = TraceNode(
                 id=trace_id,
                 name=name if is_root else "trace",
@@ -774,8 +774,10 @@ class KGTraceBackend(TraceBackend):
 
         # Persist/refresh the trace node on creation OR when its status just flipped to
         # error, so the persisted snapshot reflects the final status (not a stale "ok").
-        if (new_trace or error) and self.backend is not None and hasattr(
-            self.backend, "add_node"
+        if (
+            (new_trace or error)
+            and self.backend is not None
+            and hasattr(self.backend, "add_node")
         ):
             try:
                 self.backend.add_node(trace_id, **self._node_props(trace))
@@ -871,7 +873,9 @@ class KGTraceBackend(TraceBackend):
                     getattr(g, "output_tokens", 0),
                 )
         # Roll up trace-level cost/tokens from its generations.
-        trace.total_cost_usd = sum(getattr(g, "total_cost_usd", 0.0) for g in generations)
+        trace.total_cost_usd = sum(
+            getattr(g, "total_cost_usd", 0.0) for g in generations
+        )
         trace.input_tokens = sum(getattr(g, "input_tokens", 0) for g in generations)
         trace.output_tokens = sum(getattr(g, "output_tokens", 0) for g in generations)
 
@@ -937,7 +941,9 @@ class KGTraceBackend(TraceBackend):
 
     async def get_trace_summary(self, trace_id: str) -> dict[str, Any]:
         entry = self._traces.get(trace_id)
-        return self._summarize(entry) if entry else {"id": trace_id, "error": "not_found"}
+        return (
+            self._summarize(entry) if entry else {"id": trace_id, "error": "not_found"}
+        )
 
     async def get_trace_scores(self, trace_ids: list[str]) -> dict[str, float]:
         out: dict[str, float] = {}
