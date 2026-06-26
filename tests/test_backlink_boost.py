@@ -32,6 +32,41 @@ def _make_engine():
     return engine
 
 
+class _NoCypherBackend:
+    """Truthy backend whose Cypher ``execute`` yields nothing (forces BFS path)."""
+
+    def execute(self, _q, _p=None):  # type: ignore[no-untyped-def]
+        return []
+
+
+class _StubVectorGraph:
+    """Engine graph stub: the vector arm reads ``semantic_search`` (engine ANN)
+    and hydrates via ``_get_node_properties`` — the CONCEPT:KG-2.250 contract."""
+
+    def __init__(self, hits, props):  # type: ignore[no-untyped-def]
+        self._hits = hits  # list[(id, score)]
+        self._props = props  # dict[id -> props]
+
+    def query_unified(self, _plan, **_k):  # type: ignore[no-untyped-def]
+        # No label seed in these tests → the arm uses the native ANN below.
+        return []
+
+    def semantic_search(self, _emb, _n=5):  # type: ignore[no-untyped-def]
+        return list(self._hits)
+
+    def _get_node_properties(self, nid):  # type: ignore[no-untyped-def]
+        return dict(self._props.get(nid, {}))
+
+    def has_node(self, nid):  # type: ignore[no-untyped-def]
+        return nid in self._props
+
+    def get_successors(self, _nid):  # type: ignore[no-untyped-def]
+        return []
+
+    def get_predecessors(self, _nid):  # type: ignore[no-untyped-def]
+        return []
+
+
 class TestBacklinkBoost:
     @patch(
         "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model"
@@ -168,21 +203,17 @@ class TestAttentionFilter:
 
         engine = _make_engine()
 
-        # Mock backend to return our test nodes
-        mock_backend = MagicMock()
-        mock_backend.execute.return_value = [
-            {
-                "id": "hub",
-                "emb": [1.0, 0.0],
-                "data": {"id": "hub", "name": "Dark Image", "embedding": [1.0, 0.0]},
+        # The vector arm reads the engine ANN (semantic_search) — not a Cypher
+        # `backend.execute` scan. Feed the test nodes through the engine-graph stub
+        # and store each node's embedding so the active-task boost can read it back.
+        engine.graph = _StubVectorGraph(
+            hits=[("hub", 1.0), ("leaf", 0.0)],
+            props={
+                "hub": {"id": "hub", "name": "Dark Image", "embedding": [1.0, 0.0]},
+                "leaf": {"id": "leaf", "name": "Unrelated", "embedding": [0.0, 1.0]},
             },
-            {
-                "id": "leaf",
-                "emb": [0.0, 1.0],
-                "data": {"id": "leaf", "name": "Unrelated", "embedding": [0.0, 1.0]},
-            },
-        ]
-        engine.backend = mock_backend
+        )
+        engine.backend = _NoCypherBackend()
 
         r = HybridRetriever(engine)
 
@@ -204,7 +235,6 @@ class TestAttentionFilter:
 
         # hub node should have task boost applied and be sorted first with high score
         hub_node = next(x for x in results if x["id"] == "hub")
-        next(x for x in results if x["id"] == "leaf")
 
         assert "_active_task_boost" in hub_node
         assert (
@@ -222,21 +252,16 @@ class TestAttentionFilter:
 
         engine = _make_engine()
 
-        # Mock backend to return nodes without embeddings (forces overlap fallback)
-        mock_backend = MagicMock()
-        mock_backend.execute.return_value = [
-            {
-                "id": "hub",
-                "emb": [1.0, 0.0],
-                "data": {"id": "hub", "name": "Dark Image"},
+        # Engine ANN returns nodes WITHOUT an embedding property → the active-task
+        # boost falls back to word-overlap. Fed through the engine-graph stub.
+        engine.graph = _StubVectorGraph(
+            hits=[("hub", 1.0), ("leaf", 0.0)],
+            props={
+                "hub": {"id": "hub", "name": "Dark Image"},
+                "leaf": {"id": "leaf", "name": "Unrelated"},
             },
-            {
-                "id": "leaf",
-                "emb": [0.0, 1.0],
-                "data": {"id": "leaf", "name": "Unrelated"},
-            },
-        ]
-        engine.backend = mock_backend
+        )
+        engine.backend = _NoCypherBackend()
 
         r = HybridRetriever(engine)
 
