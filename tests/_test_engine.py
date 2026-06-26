@@ -117,6 +117,10 @@ def _binary_serves_features(binary: Path) -> bool:
         eng = EphemeralEngine(binary).start()
     except Exception:  # noqa: BLE001 — un-startable ⇒ treat as not-usable, rebuild
         return False
+    # The ephemeral engine authenticates with TEST_AUTH_SECRET; the client reads it
+    # from GRAPH_SERVICE_AUTH_SECRET. This probe runs during resolve_engine_binary,
+    # BEFORE the session fixture exports it, so set it here for the probe connection.
+    os.environ.setdefault("GRAPH_SERVICE_AUTH_SECRET", TEST_AUTH_SECRET)
     try:
         from epistemic_graph.client import SyncEpistemicGraphClient
 
