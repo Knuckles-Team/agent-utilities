@@ -50,6 +50,9 @@ class RegistryNodeType(StrEnum):
     TRACE = "trace"
     SPAN = "span"
     GENERATION = "generation"
+    # Online-scoring / regression eval over traces (CONCEPT:AHE-3.64).
+    ONLINE_SCORE = "online_score"
+    ASSERTION_RESULT = "assertion_result"
     ENTITY = "entity"
     EVENT = "event"
     REFLECTION = "reflection"
@@ -1358,6 +1361,9 @@ class TraceNode(RegistryNode):
     input_tokens: int = 0
     output_tokens: int = 0
     tags: list[str] = Field(default_factory=list)
+    # Root input/output text (truncated) — what online-scoring/regression judges against.
+    input: str = ""
+    output: str = ""
 
 
 class SpanNode(RegistryNode):
@@ -1388,6 +1394,30 @@ class GenerationNode(RegistryNode):
     error: str | None = None
     prompt_version_id: str | None = None
     tool_calls: int = 0
+
+
+class OnlineScoreNode(RegistryNode):
+    """A score produced by online-scoring over a live trace (CONCEPT:AHE-3.64) —
+    an LLM-judge dimension or a (sandboxed) custom metric. Linked SCORED_BY the trace."""
+
+    type: RegistryNodeType = RegistryNodeType.ONLINE_SCORE
+    trace_id: str
+    dimension: str  # e.g. "hallucination", "relevance", a metric name
+    score: float = 0.0
+    reasoning: str = ""
+    evaluator: str = ""  # judge | metric:<name>
+
+
+class AssertionResultNode(RegistryNode):
+    """A regression-assertion verdict over a live/replayed trace (CONCEPT:AHE-3.64,
+    Opik Test-Suite parity): the same judge path scores prod traffic AND regressions."""
+
+    type: RegistryNodeType = RegistryNodeType.ASSERTION_RESULT
+    trace_id: str
+    case_id: str = ""
+    assertion: str = ""
+    status: str = "passed"  # passed | failed
+    reasoning: str = ""
 
 
 class EntityNode(RegistryNode):
