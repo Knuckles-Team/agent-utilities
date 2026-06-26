@@ -574,15 +574,32 @@ Bootstrap the deployed **CISO Assistant** GRC stack so its API is usable headles
 [depends_on: Step 14]
 Stand up the full LGTM observability standard (CONCEPT:OS-5.23) + Borgmatic backups:
 - node-exporter + cAdvisor (global) already give every host + every container metrics.
+- **Tune cAdvisor for low CPU on busy nodes** (it runs `global`, and per-container cgroup
+  housekeeping is the cost — untuned it eats 1–1.5 cores on a node with dozens of
+  containers). In the `cadvisor` service `command:` (`services/lgtm/compose.yml`) set:
+  `--housekeeping_interval=30s --max_housekeeping_interval=60s --allow_dynamic_housekeeping=true`
+  (slower sampling, idle containers cost nothing), `--docker_only=true` (skip raw/system
+  cgroups), `--store_container_labels=false` **with**
+  `--whitelisted_container_labels=com.docker.stack.namespace,com.docker.swarm.service.name,com.docker.compose.project,com.docker.compose.service`
+  (huge cardinality cut while keeping the labels the dashboards group by — dropping all
+  labels would break the fleet/per-service/container dashboards), and
+  `--disable_metrics=percpu,sched,process,hugetlb,referenced_memory,cpu_topology,resctrl,tcp,udp,advtcp`.
+  `--disable_metrics` is a **denylist** — `disk`, `diskIO`, and `network` are omitted on
+  purpose so per-container disk usage, disk I/O, and network stay collected.
 - Generate the MCP scrape/probe targets and dashboards from the fleet registry:
   `agent-utilities/scripts/gen_prometheus_mcp_targets.py` + `gen_grafana_dashboards.py`.
+  The dashboards are **generated as code** (not hand-edited JSON — a re-run clobbers manual
+  edits); add/extend a `*()` builder in `gen_grafana_dashboards.py` and re-run it
+  (`--out` defaults to `services/lgtm/grafana/provisioning/dashboards/json/`).
 - Deploy the LGTM stack carrying: the `mcp-fleet` (`/metrics`) + `blackbox-mcp` (`/health`)
   Prometheus jobs, the global `promtail` (container logs → Loki), the full `rules.yml`
-  alert set (→ Mattermost), and the provisioned Grafana datasources + dashboards
-  (Fleet Overview / Per-Service / Host & Infra).
-- Drive per-service wiring via `service-observability-provisioner`.
+  alert set (→ Mattermost), and the provisioned Grafana datasources + dashboards:
+  **Fleet Overview**, **Per-Service**, **Host & Infra** (CPU/mem/load/swap + disk free,
+  disk I/O throughput + IOPS + busy%, network I/O), **Container Resources** (per-service
+  CPU/mem/disk-I/O/network from cAdvisor), and **Agent Bus**.
+- Drive per-service wiring (logs + scrape + dashboard) via `service-observability-provisioner`.
 - Requires: `systems-manager-mcp`, `portainer-mcp` (+ skill `service-observability-provisioner`)
-- Expected: `observability-up, mcp-fleet-scraped, dashboards-provisioned, alerts-loaded, backups-scheduled`
+- Expected: `observability-up, cadvisor-tuned, mcp-fleet-scraped, dashboards-provisioned, alerts-loaded, backups-scheduled`
 
 ### Step 16: graph-os
 [depends_on: Step 15]
@@ -856,6 +873,11 @@ Assert the realized end-state (CONCEPT:OS-5.32 / OS-5.23):
 - Prometheus shows `up{job="mcp-fleet"}==1` and `probe_success{job="blackbox-mcp"}==1` for
   live services; Grafana "MCP Fleet Overview" is populated; stopping a service fires
   `McpServiceDown`/`McpProbeFailed` to Mattermost.
+- **Observability dashboards populated:** "Host & Infra" shows disk I/O + IOPS + network +
+  load + swap per host, and "Container Resources" shows per-service container CPU/mem/disk-I/O.
+  Confirm the cAdvisor tuning held: `container_cpu_usage_seconds_total` still carries
+  `container_label_com_docker_stack_namespace` / `..._swarm_service_name` (whitelist kept
+  the grouping labels), and cAdvisor CPU on a busy node dropped vs untuned.
 - Requires: `portainer-mcp`, `systems-manager-mcp`
 - Expected: `auth-enforced, multiplexer-reachable, metrics-live, dashboards-populated, alerts-firing`
 
