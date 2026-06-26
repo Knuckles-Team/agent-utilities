@@ -1,14 +1,20 @@
 # syntax=docker/dockerfile:1
-# Minimal mcp-multiplexer image (CONCEPT:ECO-4.36).
+# Standalone mcp-multiplexer image (CONCEPT:ECO-4.36).
 #
-# The multiplexer imports none of agent-utilities' heavy base deps, so we install
-# the package WITHOUT its dependencies (`--no-deps`) and add only the ~7 light
-# runtime deps it actually uses (docker/requirements-multiplexer.txt). graph-os
-# and every other server are reached over MCP as children — nothing heavy is
-# embedded. Image is ~370MB vs multi-GB for the agent-utilities[all] image.
+# Like every agents/* package, agent-utilities is installed from the PUBLISHED PyPI
+# wheel via uv — NOT built from source. The multiplexer imports none of
+# agent-utilities' heavy base deps, so we install the package WITHOUT its
+# dependencies (`--no-deps`) and add only the ~7 light runtime deps it actually uses
+# (docker/requirements-multiplexer.txt). graph-os and every other server are reached
+# over MCP as children — nothing heavy is embedded. Image is ~370MB vs multi-GB for
+# the agent-utilities[all] image.
 #
-# Build (locally on a node with the repo, since CI image builds are separate):
-#   docker build -f docker/Dockerfile.multiplexer -t knucklessg1/mcp-multiplexer:latest .
+# This is the same closure as `docker/Dockerfile --target mcp`; it exists as a
+# discrete file for the standalone `knucklessg1/mcp-multiplexer` image build.
+#
+# Build:
+#   docker build -f docker/Dockerfile.multiplexer --build-arg VERSION=0.52.0 \
+#     -t knucklessg1/mcp-multiplexer:latest .
 # Run as a central streamable-http server:
 #   -e TRANSPORT=streamable-http -e MCP_MULTIPLEXER_MODE=dynamic \
 #   -e MCP_CONFIG=/mcp_config.json  (mount the children config)
@@ -18,15 +24,13 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_SYSTEM_PYTHON=1 \
     UV_HTTP_TIMEOUT=3600
-WORKDIR /src
-# Deps first (cacheable), then the package itself without its heavy deps.
-COPY docker/requirements-multiplexer.txt /src/docker/requirements-multiplexer.txt
+ARG VERSION=0.52.0
+# Deps first (cacheable), then the published package itself without its heavy deps.
+COPY docker/requirements-multiplexer.txt /tmp/requirements-multiplexer.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --break-system-packages \
-    -r /src/docker/requirements-multiplexer.txt
-COPY . /src
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --break-system-packages --no-deps .
+    -r /tmp/requirements-multiplexer.txt \
+    && uv pip install --system --upgrade --break-system-packages --prerelease=allow --no-deps "agent-utilities>=${VERSION}"
 
 FROM python:3.11-slim
 ARG HOST=0.0.0.0
