@@ -114,21 +114,33 @@ class TestSPARQL:
         if results:
             assert "error" not in results[0]
 
-    def test_sparql_cache_invalidation(self, sample_graph, mock_owl_backend):
-        """RDF graph rebuilds when LPG changes."""
+    def test_sparql_cache_invalidation(self, mock_owl_backend):
+        """The rdflib RDF-graph cache rebuilds when the LPG changes.
+
+        This exercises the rdflib materialization (``_sparql_via_rdflib`` /
+        ``_build_rdf_graph``) DIRECTLY: under the engine-native architecture
+        (CONCEPT:KG-2.242) ``query_sparql`` prefers the engine projection and only
+        builds the rdflib cache on the no-engine path, so the cache invariant belongs
+        to the rdflib materialization itself. A hermetic networkx LPG keeps it engine-
+        independent and deterministic.
+        """
+        pytest.importorskip("rdflib")
+        import networkx as nx
+
         from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
 
-        bridge = OWLBridge(graph=sample_graph, owl_backend=mock_owl_backend)
+        g = nx.MultiDiGraph()
+        g.add_node("agent_1", type="agent", name="TestAgent")
+        bridge = OWLBridge(graph=g, owl_backend=mock_owl_backend)
 
-        # First query — builds cache
-        bridge.query_sparql("SELECT ?s WHERE { ?s a au:Agent }")
+        # First materialization — builds the rdflib cache.
+        bridge._sparql_via_rdflib("SELECT ?s WHERE { ?s a au:Agent }")  # type: ignore[attr-defined]
         hash1 = bridge._rdf_cache_hash  # type: ignore[attr-defined]
 
-        # Add a node to the graph
-        sample_graph.add_node("agent_2", type="agent", name="NewAgent")
-
-        # Second query — should rebuild cache
-        bridge.query_sparql("SELECT ?s WHERE { ?s a au:Agent }")
+        # Mutate the LPG, then re-materialize — the cache key must change so the stale
+        # RDF graph is rebuilt.
+        g.add_node("agent_2", type="agent", name="NewAgent")
+        bridge._sparql_via_rdflib("SELECT ?s WHERE { ?s a au:Agent }")  # type: ignore[attr-defined]
         hash2 = bridge._rdf_cache_hash  # type: ignore[attr-defined]
 
         assert hash2 != hash1, "Cache hash should change after graph modification"
