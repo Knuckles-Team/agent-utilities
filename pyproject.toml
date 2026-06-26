@@ -201,6 +201,14 @@ fuseki = [
 event-kafka = [
     "confluent-kafka>=2.14.2"
 ]
+ingest-dedup = [
+    # CONCEPT:AHE-3.70 — cheap deterministic name normalizers for the entity-
+    # resolution ladder: transliteration + singularization. Pure-Python, no native
+    # ML wheel, so safe to add anywhere; kept optional (import-guarded, no-op when
+    # absent) so the lean serving plane stays minimal.
+    "unidecode>=1.3.0",
+    "inflect>=7.0.0"
+]
 vault = [
     "hvac>=2.4.0"
 ]

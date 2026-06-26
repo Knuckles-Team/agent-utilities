@@ -1,5 +1,6 @@
 from .centrality import centrality_phase
 from .communities import communities_phase
+from .community_reports import community_reports_phase
 from .embedding import embedding_phase
 from .external_graphs import external_graphs_phase
 from .knowledge_base import knowledge_base_phase
@@ -25,6 +26,7 @@ PHASES = [
     mro_phase,
     reference_phase,
     communities_phase,
+    community_reports_phase,
     centrality_phase,
     embedding_phase,
     shacl_gate_phase,

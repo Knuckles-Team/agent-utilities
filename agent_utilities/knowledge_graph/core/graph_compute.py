@@ -1482,6 +1482,26 @@ class GraphComputeEngine:
         """Compute similarity edges between nodes with embeddings."""
         return self._client.graph.compute_similarity_edges(threshold)
 
+    def resolve_candidates(
+        self,
+        sim_threshold: float = 0.8,
+        merge_threshold: float = 0.92,
+        node_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Native entity-resolution candidate generation (CONCEPT:KG-2.260).
+
+        Returns merge proposals (``{canonical, members, score, kind}``;
+        ``kind`` = ``same_as`` | ``extends``) — the server-side escalation tier the
+        dedup ladder routes its residual through. Read/propose only; apply via
+        ``batch_update``.
+        """
+        return (
+            self._client.graph.resolve_candidates(
+                sim_threshold, merge_threshold, node_type
+            )
+            or []
+        )
+
     def prune_by_lifecycle(
         self, max_age_secs: int = 0, min_score: float = 0.0
     ) -> dict[str, Any]:

@@ -716,6 +716,14 @@ class KGTraceBackend(TraceBackend):
         self.backend = backend
         self._traces: dict[str, dict[str, Any]] = {}
         self._max_traces = max_traces  # bound in-memory mirror (oldest evicted)
+        # Optional fast hook fired when a ROOT trace completes (set by the
+        # OnlineScoringSampler, CONCEPT:AHE-3.64). Receives the trace_id; must only
+        # schedule/enqueue — never run the judge inline (keeps the hot path fast).
+        self.on_trace_complete: Any = None
+
+    def get_trace(self, trace_id: str) -> dict[str, Any] | None:
+        """The full in-memory entry ``{trace, spans, generations}`` for a trace id."""
+        return self._traces.get(trace_id)
 
     def _evict_if_needed(self) -> None:
         # FIFO retention so an always-on in-memory mirror can't grow unbounded.
@@ -739,6 +747,8 @@ class KGTraceBackend(TraceBackend):
         input_tokens: int = 0,
         output_tokens: int = 0,
         tags: list[str] | None = None,
+        input_text: str = "",
+        output_text: str = "",
     ) -> None:
         """Incrementally record ONE trace/span/generation event (CONCEPT:OS-5.68).
 
@@ -771,11 +781,15 @@ class KGTraceBackend(TraceBackend):
             trace.status = "error"
         if is_root:
             trace.latency_ms = latency_ms
+            if input_text:
+                trace.input = input_text[:4000]
+            if output_text:
+                trace.output = output_text[:4000]
 
-        # Persist/refresh the trace node on creation OR when its status just flipped to
-        # error, so the persisted snapshot reflects the final status (not a stale "ok").
+        # Persist/refresh the trace node on creation OR when the root completes (status
+        # flip / input-output now known), so the snapshot reflects the final state.
         if (
-            (new_trace or error)
+            (new_trace or error or is_root)
             and self.backend is not None
             and hasattr(self.backend, "add_node")
         ):
@@ -785,6 +799,15 @@ class KGTraceBackend(TraceBackend):
                 logger.debug("KGTraceBackend trace persist failed: %s", exc)
 
         if is_root:
+            # Root span = trace finished. Fire the completion hook (best-effort, fast —
+            # the hook only schedules/enqueues; it must NOT run the judge inline, so a
+            # traced call never pays scoring latency). CONCEPT:AHE-3.64.
+            cb = getattr(self, "on_trace_complete", None)
+            if callable(cb):
+                try:
+                    cb(trace_id)
+                except Exception as exc:  # pragma: no cover - best-effort
+                    logger.debug("on_trace_complete hook failed: %s", exc)
             return
 
         if kind == "llm":

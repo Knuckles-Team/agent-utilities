@@ -89,6 +89,67 @@ def _tracing_active() -> bool:
     return bool(config.langfuse_secret_key) or _kg_trace_sink is not None
 
 
+_TRACING_MODEL_CLS: Any = None
+
+
+def _tracing_model_cls() -> Any:
+    """Lazily build (once) the WrapperModel subclass that emits a GenerationNode per LLM
+    request. WrapperModel is a delegating ``Model`` subclass, so ``isinstance(.., Model)``
+    still holds — the safe way to instrument the model without breaking pydantic-ai."""
+    global _TRACING_MODEL_CLS
+    if _TRACING_MODEL_CLS is not None:
+        return _TRACING_MODEL_CLS
+    try:
+        from pydantic_ai.models.wrapper import WrapperModel
+    except Exception:  # pragma: no cover - pydantic-ai optional
+        return None
+
+    class _TracingModel(WrapperModel):  # type: ignore[misc, valid-type]
+        async def request(self, messages: Any, model_settings: Any, mrp: Any) -> Any:
+            t0 = time.time()
+            resp = await super().request(messages, model_settings, mrp)
+            sink = _kg_trace_sink
+            if sink is not None and hasattr(sink, "record_event"):
+                try:
+                    u = getattr(resp, "usage", None)
+                    sink.record_event(
+                        trace_id=_current_trace_id.get() or f"trace:{uuid.uuid4()}",
+                        span_id=f"gen:{uuid.uuid4()}",
+                        name="llm.request",
+                        is_root=False,
+                        kind="llm",
+                        parent_span_id=_current_span_id.get(),
+                        model=getattr(self, "model_name", None),
+                        input_tokens=int(getattr(u, "input_tokens", 0) or 0),
+                        output_tokens=int(getattr(u, "output_tokens", 0) or 0),
+                        latency_ms=(time.time() - t0) * 1000,
+                    )
+                except Exception as exc:  # pragma: no cover - capture is best-effort
+                    logger.debug("per-call generation capture failed: %s", exc)
+            return resp
+
+    _TRACING_MODEL_CLS = _TracingModel
+    return _TRACING_MODEL_CLS
+
+
+def wrap_model_for_tracing(model: Any) -> Any:
+    """Wrap a pydantic-ai ``Model`` so EVERY LLM request persists a ``GenerationNode``
+    (model/tokens/cost/latency) to the KG trace sink — the always-on per-call capture
+    (CONCEPT:OS-5.68). Returns the model UNCHANGED when no sink is installed (zero
+    overhead) or WrapperModel is unavailable. Non-streaming requests only; streaming
+    delegates untouched."""
+    if _kg_trace_sink is None:
+        return model
+    cls = _tracing_model_cls()
+    if cls is None:
+        return model
+    try:
+        return cls(model)
+    except Exception as exc:  # pragma: no cover - never break model construction
+        logger.debug("model tracing wrap failed: %s", exc)
+        return model
+
+
 def set_session_id(session_id: str) -> None:
     """Set the current Langfuse session ID for trace grouping.
 
@@ -407,6 +468,9 @@ def _emit_trace(
                 input_tokens=int(md.get("input_tokens", 0) or 0),
                 output_tokens=int(md.get("output_tokens", 0) or 0),
                 tags=tags,
+                # Root input/output text — what online-scoring/regression judges against.
+                input_text=str(input_data)[:4000] if is_root else "",
+                output_text=str(output_data)[:4000] if is_root else "",
             )
         except Exception as e:  # pragma: no cover - tracing must never break callers
             logger.debug("KG trace emit failed: %s", e)
