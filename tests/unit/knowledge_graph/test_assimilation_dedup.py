@@ -139,3 +139,20 @@ def test_uses_engine_batch_op_when_present():
     report = dedup_features(engine, similar_threshold=0.8, dup_threshold=0.95)
     assert report.similar_pairs == 1  # zzz pair filtered to candidate set
     assert report.duplicates_superseded == 1
+
+
+def test_version_variants_linked_not_superseded():
+    # AHE-3.70: "Llama 2" and "Llama 3" are siblings (version variants) — they must
+    # be LINKED as VARIANT_OF, NOT merged/superseded as duplicates.
+    engine = _Engine(
+        {
+            "v2": {**_feat([1.0, 0.0, 0.0], importance=0.9), "name": "Llama 2"},
+            "v3": {**_feat([0.0, 1.0, 0.0], importance=0.3), "name": "Llama 3"},
+        }
+    )
+    report = dedup_features(engine, similar_threshold=0.8, dup_threshold=0.95)
+    assert report.variants_linked == 1
+    assert report.duplicates_superseded == 0
+    var = [e for e in engine.edges if e[2] == "VARIANT_OF"]
+    assert len(var) == 1
+    assert {var[0][0], var[0][1]} == {"v2", "v3"}

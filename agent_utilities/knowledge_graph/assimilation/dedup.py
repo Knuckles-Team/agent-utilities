@@ -49,6 +49,8 @@ class DedupReport:
     # entropy-gated name-resolution fast-path (CONCEPT:AHE-3.69)
     name_resolved_pairs: int = 0
     low_entropy_skipped: int = 0
+    # version-variant pairs LINKED (not merged) as VARIANT_OF (CONCEPT:AHE-3.70)
+    variants_linked: int = 0
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -237,6 +239,24 @@ def dedup_features(
                 b,
                 RegistryEdgeType.SIMILAR_TO,
                 properties={"_rel": "SIMILAR_TO", "score": round(score, 6)},
+            )
+
+    # Version-variant pairs are LINKED as VARIANT_OF, never merged (CONCEPT:AHE-3.70):
+    # a base and its versioned sibling are distinct entities with a real relationship.
+    for base, variant, score, _kind in name_res.variants:
+        if restrict_to and base not in restrict_to and variant not in restrict_to:
+            continue
+        report.variants_linked += 1
+        if write:
+            engine.link_nodes(
+                base,
+                variant,
+                RegistryEdgeType.VARIANT_OF,
+                properties={
+                    "_rel": "VARIANT_OF",
+                    "concept": "AHE-3.70",
+                    "score": round(score, 6),
+                },
             )
 
     dup_pairs = [(a, b, s) for a, b, s in pairs if s >= dup_threshold] + name_dup_pairs
