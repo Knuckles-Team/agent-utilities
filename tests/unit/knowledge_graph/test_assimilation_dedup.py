@@ -91,6 +91,39 @@ def test_ignores_untyped_and_unembedded_nodes():
     assert report.similar_pairs == 0
 
 
+def test_name_resolution_merges_despite_disagreeing_embeddings():
+    # AHE-3.69: f1 & f2 are the SAME entity by name but their embeddings are
+    # orthogonal (cosine 0 < dup_threshold), so the embedding path alone would
+    # NOT merge them. The entropy-gated name fast-path must.
+    engine = _Engine(
+        {
+            "f1": {**_feat([1.0, 0.0, 0.0], importance=0.9), "name": "Kubernetes"},
+            "f2": {**_feat([0.0, 1.0, 0.0], importance=0.3), "name": "kubernetes"},
+            "f3": {**_feat([0.0, 0.0, 1.0]), "name": "PostgreSQL"},
+        }
+    )
+    report = dedup_features(engine, similar_threshold=0.8, dup_threshold=0.95)
+    assert report.name_resolved_pairs == 1  # f1~f2 by name
+    assert report.duplicates_superseded == 1
+    assert report.survivors == ["f1"]  # higher importance survives
+    sup = [e for e in engine.edges if e[2] == "SUPERSEDES"]
+    assert sup == [("f1", "f2", "SUPERSEDES", sup[0][3])]
+
+
+def test_name_resolution_skips_generic_low_entropy_names():
+    # Two nodes both named "System" with orthogonal embeddings must NOT merge.
+    engine = _Engine(
+        {
+            "a": {**_feat([1.0, 0.0, 0.0]), "name": "System"},
+            "b": {**_feat([0.0, 1.0, 0.0]), "name": "System"},
+        }
+    )
+    report = dedup_features(engine, similar_threshold=0.8, dup_threshold=0.95)
+    assert report.name_resolved_pairs == 0
+    assert report.low_entropy_skipped == 2
+    assert report.duplicates_superseded == 0
+
+
 def test_uses_engine_batch_op_when_present():
     nodes = {"f1": _feat([1.0, 0.0]), "f2": _feat([0.2, 0.9])}
 

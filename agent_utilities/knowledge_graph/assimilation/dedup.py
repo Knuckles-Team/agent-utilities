@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ...models.knowledge_graph import RegistryEdgeType, RegistryNodeType
+from .entity_resolution import resolve_entities
 
 _DEFAULT_TYPES: tuple[str, ...] = (
     RegistryNodeType.SDD_FEATURE.value,
@@ -45,6 +46,9 @@ class DedupReport:
     clusters: int = 0
     duplicates_superseded: int = 0
     survivors: list[str] = field(default_factory=list)
+    # entropy-gated name-resolution fast-path (CONCEPT:AHE-3.69)
+    name_resolved_pairs: int = 0
+    low_entropy_skipped: int = 0
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -112,6 +116,9 @@ def _collect(engine: Any, node_types: tuple[str, ...]) -> dict[str, dict[str, An
         out[nid] = {
             "vec": list(emb),
             "importance": float(data.get("importance_score", 0.0) or 0.0),
+            "name": str(
+                data.get("name") or data.get("label") or data.get("title") or nid
+            ),
         }
     return out
 
@@ -211,7 +218,28 @@ def dedup_features(
                 properties={"_rel": "SIMILAR_TO", "score": round(s, 6)},
             )
 
-    dup_pairs = [(a, b, s) for a, b, s in pairs if s >= dup_threshold]
+    # Entropy-gated name-resolution fast-path (CONCEPT:AHE-3.69): merge entities
+    # whose normalized names match exactly or fuzzy-match (MinHash/LSH Jaccard) —
+    # LLM-free and embedding-independent, so it catches same-entity duplicates even
+    # when their vectors disagree (cosine < dup_threshold). Generic low-entropy
+    # names are deliberately NOT merged here; they stay on the embedding path.
+    name_res = resolve_entities([(nid, str(nodes[nid]["name"])) for nid in sorted(ids)])
+    report.name_resolved_pairs = len(name_res.merge_pairs)
+    report.low_entropy_skipped = name_res.low_entropy
+    name_dup_pairs: list[tuple[str, str, float]] = []
+    for a, b, score, _tier in name_res.merge_pairs:
+        if restrict_to and a not in restrict_to and b not in restrict_to:
+            continue
+        name_dup_pairs.append((a, b, score))
+        if write:
+            engine.link_nodes(
+                a,
+                b,
+                RegistryEdgeType.SIMILAR_TO,
+                properties={"_rel": "SIMILAR_TO", "score": round(score, 6)},
+            )
+
+    dup_pairs = [(a, b, s) for a, b, s in pairs if s >= dup_threshold] + name_dup_pairs
     clusters = _clusters(list(ids), dup_pairs)
     report.clusters = len(clusters)
     for cluster in clusters:
