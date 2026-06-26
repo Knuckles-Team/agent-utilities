@@ -29,13 +29,19 @@ from agent_utilities.mcp import kg_server
 def register_analyze_suite_tools(mcp: Any) -> None:
     """Register the focused analyze-suite tools on the FastMCP server."""
 
-    async def _delegate(action: str, query: str, top_k: int, node_id: str, depth: int, target: str) -> Any:
+    async def _delegate(
+        action: str, query: str, top_k: int, node_id: str, depth: int, target: str
+    ) -> Any:
         # One core: every facade routes the SAME action set through _execute_tool, which
         # resolves FieldInfo defaults exactly like an MCP invocation. No second handler.
         return await kg_server._execute_tool(
             "graph_analyze",
-            action=action, query=query, top_k=top_k,
-            node_id=node_id, depth=depth, target=target,
+            action=action,
+            query=query,
+            top_k=top_k,
+            node_id=node_id,
+            depth=depth,
+            target=target,
         )
 
     @mcp.tool(
@@ -56,12 +62,23 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         tags=["graph-os", "code"],
     )
     async def graph_code(
-        action: str = Field(default="code_context", description="code_context | cross_repo_usages | call_graph | similar_code | routes | change_coupling | blast_radius | code_metrics | arch_report | adr"),
-        query: str = Field(default="", description="Question / area / symbol name / repo path."),
+        action: str = Field(
+            default="code_context",
+            description="code_context | cross_repo_usages | call_graph | similar_code | routes | change_coupling | blast_radius | code_metrics | arch_report | adr",
+        ),
+        query: str = Field(
+            default="", description="Question / area / symbol name / repo path."
+        ),
         top_k: int = Field(default=10, description="Result count."),
-        node_id: str = Field(default="", description="Symbol/:Code node id (call_graph, similar_code, blast_radius)."),
+        node_id: str = Field(
+            default="",
+            description="Symbol/:Code node id (call_graph, similar_code, blast_radius).",
+        ),
         depth: int = Field(default=2, description="Traversal depth (blast_radius)."),
-        target: str = Field(default="", description="how|usage|impact (code_context) or callees|callers|inherits (call_graph)."),
+        target: str = Field(
+            default="",
+            description="how|usage|impact (code_context) or callees|callers|inherits (call_graph).",
+        ),
     ) -> str:
         """Code intelligence over the ingested, resolved code graph."""
         return await _delegate(action, query, top_k, node_id, depth, target)
@@ -80,7 +97,10 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         tags=["graph-os", "research"],
     )
     async def graph_research(
-        action: str = Field(default="synthesize", description="synthesize | deep_extract | background_research | relevance_sweep | research_ingest | evolve_variants | track_citations | spawn_background"),
+        action: str = Field(
+            default="synthesize",
+            description="synthesize | deep_extract | background_research | relevance_sweep | research_ingest | evolve_variants | track_citations | spawn_background",
+        ),
         query: str = Field(default="", description="Source / topic / artifact."),
         top_k: int = Field(default=10, description="Complexity budget / result count."),
         node_id: str = Field(default="", description="Optional node id."),
@@ -105,8 +125,14 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         tags=["graph-os", "evaluate"],
     )
     async def graph_evaluate(
-        action: str = Field(default="evaluate", description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | evolve_model | forecast | causal | invariant"),
-        query: str = Field(default="", description="Subject of the evaluation (JSON / id / start state)."),
+        action: str = Field(
+            default="evaluate",
+            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | evolve_model | forecast | causal | invariant",
+        ),
+        query: str = Field(
+            default="",
+            description="Subject of the evaluation (JSON / id / start state).",
+        ),
         top_k: int = Field(default=10, description="Steps / result count."),
         node_id: str = Field(default="", description="Optional node id."),
         depth: int = Field(default=2, description="Optional depth."),
@@ -134,7 +160,9 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         top_k: int = Field(default=10, description="Result count."),
         node_id: str = Field(default="", description="Optional anchor node id."),
         depth: int = Field(default=2, description="Optional depth."),
-        target: str = Field(default="", description="'domain:intent' | bare intent | 'domains'."),
+        target: str = Field(
+            default="", description="'domain:intent' | bare intent | 'domains'."
+        ),
     ) -> str:
         """One grounded, cited answer per question, routed to the right domain provider."""
         return await _delegate(action, query, top_k, node_id, depth, target)
@@ -153,8 +181,14 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         tags=["graph-os", "observe", "eval"],
     )
     async def graph_observe(
-        action: str = Field(default="trace_rootcause", description="trace_rootcause | prompt_regression | failure_cluster"),
-        query: str = Field(default="", description="Optional agent/capability filter (trace_rootcause)."),
+        action: str = Field(
+            default="trace_rootcause",
+            description="trace_rootcause | prompt_regression | failure_cluster",
+        ),
+        query: str = Field(
+            default="",
+            description="Optional agent/capability filter (trace_rootcause).",
+        ),
         top_k: int = Field(default=20, description="Max rows/clusters."),
     ) -> str:
         """Observability + eval analytics over the trace/score subgraph (KG-2.257)."""
