@@ -407,6 +407,9 @@ def _emit_trace(
                 input_tokens=int(md.get("input_tokens", 0) or 0),
                 output_tokens=int(md.get("output_tokens", 0) or 0),
                 tags=tags,
+                # Root input/output text — what online-scoring/regression judges against.
+                input_text=str(input_data)[:4000] if is_root else "",
+                output_text=str(output_data)[:4000] if is_root else "",
             )
         except Exception as e:  # pragma: no cover - tracing must never break callers
             logger.debug("KG trace emit failed: %s", e)
