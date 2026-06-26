@@ -221,7 +221,7 @@
     ],
     "chat_models": [
         {
-            "id": "qwen/qwen3.5-9b",
+            "id": "qwen/qwen3.6-35b-a3b",
             "provider": "openai",
             "base_url": "http://vllm.arpa/v1",
             "supports_json": false,
@@ -229,7 +229,7 @@
             "reasoning": true,
             "tools_enabled": true,
             "parallel_instances": 3,
-            "context_window": 256000,
+            "context_window": 262144,
             "intelligence_level": "normal",
             "can_route": true,
             "can_kg": true

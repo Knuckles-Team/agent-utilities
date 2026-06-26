@@ -224,7 +224,7 @@ def _create_model_impl(
             if base_url is None:
                 base_url = _resolved.base_url
 
-    _model_id = model_id or "qwen/qwen3.5-9b"
+    _model_id = model_id or "qwen/qwen3.6-35b-a3b"
     _provider = provider or "openai"
 
     # Check if this model is defined in models.json, and override settings if so
