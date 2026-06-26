@@ -285,7 +285,7 @@ no streaming surface.
 flowchart LR
     TASK[":Task enqueued / claimed\n(__control__)"] -->|engine CDC commit| FEED["engine change-feed\n(watch/cdc_read)"]
     FEED -->|push| SUB["EngineSubscription\n(KG-2.253)"]
-    SUB -->|pending > 0| RX["_tick_fleet_autoscale_reactive\n(5s, cheap poll)"]
+    SUB -->|pending| RX["_tick_fleet_autoscale_reactive\n(5s, cheap poll)"]
     RX --> EVAL["autoscale_fleet → ActionPolicy → actuator"]
     TIMER["_tick_fleet_autoscaler\n(60s safety net)"] --> EVAL
 ```
