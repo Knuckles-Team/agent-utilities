@@ -41,10 +41,12 @@ def _trace_agents(backend: Any) -> dict[str, dict[str, Any]]:
         "MATCH (t) WHERE t.type = 'trace' "
         "RETURN t.id AS id, t.agent AS agent, t.status AS status, t.name AS name",
     )
-    return {r.get("id"): r for r in rows if r.get("id")}
+    return {str(r.get("id")): r for r in rows if r.get("id")}
 
 
-def trace_rootcause(backend: Any, capability: str = "", top_k: int = 20) -> dict[str, Any]:
+def trace_rootcause(
+    backend: Any, capability: str = "", top_k: int = 20
+) -> dict[str, Any]:
     """FAILED assertions + low online-scores joined to their trace's agent (KG-2.257)."""
     traces = _trace_agents(backend)
     fails = _rows(
@@ -59,7 +61,7 @@ def trace_rootcause(backend: Any, capability: str = "", top_k: int = 20) -> dict
     )
     findings: list[dict[str, Any]] = []
     for f in fails:
-        t = traces.get(f.get("trace_id"), {})
+        t = traces.get(str(f.get("trace_id")), {})
         findings.append(
             {
                 "trace_id": f.get("trace_id"),
@@ -70,7 +72,7 @@ def trace_rootcause(backend: Any, capability: str = "", top_k: int = 20) -> dict
             }
         )
     for s in lows:
-        t = traces.get(s.get("trace_id"), {})
+        t = traces.get(str(s.get("trace_id")), {})
         findings.append(
             {
                 "trace_id": s.get("trace_id"),
@@ -80,7 +82,9 @@ def trace_rootcause(backend: Any, capability: str = "", top_k: int = 20) -> dict
             }
         )
     if capability:
-        findings = [f for f in findings if capability.lower() in str(f["agent"]).lower()]
+        findings = [
+            f for f in findings if capability.lower() in str(f["agent"]).lower()
+        ]
     by_agent = Counter(f["agent"] for f in findings)
     return {
         "findings": findings[:top_k],
@@ -103,23 +107,34 @@ def prompt_regression(backend: Any, top_k: int = 20) -> dict[str, Any]:
     )
     score_by_trace: dict[str, list[float]] = defaultdict(list)
     for s in scores:
+        tid, raw = s.get("trace_id"), s.get("score")
+        if tid is None or raw is None:
+            continue
         try:
-            score_by_trace[s.get("trace_id")].append(float(s.get("score")))
+            score_by_trace[str(tid)].append(float(raw))
         except (TypeError, ValueError):
             continue
     per_version: dict[str, list[float]] = defaultdict(list)
     for g in gens:
-        per_version[g.get("pv")].extend(score_by_trace.get(g.get("trace_id"), []))
+        pv = g.get("pv")
+        if pv is None:
+            continue
+        per_version[str(pv)].extend(score_by_trace.get(str(g.get("trace_id")), []))
     summary = {
         pv: {"mean_score": round(sum(v) / len(v), 4), "n": len(v)}
         for pv, v in per_version.items()
         if v
     }
     ranked = sorted(summary.items(), key=lambda kv: kv[1]["mean_score"])
-    return {"by_version": dict(ranked[:top_k]), "worst": ranked[0][0] if ranked else None}
+    return {
+        "by_version": dict(ranked[:top_k]),
+        "worst": ranked[0][0] if ranked else None,
+    }
 
 
-def failure_cluster(backend: Any, min_agents: int = 1, top_k: int = 20) -> dict[str, Any]:
+def failure_cluster(
+    backend: Any, min_agents: int = 1, top_k: int = 20
+) -> dict[str, Any]:
     """Failing traces clustered by the assertion that failed — systemic breaks (KG-2.257)."""
     traces = _trace_agents(backend)
     fails = _rows(
@@ -130,11 +145,11 @@ def failure_cluster(backend: Any, min_agents: int = 1, top_k: int = 20) -> dict[
     clusters: dict[str, set[str]] = defaultdict(set)
     counts: Counter[str] = Counter()
     for f in fails:
-        key = f.get("assertion") or "?"
+        key = str(f.get("assertion") or "?")
         counts[key] += 1
-        t = traces.get(f.get("trace_id"), {})
-        clusters[key].add(t.get("agent") or t.get("name") or f.get("trace_id"))
-    out = [
+        t = traces.get(str(f.get("trace_id")), {})
+        clusters[key].add(str(t.get("agent") or t.get("name") or f.get("trace_id")))
+    out: list[dict[str, Any]] = [
         {"assertion": k, "failures": counts[k], "agents": sorted(clusters[k])}
         for k in counts
         if len(clusters[k]) >= min_agents

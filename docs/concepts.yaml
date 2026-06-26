@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 513
+total_concepts: 516
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3653,6 +3653,7 @@ concepts:
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/automation/research_pipeline.py
   - agent_utilities/knowledge_graph/assimilation/concept_matcher.py
   - agent_utilities/knowledge_graph/assimilation/feature_matrix.py
   - agent_utilities/knowledge_graph/assimilation/gap_analysis.py
@@ -3661,14 +3662,14 @@ concepts:
   - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: fetch only the requested ids per-id — avoids the
 - id: KG-2.194
-  name: so a cohort ingests
+  name: so a cohort
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/automation/research_pipeline.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/research/cohort.py
-  doc: so a cohort ingests
+  doc: so a cohort
 - id: KG-2.203
   name: tolerant of every shape this value arrives in
   pillar: KG-2
@@ -5511,6 +5512,27 @@ concepts:
   - agent_utilities/harness/tracing.py
   - agent_utilities/models/knowledge_graph.py
   doc: Returns the model UNCHANGED when no sink is installed
+- id: OS-5.69
+  name: /70/71
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/ingest_profile.py
+  doc: /70/71
+- id: OS-5.70
+  name: OS-5.70
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/ingest_profile.py
+  doc: OS-5.70
+- id: OS-5.71
+  name: OS-5.71
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/ingest_profile.py
+  doc: OS-5.71
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

@@ -483,11 +483,13 @@ class LoopController:
             synergy_bundles,
         )
         from ..assimilation.gap_analysis import _CONCEPT_TYPES, _FEATURE_TYPES
+        from ..core.ingest_profile import stage as _pstage  # OS-5.70 per-stage timing
 
         # Feature dedup is a WHOLE-GRAPH ecosystem op (SUPERSEDES clustering); skip it
         # for a SCOPED (cohort) pass (CONCEPT:KG-2.193) so finalize stays O(cohort) —
         # a cohort's matrix doesn't need ecosystem-wide dedup.
-        dedup = None if restrict_to is not None else dedup_features(self.engine)
+        with _pstage("dedup"):
+            dedup = None if restrict_to is not None else dedup_features(self.engine)
         # Ensure the ecosystem Concept registry is embedded so the matcher's
         # retrieval stage has vectors (idempotent; skips already-embedded). Then
         # the robust ConceptMatcher (id + embedding-recall + LLM-judge) decides
@@ -498,18 +500,21 @@ class LoopController:
         # ecosystem-wide once, and the matcher recalls from the engine HNSW; a cohort
         # finalize must not re-scan the whole graph (which resets the socket at scale).
         if restrict_to is None:
-            enrich_concepts(self.engine)
-        gap = ConceptMatcher().satisfy(
-            self.engine,
-            feature_types=_FEATURE_TYPES,
-            concept_types=_CONCEPT_TYPES,
-            restrict_to=restrict_to,
-        )
-        syn = synergy_bundles(self.engine, restrict_to=restrict_to)
-        ranked = rank_features(
-            self.engine,
-            feature_ids=(list(restrict_to) if restrict_to is not None else None),
-        )
+            with _pstage("enrich_concepts"):
+                enrich_concepts(self.engine)
+        with _pstage("satisfy"):
+            gap = ConceptMatcher().satisfy(
+                self.engine,
+                feature_types=_FEATURE_TYPES,
+                concept_types=_CONCEPT_TYPES,
+                restrict_to=restrict_to,
+            )
+        with _pstage("synergy_rank"):
+            syn = synergy_bundles(self.engine, restrict_to=restrict_to)
+            ranked = rank_features(
+                self.engine,
+                feature_ids=(list(restrict_to) if restrict_to is not None else None),
+            )
 
         # Materialize the comparative feature/innovation matrix from the now-
         # assimilated graph (CONCEPT:KG-2.173) — default-ON so every cycle emits the
@@ -521,12 +526,15 @@ class LoopController:
 
             from ..assimilation.feature_matrix import build_feature_matrix, materialize
 
-            matrix = build_feature_matrix(
-                self.engine,
-                generated_at=datetime.now(UTC).isoformat(),
-                restrict_to=restrict_to,
-            )
-            matrix_summary = materialize(self.engine, matrix, node_id=matrix_node_id)
+            with _pstage("matrix"):
+                matrix = build_feature_matrix(
+                    self.engine,
+                    generated_at=datetime.now(UTC).isoformat(),
+                    restrict_to=restrict_to,
+                )
+                matrix_summary = materialize(
+                    self.engine, matrix, node_id=matrix_node_id
+                )
         except Exception as e:  # noqa: BLE001 — best-effort, never fails the cycle
             logger.debug("feature matrix materialize failed: %s", e)
 
@@ -1273,9 +1281,17 @@ def run_assimilation_pass(
         from ..core.engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
-    rep = LoopController(engine)._run_assimilate(
-        force=force, restrict_to=restrict_to, matrix_node_id=matrix_node_id
-    )
+    # OS-5.71 — the assimilation pass runs OFF the task queue, so profile it under a
+    # contextvar span (capturing enrich-embeds + matcher LLM-judges automatically)
+    # and persist it as a :ProfileSpan so profile_report covers it like any lane.
+    from ..core.ingest_profile import profile_ingest, record_offqueue_span
+
+    with profile_ingest("assimilate") as _prof:
+        rep = LoopController(engine)._run_assimilate(
+            force=force, restrict_to=restrict_to, matrix_node_id=matrix_node_id
+        )
+    record_offqueue_span(engine, "assimilate", _prof)
+    rep["profile"] = _prof.to_dict()
     # Synthesis is idempotent — plans upsert by ``plan_id`` — so run it whenever a
     # caller asks for it, even if the rank pass was skipped as "unchanged".
     # Previously synthesis was gated behind the rank watermark, so a prior bare
