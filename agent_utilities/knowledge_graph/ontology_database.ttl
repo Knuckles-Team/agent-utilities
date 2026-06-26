@@ -46,6 +46,12 @@
     rdfs:domain :DatabaseColumn ;
     rdfs:range xsd:boolean .
 
+:references a owl:ObjectProperty ;
+    rdfs:label "references" ;
+    rdfs:comment "Links a database view to a table it selects from (CONCEPT:KG-2.212)." ;
+    rdfs:domain :DatabaseView ;
+    rdfs:range :DatabaseTable .
+
 :referencesColumn a owl:ObjectProperty ;
     rdfs:label "references column" ;
     rdfs:comment "Links a column to another column via foreign key relationship." ;
@@ -71,6 +77,11 @@ planners to dynamically reason about data layouts.""" ;
     rdfs:comment "A logical grouping of database tables and relations." ;
     rdfs:subClassOf :TechnologyLayer .
 
+:DatabaseView a owl:Class ;
+    rdfs:label "Database View" ;
+    rdfs:comment "A SQL view (a named query over one or more tables). Extracted from CREATE VIEW DDL (CONCEPT:KG-2.212); its source tables are linked by :references." ;
+    rdfs:subClassOf :ApplicationLayer .
+
 :DatabaseTable a owl:Class ;
     rdfs:label "Database Table" ;
     rdfs:comment "A database table representing a logical data object." ;
@@ -80,15 +91,4 @@ planners to dynamically reason about data layouts.""" ;
     rdfs:label "Database Column" ;
     rdfs:comment "An individual column within a database table." ;
     rdfs:subClassOf :ApplicationLayer .
-
-:DatabaseView a owl:Class ;
-    rdfs:label "Database View" ;
-    rdfs:comment "A SQL view (a named query over one or more tables). Extracted from CREATE VIEW DDL (CONCEPT:KG-2.212); its source tables are linked by :references." ;
-    rdfs:subClassOf :ApplicationLayer .
-
-:references a owl:ObjectProperty ;
-    rdfs:label "references" ;
-    rdfs:comment "Links a database view to a table it selects from (CONCEPT:KG-2.212)." ;
-    rdfs:domain :DatabaseView ;
-    rdfs:range :DatabaseTable .
 
