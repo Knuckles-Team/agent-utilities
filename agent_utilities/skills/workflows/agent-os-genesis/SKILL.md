@@ -11,8 +11,10 @@ description: >
   or "agent-os-genesis".) Step 0 resolves a granular run plan — per platform-dep and
   connector: deploy-container / deploy-baremetal (pypi/uvx) / use-existing / skip —
   plus orchestrator (docker-compose, docker-swarm, podman rootful/rootless,
-  podman-compose, kubernetes), IdP (deploy Keycloak OR wire existing Okta/OIDC),
-  secrets store (OpenBao/HashiCorp Vault, vault-first read+seed), optional enterprise
+  podman-compose, kubernetes), the engine shape + tier (autostart pi-max binary /
+  node-or-full container / cluster remote — the ONE epistemic-graph store, OS-5.63),
+  IdP (deploy Keycloak OR wire existing Okta/OIDC), secrets store (OpenBao/Vault OR
+  the engine's encrypted __secrets__ store, vault-first read+seed), optional enterprise
   root-CA baking, and ontology host (Stardog/Jena/local + upload). Then SSH mesh, cert
   trust, hardware placement, the chosen orchestrator + ingress, GitOps, tiered deploy,
   config.json walkthrough, and KG materialization. Triggers on "day0", "bootstrap the
@@ -118,11 +120,25 @@ that point directly at a host/macvlan IP are preserved: `adguard.arpa`/Technitiu
 This orchestrator is **profile-driven**. Step 0 selects a profile, which gates
 the remaining steps so the same workflow scales from a laptop to a full swarm:
 
-| Profile | Scope | Steps run |
-|---|---|---|
-| **tiny** | One host, **zero external infra** — the KG runs in-process. | Step 0 → Step A1 only (collapses to `agent-utilities/scripts/bootstrap.sh`). |
-| **single-node-prod** | One host, durable: Postgres/pggraph KG + gateway + the `single-node-prod` connector slice + Caddy; optional OpenBao/Langfuse. No swarm. | Step 0, a Caddy/Portainer subset of Step 7, Step 8 (OpenBao optional), Steps A1–A4. |
-| **enterprise** | Full multi-node swarm + all integrations + the entire `*-mcp` fleet. | All steps (1–16 + A1–A6). |
+| Profile | Scope | Engine | Steps run |
+|---|---|---|---|
+| **tiny** | One host, **zero external infra** — the engine is the only moving part. | **`pi-max` tier, auto-started** from a prebuilt wheel (OS-5.63) — a durable, redb-authoritative binary, NOT in-process and NOT a cache. | Step 0 → Step A1 only (collapses to `agent-utilities/scripts/bootstrap.sh`). |
+| **single-node-prod** | One host, durable: the engine container + gateway + the `single-node-prod` connector slice + Caddy; optional pggraph mirror / OpenBao / Langfuse. No swarm. | **`node` tier** (or `full`) — the engine-as-a-DB **container**. | Step 0, a Caddy/Portainer subset of Step 7, Step 8 (OpenBao optional), Steps A1–A4. |
+| **enterprise** | Full multi-node swarm + all integrations + the entire `*-mcp` fleet. | **`cluster` tier** — the engine-as-a-DB container reached as a shared/**remote** engine via `GRAPH_SERVICE_ENDPOINTS`; mirrors fan out. | All steps (1–16 + A1–A6). |
+
+> **The engine is the ONE store at every scale** (CONCEPT:OS-5.63 / KG-2.195). The
+> Rust `epistemic-graph` engine (≥1.0.0) is a full multi-model master-of-all —
+> graph + vector/ANN + SQL + RDF/SPARQL + OWL-2 reasoning + time-series + blob +
+> text + multi-Raft + cross-shard 2PC + streaming/CDC + RLS/encryption-at-rest/
+> audit + federation + GraphQL — **durable, redb-authoritative by default** (an
+> acked write survives a crash; it is **not** a rebuildable cache). There is **no
+> SQLite/LadybugDB tiny store and no L0/L1/L2/L3 tier vocabulary**: tiny just
+> auto-starts the lean `pi-max` engine binary; bigger profiles run a bigger tier of
+> the *same* engine. The **`EngineResolver` (OS-5.63)** auto-provisions it on a
+> single precedence — **remote → share-running-local → autostart the pi-tier
+> binary** — refcounted (self-stops when idle) or `persistent`. Prebuilt **multi-arch
+> wheels** (linux x86_64/aarch64, macOS, windows) mean a Pi `pip install`s and
+> **never compiles**; node/cluster also ship as an **engine-as-a-DB Docker image**.
 
 Each integration is an independent toggle gathered in Step 0 —
 `pggraph`, `kafka`, `openbao`, `keycloak`, `langfuse` — and any step that depends
@@ -178,8 +194,20 @@ profiles, host preflight, the platform deps + MCP `servers` fleet (it references
 **0a. Profile** — `tiny` · `single-node-prod` · `enterprise` (the coarse default that
 pre-fills everything below). Then run the host preflight before touching anything:
 `agent-utilities-doctor --preflight --profile <p>` (or MCP `graph_configure
-action=preflight config_key=<p>`) — **no Rust needed** (engine ships as a wheel);
-Docker/Podman/k8s only above tiny.
+action=preflight config_key=<p>`) — **no Rust needed**: the engine ships as a
+**prebuilt multi-arch wheel** (a Pi never compiles); Docker/Podman/k8s only above tiny.
+
+**0a′. Engine deployment shape + tier** (seeded by the profile, see `genesis.yaml`
+`engine` + per-profile `engine_tier`). The ONE engine is provisioned by the
+`EngineResolver` (OS-5.63) — pick its **shape**: `autostart` (the resolver spins up
+the local binary from the wheel — tiny) · `container` (the engine-as-a-DB Docker
+image — single-node-prod) · `remote` (a shared engine via `GRAPH_SERVICE_ENDPOINTS`
+— enterprise). And its **tier** (which prebuilt feature bundle): `pi` (~6.46MB, lean
+Pi-3) · **`pi-max`** (~6.96MB, all pure-Rust features incl. security/encryption-at-rest;
+the tiny default) · `node` (+SQL/DataFusion/text/wasm-udf; single-node-prod) · `cluster`
+(+raft/pgwire/distributed; enterprise) · `full`. Lifecycle is `refcounted` (auto-stops
+when idle — tiny default) or `persistent` (long-living). A security-feature tier
+(`pi-max`/`node`/`cluster`/`full`) is required for the encrypted secret store (0e).
 
 **0b. Per-capability deploy/reuse/skip matrix** — for each **platform dependency**
 (Postgres/pg-age, ontology store, secrets vault, IdP, ingress proxy, DNS,
@@ -207,9 +235,15 @@ podman is chosen). Mutually exclusive per node.
 to them (sets `AUTH_JWT_JWKS_URI` to their JWKS, provisions the fleet OIDC client);
 keycloak is deployed only when no IdP exists. See Step 8/14.
 
-**0e. Secrets store** — OpenBao/HashiCorp Vault (same Vault API, both first-class) vs
-`.env` fallback. If a Vault is reachable, genesis prefers it and **reads existing
-secrets** before prompting (Step 8, `vault_sync`).
+**0e. Secrets store** — three tiers in precedence: **`vault`** (OpenBao/HashiCorp
+Vault, same API — the enterprise fleet source of truth) · **`engine`** (the engine's
+**encrypted `__secrets__` graph**, CONCEPT:OS-5.66 — the default embedded app-secret
+store: `:Secret` nodes whose values are sealed by the engine's **encryption-at-rest**,
+no local SQLite/disk fallback) · **`env`** (`.env` fallback). If a Vault is reachable
+genesis prefers it and **reads existing secrets** before prompting (Step 8,
+`vault_sync`); otherwise the engine-encrypted store is used. Either way, the engine's
+encryption key (`EPISTEMIC_GRAPH_ENCRYPTION_KEY`) is itself a **genesis-provisioned
+secret** seeded in Step 8 (and the chosen tier must be a security-feature tier — 0a′).
 
 **0f. Enterprise root-CA bundle** (optional) — a PEM path/content for a corporate /
 self-signed CA. If supplied, the cert-trust step (Step 1b) bakes it in everywhere so
@@ -238,12 +272,14 @@ messaging-setup step (Step A4c).
 > select the editable path for development/testing.
 
 - Outputs: `deployment_profile`; `run_plan` {deploy_set, reuse_set, skip_set} with a
-  per-item `install_mode` + `install_variant` ∈ {prod, dev}; `orchestrator` ∈
-  {docker-compose, docker-swarm, podman, podman-compose, kubernetes} (+ `podman_rootless`
-  bool); `idp` ∈ {keycloak, okta, other-oidc} (+ existing JWKS/issuer when not keycloak);
-  `secrets_store` ∈ {vault, env}; `ca_bundle` (optional path); `ontology_host` ∈ {stardog,
-  apache-jena, local}; `messaging` {channels: [...], reach_mode ∈ {last-active, broadcast}};
-  integration toggles {pggraph, kafka, openbao, keycloak, langfuse} (derived from the run plan).
+  per-item `install_mode` + `install_variant` ∈ {prod, dev}; `engine` {shape ∈ {autostart,
+  container, remote}, tier ∈ {pi, pi-max, node, cluster, full}, lifecycle ∈ {refcounted,
+  persistent}}; `orchestrator` ∈ {docker-compose, docker-swarm, podman, podman-compose,
+  kubernetes} (+ `podman_rootless` bool); `idp` ∈ {keycloak, okta, other-oidc} (+ existing
+  JWKS/issuer when not keycloak); `secrets_store` ∈ {vault, engine, env}; `ca_bundle`
+  (optional path); `ontology_host` ∈ {stardog, apache-jena, local}; `messaging` {channels:
+  [...], reach_mode ∈ {last-active, broadcast}}; integration toggles {pggraph, kafka,
+  openbao, keycloak, langfuse} (derived from the run plan).
 - Expected: `run-plan-resolved` — gates every subsequent step (each step honors the
   deploy/reuse/skip action + install variant for the capabilities it touches).
 
@@ -252,9 +288,11 @@ flowchart TD
     P["0a Profile: tiny / single-node / enterprise"] --> Q["0b Per-capability + per-connector: deploy-container / deploy-baremetal / use-existing / skip"]
     Q --> RP[("run_plan: deploy_set / reuse_set / skip_set")]
     P -. seeds defaults .-> Q
+    RP --> EG["0a′ Engine tier+shape: autostart pi-max / node|full container / cluster remote (OS-5.63)"]
     RP --> O["0c Orchestrator: compose / swarm / podman / podman-compose / k8s"]
     RP --> ID["0d IdP: Keycloak deploy or existing Okta/OIDC"]
-    RP --> S["0e Secrets: OpenBao/Vault read+seed or .env"]
+    RP --> S["0e Secrets: OpenBao/Vault or engine __secrets__ read+seed or .env"]
+    EG --> EK["Step 8 EPISTEMIC_GRAPH_ENCRYPTION_KEY seed"]
     RP --> CA["0f Root-CA bundle (optional)"]
     RP --> ON["0g Ontology host: Stardog / Jena / local"]
     O --> M{"Step 5 provisioner"}
@@ -373,15 +411,24 @@ the rest of the run** (honor the Step 0 `secrets_store` + `idp` choices):
   deploy/init/unseal OpenBao (KV2 at `apps/`) **or** wire to an existing Vault
   (`use-existing`). Mint the write-capable `agent-apps-rw` token.
 - **Seed the bootstrap secrets first** (so later automated steps can authenticate):
-  the Vault token, private-registry creds, the IdP client secret, and the DB password.
+  the Vault token, private-registry creds, the IdP client secret, the DB password, and
+  the **engine encryption key `EPISTEMIC_GRAPH_ENCRYPTION_KEY`** (a 32-byte key — generate
+  one if absent — that seals the engine's encrypted `__secrets__` store, CONCEPT:OS-5.66).
   Use `graph_configure action=vault_sync` (CONCEPT:OS-5.43) per service — it **reads
   existing** `apps/<service>` secrets to skip re-prompting and **seeds** only what's
   missing, returning `vault://apps/<service>/<KEY>` refs to drop into config.json
   (Step A1b). When `secrets_store=env`, the same reconcile writes the service `.env`.
+- **Engine-backed secret store (CONCEPT:OS-5.66).** Once the engine encryption key is
+  seeded, the embedded app-secret store *is* the engine: secrets live as `:Secret` nodes
+  in the **`__secrets__` graph**, values sealed by the engine's encryption-at-rest — so no
+  local SQLite/`secrets.db` (a one-time `secrets.db → __secrets__` migration runs if a
+  legacy file is found). This is the default below `enterprise`; OpenBao stays the fleet
+  source of truth when `secrets_store=vault`. The chosen engine tier must carry the
+  `security` feature (`pi-max`/`node`/`cluster`/`full`, Step 0a′).
 - **IdP:** when `idp=keycloak`, deploy Keycloak (OIDC/SAML); when `idp=okta`/`other-oidc`,
   skip the deploy — only capture the existing issuer/JWKS for Step 14/A4.
 - Requires: `openbao-mcp`, `keycloak-mcp` (keycloak deploy only), `graph-os` (vault_sync)
-- Expected: `secrets-store-up, initial-secrets-seeded, idp-resolved`
+- Expected: `secrets-store-up, initial-secrets-seeded, engine-encryption-key-seeded, idp-resolved`
 
 ### Step 9: gitlab-repository-seeder
 [depends_on: Step 8]
@@ -561,6 +608,14 @@ Install agent-utilities dependencies on the target host(s): `uv sync` (or
 redb-authoritative source of truth, no external DB) and run
 `agent-utilities/scripts/bootstrap.sh` (which also runs a KG smoke test) — the
 tiny profile **stops here**.
+- **The engine is a prebuilt wheel, never a compile.** `pip install
+  'agent-utilities[engine]'` pulls `epistemic-graph>=1.0.0` as a **prebuilt multi-arch
+  wheel** (linux x86_64/aarch64, macOS, windows) — even a Raspberry Pi installs in
+  seconds. tiny defaults to the lean **`pi-max`** tier; the `EngineResolver` (OS-5.63)
+  **auto-starts** the engine binary on first use (no separate launch step), shared and
+  reference-counted (`engine_lifecycle=persistent` for a long-living one). Set
+  `EPISTEMIC_GRAPH_ENCRYPTION_KEY` in the `.env` (Step 8) so the engine's encrypted
+  `__secrets__` store (OS-5.66) is active.
 - **Install mode is per Step 0 `install_mode`:** `deploy-baremetal` → `uv tool install
   agent-utilities` (prod) or `pip/uv install -e ".[all]"` (dev/test, editable);
   `deploy-container` → pull the pre-built `graph-os` image (Step A2). Prefer **pypi for
@@ -592,19 +647,27 @@ pinned to the **KG host node (R820)** with `KG_DAEMON_ROLE=host` — it owns the
 single consolidated KG daemon. Also start `mcp-multiplexer` federating graph-os +
 the connector fleet, and (optionally) the REST gateway `graph-os-daemon` (:8100).
 
-**Backend — the engine is a durable source of truth (CONCEPT:KG-2.195).** The
-epistemic-graph engine is the ONE authority: it serves reads, acks writes, AND
-persists durably (**redb-authoritative by default** — built with `--features
-full`, an acked write survives a crash; it is NOT a rebuildable cache). Provision
-graph-os + agent-utilities-messaging with **`GRAPH_BACKEND=fanout`** (engine
-authority + optional mirrors) — `single-node-prod`/`enterprise` use it; the
+**Backend — the engine is the ONE durable multi-model store (CONCEPT:KG-2.195 /
+OS-5.63).** The epistemic-graph engine is the ONE authority: it serves reads, acks
+writes, AND persists durably (**redb-authoritative by default** — an acked write
+survives a crash; it is NOT a rebuildable cache), spanning graph + vector + SQL +
+RDF/SPARQL + OWL-2 + time-series + blob + text + streaming + security under one
+process. **Run the right tier as the engine-as-a-DB container** (multi-arch image,
+linux/amd64+arm64): `single-node-prod` → the **`node`** tier (or `full`) container
+on the KG host; `enterprise` → the **`cluster`** tier (multi-Raft + pgwire +
+cross-shard 2PC) reached as a shared/**remote** engine via `GRAPH_SERVICE_ENDPOINTS`
+(the `EngineResolver` routes to it; it never autostarts a configured remote).
+Provision graph-os + agent-utilities-messaging with **`GRAPH_BACKEND=fanout`**
+(engine authority + optional mirrors) — `single-node-prod`/`enterprise` use it; the
 removed `tiered` value fails bootstrap with "Unknown graph backend type 'tiered'".
 For durable profiles add the pggraph **mirror** (`GRAPH_BACKEND=fanout` +
 `GRAPH_MIRROR_TARGETS=age` + `GRAPH_DB_URI` at the pggraph tier, Step A4) for
-interop/BI/DR. **First-boot migration:** the engine's persist dir is on a durable
-volume, and on its first authoritative boot it runs a one-time `.mp`→redb
-migration (minutes on a large KG; the socket is not bound until it finishes) — see
-the engine binary-promotion runbook for the deploy-time health-start-period.
+interop/BI/DR. Inject **`EPISTEMIC_GRAPH_ENCRYPTION_KEY`** (Step 8) so the engine's
+encrypted `__secrets__` store (OS-5.66) and encryption-at-rest are active.
+**First-boot migration:** the engine's persist dir is on a durable volume, and on
+its first authoritative boot it runs a one-time `.mp`→redb migration (minutes on a
+large KG; the socket is not bound until it finishes) — see the engine
+binary-promotion runbook for the deploy-time health-start-period.
 
 **Multiplexer outbound auth (CONCEPT:OS-5.32):** set `MCP_CLIENT_AUTH=oidc-client-credentials`,
 `OIDC_CLIENT_ID=mcp-multiplexer`, `OIDC_CLIENT_SECRET` (OpenBao ref from Step 13),
@@ -625,7 +688,7 @@ is **co-located on the KG host** so the node-local named volume resolves (or bac
 it with a shared/NFS driver). Thin API-wrapper connectors (github, gitlab,
 servicenow, …) do **not** need it — they take their own creds via stack env.
 - Requires: `graph-os`, `container-manager-mcp`, `portainer-mcp`
-- Expected: `graph-os-up, multiplexer-up, config-volume-seeded`
+- Expected: `graph-os-up, multiplexer-up, config-volume-seeded, engine-tier-deployed`
 
 ### Step A3: mcp-fleet-deploy
 [depends_on: Step A2] (profiles: single-node-prod, enterprise)
