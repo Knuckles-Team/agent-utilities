@@ -85,6 +85,35 @@ _IDLE_POLL_S = 0.25  # how long a drainer waits for new work before re-checking
 _BASE_BACKOFF_S = 0.5  # first retry delay after an apply failure
 _MAX_BACKOFF_S = 30.0  # cap on exponential backoff for an unreachable mirror
 _STALL_THRESHOLD = 5  # consecutive failures before a mirror is flagged "stalled"
+_POISON_DROP_AFTER = 3  # permanent-error confirmations on ONE entry before skipping it
+
+# Substrings (lowercased) that mark an apply failure as PERMANENT — a malformed or
+# dialect-incompatible query that REPLAY can never fix (vs. a transient mirror outage
+# such as a refused connection or timeout, which must keep retrying). A permanent
+# poison entry is dropped after a few confirmations instead of blocking the mirror and
+# spamming the log forever; reconcile() is the backstop for the dropped mutation.
+_PERMANENT_APPLY_ERROR_MARKERS = (
+    "unknown function",  # neo4j: a singular ``label(n)`` against a full-cypher store
+    "missing parameters",  # falkordb: a ``$param`` query reached the mirror unbound
+    "syntaxerror",
+    "syntax error",
+    "invalid input",
+    "invalid syntax",
+    "type mismatch",
+    "neo.clienterror",  # neo4j non-retryable client-side error class
+)
+
+
+def _is_permanent_apply_error(exc: BaseException) -> bool:
+    """True if an outbox-entry apply failed for a reason replay can NEVER fix.
+
+    A malformed / dialect-incompatible query (unknown function, missing parameters,
+    syntax error) fails deterministically on every replay, so retrying it forever
+    only blocks the mirror and floods the log. A transient outage (connection
+    refused, timeout, mirror restarting) is NOT permanent and keeps retrying. Used by
+    the drainer to drop a poison entry instead of stalling (CONCEPT:KG-2.74)."""
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _PERMANENT_APPLY_ERROR_MARKERS)
 
 
 @dataclass
@@ -96,6 +125,12 @@ class _MirrorState:
     consecutive_failures: int = 0
     last_error: str | None = None
     stalled: bool = False
+    # Poison-entry tracking: the seq currently failing with a PERMANENT error and how
+    # many times it has been confirmed, so a malformed entry is skipped (not retried
+    # forever). Reset on any successful apply or when the failing seq changes.
+    poison_seq: int | None = None
+    poison_count: int = 0
+    dropped: int = 0  # poison entries skipped (surfaced by durability_stats)
     wake: threading.Event = field(default_factory=threading.Event)
     thread: Any = None
 
@@ -271,12 +306,45 @@ class FanOutBackend(GraphBackend):
                     st.consecutive_failures = 0
                     st.last_error = None
                     st.stalled = False
+                    st.poison_seq = None
+                    st.poison_count = 0
                     progressed = True
                 except Exception as exc:  # noqa: BLE001 — transient mirror outage
                     st.failures += 1
                     st.consecutive_failures += 1
                     st.last_error = str(exc)
                     st.stalled = st.consecutive_failures >= _STALL_THRESHOLD
+                    # PERMANENT errors (malformed/dialect-incompatible cypher) never
+                    # apply on replay — after a few confirmations on the SAME entry,
+                    # SKIP it (advance the cursor) so the mirror keeps draining instead
+                    # of blocking + spamming the log forever. Transient outages fall
+                    # through and replay after backoff as before. reconcile() repairs
+                    # any dropped mutation (CONCEPT:KG-2.74).
+                    if _is_permanent_apply_error(exc):
+                        if st.poison_seq == entry.seq:
+                            st.poison_count += 1
+                        else:
+                            st.poison_seq = entry.seq
+                            st.poison_count = 1
+                        if st.poison_count >= _POISON_DROP_AFTER:
+                            logger.error(
+                                "FanOutBackend: mirror %s DROPPING poison entry "
+                                "seq=%d op=%s after %d permanent failures "
+                                "(reconcile is the backstop): %s",
+                                mirror,
+                                entry.seq,
+                                entry.op,
+                                st.poison_count,
+                                exc,
+                            )
+                            self._outbox.ack(mirror, entry.seq)
+                            st.dropped += 1
+                            st.poison_seq = None
+                            st.poison_count = 0
+                            st.consecutive_failures = 0
+                            st.stalled = False
+                            progressed = True
+                            continue  # move on to the next entry this pass
                     # Do NOT advance the cursor: the entry replays after backoff.
                     if st.stalled:
                         logger.warning(
@@ -352,6 +420,7 @@ class FanOutBackend(GraphBackend):
                 "consecutive_failures": st.consecutive_failures,
                 "lag": lag,
                 "stalled": st.stalled,
+                "dropped": st.dropped,
                 "last_error": st.last_error,
             }
         return {
