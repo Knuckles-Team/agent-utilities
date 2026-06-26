@@ -1494,10 +1494,10 @@ def register_analysis_tools(mcp):
                 )
 
                 scope = (target or query).strip()
-                report = build_arch_report(engine, scope=scope, top_k=top_k)
+                arch_report = build_arch_report(engine, scope=scope, top_k=top_k)
                 # Persist the report as a durable node (best-effort) so it is
                 # queryable + refreshable, exceeding Graphify's static file.
-                if report.get("status") == "ok":
+                if arch_report.get("status") == "ok":
                     try:
                         rid = f"arch_report:{scope or 'all'}"
                         engine.add_node(
@@ -1505,17 +1505,17 @@ def register_analysis_tools(mcp):
                             {
                                 "label": "ArchitectureReport",
                                 "scope": scope or "all",
-                                "markdown": report["markdown"],
-                                "node_count": report["metrics"]["nodes"],
-                                "community_count": report["metrics"][
+                                "markdown": arch_report["markdown"],
+                                "node_count": arch_report["metrics"]["nodes"],
+                                "community_count": arch_report["metrics"][
                                     "community_count"
                                 ],
                             },
                         )
-                        report["report_node_id"] = rid
+                        arch_report["report_node_id"] = rid
                     except Exception as _e:  # noqa: BLE001
-                        report["persist_warning"] = str(_e)
-                return _json.dumps(report, default=str)
+                        arch_report["persist_warning"] = str(_e)
+                return _json.dumps(arch_report, default=str)
             elif action == "explain":
                 # CONCEPT:KG-2.136 — the universal context plane: route a question
                 # to its DOMAIN provider (code | ops | …) and return one grounded,

@@ -107,9 +107,10 @@ def query_token_series(
     client = getattr(backend, "_client", None)
     if client is None:
         return []
-    sid = backend._series_id(  # noqa: SLF001
-        f"{_TELEMETRY_SERIES_PREFIX}{agent_name or 'unknown'}", None
-    )
+    # The engine series id for a tagless symbol is ``ts:<symbol>`` (the backend's
+    # own keying, KG-2.246); mirror it here so reads hit the same series the writer
+    # appended to.
+    sid = f"ts:{_TELEMETRY_SERIES_PREFIX}{agent_name or 'unknown'}"
     try:
         field_idx = TELEMETRY_TS_FIELDS.index(field)
     except ValueError:

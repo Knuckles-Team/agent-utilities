@@ -181,9 +181,7 @@ class MediaStore:
         try:
             client.edges.add(asset_id, blob_id, {"type": "hasBlob"})
             if message_id:
-                client.edges.add(
-                    asset_id, message_id, {"type": "attachedToMessage"}
-                )
+                client.edges.add(asset_id, message_id, {"type": "attachedToMessage"})
         except Exception as e:  # noqa: BLE001
             logger.debug("[CONCEPT:KG-2.251] media edge link skipped: %s", e)
 
@@ -215,7 +213,9 @@ class MediaStore:
         try:
             props = self._client.nodes.properties(asset_id) or {}
         except Exception as e:  # noqa: BLE001
-            logger.warning("[CONCEPT:KG-2.251] asset lookup failed (%s): %s", asset_id, e)
+            logger.warning(
+                "[CONCEPT:KG-2.251] asset lookup failed (%s): %s", asset_id, e
+            )
             return None
         digest = props.get("content_digest")
         if not digest:
