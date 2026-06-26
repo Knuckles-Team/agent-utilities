@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 504
+total_concepts: 505
 total_pillars: 21
 pillars:
 - AHE-3
@@ -665,6 +665,13 @@ concepts:
   code_paths:
   - agent_utilities/harness/g_eval.py
   doc: AHE-3.65
+- id: AHE-3.67
+  name: → OnlineScoreNode
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/online_scoring.py
+  doc: → OnlineScoreNode
 - id: AHE-3.68
   name: A GenerationNode records
   pillar: AHE-3

@@ -48,11 +48,33 @@ class AutomationRule:
 
 
 @dataclass
+class Metric:
+    """A user-defined Python metric (CONCEPT:AHE-3.67) run on every (sampled) trace inside
+    a resource-bounded sandbox. ``source`` defines ``def metric(trace) -> float`` (0..1);
+    ``trace`` is a dict view {input, output, status, spans, generations}."""
+
+    name: str
+    source: str
+
+
+def _run_metric_source(source: str, trace: dict[str, Any]) -> float:
+    """Module-level (picklable) sandbox entry: compile user ``source``, call its
+    ``metric(trace)``, return a clamped float. Runs INSIDE the sandbox subprocess."""
+    ns: dict[str, Any] = {}
+    exec(source, ns)  # noqa: S102 - executed only inside the resource-bounded sandbox
+    fn = ns.get("metric")
+    if not callable(fn):
+        raise ValueError("metric source must define a callable `metric(trace)`")
+    return max(0.0, min(1.0, float(fn(trace))))
+
+
+@dataclass
 class OnlineScoringSampler:
     """Scores live traces through the shared LLM-judge path (CONCEPT:AHE-3.64)."""
 
     backend: Any  # KGTraceBackend (provides get_trace + add_node/link_nodes via .backend)
     rules: list[AutomationRule] = field(default_factory=list)
+    metrics: list[Metric] = field(default_factory=list)
     eval_corpus: Any = None
     sample_rate: float = 1.0
     filter_fn: Callable[[Any], bool] | None = None
@@ -114,6 +136,21 @@ class OnlineScoringSampler:
             self._persist(node, trace_id)
             written.append(node)
 
+        # 1b) Sandboxed user-defined Python metrics (CONCEPT:AHE-3.67) → OnlineScoreNode.
+        for metric in self.metrics:
+            score, reasoning = self._run_metric(metric, entry)
+            node = OnlineScoreNode(
+                id=f"online_score:{trace_id}:{metric.name}",
+                name=f"{metric.name} metric",
+                trace_id=trace_id,
+                dimension=metric.name,
+                score=score,
+                reasoning=reasoning,
+                evaluator=f"metric:{metric.name}",
+            )
+            self._persist(node, trace_id)
+            written.append(node)
+
         # 2) Regression assertions (same judge) → AssertionResultNode; FAILED feeds back.
         for case in self._matching_cases(trace):
             assertion = getattr(case, "assertion", "") or getattr(
@@ -150,6 +187,39 @@ class OnlineScoringSampler:
                     logger.debug("add_case feedback failed: %s", exc)
         return written
 
+    def _run_metric(self, metric: Metric, entry: dict[str, Any]) -> tuple[float, str]:
+        """Run a user metric over a serialized trace view inside a bounded sandbox."""
+        from agent_utilities.security.sandboxed_executor import (
+            SandboxedExecutor,
+            SandboxLimits,
+        )
+
+        # The wall-clock limit must cover subprocess startup (spawn re-imports the
+        # package), not just the metric body — the metric itself is trivial.
+        limits = SandboxLimits(max_cpu_time_sec=30.0, max_memory_mb=256)
+
+        trace = entry["trace"]
+        view = {
+            "input": getattr(trace, "input", ""),
+            "output": getattr(trace, "output", ""),
+            "status": getattr(trace, "status", "ok"),
+            "spans": [getattr(s, "name", "") for s in entry.get("spans", [])],
+            "generations": [
+                {
+                    "model": getattr(g, "model", None),
+                    "input_tokens": getattr(g, "input_tokens", 0),
+                    "output_tokens": getattr(g, "output_tokens", 0),
+                }
+                for g in entry.get("generations", [])
+            ],
+        }
+        res = SandboxedExecutor(limits=limits).execute(
+            _run_metric_source, metric.source, view
+        )
+        if res.success:
+            return float(res.output or 0.0), f"metric:{metric.name} ok"
+        return 0.0, f"metric:{metric.name} error: {res.error}"
+
     def _matching_cases(self, trace: Any) -> list[Any]:
         """Regression cases whose tags intersect the trace's tags (or untagged = all)."""
         if self.eval_corpus is None:
@@ -183,4 +253,4 @@ class OnlineScoringSampler:
             logger.debug("online-score persist failed: %s", exc)
 
 
-__all__ = ["AutomationRule", "OnlineScoringSampler"]
+__all__ = ["AutomationRule", "Metric", "OnlineScoringSampler"]
