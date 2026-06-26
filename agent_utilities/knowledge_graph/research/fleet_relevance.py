@@ -156,18 +156,13 @@ def grade_fleet(
             "threshold_pct": threshold_pct,
             "considerations": [],
         }
-    wanted = {t.lower() for t in source_types}
-    try:
-        node_iter = graph.nodes(data=True)
-    except TypeError:  # pragma: no cover - non-standard graph
-        node_iter = []
+    # Bounded per-type fetch (CONCEPT:KG-2.261) — never a whole-graph node pull.
+    from ..core.bounded_read import iter_nodes_by_types
+
     considerations: list[dict[str, Any]] = []
     graded = 0
-    for nid, data in node_iter:
-        if (
-            not isinstance(data, dict)
-            or str(data.get("type", "")).lower() not in wanted
-        ):
+    for nid, data in iter_nodes_by_types(graph, *source_types):
+        if not isinstance(data, dict):
             continue
         if graded >= max_sources:
             break
