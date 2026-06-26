@@ -351,6 +351,18 @@ def create_backend(
     backend_type = (
         (backend_type or setting("GRAPH_BACKEND") or "epistemic_graph").lower().strip()
     )
+    # One-time migration for the retired ``tiered`` value (the engine-authority
+    # consolidation removed L0/L1/L2/L3 tiering). A deployment env / config that still
+    # says ``tiered`` maps forward to the self-contained engine authority so it keeps
+    # booting; mirrors are now opt-in via ``fanout`` + GRAPH_MIRROR_TARGETS. Logged so
+    # the operator updates the deployment env (e.g. the swarm service GRAPH_BACKEND).
+    if backend_type == "tiered":
+        logger.warning(
+            "GRAPH_BACKEND='tiered' is retired; mapping to 'epistemic_graph' (the engine "
+            "authority). Set the deployment env to 'epistemic_graph' (or 'fanout' for "
+            "durable mirrors) to silence this."
+        )
+        backend_type = "epistemic_graph"
 
     from .base import GraphBackend
 
