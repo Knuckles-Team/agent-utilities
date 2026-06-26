@@ -295,9 +295,14 @@ def _docker_or_skip(**kw):
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 async def test_docker_runs_class_and_serves_host_bridge_under_no_network():
     # The escalation tier: code monty can't run (a class) reaches the host helpers over the
     # UDS bridge even though the container has --network none.
+    # Spins a REAL Docker container with a 90s sandbox budget; on a saturated box the
+    # container startup + execution can exceed the fast suite's 60s per-test budget, so
+    # (like ``test_docker_timeout_is_fatal``) this real-resource test is marked ``slow``
+    # — excluded from the ``-m "not slow"`` pre-commit gate, exercised in the full run.
     sb = _docker_or_skip(timeout_secs=90)
     calls = {"n": 0}
     sink = {}
@@ -330,7 +335,11 @@ async def test_docker_runs_class_and_serves_host_bridge_under_no_network():
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 async def test_docker_network_is_isolated():
+    # Real Docker container (--network none) with a 60s sandbox budget; same
+    # saturation rationale as the sibling real-Docker tests — marked ``slow`` so
+    # it never flakes the fast ``-m "not slow"`` pre-commit gate under load.
     sb = _docker_or_skip(timeout_secs=60)
     sink = {}
     code = (
