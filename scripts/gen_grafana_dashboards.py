@@ -12,7 +12,10 @@ Dashboards:
     stacks" view.
   * mcp-per-service    — templated by $stack: tool rate/latency/errors, in-flight,
     container CPU/mem, and a Loki logs panel.
-  * host-infra         — node-exporter CPU/mem/disk per host.
+  * host-infra         — node-exporter per host: CPU/mem/load/swap, disk free,
+    disk I/O throughput + IOPS + busy%, and network I/O.
+  * container-resources — cAdvisor per-container (by swarm service): CPU, memory,
+    disk I/O throughput + IOPS, and network I/O. Pairs with the tuned cAdvisor.
 
 Usage: gen_grafana_dashboards.py [--out DIR]
 """
@@ -87,30 +90,48 @@ def _dashboard(uid: str, title: str, panels: list[dict], templating=None) -> dic
 def fleet_overview() -> dict:
     panels = [
         _panel(
-            1, "MCPs scrapeable", "stat",
+            1,
+            "MCPs scrapeable",
+            "stat",
             [_target('count(up{job="mcp-fleet"} == 1)', "up", instant=True)],
             _gp(0, 0, 6, 4),
         ),
         _panel(
-            2, "Health probes passing", "stat",
-            [_target('count(probe_success{job="blackbox-mcp"} == 1)', "ok", instant=True)],
+            2,
+            "Health probes passing",
+            "stat",
+            [
+                _target(
+                    'count(probe_success{job="blackbox-mcp"} == 1)', "ok", instant=True
+                )
+            ],
             _gp(6, 0, 6, 4),
         ),
         _panel(
-            3, "Tool calls/s (fleet)", "stat",
+            3,
+            "Tool calls/s (fleet)",
+            "stat",
             [_target("sum(rate(agent_utilities_mcp_tool_calls_total[5m]))", "calls/s")],
-            _gp(12, 0, 6, 4), unit="reqps",
+            _gp(12, 0, 6, 4),
+            unit="reqps",
         ),
         _panel(
-            4, "Tool errors/s (fleet)", "stat",
-            [_target(
-                'sum(rate(agent_utilities_mcp_tool_calls_total{outcome="error"}[5m]))',
-                "errors/s",
-            )],
-            _gp(18, 0, 6, 4), unit="reqps",
+            4,
+            "Tool errors/s (fleet)",
+            "stat",
+            [
+                _target(
+                    'sum(rate(agent_utilities_mcp_tool_calls_total{outcome="error"}[5m]))',
+                    "errors/s",
+                )
+            ],
+            _gp(18, 0, 6, 4),
+            unit="reqps",
         ),
         _panel(
-            5, "Per-MCP scrape + probe status", "table",
+            5,
+            "Per-MCP scrape + probe status",
+            "table",
             [
                 _target('up{job="mcp-fleet"}', "", instant=True),
                 _target('probe_success{job="blackbox-mcp"}', "", instant=True),
@@ -118,47 +139,72 @@ def fleet_overview() -> dict:
             _gp(0, 4, 24, 7),
         ),
         _panel(
-            6, "Request rate by stack", "timeseries",
-            [_target(
-                "sum by (stack) (rate(agent_utilities_mcp_tool_calls_total[5m]))",
-                "{{stack}}",
-            )],
-            _gp(0, 11, 12, 8), unit="reqps",
+            6,
+            "Request rate by stack",
+            "timeseries",
+            [
+                _target(
+                    "sum by (stack) (rate(agent_utilities_mcp_tool_calls_total[5m]))",
+                    "{{stack}}",
+                )
+            ],
+            _gp(0, 11, 12, 8),
+            unit="reqps",
         ),
         _panel(
-            7, "Error rate by stack", "timeseries",
-            [_target(
-                'sum by (stack) (rate(agent_utilities_mcp_tool_calls_total{outcome="error"}[5m]))',
-                "{{stack}}",
-            )],
-            _gp(12, 11, 12, 8), unit="reqps",
+            7,
+            "Error rate by stack",
+            "timeseries",
+            [
+                _target(
+                    'sum by (stack) (rate(agent_utilities_mcp_tool_calls_total{outcome="error"}[5m]))',
+                    "{{stack}}",
+                )
+            ],
+            _gp(12, 11, 12, 8),
+            unit="reqps",
         ),
         _panel(
-            8, "p95 tool latency by stack", "timeseries",
-            [_target(
-                "histogram_quantile(0.95, sum by (stack, le) "
-                "(rate(agent_utilities_mcp_tool_duration_seconds_bucket[5m])))",
-                "{{stack}}",
-            )],
-            _gp(0, 19, 12, 8), unit="s",
+            8,
+            "p95 tool latency by stack",
+            "timeseries",
+            [
+                _target(
+                    "histogram_quantile(0.95, sum by (stack, le) "
+                    "(rate(agent_utilities_mcp_tool_duration_seconds_bucket[5m])))",
+                    "{{stack}}",
+                )
+            ],
+            _gp(0, 19, 12, 8),
+            unit="s",
         ),
         _panel(
-            9, "Container CPU by stack", "timeseries",
-            [_target(
-                'sum by (container_label_com_docker_stack_namespace) '
-                '(rate(container_cpu_usage_seconds_total{container_label_com_docker_stack_namespace!=""}[5m]))',
-                "{{container_label_com_docker_stack_namespace}}",
-            )],
-            _gp(12, 19, 12, 8), unit="percentunit",
+            9,
+            "Container CPU by stack",
+            "timeseries",
+            [
+                _target(
+                    "sum by (container_label_com_docker_stack_namespace) "
+                    '(rate(container_cpu_usage_seconds_total{container_label_com_docker_stack_namespace!=""}[5m]))',
+                    "{{container_label_com_docker_stack_namespace}}",
+                )
+            ],
+            _gp(12, 19, 12, 8),
+            unit="percentunit",
         ),
         _panel(
-            10, "Container memory by stack", "timeseries",
-            [_target(
-                'sum by (container_label_com_docker_stack_namespace) '
-                '(container_memory_working_set_bytes{container_label_com_docker_stack_namespace!=""})',
-                "{{container_label_com_docker_stack_namespace}}",
-            )],
-            _gp(0, 27, 12, 8), unit="bytes",
+            10,
+            "Container memory by stack",
+            "timeseries",
+            [
+                _target(
+                    "sum by (container_label_com_docker_stack_namespace) "
+                    '(container_memory_working_set_bytes{container_label_com_docker_stack_namespace!=""})',
+                    "{{container_label_com_docker_stack_namespace}}",
+                )
+            ],
+            _gp(0, 27, 12, 8),
+            unit="bytes",
         ),
     ]
     return _dashboard("agentos-mcp-fleet", "MCP Fleet Overview", panels)
@@ -177,55 +223,89 @@ def per_service() -> dict:
     }
     panels = [
         _panel(
-            1, "Tool calls/s", "timeseries",
-            [_target(
-                'sum by (tool) (rate(agent_utilities_mcp_tool_calls_total{stack="$stack"}[5m]))',
-                "{{tool}}",
-            )],
-            _gp(0, 0, 12, 8), unit="reqps",
+            1,
+            "Tool calls/s",
+            "timeseries",
+            [
+                _target(
+                    'sum by (tool) (rate(agent_utilities_mcp_tool_calls_total{stack="$stack"}[5m]))',
+                    "{{tool}}",
+                )
+            ],
+            _gp(0, 0, 12, 8),
+            unit="reqps",
         ),
         _panel(
-            2, "Tool error rate", "timeseries",
-            [_target(
-                'sum by (tool) (rate(agent_utilities_mcp_tool_calls_total{stack="$stack",outcome="error"}[5m]))',
-                "{{tool}}",
-            )],
-            _gp(12, 0, 12, 8), unit="reqps",
+            2,
+            "Tool error rate",
+            "timeseries",
+            [
+                _target(
+                    'sum by (tool) (rate(agent_utilities_mcp_tool_calls_total{stack="$stack",outcome="error"}[5m]))',
+                    "{{tool}}",
+                )
+            ],
+            _gp(12, 0, 12, 8),
+            unit="reqps",
         ),
         _panel(
-            3, "p95 tool latency", "timeseries",
-            [_target(
-                "histogram_quantile(0.95, sum by (tool, le) "
-                '(rate(agent_utilities_mcp_tool_duration_seconds_bucket{stack="$stack"}[5m])))',
-                "{{tool}}",
-            )],
-            _gp(0, 8, 12, 8), unit="s",
+            3,
+            "p95 tool latency",
+            "timeseries",
+            [
+                _target(
+                    "histogram_quantile(0.95, sum by (tool, le) "
+                    '(rate(agent_utilities_mcp_tool_duration_seconds_bucket{stack="$stack"}[5m])))',
+                    "{{tool}}",
+                )
+            ],
+            _gp(0, 8, 12, 8),
+            unit="s",
         ),
         _panel(
-            4, "Tools in flight", "timeseries",
-            [_target('agent_utilities_mcp_tool_in_flight{stack="$stack"}', "in flight")],
+            4,
+            "Tools in flight",
+            "timeseries",
+            [
+                _target(
+                    'agent_utilities_mcp_tool_in_flight{stack="$stack"}', "in flight"
+                )
+            ],
             _gp(12, 8, 12, 8),
         ),
         _panel(
-            5, "Container CPU", "timeseries",
-            [_target(
-                'sum(rate(container_cpu_usage_seconds_total{container_label_com_docker_stack_namespace="$stack"}[5m]))',
-                "cpu",
-            )],
-            _gp(0, 16, 8, 7), unit="percentunit",
+            5,
+            "Container CPU",
+            "timeseries",
+            [
+                _target(
+                    'sum(rate(container_cpu_usage_seconds_total{container_label_com_docker_stack_namespace="$stack"}[5m]))',
+                    "cpu",
+                )
+            ],
+            _gp(0, 16, 8, 7),
+            unit="percentunit",
         ),
         _panel(
-            6, "Container memory", "timeseries",
-            [_target(
-                'sum(container_memory_working_set_bytes{container_label_com_docker_stack_namespace="$stack"})',
-                "mem",
-            )],
-            _gp(8, 16, 8, 7), unit="bytes",
+            6,
+            "Container memory",
+            "timeseries",
+            [
+                _target(
+                    'sum(container_memory_working_set_bytes{container_label_com_docker_stack_namespace="$stack"})',
+                    "mem",
+                )
+            ],
+            _gp(8, 16, 8, 7),
+            unit="bytes",
         ),
         _panel(
-            7, "Logs", "logs",
+            7,
+            "Logs",
+            "logs",
             [{"datasource": LOKI, "expr": '{stack="$stack"}', "refId": "A"}],
-            _gp(16, 16, 8, 7), datasource=LOKI,
+            _gp(16, 16, 8, 7),
+            datasource=LOKI,
             options={"showTime": True, "wrapLogMessage": True},
         ),
     ]
@@ -233,76 +313,315 @@ def per_service() -> dict:
 
 
 def host_infra() -> dict:
+    """Per-host health from node-exporter: CPU/mem/disk + disk I/O, IOPS, disk
+    busy %, network, load, and swap (the 'is this box running cool?' view)."""
+    _dev = '{device!~"loop.*|ram.*|dm-.*"}'  # real block devices only
+    _nic = '{device!~"lo|veth.*|docker.*|br-.*"}'  # real NICs only
     panels = [
         _panel(
-            1, "CPU by host", "timeseries",
-            [_target(
-                "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-                "{{instance}}",
-            )],
-            _gp(0, 0, 12, 8), unit="percent",
+            1,
+            "CPU by host",
+            "timeseries",
+            [
+                _target(
+                    '100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)',
+                    "{{instance}}",
+                )
+            ],
+            _gp(0, 0, 12, 8),
+            unit="percent",
         ),
         _panel(
-            2, "Memory used by host", "timeseries",
-            [_target(
-                "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
-                "{{instance}}",
-            )],
-            _gp(12, 0, 12, 8), unit="percent",
+            2,
+            "Memory used by host",
+            "timeseries",
+            [
+                _target(
+                    "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+                    "{{instance}}",
+                )
+            ],
+            _gp(12, 0, 12, 8),
+            unit="percent",
         ),
         _panel(
-            3, "Disk free % by mount", "timeseries",
-            [_target(
-                '(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / '
-                'node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100',
-                "{{instance}} {{mountpoint}}",
-            )],
-            _gp(0, 8, 24, 8), unit="percent",
+            3,
+            "Load average (1m) per core by host",
+            "timeseries",
+            [
+                _target(
+                    "node_load1 / count by (instance) "
+                    '(node_cpu_seconds_total{mode="idle"})',
+                    "{{instance}}",
+                )
+            ],
+            _gp(0, 8, 12, 8),
+            unit="short",
+        ),
+        _panel(
+            4,
+            "Swap used % by host",
+            "timeseries",
+            [
+                _target(
+                    "(1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) "
+                    "* 100 unless node_memory_SwapTotal_bytes == 0",
+                    "{{instance}}",
+                )
+            ],
+            _gp(12, 8, 12, 8),
+            unit="percent",
+        ),
+        _panel(
+            5,
+            "Disk free % by mount",
+            "timeseries",
+            [
+                _target(
+                    '(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / '
+                    'node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100',
+                    "{{instance}} {{mountpoint}}",
+                )
+            ],
+            _gp(0, 16, 24, 8),
+            unit="percent",
+        ),
+        _panel(
+            6,
+            "Disk I/O throughput by device",
+            "timeseries",
+            [
+                _target(
+                    f"rate(node_disk_read_bytes_total{_dev}[5m])",
+                    "{{instance}} {{device}} read",
+                ),
+                _target(
+                    f"rate(node_disk_written_bytes_total{_dev}[5m])",
+                    "{{instance}} {{device}} write",
+                ),
+            ],
+            _gp(0, 24, 12, 8),
+            unit="Bps",
+        ),
+        _panel(
+            7,
+            "Disk IOPS by device",
+            "timeseries",
+            [
+                _target(
+                    f"rate(node_disk_reads_completed_total{_dev}[5m])",
+                    "{{instance}} {{device}} read",
+                ),
+                _target(
+                    f"rate(node_disk_writes_completed_total{_dev}[5m])",
+                    "{{instance}} {{device}} write",
+                ),
+            ],
+            _gp(12, 24, 12, 8),
+            unit="iops",
+        ),
+        _panel(
+            8,
+            "Disk busy % (utilization) by device",
+            "timeseries",
+            [
+                _target(
+                    f"rate(node_disk_io_time_seconds_total{_dev}[5m]) * 100",
+                    "{{instance}} {{device}}",
+                )
+            ],
+            _gp(0, 32, 12, 8),
+            unit="percent",
+        ),
+        _panel(
+            9,
+            "Network I/O by host",
+            "timeseries",
+            [
+                _target(
+                    f"sum by (instance) (rate(node_network_receive_bytes_total{_nic}[5m]))",
+                    "{{instance}} rx",
+                ),
+                _target(
+                    f"sum by (instance) (rate(node_network_transmit_bytes_total{_nic}[5m]))",
+                    "{{instance}} tx",
+                ),
+            ],
+            _gp(12, 32, 12, 8),
+            unit="Bps",
         ),
     ]
     return _dashboard("agentos-host-infra", "Host & Infra", panels)
+
+
+def container_resources() -> dict:
+    """Per-container resource use from cAdvisor: CPU, memory, disk I/O, and
+    network, grouped by swarm service. Pairs with the tuned cAdvisor (disk +
+    diskIO kept on; labels whitelisted to the swarm/compose set). topk(20)
+    keeps the busiest containers legible."""
+    svc = "container_label_com_docker_swarm_service_name"
+    nz = f'{{{svc}!=""}}'  # only labelled (swarm/compose) containers
+    legend = f"{{{{{svc}}}}}"
+    panels = [
+        _panel(
+            1,
+            "Container CPU by service (top 20)",
+            "timeseries",
+            [
+                _target(
+                    f"topk(20, sum by ({svc}) "
+                    f"(rate(container_cpu_usage_seconds_total{nz}[5m])))",
+                    legend,
+                )
+            ],
+            _gp(0, 0, 12, 8),
+            unit="percentunit",
+        ),
+        _panel(
+            2,
+            "Container memory by service (top 20)",
+            "timeseries",
+            [
+                _target(
+                    f"topk(20, sum by ({svc}) (container_memory_working_set_bytes{nz}))",
+                    legend,
+                )
+            ],
+            _gp(12, 0, 12, 8),
+            unit="bytes",
+        ),
+        _panel(
+            3,
+            "Container disk I/O throughput by service",
+            "timeseries",
+            [
+                _target(
+                    f"topk(20, sum by ({svc}) (rate(container_fs_reads_bytes_total{nz}[5m])))",
+                    f"{legend} read",
+                ),
+                _target(
+                    f"topk(20, sum by ({svc}) (rate(container_fs_writes_bytes_total{nz}[5m])))",
+                    f"{legend} write",
+                ),
+            ],
+            _gp(0, 8, 12, 8),
+            unit="Bps",
+        ),
+        _panel(
+            4,
+            "Container disk IOPS by service",
+            "timeseries",
+            [
+                _target(
+                    f"topk(20, sum by ({svc}) (rate(container_fs_reads_total{nz}[5m])))",
+                    f"{legend} read",
+                ),
+                _target(
+                    f"topk(20, sum by ({svc}) (rate(container_fs_writes_total{nz}[5m])))",
+                    f"{legend} write",
+                ),
+            ],
+            _gp(12, 8, 12, 8),
+            unit="iops",
+        ),
+        _panel(
+            5,
+            "Container network I/O by service",
+            "timeseries",
+            [
+                _target(
+                    f"topk(20, sum by ({svc}) (rate(container_network_receive_bytes_total{nz}[5m])))",
+                    f"{legend} rx",
+                ),
+                _target(
+                    f"topk(20, sum by ({svc}) (rate(container_network_transmit_bytes_total{nz}[5m])))",
+                    f"{legend} tx",
+                ),
+            ],
+            _gp(0, 16, 12, 8),
+            unit="Bps",
+        ),
+        _panel(
+            6,
+            "Top CPU containers (now)",
+            "table",
+            [
+                _target(
+                    f"topk(20, sum by ({svc}) "
+                    f"(rate(container_cpu_usage_seconds_total{nz}[5m])))",
+                    "",
+                    instant=True,
+                )
+            ],
+            _gp(12, 16, 12, 8),
+            unit="percentunit",
+        ),
+    ]
+    return _dashboard("agentos-container-resources", "Container Resources", panels)
 
 
 def agent_bus() -> dict:
     """Agent-to-agent bus dashboard (CONCEPT:ECO-4.87) — presence, traffic, latency."""
     panels = [
         _panel(
-            1, "Participants online", "stat",
+            1,
+            "Participants online",
+            "stat",
             [_target('agent_utilities_bus_participants{status="online"}', "online")],
             _gp(0, 0, 6, 4),
         ),
         _panel(
-            2, "Messages/s (delivered)", "stat",
-            [_target(
-                'sum(rate(agent_utilities_bus_messages_total{outcome="delivered"}[5m]))',
-                "msgs/s",
-            )],
-            _gp(6, 0, 6, 4), unit="reqps",
+            2,
+            "Messages/s (delivered)",
+            "stat",
+            [
+                _target(
+                    'sum(rate(agent_utilities_bus_messages_total{outcome="delivered"}[5m]))',
+                    "msgs/s",
+                )
+            ],
+            _gp(6, 0, 6, 4),
+            unit="reqps",
         ),
         _panel(
-            3, "Dispatches/s", "stat",
+            3,
+            "Dispatches/s",
+            "stat",
             [_target("sum(rate(agent_utilities_bus_dispatch_total[5m]))", "disp/s")],
-            _gp(12, 0, 6, 4), unit="reqps",
+            _gp(12, 0, 6, 4),
+            unit="reqps",
         ),
         _panel(
-            4, "p95 send latency", "stat",
-            [_target(
-                "histogram_quantile(0.95, sum by (le) "
-                "(rate(agent_utilities_bus_send_seconds_bucket[5m])))",
-                "p95",
-            )],
-            _gp(18, 0, 6, 4), unit="s",
+            4,
+            "p95 send latency",
+            "stat",
+            [
+                _target(
+                    "histogram_quantile(0.95, sum by (le) "
+                    "(rate(agent_utilities_bus_send_seconds_bucket[5m])))",
+                    "p95",
+                )
+            ],
+            _gp(18, 0, 6, 4),
+            unit="s",
         ),
         _panel(
-            5, "Message rate by kind+outcome", "timeseries",
-            [_target(
-                "sum by (kind, outcome) (rate(agent_utilities_bus_messages_total[5m]))",
-                "{{kind}}/{{outcome}}",
-            )],
-            _gp(0, 4, 12, 8), unit="reqps",
+            5,
+            "Message rate by kind+outcome",
+            "timeseries",
+            [
+                _target(
+                    "sum by (kind, outcome) (rate(agent_utilities_bus_messages_total[5m]))",
+                    "{{kind}}/{{outcome}}",
+                )
+            ],
+            _gp(0, 4, 12, 8),
+            unit="reqps",
         ),
         _panel(
-            6, "Send latency p50/p95/p99", "timeseries",
+            6,
+            "Send latency p50/p95/p99",
+            "timeseries",
             [
                 _target(
                     f"histogram_quantile({q}, sum by (le) "
@@ -311,19 +630,31 @@ def agent_bus() -> dict:
                 )
                 for q in (0.50, 0.95, 0.99)
             ],
-            _gp(12, 4, 12, 8), unit="s",
+            _gp(12, 4, 12, 8),
+            unit="s",
         ),
         _panel(
-            7, "Dispatch outcomes", "timeseries",
-            [_target(
-                "sum by (outcome) (rate(agent_utilities_bus_dispatch_total[5m]))",
-                "{{outcome}}",
-            )],
-            _gp(0, 12, 12, 8), unit="reqps",
+            7,
+            "Dispatch outcomes",
+            "timeseries",
+            [
+                _target(
+                    "sum by (outcome) (rate(agent_utilities_bus_dispatch_total[5m]))",
+                    "{{outcome}}",
+                )
+            ],
+            _gp(0, 12, 12, 8),
+            unit="reqps",
         ),
         _panel(
-            8, "Participants (online vs offline)", "timeseries",
-            [_target("sum by (status) (agent_utilities_bus_participants)", "{{status}}")],
+            8,
+            "Participants (online vs offline)",
+            "timeseries",
+            [
+                _target(
+                    "sum by (status) (agent_utilities_bus_participants)", "{{status}}"
+                )
+            ],
             _gp(12, 12, 12, 8),
         ),
     ]
@@ -339,6 +670,7 @@ def main() -> int:
         ("mcp-fleet-overview", fleet_overview),
         ("mcp-per-service", per_service),
         ("host-infra", host_infra),
+        ("container-resources", container_resources),
         ("agent-bus", agent_bus),
     ):
         path = args.out / f"{name}.json"
