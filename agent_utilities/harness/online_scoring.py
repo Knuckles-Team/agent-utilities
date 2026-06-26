@@ -79,6 +79,8 @@ class OnlineScoringSampler:
     sample_rate: float = 1.0
     filter_fn: Callable[[Any], bool] | None = None
     judge: Callable[[str, str, str], tuple[float, str]] = EvalRunner._assertion_judge
+    #: Auto-use the agentic tool-judge for traces over the size threshold (AHE-3.66).
+    tool_judge: bool = True
     _pool: ThreadPoolExecutor | None = field(default=None, repr=False)
 
     def install(self) -> OnlineScoringSampler:
@@ -121,9 +123,22 @@ class OnlineScoringSampler:
         actual = getattr(trace, "output", "") or ""
         written: list[Any] = []
 
+        # Pick the judge ONCE per trace: a large trace navigates its span subgraph with
+        # the tool-judge (CONCEPT:AHE-3.66) instead of context-stuffing; small traces use
+        # the cheap inline judge. Both return (score, reasoning).
+        from agent_utilities.harness.tool_judge import ToolEnabledJudge, should_use
+
+        use_tools = self.tool_judge and should_use(entry)
+        _tool = ToolEnabledJudge() if use_tools else None
+
+        def judge_criteria(criteria: str) -> tuple[float, str]:
+            if _tool is not None:
+                return _tool.judge(entry, criteria)
+            return self.judge(criteria, query, actual)
+
         # 1) Production automation rules → OnlineScoreNode (one judge path).
         for rule in self.rules:
-            score, reasoning = self.judge(rule.criteria, query, actual)
+            score, reasoning = judge_criteria(rule.criteria)
             node = OnlineScoreNode(
                 id=f"online_score:{trace_id}:{rule.dimension}",
                 name=f"{rule.dimension} score",
@@ -158,7 +173,7 @@ class OnlineScoringSampler:
             )
             if not assertion:
                 continue
-            score, reasoning = self.judge(assertion, query, actual)
+            score, reasoning = judge_criteria(assertion)
             passed = score >= 0.5
             node = AssertionResultNode(
                 id=f"assertion_result:{trace_id}:{getattr(case, 'id', '')}",
