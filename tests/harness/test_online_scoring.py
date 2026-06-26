@@ -108,3 +108,33 @@ def test_install_defers_scoring_via_completion_hook():
     assert be.on_trace_complete is not None
     _trace(be, "t3", "the answer is 4")  # root completion fires the hook → scores inline
     assert any(p.get("type") == "online_score" for p in kg.nodes.values())
+
+
+# ── B5: sandboxed user-defined Python metrics (CONCEPT:AHE-3.67) ──
+from agent_utilities.harness.online_scoring import Metric  # noqa: E402
+
+
+def test_sandboxed_metric_scores_trace():
+    kg = _FakeKG()
+    be = KGTraceBackend(backend=kg)
+    _trace(be, "m1", "a fairly long answer with several words here")
+    # metric: normalized word count (capped at 1.0 by the runner clamp).
+    metric = Metric(
+        name="verbosity",
+        source="def metric(trace):\n    return len(trace['output'].split()) / 10.0\n",
+    )
+    sampler = OnlineScoringSampler(backend=be, metrics=[metric])
+    written = sampler.score_trace("m1")
+    score_nodes = [w for w in written if w.evaluator == "metric:verbosity"]
+    assert score_nodes and 0.0 < score_nodes[0].score <= 1.0
+
+
+def test_sandboxed_metric_error_is_contained():
+    kg = _FakeKG()
+    be = KGTraceBackend(backend=kg)
+    _trace(be, "m2", "x")
+    bad = Metric(name="boom", source="def metric(trace):\n    raise RuntimeError('x')\n")
+    sampler = OnlineScoringSampler(backend=be, metrics=[bad])
+    written = sampler.score_trace("m2")
+    n = next(w for w in written if w.evaluator == "metric:boom")
+    assert n.score == 0.0 and "error" in n.reasoning
