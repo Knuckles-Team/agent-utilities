@@ -1362,7 +1362,12 @@ class GraphComputeEngine:
         fut = asyncio.run_coroutine_threadsafe(async_client._send("GetTriples"), loop)
         return fut.result() or []
 
-    def sparql(self, query: str) -> list[dict[str, str | None]]:
+    def sparql(
+        self,
+        query: str,
+        base_iri: str = "",
+        type_convention: str = "",
+    ) -> list[dict[str, str | None]]:
         """Run a SPARQL 1.1 query over the LIVE engine graph (one round-trip).
 
         CONCEPT:KG-2.242 — Engine-native SPARQL/OWL/SHACL: the Python semantic-web stack
@@ -1374,8 +1379,18 @@ class GraphComputeEngine:
         result row keyed by projected variable. Raises if the engine/op is unavailable
         (e.g. a server built without the ``sparql`` feature) so callers can fall back to
         the rdflib path.
+
+        ``base_iri`` + ``type_convention`` select the engine's LPG→RDF projection
+        vocabulary (engine concept KG-2.240): empty ⇒ the identity projection (verbatim keys);
+        an ontology namespace + ``"camel"`` makes the engine emit ``<node> rdf:type
+        <base + CamelCase(type)>`` and ``<node> <base + prop> <v>``. ``owl_bridge``
+        passes its ``au:`` namespace so by-class queries resolve engine-native.
         """
-        return list(self._client.rdf.sparql(query))
+        return list(
+            self._client.rdf.sparql(
+                query, base_iri=base_iri, type_convention=type_convention
+            )
+        )
 
     def owl_reason(
         self, ontology: str | None = None, target_class: str | None = None
