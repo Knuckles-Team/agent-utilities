@@ -834,19 +834,31 @@ class IngestionEngine:
             return 0
         if not facts:
             return 0
+        # Ground + direction-repair (KG-2.66 / KG-2.256) BEFORE persist, so edges
+        # are written with subject/object oriented per rdfs:domain/range.
+        # ground_facts computes the OWL types once; repair_directions swaps
+        # reversed edges and flags domain/range violations (kept, not dropped).
+        grounded: list[Any]
         try:
-            written = int(persist_facts(self._fact_store(), facts).get("edges", 0))
-        except Exception:  # noqa: BLE001
-            return 0
-        # Ontology grounding (KG-2.66): annotate the canonical Entity nodes with
-        # the OWL class they map onto (vendor/supplier/company → organization, …)
-        # so cross-modal entities converge on a shared type. Best-effort.
-        try:
-            from ..extraction.fact_extractor import ExtractedFact as _EF
+            from ..extraction.direction_repair import repair_directions
             from ..extraction.ontology_grounding import ground_facts
 
+            grounded, _repair_tally = repair_directions(ground_facts(facts), schema)
+        except Exception:  # noqa: BLE001 — grounding/repair never breaks ingest
+            grounded = [(f, {}) for f in facts]
+        repaired = [f for f, _ in grounded]
+        try:
+            written = int(persist_facts(self._fact_store(), repaired).get("edges", 0))
+        except Exception:  # noqa: BLE001
+            return 0
+        # Annotate the canonical Entity nodes with the grounded OWL class
+        # (KG-2.66) so cross-modal entities converge on a shared type. Reuses the
+        # post-repair grounding so node types match the persisted orientation.
+        try:
+            from ..extraction.fact_extractor import ExtractedFact as _EF
+
             add_node = self.backend.add_node  # type: ignore[union-attr]  # best-effort; backend present during ingest (try-guarded)
-            for fact, grounding in ground_facts(facts):
+            for fact, grounding in grounded:
                 for surface, type_key in (
                     (fact.subject, "subject_type"),
                     (fact.object, "object_type"),
