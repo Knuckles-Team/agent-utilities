@@ -24,6 +24,8 @@ box that has (or can build) the engine.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
@@ -44,44 +46,74 @@ def owl_graph(engine_graph):
     return engine_graph
 
 
-def _sorted_rows(rows):
-    return sorted(tuple(sorted(r.items())) for r in rows)
+def _localname(term: str | None) -> str | None:
+    """Strip an RDF term to its bare local name so the engine's `au:`-bracketed IRIs
+    (`<http://…#alice>`) and rdflib's `str(URIRef)` (`http://…#alice`) compare equal."""
+    if term is None:
+        return None
+    t = term
+    if t.startswith("<") and t.endswith(">"):
+        t = t[1:-1]
+    return t.rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+
+
+def _triple_set(rows: list[dict[str, str | None]]) -> set[tuple]:
+    """Normalize ``SELECT ?s ?p ?o`` rows to a localname triple set."""
+    return {
+        (_localname(r.get("s")), _localname(r.get("p")), _localname(r.get("o")))
+        for r in rows
+    }
 
 
 def test_sparql_engine_equals_rdflib(owl_graph):
-    """SPARQL via the engine returns the same triples as the rdflib fallback."""
+    """query_sparql resolves over the ENGINE'S LPG→RDF projection (engine concept KG-2.240)
+    and returns the SAME triples rdflib materializes from the same LPG — proving the
+    engine projection now speaks AU's vocabulary, so rdflib leaves the runtime path."""
+    pytest.importorskip("rdflib")
     bridge = OWLBridge(graph=owl_graph, owl_backend=None, backend=None)
     query = "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
 
-    engine_rows = owl_graph.sparql(query)
-    assert engine_rows, "engine SPARQL returned no rows"
-    # The knows edge is present as a triple.
-    assert any(r.get("s") == "alice" and r.get("o") == "bob" for r in engine_rows)
+    # query_sparql must answer via the ENGINE, NOT the rdflib fallback: spy that
+    # _sparql_via_rdflib is never entered while the engine path runs.
+    with patch.object(
+        bridge,
+        "_sparql_via_rdflib",
+        side_effect=AssertionError("rdflib fallback ran despite a live engine"),
+    ):
+        engine_rows = bridge.query_sparql(query)
+    assert engine_rows, "engine SPARQL returned no rows over a non-empty LPG"
 
-    # Same query through the bridge prefers the engine (query_sparql).
-    via_bridge = bridge.query_sparql(query)
-    assert any(r.get("s") == "alice" and r.get("o") == "bob" for r in via_bridge)
-
-    # Equivalence vs the pure rdflib materialization on the SAME graph.
-    rdflib = pytest.importorskip("rdflib")
-    assert rdflib is not None
+    # The rdflib materialization on the SAME graph is the reference.
     rdflib_rows = bridge._sparql_via_rdflib(query)
-    # Both surfaces see the alice-knows-bob edge (namespaces differ, so compare the
-    # edge existence rather than raw IRI strings).
-    eng_edges = {
-        (r.get("s"), r.get("o"))
-        for r in engine_rows
-        if r.get("p") in ("knows", "au:knows")
-    }
-    rdf_edges = set()
-    for r in rdflib_rows:
-        s = (r.get("s") or "").rsplit("#", 1)[-1].rsplit("/", 1)[-1]
-        o = (r.get("o") or "").rsplit("#", 1)[-1].rsplit("/", 1)[-1]
-        p = r.get("p") or ""
-        if p.endswith("knows"):
-            rdf_edges.add((s, o))
-    assert ("alice", "bob") in eng_edges
-    assert ("alice", "bob") in rdf_edges
+
+    eng = _triple_set(engine_rows)
+    rdf = _triple_set(rdflib_rows)
+    assert eng == rdf, (
+        f"engine projection != rdflib materialization\n eng={eng}\n rdf={rdf}"
+    )
+
+    # The shared set carries the SYNTHESIZED rdf:type (au:Agent) + the typed edge — the
+    # vocabulary the engine raw projection used to miss entirely.
+    assert ("alice", "type", "Agent") in eng
+    assert ("bob", "type", "Agent") in eng
+    assert ("alice", "knows", "bob") in eng
+
+
+def test_sparql_by_type_via_engine(owl_graph):
+    """The by-class query that was the original failure (`?s a au:Agent`) now resolves
+    ENGINE-native over the LPG — both typed nodes come back, with NO rdflib fallback."""
+    bridge = OWLBridge(graph=owl_graph, owl_backend=None, backend=None)
+    query = "SELECT ?s WHERE { ?s a au:Agent }"
+
+    with patch.object(
+        bridge,
+        "_sparql_via_rdflib",
+        side_effect=AssertionError("rdflib fallback ran despite a live engine"),
+    ):
+        rows = bridge.query_sparql(query)
+
+    subjects = {_localname(r.get("s")) for r in rows}
+    assert {"alice", "bob"} <= subjects, f"by-class query missed agents; got {subjects}"
 
 
 def test_owl_reasoning_engine_derives_entailments(owl_graph):

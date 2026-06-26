@@ -838,6 +838,34 @@ class GraphComputeEngine:
         """Native HNSW vector search via the engine — returns (node_id, score)."""
         return self._client.graph.semantic_search(query_embedding, n_results) or []
 
+    def query_unified(
+        self,
+        plan: list[dict[str, Any]],
+        *,
+        reorder_filter_selectivity: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run ONE cross-modal unified plan in a single costed round-trip (CONCEPT:KG-2.250).
+
+        ``plan`` is the engine's closed algebra over a shared ``RowSet`` — an
+        ordered list of externally-tagged ``Op`` dicts (``Scan``/``Filter``/
+        ``Traverse``/``Rank``/``RankText``/``FuseRrf``/``AsOf``/``Limit``) the
+        engine sequences over ONE off-lock snapshot (filter via DataFusion,
+        traverse via petgraph BFS, rank via the native ANN, RRF fusion in-plan).
+        This is the engine doing filter+traverse+vector+rerank itself instead of
+        the old hand-orchestrated Python pipeline of siloed round-trips
+        (CONCEPT:KG-2.208/214/215). Returns ``[{"id": str, "score": float|None}]``
+        in the plan's final (post-``Rank``) order.
+
+        Requires an engine built with the ``query`` feature; on a build without it
+        the call raises a clear engine error — there is no O(N) Python fallback.
+        """
+        return (
+            self._client.query.unified(
+                plan, reorder_filter_selectivity=reorder_filter_selectivity
+            )
+            or []
+        )
+
     def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
         """Embedding-free lexical capability gate via the engine (CONCEPT:EG-010).
 
@@ -1334,7 +1362,12 @@ class GraphComputeEngine:
         fut = asyncio.run_coroutine_threadsafe(async_client._send("GetTriples"), loop)
         return fut.result() or []
 
-    def sparql(self, query: str) -> list[dict[str, str | None]]:
+    def sparql(
+        self,
+        query: str,
+        base_iri: str = "",
+        type_convention: str = "",
+    ) -> list[dict[str, str | None]]:
         """Run a SPARQL 1.1 query over the LIVE engine graph (one round-trip).
 
         CONCEPT:KG-2.242 — Engine-native SPARQL/OWL/SHACL: the Python semantic-web stack
@@ -1346,8 +1379,18 @@ class GraphComputeEngine:
         result row keyed by projected variable. Raises if the engine/op is unavailable
         (e.g. a server built without the ``sparql`` feature) so callers can fall back to
         the rdflib path.
+
+        ``base_iri`` + ``type_convention`` select the engine's LPG→RDF projection
+        vocabulary (engine concept KG-2.240): empty ⇒ the identity projection (verbatim keys);
+        an ontology namespace + ``"camel"`` makes the engine emit ``<node> rdf:type
+        <base + CamelCase(type)>`` and ``<node> <base + prop> <v>``. ``owl_bridge``
+        passes its ``au:`` namespace so by-class queries resolve engine-native.
         """
-        return list(self._client.rdf.sparql(query))
+        return list(
+            self._client.rdf.sparql(
+                query, base_iri=base_iri, type_convention=type_convention
+            )
+        )
 
     def owl_reason(
         self, ontology: str | None = None, target_class: str | None = None

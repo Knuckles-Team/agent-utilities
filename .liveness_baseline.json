@@ -3,9 +3,9 @@
     "orphan_modules": 172,
     "dead_definitions": 543,
     "never_executed": 0,
-    "untyped_seams": 1082,
+    "untyped_seams": 1086,
     "orphan_read_keys": 49,
-    "facade_handlers": 56,
-    "placeholder_markers": 220
+    "facade_handlers": 58,
+    "placeholder_markers": 219
   }
 }

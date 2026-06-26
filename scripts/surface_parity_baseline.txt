@@ -40,6 +40,7 @@ agent_utilities/domains/finance/alpha_factors.py
 agent_utilities/domains/finance/composite_backtest.py
 agent_utilities/domains/finance/copy_trade.py
 agent_utilities/domains/finance/credit_quality.py
+agent_utilities/domains/finance/engine_series.py
 agent_utilities/domains/finance/execution.py
 agent_utilities/domains/finance/features.py
 agent_utilities/domains/finance/filing_diff.py
