@@ -1,0 +1,346 @@
+"""Detect env-var / config drift in an agent package — the code is the source of truth.
+
+CONCEPT:OS-5.72 — Env-var drift guard.
+
+A connector documents its env vars in several places: ``.env.example``, every
+``mcp_config*.json`` ``env`` block, ``docker/*compose*.yml`` ``environment:``, and the
+README tables. The **only** authority for *which vars actually exist* is the code that
+reads them. This module computes the code-read set and diffs the declared sets against it,
+emitting drift findings:
+
+- ``DEAD`` — a var declared in config/docs that **no code reads** (e.g. a scaffolder's
+  ``*_TOKEN``, or per-endpoint ``*_TOOL`` toggles the framework never honours). Remove it.
+- ``UNDOCUMENTED`` — a var the code reads that is **missing from** ``.env.example``. Add it.
+- ``MISSING_TOOL_MODE`` — a launch-style ``mcp_config.json`` ``env`` block with **no**
+  ``MCP_TOOL_MODE`` (users can't discover the condensed/verbose/both surface). Add it.
+
+The code-read set =
+  ``setting("VAR", …)`` reads in the package
+  ∪ derived tool toggles: ``register_<tag>_tools`` → ``<TAG>TOOL``
+  ∪ the inherited agent-utilities surface (``readme_env_vars.INHERITED_ENV`` + framework extras)
+  ∪ ``setting("VAR", …)`` reads in agent-utilities core (covers connector-base reads like
+    ``{SERVICE}_SSL_VERIFY`` so they are never mis-flagged as dead).
+
+Usage (from an agent repo root)::
+
+    python -m agent_utilities.mcp.check_env_var_drift            # human report
+    python -m agent_utilities.mcp.check_env_var_drift --check    # exit 1 on drift (pre-commit)
+    python -m agent_utilities.mcp.check_env_var_drift --json     # machine-readable findings
+
+Wire ``--check`` as a pre-commit hook (the agent-package-builder scaffold does).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from functools import lru_cache
+from pathlib import Path
+
+from agent_utilities.mcp.readme_env_vars import INHERITED_ENV, parse_env_example
+
+# ``setting("VAR" …)`` / ``setting('VAR' …)`` — the one sanctioned env accessor.
+_SETTING = re.compile(r"""setting\(\s*['"]([A-Z][A-Z0-9_]*)['"]""")
+# ``register_<tag>_tools`` — a condensed registrar; toggle env var is ``<TAG>TOOL``.
+_REGISTRAR = re.compile(r"register_([a-z][a-z0-9_]*?)_tools\b")
+# A ``- "KEY=value"`` or ``KEY: value`` line inside a compose ``environment:`` list/map.
+_COMPOSE_ENV = re.compile(r"""^\s*-?\s*["']?([A-Z][A-Z0-9_]*)["']?\s*[:=]""")
+
+# Framework vars read inside agent-utilities (create_agent / gateway / telemetry / connector
+# base) on behalf of every connector — legitimately documentable, never "dead".
+FRAMEWORK_EXTRA: frozenset[str] = frozenset(
+    {
+        "AUTH_TYPE",
+        "AGENT_DESCRIPTION",
+        "AGENT_SYSTEM_PROMPT",
+        "DEFAULT_AGENT_NAME",
+        "ENABLE_OTEL",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_PROTOCOL",
+        "OTEL_EXPORTER_OTLP_PUBLIC_KEY",
+        "OTEL_EXPORTER_OTLP_SECRET_KEY",
+        "LLM_BASE_URL",
+        "LLM_API_KEY",
+        "PROVIDER",
+        "MODEL_ID",
+        "ENABLE_WEB_UI",
+        "MCP_URL",
+    }
+)
+# Connector-standard suffixes read by the agent-utilities connector base, not the package.
+_SAFE_SUFFIXES: tuple[str, ...] = ("_SSL_VERIFY",)
+# Generic process / library runtime vars legitimately set in a launch env but never read
+# via ``setting()`` — not app config, so not "dead".
+RUNTIME_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "TERM",
+        "NO_COLOR",
+        "FORCE_COLOR",
+        "FASTMCP_LOG_LEVEL",
+        "PYTHONUNBUFFERED",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONPATH",
+        "LOG_LEVEL",
+        "TZ",
+    }
+)
+
+
+_HOST_SUFFIXES = ("_BASE_URL", "_URL", "_HOST")
+
+
+def _stem(var: str) -> str:
+    """The service/domain stem of a var, suffixes stripped (for alias/rename matching)."""
+    return re.sub(
+        r"(_BASE_URL|_URL|_HOST|_TOKEN|_API_KEY|_KEY|_SECRET|_VERIFY|_SSL_VERIFY|TOOL)$",
+        "",
+        var,
+    )
+
+
+def _is_host_var(var: str) -> bool:
+    return var.endswith(_HOST_SUFFIXES)
+
+
+def _scan_setting_calls(root: Path) -> set[str]:
+    """Every ``setting("VAR")`` literal read in ``*.py`` under ``root``."""
+    found: set[str] = set()
+    for py in root.rglob("*.py"):
+        if ".venv" in py.parts or "__pycache__" in py.parts:
+            continue
+        try:
+            found.update(_SETTING.findall(py.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return found
+
+
+def _derive_toggle_vars(root: Path) -> set[str]:
+    """``register_<tag>_tools`` → ``<TAG>TOOL`` (the framework's auto-derived toggle name)."""
+    tags: set[str] = set()
+    for py in root.rglob("*.py"):
+        if ".venv" in py.parts or "__pycache__" in py.parts:
+            continue
+        try:
+            tags.update(_REGISTRAR.findall(py.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError):
+            continue
+    # The shared surface helpers match the pattern but are not domain registrars.
+    tags -= {"verbose", "tool_surface"}
+    return {f"{t.upper()}TOOL" for t in tags}
+
+
+@lru_cache(maxsize=1)
+def _agent_utilities_reads() -> frozenset[str]:
+    """``setting(...)`` literals read inside the installed agent-utilities core."""
+    import agent_utilities
+
+    au_root = Path(agent_utilities.__file__).resolve().parent
+    return frozenset(_scan_setting_calls(au_root))
+
+
+def _mcp_config_env_blocks(root: Path) -> list[tuple[Path, dict[str, str]]]:
+    """Every ``mcpServers.<name>.env`` block across ``mcp_config*.json`` files."""
+    blocks: list[tuple[Path, dict[str, str]]] = []
+    for cfg in [*root.glob("mcp_config*.json"), *root.rglob("mcp_config*.json")]:
+        if ".venv" in cfg.parts:
+            continue
+        try:
+            data = json.loads(cfg.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for server in (data.get("mcpServers") or {}).values():
+            env = server.get("env")
+            if isinstance(env, dict):
+                blocks.append((cfg, env))
+    # de-dup by resolved path while preserving the per-server granularity
+    seen: set[tuple[str, frozenset[str]]] = set()
+    uniq: list[tuple[Path, dict[str, str]]] = []
+    for path, env in blocks:
+        key = (str(path.resolve()), frozenset(env))
+        if key not in seen:
+            seen.add(key)
+            uniq.append((path, env))
+    return uniq
+
+
+def _compose_env_keys(root: Path) -> dict[str, set[str]]:
+    """Env keys referenced in each ``*compose*.yml`` ``environment:`` section."""
+    out: dict[str, set[str]] = {}
+    candidates = [
+        *root.glob("*compose*.y*ml"),
+        *root.glob("docker/*compose*.y*ml"),
+    ]
+    for comp in candidates:
+        try:
+            lines = comp.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        keys: set[str] = set()
+        in_env = False
+        env_indent = 0
+        for raw in lines:
+            stripped = raw.strip()
+            if re.match(r"^environment\s*:", stripped):
+                in_env = True
+                env_indent = len(raw) - len(raw.lstrip())
+                continue
+            if in_env:
+                indent = len(raw) - len(raw.lstrip())
+                if stripped and indent <= env_indent and not stripped.startswith("-"):
+                    in_env = False
+                    continue
+                m = _COMPOSE_ENV.match(raw)
+                if m:
+                    keys.add(m.group(1))
+        if keys:
+            out[comp.name] = keys
+    return out
+
+
+def _is_framework_known(var: str, code_read: set[str]) -> bool:
+    return (
+        var in code_read
+        or var in INHERITED_ENV
+        or var in FRAMEWORK_EXTRA
+        or var in RUNTIME_ALLOWLIST
+        or any(var.endswith(suf) for suf in _SAFE_SUFFIXES)
+    )
+
+
+def analyze(root: Path) -> dict:
+    """Compute the code-read set and diff the declared sets against it."""
+    pkg_reads = _scan_setting_calls(root)
+    toggles = _derive_toggle_vars(root)
+    code_read = pkg_reads | toggles | set(_agent_utilities_reads())
+
+    env_example = root / ".env.example"
+    declared_env = (
+        {r[0] for r in parse_env_example(env_example.read_text(encoding="utf-8"))}
+        if env_example.exists()
+        else set()
+    )
+    mcp_blocks = _mcp_config_env_blocks(root)
+    compose = _compose_env_keys(root)
+
+    findings: list[dict] = []
+
+    # DEAD — declared somewhere but read by nothing and not a framework var.
+    declared_sources: dict[str, set[str]] = {}
+    for var in declared_env:
+        declared_sources.setdefault(var, set()).add(".env.example")
+    for path, env in mcp_blocks:
+        for var in env:
+            declared_sources.setdefault(var, set()).add(_rel(path, root))
+    for name, keys in compose.items():
+        for var in keys:
+            declared_sources.setdefault(var, set()).add(f"docker/{name}")
+
+    for var, sources in sorted(declared_sources.items()):
+        # placeholder template keys like <YOUR_X> never appear as A-Z names; skip secrets keys read.
+        if _is_framework_known(var, code_read):
+            continue
+        # a strong "rename" hint: a sibling the code DOES read with the same stem
+        hint = _rename_hint(var, code_read)
+        findings.append(
+            {
+                "type": "DEAD",
+                "var": var,
+                "sources": sorted(sources),
+                "hint": hint,
+            }
+        )
+
+    # UNDOCUMENTED — code reads it but it's absent from .env.example (additive, safe).
+    documentable = (pkg_reads | toggles) - declared_env
+    declared_host_stems = {_stem(v) for v in declared_env if _is_host_var(v)}
+    for var in sorted(documentable):
+        # skip framework-inherited vars (shown in the inherited table)
+        if var in INHERITED_ENV or var in FRAMEWORK_EXTRA:
+            continue
+        # skip a legacy host alias whose canonical host sibling is already documented
+        # (e.g. legacy LANGFUSE_HOST when LANGFUSE_BASE_URL is in .env.example) — but
+        # never suppress a credential/toggle just because a host of the same stem exists.
+        if _is_host_var(var) and _stem(var) in declared_host_stems:
+            continue
+        findings.append(
+            {"type": "UNDOCUMENTED", "var": var, "sources": ["(code)"], "hint": ""}
+        )
+
+    # MISSING_TOOL_MODE — a launch-style mcp_config env block without MCP_TOOL_MODE.
+    for path, env in mcp_blocks:
+        if "MCP_TOOL_MODE" not in env:
+            findings.append(
+                {
+                    "type": "MISSING_TOOL_MODE",
+                    "var": "MCP_TOOL_MODE",
+                    "sources": [_rel(path, root)],
+                    "hint": 'add "MCP_TOOL_MODE": "condensed" to the env block',
+                }
+            )
+
+    return {
+        "package": root.name,
+        "code_read_count": len(code_read),
+        "findings": findings,
+        "drift": len(findings),
+    }
+
+
+def _rename_hint(dead_var: str, code_read: set[str]) -> str:
+    """If a read var shares this var's stem, the dead var is likely a rename of it."""
+    stem = re.sub(r"(_URL|_BASE_URL|_HOST|_TOKEN|_KEY|TOOL)$", "", dead_var)
+    if len(stem) < 3:
+        return ""
+    for read in code_read:
+        if read != dead_var and read.startswith(stem):
+            return f"likely rename of `{read}`"
+    return ""
+
+
+def _rel(path: Path, root: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(root.resolve()))
+    except ValueError:
+        return path.name
+
+
+def _format(report: dict) -> str:
+    lines = [f"env-var drift — {report['package']}: {report['drift']} finding(s)"]
+    if not report["findings"]:
+        lines.append("  ✓ clean (config matches the code-read env surface)")
+        return "\n".join(lines)
+    for f in report["findings"]:
+        loc = ", ".join(f["sources"])
+        hint = f"  → {f['hint']}" if f["hint"] else ""
+        lines.append(f"  [{f['type']}] {f['var']}  ({loc}){hint}")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Detect env-var/config drift.")
+    parser.add_argument("root", nargs="?", default=".", help="Package root")
+    parser.add_argument("--check", action="store_true", help="Exit 1 on any drift")
+    parser.add_argument("--json", action="store_true", help="Emit JSON findings")
+    args = parser.parse_args(argv)
+
+    report = analyze(Path(args.root))
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(_format(report))
+
+    if args.check and report["drift"]:
+        print(
+            "\nenv-var drift detected — config/docs disagree with the code-read "
+            "surface. Fix the sources above (the code is the source of truth).",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

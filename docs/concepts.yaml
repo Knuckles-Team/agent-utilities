@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 519
+total_concepts: 520
 total_pillars: 21
 pillars:
 - AHE-3
@@ -2820,6 +2820,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/outbox.py
   - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
+  - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/extraction/ontology_grounding.py
   - agent_utilities/knowledge_graph/extraction/readers_media.py
   - agent_utilities/knowledge_graph/extraction/structure_router.py
@@ -5562,6 +5563,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/ingest_profile.py
   doc: OS-5.71
+- id: OS-5.72
+  name: Env-var drift guard
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/mcp/check_env_var_drift.py
+  doc: Env-var drift guard
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
