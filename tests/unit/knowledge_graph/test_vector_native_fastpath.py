@@ -74,11 +74,12 @@ def _retriever(graph: Any) -> HybridRetriever:
     return r
 
 
-def test_vector_search_uses_unified_plan_not_a_scan() -> None:
+def test_labeled_search_uses_unified_plan_not_a_scan() -> None:
+    """A label-scoped query composes Scan+Rank in ONE unified plan."""
     graph = _UnifiedGraph()
     r = _retriever(graph)
 
-    out = r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0)
+    out = r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0, label="Doc")
 
     assert [d["id"] for d in out] == ["n1", "n2"]  # engine-ranked order
     assert out[0]["_score"] == 0.9
@@ -88,12 +89,26 @@ def test_vector_search_uses_unified_plan_not_a_scan() -> None:
     assert graph.semantic_calls == 0
 
 
+def test_unseeded_search_uses_native_ann_not_a_scan() -> None:
+    """Label-agnostic retrieval uses the engine's native ANN (unseeded kNN)."""
+    graph = _UnifiedGraph()
+    r = _retriever(graph)
+
+    # No label → the unseeded kNN primitive, NOT an O(N) Python scan. (Our stub's
+    # semantic_search returns [] so the arm is empty — the point is which engine
+    # path is taken, asserted via the call counters.)
+    r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0)
+
+    assert graph.unified_calls == 0  # bare Rank has no seed — not used unseeded
+    assert graph.semantic_calls == 1  # the engine ANN primitive was the vector path
+
+
 def test_vector_search_respects_target_paths() -> None:
     graph = _UnifiedGraph()
     r = _retriever(graph)
 
     out = r._engine_vector_search(
-        [0.1, 0.2, 0.3], top_k=5, threshold=0.0, target_paths=["/a/"]
+        [0.1, 0.2, 0.3], top_k=5, threshold=0.0, target_paths=["/a/"], label="Doc"
     )
 
     assert [d["id"] for d in out] == ["n1"]  # only the /a/ path survives
@@ -104,7 +119,9 @@ def test_lean_engine_falls_to_native_ann_not_python_cosine() -> None:
     graph = _LeanGraph()
     r = _retriever(graph)
 
-    out = r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0)
+    # Even with a label, a build without `query` errors on the unified plan and
+    # degrades to the native ANN primitive — never a Python cosine scan.
+    out = r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0, label="Doc")
 
     assert [d["id"] for d in out] == ["n1", "n2"]
     assert graph.semantic_calls == 1  # the engine ANN primitive served it
