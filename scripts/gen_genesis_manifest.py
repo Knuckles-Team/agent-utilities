@@ -38,7 +38,10 @@ PROFILES_META = {
     "tiny": {
         "summary": "zero-infra, all-local (laptop / Raspberry Pi) — homelab quick start",
         "docker": False,
-        "secrets": "dotenv",
+        # Embedded engine-encrypted __secrets__ graph (CONCEPT:OS-5.66) is the
+        # default app-secret store; .env only carries the bootstrap model key +
+        # EPISTEMIC_GRAPH_ENCRYPTION_KEY.
+        "secrets": "engine-encrypted-or-dotenv",
         "servers": "none",
         "skill": "agent-utilities-deployment",
         # Step 0 run-plan defaults (the operator overrides only the exceptions).
@@ -46,27 +49,36 @@ PROFILES_META = {
         "install_mode": "deploy-baremetal",
         "idp": "none",
         "ontology_host": "local",
-        # The ONE engine authority runs as a SHARED local daemon, auto-spun-up
-        # on demand by the single resolver (CONCEPT:OS-5.63) on the lean wheel:
-        # detached + reference-counted (self-stops ~60s after the last client
-        # disconnects; set engine_lifecycle=persistent for a long-living engine).
-        # No engine container. Other entrypoints on the host share the one engine.
-        "engine": "embedded",
+        # The ONE engine authority is AUTO-STARTED on demand by the single
+        # resolver (CONCEPT:OS-5.63) from a prebuilt multi-arch wheel — a Pi
+        # NEVER compiles. It is the pi-max tier binary (lean pure-Rust: graph +
+        # cypher + ann + rdf/sparql/owl + tsdb + blob + streaming + security/
+        # encryption-at-rest; NO DataFusion/C). NOT in-process, NOT a cache: a
+        # detached, redb-authoritative durable engine, reference-counted
+        # (self-stops ~60s after the last client disconnects; set
+        # engine_lifecycle=persistent for a long-living engine). Every entrypoint
+        # on the host shares the one engine.
+        "engine": "autostart",
+        "engine_tier": "pi-max",
         "engine_lifecycle": "refcounted",
         "engine_idle_shutdown_secs": 60,
     },
     "single-node-prod": {
         "summary": "one durable, secured host (Postgres/pg-age) + the core MCP connectors",
         "docker": True,
-        "secrets": "openbao-or-dotenv",
+        "secrets": "openbao-or-engine-encrypted",
         "servers": "core",
         "skill": "agent-utilities-deployment",
         "orchestrator": "docker-swarm",
         "install_mode": "deploy-container",
         "idp": "keycloak",
         "ontology_host": "local",
-        # Engine runs as its own container on the host.
+        # Engine runs as its own multi-arch Docker image (engine-as-a-DB) on the
+        # host — the `node` tier (pi-max + SQL/DataFusion + GraphQL + Tantivy text
+        # + reasoning + wasm-udf + federation). `full` is the size-optimized
+        # all-single-node variant.
         "engine": "container",
+        "engine_tier": "node",
     },
     "enterprise": {
         "summary": "multi-host Docker Swarm, full integration (Vault/SSO/DNS/ingress/observability + all connectors)",
@@ -79,8 +91,11 @@ PROFILES_META = {
         "install_mode": "deploy-container",
         "idp": "keycloak",
         "ontology_host": "stardog",
-        # Shared/remote engine reached via GRAPH_SERVICE_ENDPOINTS; mirrors fan out.
+        # Shared/remote engine reached via GRAPH_SERVICE_ENDPOINTS; the `cluster`
+        # tier (node + multi-Raft replication + pgwire + distributed Pregel /
+        # cross-shard 2PC) runs as the engine-as-a-DB container; mirrors fan out.
         "engine": "remote",
+        "engine_tier": "cluster",
     },
 }
 
@@ -97,12 +112,26 @@ RUN_PLAN = {
     ],
     "podman_modes": ["rootful", "rootless"],
     "idp": ["keycloak", "okta", "other-oidc", "none"],
-    "secrets_store": ["vault", "env"],
+    # secrets_store precedence: `engine` = the engine's encrypted __secrets__ graph
+    # (CONCEPT:OS-5.66, the default embedded app-secret store, sealed by the engine's
+    # encryption-at-rest under EPISTEMIC_GRAPH_ENCRYPTION_KEY); `vault` = OpenBao/Vault
+    # (enterprise fleet source of truth); `env` = .env fallback.
+    "secrets_store": ["engine", "vault", "env"],
     "ontology_hosts": ["stardog", "apache-jena", "local"],
-    # epistemic-graph is the ONE engine authority. embedded = lifecycle-coupled
-    # autostart child (tiny); container = its own container (single-node-prod);
-    # remote = shared engine via GRAPH_SERVICE_ENDPOINTS (enterprise).
-    "engine": ["embedded", "container", "remote"],
+    # epistemic-graph is the ONE multi-model store at EVERY scale (not a cache).
+    # Deployment SHAPE: autostart = the resolver auto-starts the pi-tier binary
+    # from a prebuilt wheel (tiny, CONCEPT:OS-5.63); container = the engine-as-a-DB
+    # Docker image (single-node-prod); remote = shared engine via
+    # GRAPH_SERVICE_ENDPOINTS (enterprise).
+    "engine": ["autostart", "container", "remote"],
+    # Engine TIER = which prebuilt feature bundle to ship (size grows with features).
+    # pi (~6.46MB lean Pi-3: graph+cypher+ann+rdf/sparql/owl+streaming, pure-Rust);
+    # pi-max (~6.96MB: pi + tsdb+blob+security/encryption-at-rest, still no DataFusion/C);
+    # node (pi-max + SQL/DataFusion+GraphQL+Tantivy text+reasoning+wasm-udf+federation);
+    # cluster (node + multi-Raft+pgwire+distributed/cross-shard-2PC); full (all single-node).
+    # Multi-arch prebuilt WHEELS (linux x86_64/aarch64, macOS x86_64/arm64, windows) ship
+    # so a Pi `pip install`s and NEVER compiles; engine-as-a-DB Docker image for node/cluster.
+    "engine_tiers": ["pi", "pi-max", "node", "cluster", "full"],
     "install_modes": ["deploy-container", "deploy-baremetal", "use-existing", "skip"],
     # prod = PyPI image / uvx; dev = editable: `pip/uv install -e` (baremetal) OR the
     # package's compose.dev.yml source-mounted container (edits live on restart).
@@ -210,8 +239,10 @@ def build() -> dict:
             "install_mode": meta["install_mode"],
             "idp": meta["idp"],
             "ontology_host": meta["ontology_host"],
-            # epistemic-graph engine deployment shape (embedded|container|remote).
+            # epistemic-graph engine deployment shape (autostart|container|remote).
             "engine": meta["engine"],
+            # Prebuilt engine tier to ship for this profile (pi|pi-max|node|cluster|full).
+            "engine_tier": meta["engine_tier"],
             # Autostarted-engine lifecycle (CONCEPT:OS-5.63): refcounted (shared,
             # auto-stops when idle — tiny default) vs persistent (long-living).
             "engine_lifecycle": meta.get("engine_lifecycle", "refcounted"),
@@ -236,9 +267,45 @@ def build() -> dict:
             "always": [
                 "python>=3.11,<3.15",
                 "uv-or-pip",
-                "epistemic-graph-server (from the agent-utilities wheel; Rust only as a fallback)",
+                "epistemic-graph>=1.0.0 — a prebuilt multi-arch WHEEL (linux x86_64/aarch64,"
+                " macOS, windows); a Pi pip-installs the lean pi/pi-max tier and NEVER"
+                " compiles. Rust toolchain only as a build-from-source fallback.",
             ],
             "docker_when": "profile != tiny",
+        },
+        # The ONE multi-model store at every scale (CONCEPT:OS-5.63 resolver). It is NOT
+        # a cache — it is durable, redb-authoritative by default (an acked write survives
+        # kill -9), spanning graph + vector/ANN + SQL + RDF/SPARQL + OWL-2 reasoning +
+        # time-series + blob + text + multi-Raft + cross-shard 2PC + streaming/CDC +
+        # RLS/encryption-at-rest/audit + federation + GraphQL.
+        "engine": {
+            "version": "epistemic-graph>=1.0.0",
+            "extra": "pip install 'agent-utilities[engine]'  (bumps to the published wheel)",
+            "authority": "redb-authoritative durable by default (CONCEPT:KG-2.195)",
+            "resolver": "CONCEPT:OS-5.63 — remote -> share-running-local -> autostart the"
+            " pi-tier binary; refcounted (auto-stops idle) or persistent lifecycle",
+            "wheels": "prebuilt multi-arch (linux x86_64/aarch64, macOS x86_64/arm64,"
+            " windows) — the Pi tiers never compile",
+            "docker_image": "engine-as-a-DB multi-arch image (linux/amd64+arm64) for"
+            " container/remote shapes (single-node-prod, enterprise)",
+            "tiers": {
+                "pi": "~6.46MB lean Pi-3: graph+cypher+ann+rdf/sparql/owl+streaming (pure-Rust, no DataFusion/C)",
+                "pi-max": "~6.96MB: pi + tsdb+blob+security/encryption-at-rest (still pure-Rust, no DataFusion/C)",
+                "node": "pi-max + SQL/DataFusion+GraphQL+Tantivy text+reasoning+wasm-udf+federation",
+                "cluster": "node + multi-Raft replication+pgwire+distributed/cross-shard-2PC (HA)",
+                "full": "all single-node features, size-optimized (no raft/pgwire)",
+            },
+            # The embedded app-secret store (CONCEPT:OS-5.66): :Secret nodes in the
+            # __secrets__ graph, values sealed by the engine's encryption-at-rest. The
+            # encryption key is itself a genesis-provisioned secret (Step 8).
+            "secret_store": {
+                "graph": "__secrets__",
+                "label": "Secret",
+                "encryption_key_env": "EPISTEMIC_GRAPH_ENCRYPTION_KEY",
+                "note": "default embedded secret store (OS-5.66); needs a security-feature"
+                " tier (pi-max/node/cluster/full). Local SQLite caches (registry graph,"
+                " card cache, time-series) also route to the engine — no SQLite fallback.",
+            },
         },
         "components": COMPONENTS,
         "ide_targets": {
