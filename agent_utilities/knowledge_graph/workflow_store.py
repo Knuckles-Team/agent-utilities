@@ -242,10 +242,12 @@ class WorkflowStore:
         """
         graph = self.engine.graph
 
-        # Find the WorkflowDefinition node by name
+        # Find the WorkflowDefinition node by name (bounded label fetch, KG-2.261)
+        from .core.bounded_read import iter_nodes_by_types
+
         wid = None
-        for nid, data in graph.nodes(data=True):
-            if data.get("type") == "WorkflowDefinition" and data.get("name") == name:
+        for nid, data in iter_nodes_by_types(graph, "WorkflowDefinition"):
+            if data.get("name") == name:
                 wid = nid
                 break
 

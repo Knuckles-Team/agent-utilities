@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 517
+total_concepts: 519
 total_pillars: 21
 pillars:
 - AHE-3
@@ -2558,6 +2558,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/assimilation/gap_analysis.py
   - agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py
+  - agent_utilities/knowledge_graph/core/bounded_read.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   doc: a label-scoped MATCH
 - id: KG-2.52
@@ -3897,6 +3898,25 @@ concepts:
   - agent_utilities/knowledge_graph/assimilation/dedup.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   doc: when the engine exposes the native
+- id: KG-2.261
+  name: never scan the whole graph to find one node
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/capabilities/teams.py
+  - agent_utilities/knowledge_graph/core/bounded_read.py
+  - agent_utilities/knowledge_graph/kb/ingestion.py
+  - agent_utilities/knowledge_graph/research/fleet_relevance.py
+  - agent_utilities/knowledge_graph/security/policy_ingestor.py
+  - agent_utilities/knowledge_graph/security/rule_ingestor.py
+  doc: never scan the whole graph to find one node
+- id: KG-2.262
+  name: A single dropped connection
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_breaker.py
+  doc: A single dropped connection
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

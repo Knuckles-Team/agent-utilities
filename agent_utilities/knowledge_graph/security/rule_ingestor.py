@@ -614,10 +614,10 @@ class RuleIngestor:
 
         matches: list[dict[str, Any]] = []
 
-        for node_id, data in self.engine.graph.nodes(data=True):
-            if data.get("type") != "engineering_rule":
-                continue
+        from ..core.bounded_read import iter_nodes_by_types
 
+        # Bounded per-label fetch (CONCEPT:KG-2.261) — never a whole-graph node pull.
+        for node_id, data in iter_nodes_by_types(self.engine.graph, "engineering_rule"):
             rule_tier = data.get("tier", "mini")
             if tier_order.get(rule_tier, 1) > max_tier_val:
                 continue
