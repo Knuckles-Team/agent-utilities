@@ -27,6 +27,112 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
+def _bucket_points(
+    points: list[tuple[int, list[float]]],
+    field_idx: int,
+    window_s: float,
+    agg: str,
+) -> list[tuple[float, float]]:
+    """Bucket raw ``(ts_ns, vector)`` points by ``window_s`` over one field.
+
+    Used only for a non-field-0 windowed aggregate (field-0 + the common total case
+    are bucketed natively by the engine). Keeps the public ``usage_series`` shape.
+    """
+    width_ns = int(window_s * 1e9)
+    if width_ns <= 0:
+        return []
+    buckets: dict[int, list[float]] = defaultdict(list)
+    for ts, vals in points:
+        if field_idx < len(vals):
+            buckets[(ts // width_ns) * width_ns].append(vals[field_idx])
+    out: list[tuple[float, float]] = []
+    for start in sorted(buckets):
+        vs = buckets[start]
+        if agg == "sum":
+            v = sum(vs)
+        elif agg == "mean":
+            v = sum(vs) / len(vs)
+        elif agg == "min":
+            v = min(vs)
+        elif agg == "max":
+            v = max(vs)
+        elif agg == "count":
+            v = float(len(vs))
+        elif agg == "first":
+            v = vs[0]
+        else:  # last
+            v = vs[-1]
+        out.append((start / 1e9, v))
+    return out
+
+
+#: The per-agent telemetry series-id prefix in the engine tsdb (CONCEPT:KG-2.252).
+_TELEMETRY_SERIES_PREFIX = "telemetry:tokens:"
+
+#: The ordered field vector telemetry points carry (shared by the writer + readers).
+TELEMETRY_TS_FIELDS = (
+    "prompt_tokens",
+    "response_tokens",
+    "thoughts_tokens",
+    "tool_use_tokens",
+    "total_tokens",
+)
+
+
+def query_token_series(
+    agent_name: str,
+    start_ts: float,
+    end_ts: float,
+    *,
+    field: str = "total_tokens",
+    window_s: float | None = None,
+    agg: str = "sum",
+) -> list[tuple[float, float]]:
+    """Per-agent token usage over time from the engine tsdb (CONCEPT:KG-2.252).
+
+    Instance-free reader for the durable telemetry series (any tracker instance's
+    writes land in the same engine-keyed series). Returns ``[(epoch_seconds,
+    value), ...]`` — native in-engine windowed aggregates when ``window_s`` is set,
+    else raw points for ``field``. Empty when no engine / no data.
+    """
+    try:
+        from agent_utilities.knowledge_graph.memory.timeseries import (
+            get_timeseries_backend,
+        )
+
+        backend = get_timeseries_backend("engine")
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[CONCEPT:KG-2.252] telemetry tsdb unavailable: %s", e)
+        return []
+    client = getattr(backend, "_client", None)
+    if client is None:
+        return []
+    # The engine series id for a tagless symbol is ``ts:<symbol>`` (the backend's
+    # own keying, KG-2.246); mirror it here so reads hit the same series the writer
+    # appended to.
+    sid = f"ts:{_TELEMETRY_SERIES_PREFIX}{agent_name or 'unknown'}"
+    try:
+        field_idx = TELEMETRY_TS_FIELDS.index(field)
+    except ValueError:
+        field_idx = TELEMETRY_TS_FIELDS.index("total_tokens")
+    from_ns, to_ns = int(start_ts * 1e9), int(end_ts * 1e9)
+    try:
+        if window_s and field_idx == 0:
+            rows = client.timeseries.window(
+                sid, from_ns, to_ns + 1, int(window_s * 1e9), agg
+            )
+            return [(b / 1e9, v) for b, v, _c in rows]
+        pts = client.timeseries.range(sid, from_ns, to_ns + 1)
+        if window_s:
+            return _bucket_points(pts, field_idx, window_s, agg)
+        return [
+            (ts / 1e9, vals[field_idx]) for ts, vals in pts if field_idx < len(vals)
+        ]
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[CONCEPT:KG-2.252] query_token_series failed: %s", e)
+        return []
+
+
 class TokenBucket(StrEnum):
     """Token usage bucket categories.
 
@@ -145,11 +251,47 @@ class TokenUsageTracker:
         If provided, token records are persisted to the KG.
     """
 
+    #: The ordered field vector each telemetry point appends to the engine tsdb.
+    #: Fixed so a ``range``/``window`` read decodes back to the same bucket names
+    #: (CONCEPT:KG-2.252) — shared with the instance-free :func:`query_token_series`.
+    _TS_FIELDS = TELEMETRY_TS_FIELDS
+
     def __init__(self, kg_engine: Any = None) -> None:
         self._engine = kg_engine
         self._records: list[TokenUsageRecord] = []
         self._by_session: dict[str, list[TokenUsageRecord]] = defaultdict(list)
         self._by_agent: dict[str, list[TokenUsageRecord]] = defaultdict(list)
+        # Lazily-bound engine time-series backend (CONCEPT:KG-2.252). Telemetry is
+        # naturally a time-series — per-agent token counts over time — so it is
+        # appended to the engine tsdb and read back via native range/window
+        # (in-engine time-bucketing) instead of re-scanning Python lists.
+        self._ts_backend: Any = None
+        self._ts_disabled = False
+
+    def _series_id(self, agent_name: str) -> str:
+        """The per-agent telemetry series id in the engine tsdb."""
+        return f"{_TELEMETRY_SERIES_PREFIX}{agent_name or 'unknown'}"
+
+    def _ts(self) -> Any:
+        """The engine time-series backend, lazily initialized (``None`` if absent).
+
+        Best-effort: if no engine is reachable, telemetry tsdb is disabled for this
+        process (the in-memory aggregation still works) — never raises into the
+        record path.
+        """
+        if self._ts_backend is not None or self._ts_disabled:
+            return self._ts_backend
+        try:
+            from agent_utilities.knowledge_graph.memory.timeseries import (
+                get_timeseries_backend,
+            )
+
+            self._ts_backend = get_timeseries_backend("engine")
+        except Exception as e:  # noqa: BLE001 — engine absent ⇒ disable, don't crash
+            logger.debug("[CONCEPT:KG-2.252] telemetry tsdb unavailable: %s", e)
+            self._ts_disabled = True
+            self._ts_backend = None
+        return self._ts_backend
 
     def record(self, record: TokenUsageRecord) -> TokenUsageRecord:
         """Record a token usage entry.
@@ -186,6 +328,12 @@ class TokenUsageTracker:
         if record.agent_name:
             self._by_agent[record.agent_name].append(record)
 
+        # CONCEPT:KG-2.252 — ALSO append this event to the engine tsdb as a per-agent
+        # telemetry point, so cross-session token trends are a native time-bucketed
+        # range/window query in-engine, not a Python re-scan. Best-effort + off the
+        # critical path (a missing engine just skips it).
+        self._append_ts(record)
+
         logger.debug(
             "Token usage recorded: agent=%s total=%d (prompt=%d response=%d "
             "thoughts=%d tool_use=%d)",
@@ -198,6 +346,59 @@ class TokenUsageTracker:
         )
 
         return record
+
+    def _append_ts(self, record: TokenUsageRecord) -> None:
+        """Append one telemetry record to the engine tsdb (best-effort, KG-2.252)."""
+        backend = self._ts()
+        if backend is None:
+            return
+        try:
+            from datetime import UTC, datetime
+
+            from agent_utilities.knowledge_graph.memory.timeseries.base import (
+                TimeSeriesDataPoint,
+            )
+
+            metrics = {f: float(getattr(record, f, 0)) for f in self._TS_FIELDS}
+            point = TimeSeriesDataPoint(
+                symbol=self._series_id(record.agent_name),
+                timestamp=datetime.fromtimestamp(record.timestamp, tz=UTC),
+                metrics=metrics,
+            )
+            backend.insert([point])
+        except Exception as e:  # noqa: BLE001 — telemetry write must never break a run
+            logger.debug("[CONCEPT:KG-2.252] telemetry tsdb append skipped: %s", e)
+
+    def usage_series(
+        self,
+        agent_name: str,
+        start_ts: float,
+        end_ts: float,
+        *,
+        field: str = "total_tokens",
+        window_s: float | None = None,
+        agg: str = "sum",
+    ) -> list[tuple[float, float]]:
+        """Per-agent token usage over time, computed IN-ENGINE (CONCEPT:KG-2.252).
+
+        Queries the engine tsdb for ``agent_name`` over ``[start_ts, end_ts]``
+        (epoch seconds). With ``window_s`` set, returns native time-bucketed
+        aggregates (``agg`` ∈ sum/mean/min/max/first/last/count) — the bucketing
+        runs in the engine, not by re-scanning Python records. Without a window,
+        returns the raw ``(epoch_seconds, value)`` points for ``field``.
+
+        Returns ``[(epoch_seconds, value), ...]`` (empty if no engine / no data).
+        Delegates to the instance-free :func:`query_token_series` (the durable series
+        is engine-keyed, not tied to this tracker instance).
+        """
+        return query_token_series(
+            agent_name,
+            start_ts,
+            end_ts,
+            field=field,
+            window_s=window_s,
+            agg=agg,
+        )
 
     def get_session_totals(self, session_id: str) -> TokenUsageSummary:
         """Get aggregated token usage for a session.

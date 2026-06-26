@@ -624,9 +624,18 @@ async def _persist_and_enrich(
         logger.debug("[CONCEPT:ECO-4.49] record_inbound failed: %s", e)
     for it in items:
         try:
-            await ingest_message_to_kg(it["event"], knowledge_engine=engine)
+            memory_id = await ingest_message_to_kg(it["event"], knowledge_engine=engine)
         except Exception as e:  # noqa: BLE001
             logger.warning("[CONCEPT:ECO-4.0] KG ingest failed: %s", e)
+            memory_id = None
+        # CONCEPT:KG-2.251 — also persist the message's media (image/voice/video)
+        # DURABLY: store the bytes in the engine BLOB substrate + a :MediaAsset node
+        # linked to this message's memory. Keeps the transcription/vision flow intact;
+        # this just makes the media first-class instead of discarding it after use.
+        try:
+            await _persist_media(engine, it["event"], message_memory_id=memory_id)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[CONCEPT:KG-2.251] media persist skipped: %s", e)
     # Compress this turn into a per-session memento so the next turn inherits continuity
     # through the universal path's core memory (CONCEPT:ECO-4.78).
     try:
@@ -664,6 +673,68 @@ async def _persist_and_enrich(
         )
     except Exception as e:  # noqa: BLE001
         logger.debug("[CONCEPT:ECO-4.65] enrichment skipped: %s", e)
+
+
+def _resolve_media_store(engine: Any) -> Any:
+    """A :class:`MediaStore` bound to the live engine's compute client, or ``None``.
+
+    CONCEPT:KG-2.251 — the durable-media path needs the engine BLOB substrate, reached
+    through ``engine.graph_compute`` (the ``GraphComputeEngine`` whose ``._client``
+    carries ``.blob``/``.txn``). Returns ``None`` (caller no-ops) when no live engine.
+    """
+    compute = getattr(engine, "graph_compute", None) or getattr(engine, "graph", None)
+    if compute is None or getattr(compute, "_client", None) is None:
+        return None
+    from agent_utilities.knowledge_graph.memory.media_store import MediaStore
+
+    return MediaStore(compute)
+
+
+async def _persist_media(
+    engine: Any, event: Any, *, message_memory_id: str | None
+) -> None:
+    """Durably persist an event's media attachments into the KG (CONCEPT:KG-2.251).
+
+    For each image/voice/video/audio attachment: download the bytes (best-effort) and
+    hand them to :class:`MediaStore`, which stores them content-addressed in the engine
+    BLOB substrate and creates a ``:MediaAsset`` linked to ``message_memory_id``. Runs
+    on the background persist pass (off the reply path); any failure is logged + skipped.
+    """
+    msg = getattr(event, "message", None)
+    attachments = getattr(msg, "attachments", None) or []
+    media = [
+        a
+        for a in attachments
+        if getattr(a, "url", "")
+        and str(getattr(a, "media_type", ""))
+        in ("image", "voice_note", "audio", "video")
+    ]
+    if not media:
+        return
+    store = _resolve_media_store(engine)
+    if store is None:
+        return
+    import httpx
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for att in media[:8]:  # cap per turn
+            try:
+                resp = await client.get(att.url)
+                resp.raise_for_status()
+                data = resp.content
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[CONCEPT:KG-2.251] media download failed: %s", e)
+                continue
+            await asyncio.to_thread(
+                store.store_media,
+                data,
+                media_type=str(getattr(att, "media_type", "")),
+                mime_type=getattr(att, "mime_type", "")
+                or resp.headers.get("content-type", "").split(";")[0].strip(),
+                source=str(getattr(event, "platform", "")),
+                message_id=message_memory_id,
+                name=getattr(att, "filename", ""),
+            )
 
 
 async def _transcribe_attachments(event: Any) -> str:

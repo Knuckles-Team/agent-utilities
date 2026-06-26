@@ -7,6 +7,12 @@ each series as ``(ts_ns, [field0, field1, ...])`` points in its own durable
 ``series.redb``, so high-frequency points live beside the graph, not in a
 straggler local DB.
 
+LIVE CONSUMERS (CONCEPT:KG-2.252 wired this from dead-on-arrival to in-flow):
+``observability/token_tracker.py`` appends per-agent token telemetry here on every
+``record()`` and reads trends via native range/window; ``domains/finance/
+engine_series.py`` routes irregular-series gap-fill/asof through it. So this is no
+longer a backend with no caller — it is the live time-series substrate.
+
 Engine-only: this is the sole time-series backend (the local SQLite fallback was
 removed). ``initialize()`` raises a clear error when the engine is genuinely
 unreachable — the OS-5.63 resolver auto-starts the pi-tier engine in prod and the

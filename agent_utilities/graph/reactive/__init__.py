@@ -9,6 +9,11 @@ and multi-axis boundary constraints.
 
 from .budget import BudgetGuard, BudgetTrippedException
 from .dispatcher import BehaviorDispatcher, reactive_behavior
+from .engine_subscription import (
+    EngineSubscription,
+    resolve_streaming,
+    subscribe,
+)
 from .ledger import EventLedger
 
 __all__ = [
@@ -17,4 +22,7 @@ __all__ = [
     "reactive_behavior",
     "BudgetGuard",
     "BudgetTrippedException",
+    "EngineSubscription",
+    "subscribe",
+    "resolve_streaming",
 ]

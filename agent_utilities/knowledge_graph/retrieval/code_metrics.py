@@ -49,7 +49,7 @@ def _confidence_bucket(value: Any) -> str:
     """
     if value is None:
         return "EXTRACTED"  # resolver default for a directly-bound edge
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         if value >= 0.9:
             return "EXTRACTED"
         if value >= 0.4:
