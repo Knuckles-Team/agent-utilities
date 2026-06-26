@@ -237,6 +237,11 @@ _EVOLUTION_INTERVAL = 3600.0
 _RECONCILE_INTERVAL = 900.0
 _ENRICH_INTERVAL = 20.0
 _FILE_WATCH_INTERVAL = 30.0
+# Fast cadence for the reactive autoscale poll (CONCEPT:KG-2.251): it only does a
+# cheap non-blocking ``:Task`` change-feed poll and short-circuits when nothing
+# changed, so it can run far more often than the slow ``_tick_fleet_autoscaler``
+# safety-net interval — turning "scale on the change" from minutes into seconds.
+_AUTOSCALE_REACTIVE_INTERVAL = 5.0
 _HYGIENE_INTERVAL = 86400.0
 _TASK_REAPER_INTERVAL = 120.0
 # Warm-fork parent + dev-workspace idle reap (CONCEPT:OS-5.58). Background; never preempts work.
@@ -902,6 +907,15 @@ class TaskManagerMixin(GraphEngineProtocol):
             _cfg.fleet_autoscaler_interval,
             enabled=_cfg.fleet_autoscaler,
         )
+        # CONCEPT:KG-2.251 — reactive push half of OS-5.29: a fast, cheap poll of the
+        # engine's ``:Task`` change-feed that evaluates only on a queue-depth change.
+        # Same opt-in gate as the autoscaler; the slow tick above is the safety net.
+        _maint(
+            "fleet_autoscale_reactive",
+            "fleet_autoscale_reactive",
+            _AUTOSCALE_REACTIVE_INTERVAL,
+            enabled=_cfg.fleet_autoscaler,
+        )
         _maint("compaction", "compaction", 1800.0)
         _maint("evolution", "evolution", _EVOLUTION_INTERVAL)
         _maint(
@@ -1095,6 +1109,58 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
             logger.debug("fleet_autoscaler tick error: %s", e)
+
+    def _fleet_autoscale_subscription(self) -> Any:
+        """Lazily-built reactive control-plane ``:Task`` change-feed (CONCEPT:KG-2.251).
+
+        One subscription per daemon process, cached on the engine, so the reactive
+        autoscale tick fires on the engine's pushed ``:Task`` change-event (the
+        queue-depth signal moved) rather than waiting out the slow safety-net
+        interval. Rebuilt if it couldn't resolve a streaming surface on first use.
+        """
+        sub = getattr(self, "_autoscale_subscription", None)
+        if sub is None or not getattr(sub, "available", False):
+            from agent_utilities.orchestration.fleet_autoscaler import (
+                fleet_autoscale_subscription,
+            )
+
+            sub = fleet_autoscale_subscription(self)
+            self._autoscale_subscription = sub
+        return sub
+
+    def _tick_fleet_autoscale_reactive(self) -> None:
+        """Fire an autoscale evaluation ON a control-plane ``:Task`` change (KG-2.251).
+
+        The push half of OS-5.29 autoscaling: poll the engine's ``:Task`` change-feed
+        (non-blocking, O(new changes)) and run one ``autoscale_fleet`` pass ONLY when
+        the engine pushed a queue-depth-moving change since the last poll — so a burst
+        of enqueued work scales the fleet at change-time, not at the next slow
+        ``_tick_fleet_autoscaler`` interval (which remains the safety-net reconcile).
+        A no-op when the engine has no streaming surface (the periodic tick covers it).
+        Leader-only via the consolidated maintenance scheduler.
+        """
+        try:
+            sub = self._fleet_autoscale_subscription()
+            if not sub.available:
+                return
+            sub.poll(block_ms=0)
+            if sub.pending_state["pending"] == 0:
+                return
+            sub.pending_state["pending"] = 0
+
+            from agent_utilities.orchestration.fleet_autoscaler import autoscale_fleet
+
+            report = autoscale_fleet(self)
+            if report.get("actions"):
+                logger.info(
+                    "[KG-2.251] reactive autoscale on :Task change: evaluated=%s "
+                    "actions=%s scaled=%s",
+                    report.get("evaluated"),
+                    report.get("actions"),
+                    report.get("scaled"),
+                )
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("fleet_autoscale_reactive tick error: %s", e)
 
     def _get_host_token(self) -> str:
         """Stable per-process identity for task-claim ownership (zombie reaper).
