@@ -107,18 +107,19 @@ def prompt_regression(backend: Any, top_k: int = 20) -> dict[str, Any]:
     )
     score_by_trace: dict[str, list[float]] = defaultdict(list)
     for s in scores:
-        tid, sc = s.get("trace_id"), s.get("score")
-        if tid is None or sc is None:
+        tid, raw = s.get("trace_id"), s.get("score")
+        if tid is None or raw is None:
             continue
         try:
-            score_by_trace[str(tid)].append(float(sc))
+            score_by_trace[str(tid)].append(float(raw))
         except (TypeError, ValueError):
             continue
     per_version: dict[str, list[float]] = defaultdict(list)
     for g in gens:
-        per_version[str(g.get("pv"))].extend(
-            score_by_trace.get(str(g.get("trace_id")), [])
-        )
+        pv = g.get("pv")
+        if pv is None:
+            continue
+        per_version[str(pv)].extend(score_by_trace.get(str(g.get("trace_id")), []))
     summary = {
         pv: {"mean_score": round(sum(v) / len(v), 4), "n": len(v)}
         for pv, v in per_version.items()
@@ -144,11 +145,11 @@ def failure_cluster(
     clusters: dict[str, set[str]] = defaultdict(set)
     counts: Counter[str] = Counter()
     for f in fails:
-        key = f.get("assertion") or "?"
+        key = str(f.get("assertion") or "?")
         counts[key] += 1
         t = traces.get(str(f.get("trace_id")), {})
         clusters[key].add(str(t.get("agent") or t.get("name") or f.get("trace_id")))
-    out = [
+    out: list[dict[str, Any]] = [
         {"assertion": k, "failures": counts[k], "agents": sorted(clusters[k])}
         for k in counts
         if len(clusters[k]) >= min_agents

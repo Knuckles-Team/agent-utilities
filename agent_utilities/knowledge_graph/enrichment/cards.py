@@ -517,6 +517,16 @@ def make_llm_fn(model: str | None = None, base_url: str | None = None) -> LLMFn:
                     )
                 except BadRequestError:
                     resp = client.chat.completions.create(**kwargs)
+                # Capture token usage into the active ingest profile (OS-5.69) —
+                # a no-op when no ingest is being profiled.
+                _u = getattr(resp, "usage", None)
+                if _u is not None:
+                    from ..core.ingest_profile import record_llm_usage
+
+                    record_llm_usage(
+                        getattr(_u, "prompt_tokens", 0),
+                        getattr(_u, "completion_tokens", 0),
+                    )
                 return resp.choices[0].message.content or ""
             except Exception as e:  # noqa: BLE001 — never let a bad call block ingest
                 logger.debug("llm_fn call failed (%s); returning empty", e)
