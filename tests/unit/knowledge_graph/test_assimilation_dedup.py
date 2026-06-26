@@ -156,3 +156,39 @@ def test_version_variants_linked_not_superseded():
     var = [e for e in engine.edges if e[2] == "VARIANT_OF"]
     assert len(var) == 1
     assert {var[0][0], var[0][1]} == {"v2", "v3"}
+
+
+def test_engine_resolve_candidates_escalation():
+    # KG-2.260: when the engine exposes ResolveCandidates, ambiguous residuals
+    # escalate to it. f1/f2 are generic ("System") so name-resolution leaves them
+    # residual; the engine returns a same_as (merge) + an extends (variant) proposal.
+    class _ResolveEngine(_Engine):
+        def resolve_candidates(self, sim_threshold, merge_threshold, node_type):
+            return [
+                {
+                    "canonical": "f1",
+                    "members": ["f1", "f2"],
+                    "score": 0.99,
+                    "kind": "same_as",
+                },
+                {
+                    "canonical": "f1",
+                    "members": ["f1", "f3"],
+                    "score": 0.85,
+                    "kind": "extends",
+                },
+            ]
+
+    engine = _ResolveEngine(
+        {
+            "f1": {**_feat([1.0, 0.0, 0.0], importance=0.9), "name": "System"},
+            "f2": {**_feat([0.0, 1.0, 0.0], importance=0.3), "name": "System"},
+            "f3": {**_feat([0.0, 0.0, 1.0], importance=0.5), "name": "System"},
+        }
+    )
+    report = dedup_features(engine, similar_threshold=0.8, dup_threshold=0.95)
+    assert report.engine_proposals >= 2
+    # the same_as proposal drove a merge (f1 supersedes f2)
+    assert report.duplicates_superseded >= 1
+    # the extends proposal linked a VARIANT_OF edge
+    assert any(e[2] == "VARIANT_OF" for e in engine.edges)
