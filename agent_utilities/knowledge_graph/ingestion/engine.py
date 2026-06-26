@@ -811,10 +811,22 @@ class IngestionEngine:
             )
         except Exception:  # noqa: BLE001
             return 0
+        # Ontology-guided extraction (KG-2.255): resolve the OWL TBox schema for
+        # this content type and inject it into the extractor prompt so subjects/
+        # objects come out as canonical ontology types and predicates respect
+        # rdfs:domain/range direction. None (non-prose, or rdflib absent on the
+        # lean serving plane) → unchanged free-vocab extraction (no regression).
+        schema = None
+        try:
+            from ..extraction.extraction_schema import load_extraction_schema
+
+            schema = load_extraction_schema(source_type)
+        except Exception:  # noqa: BLE001 — schema load never breaks ingest
+            schema = None
         facts: list[Any] = []
         try:
             async for ev in extract_facts(
-                text, rounds=1, dedup=True, source_file=source_id
+                text, rounds=1, dedup=True, source_file=source_id, schema=schema
             ):
                 if ev.get("type") == "fact" and not ev.get("is_duplicate"):
                     facts.append(ExtractedFact(**ev["fact"]))
