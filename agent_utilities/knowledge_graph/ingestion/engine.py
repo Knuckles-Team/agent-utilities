@@ -1628,13 +1628,15 @@ class IngestionEngine:
         """
         import json as _json
 
+        from ..core.ingest_profile import stage as _pstage
         from ..enrichment.extractors.document import extract_document
         from ..extraction.readers import read_any
 
         # read_any routes the document family to the PyMuPDF-fast read_document_text
         # and every other modality (email/pptx/xlsx/audio/OCR/...) to its registered
         # reader — one universal front door (CONCEPT:KG-2.66).
-        text = read_any(str(path_obj))
+        with _pstage("read"):  # OS-5.70 per-stage timing
+            text = read_any(str(path_obj))
         if not text.strip():
             return IngestionResult(
                 manifest=manifest,
@@ -1653,7 +1655,8 @@ class IngestionEngine:
         else:
             llm = lambda _p: ""  # noqa: E731 — Document node only, no concepts
 
-        doc, concepts, edges = extract_document(str(path_obj), text, llm)
+        with _pstage("extract"):  # OS-5.70 — the LLM concept-extraction stage
+            doc, concepts, edges = extract_document(str(path_obj), text, llm)
         add_node = getattr(self.backend, "add_node", None)
         if not callable(add_node):
             return IngestionResult(
