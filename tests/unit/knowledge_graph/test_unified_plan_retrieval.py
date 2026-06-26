@@ -26,7 +26,7 @@ from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import HybridRet
 pytestmark = [pytest.mark.engine, pytest.mark.concept("KG-2.250")]
 
 
-class _StubEmbed:
+class _FakeEmbed:
     """Deterministic embedding model — maps a token vocabulary to unit axes.
 
     No network: each seeded doc and the query embed to a fixed orthonormal axis so
@@ -87,7 +87,7 @@ def _retriever(graph: Any, *, embed: Any = None) -> HybridRetriever:
     r._relevance_threshold = 0.1
     r._quality_gate = None
     r._last_quality_report = None
-    r._embed_model = embed if embed is not None else _StubEmbed()
+    r._embed_model = embed if embed is not None else _FakeEmbed()
     r._embed_model_initialized = True
     from agent_utilities.knowledge_graph.core.hypergraph import (
         PositionalInteractionEncoder,
