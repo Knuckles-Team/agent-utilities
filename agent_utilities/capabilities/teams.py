@@ -154,13 +154,12 @@ class TeamCapability(AbstractCapability[Any]):
             return []
 
         teams: list[dict[str, Any]] = []
+        from ..knowledge_graph.core.bounded_read import iter_nodes_by_types
         from ..models.knowledge_graph import RegistryNodeType
 
-        for node_id, data in engine.graph.nodes(data=True):
-            if (
-                data.get("type") == RegistryNodeType.TEAM
-                and data.get("status") == "active"
-            ):
+        # Bounded per-label fetch (CONCEPT:KG-2.261) — never a whole-graph node pull.
+        for node_id, data in iter_nodes_by_types(engine.graph, RegistryNodeType.TEAM):
+            if data.get("status") == "active":
                 teams.append(
                     {
                         "team_id": node_id,

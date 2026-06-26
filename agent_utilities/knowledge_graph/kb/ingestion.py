@@ -216,9 +216,9 @@ class KBIngestionEngine:
                 if new_source and new_source.content_hash != old_hash:
                     logger.info(f"Re-ingesting changed source: {file_path}")
                     # Update the source node
-                    self.graph.nodes[source_id][
-                        "content_hash"
-                    ] = new_source.content_hash
+                    self.graph.nodes[source_id]["content_hash"] = (
+                        new_source.content_hash
+                    )
                     # Re-extract any articles compiled from this source
                     await self._process_source(
                         new_source, kb_id, kb_data.get("topic", ""), force=True
@@ -335,21 +335,23 @@ class KBIngestionEngine:
         This is the fast 'discovery' method for agents — reads from the graph
         without any backend query needed.
         """
+        from ..core.bounded_read import iter_nodes_by_types
+
         kbs = []
-        for n, data in self.graph.nodes(data=True):
-            if data.get("type") == RegistryNodeType.KNOWLEDGE_BASE:
-                kbs.append(
-                    {
-                        "id": n,
-                        "name": data.get("name", n),
-                        "topic": data.get("topic", ""),
-                        "description": data.get("description", ""),
-                        "article_count": data.get("article_count", 0),
-                        "source_count": data.get("source_count", 0),
-                        "status": data.get("status", "unknown"),
-                        "suggested_queries": [],  # populated from KBIndex if available
-                    }
-                )
+        # Bounded per-label fetch (CONCEPT:KG-2.261) — never a whole-graph node pull.
+        for n, data in iter_nodes_by_types(self.graph, RegistryNodeType.KNOWLEDGE_BASE):
+            kbs.append(
+                {
+                    "id": n,
+                    "name": data.get("name", n),
+                    "topic": data.get("topic", ""),
+                    "description": data.get("description", ""),
+                    "article_count": data.get("article_count", 0),
+                    "source_count": data.get("source_count", 0),
+                    "status": data.get("status", "unknown"),
+                    "suggested_queries": [],  # populated from KBIndex if available
+                }
+            )
         return sorted(kbs, key=lambda x: x["name"])
 
     def search_knowledge_base(
@@ -427,9 +429,12 @@ class KBIngestionEngine:
 
     def get_article(self, article_id: str) -> dict | None:
         """Retrieve a specific article by ID."""
-        for n, data in self.graph.nodes(data=True):
-            if n == article_id and data.get("type") == RegistryNodeType.ARTICLE:
-                return {"id": n, **data}
+        # Per-id fetch (CONCEPT:KG-2.261) — never scan the whole graph to find one node.
+        from ..core.bounded_read import get_node_data
+
+        data = get_node_data(self.graph, article_id)
+        if data and data.get("type") == RegistryNodeType.ARTICLE:
+            return {"id": article_id, **data}
         return None
 
     async def update(self, kb_id: str, **kwargs):

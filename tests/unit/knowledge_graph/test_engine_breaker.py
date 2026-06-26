@@ -214,7 +214,9 @@ class TestBreakerClientProxy:
         assert proxy.version == "1.0"
         assert br.state == "closed"
 
-    def test_connection_errors_trip_breaker(self, clock):
+    def test_connection_errors_trip_breaker(self, clock, monkeypatch):
+        # no backoff sleeps in tests (CONCEPT:KG-2.262 transient-retry)
+        monkeypatch.setattr(engine_breaker, "_RETRY_BACKOFF_BASE_S", 0.0)
         br = CircuitBreaker("ep", threshold=2, cooldown=10)
         proxy = wrap_client_with_breaker(
             FakeClient(fail_with=ConnectionRefusedError("down")), br
@@ -231,6 +233,47 @@ class TestBreakerClientProxy:
             proxy.nodes.add("n1")
         assert len(client.nodes.calls) == before
 
+    def test_transient_error_retried_then_succeeds(self, monkeypatch):
+        """A transient drop is retried (the client reconnects) and succeeds WITHOUT
+        counting a breaker failure — so a blip never cascades (CONCEPT:KG-2.262)."""
+        monkeypatch.setattr(engine_breaker, "_RETRY_BACKOFF_BASE_S", 0.0)
+
+        class _FlakyNS:
+            def __init__(self) -> None:
+                self.attempts = 0
+
+            def add(self, *a, **k):
+                self.attempts += 1
+                if self.attempts == 1:
+                    raise ConnectionResetError("dropped mid-op")
+                return "added"
+
+        class _FlakyClient:
+            def __init__(self) -> None:
+                self.nodes = _FlakyNS()
+
+        br = CircuitBreaker("flaky-ep", threshold=2, cooldown=10)
+        proxy = wrap_client_with_breaker(_FlakyClient(), br)
+        assert proxy.nodes.add("n1") == "added"  # rode the retry past the drop
+        assert unwrap_client(proxy).nodes.attempts == 2
+        assert br.state == "closed"  # transient retry did NOT count a failure
+
+    def test_persistent_transient_trips_after_retries(self, clock, monkeypatch):
+        """A persistent connection error still trips — after exhausting the bounded
+        retries (1 + _MAX_TRANSIENT_RETRIES underlying attempts), once (KG-2.262)."""
+        monkeypatch.setattr(engine_breaker, "_RETRY_BACKOFF_BASE_S", 0.0)
+        br = CircuitBreaker("persist-ep", threshold=1, cooldown=10)
+        proxy = wrap_client_with_breaker(
+            FakeClient(fail_with=ConnectionResetError("down")), br
+        )
+        with pytest.raises(ConnectionResetError):
+            proxy.nodes.add("n1")
+        assert (
+            len(unwrap_client(proxy).nodes.calls)
+            == engine_breaker._MAX_TRANSIENT_RETRIES + 1
+        )
+        assert br.state == "open"  # one breaker failure after retries exhausted
+
     def test_application_errors_do_not_trip(self):
         br = CircuitBreaker("ep", threshold=1, cooldown=10)
         proxy = wrap_client_with_breaker(
@@ -243,6 +286,7 @@ class TestBreakerClientProxy:
 
     def test_outcome_metrics_and_op_labels(self, monkeypatch):
         fake = RecordingMetric()
+        monkeypatch.setattr(engine_breaker, "_RETRY_BACKOFF_BASE_S", 0.0)
         monkeypatch.setattr(engine_breaker, "ENGINE_REQUESTS", fake)
         br = CircuitBreaker("ep", threshold=1, cooldown=10)
         proxy = wrap_client_with_breaker(FakeClient(), br)

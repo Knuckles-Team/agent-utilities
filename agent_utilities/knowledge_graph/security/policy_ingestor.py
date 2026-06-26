@@ -610,10 +610,10 @@ class PolicyIngestor:
         """
         matches: list[dict[str, Any]] = []
 
-        for node_id, data in self.engine.graph.nodes(data=True):
-            if data.get("type") != "policy":
-                continue
+        from ..core.bounded_read import iter_nodes_by_types
 
+        # Bounded per-label fetch (CONCEPT:KG-2.261) — never a whole-graph node pull.
+        for node_id, data in iter_nodes_by_types(self.engine.graph, "policy"):
             meta = data.get("metadata", {})
             if isinstance(meta, str):
                 try:
