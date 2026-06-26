@@ -322,3 +322,14 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual]
+  # docs-consistency gate (tests/docs) — README concept block in sync with
+  # docs/concepts.yaml, AGENTS.md regenerated + under its size ceiling, no cache
+  # dirs leaked into the project tree. NOT run by the unit-pytest scope (tests/unit)
+  # NOR by CI, yet it catches real doc drift on every concept change — so mirror it
+  # here (fast, ~7s). Default stage so it runs on every --all-files.
+  - id: docs-consistency
+    name: CI parity — docs consistency (README/AGENTS vs concepts.yaml)
+    entry: bash -c 'if [ -f uv.lock ]; then uv run --all-extras pytest tests/docs -q -p no:cacheprovider -o addopts=""; else python3 -m pytest tests/docs -q -p no:cacheprovider -o addopts=""; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
