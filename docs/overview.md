@@ -180,6 +180,7 @@ graph TD
 | ORCH-1.43 | Workflow Lineage Close-Out | Run lineage written back to the KG, closing the descriptive↔executable provenance loop |
 | ORCH-1.44 | Durable Goal Registry | Goals persist across restarts; stranded runs rehydrate as orphaned instead of silently vanishing |
 | ORCH-1.45 | Queue-Driven Agent Dispatch | Session-keyed `agent_turns` queue (`AgentTurnEnvelope`) + stateless `agent-dispatch-worker` fleet with fleet-visible placement |
+| ORCH-1.80 | Canonical StructuredPrompt | One `StructuredPrompt` shape + single canonical body resolver; per-package prompts compose onto the agent-utilities base via `extends` (authored with the `prompt-builder` skill) |
 
 ### Pillar 2: Epistemic Knowledge Graph (KG-2.0 – 2.58)
 
@@ -277,6 +278,7 @@ graph TD
 | ECO-4.41 | Cross-UI Usage & Cost Surface | The usage/cost/observability surface (`/api/observability`, `usage_query`) rendered in all three frontends |
 | ECO-4.42 | Remote Usage Ingest | Clients parse local logs and POST normalized usage to the server sink |
 | ECO-4.43 | Document → KG Fact Extraction UI | Interactive document/URL → atomic-triple extraction with live force-graph, edge-fact cards, and JSONL across all three frontends over `/api/enhanced/extract/*` |
+| ECO-4.82 | Verbose 1:1 MCP Tool Surface | `MCP_TOOL_MODE` (`condensed` default / `verbose` / `both`) over a shared `register_tool_surface` that auto-discovers `register_<domain>_tools` and exposes a typed 1:1 verbose tier |
 
 ### Pillar 5: Agent OS Infrastructure (OS-5.0 – 5.29)
 
@@ -301,6 +303,8 @@ graph TD
 | OS-5.28 | Shard Topology Visibility | Per-shard reachability/breaker status surfaces + per-endpoint engine gauges and counters |
 | OS-5.29 | Reactive Replica Autoscaling | Registry-declared scaling bounds + pluggable signal providers + leader-only target-tracking autoscaler behind the policy gate |
 | OS-5.32 | Multiplexer Outbound Service Token | The MCP multiplexer mints + refreshes a Keycloak client-credentials token (audience `agent-services`) and attaches it to every remote child so jwt-enforced connectors are reachable through the aggregator (`mcp/client_credentials.py`, opt-in `MCP_CLIENT_AUTH=oidc-client-credentials`) |
+| OS-5.52 | Modular Skill/Prompt Contribution | Any agent-package ships its own skills + system prompts in its wheel, discovered via the `agent_utilities.skill_providers` / `prompt_providers` entry-points (package-owned skills install into the shared XDG dir) |
+| OS-5.72 | Env-var Drift Guard | Code is the single source of truth for env vars; `check_env_var_drift` flags DEAD / UNDOCUMENTED / MISSING_TOOL_MODE across `.env.example`, `mcp_config*.json`, docker compose, and the README (`mcp/check_env_var_drift.py`) |
 
 ### Gateway Service Dashboard (OS-5.9)
 
