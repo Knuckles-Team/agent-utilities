@@ -116,7 +116,9 @@ def prompt_regression(backend: Any, top_k: int = 20) -> dict[str, Any]:
             continue
     per_version: dict[str, list[float]] = defaultdict(list)
     for g in gens:
-        per_version[str(g.get("pv"))].extend(score_by_trace.get(str(g.get("trace_id")), []))
+        per_version[str(g.get("pv"))].extend(
+            score_by_trace.get(str(g.get("trace_id")), [])
+        )
     summary = {
         pv: {"mean_score": round(sum(v) / len(v), 4), "n": len(v)}
         for pv, v in per_version.items()
