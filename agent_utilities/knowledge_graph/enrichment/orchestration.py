@@ -44,7 +44,7 @@ class AgentSpec(BaseModel):
     prompt_id: str | None = None
     tools: list[str] = Field(default_factory=list)  # tool names/ids
     skills: list[str] = Field(default_factory=list)  # skill names/ids
-    model: str = ""  # chosen model id (e.g. "qwen-lite" / "qwen/qwen3.5-9b")
+    model: str = ""  # chosen model id (e.g. "qwen-lite" / "qwen/qwen3.6-35b-a3b")
     description: str = ""
 
     @property

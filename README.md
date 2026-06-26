@@ -380,7 +380,7 @@ default. A minimal working config:
 ```json
 {
   "chat_models": [
-    {"id": "qwen/qwen3.5-9b", "provider": "openai", "base_url": "http://vllm.arpa/v1",
+    {"id": "qwen/qwen3.6-35b-a3b", "provider": "openai", "base_url": "http://vllm.arpa/v1",
      "tools_enabled": true, "can_route": true, "can_kg": true}
   ],
   "embedding_models": [

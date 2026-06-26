@@ -233,7 +233,7 @@ All classification and extraction runs through the local LLM:
 
 ```
 AgentConfig.default_chat_model
-  → model_id: "qwen/qwen3.5-9b"
+  → model_id: "qwen/qwen3.6-35b-a3b"
   → base_url: "http://vllm.arpa/v1"
   → UniversalKnowledgeClassifier._get_agent()
   → Pydantic AI Agent(model=..., output_type=KnowledgeClassification)

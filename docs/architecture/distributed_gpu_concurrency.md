@@ -180,7 +180,7 @@ fails safe toward the floor.
 |---|---|---|
 | GPUs | one GB10 (10.0.0.18, unified memory) | N GPU hosts |
 | Model→endpoint | one `base_url` per model | endpoint **list** per model |
-| Sharing | `bge-m3` (vllm-embed.arpa) + `qwen3.5-9b` (vllm.arpa) share the GB10 | each host its own `gpu_group` + budget |
+| Sharing | `bge-m3` (vllm-embed.arpa) + `qwen3.6-35b-a3b` (vllm.arpa) share the GB10 | each host its own `gpu_group` + budget |
 | Tier (a) | live (`KG-2.145`) | unchanged |
 | Tier (b) | **live (`KG-2.146`)** — tag both `gpu_group="gb10"`, set `GPU_CONCURRENCY_BUDGETS={"gb10": <knee>}`; embedding yields, chat reserved | per-host budgets, one per GPU |
 | Tier (c) | n/a (single host) | aggregate = Σ per-host shares; least-in-flight / HRW routing reusing `pool.py` precedent |
@@ -193,7 +193,7 @@ fails safe toward the floor.
 {
   // Group both models onto the one physical GB10 (cross-endpoint grouping needs
   // the explicit tag; same-endpoint models group by host automatically).
-  "chat_models":      [{ "id": "qwen3.5-9b", "base_url": "http://vllm.arpa/v1",       "gpu_group": "gb10" }],
+  "chat_models":      [{ "id": "qwen3.6-35b-a3b", "base_url": "http://vllm.arpa/v1",  "gpu_group": "gb10" }],
   "embedding_models": [{ "id": "bge-m3",     "base_url": "http://vllm-embed.arpa/v1", "gpu_group": "gb10" }],
 
   // Total concurrent in-flight calls across ALL models on the gb10 GPU (the
