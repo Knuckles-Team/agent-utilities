@@ -154,26 +154,30 @@ def resolve_engine_binary() -> Path:
     Raises :class:`EngineUnavailable` when there is no binary, no sibling source,
     or no ``cargo`` to build with.
     """
-    # 1) Prebuilt wheel binary (production path) — but ONLY if it serves the
-    #    blob/tsdb substrates the multimodal + time-series suites need; a feature-
-    #    slim wheel binary is skipped in favour of building the capable pi-max tier.
+    # 1) Prebuilt wheel binary (production path) — TRUST it directly when present.
+    #    The PUBLISHED ``epistemic-graph>=1.0.0`` wheel ships the feature-complete
+    #    production server (blob + tsdb substrates), so a test that uses it validates
+    #    the ACTUAL deployed database. We deliberately do NOT gate the wheel binary
+    #    behind the live ``_binary_serves_features`` probe: that probe starts a
+    #    throwaway engine, and under a loaded box + the per-test 60s pytest-timeout it
+    #    can spuriously fail (engine cold-start contention) → fall through to a
+    #    source build → ``cargo build`` runs INSIDE a 60s-timeout test → the whole
+    #    suite cascades into thousands of timeout errors. The published wheel is the
+    #    authority; the feature probe is reserved for the sibling-source fallback
+    #    (step 2) where a feature-slim local build genuinely can occur.
     #    The wheel installs the binary into the SAME bin dir as the interpreter
     #    script (``.venv/bin``). In a venv ``sys.executable`` is a SYMLINK to the
     #    base toolchain interpreter, so ``.resolve()`` would walk OUT of ``.venv/bin``
     #    (where the binary lives) into the base ``python`` dir (where it does not).
     #    Probe the UN-resolved bin dir first (the venv where the wheel was installed),
-    #    then the resolved one (system / non-venv installs) — first capable hit wins.
+    #    then the resolved one (system / non-venv installs) — first hit wins.
     seen: set[Path] = set()
     for base in (Path(sys.executable).parent, Path(sys.executable).resolve().parent):
         if base in seen:
             continue
         seen.add(base)
         wheel_bin = base / _BINARY_NAME
-        if (
-            wheel_bin.is_file()
-            and os.access(wheel_bin, os.X_OK)
-            and _binary_serves_features(wheel_bin)
-        ):
+        if wheel_bin.is_file() and os.access(wheel_bin, os.X_OK):
             return wheel_bin
 
     rust_dir = _sibling_epistemic_graph_dir()
