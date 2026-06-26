@@ -267,6 +267,29 @@ options:
 verdict list in `details_json`; quiet ticks write nothing) — per-action
 audit already lives in the `ActionDecision`/`ActionExecution` ledger.
 
+**Reactive push (KG-2.251).** The slow `fleet_autoscaler` interval above is the
+*safety-net reconcile*; the **push** half reacts to the change-event itself. A
+fast (`_AUTOSCALE_REACTIVE_INTERVAL`, 5 s) `fleet_autoscale_reactive` tick polls a
+durable engine **change-feed subscription** over control-plane `:Task` mutations —
+`fleet_autoscale_subscription(engine)`, built on the one
+`agent_utilities.graph.reactive.subscribe` primitive (the engine's native
+CDC/`watch`, engine concepts KG-2.229/230). The poll is cheap and non-blocking
+(O(new `:Task` changes), not a full re-scan) and short-circuits when nothing
+changed, so it can run far more often than the metric-poll interval. When the
+engine pushes a queue-depth-moving `:Task` change, it runs ONE `autoscale_fleet`
+pass at change-time instead of waiting out the interval. Same `FLEET_AUTOSCALER`
+opt-in gate; a no-op (the periodic tick still covers it) when the engine exposes
+no streaming surface.
+
+```mermaid
+flowchart LR
+    TASK[":Task enqueued / claimed\n(__control__)"] -->|engine CDC commit| FEED["engine change-feed\n(watch/cdc_read)"]
+    FEED -->|push| SUB["EngineSubscription\n(KG-2.251)"]
+    SUB -->|pending > 0| RX["_tick_fleet_autoscale_reactive\n(5s, cheap poll)"]
+    RX --> EVAL["autoscale_fleet → ActionPolicy → actuator"]
+    TIMER["_tick_fleet_autoscaler\n(60s safety net)"] --> EVAL
+```
+
 ## Strangled: `capabilities/auto_healing.py`
 
 The dormant `AutoHealingEngine` shell (disabled by default, never-wired
