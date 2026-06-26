@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 494
+total_concepts: 498
 total_pillars: 21
 pillars:
 - AHE-3
@@ -3618,19 +3618,27 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
   doc: tolerant of every shape this value arrives in
+- id: KG-2.206
+  name: and recording a
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/media_store.py
+  doc: and recording a
 - id: KG-2.208
-  name: that the engine sequences over a
+  name: the vector
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
-  doc: that the engine sequences over a
+  doc: the vector
 - id: KG-2.210
   name: Graphify-style structural analytics over the
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/domains/finance/engine_series.py
   - agent_utilities/knowledge_graph/memory/timeseries/__init__.py
   - agent_utilities/knowledge_graph/retrieval/code_metrics.py
   - agent_utilities/mcp/kg_server.py
@@ -3667,6 +3675,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/code_metrics.py
   doc: the top nodes by degree + edges
+- id: KG-2.225
+  name: a reader never sees a node without its blob
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/media_store.py
+  doc: a reader never sees a node without its blob
 - id: KG-2.231
   name: KG-2.231
   pillar: KG-2
@@ -3746,6 +3761,26 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   doc: KG-2.250
+- id: KG-2.251
+  name: the durable-media path needs the engine BLOB substrate, reached
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/memory/media_store.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/messaging/router.py
+  doc: the durable-media path needs the engine BLOB substrate, reached
+- id: KG-2.252
+  name: when True, gappy/irregular raw OHLCV is gap-filled onto a
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/domains/finance/engine_series.py
+  - agent_utilities/domains/finance/features.py
+  - agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/observability/token_tracker.py
+  doc: when True, gappy/irregular raw OHLCV is gap-filled onto a
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

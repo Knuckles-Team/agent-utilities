@@ -37,7 +37,7 @@ def register_write_ingest_tools(mcp):
             "Write nodes, relationships, or register external graphs to the Knowledge "
             "Graph. Actions: add_node, add_edge, delete_node, delete_edge, "
             "register_external_graph, bulk_ingest, compare_and_set, store_memory, "
-            "recall_memory, log_chat, submit_sdd, register_execution, check_loop. "
+            "recall_memory, recall_media, log_chat, submit_sdd, register_execution, check_loop. "
             "Use 'compare_and_set' for an atomic conditional update (optimistic "
             "concurrency / conditional state transitions / atomic reservations) so "
             "concurrent agents shaping the same node never lose each other's write."
@@ -49,7 +49,7 @@ def register_write_ingest_tools(mcp):
             description=(
                 "Action to perform (add_node, add_edge, delete_node, delete_edge, "
                 "register_external_graph, bulk_ingest, compare_and_set, store_memory, "
-                "recall_memory, log_chat, submit_sdd, register_execution, check_loop). "
+                "recall_memory, recall_media, log_chat, submit_sdd, register_execution, check_loop). "
                 "Use 'compare_and_set' for an ATOMIC conditional update — optimistic "
                 "concurrency / safe concurrent graph-shaping: it applies 'updates' only "
                 "if every field in 'conditions' still equals the node's current value "
@@ -223,6 +223,29 @@ def register_write_ingest_tools(mcp):
                             return "\n".join([str(r) for r in res])
                     except ImportError:
                         return "Error: memory module not available"
+                elif action == "recall_media":
+                    # CONCEPT:KG-2.251 — list durable :MediaAsset records (the
+                    # content-addressed media we persisted from chat). Returns
+                    # metadata (asset_id + content_digest + media_type), NOT raw
+                    # bytes (those are fetched by digest via MediaStore.fetch_bytes).
+                    # Optional filter: node_id=<message memory id> for a turn's media.
+                    where = "n.type = 'MediaAsset'"
+                    if node_id:
+                        where += f" AND n.message_id = '{node_id}'"
+                    try:
+                        rows = engine.graph_compute._client.query.cypher(
+                            f"MATCH (n) WHERE {where} RETURN "
+                            "n.id AS asset_id, n.content_digest AS digest, "
+                            "n.media_type AS media_type, n.mime_type AS mime_type, "
+                            "n.created_at AS created_at LIMIT 50"
+                        )
+                        return json.dumps(
+                            {"action": "recall_media", "assets": rows}, default=str
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        return json.dumps(
+                            {"action": "recall_media", "error": str(e)}, default=str
+                        )
                 elif action in (
                     "log_chat",
                     "submit_sdd",
@@ -1269,7 +1292,7 @@ def register_write_ingest_tools(mcp):
             default="summary",
             description=(
                 "summary | by_model | by_project | by_agent | tools | activity | "
-                "sessions | session_detail | top_sessions | search | traces"
+                "sessions | session_detail | top_sessions | search | traces | series"
             ),
         ),
         from_date: str = Field(default="", description="ISO start (started_at >=)."),
@@ -1330,6 +1353,30 @@ def register_write_ingest_tools(mcp):
                 if not query:
                     return "Error: query required for search"
                 out = [e.model_dump() for e in svc.search(query, limit=limit)]
+            elif action == "series":
+                # CONCEPT:KG-2.252 — per-agent token usage over time from the engine
+                # tsdb (native range/window), not a Python re-scan. ``from_date``/
+                # ``to_date`` are epoch seconds; ``model`` carries the bucket field
+                # (default total_tokens); ``limit`` carries the window size in seconds
+                # (0 = raw points). agent= the series key.
+                from agent_utilities.observability.token_tracker import (
+                    query_token_series,
+                )
+
+                try:
+                    start = float(from_date) if from_date else 0.0
+                    end = float(to_date) if to_date else 4.0e18
+                except ValueError:
+                    return "Error: series from_date/to_date must be epoch seconds"
+                pts = query_token_series(
+                    agent,
+                    start,
+                    end,
+                    field=model or "total_tokens",
+                    window_s=float(limit) if limit else None,
+                    agg=origin or "sum",
+                )
+                out = [{"ts": t, "value": v} for t, v in pts]
             else:
                 return f"Error: unknown usage_query action '{action}'"
             return _json.dumps(out, default=str)
