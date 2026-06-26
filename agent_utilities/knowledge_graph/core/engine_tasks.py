@@ -984,6 +984,20 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001
             logger.debug("dev-workspace reap skipped: %s", e)
+        try:
+            # CONCEPT:ORCH-1.94 — stateless backstop: sweep warm-fork sandbox containers the
+            # in-memory registry can no longer see (orphaned by a daemon restart) by label + age.
+            from agent_utilities.rlm.sandboxes.container_fork_backend import (
+                reap_orphaned_sandboxes,
+            )
+
+            orphans = reap_orphaned_sandboxes()
+            if orphans:
+                logger.info(
+                    "Reaped %d orphaned warm-fork sandbox container(s).", len(orphans)
+                )
+        except Exception as e:  # noqa: BLE001 — sweep is best-effort
+            logger.debug("orphaned-sandbox sweep skipped: %s", e)
 
     def _tick_goal_sla(self) -> None:
         """Evaluate open goals against their SLA + escalate breaches (ORCH-1.78)."""

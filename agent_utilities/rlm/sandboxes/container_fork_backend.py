@@ -25,10 +25,13 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from ..telemetry import SandboxFatalError
@@ -43,6 +46,16 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
+
+# CONCEPT:ORCH-1.94 — strict zombie protection. A warm container is labelled so a stateless sweep
+# can find it even after the orchestrator process (and its in-memory WarmParentRegistry) dies, and
+# its PID 1 is a self-expiring ``timeout … sleep`` so the kernel inside the container tears it down
+# at the hard age cap with NO host involvement — the failure mode that left 5 ``sleep infinity``
+# containers spinning a forked child at 100% CPU for days after a daemon restart.
+_SANDBOX_LABEL = "agent_utilities.rlm.sandbox"
+# Hard wall-clock lifetime of a warm container, kernel-enforced via PID-1 ``timeout``. Mirrors the
+# WarmParentRegistry age cap (DEFAULT_MAX_AGE_SECS) so both layers expire on the same budget.
+WARM_CONTAINER_MAX_AGE_S = 3600
 
 
 class ContainerForkSandbox(ForkableSandbox):
@@ -117,6 +130,8 @@ class ContainerForkSandbox(ForkableSandbox):
         name = f"rlm-cfork-{uuid.uuid4().hex[:12]}"
         argv = [
             runtime, "run", "-d", "--name", name,
+            "--label", f"{_SANDBOX_LABEL}={self.name}",
+            "--label", f"{_SANDBOX_LABEL}.max_age_s={WARM_CONTAINER_MAX_AGE_S}",
             "--network", "none",
             "--memory", self.memory,
             "--pids-limit", str(self.pids_limit),
@@ -124,7 +139,11 @@ class ContainerForkSandbox(ForkableSandbox):
             "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
             "-v", f"{pool_dir}:/data:rw",
-            self.image, "sleep", "infinity",
+            # CONCEPT:ORCH-1.94 — PID 1 self-expires at the hard age cap. ``timeout`` kills the
+            # ``sleep`` (and thus stops the whole container) after WARM_CONTAINER_MAX_AGE_S even if
+            # the orchestrator never calls ``close`` — the kernel-enforced hard lifetime.
+            self.image, "timeout", "--signal=KILL", str(WARM_CONTAINER_MAX_AGE_S),
+            "sleep", "infinity",
         ]  # fmt: skip
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -184,8 +203,15 @@ class ContainerForkSandbox(ForkableSandbox):
             with contextlib.suppress(FileNotFoundError):
                 os.chmod(sock_path, 0o777)  # nosec B103 — bridge socket must accept container uid
 
+            # CONCEPT:ORCH-1.94 — the forked child carries its OWN in-container hard timeout, so it
+            # self-kills even if this host process (the only other thing that would kill it via the
+            # asyncio.wait_for below) dies mid-run. Without this, a host crash orphans runner.py to
+            # spin forever — the observed 3-day, 100%-CPU zombie.
+            child_deadline = int(self.timeout_secs) + 5
             exec_argv = [
-                runtime, "exec", name, "python", f"{guest_data}/runner.py",
+                runtime, "exec", name,
+                "timeout", "--signal=KILL", str(child_deadline),
+                "python", f"{guest_data}/runner.py",
             ]  # fmt: skip
             proc = await asyncio.create_subprocess_exec(
                 *exec_argv,
@@ -219,3 +245,106 @@ class ContainerForkSandbox(ForkableSandbox):
                 with contextlib.suppress(Exception):
                     await server.wait_closed()
             shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def _detect_container_runtime() -> str | None:
+    """First working ``docker``/``podman`` CLI, or ``None``. Mirrors the per-instance resolver so
+    the stateless sweep needs no live sandbox object."""
+    for rt in ("docker", "podman"):
+        if shutil.which(rt) is None:
+            continue
+        try:
+            if (
+                subprocess.run([rt, "info"], capture_output=True, timeout=10).returncode
+                == 0
+            ):
+                return rt
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+def _parse_docker_started_at(ts: str) -> float | None:
+    """Parse Docker's ``State.StartedAt`` (RFC3339, up to 9 fractional digits + ``Z``) to an epoch.
+
+    Returns ``None`` when unparseable or unset (Docker's zero value ``0001-01-01T...``), so the
+    caller fails SAFE — an undated container is never reaped on age alone.
+    """
+    ts = ts.strip()
+    if not ts or ts.startswith("0001-01-01"):
+        return None
+    m = re.match(
+        r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:?\d{2})?$", ts
+    )
+    if not m:
+        return None
+    base, frac, tz = m.group(1), (m.group(2) or ""), (m.group(3) or "+00:00")
+    tz = "+00:00" if tz == "Z" else tz
+    frac = (frac + "000000")[:6]
+    try:
+        return datetime.fromisoformat(f"{base}.{frac}{tz}").timestamp()
+    except ValueError:
+        return None
+
+
+def reap_orphaned_sandboxes(
+    runtime: str | None = None, max_age_secs: float = WARM_CONTAINER_MAX_AGE_S
+) -> list[str]:
+    """Force-remove warm-fork sandbox containers older than ``max_age_secs`` + Exited husks.
+
+    CONCEPT:ORCH-1.94 — the stateless backstop. It finds containers by the ``_SANDBOX_LABEL``
+    label via the runtime CLI, so it reaps zombies the in-memory :class:`WarmParentRegistry` can no
+    longer see (e.g. after a daemon restart dropped the registry that held their ``close`` handles —
+    the exact gap that let five ``sleep infinity`` containers spin a forked child at 100% CPU for
+    days). Running containers are reaped only when their age is *known* and exceeds the cap (fail
+    safe on an undated one); Exited containers are always swept. Best-effort, CLI-only, returns the
+    removed container names. Wired into the host maintenance tick (``_tick_warm_parent_reap``).
+    """
+    rt = runtime or _detect_container_runtime()
+    if rt is None:
+        return []
+    try:
+        listing = subprocess.run(
+            [rt, "ps", "-a", "--filter", f"label={_SANDBOX_LABEL}",
+             "--format", "{{.ID}}\t{{.Names}}\t{{.State}}"],
+            capture_output=True, text=True, timeout=15,
+        )  # fmt: skip
+    except Exception:  # noqa: BLE001
+        return []
+    if listing.returncode != 0:
+        return []
+    now = time.time()
+    removed: list[str] = []
+    for line in listing.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        cid, cname, state = parts[0], parts[1], parts[2].strip().lower()
+        sweep = state in ("exited", "dead")
+        if (
+            not sweep
+        ):  # running/created — reap only if demonstrably over the hard age cap
+            try:
+                started = subprocess.run(
+                    [rt, "inspect", "-f", "{{.State.StartedAt}}", cid],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                ).stdout
+            except Exception:  # noqa: BLE001
+                started = ""
+            epoch = _parse_docker_started_at(started)
+            sweep = epoch is not None and (now - epoch) > max_age_secs
+        if sweep:
+            try:
+                subprocess.run([rt, "rm", "-f", cid], capture_output=True, timeout=30)
+                removed.append(cname)
+            except Exception:  # noqa: BLE001
+                continue
+    if removed:
+        logger.info(
+            "Reaped %d orphaned warm-fork sandbox container(s): %s",
+            len(removed),
+            ", ".join(removed),
+        )
+    return removed
