@@ -157,13 +157,24 @@ def resolve_engine_binary() -> Path:
     # 1) Prebuilt wheel binary (production path) — but ONLY if it serves the
     #    blob/tsdb substrates the multimodal + time-series suites need; a feature-
     #    slim wheel binary is skipped in favour of building the capable pi-max tier.
-    wheel_bin = Path(sys.executable).resolve().parent / _BINARY_NAME
-    if (
-        wheel_bin.is_file()
-        and os.access(wheel_bin, os.X_OK)
-        and _binary_serves_features(wheel_bin)
-    ):
-        return wheel_bin
+    #    The wheel installs the binary into the SAME bin dir as the interpreter
+    #    script (``.venv/bin``). In a venv ``sys.executable`` is a SYMLINK to the
+    #    base toolchain interpreter, so ``.resolve()`` would walk OUT of ``.venv/bin``
+    #    (where the binary lives) into the base ``python`` dir (where it does not).
+    #    Probe the UN-resolved bin dir first (the venv where the wheel was installed),
+    #    then the resolved one (system / non-venv installs) — first capable hit wins.
+    seen: set[Path] = set()
+    for base in (Path(sys.executable).parent, Path(sys.executable).resolve().parent):
+        if base in seen:
+            continue
+        seen.add(base)
+        wheel_bin = base / _BINARY_NAME
+        if (
+            wheel_bin.is_file()
+            and os.access(wheel_bin, os.X_OK)
+            and _binary_serves_features(wheel_bin)
+        ):
+            return wheel_bin
 
     rust_dir = _sibling_epistemic_graph_dir()
     if rust_dir is None:
