@@ -11,23 +11,27 @@ introduced ``CONCEPT:<ID>`` markers and FAILS unless each one:
   1. is referenced by a design document under ``.specify/design/**.md``; and
   2. uses a pillar prefix that is registered in ``docs/concepts.yaml``.
 
-This script reproduces that logic exactly. The only subtlety is the *base ref*.
+This script reproduces that intent. Two deliberate refinements over the raw CI
+bash make it correct on the canonical dev box (and identical to CI on GitHub):
 
 Base ref selection
 ------------------
-CI diffs against ``origin/main``. On the canonical dev box, ``origin/main`` is
-frequently far behind the local integration trunk ``main`` (work is merged
-locally and pushed in batches), so diffing against the stale remote would flag
-dozens of *already-accepted* concepts as "new" — a false positive that CI on
-GitHub would never produce once ``main`` is pushed. To stay faithful to CI's
-intent ("what does *this change* introduce?") on both the dev box and GitHub,
-the base is chosen as the *nearest available trunk*: whichever of
-``origin/main`` / ``main`` has the most-recent merge-base with ``HEAD``. Once
-``main`` is pushed, ``origin/main == main`` and this is identical to CI.
+CI diffs against ``origin/main``. On the dev box ``origin/main`` is frequently
+far behind the local integration trunk ``main`` (work is merged locally and
+pushed in batches), so diffing against the stale remote would flag dozens of
+*already-accepted* concepts as "new" — a false positive CI on GitHub would never
+produce once ``main`` is pushed. The base is therefore the *nearest available
+trunk*: whichever of ``origin/main`` / ``main`` has the most-recent merge-base
+with ``HEAD``. Once ``main`` is pushed, ``origin/main == main`` and this is
+identical to CI. Override with ``--base <ref>``.
 
-Override with ``--base <ref>`` or the ``CONCEPT_GOVERNANCE_BASE`` env var (CI
-sets nothing and falls through to the trunk auto-detection, which resolves to
-``origin/main`` in the GitHub runner where that ref is current).
+Genuinely-new only
+------------------
+A concept counts as "new" only if it does NOT already exist anywhere in the base
+revision. This rejects pure churn — e.g. when a turtle/whitespace reformat moves
+a line carrying an existing ``CONCEPT:`` marker, the marker appears on a ``+``
+line of the diff but is not a new concept. Grandfathered concepts already in the
+trunk are never re-litigated (which also matches CI once the trunk is current).
 
 Exit codes: 0 = governance OK (or no new concepts), 1 = violation(s).
 """
@@ -35,7 +39,6 @@ Exit codes: 0 = governance OK (or no new concepts), 1 = violation(s).
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import subprocess
 import sys
@@ -73,12 +76,12 @@ def _ref_exists(ref: str) -> bool:
     )
 
 
-def _merge_base(ref: str) -> str | None:
+def _merge_base(ref: str) -> "str | None":
     mb = _git("merge-base", ref, "HEAD")
     return mb or None
 
 
-def resolve_base(explicit: str | None) -> str | None:
+def resolve_base(explicit: "str | None") -> "str | None":
     """Pick the diff base: explicit override, else the nearest available trunk."""
     if explicit:
         if not _ref_exists(explicit):
@@ -86,25 +89,14 @@ def resolve_base(explicit: str | None) -> str | None:
             sys.exit(2)
         return _merge_base(explicit)
 
-    env = os.environ.get("CONCEPT_GOVERNANCE_BASE")
-    if env:
-        if not _ref_exists(env):
-            print(f"ERROR: CONCEPT_GOVERNANCE_BASE '{env}' does not exist", file=sys.stderr)
-            sys.exit(2)
-        return _merge_base(env)
-
-    # Auto-detect the nearest trunk among origin/main and main.
     candidates = [r for r in ("origin/main", "main") if _ref_exists(r)]
     bases = [(r, _merge_base(r)) for r in candidates]
     bases = [(r, b) for r, b in bases if b]
     if not bases:
         return None
 
-    # Choose the merge-base that is the most-recent (descendant-most): the one
-    # that the others are ancestors of. Fewer false "new" concepts.
     best_ref, best_mb = bases[0]
     for ref, mb in bases[1:]:
-        # If best_mb is an ancestor of mb, then mb is newer -> prefer it.
         is_ancestor = (
             subprocess.run(
                 ["git", "merge-base", "--is-ancestor", best_mb, mb],
@@ -119,7 +111,7 @@ def resolve_base(explicit: str | None) -> str | None:
     return best_mb
 
 
-def valid_pillars() -> set[str]:
+def valid_pillars() -> "set[str]":
     """Derive valid pillar prefixes from docs/concepts.yaml (self-maintaining)."""
     try:
         import yaml
@@ -133,14 +125,27 @@ def valid_pillars() -> set[str]:
     return {"ORCH", "KG", "AHE", "ECO", "OS", "SAFE", "EE", "ML"}
 
 
-def new_concepts(base: str) -> list[str]:
+def _exists_at_base(concept: str, base: str) -> bool:
+    """True if ``CONCEPT:<concept>`` already exists anywhere in the base tree."""
+    return (
+        subprocess.run(
+            ["git", "grep", "--quiet", "-F", f"CONCEPT:{concept}", base],
+            cwd=ROOT,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+def new_concepts(base: str) -> "list[str]":
     diff = _git("diff", f"{base}...HEAD", "--unified=0")
-    # Only count markers on ADDED lines (lines starting with '+', not the +++ header).
-    found: set[str] = set()
+    added: "set[str]" = set()
     for line in diff.splitlines():
         if line.startswith("+") and not line.startswith("+++"):
-            found.update(CONCEPT_RE.findall(line))
-    return sorted(found)
+            added.update(CONCEPT_RE.findall(line))
+    # Keep only concepts that did NOT already exist at the base (reject churn).
+    return sorted(c for c in added if not _exists_at_base(c, base))
 
 
 def has_design_doc(concept: str) -> bool:
@@ -162,9 +167,6 @@ def main() -> int:
 
     base = resolve_base(args.base)
     if not base:
-        # No trunk to diff against (e.g. shallow CI checkout with no origin/main);
-        # nothing to govern. CI's own checkout uses fetch-depth:0, so this only
-        # happens in degenerate local states.
         print("No base ref available; skipping concept governance (nothing to diff).")
         return 0
 
@@ -174,7 +176,7 @@ def main() -> int:
         return 0
 
     valid = valid_pillars()
-    violations: list[str] = []
+    violations: "list[str]" = []
     for concept in concepts:
         m = PILLAR_RE.match(concept)
         pillar = m.group(0) if m else ""
