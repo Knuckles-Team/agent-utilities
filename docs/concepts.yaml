@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 492
+total_concepts: 493
 total_pillars: 21
 pillars:
 - AHE-3
@@ -649,6 +649,14 @@ concepts:
   - agent_utilities/knowledge_graph/research/fleet_relevance.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: grade every ingested research source against the
+- id: AHE-3.69
+  name: merge entities
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/assimilation/dedup.py
+  - agent_utilities/knowledge_graph/assimilation/entity_resolution.py
+  doc: merge entities
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
