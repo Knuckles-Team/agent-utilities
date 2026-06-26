@@ -308,3 +308,41 @@ class TestThreshold:
         tc = TestCase(query="q", expected_output="hello world")
         result = runner.run_eval(tc, "goodbye", strategy=EvalStrategy.EXACT_MATCH)
         assert result.passed is False
+
+
+# ── live-LLM judge wiring (CONCEPT:AHE-3.1 fix) — the judge wraps the model in an
+# Agent (a pydantic-ai Model has no run_sync); mock _run_llm to assert parsing. ──
+
+def test_llm_judge_uses_run_llm_and_parses(runner, monkeypatch):
+    monkeypatch.setattr(
+        EvalRunner, "_run_llm",
+        staticmethod(lambda prompt: '{"score": 0.9, "reasoning": "close match"}'),
+    )
+    res = runner.run_eval(
+        TestCase(query="q", expected_output="Paris", strategy=EvalStrategy.LLM_JUDGE),
+        "Paris is the capital.",
+    )
+    assert res.llm_judge_score == 0.9
+    assert res.llm_judge_reasoning == "close match"
+
+
+def test_assertion_judge_uses_run_llm(runner, monkeypatch):
+    monkeypatch.setattr(
+        EvalRunner, "_run_llm",
+        staticmethod(lambda prompt: '{"pass": true, "reasoning": "states 4"}'),
+    )
+    res = runner.run_eval(
+        TestCase(query="2+2?", expected_output="", assertion="answer is 4"),
+        "2 plus 2 equals 4.",
+    )
+    assert res.final_score == 1.0 and res.passed
+
+
+def test_judge_falls_back_when_no_model(runner, monkeypatch):
+    # _run_llm returns None (no model) → judge degrades, never raises.
+    monkeypatch.setattr(EvalRunner, "_run_llm", staticmethod(lambda prompt: None))
+    res = runner.run_eval(
+        TestCase(query="q", expected_output="abc", strategy=EvalStrategy.LLM_JUDGE),
+        "abc",
+    )
+    assert 0.0 <= res.llm_judge_score <= 1.0  # fell back to semantic, no crash
