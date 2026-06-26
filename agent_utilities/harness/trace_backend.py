@@ -712,9 +712,126 @@ class KGTraceBackend(TraceBackend):
     best-effort-persist + in-memory pattern :class:`EvalCorpus` uses.
     """
 
-    def __init__(self, backend: Any = None) -> None:
+    def __init__(self, backend: Any = None, *, max_traces: int = 2000) -> None:
         self.backend = backend
         self._traces: dict[str, dict[str, Any]] = {}
+        self._max_traces = max_traces  # bound in-memory mirror (oldest evicted)
+
+    def _evict_if_needed(self) -> None:
+        # FIFO retention so an always-on in-memory mirror can't grow unbounded.
+        while len(self._traces) > self._max_traces:
+            self._traces.pop(next(iter(self._traces)))
+
+    def record_event(
+        self,
+        *,
+        trace_id: str,
+        span_id: str,
+        name: str,
+        is_root: bool,
+        kind: str = "general",  # general | llm | tool
+        parent_span_id: str | None = None,
+        session_id: str | None = None,
+        latency_ms: float | None = None,
+        error: str | None = None,
+        model: str | None = None,
+        provider: str | None = None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        tags: list[str] | None = None,
+    ) -> None:
+        """Incrementally record ONE trace/span/generation event (CONCEPT:OS-5.68).
+
+        The decorator path (``@trace``/``@generation``) emits events one at a time — a
+        root trace, then child spans/generations — so this upserts the TraceNode bucket
+        and appends the child node, persisting + linking each immediately. The
+        always-on tracing sink uses this; ``emit_trace`` remains the batch path.
+        """
+        from agent_utilities.models.knowledge_graph import (
+            GenerationNode,
+            RegistryEdgeType,
+            SpanNode,
+            TraceNode,
+        )
+
+        entry = self._traces.get(trace_id)
+        new_trace = entry is None
+        if new_trace:
+            trace = TraceNode(
+                id=trace_id,
+                name=name if is_root else "trace",
+                session_id=session_id,
+                tags=list(tags or []),
+            )
+            entry = {"trace": trace, "spans": [], "generations": []}
+            self._traces[trace_id] = entry
+            self._evict_if_needed()
+        trace = entry["trace"]
+        if error:
+            trace.status = "error"
+        if is_root:
+            trace.latency_ms = latency_ms
+
+        # Persist/refresh the trace node on creation OR when its status just flipped to
+        # error, so the persisted snapshot reflects the final status (not a stale "ok").
+        if (new_trace or error) and self.backend is not None and hasattr(
+            self.backend, "add_node"
+        ):
+            try:
+                self.backend.add_node(trace_id, **self._node_props(trace))
+            except Exception as exc:  # pragma: no cover - best-effort
+                logger.debug("KGTraceBackend trace persist failed: %s", exc)
+
+        if is_root:
+            return
+
+        if kind == "llm":
+            node: Any = GenerationNode(
+                id=span_id,
+                name=name,
+                trace_id=trace_id,
+                parent_span_id=parent_span_id,
+                model=model,
+                provider=provider,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                latency_ms=latency_ms,
+                error=error,
+            )
+            node.total_cost_usd = self._cost_usd(model, input_tokens, output_tokens)
+            entry["generations"].append(node)
+            trace.total_cost_usd += node.total_cost_usd
+            trace.input_tokens += input_tokens
+            trace.output_tokens += output_tokens
+            edge = RegistryEdgeType.HAS_GENERATION
+        else:
+            node = SpanNode(
+                id=span_id,
+                name=name,
+                trace_id=trace_id,
+                parent_span_id=parent_span_id,
+                span_kind=kind,
+                latency_ms=latency_ms,
+                error=error,
+            )
+            entry["spans"].append(node)
+            edge = RegistryEdgeType.HAS_SPAN
+
+        if self.backend is not None and hasattr(self.backend, "add_node"):
+            try:
+                self.backend.add_node(span_id, **self._node_props(node))
+                link = getattr(self.backend, "link_nodes", None)
+                if callable(link):
+                    link(parent_span_id or trace_id, span_id, edge)
+            except Exception as exc:  # pragma: no cover - best-effort
+                logger.debug("KGTraceBackend event persist failed: %s", exc)
+
+    @staticmethod
+    def _node_props(node: Any) -> dict[str, Any]:
+        d = node.model_dump() if hasattr(node, "model_dump") else dict(node)
+        d.pop("id", None)
+        d["type"] = str(d.get("type", ""))
+        return d
 
     @staticmethod
     def _cost_usd(model: str | None, input_tokens: int, output_tokens: int) -> float:
