@@ -44,7 +44,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent_utilities.graph.training_signals import batch_normalized_advantage
+# NOTE: ``batch_normalized_advantage`` is imported lazily inside the consuming
+# method below. A top-level import triggers ``agent_utilities.graph.__init__``,
+# which eagerly re-exports the pydantic-ai/pydantic-graph agent runtime (``builder``)
+# — an ``[agent]``-extra dependency. Importing it eagerly here would put pydantic_ai
+# on the import path of every harness consumer (e.g. the lean Eval-corpus gate),
+# breaking ``import`` in the lean CI/serving install (Dependency discipline).
 
 __all__ = [
     "Trace",
@@ -210,6 +215,10 @@ class FastSlowController:
         self._state.slow_steps += 1
         updates: list[SlowUpdate] = []
         consumed: set[str] = set()
+        from agent_utilities.graph.training_signals import (
+            batch_normalized_advantage,
+        )
+
         for task_key in sorted(recurring):
             traces = recurring[task_key]
             advantages = batch_normalized_advantage([t.reward for t in traces])
