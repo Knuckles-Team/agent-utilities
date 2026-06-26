@@ -1,8 +1,8 @@
-# Keep the build context lean: the image builds the wheel from the source tree
-# (docker/Dockerfile `COPY . /src`), so it only needs pyproject.toml, README.md,
-# LICENSE, and the agent_utilities/ package (with its bundled *.ttl package-data).
-# Everything below is dev/test/CI scaffolding or caches that bloat and slow the
-# build context (and previously shipped .pytest_tmp/.hypothesis into the build).
+# Keep the build context lean: the images install the PUBLISHED agent-utilities
+# wheel from PyPI (docker/Dockerfile + Dockerfile.multiplexer, the agents/* uv
+# pattern) — they do NOT build from source. The only context files a build reads are
+# overrides.txt (uv pin override) and docker/requirements-multiplexer.txt (the slim
+# mcp leg). Everything below is dev/test/CI scaffolding or caches that bloat the context.
 .git/
 .github/
 .specify/
@@ -33,6 +33,8 @@ scripts/
 .env
 .env.example
 
-# Other Dockerfiles / compose — not needed inside the build context.
-docker/
+# Other Dockerfiles / compose — not needed inside the build context, EXCEPT the
+# multiplexer runtime-deps list the slim mcp leg installs.
+docker/*
+!docker/requirements-multiplexer.txt
 mkdocs.yml
