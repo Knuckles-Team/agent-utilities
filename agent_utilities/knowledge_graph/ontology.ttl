@@ -80,6 +80,62 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
     rdfs:comment "Two perspectives that surfaced non-overlapping evidence (CONCEPT:KG-2.128)." ;
     rdfs:subClassOf :Concept .
 
+# ── Bi-temporal facts (CONCEPT:KG-2.252) ──────────────────────────────────────
+# Reifies the engine's bi-temporal edges (valid_from/valid_until = event time;
+# tx_from/tx_to = transaction/belief time, KG-2.249/2.250) as OWL-Time + PROV so
+# AS-OF queries are ontology-typed and contradictions are SHACL-checkable — the
+# moat over a plain property graph. Validated by shapes/temporal.shapes.ttl.
+
+:TemporalFact a owl:Class ;
+    rdfs:label "Temporal Fact" ;
+    rdfs:comment "An asserted fact carrying a validity interval (event time) and a belief interval (transaction time). Reifies a bi-temporal engine edge (CONCEPT:KG-2.252)." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ValidityInterval a owl:Class ;
+    rdfs:label "Validity Interval" ;
+    rdfs:comment "The event-time window during which a fact is TRUE in the world. Aligned to OWL-Time time:Interval." ;
+    rdfs:subClassOf time:Interval .
+
+:BeliefInterval a owl:Class ;
+    rdfs:label "Belief Interval" ;
+    rdfs:comment "The transaction-time window during which the engine BELIEVED a fact (PROV generated→invalidated)." ;
+    rdfs:subClassOf time:Interval .
+
+:validFrom a owl:DatatypeProperty ;
+    rdfs:label "valid from" ;
+    rdfs:comment "Event-time start (epoch seconds) — when the fact became true." ;
+    rdfs:domain :TemporalFact ;
+    rdfs:range xsd:integer ;
+    rdfs:subPropertyOf time:hasBeginning .
+
+:validUntil a owl:DatatypeProperty ;
+    rdfs:label "valid until" ;
+    rdfs:comment "Event-time end (epoch seconds) — when the fact stopped being true; absent = still current." ;
+    rdfs:domain :TemporalFact ;
+    rdfs:range xsd:integer ;
+    rdfs:subPropertyOf time:hasEnd .
+
+:txFrom a owl:DatatypeProperty ;
+    rdfs:label "transaction from" ;
+    rdfs:comment "Transaction-time start (epoch seconds) — when the engine began believing the fact." ;
+    rdfs:domain :TemporalFact ;
+    rdfs:range xsd:integer ;
+    rdfs:subPropertyOf prov:generatedAtTime .
+
+:txTo a owl:DatatypeProperty ;
+    rdfs:label "transaction to" ;
+    rdfs:comment "Transaction-time end (epoch seconds) — when the belief was retracted/superseded; absent = currently believed." ;
+    rdfs:domain :TemporalFact ;
+    rdfs:range xsd:integer ;
+    rdfs:subPropertyOf prov:invalidatedAtTime .
+
+:supersedes a owl:ObjectProperty ;
+    rdfs:label "supersedes" ;
+    rdfs:comment "Links a TemporalFact to the prior fact it superseded on contradiction (KG-2.251)." ;
+    rdfs:domain :TemporalFact ;
+    rdfs:range :TemporalFact ;
+    rdfs:subPropertyOf prov:wasRevisionOf .
+
 :CreativeWork a owl:Class ;
     rdfs:label "Creative Work" ;
     rdfs:comment "A book, manual, SOP, or other creative output. Aligned to schema:CreativeWork." ;

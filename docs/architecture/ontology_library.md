@@ -118,3 +118,4 @@ IRI). They are validated for well-formedness by the gate via pyshacl.
 | `shapes/governance.shapes.ttl` | Governance SHACL shapes (the closure/validation gate in `owl_closure.py`). |
 | `shapes/harness.shapes.ttl` | Harness-engineering SHACL shapes. |
 | `shapes/feed.shapes.ttl` | Feed-ingestion SHACL shapes (`:FeedSource` must carry `source_system`). |
+| `shapes/temporal.shapes.ttl` | Bi-temporal fact invariants (CONCEPT:KG-2.252): well-formed validity window + a superseded fact must have its belief window closed (KG-2.251). |
