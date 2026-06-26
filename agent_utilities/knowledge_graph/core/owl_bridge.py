@@ -23,6 +23,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# The agent-utilities ontology namespace. The engine's LPG→RDF projection
+# (engine concept KG-2.240) emits node-types/properties under THIS base IRI with CamelCased
+# rdf:type objects, exactly matching the rdflib materialization in ``_build_rdf_graph``
+# — so the engine's native SPARQL is the runtime answer and rdflib is no-engine-only.
+_AU_NS = "http://agent-utilities.dev/ontology#"
+_AU_PREFIX_DECL = f"PREFIX au: <{_AU_NS}>\n"
+
+
+def _with_au_prefix(sparql: str) -> str:
+    """Inject the ``au:`` PREFIX declaration unless the query already declares it, so a
+    bare ``au:Agent`` resolves on BOTH the engine and the rdflib path."""
+    if "PREFIX au:" in sparql or "prefix au:" in sparql:
+        return sparql
+    return _AU_PREFIX_DECL + sparql
+
+
 # Node types registered at runtime from an external metamodel (e.g. the live
 # LeanIX data model compiled by ``ontology.leanix_metamodel``). Unioned into
 # every bridge's effective promotable set so generated types reach the reasoner
@@ -1179,18 +1195,23 @@ class OWLBridge:
         # 1) Engine-native SPARQL over the live graph (the demoted-to-engine path;
         #    the engine's native RDF/SPARQL surface is available in EVERY profile,
         #    tiny/pi included, so this is the default path -- not a no-engine special
-        #    case). CONCEPT:KG-2.242.
-        #    The engine's RDF/SPARQL surface queries the engine's RDF dataset, which
-        #    only mirrors the property graph when that build projects the LPG into RDF
-        #    (or it was explicitly seeded via ``add_triples``). When the engine answers
-        #    with rows, it is authoritative. But an EMPTY result over a non-empty LPG
-        #    means the engine's RDF projection is not populated from the live property
-        #    graph -- so we fall through to the rdflib materialization (strategy 3),
-        #    which materializes the LPG itself, instead of returning a false empty. A
-        #    genuinely empty graph yields [] on both paths, so this never invents rows.
+        #    case). CONCEPT:KG-2.242 (over the engine projection, engine concept KG-2.240).
+        #    We pass the AU projection vocabulary (the ``au:`` namespace + CamelCased
+        #    rdf:type) so the engine projects the LIVE property graph into the SAME RDF
+        #    terms ``_build_rdf_graph`` materializes (engine concept KG-2.240): ``<node>
+        #    rdf:type <au:CamelCase(type)>`` and ``<node> au:<prop> <v>``. So a by-class
+        #    query (``?s a au:Agent``) now resolves ENGINE-native over the LPG -- the
+        #    engine is the real runtime answer, NOT a false empty that fell through to
+        #    rdflib. (A genuinely empty graph still yields [] on both paths, so this
+        #    never invents rows; only then does strategy 3 run, and only with no engine.)
         if hasattr(self.graph, "sparql"):
+            prefixed = _with_au_prefix(sparql)
             try:
-                engine_rows = list(self.graph.sparql(sparql))
+                engine_rows = list(
+                    self.graph.sparql(
+                        prefixed, base_iri=_AU_NS, type_convention="camel"
+                    )
+                )
             except Exception as e:  # noqa: BLE001 -- fall through to Python last-resort
                 logger.debug(
                     "Engine SPARQL unavailable (%s); falling back to Python.", e
@@ -1199,9 +1220,8 @@ class OWLBridge:
                 if engine_rows:
                     return engine_rows
                 logger.debug(
-                    "Engine SPARQL returned no rows; its RDF surface may not mirror "
-                    "the live property graph -- falling back to rdflib LPG "
-                    "materialization."
+                    "Engine SPARQL returned no rows; the live graph projects empty "
+                    "for this query -- falling back to rdflib LPG materialization."
                 )
 
         # 2) A native OWL backend's own SPARQL implementation.
@@ -1238,7 +1258,7 @@ class OWLBridge:
         import rdflib
 
         g = rdflib.Graph()
-        AU = rdflib.Namespace("http://agent-utilities.dev/ontology#")
+        AU = rdflib.Namespace(_AU_NS)
         g.bind("au", AU)
         g.bind("rdf", rdflib.RDF)
         g.bind("rdfs", rdflib.RDFS)
@@ -1320,9 +1340,8 @@ class OWLBridge:
             self._rdf_cache = self._build_rdf_graph()
             self._rdf_cache_hash = graph_hash
 
-        # Inject default prefix if not present
-        if "PREFIX au:" not in sparql and "prefix au:" not in sparql:
-            sparql = "PREFIX au: <http://agent-utilities.dev/ontology#>\n" + sparql
+        # Inject default prefix if not present (same rule as the engine path).
+        sparql = _with_au_prefix(sparql)
 
         qres = self._rdf_cache.query(sparql)
 
