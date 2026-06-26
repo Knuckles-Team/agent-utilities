@@ -60,6 +60,11 @@ def make_embed_fn(batch_size: int = 64) -> EmbedFn:
             out: list[list[float]] = []
             for vecs in chunk_results:
                 out.extend(vecs)
+            # Record embed usage into the active ingest profile (OS-5.69) — embedding
+            # endpoints rarely return token counts, so estimate from text length.
+            from ..core.ingest_profile import record_embed_usage
+
+            record_embed_usage(texts=texts)
             return out
 
         return _fn

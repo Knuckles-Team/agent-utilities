@@ -599,7 +599,14 @@ class ResearchPipelineRunner:
 
         safe_id = paper_id.replace(":", "-")
         article_id = f"article:scholarx:{safe_id}"
-        return article_id in self.engine.graph.nodes
+        # Per-id membership probe — NOT ``in graph.nodes``, which materializes the
+        # whole node list (a gigabyte-scale payload on the live multi-tenant engine
+        # that resets the connection). (CONCEPT:KG-2.193)
+        graph = self.engine.graph
+        has_node = getattr(graph, "has_node", None)
+        if callable(has_node):
+            return bool(has_node(article_id))
+        return article_id in graph.nodes
 
     async def ingest_paper_full(
         self,

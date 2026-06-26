@@ -65,7 +65,7 @@ def _live_endpoint() -> tuple[Any, str] | None:
         sync = openai.OpenAI(
             base_url=str(client.base_url), api_key=client.api_key or "EMPTY"
         )
-        return sync, model_name
+        return sync, str(model_name)
     except Exception as exc:  # pragma: no cover - model optional offline
         logger.debug("g-eval endpoint unavailable: %s", exc)
         return None
