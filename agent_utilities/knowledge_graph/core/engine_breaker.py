@@ -101,8 +101,7 @@ class CircuitBreaker:
             return
         log = logger.warning if state == "open" else logger.info
         log(
-            "%s circuit breaker %s -> %s (endpoint=%s, failures=%d). "
-            "(CONCEPT:OS-5.23)",
+            "%s circuit breaker %s -> %s (endpoint=%s, failures=%d). (CONCEPT:OS-5.23)",
             self.subject,
             self._state,
             state,
@@ -202,6 +201,17 @@ def _record_outcome(breaker: CircuitBreaker, op: str, outcome: str) -> None:
     ENGINE_SHARD_REQUESTS.labels(endpoint=breaker.endpoint, outcome=outcome).inc()
 
 
+# Adaptive transient-retry (CONCEPT:KG-2.262). A single dropped connection
+# (``ConnectionReset``/``BrokenPipe`` mid-op) is TRANSIENT: the client transparently
+# re-establishes the socket on its next call (``client._reconnect``). Without a retry
+# here, that first failed call propagated AND counted toward the breaker — so a brief
+# blip cascaded N callers into a tripped breaker (the failure mode that wedged whole
+# ingest/finalize runs). We RETRY the op a bounded number of times with backoff before
+# counting a failure; the retry rides the client's reconnect, so the blip self-heals.
+_MAX_TRANSIENT_RETRIES = 2
+_RETRY_BACKOFF_BASE_S = 0.25
+
+
 def _guard(fn: Any, breaker: CircuitBreaker, op: str) -> Any:
     def call(*args: Any, **kwargs: Any) -> Any:
         try:
@@ -209,20 +219,27 @@ def _guard(fn: Any, breaker: CircuitBreaker, op: str) -> Any:
         except EngineCircuitOpenError:
             _record_outcome(breaker, op, "short_circuited")
             raise
-        try:
-            result = fn(*args, **kwargs)
-        except _TRIP_EXCEPTIONS:
-            breaker.record_failure()
-            _record_outcome(breaker, op, "connection_error")
-            raise
-        except Exception:
-            # Application-level error (bad query, missing node...): the engine
-            # answered, so the circuit stays closed.
-            _record_outcome(breaker, op, "error")
-            raise
-        breaker.record_success()
-        _record_outcome(breaker, op, "ok")
-        return result
+        for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
+            try:
+                result = fn(*args, **kwargs)
+            except _TRIP_EXCEPTIONS:
+                if attempt < _MAX_TRANSIENT_RETRIES:
+                    # transient drop — let the client reconnect on the retry, and do
+                    # NOT count it against the breaker yet (adaptive, KG-2.262).
+                    _record_outcome(breaker, op, "retry")
+                    time.sleep(_RETRY_BACKOFF_BASE_S * (2**attempt))
+                    continue
+                breaker.record_failure()
+                _record_outcome(breaker, op, "connection_error")
+                raise
+            except Exception:
+                # Application-level error (bad query, missing node...): the engine
+                # answered, so the circuit stays closed.
+                _record_outcome(breaker, op, "error")
+                raise
+            breaker.record_success()
+            _record_outcome(breaker, op, "ok")
+            return result
 
     call.__name__ = getattr(fn, "__name__", op)
     call.__qualname__ = f"breaker_guard({op})"
