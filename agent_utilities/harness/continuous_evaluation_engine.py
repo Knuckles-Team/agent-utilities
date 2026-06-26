@@ -1595,6 +1595,25 @@ class EvalRunner:
         return EvalRunner._exact_match_eval(expected, actual)
 
     @staticmethod
+    def _run_llm(prompt: str) -> str | None:
+        """One-shot LLM completion against the configured model (vLLM/OpenAI-style).
+
+        A pydantic-ai ``Model`` is NOT directly runnable — ``run_sync`` lives on
+        ``Agent`` — so the judge wraps the model in a minimal ``Agent``. Returns the
+        text output, or ``None`` when no model is reachable (callers fall back).
+        """
+        try:
+            from pydantic_ai import Agent
+
+            from agent_utilities.core.model_factory import create_model
+
+            result = Agent(create_model()).run_sync(prompt)
+            return result.output if hasattr(result, "output") else str(result)
+        except Exception as exc:  # pragma: no cover - model optional offline
+            logger.debug("LLM unavailable for judge: %s", exc)
+            return None
+
+    @staticmethod
     def _llm_judge_eval(query: str, expected: str, actual: str) -> tuple[float, str]:
         """LLM-as-Judge evaluation with structured JSON output.
 
@@ -1606,15 +1625,12 @@ class EvalRunner:
         try:
             import json as _json
 
-            from agent_utilities.core.model_factory import create_model
-
-            model = create_model()
             prompt = EvalRunner.LLM_JUDGE_PROMPT.format(
                 query=query, expected=expected, actual=actual
             )
-            # Use synchronous run_sync for compatibility
-            result = model.run_sync(prompt)
-            response_text = result.output if hasattr(result, "output") else str(result)
+            response_text = EvalRunner._run_llm(prompt)
+            if response_text is None:
+                raise RuntimeError("no model available")
 
             # Parse JSON from response
             # Handle potential markdown code blocks
@@ -1657,14 +1673,12 @@ class EvalRunner:
         try:
             import json as _json
 
-            from agent_utilities.core.model_factory import create_model
-
-            model = create_model()
             prompt = EvalRunner.ASSERTION_JUDGE_PROMPT.format(
                 query=query, assertion=assertion, actual=actual
             )
-            result = model.run_sync(prompt)
-            response_text = result.output if hasattr(result, "output") else str(result)
+            response_text = EvalRunner._run_llm(prompt)
+            if response_text is None:
+                raise RuntimeError("no model available")
             clean = response_text.strip()
             if clean.startswith("```"):
                 clean = clean.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
