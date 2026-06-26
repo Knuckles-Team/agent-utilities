@@ -9,6 +9,14 @@ answer is correct drops below a floor — catching a broken scorer before it shi
 This mirrors the other synthetic-fixture gates (``check_retrieval_quality.py``,
 ``check_designation_eval.py``): no network, no live KG, deterministic.
 
+**Hermetic scoring.** The synthetic cases have exact expected outputs, so the
+gate scores them with the deterministic normalized/lexical EXACT_MATCH strategy
+(:class:`_LexicalEvalRunner`) — it never reaches for an embedding model or an
+LLM judge. The default :class:`EvalRunner` strategy is ``COMPOSITE``, which
+calls ``_semantic_similarity_eval`` (an ``OpenAIEmbedding``) and the LLM judge;
+those resolve to the homelab vLLM backend locally but have no backend in CI,
+making the gate pass-local / fail-CI. Forcing EXACT_MATCH makes CI == local.
+
 Usage::
 
     python3 scripts/check_eval_corpus.py [--degrade]
@@ -22,6 +30,14 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent_utilities.harness.continuous_evaluation_engine import (
+        EvalResult,
+        EvalRunner,
+        TestCase,
+    )
 
 _PKG_ROOT = Path(__file__).resolve().parents[1]
 if str(_PKG_ROOT) not in sys.path:
@@ -38,6 +54,34 @@ _CASES = [
 ]
 
 
+def _lexical_runner() -> EvalRunner:
+    """A deterministic, offline EvalRunner that scores by EXACT_MATCH only.
+
+    The default :class:`EvalRunner` defers to each ``TestCase.strategy`` (which
+    is ``COMPOSITE``), pulling in the embedding + LLM-judge scorers. The
+    synthetic cases here have exact expected outputs, so forcing the normalized
+    EXACT_MATCH strategy gives the correct verdict with zero network/embedding
+    calls — keeping the gate hermetic (CI == local).
+    """
+    from agent_utilities.harness.continuous_evaluation_engine import (
+        EvalRunner,
+        EvalStrategy,
+    )
+
+    class _LexicalEvalRunner(EvalRunner):
+        def run_eval(
+            self,
+            test_case: TestCase,
+            actual_output: str,
+            strategy: EvalStrategy | None = None,
+        ) -> EvalResult:
+            return super().run_eval(
+                test_case, actual_output, strategy=EvalStrategy.EXACT_MATCH
+            )
+
+    return _LexicalEvalRunner()
+
+
 def _run(degrade: bool) -> float:
     from agent_utilities.harness.eval_corpus import EvalCorpus
 
@@ -52,7 +96,7 @@ def _run(degrade: bool) -> float:
             return "completely unrelated wrong answer"
         return answers.get(case.query, "")
 
-    results = corpus.run_corpus(actual_output_fn=actual)
+    results = corpus.run_corpus(actual_output_fn=actual, runner=_lexical_runner())
     if not results:
         return 0.0
     passed = sum(1 for r in results if r.passed)
