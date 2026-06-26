@@ -45,6 +45,11 @@ class RegistryNodeType(StrEnum):
     # Enhanced Memory & Reasoning
     REASONING_TRACE = "reasoning_trace"
     TOOL_CALL = "tool_call"
+    # KG-native observability (CONCEPT:OS-5.68) — every LLM/agent call persists as a
+    # span subgraph so traces are graph-queryable (the moat over opaque ClickHouse).
+    TRACE = "trace"
+    SPAN = "span"
+    GENERATION = "generation"
     ENTITY = "entity"
     EVENT = "event"
     REFLECTION = "reflection"
@@ -470,6 +475,9 @@ class RegistryEdgeType(StrEnum):
     # Enhanced Memory Relationships
     HAS_REASONING = "has_reasoning"
     USED_TOOL = "used_tool"
+    # KG-native observability (CONCEPT:OS-5.68): trace → span → generation subgraph.
+    HAS_SPAN = "has_span"
+    HAS_GENERATION = "has_generation"
     AFFECTS = "affects"
     CAUSED_BY = "caused_by"
     INFLUENCED = "influenced"
@@ -1334,6 +1342,52 @@ class ToolCallNode(RegistryNode):
     tool_name: str
     args: dict[str, Any] = Field(default_factory=dict)
     result: str | None = None
+
+
+class TraceNode(RegistryNode):
+    """Root of one application/agent invocation (CONCEPT:OS-5.68). Children are
+    ``SpanNode``/``GenerationNode`` linked via HAS_SPAN/HAS_GENERATION, so a whole
+    trace is a graph-queryable subgraph — the moat over an opaque trace store."""
+
+    type: RegistryNodeType = RegistryNodeType.TRACE
+    session_id: str | None = None
+    agent: str | None = None
+    status: str = "ok"  # ok | error
+    latency_ms: float | None = None
+    total_cost_usd: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    tags: list[str] = Field(default_factory=list)
+
+
+class SpanNode(RegistryNode):
+    """A nested operation within a trace (retrieval, tool, sub-function)."""
+
+    type: RegistryNodeType = RegistryNodeType.SPAN
+    trace_id: str
+    parent_span_id: str | None = None
+    span_kind: str = "general"  # general | llm | tool | retrieval
+    latency_ms: float | None = None
+    error: str | None = None
+
+
+class GenerationNode(RegistryNode):
+    """A single LLM call within a trace (CONCEPT:OS-5.68) — model/provider/tokens/
+    cost/latency/tool-calls/error, captured always-on independent of any vendor."""
+
+    type: RegistryNodeType = RegistryNodeType.GENERATION
+    trace_id: str
+    parent_span_id: str | None = None
+    model: str | None = None
+    provider: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_cost_usd: float = 0.0
+    latency_ms: float | None = None
+    finish_reason: str | None = None
+    error: str | None = None
+    prompt_version_id: str | None = None
+    tool_calls: int = 0
 
 
 class EntityNode(RegistryNode):

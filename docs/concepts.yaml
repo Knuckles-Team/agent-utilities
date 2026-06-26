@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 493
+total_concepts: 494
 total_pillars: 21
 pillars:
 - AHE-3
@@ -5342,6 +5342,14 @@ concepts:
   code_paths:
   - agent_utilities/deployment/doctor.py
   doc: OS-5.67
+- id: OS-5.68
+  name: the moat over an opaque trace store
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/harness/trace_backend.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: the moat over an opaque trace store
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1

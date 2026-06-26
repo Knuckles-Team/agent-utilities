@@ -695,6 +695,141 @@ class FileTraceBackend(TraceBackend):
         return self._read_fixture("cost_latency_anomalies.json")
 
 
+class KGTraceBackend(TraceBackend):
+    """KG-native trace sink (CONCEPT:OS-5.68) — the moat over an opaque trace store.
+
+    Every trace persists as a ``TraceNode → SpanNode/GenerationNode`` subgraph
+    (HAS_SPAN/HAS_GENERATION edges) in the SAME OWL/RDF engine that holds the
+    ecosystem, so traces are graph-queryable: "every FAILED trace whose root cause
+    chains to capability X", "which prompt version regressed which dimension" — joins
+    Opik's ClickHouse cannot express. Per-generation cost is resolved from the engine's
+    own pricing catalog (ECO-4.40), not a vendored price table.
+
+    ``backend`` is the KG facade (duck-typed: ``add_node(id, **props)`` +
+    ``link_nodes(src, dst, rel)``). An in-memory index mirrors what was emitted so the
+    ``TraceDistiller`` read surface (``get_traces``/``get_trace_summary``/
+    ``get_trace_scores``) works even before a graph round-trip — exactly the
+    best-effort-persist + in-memory pattern :class:`EvalCorpus` uses.
+    """
+
+    def __init__(self, backend: Any = None) -> None:
+        self.backend = backend
+        self._traces: dict[str, dict[str, Any]] = {}
+
+    @staticmethod
+    def _cost_usd(model: str | None, input_tokens: int, output_tokens: int) -> float:
+        """Resolve $ cost from the shared pricing catalog (no vendored table)."""
+        if not model:
+            return 0.0
+        try:
+            from agent_utilities.pricing import get_pricing_catalog
+
+            cost, priced = get_pricing_catalog().cost_for(
+                model, input_tokens=input_tokens, output_tokens=output_tokens
+            )
+            return float(cost) if priced and cost is not None else 0.0
+        except Exception:  # pragma: no cover - pricing is best-effort
+            return 0.0
+
+    def emit_trace(
+        self,
+        trace: Any,
+        spans: list[Any] | None = None,
+        generations: list[Any] | None = None,
+    ) -> None:
+        """Persist a trace subgraph (best-effort graph write + in-memory index).
+
+        ``trace`` is a ``TraceNode``; ``spans``/``generations`` are ``SpanNode`` /
+        ``GenerationNode`` instances. Generation cost is (re)computed from the pricing
+        catalog if unset. Idempotent on the in-memory index (re-emit overwrites).
+        """
+        spans = spans or []
+        generations = generations or []
+        # Fill in $ cost for any generation that didn't carry one.
+        for g in generations:
+            if getattr(g, "total_cost_usd", 0.0) in (0.0, None):
+                g.total_cost_usd = self._cost_usd(
+                    getattr(g, "model", None),
+                    getattr(g, "input_tokens", 0),
+                    getattr(g, "output_tokens", 0),
+                )
+        # Roll up trace-level cost/tokens from its generations.
+        trace.total_cost_usd = sum(getattr(g, "total_cost_usd", 0.0) for g in generations)
+        trace.input_tokens = sum(getattr(g, "input_tokens", 0) for g in generations)
+        trace.output_tokens = sum(getattr(g, "output_tokens", 0) for g in generations)
+
+        self._traces[trace.id] = {
+            "trace": trace,
+            "spans": list(spans),
+            "generations": list(generations),
+        }
+
+        if self.backend is not None and hasattr(self.backend, "add_node"):
+            try:
+                self._persist(trace, spans, generations)
+            except Exception as exc:  # pragma: no cover - persistence best-effort
+                logger.debug("KGTraceBackend persist failed: %s", exc)
+
+    def _persist(self, trace: Any, spans: list[Any], generations: list[Any]) -> None:
+        from agent_utilities.models.knowledge_graph import RegistryEdgeType
+
+        def _props(node: Any) -> dict[str, Any]:
+            d = node.model_dump() if hasattr(node, "model_dump") else dict(node)
+            d.pop("id", None)
+            d["type"] = str(d.get("type", ""))
+            return d
+
+        self.backend.add_node(trace.id, **_props(trace))
+        link = getattr(self.backend, "link_nodes", None)
+        for s in spans:
+            self.backend.add_node(s.id, **_props(s))
+            if callable(link):
+                link(trace.id, s.id, RegistryEdgeType.HAS_SPAN)
+        for g in generations:
+            self.backend.add_node(g.id, **_props(g))
+            if callable(link):
+                parent = getattr(g, "parent_span_id", None) or trace.id
+                link(parent, g.id, RegistryEdgeType.HAS_GENERATION)
+
+    def _summarize(self, entry: dict[str, Any]) -> dict[str, Any]:
+        t = entry["trace"]
+        return {
+            "id": t.id,
+            "name": getattr(t, "name", ""),
+            "status": getattr(t, "status", "ok"),
+            "duration_ms": getattr(t, "latency_ms", None),
+            "input_tokens": getattr(t, "input_tokens", 0),
+            "output_tokens": getattr(t, "output_tokens", 0),
+            "total_cost_usd": getattr(t, "total_cost_usd", 0.0),
+            "score": getattr(t, "metadata", {}).get("score", 0.0)
+            if isinstance(getattr(t, "metadata", {}), dict)
+            else 0.0,
+            "error": next(
+                (g.error for g in entry["generations"] if getattr(g, "error", None)),
+                None,
+            ),
+        }
+
+    async def get_traces(self, round_id: str, **_filters: Any) -> list[dict[str, Any]]:
+        return [
+            self._summarize(e)
+            for e in self._traces.values()
+            if not round_id
+            or getattr(e["trace"], "metadata", {}).get("round_id") == round_id
+        ]
+
+    async def get_trace_summary(self, trace_id: str) -> dict[str, Any]:
+        entry = self._traces.get(trace_id)
+        return self._summarize(entry) if entry else {"id": trace_id, "error": "not_found"}
+
+    async def get_trace_scores(self, trace_ids: list[str]) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for tid in trace_ids:
+            s = await self.get_trace_summary(tid)
+            out[tid] = float(s.get("score", 0.0) or 0.0)
+        return out
+
+
 def create_trace_backend(
     backend_type: str | None = None, **kwargs: Any
 ) -> TraceBackend:
@@ -718,18 +853,23 @@ def create_trace_backend(
         return LangfuseTraceBackend()
     elif backend_type == "otel":
         return OTelTraceBackend(**kwargs)
+    elif backend_type == "kg":
+        return KGTraceBackend(backend=kwargs.get("backend"))
     elif backend_type == "file":
         return FileTraceBackend(trace_dir=kwargs.get("trace_dir", "."))
 
-    # Auto-detect
+    # Auto-detect. Langfuse/OTel, when configured, become fan-out sinks; otherwise the
+    # KG-native backend is the default so traces are graph-queryable (CONCEPT:OS-5.68).
+    # An explicit ``trace_dir`` still selects the file backend for offline fixtures.
     if config.langfuse_secret_key or setting("LANGFUSE_SECRET_KEY"):
         logger.info("TraceBackend: Auto-detected Langfuse credentials.")
         return LangfuseTraceBackend()
     if config.otel_exporter_otlp_endpoint or setting("OTEL_EXPORTER_OTLP_ENDPOINT"):
         logger.info("TraceBackend: Auto-detected OTel endpoint.")
         return OTelTraceBackend(**kwargs)
+    if "trace_dir" in kwargs:
+        logger.info("TraceBackend: file fixtures (%s).", kwargs["trace_dir"])
+        return FileTraceBackend(trace_dir=kwargs["trace_dir"])
 
-    # Default to file-based
-    trace_dir = kwargs.get("trace_dir", ".")
-    logger.info(f"TraceBackend: Defaulting to FileTraceBackend ({trace_dir}).")
-    return FileTraceBackend(trace_dir=trace_dir)
+    logger.info("TraceBackend: Defaulting to KG-native backend (OS-5.68).")
+    return KGTraceBackend(backend=kwargs.get("backend"))
