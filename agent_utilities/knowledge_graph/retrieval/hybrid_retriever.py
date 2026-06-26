@@ -133,25 +133,36 @@ class HybridRetriever:
         threshold: float,
         target_paths: list[str] | None = None,
         corpus_doc_ids: set[str] | None = None,
+        label: str | None = None,
     ) -> list[dict[str, Any]]:
         """Vector candidates from the engine's native ANN (CONCEPT:KG-2.250).
 
         The vector neighbourhood is ALWAYS computed by the engine — never by an
-        O(N) Python cosine scan. Preferred path: ONE cross-modal unified plan
-        (``query.unified``, CONCEPT:KG-2.208) that the engine sequences over a
-        single off-lock snapshot — an optional ``Scan`` seed + the vector ``Rank``
-        leg, costed and executed in one round-trip. When the connected engine was
-        built WITHOUT the ``query`` feature (the lean ``pi`` tier), the same vector
-        index is reached through its native ``semantic_search`` ANN primitive
-        instead — still the engine's vector index, still O(log N), still no Python
-        scan. The returned ids are hydrated to full node dicts in one batched
-        property fetch and tagged with ``_score`` (the engine similarity).
+        O(N) Python cosine scan.
 
-        ``corpus_doc_ids`` / ``target_paths`` further restrict the ranked
-        candidate set: corpus membership is an id-set intersection and
-        ``target_paths`` a substring match on the hydrated ``target_path`` — both
-        applied to the BOUNDED ranked candidate pool the engine returned, never as
-        a full-graph scan.
+        * **Composed (unified plan).** When the query is scoped to a node label, the
+          arm builds ONE cross-modal unified plan — ``Scan(label) |> Rank(query) |>
+          Limit`` — that the engine sequences over a single off-lock snapshot
+          (``query.unified``, CONCEPT:KG-2.208): the vector ``Rank`` leg composes
+          with the relational ``Scan``/``Filter`` in one costed round-trip. (The
+          engine's ``Rank`` is a kNN over the full store intersected with the seeded
+          RowSet, so it *requires* a source op — a bare ``Rank`` has no candidate
+          set; the label scan is that source.)
+        * **Unseeded kNN (native ANN).** Label-agnostic retrieval — the common case
+          — uses the engine's native ``semantic_search`` ANN primitive: the
+          full-store kNN, O(log N), the SAME engine vector index the unified
+          ``Rank`` reads. No ``query`` feature is required, so this also serves a
+          lean (``pi``-tier) engine.
+
+        Both are the engine's vector index — there is NO Python cosine scan and NO
+        SQLite-style fallback: with no engine ANN the arm returns ``[]`` and
+        retrieval degrades to keyword search. Ranked ids are hydrated to full node
+        dicts in ONE batched property fetch and tagged with ``_score``.
+
+        ``corpus_doc_ids`` / ``target_paths`` restrict the BOUNDED ranked candidate
+        pool the engine returned — corpus membership is an id-set intersection and
+        ``target_paths`` a substring match on the hydrated ``target_path`` — never a
+        full-graph scan.
         """
         graph = getattr(self.engine, "graph", None)
         if graph is None:
@@ -163,36 +174,7 @@ class HybridRetriever:
         if corpus_doc_ids or target_paths:
             fetch_k = max(fetch_k, top_k * 8)
 
-        ranked: list[tuple[str, float]] = []
-        used_unified = False
-        try:
-            plan: list[dict[str, Any]] = [
-                {"Rank": {"query": [float(x) for x in query_emb]}},
-                {"Limit": {"k": fetch_k}},
-            ]
-            rows = graph.query_unified(plan)
-            used_unified = True
-            for row in rows or []:
-                rid = row.get("id")
-                if rid is None:
-                    continue
-                ranked.append((str(rid), float(row.get("score") or 0.0)))
-        except Exception as e:  # noqa: BLE001 — engine lacks the `query` feature
-            # No SQLite-style fallback: drop to the engine's native ANN primitive
-            # (the SAME vector index), NOT an O(N) Python cosine scan.
-            logger.debug(
-                "unified plan unavailable (engine built without `query`?): %s — "
-                "using native ANN primitive",
-                e,
-            )
-
-        if not used_unified:
-            ranked = [
-                (str(nid), float(score))
-                for nid, score in (graph.semantic_search(query_emb, fetch_k) or [])
-                if nid
-            ]
-
+        ranked = self._engine_rank(graph, query_emb, fetch_k, label=label)
         if not ranked:
             return []
 
@@ -220,6 +202,57 @@ class HybridRetriever:
             if len(results) >= top_k:
                 break
         return results
+
+    def _engine_rank(
+        self,
+        graph: Any,
+        query_emb: list[float],
+        fetch_k: int,
+        *,
+        label: str | None = None,
+    ) -> list[tuple[str, float]]:
+        """Return ``(id, score)`` from the engine's vector index — ONE round-trip.
+
+        When a ``label`` is given, the ranking is the unified plan
+        ``Scan(label) |> Rank(query) |> Limit`` (CONCEPT:KG-2.208) — the engine
+        composing the relational seed with the vector ``Rank`` in one costed plan.
+        Otherwise it is the engine's native ``semantic_search`` ANN primitive (the
+        unseeded full-store kNN). Both read the SAME engine vector index; on any
+        engine error (e.g. a build without the ``query`` feature, or no engine
+        reachable) it degrades to the native ANN, then to ``[]`` — never a Python
+        cosine scan.
+        """
+        qvec = [float(x) for x in query_emb]
+        if label:
+            try:
+                plan: list[dict[str, Any]] = [
+                    {"Scan": {"label": label}},
+                    {"Rank": {"query": qvec}},
+                    {"Limit": {"k": fetch_k}},
+                ]
+                rows = graph.query_unified(plan)
+                out = [
+                    (str(r["id"]), float(r.get("score") or 0.0))
+                    for r in (rows or [])
+                    if r.get("id") is not None
+                ]
+                if out:
+                    return out
+            except Exception as e:  # noqa: BLE001 — fall to the native ANN primitive
+                logger.debug(
+                    "unified Scan+Rank plan unavailable (engine without `query`?): "
+                    "%s — using native ANN",
+                    e,
+                )
+        try:
+            return [
+                (str(nid), float(score))
+                for nid, score in (graph.semantic_search(qvec, fetch_k) or [])
+                if nid
+            ]
+        except Exception as e:  # noqa: BLE001 — no engine ANN reachable
+            logger.debug("engine semantic_search unavailable: %s", e)
+            return []
 
     def _batch_node_properties(self, ids: list[str]) -> dict[str, dict[str, Any]]:
         """Fetch properties for many node ids in ONE engine round-trip.
