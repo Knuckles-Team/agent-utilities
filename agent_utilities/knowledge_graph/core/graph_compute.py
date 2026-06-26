@@ -838,6 +838,53 @@ class GraphComputeEngine:
         """Native HNSW vector search via the engine — returns (node_id, score)."""
         return self._client.graph.semantic_search(query_embedding, n_results) or []
 
+    def query_unified(
+        self,
+        plan: list[dict[str, Any]],
+        *,
+        reorder_filter_selectivity: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run ONE cross-modal unified plan in a single costed round-trip (CONCEPT:KG-2.250).
+
+        ``plan`` is the engine's closed algebra over a shared ``RowSet`` — an
+        ordered list of externally-tagged ``Op`` dicts (``Scan``/``Filter``/
+        ``Traverse``/``Rank``/``RankText``/``FuseRrf``/``AsOf``/``Limit``) the
+        engine sequences over ONE off-lock snapshot (filter via DataFusion,
+        traverse via petgraph BFS, rank via the native ANN, RRF fusion in-plan).
+        This is the engine doing filter+traverse+vector+rerank itself instead of
+        the old hand-orchestrated Python pipeline of siloed round-trips
+        (CONCEPT:KG-2.208/214/215). Returns ``[{"id": str, "score": float|None}]``
+        in the plan's final (post-``Rank``) order.
+
+        Requires an engine built with the ``query`` feature; on a build without it
+        the call raises a clear engine error — there is no O(N) Python fallback.
+        """
+        return (
+            self._client.query.unified(
+                plan, reorder_filter_selectivity=reorder_filter_selectivity
+            )
+            or []
+        )
+
+    @property
+    def supports_unified_query(self) -> bool:
+        """Whether the connected engine serves the ``UnifiedQuery`` plan op.
+
+        Cached. The unified cross-modal plan needs a ``query``-feature engine
+        (``node`` tier and up); the lean ``pi`` tier ships only the native ANN
+        (``semantic_search``). Lets the retriever drive filter+traverse+vector in
+        ONE plan where available and the native-ANN vector primitive otherwise —
+        both are the engine's own vector index, never an O(N) Python scan.
+        """
+        cached = getattr(self, "_supports_unified_query", None)
+        if cached is None:
+            try:
+                cached = bool(self._client.supports("UnifiedQuery"))
+            except Exception:
+                cached = False
+            self._supports_unified_query = cached
+        return cached
+
     def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
         """Embedding-free lexical capability gate via the engine (CONCEPT:EG-010).
 
