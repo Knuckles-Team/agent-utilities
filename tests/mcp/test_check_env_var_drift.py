@@ -89,6 +89,30 @@ def test_host_alias_not_undocumented(tmp_path: Path) -> None:
     assert "DEMO_HOST" not in _types(report, "UNDOCUMENTED")
 
 
+def test_os_getenv_read_not_dead(tmp_path: Path) -> None:
+    """A var read via bare os.getenv / os.environ is a real read, not DEAD."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={
+            "mcpServers": {
+                "demo": {
+                    "env": {
+                        "DEMO_BASE_URL": "x",
+                        "HARVEST_HOST": "h",  # read via os.getenv below
+                        "HARVEST_PORT": "1",  # read via os.environ[] below
+                        "MCP_TOOL_MODE": "condensed",
+                    }
+                }
+            }
+        },
+        code='import os\nos.getenv("HARVEST_HOST")\nos.environ["HARVEST_PORT"]\n',
+    )
+    report = drift.analyze(root)
+    assert "HARVEST_HOST" not in _types(report, "DEAD")
+    assert "HARVEST_PORT" not in _types(report, "DEAD")
+
+
 def test_derived_toggle_undocumented(tmp_path: Path) -> None:
     """A register_<tag>_tools registrar implies <TAG>TOOL; undocumented if absent from .env.example."""
     root = tmp_path / "demo-agent"

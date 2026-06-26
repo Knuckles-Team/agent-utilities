@@ -41,8 +41,13 @@ from pathlib import Path
 
 from agent_utilities.mcp.readme_env_vars import INHERITED_ENV, parse_env_example
 
-# ``setting("VAR" …)`` / ``setting('VAR' …)`` — the one sanctioned env accessor.
-_SETTING = re.compile(r"""setting\(\s*['"]([A-Z][A-Z0-9_]*)['"]""")
+# Env reads the code performs. ``setting(...)`` is the sanctioned accessor, but bare
+# ``os.getenv`` / ``os.environ.get`` / ``os.environ[...]`` (and ``from os import …`` forms)
+# are also real reads — count them so a live var is never mis-flagged DEAD.
+_ENV_READ = re.compile(
+    r"""(?:setting|(?:os\.)?getenv|(?:os\.)?environ\.get)\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""
+    r"""|(?:os\.)?environ\[\s*['"]([A-Z][A-Z0-9_]*)['"]\]"""
+)
 # ``register_<tag>_tools`` — a condensed registrar; toggle env var is ``<TAG>TOOL``.
 _REGISTRAR = re.compile(r"register_([a-z][a-z0-9_]*?)_tools\b")
 # A ``- "KEY=value"`` or ``KEY: value`` line inside a compose ``environment:`` list/map.
@@ -105,15 +110,18 @@ def _is_host_var(var: str) -> bool:
 
 
 def _scan_setting_calls(root: Path) -> set[str]:
-    """Every ``setting("VAR")`` literal read in ``*.py`` under ``root``."""
+    """Every env-var literal read (``setting`` or bare ``os.getenv``/``os.environ``) in
+    ``*.py`` under ``root``."""
     found: set[str] = set()
     for py in root.rglob("*.py"):
         if ".venv" in py.parts or "__pycache__" in py.parts:
             continue
         try:
-            found.update(_SETTING.findall(py.read_text(encoding="utf-8")))
+            for a, b in _ENV_READ.findall(py.read_text(encoding="utf-8")):
+                found.add(a or b)
         except (OSError, UnicodeDecodeError):
             continue
+    found.discard("")
     return found
 
 
