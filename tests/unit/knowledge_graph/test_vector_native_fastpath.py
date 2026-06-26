@@ -1,10 +1,13 @@
-"""`_vector_search_native` prefers the backend's HNSW, not an O(N) full scan.
+"""`_engine_vector_search` ranks via the engine ANN — never an O(N) Python scan.
 
-CONCEPT:KG-2.0 — the native vector fast path was Ladybug-only
-(`CALL QUERY_VECTOR_INDEX`), so on the epistemic_graph/fanout backend it always
-returned None and `retrieve_hybrid` degraded to an O(N) full-graph scan
-(`_get_all_nodes_with_properties`, 8× per query). It must now use the backend's
-own `semantic_search` (HNSW) and never touch `backend.execute` when that works.
+CONCEPT:KG-2.250 — the hand-orchestrated hybrid retriever's vector arm is
+collapsed onto the engine. The vector neighbourhood comes from ONE cross-modal
+unified plan (`graph.query_unified`, the engine sequencing filter + vector `Rank`
+in one costed round-trip); on a lean engine built without the `query` feature it
+falls to the engine's native `semantic_search` ANN primitive — still the engine's
+vector index, still O(log N). There is NO O(N) Python `cosine_similarity` fallback
+and NO `backend.execute` brute-force scan. (The real-engine end-to-end proof lives
+in `test_unified_plan_retrieval.py`.)
 """
 
 from __future__ import annotations
@@ -14,85 +17,99 @@ from typing import Any
 from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import HybridRetriever
 
 
-class _SemBackend:
-    """Backend exposing the engine's native vector search (HNSW)."""
+class _UnifiedGraph:
+    """Engine graph that serves the unified plan (the `query`-feature path)."""
+
+    def __init__(self) -> None:
+        self.unified_calls = 0
+        self.semantic_calls = 0
+        self._props = {
+            "n1": {"name": "Foo", "target_path": "/a/x.py"},
+            "n2": {"name": "Bar", "target_path": "/b/y.py"},
+        }
+
+    def query_unified(
+        self, _plan: list[dict[str, Any]], **_k: Any
+    ) -> list[dict[str, Any]]:
+        self.unified_calls += 1
+        return [{"id": "n1", "score": 0.9}, {"id": "n2", "score": 0.7}]
+
+    def semantic_search(self, _emb: list[float], _n: int = 5) -> list[Any]:
+        self.semantic_calls += 1  # must NOT run when the unified plan works
+        return []
+
+    def _get_node_properties(self, nid: str) -> dict[str, Any]:
+        return dict(self._props.get(nid, {}))
+
+
+class _LeanGraph:
+    """Lean engine (no `query` feature): unified plan errors, native ANN serves."""
 
     def __init__(self) -> None:
         self.semantic_calls = 0
-        self.execute_calls = 0
+        self._props = {"n1": {"name": "Foo"}, "n2": {"name": "Bar"}}
 
-    def semantic_search(self, _emb: list[float], _n: int = 5) -> list[dict[str, Any]]:
+    def query_unified(self, _plan: list[dict[str, Any]], **_k: Any) -> Any:
+        raise RuntimeError(
+            "unknown variant `UnifiedQuery` (engine built without query)"
+        )
+
+    def semantic_search(self, _emb: list[float], _n: int = 5) -> list[Any]:
         self.semantic_calls += 1
-        return [
-            {"id": "n1", "_similarity": 0.9, "name": "Foo", "target_path": "/a/x.py"},
-            {"id": "n2", "_similarity": 0.7, "name": "Bar", "target_path": "/b/y.py"},
-        ]
+        return [("n1", 0.9), ("n2", 0.7)]
 
-    def execute(
-        self, _q: str, _p: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
-        self.execute_calls += 1  # QUERY_VECTOR_INDEX / brute-force path — must NOT run
-        return []
-
-
-class _NoSemBackend:
-    """Backend without a usable vector search (semantic_search returns nothing)."""
-
-    def __init__(self) -> None:
-        self.execute_calls = 0
-
-    def semantic_search(self, _emb: list[float], _n: int = 5) -> list[dict[str, Any]]:
-        return []
-
-    def execute(
-        self, _q: str, _p: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
-        self.execute_calls += 1
-        return []  # no Ladybug index -> native path yields nothing
+    def _get_node_properties(self, nid: str) -> dict[str, Any]:
+        return dict(self._props.get(nid, {}))
 
 
 class _Engine:
-    def __init__(self, backend: Any) -> None:
-        self.backend = backend
+    def __init__(self, graph: Any) -> None:
+        self.graph = graph
+        self.backend = graph
 
 
-def _retriever(backend: Any) -> HybridRetriever:
+def _retriever(graph: Any) -> HybridRetriever:
     r = HybridRetriever.__new__(HybridRetriever)  # skip heavy __init__
-    r.engine = _Engine(backend)
+    r.engine = _Engine(graph)  # type: ignore[assignment]
     return r
 
 
-def test_native_uses_backend_semantic_search_not_full_scan() -> None:
-    backend = _SemBackend()
-    r = _retriever(backend)
+def test_vector_search_uses_unified_plan_not_a_scan() -> None:
+    graph = _UnifiedGraph()
+    r = _retriever(graph)
 
-    out = r._vector_search_native([0.1, 0.2, 0.3], top_k=5)
+    out = r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0)
 
-    assert out is not None
-    assert [d["id"] for d in out] == ["n1", "n2"]  # ranked by score
+    assert [d["id"] for d in out] == ["n1", "n2"]  # engine-ranked order
     assert out[0]["_score"] == 0.9
-    assert backend.semantic_calls == 1
-    # The whole point: the Ladybug/brute-force execute() path is never taken.
-    assert backend.execute_calls == 0
+    assert out[0]["name"] == "Foo"  # hydrated from the engine, in batch
+    assert graph.unified_calls == 1
+    # The unified plan served it — the native-ANN fallback was never needed.
+    assert graph.semantic_calls == 0
 
 
-def test_native_respects_target_paths() -> None:
-    backend = _SemBackend()
-    r = _retriever(backend)
+def test_vector_search_respects_target_paths() -> None:
+    graph = _UnifiedGraph()
+    r = _retriever(graph)
 
-    out = r._vector_search_native([0.1, 0.2, 0.3], top_k=5, target_paths=["/a/"])
+    out = r._engine_vector_search(
+        [0.1, 0.2, 0.3], top_k=5, threshold=0.0, target_paths=["/a/"]
+    )
 
-    assert out is not None
     assert [d["id"] for d in out] == ["n1"]  # only the /a/ path survives
 
 
-def test_native_falls_through_when_semantic_search_empty() -> None:
-    backend = _NoSemBackend()
-    r = _retriever(backend)
+def test_lean_engine_falls_to_native_ann_not_python_cosine() -> None:
+    """No `query` feature ⇒ the engine's native ANN, NOT an O(N) Python scan."""
+    graph = _LeanGraph()
+    r = _retriever(graph)
 
-    # semantic_search yields nothing -> falls through to the Ladybug procedure,
-    # which (no index here) yields nothing -> None so the caller brute-forces.
-    out = r._vector_search_native([0.1, 0.2, 0.3], top_k=5)
+    out = r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0)
 
-    assert out is None
-    assert backend.execute_calls >= 1  # the fallback path was attempted
+    assert [d["id"] for d in out] == ["n1", "n2"]
+    assert graph.semantic_calls == 1  # the engine ANN primitive served it
+
+
+def test_old_on_python_scan_method_is_deleted() -> None:
+    """The O(N) `_vector_search_native` brute-force entry point is gone."""
+    assert not hasattr(HybridRetriever, "_vector_search_native")
