@@ -35,14 +35,27 @@ class StationaryFeatureEngineer:
     Designed to work across asset classes (equities, crypto, derivatives).
     """
 
-    def __init__(self, check_all: bool = True):
+    def __init__(self, check_all: bool = True, regularize: bool = False):
         self.check_all = check_all
+        # CONCEPT:KG-2.252 — when True, gappy/irregular raw OHLCV is gap-filled onto a
+        # regular daily grid IN-ENGINE (timeseries.gap_fill, LOCF) before features are
+        # computed. The rolling/ewm feature math itself stays in pandas (already
+        # vectorized + optimal); only the irregular-series alignment — the clear engine
+        # win pandas lacks natively — is routed to the engine. Default OFF (most callers
+        # already pass a regular series); a real disable/enable case, not a knob.
+        self.regularize = regularize
 
     def transform(self, df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         """
         Takes OHLCV dataframe, returns (features_df, target_series).
         Target is next-period direction (binary classification).
+
+        With ``regularize=True`` (CONCEPT:KG-2.252) the OHLCV columns are first
+        gap-filled onto a regular daily grid via the engine tsdb (``gap_fill``), so a
+        feed with missing bars yields aligned features without hand-rolled reindexing.
         """
+        if self.regularize:
+            df = self._regularize_ohlcv(df)
         features = pd.DataFrame(index=df.index)
         close = df["Close"]
         volume = df["Volume"]
@@ -89,3 +102,27 @@ class StationaryFeatureEngineer:
                 logger.warning(f"Non-stationary features detected: {non_stationary}")
 
         return features, target
+
+    def _regularize_ohlcv(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Gap-fill each OHLCV column onto a regular daily grid IN-ENGINE (KG-2.252).
+
+        Routes the irregular→regular alignment to ``engine_series.gap_fill_series``
+        (the engine's native LOCF gap-fill) — ONE engine connection reused across the
+        columns — and returns a new aligned DataFrame. Degrades to a pandas reindex
+        when no engine is reachable (gap_fill_series handles that fallback), so the
+        public feature path always works.
+        """
+        from .engine_series import _client, gap_fill_series
+
+        client = _client()
+        try:
+            cols = {}
+            for name in df.columns:
+                cols[name] = gap_fill_series(df[name], "1D", client=client)
+            return pd.DataFrame(cols)
+        finally:
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:  # noqa: BLE001
+                    pass
