@@ -50,6 +50,12 @@ class RegistryNodeType(StrEnum):
     TRACE = "trace"
     SPAN = "span"
     GENERATION = "generation"
+    # Online-scoring / regression eval over traces (CONCEPT:AHE-3.64).
+    ONLINE_SCORE = "online_score"
+    ASSERTION_RESULT = "assertion_result"
+    # prod-trace → dataset → prompt-version closed loop (CONCEPT:AHE-3.68).
+    DATASET_ITEM = "dataset_item"
+    PROMPT_VERSION = "prompt_version"
     ENTITY = "entity"
     EVENT = "event"
     REFLECTION = "reflection"
@@ -1358,6 +1364,9 @@ class TraceNode(RegistryNode):
     input_tokens: int = 0
     output_tokens: int = 0
     tags: list[str] = Field(default_factory=list)
+    # Root input/output text (truncated) — what online-scoring/regression judges against.
+    input: str = ""
+    output: str = ""
 
 
 class SpanNode(RegistryNode):
@@ -1388,6 +1397,54 @@ class GenerationNode(RegistryNode):
     error: str | None = None
     prompt_version_id: str | None = None
     tool_calls: int = 0
+
+
+class OnlineScoreNode(RegistryNode):
+    """A score produced by online-scoring over a live trace (CONCEPT:AHE-3.64) —
+    an LLM-judge dimension or a (sandboxed) custom metric. Linked SCORED_BY the trace."""
+
+    type: RegistryNodeType = RegistryNodeType.ONLINE_SCORE
+    trace_id: str
+    dimension: str  # e.g. "hallucination", "relevance", a metric name
+    score: float = 0.0
+    reasoning: str = ""
+    evaluator: str = ""  # judge | metric:<name>
+
+
+class AssertionResultNode(RegistryNode):
+    """A regression-assertion verdict over a live/replayed trace (CONCEPT:AHE-3.64,
+    Opik Test-Suite parity): the same judge path scores prod traffic AND regressions."""
+
+    type: RegistryNodeType = RegistryNodeType.ASSERTION_RESULT
+    trace_id: str
+    case_id: str = ""
+    assertion: str = ""
+    status: str = "passed"  # passed | failed
+    reasoning: str = ""
+
+
+class DatasetItemNode(RegistryNode):
+    """An eval/dataset item, with provenance (CONCEPT:AHE-3.68). ``source=trace`` items
+    are promoted from a production trace — the prod→dataset half of the closed loop."""
+
+    type: RegistryNodeType = RegistryNodeType.DATASET_ITEM
+    source: str = "manual"  # manual | trace | span | correction
+    input: str = ""
+    expected: str = ""
+    assertion: str = ""
+    source_trace_id: str | None = None
+
+
+class PromptVersionNode(RegistryNode):
+    """A content-addressed version of a prompt (CONCEPT:AHE-3.68). A GenerationNode records
+    the prompt_version_id it used, so 'which prompt version regressed which eval dimension'
+    is a graph query — the prompt→experiment→regression half of the closed loop."""
+
+    type: RegistryNodeType = RegistryNodeType.PROMPT_VERSION
+    prompt_id: str
+    version_hash: str
+    content: str = ""
+    parent_hash: str | None = None
 
 
 class EntityNode(RegistryNode):

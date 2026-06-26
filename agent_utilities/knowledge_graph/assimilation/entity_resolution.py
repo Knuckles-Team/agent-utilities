@@ -37,6 +37,7 @@ converge (idempotent, like the MERGE-on-write dedup it feeds).
 import hashlib
 import math
 import random
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -137,6 +138,11 @@ class ResolutionResult:
             them — the caller need not embed them to find *these* duplicates).
         residual_ids: ambiguous ids (low-entropy names, or high-entropy names
             with no name match) the caller should escalate to the embedding tier.
+        variants: ``(base_id, variant_id, score, kind)`` for near-miss pairs that
+            are a subtype/version of one another rather than duplicates — they are
+            **linked** (an ``EXTENDS`` edge), NOT merged (CONCEPT:AHE-3.70, the
+            duplicates-vs-variants split; the type-aware case is decided in the
+            engine ResolveCandidates op, KG-2.260).
         exact_merges: count of pairs decided by tier 1.
         lsh_merges: count of pairs decided by tier 3.
         low_entropy: count of ids rejected by the entropy gate (tier 2).
@@ -145,32 +151,103 @@ class ResolutionResult:
     merge_pairs: list[tuple[str, str, float, str]] = field(default_factory=list)
     resolved_ids: set[str] = field(default_factory=set)
     residual_ids: set[str] = field(default_factory=set)
+    variants: list[tuple[str, str, float, str]] = field(default_factory=list)
     exact_merges: int = 0
     lsh_merges: int = 0
     low_entropy: int = 0
 
 
+def _transliterate(name: str) -> str:
+    """ASCII-fold accents/non-Latin so ``"José"``≡``"Jose"`` (CONCEPT:AHE-3.70).
+
+    ``unidecode`` lives in the optional ``[ingest-dedup]`` extra; absent (the lean
+    serving plane), this is a no-op and folding falls back to raw alphanumerics.
+    """
+    try:
+        from unidecode import unidecode
+    except ImportError:
+        return name
+    try:
+        return unidecode(name)
+    except Exception:  # noqa: BLE001
+        return name
+
+
+def _inflect_engine() -> object | None:
+    """Lazily build (and cache) an ``inflect`` engine, or ``None`` if unavailable."""
+    cached = getattr(_inflect_engine, "_engine", "unset")
+    if cached != "unset":
+        return cached  # type: ignore[return-value]
+    try:
+        import inflect
+
+        engine: object | None = inflect.engine()
+    except Exception:  # noqa: BLE001
+        engine = None
+    _inflect_engine._engine = engine  # type: ignore[attr-defined]
+    return engine
+
+
+def _singularize_token(tok_lower: str) -> str:
+    """Singularize a lowercase token (``apples`` → ``apple``); no-op if singular.
+
+    Applied **unconditionally** so the same word in any casing folds to the same
+    key (``"Kubernetes"`` and ``"kubernetes"`` must agree). The mapping only needs
+    to be *consistent*, not linguistically pretty (``"analysis"`` → ``"analysi"``
+    is fine — every mention folds identically). ``inflect`` lives in the
+    ``[ingest-dedup]`` extra; absent, this is a no-op.
+    """
+    engine = _inflect_engine()
+    if engine is None:
+        return tok_lower
+    try:
+        singular = engine.singular_noun(tok_lower)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        return tok_lower
+    return singular if isinstance(singular, str) and singular else tok_lower
+
+
 def normalize_name(name: str) -> str:
     """Fold a display name to a canonical comparison key.
 
-    Lower-cases, replaces every non-alphanumeric run with a token boundary, drops
-    standalone corporate/legal suffix tokens, and concatenates the survivors in
-    order (no separators). Order is preserved so ``"Sun Microsystems"`` and
-    ``"Microsystems Sun"`` do NOT collide.
+    Transliterates (``José``→``Jose``), replaces every non-alphanumeric run with a
+    token boundary, drops standalone corporate/legal suffix tokens, singularizes
+    each token so plural/singular variants merge (``reading comprehensions`` ≡
+    ``reading comprehension``), and concatenates the survivors in order (no
+    separators). Singularization is **unconditional** — a per-instance casing guard
+    would break case-insensitivity — so a rare proper-noun plural (``"Williams"`` →
+    ``"william"``) can collide; the entropy gate + embedding tier downstream are the
+    backstop, matching sift-kg's behaviour. Order is preserved so
+    ``"Sun Microsystems"`` and ``"Microsystems Sun"`` do NOT collide
+    (CONCEPT:AHE-3.70 — transliteration + singularization extend the AHE-3.69 ladder).
     """
     if not name:
         return ""
-    folded = []
-    cur = []
-    for ch in name.lower():
+    name = _transliterate(name)
+    tokens: list[str] = []
+    cur: list[str] = []
+
+    def _flush() -> None:
+        if not cur:
+            return
+        tok = "".join(cur).lower()
+        cur.clear()
+        if not tok or tok in _SUFFIXES:
+            return
+        # Don't singularize a word that is ALREADY a generic/denylisted term
+        # ("data" must stay "data", not become "datum" and escape the entropy
+        # gate) — but DO allow folding *into* a generic word ("systems" → "system").
+        if tok in _GENERIC_KEYS:
+            tokens.append(tok)
+        else:
+            tokens.append(_singularize_token(tok))
+
+    for ch in name:
         if ch.isalnum():
             cur.append(ch)
-        elif cur:
-            folded.append("".join(cur))
-            cur = []
-    if cur:
-        folded.append("".join(cur))
-    tokens = [t for t in folded if t and t not in _SUFFIXES]
+        else:
+            _flush()
+    _flush()
     return "".join(tokens)
 
 
@@ -254,6 +331,35 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     return inter / union if union else 0.0
 
 
+_VERSION_SUFFIX = re.compile(r"(?:v?\d+)$")
+
+
+def _strip_version(key: str) -> str:
+    """Remove a trailing version run (``\\d+`` or ``v\\d+``): ``gpt4`` → ``gpt``."""
+    return _VERSION_SUFFIX.sub("", key)
+
+
+def _has_version(key: str) -> bool:
+    """True if ``key`` carries a trailing numeric/version suffix."""
+    return bool(_VERSION_SUFFIX.search(key)) and _strip_version(key) != ""
+
+
+def detect_version_variant(key_a: str, key_b: str) -> bool:
+    """True if two canonical keys are a *version* of one base (``gpt`` vs ``gpt4``).
+
+    They are a version-variant pair when their version-stripped bases are equal,
+    at least one carried a version suffix, and the keys differ. Such pairs are
+    distinct entities — diverted from *merge* into the ``variants`` channel as an
+    ``EXTENDS`` link (CONCEPT:AHE-3.70).
+    """
+    if not key_a or not key_b or key_a == key_b:
+        return False
+    base_a, base_b = _strip_version(key_a), _strip_version(key_b)
+    if not base_a or base_a != base_b:
+        return False
+    return _has_version(key_a) or _has_version(key_b)
+
+
 def resolve_entities(items: list[tuple[str, str]]) -> ResolutionResult:
     """Resolve a batch of ``(id, display_name)`` entities, LLM-free.
 
@@ -295,6 +401,27 @@ def resolve_entities(items: list[tuple[str, str]]) -> ResolutionResult:
             result.resolved_ids.update((survivor, dup))
             result.exact_merges += 1
 
+    # --- tier 2b: version-variant split (AHE-3.70) ---
+    # Group distinct keys by their version-stripped base; same-base keys that
+    # differ by a version suffix (``gpt`` / ``gpt4``, ``llama2`` / ``llama3``) are
+    # siblings/variants — linked as an EXTENDS relation, NOT merged. ``variant_block``
+    # stops the LSH tier from merging long version-variants whose Jaccard is high.
+    # O(n); the type-aware split lives in the engine op (KG-2.260).
+    variant_block: set[frozenset[str]] = set()
+    base_groups: dict[str, list[str]] = defaultdict(list)
+    for key in by_key:
+        base_groups[_strip_version(key)].append(key)
+    for base, group in base_groups.items():
+        if len(group) < 2 or not base or not any(_has_version(k) for k in group):
+            continue
+        group_sorted = sorted(group)
+        survivor = by_key[group_sorted[0]][0]
+        for variant_key in group_sorted[1:]:
+            result.variants.append((survivor, by_key[variant_key][0], 1.0, "version"))
+        for i in range(len(group_sorted)):
+            for j in range(i + 1, len(group_sorted)):
+                variant_block.add(frozenset((group_sorted[i], group_sorted[j])))
+
     # --- tier 3: MinHash + LSH over the distinct canonical keys ---
     distinct_keys = list(by_key.keys())
     if len(distinct_keys) > 1:
@@ -326,6 +453,9 @@ def resolve_entities(items: list[tuple[str, str]]) -> ResolutionResult:
 
         fuzzy_scores: dict[tuple[str, str], float] = {}
         for a, b in candidates:
+            # never merge a pair already classified as a version-variant (AHE-3.70)
+            if frozenset((a, b)) in variant_block:
+                continue
             jac = _jaccard(shingles_by_key[a], shingles_by_key[b])
             if jac >= _JACCARD_THRESHOLD:
                 fuzzy_scores[(a, b)] = jac
@@ -364,4 +494,5 @@ __all__ = [
     "normalize_name",
     "shannon_entropy",
     "has_high_entropy",
+    "detect_version_variant",
 ]

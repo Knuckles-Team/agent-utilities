@@ -106,6 +106,7 @@ nav:
       - Codebase Context via the KG (query, don't grep): architecture/codebase-context.md
       - Native Warm-Fork Sandboxes (warm once, fork CoW children): architecture/warm-fork-sandboxes.md
       - Ingestion Throughput (lanes, tick collapse, bulk): architecture/ingestion_throughput.md
+      - Ontology-Guided Ingestion & Entity Resolution (exceeds sift-kg): architecture/ontology-guided-ingestion.md
       - Modular Prompt & Skill Contribution (fleet entry-points): architecture/modular-prompt-skill-contribution.md
       - Agent-Operator Program (closing the loops): architecture/agent-operator-program.md
       - Agentic Resource Discovery (ARD) interop (publish + consume + federate): architecture/ard-interop.md

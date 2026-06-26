@@ -19,9 +19,12 @@ import logging
 import re
 import unicodedata
 from collections.abc import AsyncGenerator, Callable, Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from .extraction_schema import ExtractionSchema
 
 logger = logging.getLogger(__name__)
 
@@ -448,6 +451,7 @@ async def extract_facts(
     deduper: FactDeduper | None = None,
     stream_fn: StreamFn | None = None,
     prompt: str = FACT_EXTRACTION_PROMPT,
+    schema: ExtractionSchema | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Extract facts from ``text``, yielding events as they stream.
 
@@ -458,9 +462,21 @@ async def extract_facts(
     accumulated deduper suppresses repeats) is opt-in so the GPU cost is a
     deliberate choice. The same ``deduper`` may be passed across documents to
     dedup across files.
+
+    ``schema`` (CONCEPT:KG-2.255) — when an :class:`ExtractionSchema` is supplied,
+    its OWL classes + ``rdfs:domain/range`` are spliced into the prompt so the
+    model extracts ontology-typed, direction-constrained triples (we exceed
+    sift-kg's flat closed-vocab by sourcing it from the formal ontology and
+    keeping a controlled-overflow escape for off-ontology facts). ``None`` keeps
+    the unchanged free-vocab behaviour, so generic content never regresses.
     """
     if rounds < 1:
         rounds = 1
+    # Ontology-guided extraction: prepend the schema block so the closed-vocab +
+    # typed-relation guidance frames every round. Soft-closed (prompt prefers,
+    # never forbids) to preserve recall on off-ontology facts.
+    if schema is not None and not schema.is_empty:
+        prompt = f"{schema.prompt_block()}\n{prompt}"
     if stream_fn is None:
         stream_fn = make_streaming_extract_fn()
     if dedup and deduper is None:
@@ -559,18 +575,36 @@ def _coerce_fact(raw: dict[str, Any], source_file: str) -> ExtractedFact | None:
 # --------------------------------------------------------------------------- #
 
 
+def aggregate_confidence(confidences: Iterable[float]) -> float:
+    """Product-complement confidence ``1 − ∏(1 − cᵢ)`` over members (CONCEPT:KG-2.257).
+
+    Each ``cᵢ`` is a 0..1 confidence. Independent weak mentions *reinforce*: two
+    0.5 mentions combine to 0.75, three to 0.875 — corroboration raises the edge's
+    confidence rather than averaging it down (sift-kg ``knowledge_graph.py:362``).
+    """
+    comp = 1.0
+    for c in confidences:
+        comp *= 1.0 - max(0.0, min(1.0, c))
+    return 1.0 - comp
+
+
 def persist_facts(store: Any, facts: Iterable[ExtractedFact]) -> dict[str, int]:
     """Write facts to the graph as ``subject -[predicate]-> object`` edges.
 
-    Nodes are keyed by ``normalize_key`` so surface-form variants merge; the edge
-    carries ``confidence`` (0..1), ``evidence_span``, ``title``, ``description``,
-    ``tags`` and ``source_file`` as properties — all fields the engine edge model
-    already supports. Duplicates (``is_duplicate``) are skipped. Uses the store's
-    plain ``add_node``/``add_edge`` so it works on any backend.
+    Nodes are keyed by ``normalize_key`` so surface-form variants merge. Repeated
+    mentions of the same ``(subject, predicate, object)`` triple are **merged into
+    one edge** (CONCEPT:KG-2.257): the edge's ``confidence`` is the
+    product-complement aggregate (corroboration reinforces), ``support_count`` is
+    the number of mentions backing it, and ``weight`` is set to that count so
+    well-supported edges rank above singletons — all populating fields the engine
+    ``EdgeData`` already carries (``weight``/``confidence``). Aggregation is
+    client-side over the in-batch facts (already resident), so it costs no extra
+    engine round-trips. Duplicates (``is_duplicate``) are skipped.
     """
     nodes = 0
-    edges = 0
     seen_nodes: set[str] = set()
+    groups: dict[tuple[str, str, str], list[ExtractedFact]] = {}
+    order: list[tuple[str, str, str]] = []
     for f in facts:
         if f.is_duplicate:
             continue
@@ -581,16 +615,36 @@ def persist_facts(store: Any, facts: Iterable[ExtractedFact]) -> dict[str, int]:
                 store.add_node(key, label=label)
                 seen_nodes.add(key)
                 nodes += 1
+        edge_key = (s_key, f.predicate, o_key)
+        if edge_key not in groups:
+            groups[edge_key] = []
+            order.append(edge_key)
+        groups[edge_key].append(f)
+
+    edges = 0
+    for edge_key in order:
+        members = groups[edge_key]
+        s_key, predicate, o_key = edge_key
+        support_count = len(members)
+        agg_conf = aggregate_confidence(m.confidence / 100.0 for m in members)
+        # Representative narrative fields come from the highest-confidence mention;
+        # tags union; sources deduped (support_documents = distinct sources).
+        rep = max(members, key=lambda m: m.confidence)
+        tags = sorted({t for m in members for t in (m.tags or [])})
+        sources = sorted({m.source_file for m in members if m.source_file})
         store.add_edge(
             s_key,
             o_key,
-            rel_type=f.predicate,
-            confidence=f.confidence / 100.0,
-            evidence_span=f.evidence_span,
-            title=f.title,
-            description=f.description,
-            tags=f.tags,
-            source_file=f.source_file,
+            rel_type=predicate,
+            confidence=agg_conf,
+            weight=float(support_count),
+            support_count=support_count,
+            support_documents=len(sources),
+            evidence_span=rep.evidence_span,
+            title=rep.title,
+            description=rep.description,
+            tags=tags,
+            source_file=",".join(sources),
             provenance="fact_extractor",
         )
         edges += 1

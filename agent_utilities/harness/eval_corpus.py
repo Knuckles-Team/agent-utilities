@@ -76,6 +76,49 @@ class EvalCorpus:
                 logger.debug("eval_case persist failed: %s", exc)
         return case_id
 
+    def add_from_trace(
+        self, trace: Any, *, assertion: str = "", tags: list[str] | None = None
+    ) -> str:
+        """Promote a production trace into a versioned regression case (CONCEPT:AHE-3.68).
+
+        The prod→dataset half of the closed loop: a ``TraceNode`` (or any object/dict with
+        ``input``/``output``) becomes a ``DatasetItemNode(source=trace)`` AND an eval case
+        whose expected output is the trace's output (or whose ``assertion`` is the check to
+        re-run). ``source_trace_id`` records provenance so the case traces back to its trace.
+        """
+
+        def _g(obj: Any, key: str, default: str = "") -> str:
+            if isinstance(obj, dict):
+                return str(obj.get(key, default))
+            return str(getattr(obj, key, default) or default)
+
+        trace_id = _g(trace, "id")
+        query = _g(trace, "input") or _g(trace, "name")
+        output = _g(trace, "output")
+        case_id = self.add_case(
+            query=query or trace_id,
+            expected_output=output,
+            tags=(tags or []) + ["from_trace"],
+            reason=f"promoted from trace {trace_id}",
+            assertion=assertion,
+            metadata={"source": "trace", "source_trace_id": trace_id},
+        )
+        # Mirror as a DatasetItemNode(source=trace) with provenance, when persistable.
+        if self.backend is not None and hasattr(self.backend, "add_node"):
+            try:
+                self.backend.add_node(
+                    f"dataset_item:{case_id}",
+                    type="dataset_item",
+                    source="trace",
+                    input=query,
+                    expected=output,
+                    assertion=assertion,
+                    source_trace_id=trace_id,
+                )
+            except Exception as exc:  # pragma: no cover - best-effort
+                logger.debug("dataset_item persist failed: %s", exc)
+        return case_id
+
     def load_cases(self) -> list[Any]:
         """Load cases as harness ``TestCase`` objects (graph first, else memory)."""
         from .continuous_evaluation_engine import TestCase
