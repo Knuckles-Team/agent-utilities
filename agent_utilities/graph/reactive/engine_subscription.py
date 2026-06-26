@@ -1,11 +1,11 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""CONCEPT:KG-2.251 — Engine change-feed subscription (poll→push reactivity).
+"""CONCEPT:KG-2.251 — Engine change-feed subscription primitive for poll→push reactivity.
 
 The ONE reusable primitive that turns a wasteful daemon poll-loop into a reactive
 consumer of the engine's *committed-change* feed. The Rust ``epistemic-graph``
-engine (CONCEPT:KG-2.229/230, ``client.streaming``) already pushes an ordered,
+engine (engine concepts KG-2.229/230, ``client.streaming``) already pushes an ordered,
 cursor-addressable record of every durable mutation per graph; today agent-utilities
 only fans writes INTO the engine (the in-process :class:`~agent_utilities.graph.reactive`
 event-sourcing layer) and never consumes that feed back. This module closes the loop.
