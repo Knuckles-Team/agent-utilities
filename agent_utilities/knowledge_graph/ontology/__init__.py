@@ -495,10 +495,22 @@ def build_ontology_system(graph: Any = None) -> OntologySystem:
     return OntologySystem(graph=graph)
 
 
+from .lifecycle import (  # noqa: E402
+    OntologyError,
+    OntologyLifecycle,
+    summarize,
+    validate_graph,
+)
+
 __all__ = [
     # System facade
     "OntologySystem",
     "build_ontology_system",
+    # Hosted-ontology lifecycle (KG-2.265)
+    "OntologyLifecycle",
+    "OntologyError",
+    "summarize",
+    "validate_graph",
     # Property types (KG-2.47)
     "PropertyType",
     "PROPERTY_TYPES",
