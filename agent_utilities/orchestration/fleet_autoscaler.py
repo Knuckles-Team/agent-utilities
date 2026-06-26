@@ -430,9 +430,12 @@ def fleet_autoscale_subscription(engine: Any) -> Any:
     from agent_utilities.graph.reactive import subscribe
 
     # The control plane (``__control__``) is where :Task is written; fall back to
-    # the engine's content compute when no isolated control backend exists.
-    source = getattr(engine, "_control", None) or getattr(
-        engine, "graph_compute", None
+    # the engine's content compute, then to the passed object itself (e.g. a bare
+    # GraphComputeEngine), when no isolated control backend exists.
+    source = (
+        getattr(engine, "_control", None)
+        or getattr(engine, "graph_compute", None)
+        or engine
     )
 
     state = {"pending": 0}
