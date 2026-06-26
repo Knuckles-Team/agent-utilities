@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 501
+total_concepts: 508
 total_pillars: 21
 pillars:
 - AHE-3
@@ -657,6 +657,14 @@ concepts:
   - agent_utilities/knowledge_graph/assimilation/dedup.py
   - agent_utilities/knowledge_graph/assimilation/entity_resolution.py
   doc: merge entities
+- id: AHE-3.70
+  name: transliteration + singularization extend the AHE-3.69 ladder
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/assimilation/dedup.py
+  - agent_utilities/knowledge_graph/assimilation/entity_resolution.py
+  doc: transliteration + singularization extend the AHE-3.69 ladder
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -3800,6 +3808,51 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/orchestration/fleet_autoscaler.py
   doc: Engine change-feed subscription primitive for poll→push reactivity
+- id: KG-2.255
+  name: when an
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/extraction/extraction_schema.py
+  - agent_utilities/knowledge_graph/extraction/fact_extractor.py
+  doc: when an
+- id: KG-2.256
+  name: KG-2.256
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/extraction/direction_repair.py
+  doc: KG-2.256
+- id: KG-2.257
+  name: the edge
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/extraction/fact_extractor.py
+  doc: the edge
+- id: KG-2.258
+  name: KG-2.258
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/pipeline/phases/community_reports.py
+  doc: KG-2.258
+- id: KG-2.259
+  name: Do NOT auto-merge
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/extraction/schema_discovery.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: Do NOT auto-merge
+- id: KG-2.260
+  name: when the engine exposes the native
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/assimilation/dedup.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  doc: when the engine exposes the native
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -5405,13 +5458,15 @@ concepts:
   - agent_utilities/deployment/doctor.py
   doc: OS-5.67
 - id: OS-5.68
-  name: the moat over an opaque trace store
+  name: persist a Trace/Span/Generation node
   pillar: OS-5
   status: live
   code_paths:
+  - agent_utilities/gateway/daemon.py
   - agent_utilities/harness/trace_backend.py
+  - agent_utilities/harness/tracing.py
   - agent_utilities/models/knowledge_graph.py
-  doc: the moat over an opaque trace store
+  doc: persist a Trace/Span/Generation node
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
