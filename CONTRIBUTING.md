@@ -42,6 +42,28 @@ pre-commit run --all-files
 Note: the `pre-commit` pytest hook can fail repo-wide due to an unrelated
 egeria/py3.12 dependency pin — validate with the system `python -m pytest` if so.
 
+### Guardrail ENV parity (passes-local / fails-CI)
+
+`pre-commit run --all-files` runs the guardrail gates in your **full** install.
+CI's `Guardrails` job runs them in a deliberately **lean** install (`pip install
+-e .` + `numpy pyyaml pytest rdflib pyshacl owlrl` — no `[agent]`/`[all]` extras).
+A gate that transitively imports an extra-only dependency (`pydantic_ai`, `httpx`,
+`fastmcp`, …) therefore **passes locally but dies in CI**. To catch that class
+locally, reproduce CI's lean env and run every gate inside it:
+
+```bash
+pre-commit run guardrails-lean-parity --hook-stage manual --all-files
+# or directly (requires `uv`):
+python scripts/run_guardrails_lean.py            # --list to preview, --keep-venv to debug
+```
+
+`scripts/run_guardrails_lean.py` builds a throwaway lean venv with the **exact**
+install from `.github/workflows/guardrails.yml` and runs the gate list **derived
+from the same file** in it (so it can't drift from CI). It builds a venv, so it is
+staged `pre-push`/`manual` (not every commit). Heavy/extra imports on a gate path
+must be lazy + guarded (see *Dependency discipline* in `AGENTS.md`) so the package
+imports clean in the lean env.
+
 ## Conventions
 
 - **No stubs.** `raise NotImplementedError` only with `# ABSTRACT-OK`.

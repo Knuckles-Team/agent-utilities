@@ -108,7 +108,16 @@ def _isolate_registered_tools():
     registration order-independent. Only guards a flag is needless — the dict IS
     the state. Lazy import so conftest stays cheap.
     """
-    from agent_utilities.mcp import kg_server
+    try:
+        from agent_utilities.mcp import kg_server
+    except ImportError:
+        # The MCP server module requires the optional ``[mcp]`` extra
+        # (fastmcp/starlette/fastapi). In the lean serving/CI install (the
+        # Guardrails env) those are absent, so there is no tool registry to
+        # isolate — make the autouse fixture a no-op instead of erroring every
+        # test at setup. Mirrors the lean-tolerance of the heavy-dep mocks above.
+        yield
+        return
 
     snapshot = dict(kg_server.REGISTERED_TOOLS)
     try:
