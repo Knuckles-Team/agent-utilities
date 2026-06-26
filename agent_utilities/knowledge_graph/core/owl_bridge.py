@@ -749,9 +749,9 @@ class OWLBridge:
             inferences = self._lightweight_reasoning()
         else:
             # Full DL reasoning still requires a real owlready2 backend.
-            assert self.owl is not None, (
-                "full-DL OWL reasoning cycle requires an owl_backend"
-            )
+            assert (
+                self.owl is not None
+            ), "full-DL OWL reasoning cycle requires an owl_backend"
             self.owl.clear()
             promoted_nodes = self._promote_stable_nodes()
             promoted_edges = self._promote_stable_edges()
