@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ...models.knowledge_graph import RegistryNodeType
+from .dedup import iter_typed_nodes
 
 _REQUIREMENT = RegistryNodeType.REQUIREMENT.value
 _DECISION = RegistryNodeType.DECISION.value
@@ -218,16 +219,11 @@ def enrich_concepts(
     backend = getattr(engine, "backend", None)
     if graph is None or backend is None or not hasattr(backend, "add_embedding"):
         return 0
-    try:
-        node_iter = list(graph.nodes(data=True))
-    except TypeError:  # pragma: no cover
-        return 0
-    wanted = {t.lower() for t in concept_types}
+    # BOUNDED per-label fetch (CONCEPT:KG-2.51/2.264) — never a whole-graph
+    # ``GetNodes`` dump (refused as RESULT_TOO_LARGE on a large engine).
     pending: list[tuple[str, str]] = []
-    for nid, data in node_iter:
-        if not isinstance(data, dict):
-            continue
-        if str(data.get("type", "")).lower() not in wanted or data.get("embedding"):
+    for nid, data in iter_typed_nodes(graph, concept_types):
+        if data.get("embedding"):
             continue
         text = str(data.get("content") or data.get("name") or nid)
         pending.append((nid, text))
