@@ -147,6 +147,82 @@ def push_local_sessions(
     return {"mode": "push", "files": len(files), "pushed": pushed, "gateway": url}
 
 
+def upload_local_sessions(
+    *,
+    server: str = "graph-os",
+    url: str = "",
+    tenant_id: str = "",
+    batch: int = 50,
+    only_changed: bool = False,
+) -> dict:
+    """Client-side parse → push to a REMOTE engine via the MCP ``ingest_sessions`` tool.
+
+    This is the path for a **remote engine** (CONCEPT:ECO-4.42): the engine runs on
+    another host and cannot read THIS client's local agent logs, so the *client*
+    parses its own ``~/.claude/projects/**/*.jsonl`` and Antigravity
+    (``~/.gemini/antigravity``) sessions into :class:`ParsedSessionBundle`\\s and
+    pushes them, batched, to the remote graph-os ``ingest_sessions`` tool with
+    ``action="upload"`` (which sinks them into the usage store + KG). Transport
+    reuses the KG-2.59 fleet client (``server`` resolved through ``mcp_config.json``,
+    or an explicit ``url``) so no gateway URL / bespoke HTTP client is required —
+    fixing the ``collect``-on-remote ``"no gateway url"`` gap.
+
+    Unlike ``collect_local_sessions`` (which only sinks remotely through the REST
+    ``USAGE_GATEWAY_URL`` path), this drives the MCP surface directly and covers
+    EVERY auto-detected agent, Claude and Antigravity included.
+    """
+    import json as _json
+
+    from ..protocols.source_connectors.connectors.mcp_package import _run_async
+    from ..protocols.source_connectors.connectors.mcp_tool import call_tool_once
+
+    tenant_id = tenant_id or setting("USAGE_TENANT_ID", "")
+    pending: list[dict] = []
+    files: set[str] = set()
+    received = 0
+    ingested = 0
+    agents: set[str] = set()
+
+    def _flush() -> None:
+        nonlocal received, ingested
+        if not pending:
+            return
+        params: dict = {"bundles_json": _json.dumps(pending, default=str)}
+        if tenant_id:
+            params["tenant_id"] = tenant_id
+        result = _run_async(
+            call_tool_once(
+                tool="ingest_sessions",
+                server=server,
+                url=url,
+                action="upload",
+                params=params,
+                params_style="args",
+            )
+        )
+        if isinstance(result, dict):
+            received += int(result.get("received", 0) or 0)
+            ingested += int(result.get("ingested", 0) or 0)
+        pending.clear()
+
+    for path, _mtime, _size, bundle in iter_local_bundles(only_changed=only_changed):
+        files.add(path)
+        agents.add(bundle.session.agent)
+        pending.append(bundle.model_dump())
+        if len(pending) >= batch:
+            _flush()
+    _flush()
+    return {
+        "mode": "upload",
+        "transport": "mcp",
+        "server": server or url,
+        "files": len(files),
+        "received": received,
+        "ingested": ingested,
+        "agents": sorted(agents),
+    }
+
+
 def collect_paths(paths: list[str | Path]) -> dict:
     """Parse explicit files/dirs (CLI/manual ingest) into the local store."""
     ensure_parsers_loaded()

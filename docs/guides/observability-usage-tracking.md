@@ -66,6 +66,17 @@ cost what, or where to store data. The system:
 
 - **Auto-detects agents** by probing each source's default dirs (`~/.claude/projects`,
   `~/.codex/sessions`, …). Only agents whose logs actually exist are synced.
+  Two of the bespoke parsers, for reference:
+  - **Claude Code** — `~/.claude/projects/<encoded-cwd>/<session>.jsonl`; one JSONL
+    file per session, typed `user`/`assistant` records with `message.usage` tokens
+    and `tool_use` content blocks (`CLAUDE_PROJECTS_DIR` overrides the dir).
+  - **Antigravity IDE** — `~/.gemini/antigravity/` (`ANTIGRAVITY_DIR` overrides):
+    `conversations/<uuid>.pb` is the per-session anchor (an **AES-encrypted**
+    protobuf transcript — decoding it needs an `ANTIGRAVITY_KEY` + an undocumented
+    schema, so the full turn-by-turn transcript is a follow-up), while the
+    **plaintext `brain/<uuid>/*.md`** artifacts (task / implementation_plan /
+    walkthrough, each with a `.metadata.json` carrying `updatedAt`/`summary`) are
+    read today as the session's content and tagged `agent="antigravity"`.
 - **Auto-prices** every model from the bundled offline table (no network, no keys)
   and refreshes from LiteLLM when online.
 - **Auto-selects storage**: per-host SQLite+FTS5 by default (no external deps).
@@ -125,6 +136,24 @@ from an agent call `ingest_sessions(action="collect")`. Under the hood each batc
 is POSTed to `/api/observability/sessions/upload` (or sent via the
 `ingest_sessions(action="upload")` MCP tool) — the server never reads the
 client's filesystem.
+
+**Client-side trigger for a remote engine (no gateway URL needed).** When the
+engine runs on another host, `collect` runs *engine-side* and can't see this
+client's logs (it fails with `"no gateway url"` if `USAGE_GATEWAY_URL` is unset).
+The direct fix is the client-side upload command — it parses THIS host's logs
+(Claude + Antigravity + every other detected agent) and pushes the bundles to the
+remote graph-os over MCP, reusing the fleet client (server resolved from
+`mcp_config.json`), so no gateway URL or bespoke HTTP client is required:
+
+```bash
+# parse local claude/antigravity/... logs → push to the remote engine via MCP
+agent-utilities ingest-sessions --upload --server graph-os
+agent-utilities ingest-sessions --upload --url http://r510.arpa:8000/mcp --all
+```
+
+It calls `upload_local_sessions()` (`agent_utilities/ingestion/collector.py`),
+which drives the remote `ingest_sessions(action="upload", bundles_json=…)` tool in
+batches. `--all` re-parses every file; the default syncs only changed files.
 
 **Team mirror (à la `agentsview pg push`).** Because the store is
 backend-abstracted, a host can keep a local SQLite store and replicate to a

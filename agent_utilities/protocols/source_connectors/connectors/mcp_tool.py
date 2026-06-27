@@ -64,8 +64,11 @@ __all__ = [
     "McpToolSourceConnector",
     "McpToolSourceError",
     "MCP_TOOL_PRESETS",
+    "SOURCE_PRESET_PROVIDER_GROUP",
     "get_tool_preset",
     "list_tool_presets",
+    "all_tool_presets",
+    "reset_contributed_presets_cache",
     "call_tool_once",
 ]
 
@@ -788,17 +791,303 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "text_field": "name",
         "doc_type": "tag",
     },
+    # ── Connector dual-role presets (CONCEPT:KG-2.59) ────────────────────────────
+    #
+    # The same ~58-server fleet that exposes LIVE MCP tools is ALSO an ingestion
+    # surface: every connector with a record-listing tool gets a declarative preset
+    # here, so "a connector repo" is BOTH a live tool AND a KG source with no new
+    # transport code. Each preset below was verified against the connector's actual
+    # tool surface (server name from its ``mcp_config.json``, the list tool + action
+    # from its condensed MCP handler / api-client). Tool/action names are NOT
+    # invented — connectors whose surface couldn't yield a record list (action/
+    # compute/config tools, or list rows with no text body) are intentionally left
+    # out and tracked as follow-ups. Default ``params`` are sensible templates the
+    # caller overrides per instance; pagination is left ``none`` (one batch) unless
+    # the connector's client auto-paginates or returns the full set in one call, so
+    # no preset risks passing an unknown pagination kwarg to a fleet tool.
+    # jellyfin-mcp: media library items → :MediaItem. ``jellyfin_library`` is
+    # action-routed; ``get_items`` maps to GET /Items (envelope ``{"Items":[...],
+    # "TotalRecordCount"}``). The default params surface real media (recursive, with
+    # the Overview field) rather than the root virtual folders; StartIndex/Limit are
+    # Jellyfin's standard offset paging.
+    "jellyfin-media": {
+        "server": "jellyfin-mcp",
+        "tool": "jellyfin_library",
+        "action": "get_items",
+        "params_style": "json",
+        "params": {
+            "Recursive": True,
+            "IncludeItemTypes": "Movie,Series,Episode,MusicAlbum,Audio",
+            "Fields": "Overview",
+            "Limit": 200,
+        },
+        "records_path": "Items",
+        "id_field": "Id",
+        "title_field": "Name",
+        "text_field": "Overview",
+        "updated_field": "DateCreated",
+        "pagination": "page",
+        "page_kind": "offset",
+        "page_param": "StartIndex",
+        "page_size_param": "Limit",
+        "page_size": 200,
+        "doc_type": "media_item",
+    },
+    # portainer-agent: Docker containers per endpoint → :Container. ``portainer_docker``
+    # action ``docker_list_containers`` wraps the bare Docker list as ``{"data":[...]}``.
+    # An ``endpoint_id`` is REQUIRED (injected per Portainer endpoint by the caller);
+    # the Docker API returns every container in one call (no pagination).
+    "portainer-containers": {
+        "server": "portainer-agent",
+        "tool": "portainer_docker",
+        "action": "docker_list_containers",
+        "params_style": "json",
+        "params": {"endpoint_id": "{endpoint_id}", "all": True},
+        "records_path": "data",
+        "id_field": "Id",
+        "title_field": "Names",
+        "text_field": "Image",
+        "updated_field": "Created",
+        "doc_type": "container",
+    },
+    # rom-manager (RomM): game ROMs → :Game. ``romm_roms`` action ``list`` (→ GET
+    # /api/roms) returns the limit/offset page envelope ``{"items":[...], "total"}``.
+    "rom-manager-roms": {
+        "server": "rom-manager",
+        "tool": "romm_roms",
+        "action": "list",
+        "params_style": "json",
+        "params": {"limit": 100},
+        "records_path": "items",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "summary",
+        "updated_field": "updated_at",
+        "pagination": "page",
+        "page_kind": "offset",
+        "page_param": "offset",
+        "page_size_param": "limit",
+        "page_size": 100,
+        "doc_type": "game",
+    },
+    # listmonk-api: newsletter subscribers / campaigns → :Person / :Campaign. The
+    # ``listmonk_*`` tools wrap the client list as ``{"results":[...]}``.
+    "listmonk-subscribers": {
+        "server": "listmonk-api",
+        "tool": "listmonk_subscribers",
+        "action": "get_subscribers",
+        "params_style": "json",
+        "records_path": "results",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "email",
+        "updated_field": "updated_at",
+        "doc_type": "subscriber",
+    },
+    "listmonk-campaigns": {
+        "server": "listmonk-api",
+        "tool": "listmonk_campaigns",
+        "action": "get_campaigns",
+        "params_style": "json",
+        "records_path": "results",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "subject",
+        "updated_field": "updated_at",
+        "doc_type": "campaign",
+    },
+    # wger-agent: training routines → :Routine. ``wger_routine`` action ``get_routines``
+    # returns the Django-REST page envelope (``{"results":[...]}``).
+    "wger-routines": {
+        "server": "wger-agent",
+        "tool": "wger_routine",
+        "action": "get_routines",
+        "params_style": "json",
+        "records_path": "results",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "description",
+        "updated_field": "created",
+        "doc_type": "routine",
+    },
+    # ansible-tower-mcp (AWX/Tower): inventories / job-templates / projects →
+    # :Inventory / :JobTemplate / :Project. Every ``list_*`` action calls the client's
+    # ``handle_pagination`` which walks ALL pages and returns a FLAT list — so
+    # ``records_path=""`` and ``pagination='none'`` (already complete). Records carry
+    # the standard AWX id/name/description/modified fields.
+    "ansible-tower-inventories": {
+        "server": "ansible-tower-mcp",
+        "tool": "ansible_tower_inventory",
+        "action": "list_inventories",
+        "params_style": "json",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "description",
+        "updated_field": "modified",
+        "doc_type": "inventory",
+    },
+    "ansible-tower-job-templates": {
+        "server": "ansible-tower-mcp",
+        "tool": "ansible_tower_job_templates",
+        "action": "list_job_templates",
+        "params_style": "json",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "description",
+        "updated_field": "modified",
+        "doc_type": "job_template",
+    },
+    "ansible-tower-projects": {
+        "server": "ansible-tower-mcp",
+        "tool": "ansible_tower_projects",
+        "action": "list_projects",
+        "params_style": "json",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "description",
+        "updated_field": "modified",
+        "doc_type": "project",
+    },
+    # camunda-mcp: user tasks → :UserTask. ``camunda_task`` action ``list`` (Camunda 7
+    # GET /task) returns a bare JSON array (``records_path=""``). The default
+    # ``platform`` is "7"; tasks carry name/description/created/lastUpdated.
+    "camunda-tasks": {
+        "server": "camunda-mcp",
+        "tool": "camunda_task",
+        "action": "list",
+        "params_style": "json",
+        "id_field": "id",
+        "title_field": "name",
+        "text_field": "description",
+        "updated_field": "lastUpdated",
+        "doc_type": "user_task",
+    },
+    # salesforce-agent: any sObject → :Record, SOQL-driven (the entity + returned
+    # fields are whatever the caller's SOQL selects). Mirrors the ``sql-query`` preset:
+    # ``salesforce_soql`` action ``query`` returns ``{"records":[...], "totalSize",
+    # "nextRecordsUrl"}`` (capped at SALESFORCE_MAX_QUERY_RECORDS). Override ``soql``
+    # for the object, e.g. {"params": {"soql": "SELECT Id,Name,Description,
+    # LastModifiedDate FROM Account"}}.
+    "salesforce-sobject": {
+        "server": "salesforce-agent",
+        "tool": "salesforce_soql",
+        "action": "query",
+        "params_style": "json",
+        "params": {
+            "soql": (
+                "SELECT Id, Name, Description, LastModifiedDate "
+                "FROM Account ORDER BY LastModifiedDate DESC"
+            ),
+            "max_records": 200,
+        },
+        "records_path": "records",
+        "id_field": "Id",
+        "title_field": "Name",
+        "text_field": "Description",
+        "updated_field": "LastModifiedDate",
+        "doc_type": "sobject",
+    },
+    # erpnext-agent: any Frappe DocType → :Record, doctype-driven. ``erpnext_agent_resource``
+    # action ``list_documents`` (GET /api/resource/{doctype}) returns ``{"data":[...]}``.
+    # A ``doctype`` is REQUIRED and ``fields`` MUST be requested for a title/body to
+    # appear (Frappe returns name-only otherwise), so override per doctype, e.g.
+    # {"params": {"doctype": "Item", "fields": ["name","item_name","description","modified"]}}
+    # and {"text_field": "description", "title_field": "item_name"}.
+    "erpnext-doctype": {
+        "server": "erpnext-agent",
+        "tool": "erpnext_agent_resource",
+        "action": "list_documents",
+        "params_style": "json",
+        "params": {"doctype": "{doctype}", "limit_page_length": 100},
+        "records_path": "data",
+        "id_field": "name",
+        "title_field": "name",
+        "text_field": "name",
+        "doc_type": "erpnext_doctype",
+    },
 }
 
 
+# ── Per-repo preset contribution (CONCEPT:KG-2.59) ──────────────────────────
+#
+# A connector package can ship its OWN ingestion preset RIGHT BESIDE its MCP tool
+# ("2 actions from the same repo") instead of registering it in this central dict.
+# It declares a setuptools entry-point in the SAME data-only style the hub already
+# uses for fleet skills/prompts (CONCEPT:OS-5.52, ``core/providers.py``)::
+#
+#     # in the connector package's pyproject.toml
+#     [project.entry-points."agent_utilities.source_connector_providers"]
+#     jellyfin-mcp = "jellyfin_mcp.ingestion"
+#
+# pointing at a data subpackage that contains a ``mcp_source_presets.json`` file —
+# a JSON object of ``{preset_name: {server, tool, action, field-map, ...}}`` with
+# exactly the schema of an entry in :data:`MCP_TOOL_PRESETS`. The hub resolves the
+# data dir via ``importlib.resources`` (it never imports the connector's business
+# logic), reads the JSON, and merges it into the catalog. Contributed presets take
+# precedence over the central dict (they live WITH the connector and track its tool
+# surface); the central dict is the fallback for connectors that don't ship one.
+# Discovery is failure-isolated and cached for the process.
+SOURCE_PRESET_PROVIDER_GROUP = "agent_utilities.source_connector_providers"
+_PRESET_DATA_FILE = "mcp_source_presets.json"
+_contributed_presets_cache: dict[str, dict[str, Any]] | None = None
+
+
+def _load_contributed_presets() -> dict[str, dict[str, Any]]:
+    """Resolve + merge every fleet-contributed ``mcp_tool`` preset (cached)."""
+    global _contributed_presets_cache
+    if _contributed_presets_cache is not None:
+        return _contributed_presets_cache
+    presets: dict[str, dict[str, Any]] = {}
+    try:
+        from agent_utilities.core.providers import iter_provider_dirs
+
+        for _name, data_dir in iter_provider_dirs(SOURCE_PRESET_PROVIDER_GROUP):
+            data_file = data_dir / _PRESET_DATA_FILE
+            if not data_file.is_file():
+                continue
+            try:
+                loaded = json.loads(data_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                logger.debug("[KG-2.59] bad contributed presets at %s", data_file)
+                continue
+            if isinstance(loaded, dict):
+                for key, value in loaded.items():
+                    if isinstance(value, dict):
+                        presets[str(key)] = dict(value)
+    except Exception:  # noqa: BLE001 — one bad provider never breaks the catalog
+        logger.debug("[KG-2.59] contributed-preset discovery failed", exc_info=True)
+    _contributed_presets_cache = presets
+    return presets
+
+
+def reset_contributed_presets_cache() -> None:
+    """Clear the contributed-preset cache (tests / after an install)."""
+    global _contributed_presets_cache
+    _contributed_presets_cache = None
+
+
+def all_tool_presets() -> dict[str, dict[str, Any]]:
+    """The full catalog: central presets overlaid with per-repo contributions."""
+    merged: dict[str, dict[str, Any]] = dict(MCP_TOOL_PRESETS)
+    merged.update(_load_contributed_presets())  # contributed wins (lives w/ connector)
+    return merged
+
+
 def get_tool_preset(name: str) -> dict[str, Any]:
-    """Return a copy of the named preset, or ``{}`` when unknown."""
+    """Return a copy of the named preset, or ``{}`` when unknown.
+
+    A per-repo contributed preset (entry-point) takes precedence over the central
+    :data:`MCP_TOOL_PRESETS`; the central dict is the fallback.
+    """
+    contributed = _load_contributed_presets()
+    if name in contributed:
+        return dict(contributed[name])
     return dict(MCP_TOOL_PRESETS.get(name, {}))
 
 
 def list_tool_presets() -> list[str]:
-    """All shipped preset names."""
-    return sorted(MCP_TOOL_PRESETS)
+    """All preset names — central presets plus per-repo contributions."""
+    return sorted(set(MCP_TOOL_PRESETS) | set(_load_contributed_presets()))
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -1447,9 +1736,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         closed before returning (CONCEPT:KG-2.59 session lifecycle).
         """
 
-        async def run() -> (
-            tuple[list[SourceDocument], dict[str, Any], bool, str | None]
-        ):
+        async def run() -> tuple[
+            list[SourceDocument], dict[str, Any], bool, str | None
+        ]:
             docs: list[SourceDocument] = []
             new_state = dict(state)
             exhausted = False
