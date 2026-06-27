@@ -526,6 +526,8 @@ async def toggle_tool_endpoint(request: Request) -> JSONResponse:
 # stays in lockstep with REGISTERED_TOOLS so the two surfaces never drift.
 ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_query": "/graph/query",
+    "graph_ask": "/graph/ask",
+    "graph_table": "/graph/table",
     "graph_search": "/graph/search",
     "graph_search_synthesis": "/graph/search-synthesis",
     "graph_code_nav": "/graph/code-nav",
@@ -2172,9 +2174,9 @@ def fanout_execute(entries, fn, *, timeout=None):
         except Exception as e:  # noqa: BLE001 — partial-success contract
             errors[name] = str(e)
     for fut in not_done:
-        errors[
-            futures[fut]
-        ] = f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        errors[futures[fut]] = (
+            f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        )
     # Never block on a hung backend's thread; let it finish in the background.
     ex.shutdown(wait=False, cancel_futures=True)
     return results, errors

@@ -1420,6 +1420,85 @@ class GraphComputeEngine:
         """
         return dict(self._client.rdf.add_triples(turtle=turtle, ntriples=ntriples))
 
+    def _send_wire(self, method: str, payload: dict[str, Any] | None = None) -> Any:
+        """Invoke a raw engine wire op by name (one round-trip).
+
+        Escape hatch for wire ops the typed Python ``client.rdf``/``client.query``
+        namespaces don't yet wrap (e.g. the engine's ``RemoveTriples`` /
+        ``DropNamedGraph`` retract ops). Mirrors :meth:`get_triples` — it unwraps the
+        circuit-breaker proxy, reaches the underlying async client + loop, and runs the
+        coroutine on it. Raises if no sync engine client/loop is available.
+        """
+        import asyncio
+
+        sc = getattr(self._client, "__wrapped__", self._client)  # unwrap breaker
+        async_client = getattr(sc, "_client", None)
+        loop = getattr(sc, "_loop", None)
+        if async_client is None or loop is None:
+            raise RuntimeError(f"{method} unavailable (no sync engine client/loop)")
+        coro = (
+            async_client._send(method, payload)
+            if payload
+            else async_client._send(method)
+        )
+        return asyncio.run_coroutine_threadsafe(coro, loop).result()
+
+    def remove_triples(
+        self, turtle: str | None = None, ntriples: str | None = None
+    ) -> dict[str, int]:
+        """Physically retract Turtle / N-Triples from the engine's RDF dataset (KG-2.266).
+
+        The retract counterpart to :meth:`add_triples` — used by the ontology
+        lifecycle (KG-2.265) to drop an unloaded ontology's axioms from the engine so
+        they stop being reasoned over, not just deactivated in a registry record.
+        Prefers a typed ``client.rdf.remove_triples`` wrapper when the installed
+        engine client exposes one, else falls back to the raw ``RemoveTriples`` wire op
+        (the engine ships the op even where the Python client lacks the wrapper).
+        Raises if the engine/op is unavailable so callers can report the gap honestly.
+        """
+        rdf = getattr(self._client, "rdf", None)
+        fn = getattr(rdf, "remove_triples", None)
+        if callable(fn):
+            return dict(fn(turtle=turtle, ntriples=ntriples))
+        return dict(
+            self._send_wire("RemoveTriples", {"turtle": turtle, "ntriples": ntriples})
+            or {}
+        )
+
+    def drop_named_graph(self, graph: str) -> dict[str, Any]:
+        """Drop an entire named RDF graph from the engine (KG-2.266).
+
+        Retracts every triple in the ``graph`` named-graph IRI in one op — the
+        coarse-grained retract used when an ontology owns a dedicated named graph.
+        Prefers a typed ``client.rdf.drop_named_graph`` wrapper, else falls back to the
+        raw ``DropNamedGraph`` wire op. Raises if the engine/op is unavailable.
+        """
+        rdf = getattr(self._client, "rdf", None)
+        fn = getattr(rdf, "drop_named_graph", None)
+        if callable(fn):
+            return dict(fn(graph) or {})
+        return dict(self._send_wire("DropNamedGraph", {"graph": graph}) or {})
+
+    def sql_exec(self, statement: str) -> Any:
+        """Execute a write-capable SQL statement (DDL/DML) on the engine (KG-2.266).
+
+        The write sibling of the read-only ``client.query.sql`` surface: lets us
+        ``CREATE TABLE`` / ``INSERT`` / ``DROP TABLE`` against the engine's native
+        DataFusion user-table store so connector + ETL data can be mirrored into
+        engine SQL tables. Routes through ``client.query.sql`` (the same ``Sql`` wire
+        op) — the engine, not this client, enforces what statements its user-table
+        surface accepts. Raises if no engine query surface is available.
+        """
+        query_ns = getattr(self._client, "query", None)
+        sql_fn = getattr(query_ns, "sql", None)
+        if not callable(sql_fn):
+            raise RuntimeError(
+                "The active backend has no epistemic-graph SQL surface; "
+                "engine SQL tables require the engine backend (build with the "
+                "'query' feature)."
+            )
+        return sql_fn(statement)
+
     def degree_centrality_all(self) -> list[tuple[str, float]]:
         """Compute degree centrality for all nodes."""
         return self._client.analytics.degree_centrality_all()

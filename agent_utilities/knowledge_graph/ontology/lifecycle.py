@@ -409,16 +409,43 @@ class OntologyLifecycle:
         return result
 
     # ── delete / unload ──────────────────────────────────────────────────────
+    def _retract_axioms(self, turtle: str) -> dict[str, Any]:
+        """Physically retract an ontology's axioms from the engine RDF dataset.
+
+        The retract counterpart to :meth:`_load_axioms` (CONCEPT:KG-2.266 — wires
+        KG-2.265's unload to the engine's ``remove_triples`` op). Feeds the stored
+        serialized ``turtle`` back through ``GraphComputeEngine.remove_triples`` so the
+        unloaded ontology's triples leave the engine's RDF dataset (stop being reasoned
+        over / queried), not just the registry record. Degrades honestly when the
+        engine / op is unavailable.
+        """
+        gc = self._graph_compute
+        if gc is None or not hasattr(gc, "remove_triples"):
+            return {
+                "retracted_from_engine": False,
+                "reason": "no engine retract surface",
+            }
+        if not turtle:
+            return {"retracted_from_engine": False, "reason": "no stored axioms"}
+        try:
+            report = gc.remove_triples(turtle=turtle)
+            return {"retracted_from_engine": True, **(report or {})}
+        except Exception as exc:  # noqa: BLE001 — engine optional / feature-gated
+            logger.debug("remove_triples failed: %s", exc)
+            return {"retracted_from_engine": False, "reason": str(exc)}
+
     def delete(
         self, iri: str, *, version: str | None = None, drop_inferences: bool = False
     ) -> dict[str, Any]:
-        """Unload an ontology: drop it from the hosted registry + deactivate it.
+        """Unload an ontology: retract its axioms from the engine + drop the registry record.
 
-        ENGINE GAP (CONCEPT:KG-2.265): the engine RDF surface has no
-        remove-triples / drop-named-graph op (eg-rdf is owned by another agent),
-        so the axioms physically remain in the engine's RDF dataset until the
-        engine reloads. We remove the registry record (so it stops being listed /
-        reasoned-over as "hosted") and report the gap honestly.
+        CONCEPT:KG-2.266 — wires KG-2.265's unload to the engine's native
+        ``remove_triples`` retract op. The stored serialized turtle for each matched
+        version is fed back through :meth:`_retract_axioms` so the ontology's triples
+        physically leave the engine's RDF dataset (no longer reasoned over / SPARQL-
+        queryable), then the hosted-registry record is removed. When no engine is
+        attached (or the op is unavailable) it degrades to the registry-only behaviour
+        and reports the gap honestly.
         """
         if version is not None:
             keys = [_key(iri, version)] if _key(iri, version) in _REGISTRY else []
@@ -428,26 +455,47 @@ class OntologyLifecycle:
             return {"error": f"ontology not hosted: {iri} (version={version})"}
 
         removed = []
+        retractions: list[dict[str, Any]] = []
         for k in keys:
             rec = _REGISTRY.pop(k)
             removed.append({"iri": rec["iri"], "version": rec["version"]})
+            if self._graph_compute is not None:
+                retractions.append(self._retract_axioms(rec.get("turtle", "")))
 
-        engine_note = (
-            "axioms remain in the engine RDF dataset until reload — the engine has "
-            "no remove-triples op (eg-rdf owned elsewhere)"
-            if self._graph_compute is not None
-            else "no engine attached"
+        retracted = bool(retractions) and all(
+            r.get("retracted_from_engine") for r in retractions
         )
+        if self._graph_compute is None:
+            engine_note = "no engine attached"
+        elif retracted:
+            engine_note = (
+                "axioms retracted from the engine RDF dataset (remove_triples)"
+            )
+        else:
+            engine_note = (
+                "; ".join(
+                    r.get("reason", "retract failed")
+                    for r in retractions
+                    if not r.get("retracted_from_engine")
+                )
+                or "retract unavailable"
+            )
         result: dict[str, Any] = {
             "status": "ok",
             "removed": removed,
-            "axioms_retracted_from_engine": False,
+            "axioms_retracted_from_engine": retracted,
             "engine_note": engine_note,
         }
+        if retractions:
+            result["retractions"] = retractions
         if drop_inferences and self._graph_compute is not None:
+            # Materialized entailments are derived facts in the live graph, not RDF
+            # axioms; retracting the source axioms removes the basis but does not
+            # re-run the reasoner. A full inference sweep needs a re-classify pass.
             result["inferences_dropped"] = False
             result["inferences_note"] = (
-                "dropping materialized inferences needs an engine retract op (gap)"
+                "source axioms retracted; materialized inferences clear on the next "
+                "owl_reason pass (no incremental un-materialize op)"
             )
         return result
 

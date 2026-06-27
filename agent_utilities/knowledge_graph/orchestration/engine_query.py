@@ -196,6 +196,47 @@ class QueryMixin(_Base):
             logger.debug("sql() row filtering skipped: %s", exc)
         return rows
 
+    def sparql(
+        self,
+        query: str,
+        base_iri: str = "",
+        type_convention: str = "",
+    ) -> list[dict[str, Any]]:
+        """Run a SPARQL 1.1 query over the KG via the engine's native RDF surface (KG-2.266).
+
+        Makes engine-native SPARQL (``SELECT``/``ASK``/``CONSTRUCT``/``DESCRIBE``)
+        reachable over the graph-os MCP ``graph_query`` tool (``scope='sparql'``) and
+        its REST twin ``/graph/query`` — the SPARQL sibling of :meth:`sql`. Routes to
+        the active backend's ``GraphComputeEngine.sparql`` (``backend.graph.sparql`` →
+        the engine's ``client.rdf.sparql`` wire op), which queries the engine's RDF
+        projection of the live property graph (NOT a rdflib materialization). Returns
+        one dict per result row keyed by the projected variable (an ``ASK`` returns a
+        single ``{"boolean": ...}`` row, per the engine's projection).
+
+        A backend with no engine RDF surface (e.g. a server built without the
+        ``sparql`` feature, or a pure-Postgres mirror) raises a clear error rather than
+        silently returning nothing — symmetric with :meth:`sql`.
+        """
+        graph = getattr(self.backend, "graph", None)
+        sparql_fn = getattr(graph, "sparql", None)
+        if not callable(sparql_fn):
+            raise RuntimeError(
+                "The active backend has no epistemic-graph SPARQL surface; "
+                "SPARQL-on-the-KG requires the engine backend (build with the "
+                "'sparql' feature)."
+            )
+        rows = sparql_fn(query, base_iri, type_convention)
+        try:
+            from agent_utilities.knowledge_graph.core.secured_reads import (
+                filter_rows,
+                visible,
+            )
+
+            rows = visible(filter_rows(rows))
+        except Exception as exc:  # pragma: no cover - never break a read
+            logger.debug("sparql() row filtering skipped: %s", exc)
+        return rows
+
     def resolve_temporal_contradiction(
         self,
         fact_a_id: str,
