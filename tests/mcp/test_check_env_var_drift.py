@@ -113,6 +113,40 @@ def test_os_getenv_read_not_dead(tmp_path: Path) -> None:
     assert "HARVEST_PORT" not in _types(report, "DEAD")
 
 
+def test_env_write_not_a_read(tmp_path: Path) -> None:
+    """os.environ["X"] = ... is a write (cross-process signal), not a documentable read."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "import os\n"
+            'setting("DEMO_BASE_URL", "")\n'
+            'os.environ["FASTMCP_LOG_LEVEL"] = "ERROR"\n'
+            'os.environ["DEMO_SIGNAL"] = "1"\n'
+        ),
+    )
+    flagged = {f["var"] for f in drift.analyze(root)["findings"]}
+    assert "DEMO_SIGNAL" not in flagged
+    assert "FASTMCP_LOG_LEVEL" not in flagged
+
+
+def test_read_inside_string_literal_ignored(tmp_path: Path) -> None:
+    """An os.environ.get("X") nested in a codegen template string is not a real read."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "import os\n"
+            'setting("DEMO_BASE_URL", "")\n'
+            "lines = []\n"
+            "lines.append('    token = os.environ.get(\"GENERATED_TOKEN\")')\n"
+        ),
+    )
+    assert "GENERATED_TOKEN" not in {f["var"] for f in drift.analyze(root)["findings"]}
+
+
 def test_derived_toggle_undocumented(tmp_path: Path) -> None:
     """A register_<tag>_tools registrar implies <TAG>TOOL; undocumented if absent from .env.example."""
     root = tmp_path / "demo-agent"
