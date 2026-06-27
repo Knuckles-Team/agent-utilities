@@ -1,0 +1,27 @@
+# MemoryData preset → graph-os family-aware retrieval router (CONCEPT:AHE-3.73).
+# agent_name MUST contain "graphos" so a future AgentWrapper dispatch branch detects it.
+agent_name: graphos_router
+model: graphos-memory
+retrieval: graphos_semantic_hnsw    # seed config; per-query routing overrides by family tag
+transport: rest                      # mock | rest (rest → live graph-os REST surface)
+top_k: 10
+output_dir: ./results/outputs/graphos_router
+
+temperature: 0.0
+input_length_limit: 30000
+buffer_length: 4000
+
+# Family-tag → retrieval-config priors (see router_method.DEFAULT_FAMILY_PRIORS):
+#   membench-update / conflict / memoryagentbench → graphos_bitemporal_asof
+#   locomo → graphos_context_plane
+#   longbench → graphos_latent
+#   membench-recall → graphos_graph_rerank
+#   default → graphos_semantic_hnsw
+ema_alpha: 0.3
+
+# ── graph-os REST surface (mirrors MemoryData provider/base_url fields) ───────────────
+provider: openai_compatible
+api_key_env: OPENAI_API_KEY
+base_url: http://127.0.0.1:8000     # GRAPHOS_BASE_URL (overridden by env)
+base_url_env: GRAPHOS_BASE_URL
+tokenizer_encoding: cl100k_base
