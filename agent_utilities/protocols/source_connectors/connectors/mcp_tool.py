@@ -567,7 +567,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
     # action-routed tool that takes plain keyword args (``params_style='args'``):
     # ``action='trace_list'`` + page/limit. Langfuse returns ``{"data": [...], "meta":
     # {...}}``; page-number paging (a short final page ends the sweep). The handler also
-    # drains ``observations_get_many`` → :Observation / :Generation.
+    # drains ``legacy_observations_v1_get_many`` → :Observation / :Generation.
     "langfuse-traces": {
         "server": "langfuse-mcp",
         "tool": "langfuse_observability",
@@ -587,10 +587,13 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "start_page": 1,
         "doc_type": "trace",
     },
+    # Uses the STABLE legacy ``/api/public/observations`` route (page-number paging),
+    # not the ``v2`` observations endpoint — ``/api/public/v2/observations`` is absent
+    # on older self-hosted Langfuse and 404s, which burned the ingestion-sweep retries.
     "langfuse-observations": {
         "server": "langfuse-mcp",
         "tool": "langfuse_observability",
-        "action": "observations_get_many",
+        "action": "legacy_observations_v1_get_many",
         "params_style": "args",
         "params": {"limit": 100},
         "records_path": "data",
