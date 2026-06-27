@@ -93,6 +93,8 @@ RUNTIME_ALLOWLIST: frozenset[str] = frozenset(
         "TZ",
     }
 )
+# Library-owned runtime vars identified by prefix (consumed by the library, not our code).
+_RUNTIME_PREFIXES: tuple[str, ...] = ("FASTMCP_",)
 
 
 _HOST_SUFFIXES = ("_BASE_URL", "_URL", "_HOST")
@@ -228,6 +230,7 @@ def _is_framework_known(var: str, code_read: set[str]) -> bool:
         or var in INHERITED_ENV
         or var in FRAMEWORK_EXTRA
         or var in RUNTIME_ALLOWLIST
+        or var.startswith(_RUNTIME_PREFIXES)
         or any(var.endswith(suf) for suf in _SAFE_SUFFIXES)
     )
 
