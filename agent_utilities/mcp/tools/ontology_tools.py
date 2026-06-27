@@ -788,7 +788,10 @@ def register_ontology_tools(mcp):
             "approval gate; pass ops_json with inferences/enrichments/creations/"
             "retirements) OR a graph store (stardog/neo4j/age/jena_fuseki or a "
             "registered connection name → full data load; SPARQL stores partition into "
-            "urn:source:<system> named graphs; sources_json filters the subset). Omit "
+            "urn:source:<system> named graphs; sources_json filters the subset) OR the "
+            "native engine SQL-table sink (sink='table' → mirror the inbound `source` "
+            "connector's data into an engine SQL table via CREATE TABLE + bulk INSERT; "
+            "pass ops_json {table,config,limit,replace} — CONCEPT:KG-2.266). Omit "
             "either side for a one-directional run. action='list': available sources, "
             "write-back sinks, and graph-store backends. action='lineage': recorded "
             "ETL runs (impact analysis), filterable by source/sink (CONCEPT:KG-2.99)."
@@ -877,9 +880,10 @@ def register_ontology_tools(mcp):
             srcs = json.loads(sources_json) if sources_json else []
             ops = json.loads(ops_json) if ops_json else {}
 
-            # Resolve a graph-store sink backend (write-back sinks need none).
+            # Resolve a graph-store sink backend (write-back sinks + the native
+            # SQL-table sink need none — run_etl routes sink='table' itself, KG-2.266).
             sink_backend = None
-            if sink and get_sink(sink) is None:
+            if sink and sink != "table" and get_sink(sink) is None:
                 reg = kg_server.get_connection_registry()
                 if sink in reg.names():
                     be = getattr(reg.get_engine(sink), "backend", None)

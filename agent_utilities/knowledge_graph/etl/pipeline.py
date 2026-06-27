@@ -77,7 +77,9 @@ def run_etl(
     out: dict[str, Any] = {"status": "ok", "inbound": None, "outbound": None}
 
     # ── inbound: source → (ontological transform) → KG ──
-    if source:
+    # The native SQL-table sink (KG-2.266) mirrors the source straight into an engine
+    # table — the table is the destination, so skip the source→KG inbound hydrate.
+    if source and sink != "table":
         from ..core.source_sync import sync_source
 
         try:
@@ -86,8 +88,29 @@ def run_etl(
             out["inbound"] = {"status": "error", "error": str(e)}
             out["status"] = "partial"
 
-    # ── outbound: KG → sink (writeback system-of-record, or graph store) ──
-    if sink:
+    # ── outbound: KG → sink (writeback system-of-record, graph store, or SQL table) ──
+    if sink == "table":
+        # CONCEPT:KG-2.266 — mirror the inbound `source` connector's data into a native
+        # engine SQL table (CREATE TABLE + bulk INSERT). `ops` carries optional
+        # {table, config, limit, replace}. This is the ETL→table sink.
+        from ..core.table_ingest import ingest_connector_to_table
+
+        opts = ops or {}
+        try:
+            out["outbound"] = ingest_connector_to_table(
+                engine,
+                source or opts.get("source", ""),
+                table=opts.get("table"),
+                config=opts.get("config"),
+                limit=int(opts.get("limit", 1000)),
+                replace=bool(opts.get("replace", False)),
+            )
+            if out["outbound"].get("status") in ("error", "skipped"):
+                out["status"] = "partial"
+        except Exception as e:  # noqa: BLE001
+            out["outbound"] = {"status": "error", "error": str(e)}
+            out["status"] = "partial"
+    elif sink:
         try:
             out["outbound"] = _run_outbound(
                 engine,

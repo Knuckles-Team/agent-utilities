@@ -199,9 +199,11 @@ def register_query_tools(mcp):
             default="local",
             description=(
                 "'local' for the internal KG (Cypher), 'sql' to run read-only SQL over the "
-                "KG via the engine's DataFusion surface (e.g. SELECT ... FROM nodes — "
-                "CONCEPT:KG-2.243, same path as the pg-wire listener), or 'federated' to "
-                "query an external graph endpoint."
+                "KG + user tables via the engine's DataFusion surface (e.g. SELECT ... FROM "
+                "nodes — CONCEPT:KG-2.243, same path as the pg-wire listener), 'sparql' to "
+                "run a SPARQL 1.1 SELECT/ASK over the engine's RDF projection of the graph "
+                "(CONCEPT:KG-2.266), or 'federated' to query an external graph endpoint. For "
+                "'sql'/'sparql' the `cypher` arg carries the SQL/SPARQL string."
             ),
         ),
         reference_id: str = Field(
@@ -246,6 +248,29 @@ def register_query_tools(mcp):
                     return json.dumps({"error": str(e)})
             results, fan_errors = kg_server.fanout_execute(
                 entries, lambda name, engine: engine.sql(cypher)
+            )
+            return json.dumps(
+                {"targets": results, "errors": {**errors, **fan_errors}},
+                default=str,
+            )
+
+        if scope == "sparql":
+            # CONCEPT:KG-2.266 — SPARQL 1.1 (SELECT/ASK/CONSTRUCT/DESCRIBE) over the
+            # engine's RDF projection of the live graph. The `cypher` arg carries the
+            # SPARQL string. RLS-governed (engine.sparql visibility-filters rows) and
+            # honors `target` fan-out like Cypher/SQL.
+            try:
+                entries, errors, fanout = kg_server._resolve_target_engines(target)
+            except Exception as e:
+                return json.dumps({"error": str(e)})
+            if not fanout:
+                _name, engine = entries[0]
+                try:
+                    return json.dumps(engine.sparql(cypher), default=str)
+                except Exception as e:
+                    return json.dumps({"error": str(e)})
+            results, fan_errors = kg_server.fanout_execute(
+                entries, lambda name, engine: engine.sparql(cypher)
             )
             return json.dumps(
                 {"targets": results, "errors": {**errors, **fan_errors}},
@@ -314,6 +339,167 @@ def register_query_tools(mcp):
         )
 
     kg_server.REGISTERED_TOOLS["graph_query"] = graph_query
+
+    # ══════════════════════════════════════════════════════════════════
+    # 1a-bis. graph_ask — CONCEPT:KG-2.266 natural-language → query
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_ask",
+        description=(
+            "CONCEPT:KG-2.266 — ask the Knowledge Graph in plain English. An LLM "
+            "translates your question (grounded in the live node-label + SQL-table "
+            "schema) into a single read-only query in the best dialect — Cypher over "
+            "the property graph, SQL over the KG + user tables, or SPARQL over the RDF "
+            "projection — then executes it through the matching engine surface. Returns "
+            "the GENERATED query (auditable), the result rows, and citations (the node/"
+            "source ids touched), so the answer is grounded and verifiable, not a black "
+            "box. Set execute=false to preview the query without running it; pin "
+            "dialect='cypher'|'sql'|'sparql' to force one (default 'auto' lets the model "
+            "choose)."
+        ),
+        tags=["graph-os", "query", "nl"],
+    )
+    def graph_ask(
+        question: str = Field(description="The natural-language question to answer."),
+        dialect: str = Field(
+            default="auto",
+            description="'auto' (model chooses) or 'cypher'|'sql'|'sparql' to force one.",
+        ),
+        execute: bool = Field(
+            default=True,
+            description="When false, return only the generated query (preview/dry-run).",
+        ),
+        limit: int = Field(default=50, description="Max result rows to return."),
+    ) -> str:
+        from agent_utilities.knowledge_graph.core.nl_query import nl_to_query
+
+        try:
+            engine = kg_server._get_engine()
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": f"no active engine: {e}"})
+        try:
+            return json.dumps(
+                nl_to_query(
+                    engine,
+                    str(question),
+                    dialect=str(dialect),
+                    execute=bool(execute),
+                    limit=int(limit),
+                ),
+                default=str,
+            )
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["graph_ask"] = graph_ask
+
+    # ══════════════════════════════════════════════════════════════════
+    # 1a-ter. graph_table — CONCEPT:KG-2.266 connector/ETL → native engine SQL tables
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_table",
+        description=(
+            "CONCEPT:KG-2.266 — mirror data into native engine SQL tables (DataFusion + "
+            "pg-wire) and manage them. Actions: 'ingest' (mirror a registered source "
+            "connector's documents into a table via CREATE TABLE + bulk INSERT — "
+            "source=<connector> e.g. rest/database/web/rss/filesystem/reader, "
+            "config_json=connector config, table=<name>, replace=true to recreate), "
+            "'rows' (bulk-INSERT arbitrary rows from rows_json into table), 'create' "
+            "(CREATE TABLE table with columns_json), 'list' (list user tables), 'drop' "
+            "(DROP TABLE table), 'query' (run a read-only SELECT via the engine SQL "
+            "surface — sql=<SELECT ...>). This is how 'ingest tables from any connector "
+            "/ mirror data into our DB' works."
+        ),
+        tags=["graph-os", "ingestion", "table"],
+    )
+    def graph_table(
+        action: str = Field(
+            default="list",
+            description="'ingest' | 'rows' | 'create' | 'list' | 'drop' | 'query'.",
+        ),
+        source: str = Field(
+            default="", description="Registered connector key (action='ingest')."
+        ),
+        table: str = Field(default="", description="Target SQL table name."),
+        config_json: str = Field(
+            default="{}", description="JSON connector config (action='ingest')."
+        ),
+        columns_json: str = Field(
+            default="[]", description="JSON list of column names (action='create')."
+        ),
+        rows_json: str = Field(
+            default="[]", description="JSON list of row dicts (action='rows')."
+        ),
+        sql: str = Field(
+            default="", description="A read-only SELECT statement (action='query')."
+        ),
+        limit: int = Field(
+            default=1000, description="Max rows to mirror (action='ingest')."
+        ),
+        replace: bool = Field(
+            default=False, description="Drop+recreate the table first (ingest/rows)."
+        ),
+    ) -> str:
+        from agent_utilities.knowledge_graph.core import table_ingest
+
+        try:
+            engine = kg_server._get_engine()
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": f"no active engine: {e}"})
+
+        try:
+            if action == "ingest":
+                if not source:
+                    return json.dumps({"error": "ingest needs a source connector"})
+                return json.dumps(
+                    table_ingest.ingest_connector_to_table(
+                        engine,
+                        str(source),
+                        table=table or None,
+                        config=json.loads(config_json) if config_json else None,
+                        limit=int(limit),
+                        replace=bool(replace),
+                    ),
+                    default=str,
+                )
+            if action == "rows":
+                if not table:
+                    return json.dumps({"error": "rows needs a table"})
+                return json.dumps(
+                    table_ingest.ingest_rows_to_table(
+                        engine,
+                        str(table),
+                        json.loads(rows_json) if rows_json else [],
+                        replace=bool(replace),
+                    ),
+                    default=str,
+                )
+            if action == "create":
+                if not table:
+                    return json.dumps({"error": "create needs a table"})
+                cols = json.loads(columns_json) if columns_json else []
+                if not cols:
+                    return json.dumps({"error": "create needs columns_json"})
+                return json.dumps(
+                    table_ingest.ensure_table(engine, str(table), cols), default=str
+                )
+            if action == "list":
+                return json.dumps({"tables": table_ingest.list_tables(engine)})
+            if action == "drop":
+                if not table:
+                    return json.dumps({"error": "drop needs a table"})
+                return json.dumps(
+                    table_ingest.drop_table(engine, str(table)), default=str
+                )
+            if action == "query":
+                if not sql:
+                    return json.dumps({"error": "query needs a sql SELECT"})
+                return json.dumps(engine.sql(str(sql)), default=str)
+            return json.dumps({"error": f"unknown action {action!r}"})
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["graph_table"] = graph_table
 
     # ══════════════════════════════════════════════════════════════════
     # 1b. graph_context — CONCEPT:ORCH-1.39 cross-process curated-context store
