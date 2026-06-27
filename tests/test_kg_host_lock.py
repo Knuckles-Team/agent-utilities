@@ -141,3 +141,24 @@ def test_second_host_blocks_and_auto_becomes_client():
     hl = _fresh_module()
     assert hl.resolve_daemon_role("host") == "host"
     hl.release_host_lock()
+
+
+def test_default_lock_path_is_on_shared_data_dir(monkeypatch):
+    """REGRESSION (cross-container duplicate-drainer): with no RUNTIME_DIR override the
+    host lock must live under the canonical ``runtime_dir()`` (= ``data_dir()/runtime``),
+    the ONE shared volume mounted into every daemon/graph-os container — NOT platformdirs'
+    per-container ``user_runtime_dir`` (``/run/user``, ``/tmp/runtime-*``). The per-container
+    path gave each duplicate container its own flock, so all became 'host' and thrashed the
+    queue (orphan-claim/requeue) — the reaper firefought it forever. The lock on the shared
+    dir is genuinely cross-container, so exactly one host wins.
+    """
+    monkeypatch.delenv("AGENT_UTILITIES_RUNTIME_DIR", raising=False)
+    import agent_utilities.knowledge_graph.core.host_lock as hl
+    from agent_utilities.core.paths import runtime_dir
+
+    path = hl._lock_path()
+    assert path == runtime_dir() / "kg_daemon_host.lock"
+    # And it must NOT be platformdirs' per-container runtime dir.
+    import platformdirs
+
+    assert platformdirs.user_runtime_dir("agent-utilities") not in str(path)
