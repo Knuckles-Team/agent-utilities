@@ -24,7 +24,13 @@ from typing import Any, Callable
 
 from agent_utilities.harness.memorydata.adapter import RETRIEVAL_CONFIGS, GraphOSMemoryMethod
 
-__all__ = ["BakeoffResult", "run_bakeoff", "rouge_l"]
+__all__ = ["BakeoffResult", "run_bakeoff", "rouge_l", "ROUTER_CONFIG"]
+
+# The router is a meta-config: it is NOT a single retrieval surface in
+# ``RETRIEVAL_CONFIGS`` but a :class:`GraphOSRouterMethod` that picks a surface per query
+# from the family tag. ``run_bakeoff`` recognizes this name and drives the router method so
+# the bake-off can pit "route per family" against every single config (CONCEPT:AHE-3.73).
+ROUTER_CONFIG = "graphos_router"
 
 
 @dataclass
@@ -123,7 +129,8 @@ def run_bakeoff(
     results: list[BakeoffResult] = []
 
     for config in configs:
-        if config not in RETRIEVAL_CONFIGS:
+        is_router = config == ROUTER_CONFIG
+        if config not in RETRIEVAL_CONFIGS and not is_router:
             results.append(
                 BakeoffResult(
                     config=config,
@@ -155,15 +162,29 @@ def run_bakeoff(
                 n = len(queries)
 
                 try:
-                    agent = GraphOSMemoryMethod(
-                        agent_config={
-                            "agent_name": f"{model}_{config}",
-                            "retrieval": config,
-                            "transport": client_transport,
-                            "top_k": family.get("top_k", 10),
-                        },
-                        dataset_config={"sub_dataset": str(family_tag), "dataset": "memorydata"},
-                    )
+                    agent_config = {
+                        "agent_name": f"{model}_{config}",
+                        "retrieval": config if not is_router else None,
+                        "transport": client_transport,
+                        "top_k": family.get("top_k", 10),
+                    }
+                    dataset_config = {"sub_dataset": str(family_tag), "dataset": "memorydata"}
+                    if is_router:
+                        from agent_utilities.harness.memorydata.router_method import (
+                            GraphOSRouterMethod,
+                        )
+
+                        agent_config.pop("retrieval", None)
+                        agent = GraphOSRouterMethod(
+                            agent_config=agent_config,
+                            dataset_config=dataset_config,
+                            family_tag=str(family_tag),
+                        )
+                    else:
+                        agent = GraphOSMemoryMethod(
+                            agent_config=agent_config,
+                            dataset_config=dataset_config,
+                        )
                     for idx, chunk in enumerate(context_chunks):
                         resp = agent.send_message(chunk, memorizing=True, context_id=idx)
                         mem_times.append(float(resp.get("memory_construction_time", 0.0)))
@@ -199,6 +220,7 @@ def run_bakeoff(
                             mean_query_s=0.0,
                             mean_mem_s=0.0,
                             notes=f"error: {type(exc).__name__}: {exc}",
+                            is_router=is_router,
                         )
                     )
                     continue
@@ -215,6 +237,7 @@ def run_bakeoff(
                         mean_query_s=round(sum(query_times) / len(query_times), 6) if query_times else 0.0,
                         mean_mem_s=round(sum(mem_times) / len(mem_times), 6) if mem_times else 0.0,
                         notes=f"{errors} error(s)" if errors else "",
+                        is_router=is_router,
                     )
                 )
     return results

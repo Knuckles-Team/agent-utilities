@@ -151,6 +151,41 @@ def test_router_answers_and_records_outcome() -> None:
     assert after != before
 
 
+def test_bakeoff_drives_router_config() -> None:
+    """run_bakeoff recognizes the meta-config ``graphos_router`` and flags it ``is_router``."""
+    results = run_bakeoff(
+        configs=["graphos_semantic_hnsw", "graphos_router"],
+        families=[_synthetic_family()],
+        client_transport="mock",
+    )
+    by_config = {r.config: r for r in results}
+    assert "graphos_router" in by_config
+    assert by_config["graphos_router"].is_router is True
+    assert by_config["graphos_semantic_hnsw"].is_router is False
+    # The scoreboard now emits the router-vs-best-single section.
+    md = render_scoreboard(results)
+    assert "Router vs best single config" in md
+
+
+def test_build_client_supports_engine_transport() -> None:
+    """The factory exposes the live ``engine`` transport without importing the engine."""
+    from agent_utilities.harness.memorydata.client import (
+        EngineBackendClient,
+        build_client,
+    )
+
+    client = build_client({"transport": "engine", "namespace": "unit"})
+    assert isinstance(client, EngineBackendClient)
+    assert client.namespace == "unit"
+
+    raised = False
+    try:
+        build_client({"transport": "carrier-pigeon"})
+    except ValueError:
+        raised = True
+    assert raised
+
+
 def _run_all() -> None:
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
