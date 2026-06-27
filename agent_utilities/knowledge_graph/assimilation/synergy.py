@@ -29,7 +29,7 @@ from typing import Any
 from agent_utilities.core.config import setting
 
 from ...models.knowledge_graph import RegistryEdgeType
-from .dedup import iter_all_edges
+from .dedup import iter_all_edges, iter_typed_nodes
 from .gap_analysis import _FEATURE_TYPES, _node_data_by_id, open_features
 
 _EXCLUDED_RELS = {"SUPERSEDES", "SATISFIED_BY"}
@@ -100,15 +100,9 @@ def _feature_nodes(
             }
         except TypeError:  # pragma: no cover
             return {}
-    try:
-        node_iter = graph.nodes(data=True)
-    except TypeError:  # pragma: no cover
-        return {}
-    return {
-        nid: data
-        for nid, data in node_iter
-        if isinstance(data, dict) and str(data.get("type", "")).lower() in wanted
-    }
+    # Unrestricted: BOUNDED per-label fetch (CONCEPT:KG-2.51/2.264) — never a
+    # whole-graph ``GetNodes`` dump (refused as RESULT_TOO_LARGE at scale).
+    return dict(iter_typed_nodes(graph, feature_types))
 
 
 #: above this many ids, one bulk edge traversal amortizes better than per-node
