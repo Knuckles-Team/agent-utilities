@@ -43,10 +43,12 @@ from agent_utilities.mcp.readme_env_vars import INHERITED_ENV, parse_env_example
 
 # Env reads the code performs. ``setting(...)`` is the sanctioned accessor, but bare
 # ``os.getenv`` / ``os.environ.get`` / ``os.environ[...]`` (and ``from os import …`` forms)
-# are also real reads — count them so a live var is never mis-flagged DEAD.
+# are also real reads — count them so a live var is never mis-flagged DEAD. A subscript
+# ``os.environ["X"] = ...`` is a WRITE (cross-process signaling, not config to document),
+# so the subscript branch excludes an assignment via negative lookahead.
 _ENV_READ = re.compile(
     r"""(?:setting|(?:os\.)?getenv|(?:os\.)?environ\.get)\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""
-    r"""|(?:os\.)?environ\[\s*['"]([A-Z][A-Z0-9_]*)['"]\]"""
+    r"""|(?:os\.)?environ\[\s*['"]([A-Z][A-Z0-9_]*)['"]\](?!\s*=(?!=))"""
 )
 # ``register_<tag>_tools`` — a condensed registrar; toggle env var is ``<TAG>TOOL``.
 _REGISTRAR = re.compile(r"register_([a-z][a-z0-9_]*?)_tools\b")
@@ -109,18 +111,30 @@ def _is_host_var(var: str) -> bool:
     return var.endswith(_HOST_SUFFIXES)
 
 
+def _in_string_literal(line: str, pos: int) -> bool:
+    """True if ``pos`` on ``line`` sits inside a quote — i.e. the env-read keyword is
+    itself part of a string literal (a code-generator template like
+    ``lines.append('... os.environ.get("X") ...')``), not a real read."""
+    return line.count("'", 0, pos) % 2 == 1 or line.count('"', 0, pos) % 2 == 1
+
+
 def _scan_setting_calls(root: Path) -> set[str]:
     """Every env-var literal read (``setting`` or bare ``os.getenv``/``os.environ``) in
-    ``*.py`` under ``root``."""
+    ``*.py`` under ``root``. Skips assignment writes and reads nested inside a string
+    literal (codegen templates)."""
     found: set[str] = set()
     for py in root.rglob("*.py"):
         if ".venv" in py.parts or "__pycache__" in py.parts:
             continue
         try:
-            for a, b in _ENV_READ.findall(py.read_text(encoding="utf-8")):
-                found.add(a or b)
+            text = py.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
+        for line in text.splitlines():
+            for m in _ENV_READ.finditer(line):
+                if _in_string_literal(line, m.start()):
+                    continue
+                found.add(m.group(1) or m.group(2))
     found.discard("")
     return found
 
