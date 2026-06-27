@@ -109,9 +109,46 @@ execute_action("fleet.write_record", {
 })
 ```
 
+## Connector dual-role — every fleet connector is also an ingestion source
+The same `*-mcp` server that exposes a **live MCP tool** is also an **ingestion
+source**: any connector whose surface includes a record-listing tool gets a
+declarative entry in `MCP_TOOL_PRESETS` (server + tool + action + field-map +
+pagination + OWL `doc_type`), so a connector repo is BOTH "call the tool now" AND
+"sweep it into the KG" with no new transport code. Beyond the database/SaaS/ops
+presets, the catalog covers connector dual-role presets such as `jellyfin-media`,
+`rom-manager-roms`, `listmonk-subscribers`/`listmonk-campaigns`, `wger-routines`,
+`ansible-tower-inventories`/`-job-templates`/`-projects`, `camunda-tasks`,
+`portainer-containers`, `salesforce-sobject` (SOQL-driven), and `erpnext-doctype`
+(doctype-driven). Connectors whose surface is pure action/compute/config
+(stirlingpdf, vector, caddy, container-manager, systems-manager, clarity) or whose
+records carry no text body (kafka topic metadata) have **no preset** by design.
+
+### Per-repo preset contribution (the "2 actions from the same repo" seam)
+A connector can ship its OWN ingestion preset **beside its MCP tool** instead of
+adding it to the central dict, via the same data-only entry-point pattern the hub
+uses for skills/prompts (CONCEPT:OS-5.52):
+
+```toml
+# in the connector package's pyproject.toml
+[project.entry-points."agent_utilities.source_connector_providers"]
+jellyfin-mcp = "jellyfin_mcp.ingestion"
+```
+
+The named data subpackage contains a `mcp_source_presets.json` file — a JSON object
+of `{preset_name: {server, tool, action, …}}` with the exact `MCP_TOOL_PRESETS`
+schema. The hub resolves it via `importlib.resources` (it never imports the
+connector's business logic), merges it into the catalog with **contributed presets
+taking precedence** over the central dict (they live with the connector and track
+its tool surface), and the central dict is the fallback. Discovery is
+failure-isolated and cached. Accessors: `get_tool_preset` / `list_tool_presets` /
+`all_tool_presets` consult the merged catalog; `reset_contributed_presets_cache()`
+clears it after an install.
+
 ## Implementation Details
 - **Source Code**: `agent_utilities/protocols/source_connectors/connectors/mcp_tool.py`
-  (`McpToolSourceConnector`, `McpToolSourceError`, `MCP_TOOL_PRESETS`, `call_tool_once`);
+  (`McpToolSourceConnector`, `McpToolSourceError`, `MCP_TOOL_PRESETS`,
+  `SOURCE_PRESET_PROVIDER_GROUP`, `get_tool_preset`/`list_tool_presets`/`all_tool_presets`,
+  `call_tool_once`);
   write-back action in `agent_utilities/knowledge_graph/actions/fleet_writeback.py`
   (`fleet.write_record`, registered into `DEFAULT_REGISTRY`)
 - **Tests**: `tests/unit/protocols/test_mcp_tool_source_connector.py`,

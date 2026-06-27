@@ -527,3 +527,64 @@ def test_mealie_recipes_sweep_paginates_pages():
     assert [d.id for d in docs] == ["soup", "salad", "stew"]
     assert docs[0].text == "warm soup"
     assert docs[0].doc_type == "record"
+
+
+# ── connector dual-role presets + per-repo contribution seam (KG-2.59) ───────
+
+
+def test_connector_presets_well_formed_and_buildable():
+    """Every shipped preset has a transport + tool + field map and builds clean."""
+    from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
+        all_tool_presets,
+    )
+
+    presets = all_tool_presets()
+    # The new connector dual-role presets are present and discoverable.
+    for name in (
+        "jellyfin-media",
+        "rom-manager-roms",
+        "listmonk-subscribers",
+        "ansible-tower-inventories",
+        "camunda-tasks",
+        "salesforce-sobject",
+        "erpnext-doctype",
+    ):
+        assert name in presets, f"{name} missing from catalog"
+        assert name in list_tool_presets()
+
+    for name, preset in presets.items():
+        has_sql = "sql_table" in preset
+        assert preset.get("server") or has_sql, f"{name} has no server/sql_table"
+        assert preset.get("tool") or has_sql, f"{name} has no tool/sql_table"
+        # A document needs both an id anchor and a text body (explicit or default).
+        assert preset.get("id_field", "id"), name
+        assert preset.get("text_field", "text"), name
+        # Building the connector binds the preset without raising (server transport).
+        conn = build_connector("mcp_tool", {"preset": name})
+        assert conn.health_check(), name
+
+
+def test_contributed_preset_seam_precedence_and_reset():
+    """A per-repo contributed preset is discoverable and overrides the central dict."""
+    from agent_utilities.protocols.source_connectors.connectors import mcp_tool as M
+
+    M.reset_contributed_presets_cache()
+    try:
+        # Simulate a connector that ships its own preset beside its MCP tool.
+        M._contributed_presets_cache = {
+            "acme-widgets": {
+                "server": "acme-mcp",
+                "tool": "acme_list",
+                "action": "list",
+                "text_field": "body",
+            },
+            # Same name as a central preset → contributed wins (lives w/ connector).
+            "jellyfin-media": {"server": "override-mcp", "tool": "x"},
+        }
+        assert "acme-widgets" in M.list_tool_presets()
+        assert M.get_tool_preset("acme-widgets")["server"] == "acme-mcp"
+        assert M.get_tool_preset("jellyfin-media")["server"] == "override-mcp"
+    finally:
+        M.reset_contributed_presets_cache()
+    # After reset the central preset is authoritative again.
+    assert M.get_tool_preset("jellyfin-media")["server"] == "jellyfin-mcp"

@@ -132,6 +132,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--symlink", action="store_true", help="symlink instead of copy (auto-updates)"
     )
 
+    # CONCEPT:ECO-4.42 — client-side chat/session ingestion for Claude + Antigravity
+    # (and every other detected agent). `--upload` parses THIS host's local logs and
+    # pushes them to a REMOTE engine via the graph-os `ingest_sessions` upload action
+    # (the remote-engine path); default `collect` sinks into a local engine.
+    ig = sub.add_parser(
+        "ingest-sessions",
+        help="parse local agent chat logs (claude/antigravity/...) and ingest them",
+    )
+    ig.add_argument(
+        "--upload",
+        action="store_true",
+        help="push to a REMOTE engine via MCP (use when the engine is on another host)",
+    )
+    ig.add_argument(
+        "--server", default="graph-os", help="remote MCP server name (mcp_config.json)"
+    )
+    ig.add_argument(
+        "--url", default="", help="explicit remote MCP url (overrides --server)"
+    )
+    ig.add_argument("--tenant", default="", help="tenant scope for the rows")
+    ig.add_argument(
+        "--all", action="store_true", help="re-parse every file (default: changed only)"
+    )
+
     # CONCEPT:OS-5.42 — atomic concept-ID reservation (offline/worktree entry point).
     cp = sub.add_parser("concept", help="reserve/list/release/reconcile concept ids")
     cp.add_argument(
@@ -238,6 +262,27 @@ def _install_skills(args: argparse.Namespace) -> dict[str, Any]:
     return {"installed": installed, "layer": args.layer, "skill_graphs": include_graphs}
 
 
+def _ingest_sessions(args: argparse.Namespace) -> dict[str, Any]:
+    """Parse local agent chat logs and ingest them (CONCEPT:ECO-4.42).
+
+    ``--upload`` parses THIS host's logs and pushes them to a remote engine over MCP
+    (the remote-engine path — Claude + Antigravity + every other detected agent);
+    otherwise it sinks into a local engine.
+    """
+    if args.upload:
+        from agent_utilities.ingestion.collector import upload_local_sessions
+
+        return upload_local_sessions(
+            server=args.server,
+            url=args.url,
+            tenant_id=args.tenant,
+            only_changed=not args.all,
+        )
+    from agent_utilities.ingestion.collector import collect_local_sessions
+
+    return collect_local_sessions(only_changed=not args.all)
+
+
 def _concept(args: argparse.Namespace) -> dict[str, Any]:
     """Concept-ID reservation — runs against the file ledger directly (no gateway)."""
     import socket
@@ -287,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
         out = _sleep_run(args)
     elif args.command == "install-skills":
         out = _install_skills(args)
+    elif args.command == "ingest-sessions":
+        out = _ingest_sessions(args)
     elif args.command == "concept":
         out = _concept(args)
     else:

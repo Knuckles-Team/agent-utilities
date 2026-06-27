@@ -2,12 +2,15 @@
 
 ``load_all()`` registers every supported agent source. Coverage tiers:
 
-* **bespoke** — Claude Code, Codex have dedicated, format-faithful parsers.
+* **bespoke** — Claude Code, Codex, and the Antigravity IDE have dedicated,
+  format-faithful parsers (Antigravity reads its plaintext ``brain/`` artifacts;
+  its encrypted ``conversations/*.pb`` transcript decode is a documented
+  follow-up — see :mod:`.antigravity`).
 * **generic JSONL** — the large JSONL-family of agents share
   :mod:`generic_jsonl` (role+content+usage extraction); robust enough to
   ingest sessions and price them.
 * **non-JSONL** (SQLite/protobuf/encrypted: cursor, zed, vscode-copilot,
-  antigravity, warp, ...) are registered so they are *detected*, with a
+  warp, ...) are registered so they are *detected*, with a
   bespoke reader marked as a follow-up; until then their generic reader yields
   nothing rather than mis-parsing.
 
@@ -17,7 +20,7 @@ Mirrors agentsview ``internal/parser/types.go`` (dirs + env overrides).
 from __future__ import annotations
 
 from ..registry import AgentSource, register_source
-from . import claude, codex, generic_jsonl
+from . import antigravity, claude, codex, generic_jsonl
 
 # (agent_type, display_name, dirs, env_var, glob, parser, file_based)
 # parser: "claude" | "codex" | "generic" | "nonjsonl"
@@ -239,10 +242,10 @@ _AGENTS: tuple[tuple, ...] = (
     (
         "antigravity",
         "Antigravity",
-        ("~/.gemini/antigravity",),
+        ("~/.gemini/antigravity/conversations",),
         "ANTIGRAVITY_DIR",
-        "**/*.db",
-        "nonjsonl",
+        "*.pb",
+        "antigravity",
         True,
     ),
     (
@@ -306,6 +309,7 @@ _AGENTS: tuple[tuple, ...] = (
 _PARSERS = {
     "claude": claude.parse,
     "codex": codex.parse,
+    "antigravity": antigravity.parse,
     "generic": generic_jsonl.parse,
     "nonjsonl": generic_jsonl.parse,  # placeholder until bespoke readers land
 }
