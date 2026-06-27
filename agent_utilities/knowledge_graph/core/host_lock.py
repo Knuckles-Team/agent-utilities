@@ -50,24 +50,39 @@ class KGHostAlreadyRunning(RuntimeError):
 
 
 def _lock_path() -> Path:
-    """Return the host-lock path under the user runtime dir (created if needed).
+    """Return the host-lock path, co-located with the daemon's SHARED runtime dir.
 
-    ``AGENT_UTILITIES_RUNTIME_DIR`` (the package's standing runtime-root override,
-    see :func:`agent_utilities.cli.runtime_dir`) wins when set — this isolates the
-    singleton lock for parallel stacks and lets tests point the lock at a tmp dir
+    The single-host ``flock`` only excludes contenders that open the SAME underlying
+    file, so it MUST live on storage shared by every process that could become host.
+    The original location — platformdirs' ``user_runtime_dir`` (``/run/user/<uid>`` /
+    ``/tmp/runtime-*``) — is a **per-container tmpfs**: in a containerized/swarm
+    deployment each duplicate ``graph-os-host`` container got its OWN private lock and
+    so EVERY one acquired it and became 'host', all draining the queue at once. They
+    claim each other's tasks, die, orphan the claims, and the TaskReaper requeues them
+    forever — the cross-container duplicate-drainer thrash. (The reaper recovers a dead
+    host's claims; it cannot prevent multiple live hosts — that is this lock's job.)
+
+    The fix routes through the canonical :func:`agent_utilities.core.paths.runtime_dir`
+    (``data_dir()/runtime``) — the ONE ``agent_utilities_data`` volume the deployment
+    mounts into every daemon/graph-os container — so the flock is genuinely
+    cross-container: exactly one host wins, the rest self-heal to ``client`` (or, for an
+    explicit ``host``, raise :class:`KGHostAlreadyRunning`). It also co-locates the lock
+    with the other runtime artifacts (harness registry, manifests) it sits beside.
+
+    ``AGENT_UTILITIES_RUNTIME_DIR`` (the standing runtime-root override) still wins when
+    set — it isolates the lock for parallel stacks and lets tests point it at a tmp dir
     (subprocess-safe: children inherit the env), so they never collide with a live
-    daemon's real lock. Otherwise platformdirs' user runtime dir is used.
+    daemon's real lock.
     """
     override = setting("AGENT_UTILITIES_RUNTIME_DIR")
     if override:
         base = Path(override) / "agent-utilities"
     else:
-        try:
-            import platformdirs
+        # Canonical shared runtime dir (data_dir()/runtime) — NOT platformdirs'
+        # per-container user_runtime_dir, which breaks the cross-container flock.
+        from agent_utilities.core.paths import runtime_dir
 
-            base = Path(platformdirs.user_runtime_dir("agent-utilities"))
-        except Exception:  # pragma: no cover - platformdirs always present in practice
-            base = Path(setting("XDG_RUNTIME_DIR") or "/tmp") / "agent-utilities"  # nosec B108 — XDG fallback, not a security-sensitive temp path
+        base = runtime_dir()
     base.mkdir(parents=True, exist_ok=True)
     return base / "kg_daemon_host.lock"
 
