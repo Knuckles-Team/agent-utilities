@@ -170,6 +170,10 @@ messaging), so a single-package deploy is genesis with a one-item run plan.
    `vault://apps/<package>/<KEY>` refs for the env/config.
 4. **Apply cert trust** (Step 1b) if a `ca_bundle` was given, and **register the MCP
    server** (`graph_configure action=register_mcp`) so the multiplexer/IDE can reach it.
+   Its `mcp_config`/compose `env` follows the env-var canon (CONCEPT:OS-5.72) — only the
+   vars the code reads, plus `"MCP_TOOL_MODE": "condensed"`; the package ships the
+   `env-var-drift` pre-commit guard (`python -m agent_utilities.mcp.check_env_var_drift
+   --check`).
 5. **(Optional) messaging** — wire the agent→user channels (Step A4c) if the operator
    wants this single agent to reach them.
 6. **Verify** — `agent-utilities doctor` + a live `tools/list`/`tools/call` against the
@@ -726,6 +730,17 @@ are reachable because the multiplexer presents its service token (Step A2). Flip
 **phased waves** (read-only → data → sensitive; `portainer-mcp` last; never the multiplexer),
 verifying multiplexer reachability after each wave.
 
+**Env-var canon (CONCEPT:OS-5.72).** The code is the single source of truth for env
+vars: each connector's generated compose `environment:` block and its
+`mcp_config*.json` `env` block match exactly the variable set the connector actually
+reads (no dead/undocumented vars), and **every MCP server's `env`/compose carries
+`MCP_TOOL_MODE`** (`condensed` | `verbose` | `both`, default `condensed`) so the
+condensed/verbose surface is discoverable. Genesis-provisioned/scaffolded packages
+ship the shared guard `python -m agent_utilities.mcp.check_env_var_drift --check` as
+their `env-var-drift` pre-commit hook (from the `agent-package-builder` scaffold),
+which flags DEAD / UNDOCUMENTED / MISSING_TOOL_MODE drift across `.env.example`,
+`mcp_config*.json`, docker compose, and the README. Run it on any stack you hand-tune.
+
 **Gotchas baked in from live rollout (see `references/TROUBLESHOOTING.md`):**
 - **eunomia needs the fastmcp-3.x compat build** (§9): without `apply_fastmcp_enabled_compat()`
   in the deployed agent-utilities, every `tools/call` on a eunomia service errors. Don't flip
@@ -853,6 +868,11 @@ deployed. Reload the multiplexer.
 **Auth note (CONCEPT:OS-5.32):** rewired entries are remote `streamable-http` children that
 enforce jwt — leave their `headers` empty; the multiplexer's service token (Step A2) is
 attached automatically. Do NOT bake per-child bearer tokens into `mcp_config.json`.
+**Env-var canon (CONCEPT:OS-5.72):** for any entry kept as a local **stdio** spawn, its
+`env` block must include `"MCP_TOOL_MODE": "condensed"` (the tool-surface knob — remote
+children read it from their compose env); run
+`python -m agent_utilities.mcp.check_env_var_drift --check` on the rewired config to
+confirm no MISSING_TOOL_MODE / DEAD / UNDOCUMENTED drift.
 - Requires: `container-manager-mcp`
 - Expected: `mcp-config-rewired, stdio-retired`
 
