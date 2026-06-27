@@ -178,6 +178,57 @@ def test_outbox_survives_restart(tmp_path):
         ob2.close()
 
 
+def test_concurrent_writer_waits_not_locked(tmp_path):
+    """A second writer on the SAME outbox file (the client + host both open the
+    shared ``graph_mirror_outbox.db``) must WAIT for the write lock, not fail with
+    "database is locked". Reproduces the split-storage throttle and proves the
+    busy_timeout fix: while a raw connection holds the write lock, ``append`` blocks
+    briefly and then succeeds once the lock is released (CONCEPT:KG-2.74)."""
+    import sqlite3
+    import time
+
+    path = tmp_path / "shared_outbox.db"
+    ob = GraphOutbox(path, ["m"])
+    try:
+        hold_s = 0.4
+        locked = threading.Event()
+        released = threading.Event()
+
+        # A separate connection (a stand-in for the OTHER graph-os process) grabs
+        # the write lock and holds it for ``hold_s`` seconds. Created INSIDE the
+        # thread (sqlite connections are thread-affine).
+        def _hold():
+            holder = sqlite3.connect(str(path), isolation_level=None, timeout=5.0)
+            holder.execute("PRAGMA busy_timeout=5000")
+            holder.execute("BEGIN IMMEDIATE")
+            holder.execute(
+                "INSERT INTO outbox (mirror, seq, op, payload, created_at) "
+                "VALUES ('m', 9999, 'x', '{}', 0.0)"
+            )
+            locked.set()  # the write lock is now held
+            time.sleep(hold_s)
+            holder.execute("COMMIT")
+            released.set()
+            holder.close()
+
+        t = threading.Thread(target=_hold)
+        t.start()
+        assert locked.wait(2.0)  # ensure the holder owns the write lock first
+
+        # This append would raise "database is locked" instantly WITHOUT a busy
+        # timeout; with it, the call waits out the holder and returns a real seq.
+        start = time.time()
+        seq = ob.append("execute", {"query": "CREATE (n)", "params": None})
+        waited = time.time() - start
+
+        assert seq >= 1  # the write durably landed
+        assert released.is_set()  # we waited until the holder released the lock
+        assert waited >= hold_s - 0.1  # i.e. we blocked rather than failing fast
+        t.join()
+    finally:
+        ob.close()
+
+
 class _GraphStub:
     def _get_all_nodes(self):
         return ["a", "b"]
@@ -211,10 +262,7 @@ def test_reconcile_repairs_each_mirror(tmp_path):
         assert report["m"]["edges"] == 1
         assert report["m"]["errors"] == 0
         # The mirror received node CREATE + edge MERGE writes.
-        writes = [
-            c for c in mirror.writes
-            if c[0] == "execute"
-        ]
+        writes = [c for c in mirror.writes if c[0] == "execute"]
         assert writes  # drift repair actually wrote to the mirror
     finally:
         fan.close()
@@ -230,9 +278,7 @@ class Neo4jBackend(RecordingBackend):
 
 def _edge_merge_writes(mirror: RecordingBackend) -> list[str]:
     """The MERGE edge cypher applied to a mirror (not the label lookups)."""
-    return [
-        q for op, q in mirror.writes if op == "execute" and "MERGE (s)-[r:" in q
-    ]
+    return [q for op, q in mirror.writes if op == "execute" and "MERGE (s)-[r:" in q]
 
 
 def test_edge_write_replays_structurally_per_dialect(tmp_path):
