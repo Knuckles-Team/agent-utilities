@@ -96,24 +96,63 @@ def iter_all_edges(graph: Any) -> list[tuple[str, str, dict]] | None:
         return None
 
 
+def iter_typed_nodes(
+    graph: Any, node_types: tuple[str, ...]
+) -> list[tuple[str, dict[str, Any]]]:
+    """``(id, data)`` for nodes whose ``type`` matches ``node_types`` — fetched via
+    the engine's BOUNDED per-label index (``get_nodes_by_label``), NOT a whole-graph
+    ``GetNodes`` dump.
+
+    On a large multi-tenant engine a full node list is refused by the response guard
+    (``RESULT_TOO_LARGE``, CONCEPT:KG-2.264) and resets the socket, so the assimilation
+    collectors must scope their pull by label (CONCEPT:KG-2.51/2.193). Falls back to a
+    filtered whole-graph scan ONLY when no label index exists (a test-double dict/NX
+    graph). Dedups by id so case-variant label buckets can't double-count a node.
+    """
+    wanted = {t.lower() for t in node_types}
+    by_label = getattr(graph, "get_nodes_by_label", None)
+    if callable(by_label):
+        # Live labels are inconsistently cased ("article" vs "Concept"); try each.
+        labels = {
+            cased
+            for t in node_types
+            for cased in (t, t.lower(), t.capitalize(), t.upper(), t.title())
+        }
+        out: dict[str, dict[str, Any]] = {}
+        for lbl in labels:
+            try:
+                rows = by_label(lbl, 0) or []  # limit 0 = all of THIS label (bounded)
+            except Exception:  # noqa: BLE001 — try the next label casing
+                continue
+            for row in rows:
+                if isinstance(row, list | tuple) and len(row) >= 2:
+                    nid, data = str(row[0]), row[1]
+                    if (
+                        isinstance(data, dict)
+                        and str(data.get("type", "")).lower() in wanted
+                    ):
+                        out[nid] = data
+        return list(out.items())
+    # No label index (minimal test double) → filtered whole-graph scan.
+    try:
+        node_iter = graph.nodes(data=True)
+    except TypeError:  # pragma: no cover - non-standard graph
+        return []
+    return [
+        (nid, data)
+        for nid, data in node_iter
+        if isinstance(data, dict) and str(data.get("type", "")).lower() in wanted
+    ]
+
+
 def _collect(engine: Any, node_types: tuple[str, ...]) -> dict[str, dict[str, Any]]:
     """Map id → {vec, importance} for embedded nodes of the target types."""
     out: dict[str, dict[str, Any]] = {}
     graph = getattr(engine, "graph", None)
     if graph is None:
         return out
-    try:
-        node_iter = graph.nodes(data=True)
-    except TypeError:  # pragma: no cover - non-standard graph
-        return out
-    # Case-insensitive: the live graph stores `type` as a capitalized label
-    # ("Article"/"Concept") while our enum values are lowercase.
-    wanted = {t.lower() for t in node_types}
-    for nid, data in node_iter:
-        if not isinstance(data, dict):
-            continue
-        if str(data.get("type", "")).lower() not in wanted:
-            continue
+    # Case-insensitive label/type match; bounded per-label fetch (no whole-graph dump).
+    for nid, data in iter_typed_nodes(graph, node_types):
         emb = data.get("embedding")
         if not emb:
             continue

@@ -172,22 +172,39 @@ class ConnectorSkillDistiller:
                 pass
         return {}
 
-    def _iter_nodes(self) -> list[tuple[str, dict[str, Any]]]:
-        """Every (id, props) node in the graph (compute mirror, then backend)."""
+    def _iter_nodes(
+        self, node_types: tuple[str, ...]
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """``(id, props)`` nodes of the given types (compute mirror, then backend).
+
+        BOUNDED per-label fetch (CONCEPT:KG-2.51/2.264) — never a whole-graph
+        ``GetNodes`` dump, which the engine refuses (``RESULT_TOO_LARGE``) on a large
+        multi-tenant graph and which previously failed the distill_skills stage.
+        """
+        from ..assimilation.dedup import iter_typed_nodes
+
         graph = getattr(self.engine, "graph", None)
         if graph is not None:
             try:
-                return [(nid, dict(d or {})) for nid, d in graph.nodes(data=True)]
+                return [
+                    (nid, dict(d or {}))
+                    for nid, d in iter_typed_nodes(graph, node_types)
+                ]
             except (TypeError, AttributeError):
                 pass
         backend = getattr(self.engine, "backend", None)
         if backend is not None:
             try:
+                wanted = {t.lower() for t in node_types}
                 rows = backend.execute("MATCH (n) RETURN n", {})
                 out: list[tuple[str, dict[str, Any]]] = []
                 for row in rows or []:
                     node = row.get("n")
-                    if isinstance(node, dict) and node.get("id"):
+                    if (
+                        isinstance(node, dict)
+                        and node.get("id")
+                        and str(node.get("type", "")).lower() in wanted
+                    ):
                         out.append((str(node["id"]), dict(node)))
                 return out
             except Exception:  # noqa: BLE001 — empty graph
@@ -296,7 +313,7 @@ class ConnectorSkillDistiller:
         """
         processes: list[dict[str, Any]] = []
         capabilities: list[dict[str, Any]] = []
-        for nid, props in self._iter_nodes():
+        for nid, props in self._iter_nodes((_PROCESS_TYPE, *_CAPABILITY_TYPES)):
             ntype = str(props.get("type", "")).lower()
             if ntype == _PROCESS_TYPE:
                 tasks = self._tasks_of(nid)
@@ -577,7 +594,7 @@ class ConnectorSkillDistiller:
     def _existing_skills(self) -> dict[str, str]:
         """Map existing ``skill`` node id → name (compute mirror then backend)."""
         out: dict[str, str] = {}
-        for nid, props in self._iter_nodes():
+        for nid, props in self._iter_nodes((RegistryNodeType.SKILL.value,)):
             if str(props.get("type", "")).lower() == RegistryNodeType.SKILL.value:
                 out[nid] = str(props.get("name") or props.get("title") or nid)
         return out
