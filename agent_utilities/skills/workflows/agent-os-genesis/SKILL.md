@@ -194,14 +194,14 @@ plan lives **outside** this skill (single source of truth — do not duplicate h
 |---|---|
 | Master staged plan (P0 intake → P1 artifacts → P2 preflight → Stages 0–7 cutover) | `inventory/k8s-migration/MIGRATION-PLAN.md` |
 | Prerequisites (NIC bonds; **RKE2 CIDRs must not overlap `10.0.0.0/8`**; registry CA trust; …) | `inventory/k8s-migration/PHASE0.md` |
-| Decisions & secrets/access intake (CIDRs `100.64/16`/`100.65/16`, VIP `10.0.0.13`, node order, GB10) | `inventory/k8s-migration/INTAKE.md` |
+| Decisions & secrets/access intake (CIDRs `100.64/16`/`100.65/16`, VIP `10.0.0.240`, node order, GB10) | `inventory/k8s-migration/INTAKE.md` |
 | Per-stack classification (133 orchestratable, 8 standalone) + the `k8s/` scaffolder | `inventory/k8s-migration/{ROADMAP.md,scaffold_k8s.py}` |
 | **Pre-change validation** (baseline every service + MCP; **arr-stack VPN-leak P0 gate**) | `inventory/k8s-migration/validation/` |
 | Owned public edge wired to the cluster (VPS Caddy → wg → ingress VIP) | `edge-ingress/K8S-INTEGRATION-PLAN.md` |
 
 How it binds to the steps below:
 - **Step 0** `orchestrator: kubernetes` → **Step 5** `kubernetes-mesh-provisioner`
-  (RKE2 server on R820, Cilium kube-proxy-free, L2 VIP `10.0.0.13`, GPU device-plugin);
+  (RKE2 server on R820, Cilium kube-proxy-free, L2 VIP `10.0.0.240`, GPU device-plugin);
   **Step 11** renders the scaffolded `services/<stack>/k8s/` manifests instead of compose.
 - **Gate every cutover on validation:** before Step 5 and as the exit check of each
   cutover stage, run `inventory/k8s-migration/validation/VALIDATION.md` — the
@@ -400,7 +400,7 @@ driven by `inventory.yaml`; `-e reset_swarm=true` for a destructive clean rebuil
 Stand up RKE2 + Cilium (the Swarm parallel; **requires NIC bonds applied first** so Cilium's tunnel
 egress is deterministic):
 - RKE2 **server** on **R820 (10.0.0.13)** with `cni: cilium`; join **agents** `R710`, `R510`, `RW710`, `GR1080` (and `GB10` as a tainted arm64 GPU agent once its throttled-vLLM soak passes).
-- Cilium runs **kube-proxy-free** (eBPF) — this removes the IPVS kernel path that hard-reset GB10 under Swarm; expose the ingress via a `CiliumLoadBalancerIPPool` + `L2Announcement` VIP (reuse `10.0.0.13` so Technitium needs no change).
+- Cilium runs **kube-proxy-free** (eBPF) — this removes the IPVS kernel path that hard-reset GB10 under Swarm; expose the ingress via a `CiliumLoadBalancerIPPool` (`10.0.0.240–.250`) + `L2Announcement` VIP **`10.0.0.240`** (a free LB IP, **not** R820's host `.13`); Technitium `*.arpa` is repointed to `.240`.
 - NVIDIA device-plugin on the GPU nodes; configure `registries.yaml` → `registry.arpa` + internal CA on every node.
 - Expected: `cluster-ready, cilium-healthy, gpu-advertised`
 
