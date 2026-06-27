@@ -47,6 +47,25 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Concurrent-sqlite discipline (CONCEPT:KG-2.74). This one outbox file is opened by
+# BOTH the graph-os CLIENT and the graph-os HOST — each runs ``GRAPH_BACKEND=fanout``
+# and builds a :class:`~agent_utilities.knowledge_graph.backends.fanout_backend.FanOutBackend`
+# against the same ``graph_mirror_outbox.db`` on the shared data volume, each with an
+# append path plus one drainer thread per mirror. With WAL, exactly one writer holds
+# the write lock at a time and a second writer must WAIT for it. Without a busy
+# timeout that second writer fails INSTANTLY with ``sqlite3.OperationalError:
+# database is locked`` — which (a) stalls a mirror drainer and (b) throttles the
+# SYNCHRONOUS ingest write that enqueues here (``FanOutBackend.execute_batch`` ->
+# ``_enqueue`` -> ``append``). A generous busy timeout turns those instant failures
+# into a brief wait+retry: the standard WAL+busy_timeout concurrent-writer pattern.
+# The implicit Python default of 5s proved insufficient under the split-storage
+# topology (engine over TCP, slower per-op, locks held longer, more contention), so
+# we make it explicit and large. Short transactions here cannot deadlock — ``append``
+# takes the write lock upfront via ``BEGIN IMMEDIATE`` and ``ack``/``_prune`` are
+# autocommit single statements — so a high timeout never masks a real deadlock.
+_BUSY_TIMEOUT_MS = 30_000
+_BUSY_TIMEOUT_S = _BUSY_TIMEOUT_MS / 1000.0
+
 
 @dataclass(frozen=True)
 class OutboxEntry:
@@ -72,8 +91,14 @@ class GraphOutbox:
         self._lock = threading.RLock()
         # check_same_thread=False: the append path and the drainer threads share
         # this one connection under ``self._lock`` (sqlite serializes writes).
+        # timeout= sets sqlite's busy timeout so a cross-process writer (the other
+        # graph-os process holding the shared outbox's write lock) is WAITED for
+        # rather than failing instantly; reasserted via PRAGMA in _init_schema.
         self._conn = sqlite3.connect(
-            self._path, check_same_thread=False, isolation_level=None
+            self._path,
+            check_same_thread=False,
+            isolation_level=None,
+            timeout=_BUSY_TIMEOUT_S,
         )
         self._init_schema()
 
@@ -83,6 +108,10 @@ class GraphOutbox:
     def _init_schema(self) -> None:
         with self._lock:
             cur = self._conn
+            # busy_timeout FIRST so even the schema-init statements below (the
+            # WAL-mode switch needs a momentary exclusive lock) wait for a
+            # concurrent writer instead of racing it to "database is locked".
+            cur.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
             # WAL = durable across restarts AND lets a reader run during a write.
             cur.execute("PRAGMA journal_mode=WAL")
             cur.execute("PRAGMA synchronous=NORMAL")
@@ -108,8 +137,7 @@ class GraphOutbox:
             )
             for m in self._mirrors:
                 cur.execute(
-                    "INSERT OR IGNORE INTO cursor (mirror, applied_seq) "
-                    "VALUES (?, 0)",
+                    "INSERT OR IGNORE INTO cursor (mirror, applied_seq) VALUES (?, 0)",
                     (m,),
                 )
 
