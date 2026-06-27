@@ -161,6 +161,7 @@
 - {id: KG-2.265, namespace: KG-2, session: ontology-reid-2026-06-26, reserved_at: '2026-06-26T23:47:10.944548+00:00', expires_at: '2026-07-03T23:47:10.944548+00:00', status: reserved}
 - {id: KG-2.266, namespace: KG-2, session: engine-integration-2026-06-27, reserved_at: '2026-06-27T04:17:42.686380+00:00', expires_at: '2026-06-28T04:17:42.686380+00:00', status: reserved}
 - {id: KG-2.269, namespace: KG-2, session: shard-commons, reserved_at: '2026-06-27T23:38:27.620595+00:00', expires_at: '2026-06-28T23:38:27.620595+00:00', status: reserved, design_doc: Ingestion graph routing}
+- {id: KG-2.267, namespace: KG-2, session: pipeline-staged-queues-2026-06-27, reserved_at: '2026-06-27T23:46:46.448781+00:00', expires_at: '2026-06-28T23:46:46.448781+00:00', status: reserved, design_doc: 'reports/north-star-agent-compute-architecture-2026-06-27.md item C: staged ingestion pipeline (fetch|parse|enrich|write|reason bounded-queue worker pools)'}
 - {id: ORCH-1.59, namespace: ORCH-1, session: 'RW710:2017545', reserved_at: '2026-06-18T21:31:38.469710+00:00', expires_at: '2026-06-19T21:31:38.469710+00:00', status: landed, landed_at: '2026-06-18T23:17:29.491465+00:00'}
 - {id: ORCH-1.60, namespace: ORCH-1, session: 'RW710:2199889', reserved_at: '2026-06-18T22:30:24.947008+00:00', expires_at: '2026-06-19T22:30:24.947008+00:00', status: landed, landed_at: '2026-06-18T23:17:29.491465+00:00'}
 - {id: ORCH-1.61, namespace: ORCH-1, session: 'RW710:2200095', reserved_at: '2026-06-18T22:30:28.876044+00:00', expires_at: '2026-06-19T22:30:28.876044+00:00', status: expired}

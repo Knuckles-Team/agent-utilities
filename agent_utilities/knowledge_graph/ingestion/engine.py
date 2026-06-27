@@ -537,11 +537,20 @@ class IngestionEngine:
         canonical = str(p.resolve()) if p.exists() else manifest.source_uri
         return canonical, h
 
-    async def ingest(self, manifest: IngestionManifest) -> IngestionResult:
+    async def ingest(
+        self, manifest: IngestionManifest, *, defer_enrich: bool = False
+    ) -> IngestionResult:
         """Ingest a single manifest using the appropriate adaptor.
 
         Args:
             manifest: Describes what to ingest and how.
+            defer_enrich: When ``True``, run only the structural write (the adaptor
+                handler) + delta-record, and return immediately WITHOUT the inline
+                LLM enrichment — the ``enrichable`` payloads are left on the result
+                for a downstream ENRICH stage to drain (CONCEPT:KG-2.267 staged
+                pipeline). This is the seam that decouples ENRICH from WRITE so the
+                writer never idles waiting on LLM work. Default ``False`` preserves
+                the original inline behaviour exactly.
 
         Returns:
             ``IngestionResult`` with status, counts, and timing.
@@ -595,28 +604,14 @@ class IngestionEngine:
             # canonical facts are extracted for EVERY content type, not per-adaptor
             # (*Native by default*). ``enrich=False`` is the single opt-out for
             # fast structural-only bulk runs. Best-effort — never fails ingest.
-            if (
-                result.status == "success"
-                and result.enrichable
-                and manifest.metadata.get("enrich", True)
-            ):
-                enriched = {"concepts": 0, "facts": 0}
-                for payload in result.enrichable:
-                    try:
-                        counts = await self._enrich_text(
-                            payload["source_id"],
-                            payload.get("text", ""),
-                            payload.get("source_type", manifest.content_type.value),
-                            payload.get("title", ""),
-                            enrich_concepts=not payload.get("concepts_done", False),
-                        )
-                        enriched["concepts"] += counts["concepts"]
-                        enriched["facts"] += counts["facts"]
-                    except Exception:  # noqa: BLE001 — enrichment never breaks ingest
-                        logger.debug("enrich payload failed", exc_info=True)
-                result.nodes_created += enriched["concepts"]
-                result.edges_created += enriched["facts"]
-                result.details.setdefault("enrichment", enriched)
+            #
+            # ``defer_enrich`` skips the inline pass entirely so the structural write
+            # returns immediately and a downstream ENRICH stage (CONCEPT:KG-2.267)
+            # drains ``result.enrichable`` independently — the writer never idles on
+            # LLM work. The delta-record below still fires (structural success is the
+            # durable unit; enrichment is best-effort and additive).
+            if not defer_enrich:
+                await self._run_inline_enrich(result, manifest)
             result.duration_ms = (time.monotonic() - start) * 1000
             # Record the content hash only on a clean success so failures retry.
             if identity and result.status == "success":
@@ -642,17 +637,80 @@ class IngestionEngine:
             self._history.append(result)
             return result
 
+    async def _run_inline_enrich(
+        self, result: IngestionResult, manifest: IngestionManifest
+    ) -> dict[str, int]:
+        """Drain a result's ``enrichable`` payloads through ``_enrich_text``.
+
+        Factored out of :meth:`ingest` so the SAME enrichment work can run either
+        inline (legacy path) or in a decoupled ENRICH stage (CONCEPT:KG-2.267). The
+        per-payload work is delegated to :meth:`_enrich_payload`. Best-effort —
+        never raises into ingestion. Mutates ``result`` with the enrichment counts
+        (matching the original inline behaviour) and returns them.
+        """
+        enriched = {"concepts": 0, "facts": 0}
+        if not (
+            result.status == "success"
+            and result.enrichable
+            and manifest.metadata.get("enrich", True)
+        ):
+            return enriched
+        for payload in result.enrichable:
+            counts = await self._enrich_payload(payload, manifest.content_type.value)
+            enriched["concepts"] += counts["concepts"]
+            enriched["facts"] += counts["facts"]
+        result.nodes_created += enriched["concepts"]
+        result.edges_created += enriched["facts"]
+        result.details.setdefault("enrichment", enriched)
+        return enriched
+
+    async def _enrich_payload(
+        self, payload: dict[str, Any], default_source_type: str
+    ) -> dict[str, int]:
+        """Enrich one ``enrichable`` payload — the unit a downstream ENRICH worker runs.
+
+        Best-effort: a failed payload counts zero and never propagates, so a slow or
+        broken enrichment can never stall the WRITE side (CONCEPT:KG-2.267).
+        """
+        try:
+            return await self._enrich_text(
+                payload["source_id"],
+                payload.get("text", ""),
+                payload.get("source_type", default_source_type),
+                payload.get("title", ""),
+                enrich_concepts=not payload.get("concepts_done", False),
+            )
+        except Exception:  # noqa: BLE001 — enrichment never breaks ingest
+            logger.debug("enrich payload failed", exc_info=True)
+            return {"concepts": 0, "facts": 0}
+
     async def ingest_batch(
         self, manifests: list[IngestionManifest]
     ) -> list[IngestionResult]:
         """Ingest multiple manifests concurrently.
 
+        Native-by-default this runs the **staged pipeline** (CONCEPT:KG-2.267): the
+        structural WRITE of each manifest and the LLM-bound ENRICH of each payload
+        are separate worker pools joined by a bounded queue, so a repo enriching
+        never blocks another repo's write. ``KG_STAGED_PIPELINE=0`` falls back to the
+        original ``asyncio.gather`` over the inline path (the two are behaviourally
+        equivalent; the staged path only changes *when* the enrichment runs).
+
         Args:
             manifests: List of ingestion descriptors.
 
         Returns:
-            List of ``IngestionResult``, one per manifest.
+            List of ``IngestionResult``, one per manifest (input order).
         """
+        if setting("KG_STAGED_PIPELINE", "1") != "0" and len(manifests) > 1:
+            try:
+                return await self.ingest_batch_staged(manifests)
+            except Exception:  # noqa: BLE001 — never let the pipeline break ingestion
+                logger.warning(
+                    "staged pipeline failed; falling back to inline batch",
+                    exc_info=True,
+                )
+
         import asyncio
 
         results = await asyncio.gather(
@@ -672,6 +730,86 @@ class IngestionEngine:
                 )
             else:
                 processed.append(res)
+        return processed
+
+    async def ingest_batch_staged(
+        self, manifests: list[IngestionManifest]
+    ) -> list[IngestionResult]:
+        """Staged, non-blocking batch ingest (CONCEPT:KG-2.267).
+
+        Two separated, interconnected, never-dependent-locked stages:
+
+        * **WRITE** — pool sized by ``compute_ingest_worker_count`` (cpu/engine-batch
+          bound). Each worker runs ``ingest(m, defer_enrich=True)`` — the structural
+          write + delta-record only — then emits one ENRICH item per ``enrichable``
+          payload. A full ENRICH queue backpressures *this* producer alone.
+        * **ENRICH** — pool sized by the LLM/GPU slot count (minus the reserved
+          interactive slot). Each worker drains one payload through ``_enrich_text``.
+
+        While repo A's payloads enrich, repo B's structural write proceeds on the
+        independent WRITE pool — the writer never idles on LLM work. Results return
+        in input order; per-stage queue-depth + throughput counters are attached to
+        ``details['pipeline']`` of the first result for observability.
+        """
+        from .staged_pipeline import Stage, StagedPipeline, compute_stage_workers
+
+        results: list[IngestionResult | None] = [None] * len(manifests)
+
+        async def _write(item: tuple[int, IngestionManifest]) -> list[dict[str, Any]]:
+            idx, manifest = item
+            res = await self.ingest(manifest, defer_enrich=True)
+            results[idx] = res
+            out: list[dict[str, Any]] = []
+            if (
+                res.status == "success"
+                and res.enrichable
+                and manifest.metadata.get("enrich", True)
+            ):
+                ctype = manifest.content_type.value
+                for payload in res.enrichable:
+                    out.append({"payload": payload, "ctype": ctype, "result": res})
+            return out
+
+        async def _enrich(item: dict[str, Any]) -> None:
+            counts = await self._enrich_payload(item["payload"], item["ctype"])
+            res: IngestionResult = item["result"]
+            # Additive, best-effort accounting back onto the owning result. Plain
+            # ``+=`` is safe: each ENRICH worker is a coroutine on the one event loop,
+            # so there is no concurrent-thread race — and no cross-stage lock.
+            res.nodes_created += counts["concepts"]
+            res.edges_created += counts["facts"]
+            agg = res.details.setdefault("enrichment", {"concepts": 0, "facts": 0})
+            agg["concepts"] += counts["concepts"]
+            agg["facts"] += counts["facts"]
+
+        write_stage = Stage(
+            "write",
+            _write,
+            workers=compute_stage_workers("write"),
+            capacity=max(8, len(manifests)),
+        )
+        enrich_stage = Stage(
+            "enrich",
+            _enrich,
+            workers=compute_stage_workers("enrich"),
+            # Bound the in-flight enrich backlog so a slow LLM caps memory and
+            # backpressures WRITE — never an unbounded queue, never a stall.
+            capacity=max(16, compute_stage_workers("enrich") * 8),
+        )
+        pipeline = StagedPipeline([write_stage, enrich_stage])
+        await pipeline.run(list(enumerate(manifests)))
+
+        processed: list[IngestionResult] = []
+        for i, res in enumerate(results):
+            processed.append(
+                res
+                if res is not None
+                else IngestionResult(
+                    manifest=manifests[i], status="failed", error="not processed"
+                )
+            )
+        if processed:
+            processed[0].details.setdefault("pipeline", pipeline.metrics())
         return processed
 
     def _extract_and_link_concepts(
