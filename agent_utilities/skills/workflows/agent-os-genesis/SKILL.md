@@ -183,6 +183,37 @@ The orchestrator, IdP, secrets-store, CA, and dev/prod variant choices are exact
 Step 0 axes — only the run plan is narrowed to the one package. This is what the
 per-package README block (see `references/package-deploy-readme.md`) points operators to.
 
+## Kubernetes migration, owned edge & pre-change validation (program docs)
+
+When `orchestrator: kubernetes`, genesis is the day-0 driver for a full **Docker
+Swarm → RKE2 + Cilium** migration of the `services/*` fleet plus the owned public
+**edge** (VPS, replacing Cloudflare Tunnel). The authoritative, version-controlled
+plan lives **outside** this skill (single source of truth — do not duplicate here):
+
+| Concern | Source of truth |
+|---|---|
+| Master staged plan (P0 intake → P1 artifacts → P2 preflight → Stages 0–7 cutover) | `inventory/k8s-migration/MIGRATION-PLAN.md` |
+| Prerequisites (NIC bonds; **RKE2 CIDRs must not overlap `10.0.0.0/8`**; registry CA trust; …) | `inventory/k8s-migration/PHASE0.md` |
+| Decisions & secrets/access intake (CIDRs `100.64/16`/`100.65/16`, VIP `10.0.0.13`, node order, GB10) | `inventory/k8s-migration/INTAKE.md` |
+| Per-stack classification (133 orchestratable, 8 standalone) + the `k8s/` scaffolder | `inventory/k8s-migration/{ROADMAP.md,scaffold_k8s.py}` |
+| **Pre-change validation** (baseline every service + MCP; **arr-stack VPN-leak P0 gate**) | `inventory/k8s-migration/validation/` |
+| Owned public edge wired to the cluster (VPS Caddy → wg → ingress VIP) | `edge-ingress/K8S-INTEGRATION-PLAN.md` |
+
+How it binds to the steps below:
+- **Step 0** `orchestrator: kubernetes` → **Step 5** `kubernetes-mesh-provisioner`
+  (RKE2 server on R820, Cilium kube-proxy-free, L2 VIP `10.0.0.13`, GPU device-plugin);
+  **Step 11** renders the scaffolded `services/<stack>/k8s/` manifests instead of compose.
+- **Gate every cutover on validation:** before Step 5 and as the exit check of each
+  cutover stage, run `inventory/k8s-migration/validation/VALIDATION.md` — the
+  **arr-stack `arr_vpn_leak_check.sh` is a hard P0 gate** (egress must be VPN-only and
+  the kill-switch fail-closed; the home WAN IP must never leak), run as baseline now
+  and again after the gluetun shared-netns Pod cutover.
+- **Edge:** Step 14 registers the `edge-ingress` OIDC client (below); a post-ingress
+  **`edge-ingress-provision`** hook (VPS `bootstrap.sh` + R820 host `wg-quick` + DNAT to
+  the VIP + public Ingress objects) realizes the edge — see `edge-ingress/K8S-INTEGRATION-PLAN.md` §5.
+- **Standalone stacks** (vllm, arr-stack, home-assistant) keep a compose and get the
+  native k8s pattern from their `k8s/STANDALONE.md` — not generated Deployments.
+
 ## Steps
 
 ### Step 0: deployment-profile + adaptive run plan
@@ -534,8 +565,13 @@ in OpenBao — this is the service identity the multiplexer uses to reach jwt ch
 (Step A2). Then load the **baseline eunomia policy** (allow the multiplexer principal,
 deny `unknown`) via `eunomia-policy-manager` at `eunomia.arpa` — eunomia fails CLOSED, so
 this MUST exist before any MCP enforces jwt.
+**Owned-edge client (when the public edge is in use — see `edge-ingress/K8S-INTEGRATION-PLAN.md` §4.D):**
+also register the **`edge-ingress`** confidential OIDC client (redirect
+`https://auth.<public-domain>/oauth2/callback`) and store its secret in OpenBao
+(`kv/edge-ingress/oauth2`). The VPS is off-cluster (no ESO), so the
+`edge-ingress-provision` hook reads that secret once and places it in the VPS `.env`.
 - Requires: `keycloak-mcp`, `openbao-mcp` (+ skills `keycloak-client-onboarder`, `eunomia-policy-manager`)
-- Expected: `sso-wired, mcp-multiplexer-client-created, eunomia-baseline-loaded`
+- Expected: `sso-wired, mcp-multiplexer-client-created, eunomia-baseline-loaded` (+ `edge-ingress-client-created` when the edge is enabled)
 
 ### Step 14b: credential-rotation-policy
 [depends_on: Step 14] (profiles: single-node-prod, enterprise — skipped for tiny)
