@@ -30,6 +30,7 @@ __all__ = [
     "MemoryBackendClient",
     "MockBackendClient",
     "GraphOSRestClient",
+    "EngineBackendClient",
     "build_client",
 ]
 
@@ -270,11 +271,187 @@ class GraphOSRestClient(MemoryBackendClient):
         self._post("/graph/ingest_sessions", {"action": "reset", "namespace": namespace})
 
 
+class EngineBackendClient(MemoryBackendClient):
+    """In-process transport over the *live* graph-os engine (CONCEPT:AHE-3.71).
+
+    Unlike :class:`GraphOSRestClient` (which assumes a ``/graph/*`` REST gateway), this
+    transport talks to the engine the same way the MCP tools do — via
+    ``agent_utilities.mcp.kg_server._get_engine()``, which connects to the running
+    ``epistemic-graph`` daemon over its UDS socket as a *client* (role != host, so it never
+    contends for the host write lock). This is the path that actually exercises the deployed
+    memory stack:
+
+    * ``ingest_memory`` → ``engine.add_node`` of a namespaced ``:MemoryChunk`` node,
+    * ``recall`` → the per-mode engine retriever (``search_hybrid`` for hybrid/rerank/as-of,
+      ``search_memories`` for memory, the latent-topology RAG for latent),
+    * ``synthesize`` → the context-plane synthesizer when available, else recall+join.
+
+    Any engine acquisition / call failure raises :class:`BackendUnavailable` so one bad cell
+    degrades to a 0-score instead of crashing the sweep. The heavy engine import graph is
+    loaded lazily on first use, keeping the module import (and the offline tests) dependency
+    free.
+    """
+
+    def __init__(self, namespace: str = "default", *, top_k_floor: int = 1) -> None:
+        self.namespace = namespace
+        self._engine: Any | None = None
+        self._counter = 0
+        self._top_k_floor = top_k_floor
+
+    def _get_engine(self) -> Any:
+        if self._engine is not None:
+            return self._engine
+        import os
+
+        # Connect as a read/write client of the running daemon, never as the host.
+        os.environ.setdefault("KG_DAEMON_ROLE", "client")
+        try:
+            from agent_utilities.mcp import kg_server
+
+            engine = kg_server._get_engine()
+        except Exception as exc:  # noqa: BLE001 - any import/connect failure → unavailable
+            raise BackendUnavailable(f"graph-os engine unavailable: {exc}") from exc
+        if engine is None:
+            raise BackendUnavailable("graph-os engine not active")
+        self._engine = engine
+        return engine
+
+    def ingest_memory(
+        self, text: str, context_id: int | str, event_time: float | None = None
+    ) -> None:
+        engine = self._get_engine()
+        self._counter += 1
+        node_id = f"memorydata:{self.namespace}:{context_id}:{self._counter}"
+        props = {
+            "name": f"{self.namespace} chunk {context_id}/{self._counter}",
+            "description": str(text or ""),
+            "text": str(text or ""),
+            "namespace": self.namespace,
+            "context_id": str(context_id),
+            "source": "memorydata-bakeoff",
+        }
+        if event_time is not None:
+            props["event_time"] = event_time
+        try:
+            engine.add_node(node_id, "MemoryChunk", props)
+        except Exception as exc:  # noqa: BLE001
+            raise BackendUnavailable(f"engine.add_node failed: {exc}") from exc
+
+    @staticmethod
+    def _row_text(row: Any) -> str:
+        if isinstance(row, dict):
+            for key in ("text", "content", "summary", "description", "name"):
+                value = row.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            # Join name + description when both present (engine node shape).
+            name = str(row.get("name") or "").strip()
+            desc = str(row.get("description") or "").strip()
+            joined = " ".join(p for p in (name, desc) if p)
+            if joined:
+                return joined
+            return ""
+        return str(row or "")
+
+    @staticmethod
+    def _row_id(row: Any) -> Any:
+        if isinstance(row, dict):
+            return row.get("id") or row.get("node_id") or row.get("uid")
+        return None
+
+    @staticmethod
+    def _row_score(row: Any) -> float:
+        if isinstance(row, dict):
+            try:
+                return float(row.get("score", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+        return 0.0
+
+    def recall(
+        self,
+        query: str,
+        mode: str = "hybrid",
+        top_k: int = 10,
+        as_of: float | None = None,
+    ) -> list[dict[str, Any]]:
+        engine = self._get_engine()
+        k = max(self._top_k_floor, int(top_k))
+        try:
+            if mode == "memory":
+                results = engine.search_memories(query=query, top_k=k)
+            elif mode == "latent":
+                from agent_utilities.knowledge_graph.retrieval.latent_topology_rag import (
+                    LatentTopologicalRAG,
+                )
+
+                results = LatentTopologicalRAG(engine).retrieve(query, top_k=k)
+            else:
+                # hybrid / rerank / bi-temporal as-of all route through hybrid search.
+                kwargs: dict[str, Any] = {"query": query, "top_k": k}
+                if as_of is not None:
+                    import datetime as _dt
+
+                    kwargs["as_of"] = _dt.datetime.fromtimestamp(
+                        as_of, tz=_dt.timezone.utc
+                    ).isoformat()
+                results = engine.search_hybrid(**kwargs)
+        except Exception as exc:  # noqa: BLE001
+            raise BackendUnavailable(f"engine recall ({mode}) failed: {exc}") from exc
+
+        rows: list[dict[str, Any]] = []
+        for row in results or []:
+            rows.append(
+                {
+                    "id": self._row_id(row),
+                    "text": self._row_text(row),
+                    "score": self._row_score(row),
+                    "mode": mode,
+                }
+            )
+        return rows[:k]
+
+    def synthesize(self, query: str, domain: str = "code", intent: str = "how") -> dict[str, Any]:
+        engine = self._get_engine()
+        # Prefer the context-plane synthesizer (the live "explain" surface) when present.
+        try:
+            from agent_utilities.knowledge_graph.context_plane import (  # type: ignore
+                synthesize_context,
+            )
+
+            result = synthesize_context(engine, query, domain=domain, intent=intent)
+            answer = ""
+            citations: list[Any] = []
+            if isinstance(result, dict):
+                answer = str(result.get("answer") or result.get("output") or "")
+                citations = result.get("citations") or []
+            else:
+                answer = str(result or "")
+            if answer:
+                return {"answer": answer, "citations": citations, "domain": domain, "intent": intent}
+        except Exception:  # noqa: BLE001 - fall through to recall+join
+            pass
+        memories = self.recall(query, mode="hybrid", top_k=3)
+        answer = " ".join(m["text"] for m in memories if m.get("text")).strip()
+        return {
+            "answer": answer,
+            "citations": [m["id"] for m in memories if m.get("id")],
+            "domain": domain,
+            "intent": intent,
+        }
+
+    def reset(self, namespace: str) -> None:
+        # Best-effort: the engine has no namespace-scoped bulk delete on the client path,
+        # so a reset is a no-op here. Runs isolate by unique node ids instead.
+        return None
+
+
 def build_client(config: dict[str, Any]) -> MemoryBackendClient:
     """Construct a backend client from ``config`` (CONCEPT:AHE-3.71).
 
-    ``config["transport"]`` selects the implementation — ``"mock"`` (default, offline) or
-    ``"rest"`` (live graph-os). ``config["namespace"]`` isolates a run's memories.
+    ``config["transport"]`` selects the implementation — ``"mock"`` (default, offline),
+    ``"rest"`` (graph-os ``/graph/*`` gateway), or ``"engine"`` (the *live* in-process
+    engine over its UDS socket). ``config["namespace"]`` isolates a run's memories.
     """
     transport = (config or {}).get("transport", "mock")
     namespace = (config or {}).get("namespace", "default")
@@ -284,6 +461,10 @@ def build_client(config: dict[str, Any]) -> MemoryBackendClient:
             token=config.get("token"),
             namespace=namespace,
         )
+    if transport == "engine":
+        return EngineBackendClient(namespace=namespace)
     if transport == "mock":
         return MockBackendClient(namespace=namespace)
-    raise ValueError(f"unknown transport {transport!r} (expected 'mock' or 'rest')")
+    raise ValueError(
+        f"unknown transport {transport!r} (expected 'mock', 'rest', or 'engine')"
+    )
