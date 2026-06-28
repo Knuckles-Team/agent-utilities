@@ -310,11 +310,21 @@ def register_query_tools(mcp):
                 }
             )
 
-        # CONCEPT:KG-2.63 — resolve the target connection(s).
+        # CONCEPT:KG-2.63 — resolve the target connection(s). CONCEPT:KG-2.269 —
+        # with ingestion graph routing on, an implicit-default read fans across the
+        # active content-graph set so split content is still queryable as one KG.
         try:
-            entries, errors, fanout = kg_server._resolve_target_engines(target)
+            entries, errors, fanout = kg_server._resolve_read_engines(target)
         except Exception as e:
             return json.dumps({"error": str(e)})
+
+        # Whether this fan-out is the implicit content-graph UNION (no explicit
+        # target) — those rows are merged into one flat list to preserve the legacy
+        # JSON-list shape; an explicit ``target='all'``/list keeps the per-target map.
+        _union_read = fanout and (
+            target is None
+            or (isinstance(target, str) and target.strip().lower() in ("", "default"))
+        )
 
         if not fanout:
             # Single connection (default or one named) — identical shape to legacy.
@@ -334,6 +344,20 @@ def register_query_tools(mcp):
                 cypher, parsed_params, as_of=as_of or None
             ),
         )
+        if _union_read:
+            # Merge the per-graph row lists into one flat, id-deduped list so the
+            # unified default query returns the legacy shape (a JSON array of rows).
+            merged: list[Any] = []
+            seen_ids: set[str] = set()
+            for _name in results:
+                for row in results[_name] or []:
+                    rid = row.get("id") if isinstance(row, dict) else None
+                    if rid is not None:
+                        if rid in seen_ids:
+                            continue
+                        seen_ids.add(rid)
+                    merged.append(row)
+            return json.dumps(merged, default=str)
         return json.dumps(
             {"targets": results, "errors": {**errors, **fan_errors}}, default=str
         )
@@ -853,9 +877,11 @@ def register_query_tools(mcp):
                 )
             return "\n---\n".join(formatted_results)
 
-        # CONCEPT:KG-2.63 — resolve target connection(s).
+        # CONCEPT:KG-2.63 — resolve target connection(s). CONCEPT:KG-2.269 — an
+        # implicit-default search fans across the active content-graph set so content
+        # routed to ``code:*``/``src:*`` graphs stays findable as one KG.
         try:
-            entries, errors, fanout = kg_server._resolve_target_engines(target)
+            entries, errors, fanout = kg_server._resolve_read_engines(target)
         except Exception as e:
             return f"Search error: {str(e)}"
 
