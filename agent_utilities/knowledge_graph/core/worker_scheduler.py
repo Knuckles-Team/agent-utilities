@@ -47,8 +47,41 @@ __all__ = [
     "scheduler_config_from_env",
 ]
 
+# CONCEPT:KG-2.279 - Floor the codebase admission cap at the engine's durable K-way redb shard-writer width so concurrent cross-graph ingests fan across all K shard writers instead of the derived one-to-three that leaves most writers idle
+
 # The heavy task type that must never be allowed to occupy the whole pool.
 HEAVY_TYPE = "codebase"
+
+
+def durable_shard_writers() -> int:
+    """The engine's durable K-way redb shard-writer width (CONCEPT:KG-2.279).
+
+    Mirrors the engine's EG-026 auto-size — ``clamp(cpu/2, 1, 8)`` — honouring an
+    explicit ``EPISTEMIC_GRAPH_REDB_SHARDS`` override when set, WITHOUT an engine
+    round-trip (the scheduler stays pure in-process bookkeeping). Each codebase
+    ingest routes its structural writes to a per-repo graph (``code:<repo>``,
+    CONCEPT:KG-2.269) that hashes to ONE of these K shard writers; so K concurrent
+    codebase ingests spread across K *independent* writer threads — the exact
+    cross-shard parallelism the sharded writer exists to exploit, with no two
+    ingests contending on the same shard. The codebase admission cap uses this as
+    a FLOOR so it never throttles durable-write concurrency below the substrate's
+    own width (the submission-side limiter behind the profiled ``parallelism_factor``).
+    """
+    from agent_utilities.core._env import setting
+
+    raw = setting("EPISTEMIC_GRAPH_REDB_SHARDS", None)
+    if raw not in (None, ""):
+        try:
+            return max(1, min(int(raw), 64))
+        except (TypeError, ValueError):
+            pass
+    try:
+        import os
+
+        cores = os.cpu_count() or 4
+    except Exception:  # noqa: BLE001 — sizing is best-effort
+        cores = 4
+    return max(1, min(cores // 2, 8))
 
 
 @dataclass(frozen=True)
@@ -200,6 +233,17 @@ class AdmissionPolicy:
         Explicit ``config.codebase_cap`` wins; otherwise derive
         ``workers − reserved − Σ(per-lane min for OTHER pending lanes)`` so the
         heavy type always leaves room for the spare and every other pending
+        lane's minimum coverage.
+
+        The derived cap is then **floored at the engine's durable shard-writer
+        width** (CONCEPT:KG-2.279). The original derivation collapses to ~1-3 on a
+        busy box (many pending lanes), which throttles concurrent codebase ingests
+        — and therefore the count of DISTINCT per-repo graphs written at once — far
+        below the engine's K independent redb shard writers, leaving K-1 of them
+        idle while one is hot (the profiled ``parallelism_factor`` ceiling). Because
+        K concurrent codebase ingests route to K *different* shards (no two contend
+        on one writer), admitting up to ``min(K, workers − reserved)`` of them
+        saturates the durable tier without ever starving the hot-spare or another
         lane's minimum coverage. Floors at 1 (codebase must make *some* progress).
         """
         if self.config.codebase_cap is not None:
@@ -215,7 +259,13 @@ class AdmissionPolicy:
             - self.config.reserved
             - other_pending * self.config.per_lane_min
         )
-        return max(1, derived)
+        # KG-2.279: never throttle durable-write concurrency below the substrate's
+        # own K-way shard-writer width — bounded by the pool minus the hot spare.
+        shard_floor = min(
+            durable_shard_writers(),
+            max(1, self.config.worker_count - self.config.reserved),
+        )
+        return max(1, derived, shard_floor)
 
     # -- coverage helpers ----------------------------------------------------
     def _uncovered_pending_lanes(
