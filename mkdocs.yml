@@ -57,6 +57,7 @@ nav:
       - Self-Setup (config-complete): guides/self-setup.md
       - Supported Configurations (the ladder): guides/deployment-configurations.md
       - Day-0 Deployment: guides/day0.md
+      - Standard Private Repos + CI (per profile): guides/genesis-private-repos.md
       - Recipe — Tiny (all-local): recipes/tiny.md
       - Recipe — Single-node prod: recipes/single-node-prod.md
       - Recipe — Enterprise: recipes/enterprise.md
