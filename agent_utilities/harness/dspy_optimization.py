@@ -463,6 +463,151 @@ def should_promote(
     return candidate_score >= baseline_score + min_delta
 
 
+# --------------------------------------------------------------------------- #
+# CONCEPT:AHE-3.71 — the prompt-hardening cycle (optimize → evaluate → propose)
+# --------------------------------------------------------------------------- #
+# The system-prompt leg of the four artifacts, closed end-to-end: the DSPy demos (or,
+# when no LM is reachable to run a compile, the agent's own labeled successes) are folded
+# into the live :class:`StructuredPrompt` as exemplars, the candidate is scored against the
+# agent's eval-corpus slice, and a promote/reject decision is returned. The *apply* of the
+# winning candidate is gated by ``EvolveAgent.apply_edits`` + ``KG_AGENT_AUTO_APPLY`` — this
+# module only decides; it never writes source.
+
+
+def _demo_fields(demo: Any) -> tuple[str, str, str]:
+    """Extract ``(context, task, response)`` from a DSPy ``Example`` or a plain dict."""
+    if isinstance(demo, dict):
+        get = demo.get
+    else:
+        get = lambda k, d="": getattr(demo, k, d)  # noqa: E731 - tiny adapter
+    context = str(get("context", "") or "")
+    task = str(get("task", "") or get("query", "") or "")
+    response = str(get("response", "") or get("expected_output", "") or "")
+    return context, task, response
+
+
+def build_hardened_prompt(
+    baseline: Any,
+    demos: Sequence[Any],
+    *,
+    optimized_instruction: str = "",
+    max_demos: int = 4,
+) -> Any:
+    """Fold optimized exemplars into a candidate :class:`StructuredPrompt` (CONCEPT:AHE-3.71).
+
+    The hardening edit per BootstrapFewShot: the bootstrapped demos (each a real
+    ``input → ideal response`` drawn from the agent's *passing* executions) are appended to
+    the prompt body as a ``LEARNED EXEMPLARS`` block, and the prompt's ``prompt_version`` is
+    bumped. Returns a NEW prompt object (deep copy); never mutates ``baseline``. When there
+    is nothing to add (no demos, no optimized instruction) the copy is returned unchanged so
+    the candidate simply ties baseline and is rejected by :func:`should_promote`.
+    """
+    from agent_utilities.prompting.structured import (
+        PromptInstructions,
+        StructuredPrompt,
+    )
+
+    candidate: StructuredPrompt = baseline.model_copy(deep=True)
+
+    exemplars: list[str] = []
+    for demo in list(demos)[:max_demos]:
+        _ctx, task, response = _demo_fields(demo)
+        if not (task or response):
+            continue
+        exemplars.append(
+            f"- Input: {task.strip()[:400]}\n  Ideal response: {response.strip()[:400]}"
+        )
+
+    if not exemplars and not optimized_instruction.strip():
+        return candidate
+
+    instr = candidate.instructions or PromptInstructions()
+    base_body = (instr.core_directive or "").strip()
+    if optimized_instruction.strip() and optimized_instruction.strip() != base_body:
+        base_body = optimized_instruction.strip()
+    sections: list[str] = [base_body] if base_body else []
+    if exemplars:
+        sections.append(
+            "### LEARNED EXEMPLARS (hardened from real execution outcomes)\n"
+            + "\n".join(exemplars)
+        )
+    instr.core_directive = "\n\n".join(s for s in sections if s)
+    candidate.instructions = instr
+    candidate.prompt_version = _bump_patch(candidate.prompt_version)
+    return candidate
+
+
+def _bump_patch(version: str | None) -> str:
+    """Bump the patch field of a ``major.minor.patch`` semver (default ``0.0.1``)."""
+    if not version:
+        return "0.0.1"
+    parts = version.split(".")
+    try:
+        parts[-1] = str(int(parts[-1]) + 1)
+        return ".".join(parts)
+    except (ValueError, IndexError):
+        return f"{version}+hardened"
+
+
+def score_prompt_against_corpus(prompt_text: str, cases: Sequence[Any]) -> float:
+    """Mean graded overlap of a prompt body with its eval-corpus expected outputs.
+
+    CONCEPT:AHE-3.71. The offline-deterministic proxy for "does this prompt embed the
+    behavior the corpus rewards": each case's ``expected_output`` is scored against the
+    rendered prompt via :func:`graded_score` (the same semantic scorer the DSPy metric
+    uses). A prompt that has folded in exemplars whose responses match the corpus scores
+    strictly higher than the bare baseline — so the metric moves monotonically with real
+    coverage, and a candidate enriched with *irrelevant* demos cannot beat baseline.
+    """
+    scored: list[float] = []
+    for case in cases:
+        expected = str(getattr(case, "expected_output", "") or "")
+        if not expected:
+            continue
+        scored.append(graded_score(expected, prompt_text))
+    return sum(scored) / len(scored) if scored else 0.0
+
+
+@dataclass
+class PromptHardeningOutcome:
+    """The audit record of one prompt-hardening cycle (CONCEPT:AHE-3.71).
+
+    Carries everything a human/Claude needs to review the action: which agent, the
+    before/after metric, the promote decision, whether it was actually applied (vs held in
+    shadow), and the candidate's content hash. ``status`` is one of ``no_data`` (no
+    per-agent corpus), ``rejected`` (did not beat baseline), ``proposed`` (beat baseline but
+    auto-apply gated off — shadow), or ``applied`` (written to source under the gate).
+    """
+
+    agent_id: str
+    prompt_path: str
+    baseline_score: float = 0.0
+    candidate_score: float = 0.0
+    promote: bool = False
+    applied: bool = False
+    status: str = "no_data"
+    trainset_size: int = 0
+    optimizer: str = ""
+    candidate_version_hash: str = ""
+    detail: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "agent_id": self.agent_id,
+            "prompt_path": self.prompt_path,
+            "baseline_score": round(self.baseline_score, 4),
+            "candidate_score": round(self.candidate_score, 4),
+            "delta": round(self.candidate_score - self.baseline_score, 4),
+            "promote": self.promote,
+            "applied": self.applied,
+            "status": self.status,
+            "trainset_size": self.trainset_size,
+            "optimizer": self.optimizer,
+            "candidate_version_hash": self.candidate_version_hash,
+            "detail": self.detail,
+        }
+
+
 def gather_optimization_data(
     engine: Any, target: str, *, limit: int = 50
 ) -> dict[str, Any]:

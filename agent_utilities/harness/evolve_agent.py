@@ -27,6 +27,7 @@ Architecture:
 
 import logging
 import subprocess
+import time
 from typing import Any
 
 from .component_registry import HarnessComponentRegistry
@@ -60,11 +61,13 @@ class EvolveAgent:
         registry: HarnessComponentRegistry | None = None,
         knowledge_engine: Any = None,
         dspy_optimizer_type: str = "BootstrapFewShot",
+        feedback_service: Any = None,
     ) -> None:
         self.workspace_path = workspace_path
         self.registry = registry or HarnessComponentRegistry(workspace_path)
         self.knowledge_engine = knowledge_engine
         self.dspy_optimizer_type = dspy_optimizer_type
+        self._feedback_service = feedback_service
 
     async def evolve(
         self,
@@ -433,20 +436,42 @@ class EvolveAgent:
         self,
         manifest: ChangeManifest,
         dry_run: bool = True,
+        auto_apply: bool | None = None,
     ) -> ChangeManifest:
-        """Apply manifest edits to the workspace.
+        """Apply manifest edits to the workspace (CONCEPT:AHE-3.71).
 
-        In dry_run mode, only logs what would be changed without
-        modifying files.
+        For a **system-prompt** edit carrying a DSPy-hardened candidate body
+        (``edit.metadata['candidate_blueprint']``, produced by
+        :meth:`harden_agent_prompt`) this is no longer a placeholder: the candidate is
+        written to its ``StructuredPrompt`` file via ``.save()`` and committed — but ONLY
+        when (a) it beat baseline (``edit.metadata['promote']``) and (b) the
+        ``KG_AGENT_AUTO_APPLY`` gate is on. Otherwise the cycle is **propose-only**: a
+        queryable :class:`ProposedPromptChange` audit record is written (before/after metric
+        + decision + the rejected/held candidate) and the live prompt is left untouched. A
+        prompt rewrite is high-impact, so it is never silent.
 
         Args:
             manifest: The manifest with edits to apply.
-            dry_run: If True, don't modify files.
+            dry_run: If True, never write source (forces propose-only).
+            auto_apply: Override the ``KG_AGENT_AUTO_APPLY`` gate (read from config when
+                ``None``). Pass explicitly to make tests deterministic.
 
         Returns:
-            The manifest with git commit SHAs populated.
+            The manifest with git commit SHAs / audit records populated.
         """
+        if auto_apply is None:
+            auto_apply = self._auto_apply_enabled()
+
         for edit in manifest.edits:
+            if (
+                edit.component_type == ComponentType.SYSTEM_PROMPT
+                and edit.metadata.get("candidate_blueprint")
+            ):
+                self._apply_prompt_edit(
+                    edit, manifest, auto_apply=auto_apply, dry_run=dry_run
+                )
+                continue
+
             if dry_run:
                 logger.info(
                     f"EvolveAgent [DRY RUN]: Would edit {edit.file_path} — "
@@ -454,15 +479,314 @@ class EvolveAgent:
                 )
                 continue
 
-            # In real evolution, this is where the LLM generates the actual
-            # code changes. For now, we commit with a structured message.
             commit_sha = self._git_commit_edit(edit)
             edit.git_commit_sha = commit_sha
-
-            # Record in registry
             self.registry.record_edit(edit.file_path, edit.id)
 
         return manifest
+
+    @staticmethod
+    def _auto_apply_enabled() -> bool:
+        """Read the canonical ``KG_AGENT_AUTO_APPLY`` gate (default OFF / shadow)."""
+        try:
+            from agent_utilities.core.config import config as _cfg
+
+            return bool(_cfg.kg_agent_auto_apply)
+        except Exception:  # noqa: BLE001 - absent config ⇒ safest default (shadow)
+            return False
+
+    def _apply_prompt_edit(
+        self,
+        edit: ComponentEdit,
+        manifest: ChangeManifest,
+        *,
+        auto_apply: bool,
+        dry_run: bool,
+    ) -> None:
+        """Gated write + audit for a hardened system-prompt candidate (CONCEPT:AHE-3.71)."""
+        import os
+
+        from agent_utilities.prompting.structured import StructuredPrompt
+
+        meta = edit.metadata
+        promote = bool(meta.get("promote", False))
+        before = float(meta.get("baseline_score", 0.0))
+        after = float(meta.get("candidate_score", 0.0))
+
+        if promote and auto_apply and not dry_run:
+            try:
+                candidate = StructuredPrompt.model_validate(meta["candidate_blueprint"])
+                full_path = os.path.join(self.workspace_path, edit.file_path)
+                candidate.save(full_path)
+                sha = self._git_commit_edit(edit)
+                edit.git_commit_sha = sha
+                self.registry.record_edit(edit.file_path, edit.id)
+                status, applied = "applied", True
+                logger.info(
+                    "EvolveAgent: APPLIED hardened prompt %s (%.3f → %.3f) commit=%s",
+                    edit.file_path,
+                    before,
+                    after,
+                    sha,
+                )
+            except Exception as e:  # noqa: BLE001 - a write failure must not crash the loop
+                logger.error("EvolveAgent: prompt apply failed: %s", e)
+                status, applied = "error", False
+        elif promote:
+            status, applied = "proposed", False
+            logger.info(
+                "EvolveAgent: PROPOSED hardened prompt %s (%.3f → %.3f) — held for review "
+                "(auto-apply gated off).",
+                edit.file_path,
+                before,
+                after,
+            )
+        else:
+            status, applied = "rejected", False
+            logger.info(
+                "EvolveAgent: REJECTED candidate for %s (%.3f → %.3f did not beat baseline).",
+                edit.file_path,
+                before,
+                after,
+            )
+
+        edit.metadata["apply_status"] = status
+        self._record_proposed_change(edit, manifest, status, before, after, applied)
+
+    def _record_proposed_change(
+        self,
+        edit: ComponentEdit,
+        manifest: ChangeManifest,
+        status: str,
+        before: float,
+        after: float,
+        applied: bool,
+    ) -> str:
+        """Persist a queryable + approvable ``ProposedPromptChange`` audit record.
+
+        CONCEPT:AHE-3.71 — the transparency surface. Every hardening decision (applied /
+        proposed / rejected) lands as a git-diffable JSON under
+        ``.specify/proposals/`` AND, best-effort, a ``ProposedPromptChange`` KG node — so a
+        human/Claude can review the before/after metric and the held candidate and approve
+        it (:meth:`approve_proposed_change`) rather than have it land silently.
+        """
+        import json
+        import os
+
+        meta = edit.metadata
+        proposal_id = f"prompt_change:{edit.id.split(':')[-1]}"
+        record = {
+            "id": proposal_id,
+            "type": "ProposedPromptChange",
+            "agent_id": meta.get("agent_id", ""),
+            "file_path": edit.file_path,
+            "round_id": manifest.round_id,
+            "edit_id": edit.id,
+            "status": status,
+            "applied": applied,
+            "baseline_score": round(before, 4),
+            "candidate_score": round(after, 4),
+            "delta": round(after - before, 4),
+            "optimizer": meta.get("optimizer", ""),
+            "trainset_size": meta.get("trainset_size", 0),
+            "candidate_version_hash": meta.get("candidate_version_hash", ""),
+            "candidate_blueprint": meta.get("candidate_blueprint", {}),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+
+        proposals_dir = os.path.join(self.workspace_path, ".specify", "proposals")
+        os.makedirs(proposals_dir, exist_ok=True)
+        proposal_path = os.path.join(proposals_dir, f"{proposal_id}.json")
+        with open(proposal_path, "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=2)
+
+        if self.knowledge_engine is not None and hasattr(
+            self.knowledge_engine, "add_node"
+        ):
+            props = {k: v for k, v in record.items() if k != "candidate_blueprint"}
+            props["candidate_blueprint_json"] = json.dumps(
+                record["candidate_blueprint"]
+            )[:8000]
+            try:  # two add_node shapes in the fleet — try the kw form, then properties=.
+                self.knowledge_engine.add_node(proposal_id, **props)
+            except Exception:  # noqa: BLE001
+                try:
+                    self.knowledge_engine.add_node(
+                        proposal_id, "ProposedPromptChange", properties=props
+                    )
+                except Exception as e:  # noqa: BLE001 - persistence best-effort
+                    logger.debug("ProposedPromptChange KG persist failed: %s", e)
+
+        meta["proposal_id"] = proposal_id
+        meta["proposal_path"] = proposal_path
+        return proposal_path
+
+    def approve_proposed_change(self, proposal_id: str) -> dict[str, Any]:
+        """Human/Claude approval path for a shadow proposal (CONCEPT:AHE-3.71).
+
+        Applies a previously **proposed** (or rejected, if force-approved) candidate to
+        source — the steerable counterpart to the auto-apply gate, so a winning prompt can
+        go live by review instead of by flipping the global flag. Returns a status dict.
+        """
+        import json
+        import os
+
+        from agent_utilities.prompting.structured import StructuredPrompt
+
+        proposal_path = os.path.join(
+            self.workspace_path, ".specify", "proposals", f"{proposal_id}.json"
+        )
+        if not os.path.exists(proposal_path):
+            return {"approved": False, "error": f"no proposal {proposal_id}"}
+        with open(proposal_path, encoding="utf-8") as f:
+            record = json.load(f)
+        blueprint = record.get("candidate_blueprint") or {}
+        if not blueprint:
+            return {"approved": False, "error": "proposal carries no candidate"}
+        candidate = StructuredPrompt.model_validate(blueprint)
+        full_path = os.path.join(self.workspace_path, record["file_path"])
+        candidate.save(full_path)
+        record["status"] = "applied"
+        record["applied"] = True
+        record["approved_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with open(proposal_path, "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=2)
+        logger.info("EvolveAgent: APPROVED + applied proposal %s", proposal_id)
+        return {"approved": True, "file_path": record["file_path"], "id": proposal_id}
+
+    async def harden_agent_prompt(
+        self,
+        agent_id: str,
+        prompt_path: str,
+        *,
+        feedback_service: Any = None,
+        min_delta: float = 0.0,
+        auto_apply: bool | None = None,
+    ) -> Any:
+        """Run ONE metric → optimize → evaluate → (gated) apply cycle for an agent's prompt.
+
+        CONCEPT:AHE-3.73 — the closed agent-hardening cycle (uses the AHE-3.71 gated apply
+        and AHE-3.72 per-agent attribution), end-to-end for one agent:
+
+        1. **Attribute** — pool the agent's ``action_outcome`` cases into a per-agent
+           trainset + eval slice (:meth:`FeedbackService.build_agent_trainset`).
+        2. **Optimize** — run :func:`run_dspy_optimization` on the ``system_prompt`` target
+           with that trainset; degrade to the labeled successes as demos when no LM is
+           reachable to compile.
+        3. **Build** — fold the optimized demos into a candidate ``StructuredPrompt``.
+        4. **Evaluate** — score baseline vs candidate against the agent's eval slice.
+        5. **Decide + apply** — :func:`should_promote`, then :meth:`apply_edits` writes the
+           winner ONLY under ``KG_AGENT_AUTO_APPLY``; otherwise it is held as a queryable
+           proposal. Always leaves an audit trail (ProposedPromptChange + the manifest).
+
+        Returns a :class:`PromptHardeningOutcome`.
+        """
+        import os
+
+        from agent_utilities.prompting.structured import StructuredPrompt
+
+        from .dspy_optimization import (
+            PromptHardeningOutcome,
+            build_hardened_prompt,
+            get_target,
+            run_dspy_optimization,
+            score_prompt_against_corpus,
+            should_promote,
+        )
+
+        fb = feedback_service or self._feedback_service
+        if fb is None:
+            return PromptHardeningOutcome(
+                agent_id=agent_id,
+                prompt_path=prompt_path,
+                status="no_data",
+                detail="no FeedbackService available to pool per-agent outcomes",
+            )
+
+        cases = fb.agent_eval_cases(agent_id)
+        trainset = fb.build_agent_trainset(agent_id)
+        if not cases or not trainset:
+            return PromptHardeningOutcome(
+                agent_id=agent_id,
+                prompt_path=prompt_path,
+                trainset_size=len(trainset),
+                status="no_data",
+                detail=f"per-agent corpus empty (cases={len(cases)} train={len(trainset)})",
+            )
+
+        full_path = os.path.join(self.workspace_path, prompt_path)
+        baseline = StructuredPrompt.load(full_path)
+
+        # Optimize — best-effort DSPy compile, then fall back to the labeled successes as
+        # demos so the cycle still hardens the prompt offline (no LM required).
+        target = get_target("system_prompt")
+        result = None
+        if target is not None:
+            artifact = baseline.model_dump(exclude_none=True)
+            artifact["__file_path__"] = prompt_path
+            result = run_dspy_optimization(
+                target, artifact, list(trainset), optimizer_name=self.dspy_optimizer_type
+            )
+        # Use the DSPy-bootstrapped demos when the compile produced any; otherwise (no LM
+        # reachable to roll out a bootstrap) fall back to the agent's labeled successes as
+        # demos, so the cycle still hardens the prompt offline.
+        if result is not None and result.demos:
+            demos = result.demos
+            optimizer_name = result.optimizer
+            optimized_instruction = result.optimized_instruction
+        else:
+            demos = list(trainset)
+            optimizer_name = "labeled-successes"
+            optimized_instruction = ""
+
+        candidate = build_hardened_prompt(
+            baseline, demos, optimized_instruction=optimized_instruction
+        )
+
+        baseline_score = score_prompt_against_corpus(baseline.render(), cases)
+        candidate_score = score_prompt_against_corpus(candidate.render(), cases)
+        promote = should_promote(baseline_score, candidate_score, min_delta=min_delta)
+
+        edit = ComponentEdit(
+            component_type=ComponentType.SYSTEM_PROMPT,
+            file_path=prompt_path,
+            edit_summary=(
+                f"Harden {agent_id} system prompt via {optimizer_name} "
+                f"({len(trainset)} outcomes): {baseline_score:.3f} → {candidate_score:.3f}"
+            ),
+            evidence_references=[f"agent_outcomes:{agent_id}"],
+            metadata={
+                "agent_id": agent_id,
+                "promote": promote,
+                "baseline_score": baseline_score,
+                "candidate_score": candidate_score,
+                "optimizer": optimizer_name,
+                "trainset_size": len(trainset),
+                "candidate_version_hash": candidate.version_hash(),
+                "candidate_blueprint": candidate.model_dump(
+                    exclude_none=True, exclude_unset=True
+                ),
+            },
+        )
+        manifest = ChangeManifest(baseline_score=baseline_score)
+        manifest.add_edit(edit)
+
+        await self.apply_edits(manifest, dry_run=False, auto_apply=auto_apply)
+
+        status = edit.metadata.get("apply_status", "rejected")
+        return PromptHardeningOutcome(
+            agent_id=agent_id,
+            prompt_path=prompt_path,
+            baseline_score=baseline_score,
+            candidate_score=candidate_score,
+            promote=promote,
+            applied=status == "applied",
+            status=status,
+            trainset_size=len(trainset),
+            optimizer=optimizer_name,
+            candidate_version_hash=candidate.version_hash(),
+            detail=edit.metadata.get("proposal_path", ""),
+        )
 
     def _git_commit_edit(self, edit: ComponentEdit) -> str | None:
         """Create a git commit for a component edit.
