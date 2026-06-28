@@ -510,6 +510,43 @@ class IngestionEngine:
         self.manifest = DeltaManifest(backend=self.backend)
         gc = getattr(kg_engine, "graph_compute", None)
         self.graph_name = getattr(gc, "graph_name", "__commons__")
+        # CONCEPT:KG-2.269 — cache of write backends bound to a routed content
+        # graph (``code:<repo>`` / ``src:<connector>`` / …). Empty + unused when
+        # KG_INGEST_GRAPH_ROUTING is off (every item routes to ``self.graph_name``).
+        self._routed_backends: dict[str, Any] = {}
+
+    def _routed_write(
+        self,
+        *,
+        kind: str | None = None,
+        source_type: str | None = None,
+        repo: str | None = None,
+    ) -> tuple[str, Any]:
+        """Resolve ``(write_graph, backend)`` for an ingestion item (CONCEPT:KG-2.269).
+
+        Maps the item to its destination graph via the routing policy and returns a
+        backend bound to it, so structural/content writes land on a per-source graph
+        that hashes to its own redb shard writer instead of all funnelling into
+        ``__commons__``. When routing is off — or the item routes back to this
+        engine's own graph — returns ``(self.graph_name, self.backend)`` unchanged
+        (byte-for-byte legacy). The routed graph is registered so the read path can
+        fan a unified query across it.
+        """
+        from ..core import ingest_routing
+
+        routed = ingest_routing.route_graph(
+            kind=kind, source_type=source_type, repo=repo
+        )
+        if routed == self.graph_name:
+            return self.graph_name, self.backend
+        backend = self._routed_backends.get(routed)
+        if backend is None:
+            from ..backends.epistemic_graph_backend import EpistemicGraphBackend
+
+            backend = EpistemicGraphBackend(graph_name=routed)
+            self._routed_backends[routed] = backend
+        ingest_routing.register_content_graph(routed)
+        return routed, backend
 
     @property
     def history(self) -> list[IngestionResult]:
@@ -1055,9 +1092,18 @@ class IngestionEngine:
             make_parse_fn,
         )
 
+        # CONCEPT:KG-2.269 — route this repo's durable structural writes to a
+        # per-repo graph (``code:<repo>``) when graph routing is on, so they hash
+        # to their own redb shard writer instead of all landing on ``__commons__``.
+        # ``write_graph`` keys this repo's delta-skip manifest + community tenant
+        # too, keeping them co-resident with the content they guard. Routing off →
+        # ``(self.graph_name, self.backend)`` unchanged.
+        write_graph, backend = self._routed_write(
+            kind="code", repo=Path(source_path).name
+        )
+
         # Enrichment writers need add_node/add_edge; wrap graph_compute if the
         # injected backend doesn't expose them (non-epistemic backends).
-        backend = self.backend
         if not (hasattr(backend, "add_node") and hasattr(backend, "add_edge")):
             from ..backends.epistemic_graph_backend import EpistemicGraphBackend
 
@@ -1104,7 +1150,7 @@ class IngestionEngine:
         # each job's community-detection tenant so multi-repo ingest is safe.
         import uuid as _uuid
 
-        comm_name = f"{self.graph_name}__enrich_comm_{_uuid.uuid4().hex[:8]}"
+        comm_name = f"{write_graph}__enrich_comm_{_uuid.uuid4().hex[:8]}"
         if manifest.metadata.get("features", True):
             try:
                 # Community tenant lives on the ingest engine when one is active.
@@ -1120,7 +1166,7 @@ class IngestionEngine:
         # Seed per-file delta from the durable manifest (one bulk load).
         file_cat = "codebase_file"
         try:
-            hash_seen = self.manifest.load_for_graph(self.graph_name, file_cat)
+            hash_seen = self.manifest.load_for_graph(write_graph, file_cat)
         except Exception:  # noqa: BLE001
             hash_seen = {}
 
@@ -1157,7 +1203,7 @@ class IngestionEngine:
         prior_sha: str | None = None
         if head_sha:
             try:
-                prior_sha = self.manifest.get(self.graph_name, git_cat, repo_key)
+                prior_sha = self.manifest.get(write_graph, git_cat, repo_key)
             except Exception:  # noqa: BLE001
                 prior_sha = None
         changed_files: list[Path] | None = None
@@ -1215,7 +1261,7 @@ class IngestionEngine:
         # the per-file content_hash skip remains the correctness backstop instead.
         if head_sha and not explicit:
             try:
-                self.manifest.record(self.graph_name, git_cat, repo_key, head_sha)
+                self.manifest.record(write_graph, git_cat, repo_key, head_sha)
             except Exception:  # noqa: BLE001
                 logger.debug("codebase git-sha manifest persist failed", exc_info=True)
 
@@ -1223,7 +1269,7 @@ class IngestionEngine:
         # per-file skip survives restarts.
         try:
             for fp, fh in hash_seen.items():
-                self.manifest.record(self.graph_name, file_cat, fp, fh)
+                self.manifest.record(write_graph, file_cat, fp, fh)
         except Exception:  # noqa: BLE001
             logger.debug("codebase per-file manifest persist failed", exc_info=True)
 
@@ -1828,14 +1874,20 @@ class IngestionEngine:
                 error=f"connector build failed: {exc}",
             )
 
-        # Resume from the stored checkpoint (ECO-4.26 + KG-2.8).
-        prior_raw = self.manifest.get(
-            self.graph_name, "connector_checkpoint", connector_id
+        # CONCEPT:KG-2.269 — route this connector's docs/chunks to a per-source
+        # graph (``src:<source_type>``) when routing is on, so its writes hash to
+        # their own redb shard writer instead of all landing on ``__commons__``.
+        # ``write_graph`` co-keys the checkpoint manifest with the content it tracks.
+        write_graph, backend = self._routed_write(
+            kind="connector", source_type=source_type
         )
+
+        # Resume from the stored checkpoint (ECO-4.26 + KG-2.8).
+        prior_raw = self.manifest.get(write_graph, "connector_checkpoint", connector_id)
         prior_cp = ConnectorCheckpoint.from_json(prior_raw)
 
         processor = DocumentProcessor(
-            self.backend,
+            backend,
             chunking=ChunkingConfig(
                 chunk_size=int(manifest.metadata.get("chunk_size", 800)),
                 overlap=int(manifest.metadata.get("overlap", 120)),
@@ -1920,7 +1972,7 @@ class IngestionEngine:
         if new_cp is not None:
             try:
                 self.manifest.record(
-                    self.graph_name,
+                    write_graph,
                     "connector_checkpoint",
                     connector_id,
                     new_cp.to_json(),

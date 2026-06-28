@@ -2141,6 +2141,51 @@ def _resolve_target_engines(
     return entries, errors, fanout
 
 
+def _resolve_read_engines(
+    target: Any,
+) -> tuple[list[tuple[str, Any]], dict[str, str], bool]:
+    """Resolve a READ tool's ``target`` into engines, unioning content graphs.
+
+    CONCEPT:KG-2.269 — preserve unified query under ingestion graph routing. When
+    routing is on and the caller did NOT pin an explicit target, content lives
+    spread across per-source graphs (``code:*`` / ``src:*`` / …) that the single
+    default engine cannot see. This resolver returns one engine per active content
+    graph (plus the default) with ``fanout=True``, so the existing fan-out machinery
+    unions them and a node written to ``code:X`` stays findable via the normal
+    ``graph_search`` / ``graph_query`` path. An explicit ``target`` (a named
+    connection, ``"all"``, a list) defers to the standard connection resolver
+    unchanged, and with routing off this is byte-for-byte ``_resolve_target_engines``.
+    """
+    from agent_utilities.knowledge_graph.core import ingest_routing
+
+    is_implicit_default = target is None or (
+        isinstance(target, str) and target.strip().lower() in ("", "default")
+    )
+    if not (is_implicit_default and ingest_routing.routing_enabled()):
+        return _resolve_target_engines(target)
+
+    read_graphs = ingest_routing.read_graph_targets()
+    if len(read_graphs) <= 1:
+        # Nothing routed yet → stay on the fast single default-graph path.
+        return _resolve_target_engines(target)
+
+    from agent_utilities.knowledge_graph.core.shard_topology import default_graph_name
+
+    default_graph = default_graph_name()
+    entries: list[tuple[str, Any]] = []
+    errors: dict[str, str] = {}
+    for gname in read_graphs:
+        if gname == default_graph:
+            entries.append(("default", _get_engine()))
+            continue
+        eng, err = ingest_routing.safe_engine_for_graph(gname)
+        if err is not None:
+            errors[gname] = err
+        else:
+            entries.append((gname, eng))
+    return entries, errors, True
+
+
 #: Per-target wall-clock budget (seconds) for a fan-out (``target='all'`` or a
 #: multi-target list). One slow/unreachable backend must not stall the whole set;
 #: override live via ``graph_configure set_config GRAPH_FANOUT_TIMEOUT`` (KG-2.63).
