@@ -336,7 +336,35 @@ async def run_agent(
     # task through the graph let the LLM router/dispatcher mis-route it (e.g. to a
     # verifier that ran on empty results), so the server's tools were never called.
     try:
-        if getattr(shape, "tool_servers", ()):
+        if _is_bound_template_agent(agent_meta, config):
+            # CONCEPT:ORCH-1.101 — a KG-bound persona (e.g. agent-utilities-expert)
+            # runs a DIRECT grounding loop: its recovered persona prompt drives the
+            # run and its now-bound toolsets (graph-os + the fleet) let it query the
+            # KG and ground the answer, instead of the prompt-only run that
+            # hallucinated. Takes precedence over the generic focused-tools lexical
+            # gate because the template DECLARES its own toolsets. A failure falls
+            # through to the full graph (never drops the turn).
+            try:
+                result = await _execute_single_server(
+                    config=config,
+                    task=task,
+                    max_steps=max_steps,
+                    agent_meta=agent_meta,
+                    agent_name=agent_name,
+                )
+            except Exception as e:  # noqa: BLE001 — degrade to the graph, never drop the turn
+                logger.warning(
+                    "[ORCH-1.101] bound-template path failed (%s); falling through to the full graph.",
+                    _flatten_exception_group(e),
+                )
+                result = await _execute_graph(
+                    config=config,
+                    query=task,
+                    run_id=run_id,
+                    max_steps=max_steps,
+                    agent_meta=agent_meta,
+                )
+        elif getattr(shape, "tool_servers", ()):
             # CONCEPT:ORCH-1.74 — FOCUSED-TOOLS altitude: the lexical gate named concrete fleet
             # server(s), so bind exactly those toolsets and run ONE direct agent loop (parallel
             # tool calls) instead of the planning graph, which over-decomposes a named-tool ask
@@ -880,6 +908,83 @@ def _spawn_auth_headers() -> dict[str, str]:
         return {}
 
 
+def _toolset_for_id(engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
+    """Resolve ONE AgentTemplate ``toolset_id`` to a live MCP toolset.
+
+    CONCEPT:ORCH-1.101 — the binding seam that turns a KG-bound persona's declared
+    toolsets into tools the local LLM can actually call. Resolution reuses the
+    existing Server/mcp_config + fleet-URL machinery (no new binder, no new
+    transport code):
+
+    1. Prefer an explicit served ``url`` on a ``:Server`` node in the KG (the
+       mcp_config-derived registry), when one exists.
+    2. Otherwise fall back to the homelab fleet served-URL convention
+       (``http://<id>.<domain>/mcp``, :func:`_fleet_server_url`) — the same
+       resolution the FOCUSED-TOOLS path (ORCH-1.74) uses; the fleet's ~58
+       ``*-mcp`` servers plus ``graph-os`` and the ``mcp-multiplexer`` are all
+       served there.
+
+    The toolset carries the OIDC service-account bearer (:func:`_spawn_auth_headers`)
+    so jwt-protected ``*.arpa`` servers don't reject the call ``401``. Returns the
+    bound ``MCPToolset`` (id-tagged for filtering), or ``None`` for an empty id.
+    """
+    tid = (toolset_id or "").strip()
+    if not tid:
+        return None
+
+    from agent_utilities.core.config import DEFAULT_SSL_VERIFY
+    from agent_utilities.mcp.toolset_factory import build_http_toolset
+
+    url = ""
+    # 1. Prefer an explicit served URL recorded on a Server node (mcp_config registry).
+    try:
+        if engine and getattr(engine, "backend", None):
+            rows = engine.backend.execute(
+                "MATCH (s:Server) WHERE s.name = $name OR s.id = $sid "
+                "RETURN s.url AS url",
+                {"name": tid, "sid": f"srv:{tid}"},
+            )
+            if rows:
+                cand = str(rows[0].get("url") or "").strip()
+                if cand and not cand.startswith("stdio://"):
+                    url = cand
+    except Exception as exc:  # noqa: BLE001 — registry lookup is best-effort
+        logger.debug("[ORCH-1.101] Server-node URL lookup failed for %s: %s", tid, exc)
+
+    # 2. Fleet served-URL convention (the focused-tools resolution).
+    url = url or _fleet_server_url(tid)
+
+    return build_http_toolset(
+        url,
+        headers=_spawn_auth_headers() or None,
+        verify=DEFAULT_SSL_VERIFY,
+        timeout=60,
+        toolset_id=tid,
+    )
+
+
+def _resolve_toolset_ids(
+    engine: IntelligenceGraphEngine, toolset_ids: list[str]
+) -> list[Any]:
+    """Bind an AgentTemplate's ``toolset_ids`` into a list of live MCP toolsets.
+
+    CONCEPT:ORCH-1.101 — each id is resolved by :func:`_toolset_for_id`; a single
+    id that fails to bind is skipped (logged) rather than dropping the whole set,
+    so the persona still gets every toolset that DID resolve (e.g. ``graph-os``
+    for grounding) even if one server is unreachable.
+    """
+    bound: list[Any] = []
+    for tid in toolset_ids or []:
+        try:
+            ts = _toolset_for_id(engine, tid)
+        except Exception as exc:  # noqa: BLE001 — one bad id must not drop the rest
+            logger.warning("[ORCH-1.101] failed to bind toolset_id %r: %s", tid, exc)
+            ts = None
+        if ts is not None:
+            bound.append(ts)
+    return bound
+
+
 async def _prime_recent_mementos(
     engine: IntelligenceGraphEngine,
     source: str,
@@ -1182,6 +1287,32 @@ def _build_execution_config(
                 "[ORCH-1.21] Failed to bind MCP toolset for '%s': %s", agent_name, e
             )
 
+    # CONCEPT:ORCH-1.101 — a KG-bound AgentTemplate (e.g. ``agent-utilities-expert``)
+    # declares its toolsets as ``toolset_ids`` (surfaced as ``capabilities`` by
+    # ``_resolve_agent_from_kg``). Resolution recovered the persona prompt but, until
+    # now, NOT live tools: the binding above only fires for ``type=="server"`` agents
+    # with a URL, so the template ran prompt-only and HALLUCINATED. Bind each declared
+    # toolset into a live MCP toolset so the persona can actually query graph-os / the
+    # fleet and GROUND its answers (query-the-KG-then-answer). Reuses the same
+    # Server/fleet-URL resolution + toolset_factory — no new binder.
+    if agent_meta.get("type") == "agent_template":
+        bound = _resolve_toolset_ids(engine, agent_meta.get("capabilities", []))
+        if bound:
+            config["mcp_toolsets"].extend(bound)
+            logger.info(
+                "[ORCH-1.101] Bound %d toolset(s) for AgentTemplate '%s': %s",
+                len(bound),
+                agent_name,
+                agent_meta.get("capabilities"),
+            )
+        else:
+            logger.warning(
+                "[ORCH-1.101] AgentTemplate '%s' declared toolsets %s but none bound — "
+                "it will run prompt-only",
+                agent_name,
+                agent_meta.get("capabilities"),
+            )
+
     return config
 
 
@@ -1197,6 +1328,22 @@ def _is_single_server_agent(agent_meta: dict[str, Any], config: dict[str, Any]) 
     concrete toolset to call, so there is nothing for the multi-agent router to plan.
     """
     return bool(agent_meta.get("type") == "server" and config.get("mcp_toolsets"))
+
+
+def _is_bound_template_agent(
+    agent_meta: dict[str, Any], config: dict[str, Any]
+) -> bool:
+    """True when a resolved AgentTemplate has its toolset_ids bound to live toolsets.
+
+    CONCEPT:ORCH-1.101 — such a persona (e.g. ``agent-utilities-expert``) runs a
+    DIRECT grounding loop (its persona prompt + its bound toolsets), not the
+    planning graph: the multi-agent router would over-decompose the ask and the
+    persona/tools would never drive a single query-then-answer turn. The bound
+    toolsets are exactly what lets it query graph-os and stop hallucinating.
+    """
+    return bool(
+        agent_meta.get("type") == "agent_template" and config.get("mcp_toolsets")
+    )
 
 
 async def _execute_single_server(
