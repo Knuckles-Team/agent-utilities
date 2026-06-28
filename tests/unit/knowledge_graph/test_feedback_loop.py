@@ -108,7 +108,7 @@ def test_unknown_correction_type_is_rejected():
     assert not res.applied
 
 
-# ── FeedbackService: selective_erasure live path (CONCEPT:KG-2.275) ───────────
+# ── FeedbackService: selective_erasure live path (CONCEPT:KG-2.276) ───────────
 def test_selective_erasure_live_path_forgets_superseded_rewards():
     """LIVE-PATH: a `selective_erasure` correction dispatched through
     `record_correction` reaches the real `CapabilityIndex` and forgets only the

@@ -3,7 +3,7 @@
 **Paper:** *The Red Queen Gödel Machine: Co-Evolving Agents and Their Evaluators* (RQGM),
 Iacob, Jovanović, Shen, Burkhardt, Kurmanji, Tastan, Sani, Venanzi, Odonnat, Cao, Marino,
 Qiu, Lane — Cambridge / NVIDIA / Flower Labs / MBZUAI / Inria, 24 Jun 2026.
-**Date:** 2026-06-28 · **Reviewer concept:** CONCEPT:KG-2.275 · **Verdict:** see §6.
+**Date:** 2026-06-28 · **Reviewer concept:** CONCEPT:KG-2.276 · **Verdict:** see §6.
 
 ---
 
@@ -108,7 +108,7 @@ path. It is small, principled, and self-detecting.
 
 | # | Synergy | Merit | Decision |
 |---|---|---|---|
-| 1 | **Generation-scoped selective reward erasure** on `CapabilityIndex` (auto-detected on the upsert path + explicit two-surface op) | **High** — fills a real memory-maintenance gap (provenance-scoped forgetting) on a live path | **IMPLEMENTED (KG-2.275)** |
+| 1 | **Generation-scoped selective reward erasure** on `CapabilityIndex` (auto-detected on the upsert path + explicit two-surface op) | **High** — fills a real memory-maintenance gap (provenance-scoped forgetting) on a live path | **IMPLEMENTED (KG-2.276)** |
 | 2 | ε-best-belief statistical gate before a router/evaluator *swap* (Beta lower-bound, ties→incumbent) | Low–Med — improvement to the AHE eval/router pillar, **not** memory; sibling-owned area; our reward-EMA already bounds swings | **Deferred** (flag to AHE owner) |
 | 3 | Epoch/frozen-within-epoch evaluator machinery + CMP/Thompson archive search | Low for us — re-implements GM base-model search we intentionally don't do | **Rejected** |
 | 4 | Adversarial-objective judge debiasing on the eval corpus | Med — but belongs to AHE eval pillar, not memory | **Deferred** (out of scope) |
@@ -120,12 +120,12 @@ co-evolving-evaluator paper, and our self-improvement/eval pillar (AHE-3.x) alre
 the transferable parts. **Exactly one** mechanism, *selective erasure*, mapped onto a real
 gap in memory **maintenance**: forgetting learned utility by **provenance/generation**
 rather than by **age**. That one synergy is worth building and has been built as
-**CONCEPT:KG-2.275** (§4, see Implementation below). Everything else is either already in
+**CONCEPT:KG-2.276** (§4, see Implementation below). Everything else is either already in
 the stack in an equivalent-or-deliberately-different form, or belongs to the AHE/eval pillar
 owned elsewhere — and was correctly *not* built here. Honest bottom line: high-quality
 paper, narrow relevance to *memory*, one clean win extracted.
 
-## 7. Implementation summary (KG-2.275)
+## 7. Implementation summary (KG-2.276)
 
 - **Primitive** — `agent_utilities/knowledge_graph/retrieval/capability_index.py`:
   - `add()` auto-erases an id's stale reward EMA when a re-embed's cosine distance exceeds

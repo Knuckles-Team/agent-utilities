@@ -54,7 +54,7 @@ except Exception:  # pragma: no cover - import guard
     _HNSW_AVAILABLE = False
 
 
-# CONCEPT:KG-2.275 — generation-scoped selective reward erasure for memory maintenance.
+# CONCEPT:KG-2.276 — generation-scoped selective reward erasure for memory maintenance.
 # When an entity is re-ingested with a *materially* different
 # embedding, the learned reward EMA was scored under a now-superseded
 # representation and is no longer valid evidence about the new content. A
@@ -166,7 +166,7 @@ class CapabilityIndex:
         # id -> reward EMA in [0, 1] (0.5 = neutral/unproven). Updated by
         # record_outcome() to close the learning loop (Plan 08 Synergy 5).
         self._reward: dict[str, float] = {}
-        # Running count of reward records selectively erased (CONCEPT:KG-2.275),
+        # Running count of reward records selectively erased (CONCEPT:KG-2.276),
         # for observability/doctor. Transient — not persisted across save/load.
         self._reward_erasures: int = 0
         # id -> ontology type/class (CONCEPT:KG-2.44b). Optional; populated from the
@@ -260,7 +260,7 @@ class CapabilityIndex:
 
         norm_vec = _l2_normalize(vec)
         is_update = id in self._id_to_vec
-        # CONCEPT:KG-2.275 — selective reward erasure on the ingestion upsert path.
+        # CONCEPT:KG-2.276 — selective reward erasure on the ingestion upsert path.
         # A re-add whose representation has materially diverged from the stored one is a
         # new generation: the reward EMA accrued under the old content is stale
         # evidence, so erase only that id's record (RQGM selective erasure). The
@@ -273,7 +273,7 @@ class CapabilityIndex:
                 self._reward.pop(id, None)
                 self._reward_erasures += 1
                 logger.debug(
-                    "[KG-2.275] selective reward erasure for %r "
+                    "[KG-2.276] selective reward erasure for %r "
                     "(embedding drift %.3f > %.2f)",
                     id,
                     distance,
@@ -596,7 +596,7 @@ class CapabilityIndex:
         return self._reward.get(id, 0.5)
 
     def selective_erase_rewards(self, ids: Any) -> int:
-        """Selectively erase the reward EMA for exactly ``ids`` (CONCEPT:KG-2.275).
+        """Selectively erase the reward EMA for exactly ``ids`` (CONCEPT:KG-2.276).
 
         The explicit, provenance-scoped form of the Red Queen Gödel Machine's
         *selective erasure* (arXiv:2606.26294): when the source/evaluator/impl
@@ -622,7 +622,7 @@ class CapabilityIndex:
 
     @property
     def reward_erasures(self) -> int:
-        """Total reward records selectively erased this process (KG-2.275)."""
+        """Total reward records selectively erased this process (KG-2.276)."""
         return self._reward_erasures
 
     def decay_rewards(self, factor: float = 0.99) -> None:

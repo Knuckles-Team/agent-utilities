@@ -45,7 +45,7 @@ flowchart TB
     subgraph MNT["4 · Maintenance"]
         DECAY["Ebbinghaus decay / consolidation<br/>(KG-2.4 Evolving Memory)"]
         REAP["idle / max-age reapers + compaction"]
-        ERASE["Generation-scoped selective reward erasure<br/>(KG-2.275 — provenance, not age)"]
+        ERASE["Generation-scoped selective reward erasure<br/>(KG-2.276 — provenance, not age)"]
     end
 
     EXT --> REP
@@ -54,7 +54,7 @@ flowchart TB
     MNT -. "promote / decay / forget" .-> REP
 ```
 
-### Generation-scoped selective reward erasure (CONCEPT:KG-2.275)
+### Generation-scoped selective reward erasure (CONCEPT:KG-2.276)
 
 The maintenance quadrant decays learned utility by **age** (`decay_rewards`,
 KG-2.4) and reaps memories by idle/max-age. It had no way to forget utility by

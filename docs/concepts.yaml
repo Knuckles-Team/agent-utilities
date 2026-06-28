@@ -4008,7 +4008,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   doc: when the engine exposes the
-- id: KG-2.275
+- id: KG-2.276
   name: generation-scoped selective reward erasure for memory maintenance
   pillar: KG-2
   status: live

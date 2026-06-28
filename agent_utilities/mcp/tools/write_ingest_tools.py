@@ -339,7 +339,7 @@ def register_write_ingest_tools(mcp):
             "'selective_erasure' forgets the learned reward for superseded "
             "designations (target_id + optional corrected_value list of ids) so the "
             "router re-learns them instead of carrying stale utility across a "
-            "source/model regime change (CONCEPT:KG-2.275). This is how "
+            "source/model regime change (CONCEPT:KG-2.276). This is how "
             "'this was wrong, here's the fix' becomes future behaviour (CONCEPT:KG-2.8)."
         ),
         tags=["graph-os", "feedback", "learning"],
