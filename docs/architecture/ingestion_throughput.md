@@ -49,6 +49,30 @@ flowchart TD
     R -- no --> A[admit]
 ```
 
+#### Shard-writer floor on the codebase cap (CONCEPT:KG-2.279)
+
+The derived `codebase_cap` (`workers − reserved − Σ other-pending-lane minimums`)
+collapses to **~1-3 on a busy box** with many pending lanes. That caps the number
+of *distinct* repos written concurrently — and because each repo routes its
+structural writes to its own `code:<repo>` graph (KG-2.269) that hashes to ONE of
+the engine's **K durable redb shard writers** (EG-026 `FNV-1a(name) % K`), it caps
+how many shard writers run at once. The profiler saw exactly this: one hot
+`eg-redb` writer at ~90% while the other K-1 sat at 0%, and `parallelism_factor`
+stuck at ~2.8 against a K=4 substrate.
+
+The fix floors the cap at the **durable shard-writer width**:
+`cap = max(derived, min(K, workers − reserved))`. K concurrent codebase ingests
+land on K *different* shards — no two contend on one writer — so admitting up to
+the shard width saturates the durable tier without ever starving the hot spare or
+another lane's minimum coverage. `K` is read with no engine round-trip from
+`durable_shard_writers()` (mirrors the engine's `clamp(cpu/2, 1, 8)`, honouring an
+explicit `EPISTEMIC_GRAPH_REDB_SHARDS`). Cross-graph writes thus fan across every
+shard writer; a single big repo still pins one shard (one graph is atomic — the
+real lever is more *distinct* graphs in flight, not splitting one). The live proof
+is `tests/integration/knowledge_graph/test_shard_write_parallelism.py`: K writes to
+K distinct-shard graphs touch all K `graph-<i>.redb` files; the same volume to one
+shard touches exactly one.
+
 ### 2. Stale-tick collapse (CONCEPT:OS-5.53)
 
 The scheduler's per-schedule **coalescer** already stops *new* pileup (it won't

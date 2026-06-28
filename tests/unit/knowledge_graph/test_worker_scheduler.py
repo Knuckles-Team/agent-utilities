@@ -106,13 +106,60 @@ def test_explicit_codebase_cap_respected():
 
 
 def test_derived_codebase_cap_leaves_room_for_other_lanes():
-    """Derived cap = workers - reserved - Σ(other pending lane minimums)."""
+    """Derived cap = workers - reserved - Σ(other pending lane minimums).
+
+    Pins the durable shard width to 1 so the KG-2.279 shard floor is inert and
+    this test isolates the pure room-for-other-lanes derivation.
+    """
     policy, _reg = _policy(worker_count=6, reserved=1, per_lane_min=1)
-    # Two OTHER lanes pending (queries, research) → cap = 6-1-2 = 3.
-    pending = {INGEST_LANE: 100, QUERIES_LANE: 2, "research": 2}
-    assert policy.codebase_cap(pending) == 3
-    # No other pending lane → cap = 6-1-0 = 5.
-    assert policy.codebase_cap({INGEST_LANE: 100}) == 5
+    with mock.patch(
+        "agent_utilities.knowledge_graph.core.worker_scheduler.durable_shard_writers",
+        return_value=1,
+    ):
+        # Two OTHER lanes pending (queries, research) → cap = 6-1-2 = 3.
+        pending = {INGEST_LANE: 100, QUERIES_LANE: 2, "research": 2}
+        assert policy.codebase_cap(pending) == 3
+        # No other pending lane → cap = 6-1-0 = 5.
+        assert policy.codebase_cap({INGEST_LANE: 100}) == 5
+
+
+def test_shard_floor_lifts_collapsed_codebase_cap():
+    """CONCEPT:KG-2.279 — the derived cap collapses to ~1 on a busy box (many
+    pending lanes), which would idle K-1 of the engine's K durable shard writers.
+    The shard floor lifts it back to ``min(K, workers - reserved)`` so K concurrent
+    codebase ingests (→ K distinct per-repo graphs → K distinct redb shards) keep
+    every writer busy — without starving the spare or another lane's minimum."""
+    policy, _reg = _policy(worker_count=6, reserved=1, per_lane_min=1)
+    # Five OTHER lanes pending → derived = 6-1-5 = 0 → would floor to 1 (one hot
+    # shard writer, the profiled bottleneck).
+    busy = {
+        INGEST_LANE: 100,
+        QUERIES_LANE: 1,
+        "research": 1,
+        "connectors": 1,
+        "worldview": 1,
+        "extraction": 1,
+    }
+    with mock.patch(
+        "agent_utilities.knowledge_graph.core.worker_scheduler.durable_shard_writers",
+        return_value=4,
+    ):
+        # Floored to min(K=4, workers-reserved=5) = 4 → all 4 shard writers usable.
+        assert policy.codebase_cap(busy) == 4
+    # The floor never exceeds the pool minus the hot spare.
+    with mock.patch(
+        "agent_utilities.knowledge_graph.core.worker_scheduler.durable_shard_writers",
+        return_value=8,
+    ):
+        assert policy.codebase_cap(busy) == 5  # min(8, 6-1)
+
+
+def test_shard_floor_respects_explicit_redb_shards_env(monkeypatch):
+    """An explicit ``EPISTEMIC_GRAPH_REDB_SHARDS`` sets the floor (no engine call)."""
+    from agent_utilities.knowledge_graph.core import worker_scheduler
+
+    monkeypatch.setenv("EPISTEMIC_GRAPH_REDB_SHARDS", "3")
+    assert worker_scheduler.durable_shard_writers() == 3
 
 
 def test_derived_cap_floors_at_one():
