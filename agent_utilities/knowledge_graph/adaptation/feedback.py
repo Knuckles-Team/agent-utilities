@@ -329,6 +329,7 @@ class FeedbackService:
         query: str = "",
         corrected_value: Any = None,
         reason: str = "",
+        agent_id: str = "",
     ) -> CorrectionResult:
         """Close the loop on ANY autonomous action (CONCEPT:AHE-3.62).
 
@@ -396,11 +397,19 @@ class FeedbackService:
             and hasattr(self.eval_corpus, "add_case")
         ):
             try:
+                # CONCEPT:AHE-3.72 — when the outcome names the agent that produced it,
+                # tag the eval case ``agent:<id>`` so the per-agent trainset
+                # (build_agent_trainset) can pool THIS agent's real metrics for its own
+                # DSPy optimization (attribution by agent, not just trace signature).
+                tags = ["action_outcome"]
+                if agent_id:
+                    tags.append(f"agent:{agent_id}")
                 case_id = self.eval_corpus.add_case(
                     query=q,
                     expected_output=exp,
-                    tags=["action_outcome"],
+                    tags=tags,
                     reason=reason or "action outcome",
+                    metadata={"agent_id": agent_id} if agent_id else None,
                 )
                 created.append(case_id)
             except Exception as exc:  # pragma: no cover - corpus optional
@@ -412,6 +421,62 @@ class FeedbackService:
             f"reward={r:.2f} success={s}" + (f" observed={obs[:40]}" if obs else ""),
             created,
         )
+
+    # ------------------------------------------------------------------
+    def agent_eval_cases(self, agent_id: str, *, limit: int = 500) -> list[Any]:
+        """The eval-corpus slice attributed to one agent (CONCEPT:AHE-3.72).
+
+        The per-agent attribution the hardening loop optimizes against: every case the
+        agent's own ``record_action_outcome`` calls tagged ``agent:<id>``. These ARE the
+        agent's measured executions (expected vs the goal that was reached), so they double
+        as the training signal and the held-out scoring slice for its prompt.
+        """
+        if self.eval_corpus is None or not hasattr(self.eval_corpus, "load_cases"):
+            return []
+        tag = f"agent:{agent_id}"
+        out: list[Any] = []
+        try:
+            for case in self.eval_corpus.load_cases():
+                if tag in (getattr(case, "tags", []) or []):
+                    out.append(case)
+                    if len(out) >= limit:
+                        break
+        except Exception as exc:  # pragma: no cover - corpus optional
+            logger.debug("agent_eval_cases failed: %s", exc)
+        return out
+
+    def build_agent_trainset(self, agent_id: str, *, limit: int = 500) -> list[Any]:
+        """Pool an agent's outcomes into a DSPy trainset (CONCEPT:AHE-3.72).
+
+        Turns :meth:`agent_eval_cases` into ``dspy.Example(context, task) -> response``
+        rows (``task`` = the query, ``response`` = the outcome that was reached), so the
+        DSPy optimizer for THIS agent is steered by ITS real execution metrics. Degrades to
+        plain dicts when DSPy is not importable, so the caller (build_hardened_prompt) works
+        offline.
+        """
+        cases = self.agent_eval_cases(agent_id, limit=limit)
+        try:
+            import dspy
+
+            return [
+                dspy.Example(
+                    context="",
+                    task=getattr(c, "query", "") or "",
+                    response=getattr(c, "expected_output", "") or "",
+                ).with_inputs("context", "task")
+                for c in cases
+                if getattr(c, "expected_output", "")
+            ]
+        except ImportError:
+            return [
+                {
+                    "context": "",
+                    "task": getattr(c, "query", "") or "",
+                    "response": getattr(c, "expected_output", "") or "",
+                }
+                for c in cases
+                if getattr(c, "expected_output", "")
+            ]
 
     # ------------------------------------------------------------------
     def record_gotcha(
