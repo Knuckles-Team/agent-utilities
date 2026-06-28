@@ -1021,6 +1021,13 @@ class AgentConfig(BaseSettings):
     # KG_LOOP_BREADTH=0 to opt out. (CONCEPT:KG-2.7)
     kg_loop_breadth: bool = Field(default=True, alias="KG_LOOP_BREADTH")
     kg_loop_standardize: bool = Field(default=False, alias="KG_LOOP_STANDARDIZE")
+    # CONCEPT:OS-5.73 — autonomous spec→develop. OFF by default = review-first: a
+    # distilled spec is persisted as a :SpecProposal in ``pending_review`` and HOLDS
+    # for Claude/human approval (graph_loops action=review) before any develop Loop
+    # is created. Turning this ON lets the 24/7 loop auto-advance specs through the
+    # ``spec_promotion`` ActionPolicy gate (still approval_required by default, so it
+    # only auto-develops where an operator has explicitly relaxed that tier).
+    kg_loop_auto_develop: bool = Field(default=False, alias="KG_LOOP_AUTO_DEVELOP")
     kg_golden_auto_merge: bool = Field(default=False, alias="KG_GOLDEN_AUTO_MERGE")
     kg_golden_merge_threshold: float | None = Field(
         default=None, alias="KG_GOLDEN_MERGE_THRESHOLD"
