@@ -2,8 +2,8 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 527
-total_pillars: 21
+total_concepts: 530
+total_pillars: 22
 pillars:
 - AHE-3
 - CE-038
@@ -16,6 +16,7 @@ pillars:
 - EE-039
 - EG-009
 - EG-010
+- EG-037
 - KG-1
 - KG-2
 - LGC-1
@@ -1579,6 +1580,13 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/orchestration/execution_profile.py
   doc: ORCH-1.73 — this module is now PURELY STRUCTURAL. The old hardcoded
+- id: EG-037
+  name: This engine
+  pillar: EG-037
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  doc: This engine
 - id: KG-1.0
   name: Centralized KG Coordination Protocol
   pillar: KG-1
@@ -3406,14 +3414,14 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/entity_context.py
   doc: KG-2.139
 - id: KG-2.140
-  name: This is how
+  name: a
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   - agent_utilities/knowledge_graph/retrieval/code_context.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
-  doc: This is how
+  doc: a
 - id: KG-2.141
   name: the user-override layer of the prompt library, mirroring
   pillar: KG-2
@@ -3992,6 +4000,23 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   doc: The authority has already acked; this must not wait on the
+- id: KG-2.274
+  name: when the engine exposes the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  doc: when the engine exposes the
+- id: KG-2.275
+  name: generation-scoped selective reward erasure for memory maintenance
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/knowledge_graph/retrieval/capability_index.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: generation-scoped selective reward erasure for memory maintenance
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
