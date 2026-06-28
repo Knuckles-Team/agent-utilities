@@ -14,7 +14,9 @@ Two layers:
 
 from __future__ import annotations
 
+import json
 import uuid
+from typing import Any
 
 import pytest
 
@@ -212,3 +214,147 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
         except Exception:
             pass
         ingest_routing._reset_for_tests()
+
+
+# ── Fan-out merge correctness (CONCEPT:KG-2.277) ──────────────────────────────
+# The unified read fans an implicit-default query across the active content graphs
+# and merges. Two bugs the merge must not have: (1) an AGGREGATION row (count/sum)
+# has no node id, so the legacy id-dedup leaves one copy of every group row PER
+# graph — the live evidence was a Task count repeated ~24×; (2) the fan-out must
+# never query the SAME backend twice (the default ``__commons__`` showing up once
+# per graph). Driven through the real ``graph_query`` tool + ``_resolve_read_engines``.
+
+
+class _RowsBackend:
+    cypher_support = "full"
+    supports_sparql = False
+
+    def __init__(self, graph_name: str | None = None) -> None:
+        self.graph_name = graph_name
+
+    def close(self) -> None:  # pragma: no cover - parity with real backend
+        pass
+
+
+class _RowsEngine:
+    """A fake engine whose ``query_cypher`` returns a fixed row set."""
+
+    def __init__(
+        self, label: str, graph_name: str | None = None, rows: Any = None
+    ) -> None:
+        self.label = label
+        self.backend = _RowsBackend(graph_name)
+        self._rows = rows if rows is not None else [{"engine": label}]
+
+    def query_cypher(self, cypher, params=None, as_of=None):
+        return list(self._rows)
+
+
+def test_is_aggregation_cypher_detection() -> None:
+    from agent_utilities.mcp.tools.query_tools import is_aggregation_cypher
+
+    # Aggregates collapse rows → must be detected.
+    assert is_aggregation_cypher("MATCH (t:Task) RETURN t.lane AS lane, count(*) AS n")
+    assert is_aggregation_cypher("MATCH (n) RETURN sum(n.cost) AS total")
+    assert is_aggregation_cypher("MATCH (n) RETURN avg(n.score), max(n.score)")
+    assert is_aggregation_cypher("MATCH (n) RETURN collect(n.id)")
+    # Plain row queries are NOT aggregations.
+    assert not is_aggregation_cypher("MATCH (n:Task) RETURN n.id AS id")
+    assert not is_aggregation_cypher("MATCH (f:Function {name:'probe'}) RETURN f")
+    # False-positive guards: a property whose name contains an agg word, and an
+    # aggregate word inside a string literal, must NOT trip detection.
+    assert not is_aggregation_cypher("MATCH (n) RETURN n.max_depth AS d")
+    assert not is_aggregation_cypher("MATCH (n) WHERE n.note = 'count(*)' RETURN n")
+
+
+def test_resolve_read_engines_dedups_duplicate_backends(monkeypatch) -> None:
+    """The fan-out target set must never include the SAME backend twice.
+
+    A content graph that resolves onto the default ``__commons__`` store collapses
+    to one entry, so a node living only in ``__commons__`` is queried exactly once.
+    """
+    import agent_utilities.mcp.kg_server as kg_server
+    from agent_utilities.knowledge_graph.core import ingest_routing as ir
+    from agent_utilities.knowledge_graph.core.shard_topology import default_graph_name
+
+    default = default_graph_name()
+    default_engine = _RowsEngine("default", graph_name=default)
+    # ``code:dupcommons`` mis-resolves to the SAME __commons__ store (duplicate);
+    # ``code:real`` is a genuinely distinct backend.
+    dup = _RowsEngine("dup", graph_name=default)
+    real = _RowsEngine("real", graph_name="code:real")
+    by_name = {"code:dupcommons": dup, "code:real": real}
+
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: default_engine)
+    monkeypatch.setattr(ir, "routing_enabled", lambda *a, **k: True)
+    monkeypatch.setattr(
+        ir,
+        "read_graph_targets",
+        lambda *a, **k: [default, "code:dupcommons", "code:real"],
+    )
+    monkeypatch.setattr(ir, "safe_engine_for_graph", lambda name: (by_name[name], None))
+
+    entries, errors, fanout = kg_server._resolve_read_engines("")
+    assert fanout
+    keys = [getattr(e.backend, "graph_name", None) for _, e in entries]
+    assert keys.count(default) == 1, f"__commons__ queried >1×: {keys}"
+    assert "code:real" in keys
+    assert len(entries) == 2  # the duplicate __commons__ target was dropped
+
+
+async def test_aggregation_query_merges_not_duplicates(monkeypatch) -> None:
+    """The live-evidence bug: a Task count fanned across ~24 graphs returned the
+    same aggregate row 24×. It must now return ONE row per (lane,status)."""
+    import agent_utilities.mcp.kg_server as kg_server
+
+    kg_server.ensure_tools_registered()
+    canonical_rows = [
+        {"lane": "connectors", "status": "completed", "n": 7},
+        {"lane": "ingestion", "status": "completed", "n": 13},
+    ]
+    canonical = _RowsEngine("default", graph_name="__commons__", rows=canonical_rows)
+    # The substrate of the bug: the resolver fans across many graphs that all see
+    # the same __commons__ aggregate row (no node id to dedup on).
+    fan = [(f"code:g{i}", _RowsEngine(f"g{i}", rows=canonical_rows)) for i in range(24)]
+    monkeypatch.setattr(
+        kg_server, "_resolve_read_engines", lambda target: (fan, {}, True)
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: canonical)
+
+    out = await kg_server._execute_tool(
+        "graph_query",
+        cypher="MATCH (t:Task) RETURN t.lane AS lane, t.status AS status, count(*) AS n",
+        target="",
+    )
+    rows = json.loads(out)
+    assert rows == canonical_rows  # exactly one row per group, NOT 24 duplicates
+
+
+async def test_routed_node_query_still_fans_and_dedups_once(monkeypatch) -> None:
+    """Non-aggregation queries keep the fan + id-dedup: a node routed to ``code:*``
+    is still found via the unified path, returned exactly once even when overlapping
+    backends echo it, and other routed content is still gathered (CONCEPT:KG-2.269)."""
+    import agent_utilities.mcp.kg_server as kg_server
+
+    kg_server.ensure_tools_registered()
+    probe = {"id": "Func::probe", "name": "probe"}
+    other = {"id": "Func::other", "name": "other"}
+    entries = [
+        ("default", _RowsEngine("default", rows=[])),
+        ("code:a", _RowsEngine("a", rows=[probe])),
+        ("code:b", _RowsEngine("b", rows=[probe])),  # overlap → must dedup by id
+        ("code:c", _RowsEngine("c", rows=[other])),
+    ]
+    monkeypatch.setattr(
+        kg_server, "_resolve_read_engines", lambda target: (entries, {}, True)
+    )
+
+    out = await kg_server._execute_tool(
+        "graph_query",
+        cypher="MATCH (f:Function {name:'probe'}) RETURN f.id AS id, f.name AS name",
+        target="",
+    )
+    rows = json.loads(out)
+    ids = [r["id"] for r in rows]
+    assert ids.count("Func::probe") == 1  # routed node returned exactly once
+    assert "Func::other" in ids  # fan still gathers other routed content

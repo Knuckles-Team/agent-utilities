@@ -7,11 +7,46 @@ modules without changing tool behavior or names.
 from __future__ import annotations
 
 import json
+import re as _re
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+#: Cypher aggregate functions. A query that calls one of these in a projection
+#: collapses many rows into per-group rows, so it CANNOT be fanned across graphs
+#: and id-deduped — each graph returns its own ``count(*)``/``sum(...)`` row and
+#: naive concatenation repeats every group once per graph (CONCEPT:KG-2.277).
+_AGG_FUNCS = (
+    "count",
+    "sum",
+    "avg",
+    "min",
+    "max",
+    "collect",
+    "stdev",
+    "stdevp",
+    "percentilecont",
+    "percentiledisc",
+    "variance",
+)
+_AGG_CALL_RE = _re.compile(r"\b(?:" + "|".join(_AGG_FUNCS) + r")\s*\(", _re.IGNORECASE)
+
+
+def is_aggregation_cypher(cypher: str) -> bool:
+    """True when ``cypher`` projects an aggregate (CONCEPT:KG-2.277).
+
+    Strips quoted string literals first so a literal like ``'count(*)'`` or a
+    property named ``max_depth`` is not misread as an aggregate call. Used by the
+    unified read path: an aggregation under ingestion graph routing runs against
+    the canonical default graph only (never fanned), because aggregate rows have
+    no node id to dedup on and summing them generically is not safe across
+    avg/min/max/distinct.
+    """
+    no_literals = _re.sub(r"'[^']*'|\"[^\"]*\"", "", cypher or "")
+    return bool(_AGG_CALL_RE.search(no_literals))
+
 
 #: Code-symbol nav actions over the resolved graph (CONCEPT:KG-2.9g).
 CODE_NAV_ACTIONS = frozenset(
@@ -325,6 +360,22 @@ def register_query_tools(mcp):
             target is None
             or (isinstance(target, str) and target.strip().lower() in ("", "default"))
         )
+
+        # CONCEPT:KG-2.277 — an aggregation (count/sum/group-by) under the implicit
+        # content-graph union CANNOT be fanned: aggregate rows carry no node id to
+        # dedup on, so the legacy id-dedup leaves one copy of every group row PER
+        # graph (the bug: a Task count repeated ~24×). Summing them generically is
+        # unsafe (wrong for avg/min/max/distinct). Run the aggregation against the
+        # canonical default graph only — control-plane/aggregate reads resolve there.
+        if _union_read and is_aggregation_cypher(cypher):
+            engine = kg_server._get_engine()
+            try:
+                results = engine.query_cypher(
+                    cypher, parsed_params, as_of=as_of or None
+                )
+                return json.dumps(results, default=str)
+            except Exception as e:
+                return json.dumps({"error": str(e)})
 
         if not fanout:
             # Single connection (default or one named) — identical shape to legacy.

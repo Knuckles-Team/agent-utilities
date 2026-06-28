@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 531
+total_concepts: 532
 total_pillars: 22
 pillars:
 - AHE-3
@@ -4025,6 +4025,14 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/capability_index.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: generation-scoped selective reward erasure for memory maintenance
+- id: KG-2.277
+  name: de-duplicate fan-out targets by the engine
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/query_tools.py
+  doc: de-duplicate fan-out targets by the engine
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

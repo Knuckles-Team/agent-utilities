@@ -2174,15 +2174,33 @@ def _resolve_read_engines(
     default_graph = default_graph_name()
     entries: list[tuple[str, Any]] = []
     errors: dict[str, str] = {}
+    # CONCEPT:KG-2.277 — de-duplicate fan-out targets by the engine's actual bound
+    # graph so the SAME backend (e.g. ``__commons__``) is never queried more than
+    # once. Without this a query for nodes that live only in the default graph is
+    # answered identically by every target, and an aggregation row (no node id to
+    # dedup on) is repeated once per graph. Key on the backend's ``graph_name``,
+    # falling back to ``id(engine)`` so two engines over one store collapse to one.
+    seen_backends: set[Any] = set()
+
+    def _backend_key(engine: Any) -> Any:
+        gname = getattr(getattr(engine, "backend", None), "graph_name", None)
+        return gname if gname is not None else id(engine)
+
     for gname in read_graphs:
         if gname == default_graph:
-            entries.append(("default", _get_engine()))
-            continue
-        eng, err = ingest_routing.safe_engine_for_graph(gname)
-        if err is not None:
-            errors[gname] = err
+            eng: Any = _get_engine()
+            name = "default"
         else:
-            entries.append((gname, eng))
+            eng, err = ingest_routing.safe_engine_for_graph(gname)
+            if err is not None:
+                errors[gname] = err
+                continue
+            name = gname
+        key = _backend_key(eng)
+        if key in seen_backends:
+            continue
+        seen_backends.add(key)
+        entries.append((name, eng))
     return entries, errors, True
 
 
