@@ -32,6 +32,21 @@ ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = ROOT / "deploy" / "mcp-fleet.registry.yml"
 RECIPES = ROOT / "docs" / "recipes"
 
+# The standard operator-owned PRIVATE repo set + generalized CI templates genesis
+# provisions per profile (CONCEPT:OS-5.74 / OS-5.75). Sourced from
+# agent_utilities/deployment/repo_templates.py so genesis.yaml never drifts from the
+# templates. Loaded by file path (no package __init__ side effects) — abstract by
+# construction, so no operator-specific env enters the manifest.
+import importlib.util as _ilu  # noqa: E402
+
+_RT_PATH = ROOT / "agent_utilities" / "deployment" / "repo_templates.py"
+_rt_spec = _ilu.spec_from_file_location("_genesis_repo_templates", _RT_PATH)
+_repo_templates = _ilu.module_from_spec(_rt_spec)
+# Register before exec so dataclass introspection can resolve __module__.
+sys.modules[_rt_spec.name] = _repo_templates
+_rt_spec.loader.exec_module(_repo_templates)
+_repo_manifest_summary = _repo_templates.manifest_summary
+
 # Deployment profiles — mirror config_generator.PROFILES (tiny|single-node-prod|enterprise).
 # Kept here (not imported) so the generator runs without importing the package.
 PROFILES_META = {
@@ -322,6 +337,11 @@ def build() -> dict:
             "core_count": len(core),
             "core": core,
         },
+        # Standard operator-owned PRIVATE repos genesis provisions (Step 9b). The
+        # operator's environment (inventory/workspace/secrets) lives ONLY in these
+        # private repos + the XDG config — never in this public repo. Abstract,
+        # templated, profile-scaled (CONCEPT:OS-5.74 / OS-5.75).
+        "private_repos": _repo_manifest_summary(),
     }
 
 

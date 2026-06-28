@@ -19,16 +19,36 @@ from .config_generator import (
 )
 from .doctor import CHECKS, run_doctor
 from .preflight import run_preflight
+from .repo_templates import (
+    CI_TEMPLATES,
+    PROFILE_REPO_SETS,
+    STANDARD_REPOS,
+    RepoTemplate,
+    manifest_summary,
+    provision_plan,
+    render_skeleton,
+    runner_plan,
+    standard_repos,
+)
 
 __all__ = [
     "CHECKS",
+    "CI_TEMPLATES",
     "PROFILES",
+    "PROFILE_REPO_SETS",
+    "STANDARD_REPOS",
+    "RepoTemplate",
     "config_doctor",
     "config_reference",
     "generate_config",
     "generate_mcp_config",
     "is_restart_required",
+    "manifest_summary",
+    "provision_plan",
+    "render_skeleton",
     "run_doctor",
     "run_preflight",
+    "runner_plan",
+    "standard_repos",
     "write_config",
 ]

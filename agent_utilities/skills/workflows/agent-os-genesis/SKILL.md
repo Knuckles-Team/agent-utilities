@@ -471,6 +471,42 @@ On GitLab CE, auto-provision projects from `workspace.yml`, seed stack compose f
 - Requires: `gitlab-mcp`
 - Expected: `repos-seeded, pats-issued`
 
+### Step 9b: standard-private-repos-and-ci
+[depends_on: Step 9]
+Provision the **standard, ABSTRACT set of operator-owned PRIVATE repos** so this
+deployment's environment lives in the operator's own repos + XDG config — **never in
+the public agent-utilities repo** (CONCEPT:OS-5.74 / OS-5.75). The standard set, its
+templated skeletons, and the profile scaling are defined ONCE in
+`agent_utilities/deployment/repo_templates.py` and surfaced in `genesis.yaml` under
+`private_repos` — loop that, don't hand-roll. Full recipe + per-repo layout:
+[`references/standard-repos-and-ci.md`](references/standard-repos-and-ci.md).
+
+- **Build the plan (idempotent, profile-scaled):**
+  `provision_plan(profile, git_host=<gitlab|github|local>, namespace=<operator group/org>, existing_repos=<already-present>)`.
+  Already-present repos become `action=skip`. The standard repos:
+  - `inventory` — host inventory (seeded from `~/.config/agent-utilities/inventory.yaml`).
+  - `config` — `workspace.yml` + **secret-redacted** `config.json`/`mcp_config.json` examples.
+  - `networks` — overlay/CNI bootstrap + CIDR allocations (seeded from the deployment plan).
+  - `secrets-config` — secrets **convention** (service→`vault://` / `engine://__secrets__` *references*, **never plaintext**).
+  - `infrastructure` — the deployment manifests (compose/swarm/k8s stacks, seeded from `workspace.yml`).
+  - `pipelines` (enterprise) — the generalized, reusable GitLab CI templates.
+  - **Profile scaling:** `tiny` = `{inventory, config}` **local** git, no CI/runners; `single-node-prod` adds `networks`+`secrets-config`+`infrastructure` with minimal CI + 1 runner; `enterprise` adds the shared `pipelines` repo + full CI + runners.
+- **Create + seed (idempotent):** for each `action=create` repo, create it **private** on
+  the operator's git host (`gitlab-mcp` `gitl__projects create visibility=private`, or
+  `github` `github_repos create private=true`), then commit the **rendered** skeleton
+  (`render_skeleton(repo, context)`) — resolving the `${GIT_NAMESPACE}` / `${RUNNER_TAG}` /
+  `${CI_TEMPLATES_PROJECT}` / `${REGISTRY}` placeholders from the operator's resolved config
+  **at deploy time**. Seed real inventory/workspace from the operator's XDG config INTO the
+  private repo (never echo them here). Reuse the `gitlab-repository-seeder` skill for the
+  GitLab create+seed+PAT primitives; use `rm_git clone/commit/push` for the local side.
+- **CI + runners (generalized, profile-aware):** when `ci.enabled` (non-tiny), seed the
+  generalized templates (`stages.yml`, `agent-package-ci.yml`, `service-deploy.yml`) into the
+  `pipelines` repo (enterprise) and point each repo's `.gitlab-ci.yml` at them; register the
+  `runner_plan(profile)` runners (`gitl__runners register/enable_project`) tagged `${RUNNER_TAG}`.
+  Operator project-ids/registration-tokens come from the secret store at deploy time — never committed.
+- Requires: `gitlab-mcp` (or `github-tools`), `repository-manager-mcp`
+- Expected: `private-repos-provisioned, ci-templates-seeded, runners-registered (profile-scaled), no-operator-env-in-public-repo`
+
 ### Step 10: portainer-gitops-bind
 [depends_on: Step 9]
 Bind Portainer stacks to their GitLab repositories using the PATs (GitOps auto-sync).
@@ -948,7 +984,7 @@ Run this workflow as a dependency-ordered DAG. Steps with no unmet `depends_on` 
 - **After level 3:** Step 6 — node-labeling
 - **After level 4:** Step 7 — core-edge-deploy
 - **After level 5:** Step 8 — secret-vault-manager + seed-initial-secrets
-- **After level 6:** Step 9 — gitlab-repository-seeder
+- **After level 6:** Step 9 — gitlab-repository-seeder → Step 9b — standard-private-repos-and-ci (provision the standard operator-owned private repos + generalized CI/runners, profile-scaled; tiny = local `{inventory, config}`, no CI)
 - **After level 7:** Step 10 — portainer-gitops-bind
 - **After level 8:** Step 11 — tiered-service-deploy
 - **After level 9:** Step 12 — dns-migration-utility (conditional: legacy-resolver migration only)
