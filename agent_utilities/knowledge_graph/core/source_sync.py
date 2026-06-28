@@ -3091,6 +3091,21 @@ def sync_source(
     if source in {"all", "*", "sweep"}:
         return sweep_all_sources(engine, mode=mode if mode in SYNC_ACTIONS else "delta")
 
+    # CONCEPT:KG-2.301 — a single-source FULL drain of a LARGE corpus must NOT run inline:
+    # that would block the MCP/REST request until the whole backlog is drained (timeout) or
+    # force a human/agent to hand-repeat delta waves. Normalize that ONE call into a stream of
+    # capacity-guarded, paginated ``connector_drain`` batch-tasks and return a handle IMMEDIATELY
+    # — the "controlled waves" are baked in, not hand-driven. Small/delta syncs stay inline (fast).
+    if mode == "full" and hasattr(engine, "submit_task"):
+        from .chunked_drain import (
+            chunked_drain_enabled,
+            start_chunked_drain,
+            supports_chunked_drain,
+        )
+
+        if chunked_drain_enabled() and supports_chunked_drain(source):
+            return start_chunked_drain(engine, source, mode="full")
+
     handler = _DELTA_HANDLERS.get(source)
     if handler is not None:
         try:

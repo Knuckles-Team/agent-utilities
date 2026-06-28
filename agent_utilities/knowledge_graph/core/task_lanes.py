@@ -52,7 +52,11 @@ TASK_LANES: dict[str, dict] = {
         # FreshRSS sweep run OFF the request path (it fetches+gates+enqueues the
         # per-article worldview/research tasks, so it must not ride the 300s MCP
         # call). Both are sweep PRODUCERS, kept off the ingestion lane. (KG-2.121)
-        "task_types": frozenset({"connector_sync", "feed_sweep"}),
+        # connector_drain = ONE paginated page of a chunked full-corpus drain (CONCEPT:KG-2.301):
+        # a single ``source_sync(full)`` of a large source (freshrss's ~11k backlog) fans out as a
+        # self-continuing chain of these, draining the whole corpus under this lane's background
+        # priority + the GB10 capacity guard so it can't time out or OOM.
+        "task_types": frozenset({"connector_sync", "feed_sweep", "connector_drain"}),
         "model_role": "lite",
     },
     "research": {
