@@ -68,9 +68,22 @@ def make_embed_fn(batch_size: int = 64) -> EmbedFn:
             return out
 
         return _fn
-    except Exception as e:  # pragma: no cover
-        logger.warning("make_embed_fn unavailable (%s)", e)
-        return lambda texts: [[0.0] for _ in texts]
+    except Exception as e:
+        # Zero-Stub compliance (AGENTS.md): NEVER return a degenerate stub that
+        # silently yields 1-dim ``[0.0]`` vectors. That stub previously masked a
+        # missing-embedder deployment (the serving plane shipped bare ``embeddings``
+        # without ``embeddings-openai`` → ``No module named 'llama_index.embeddings'``):
+        # enrichment "succeeded" while writing garbage vectors into a 1024-dim store,
+        # so the failure was invisible (embed_calls=0, no real embeddings) instead of
+        # loud. Fail loud here; every production caller wraps embedding as best-effort
+        # in try/except, so this degrades to "no enrichment edges" — observable and
+        # safe — rather than silent vector-store corruption. (CONCEPT:KG-2.3)
+        logger.error("make_embed_fn unavailable (%s)", e)
+        raise RuntimeError(
+            f"embedding model unavailable: {e}. The KG embedding plane requires the "
+            "'embeddings-openai' extra (llama-index-embeddings-openai) and a reachable "
+            "bge-m3 vLLM endpoint."
+        ) from e
 
 
 def make_search_fn(backend: Any) -> SearchFn:
