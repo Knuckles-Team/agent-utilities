@@ -358,7 +358,7 @@ class AdmissionPolicy:
 
     # -- interactive reservation --------------------------------------------
     def interactive_floor(self) -> int:
-        """Workers that NON-interactive lanes may never consume (CONCEPT:KG-2.285).
+        """Workers that NON-interactive lanes may never consume (CONCEPT:KG-2.289).
 
         The HARD guarantee that the host always has a free worker for interactive /
         MCP work even under a saturating bulk ingest. Auto-sized as
@@ -413,7 +413,7 @@ class AdmissionPolicy:
             if running_by_lane.get(lane, 0) >= floor:
                 return _Decision(False, f"{lane} best-effort cap ({floor})")
 
-        # 1c) Interactive reservation (CONCEPT:KG-2.285) — the HARD floor that keeps
+        # 1c) Interactive reservation (CONCEPT:KG-2.289) — the HARD floor that keeps
         #     the host responsive. A NON-interactive task is refused if claiming would
         #     drop the free-worker count below the interactive floor, and — unlike the
         #     hot-spare (rule 3) — this is NOT relaxed to cover an uncovered ingestion

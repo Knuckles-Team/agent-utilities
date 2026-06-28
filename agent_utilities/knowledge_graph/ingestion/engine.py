@@ -1236,7 +1236,7 @@ class IngestionEngine:
         # ``write_graph`` keys this repo's delta-skip manifest + community tenant
         # too, keeping them co-resident with the content they guard. Routing off →
         # ``(self.graph_name, self.backend)`` unchanged.
-        # CONCEPT:KG-2.283 — a split sub-task supplies its own routing key
+        # CONCEPT:KG-2.287 — a split sub-task supplies its own routing key
         # (``<repo>__s<i>``) so its bucket's writes land on a DISTINCT per-shard
         # graph and the K buckets commit in parallel across the K redb shard
         # writers; a normal whole-repo ingest keys on the repo name as before.

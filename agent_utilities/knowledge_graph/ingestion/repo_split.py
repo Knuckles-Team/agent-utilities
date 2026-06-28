@@ -1,5 +1,5 @@
-# CONCEPT:KG-2.283 - Big-repo structural-ingest split: partition a large repo's source files into K balanced, deterministic buckets keyed on a coarse path prefix so each bucket routes to its OWN per-repo-shard graph and the K buckets commit in parallel across the engine's K redb shard writers, instead of one giant repo pinning a single worker/shard for minutes.
-"""Deterministic big-repo split planner (CONCEPT:KG-2.283).
+# CONCEPT:KG-2.287 - Big-repo structural-ingest split: partition a large repo's source files into K balanced, deterministic buckets keyed on a coarse path prefix so each bucket routes to its OWN per-repo-shard graph and the K buckets commit in parallel across the engine's K redb shard writers, instead of one giant repo pinning a single worker/shard for minutes.
+"""Deterministic big-repo split planner (CONCEPT:KG-2.287).
 
 The tail problem this removes. A single huge repo (agent-utilities, epistemic-graph:
 thousands of files) is ONE ``codebase`` :Task → ONE per-repo graph (``code:<repo>``,
@@ -53,7 +53,7 @@ _GROUPS_PER_BUCKET: int = 3
 
 
 def split_graph_suffix(index: int) -> str:
-    """The per-bucket graph-name suffix (``__s<index>``) for routing (KG-2.283)."""
+    """The per-bucket graph-name suffix (``__s<index>``) for routing (KG-2.287)."""
     return f"__s{index}"
 
 
@@ -81,7 +81,7 @@ def plan_repo_split(
     files: list[Path],
     k: int,
 ) -> list[list[Path]]:
-    """Partition ``files`` into ``k`` balanced, deterministic buckets (KG-2.283).
+    """Partition ``files`` into ``k`` balanced, deterministic buckets (KG-2.287).
 
     Returns a list of up to ``k`` non-empty buckets (each a list of ``Path``), or a
     single bucket containing every file when a split would not help (``k <= 1``,

@@ -2681,7 +2681,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     ) -> bool:
         """Split a too-large whole-repo codebase task into shard-routed sub-tasks.
 
-        CONCEPT:KG-2.283 — the big-repo tail fix. A whole-repo ``codebase`` task for
+        CONCEPT:KG-2.287 — the big-repo tail fix. A whole-repo ``codebase`` task for
         a repo above :data:`~...repo_split.SPLIT_MIN_FILES` files is fanned out into
         K balanced sub-tasks, each scoped to a file bucket (``only_files``) and routed
         to its own per-shard graph (``code:<repo>__s<i>``), so the buckets commit in
@@ -2774,7 +2774,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             },
         )
         logger.info(
-            "[KG-2.283] split big repo %s (%d files) into %d shard-routed sub-tasks",
+            "[KG-2.287] split big repo %s (%d files) into %d shard-routed sub-tasks",
             repo_name,
             len(files),
             len(buckets),
@@ -3400,7 +3400,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             # Cohort barrier finalize → assimilation pass + feature matrix (KG-2.172).
             "cohort_synthesize",
         }
-        # CONCEPT:KG-2.282 — bound EVERY claimed task by its lane's soft timeout so a
+        # CONCEPT:KG-2.286 — bound EVERY claimed task by its lane's soft timeout so a
         # hung task (a connector with no per-call timeout, a wedged maint tick) frees
         # its worker FAST instead of pinning it until the reaper's 2h absolute cap.
         #
@@ -3451,7 +3451,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         if worker_thread.is_alive():
             # Overran the bound — abandon the daemon thread, free the worker.
             logger.warning(
-                "[KG-2.282] task %s (%s) exceeded soft timeout %.0fs — abandoning "
+                "[KG-2.286] task %s (%s) exceeded soft timeout %.0fs — abandoning "
                 "for retry/dead_letter",
                 job_id,
                 task_type,
@@ -3958,7 +3958,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
                 cb_meta = _decode_metadata(cb_rows[0]["m"]) if cb_rows else {}
 
-                # CONCEPT:KG-2.283 — big-repo tail: if this is a whole-repo task for a
+                # CONCEPT:KG-2.287 — big-repo tail: if this is a whole-repo task for a
                 # repo large enough to pin one worker/shard for minutes, fan it out
                 # into K shard-routed sub-tasks instead of ingesting inline. Returns
                 # True when it fanned out (this parent is done); the children run in
@@ -3970,7 +3970,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 only_files = cb_meta.get("only_files")
                 if isinstance(only_files, list) and only_files:
                     cb_manifest_meta["only_files"] = only_files
-                # CONCEPT:KG-2.283 — a split sub-task carries its own routing key so
+                # CONCEPT:KG-2.287 — a split sub-task carries its own routing key so
                 # its structural writes land on a distinct per-shard graph
                 # (``code:<repo>__s<i>``) instead of the shared ``code:<repo>``.
                 route_repo = cb_meta.get("route_repo")
@@ -5018,7 +5018,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         groups: dict[str, dict[str, Any]] = {}
         starts: list[float] = []
         ends: list[float] = []
-        # CONCEPT:KG-2.284 — per-TASK tail: keep each task's identity+duration so the
+        # CONCEPT:KG-2.288 — per-TASK tail: keep each task's identity+duration so the
         # report can name the slowest-N outliers (the p95/max offenders), not just
         # per-lane percentiles. This is what makes a 13-min codebase pin or a 456s
         # hung connector VISIBLE as a specific task, not a lane statistic.
@@ -5066,7 +5066,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             dur = float(meta.get("duration_ms", 0) or 0)
             if dur > 0:
                 grp["_durations"].append(dur)
-                # CONCEPT:KG-2.284 — record the per-task tail entry.
+                # CONCEPT:KG-2.288 — record the per-task tail entry.
                 tail_tasks.append(
                     {
                         "id": r.get("id"),
@@ -5112,7 +5112,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             grp["total_ms"] = round(sum(durs), 1)
             grp["p50_ms"] = round(_pct(durs, 50), 1)
             grp["p95_ms"] = round(_pct(durs, 95), 1)
-            # CONCEPT:KG-2.284 — surface p99 alongside p95/max so a thin tail (a
+            # CONCEPT:KG-2.288 — surface p99 alongside p95/max so a thin tail (a
             # few outliers) is distinguishable from a fat one at the lane level.
             grp["p99_ms"] = round(_pct(durs, 99), 1)
             grp["max_ms"] = round(durs[-1], 1) if durs else 0.0
@@ -5129,7 +5129,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         total_ms = sum(g["total_ms"] for g in groups.values())
         wall_ms = (max(ends) - min(starts)) * 1000.0 if starts and ends else 0.0
-        # CONCEPT:KG-2.284 — the slowest-N tasks overall: the concrete outliers a
+        # CONCEPT:KG-2.288 — the slowest-N tasks overall: the concrete outliers a
         # profiling run hunts (the big-repo pin, the hung connector/maint tick).
         tail_tasks.sort(key=lambda t: t["duration_ms"], reverse=True)
         slowest_n = 10

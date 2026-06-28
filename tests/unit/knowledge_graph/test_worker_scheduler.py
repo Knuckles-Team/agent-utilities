@@ -69,7 +69,7 @@ def test_reservation_keeps_at_least_one_free():
 
 def test_reservation_relaxed_to_cover_uncovered_pending_lane():
     """The hot spare is spent to cover an uncovered pending lane rather than starve
-    it — but only down to the interactive floor (CONCEPT:KG-2.285), never into the
+    it — but only down to the interactive floor (CONCEPT:KG-2.289), never into the
     reserved interactive worker (that boundary is exercised in
     test_ingest_tail_optimization)."""
     policy, reg = _policy(worker_count=5, reserved=1)
@@ -279,7 +279,7 @@ def test_content_url_admitted_while_codebase_saturates_pool():
 def test_content_url_in_own_lane_jumps_saturated_codebase():
     """A dedicated bursty channel (its OWN lane, uncovered + pending) jumps ahead of
     saturated codebase — admitted from spare capacity above the interactive floor
-    (CONCEPT:KG-2.285), rather than waiting behind heavy jobs."""
+    (CONCEPT:KG-2.289), rather than waiting behind heavy jobs."""
     policy, reg = _policy(worker_count=5, reserved=1, per_lane_min=1)
     for i in range(3):
         reg.start(f"w{i}", INGEST_LANE, "codebase")
