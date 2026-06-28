@@ -109,6 +109,7 @@ nav:
       - Ontology-Guided Ingestion & Entity Resolution (exceeds sift-kg): architecture/ontology-guided-ingestion.md
       - Modular Prompt & Skill Contribution (fleet entry-points): architecture/modular-prompt-skill-contribution.md
       - Agent-Operator Program (closing the loops): architecture/agent-operator-program.md
+      - Orchestration Execution Seam (ingested capability → executed): architecture/orchestration-execution-seam.md
       - Agentic Resource Discovery (ARD) interop (publish + consume + federate): architecture/ard-interop.md
       - Optimization Campaign Checkpoint: architecture/optimization-campaign-checkpoint.md
       - Reactions / Emotes (system-wide, renderer contract): architecture/reactions.md
