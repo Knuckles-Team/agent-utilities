@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 541
+total_concepts: 548
 total_pillars: 22
 pillars:
 - AHE-3
@@ -4073,6 +4073,38 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: resolve the ENGINE
+- id: KG-2.282
+  name: a normal codebase ingest ALSO
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/git_history.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  doc: a normal codebase ingest ALSO
+- id: KG-2.283
+  name: query the ingested commit-history graph
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/git_history.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: query the ingested commit-history graph
+- id: KG-2.284
+  name: over the same tree and fan the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/ingestion/repo_classifier.py
+  doc: over the same tree and fan the
+- id: KG-2.285
+  name: a repo is not just code. Run the deterministic
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  doc: a repo is not just code. Run the deterministic
 - id: KG-2.286
   name: bound EVERY claimed task by its lane
   pillar: KG-2
@@ -4098,13 +4130,23 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: surface p99 alongside p95/max so a thin tail
 - id: KG-2.289
-  name: the HARD floor that keeps
+  name: reserves a worker floor that non-interactive lanes can never
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/core/resource_priority.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
-  doc: the HARD floor that keeps
+  doc: reserves a worker floor that non-interactive lanes can never
+- id: KG-2.293
+  name: carry the resource PriorityClass so a spawned/child agent
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/resource_priority.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/observability/correlation.py
+  doc: carry the resource PriorityClass so a spawned/child agent
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -5035,6 +5077,22 @@ concepts:
   - agent_utilities/rlm/sandboxes/container_fork_backend.py
   - agent_utilities/runtime/warm_registry.py
   doc: a HARD wall-clock lifetime cap. A warm parent older than this is reaped even
+- id: ORCH-1.98
+  name: ORCH-1.98
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/resource_priority.py
+  doc: ORCH-1.98
+- id: ORCH-1.99
+  name: priority-gate each call when tagged
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/model_concurrency.py
+  - agent_utilities/core/model_factory.py
+  - agent_utilities/core/resource_priority.py
+  doc: priority-gate each call when tagged
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
