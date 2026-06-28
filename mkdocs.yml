@@ -108,6 +108,7 @@ nav:
       - Native Warm-Fork Sandboxes (warm once, fork CoW children): architecture/warm-fork-sandboxes.md
       - Ingestion Throughput (lanes, tick collapse, bulk): architecture/ingestion_throughput.md
       - Resource-Priority Edict (interactive over ingestion, end-to-end): architecture/resource-priority-edict.md
+      - LLM/Embedding Server-Capacity Guard (never OOM the model host): architecture/llm-server-capacity-guard.md
       - Ontology-Guided Ingestion & Entity Resolution (exceeds sift-kg): architecture/ontology-guided-ingestion.md
       - Modular Prompt & Skill Contribution (fleet entry-points): architecture/modular-prompt-skill-contribution.md
       - Agent-Operator Program (closing the loops): architecture/agent-operator-program.md

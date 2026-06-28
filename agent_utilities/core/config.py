@@ -331,6 +331,20 @@ class ChatModelConfig(BaseModel):
     """How many concurrent requests ONE vLLM instance of this model can serve
     (its per-instance concurrency, e.g. vLLM ``--max-num-seqs``). Default ``1``
     keeps callers sequential and is always safe. CONCEPT:KG-2.143."""
+    max_concurrent_requests: int | None = None
+    """Hard ceiling on the **aggregate** in-flight requests this model's *server*
+    can serve safely — its real vLLM ``--max-num-seqs`` / KV-cache + (for a
+    unified-memory box like the GB10) the shared-memory headroom (CONCEPT:KG-2.298).
+
+    This is the ONE number the model SERVER's capacity dictates, NOT the local
+    host's CPU count. It is deployment-varying (a GB10 ≠ a Pi ≠ a cluster) and
+    cannot be auto-derived from the local box, so it is a legitimate explicit
+    config (Configuration-discipline). When set it caps the SUM of every demand
+    source hitting this endpoint (embeds + enrichment + orchestration) via the
+    shared priority gate, so the client can never pile hundreds of concurrent
+    requests onto the server and OOM it. When unset it falls back to
+    ``max(total_capacity, MODEL_MAX_CONCURRENT_REQUESTS)`` (a conservative
+    default). Set it to your server's ``--max-num-seqs`` (or just below)."""
     gpu_group: str | None = None
     """Optional shared-GPU group tag (CONCEPT:KG-2.146). Models that physically
     share one GPU are grouped under one concurrency budget so their fan-out cannot
@@ -362,6 +376,14 @@ class EmbeddingModelConfig(BaseModel):
     """How many concurrent embedding requests ONE vLLM instance of this model can
     serve (its per-instance concurrency). Default ``1`` keeps batch embedding
     sequential and is always safe. CONCEPT:KG-2.143."""
+    max_concurrent_requests: int | None = None
+    """Hard ceiling on the aggregate in-flight embedding requests this model's
+    *server* can serve safely (CONCEPT:KG-2.298). Same semantics as
+    :pyattr:`ChatModelConfig.max_concurrent_requests`: the SERVER's real capacity,
+    capping the embedding fan-out so bulk embedding can never oversubscribe the
+    endpoint. On a unified-memory box the embedder shares the GB10's memory with
+    the generator — keep this conservative. Unset → ``max(total_capacity,
+    MODEL_MAX_CONCURRENT_REQUESTS)``."""
     gpu_group: str | None = None
     """Optional shared-GPU group tag (CONCEPT:KG-2.146). Tag this with the same
     value as a chat model that shares the physical GPU (e.g. both ``"gb10"``) so
@@ -636,6 +658,27 @@ class AgentConfig(BaseSettings):
         """
         cfg = self._resolve_model_config(model)
         return cfg.total_capacity if cfg is not None else 1
+
+    def model_max_concurrent_requests(self, model: str | None = None) -> int | None:
+        """Resolve a model's explicit server-capacity ceiling, if configured.
+
+        CONCEPT:KG-2.298. Returns the model's ``max_concurrent_requests`` (the
+        server's real ``--max-num-seqs`` / safe in-flight budget) by id or role,
+        or ``None`` when unset/unknown so the caller applies the conservative
+        default. A non-positive/garbage value resolves to ``None`` (no hard cap
+        from config — fall back to the default), never zero.
+        """
+        cfg = self._resolve_model_config(model)
+        if cfg is None:
+            return None
+        val = getattr(cfg, "max_concurrent_requests", None)
+        if val is None:
+            return None
+        try:
+            v = int(val)
+        except (TypeError, ValueError):
+            return None
+        return v if v > 0 else None
 
     def model_endpoint(self, model: str | None = None) -> tuple[str | None, str | None]:
         """Resolve a model id/role to its ``(model_id, base_url)`` (CONCEPT:KG-2.145).
