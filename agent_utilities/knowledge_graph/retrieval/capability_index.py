@@ -54,6 +54,23 @@ except Exception:  # pragma: no cover - import guard
     _HNSW_AVAILABLE = False
 
 
+# CONCEPT:KG-2.276 — generation-scoped selective reward erasure for memory maintenance.
+# When an entity is re-ingested with a *materially* different
+# embedding, the learned reward EMA was scored under a now-superseded
+# representation and is no longer valid evidence about the new content. A
+# re-add whose new vector sits at a cosine *distance* greater than this from the
+# stored one counts as a new "generation" and triggers selective erasure of that
+# id's reward (reset to the neutral prior). Content-stable re-adds keep their
+# reward. This is the Red Queen Gödel Machine's epoch-boundary *selective
+# erasure* (arXiv:2606.26294) applied to the retrieval router's utility records:
+# erase only the evidence tied to the displaced generation, preserve everything
+# unrelated, so the router re-climbs under the new regime instead of carrying
+# stale (possibly reward-hacked) utility forward forever. One correct value, not
+# a flag — bge-m3 minor-edit re-embeds stay well above 0.75 similarity; a
+# material rewrite drops below it.
+_REWARD_REGEN_DISTANCE = 0.25
+
+
 __all__ = ["Designation", "CapabilityIndex"]
 
 
@@ -149,6 +166,9 @@ class CapabilityIndex:
         # id -> reward EMA in [0, 1] (0.5 = neutral/unproven). Updated by
         # record_outcome() to close the learning loop (Plan 08 Synergy 5).
         self._reward: dict[str, float] = {}
+        # Running count of reward records selectively erased (CONCEPT:KG-2.276),
+        # for observability/doctor. Transient — not persisted across save/load.
+        self._reward_erasures: int = 0
         # id -> ontology type/class (CONCEPT:KG-2.44b). Optional; populated from the
         # live node's ``type`` when the funnel/bulk loader knows it. Lets
         # ``designate`` re-project the flat cosine neighbourhood through the ontology
@@ -240,6 +260,25 @@ class CapabilityIndex:
 
         norm_vec = _l2_normalize(vec)
         is_update = id in self._id_to_vec
+        # CONCEPT:KG-2.276 — selective reward erasure on the ingestion upsert path.
+        # A re-add whose representation has materially diverged from the stored one is a
+        # new generation: the reward EMA accrued under the old content is stale
+        # evidence, so erase only that id's record (RQGM selective erasure). The
+        # cosine distance is a near-free dot product on two already-normalized
+        # vectors, so this runs natively on every ingestion upsert with no flag.
+        if is_update and id in self._reward:
+            prev_vec = self._id_to_vec[id]
+            distance = 1.0 - float(np.dot(prev_vec, norm_vec))
+            if distance > _REWARD_REGEN_DISTANCE:
+                self._reward.pop(id, None)
+                self._reward_erasures += 1
+                logger.debug(
+                    "[KG-2.276] selective reward erasure for %r "
+                    "(embedding drift %.3f > %.2f)",
+                    id,
+                    distance,
+                    _REWARD_REGEN_DISTANCE,
+                )
         self._id_to_vec[id] = norm_vec
 
         # Ontology type for structured-prior ranking (KG-2.44b). Only overwrite when
@@ -555,6 +594,36 @@ class CapabilityIndex:
     def reward_of(self, id: str) -> float:
         """Current reward EMA for ``id`` (0.5 if no outcomes recorded yet)."""
         return self._reward.get(id, 0.5)
+
+    def selective_erase_rewards(self, ids: Any) -> int:
+        """Selectively erase the reward EMA for exactly ``ids`` (CONCEPT:KG-2.276).
+
+        The explicit, provenance-scoped form of the Red Queen Gödel Machine's
+        *selective erasure* (arXiv:2606.26294): when the source/evaluator/impl
+        that produced a set of designations is superseded (a capability is
+        redeployed, a model regime changes, a document version is retracted), the
+        utility records scored under it are no longer valid. This erases only
+        those records — every reward not in ``ids`` is preserved — so the router
+        re-learns the affected entities from the neutral prior instead of being
+        anchored by stale evidence. Order-independent: erasing ``{a, b}`` then
+        ``{c}`` is identical to erasing ``{a, b, c}`` at once. Unlike
+        :meth:`decay_rewards` (uniform time decay toward neutral), this is
+        targeted by *provenance*, not by *age*.
+
+        Returns the number of records actually erased.
+        """
+        erased = 0
+        for raw in ids or ():
+            id = str(raw)
+            if self._reward.pop(id, None) is not None:
+                erased += 1
+        self._reward_erasures += erased
+        return erased
+
+    @property
+    def reward_erasures(self) -> int:
+        """Total reward records selectively erased this process (KG-2.276)."""
+        return self._reward_erasures
 
     def decay_rewards(self, factor: float = 0.99) -> None:
         """Decay all rewards toward the neutral 0.5 prior (call periodically).

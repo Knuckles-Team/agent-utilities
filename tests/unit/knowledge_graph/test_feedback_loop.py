@@ -108,6 +108,37 @@ def test_unknown_correction_type_is_rejected():
     assert not res.applied
 
 
+# ── FeedbackService: selective_erasure live path (CONCEPT:KG-2.276) ───────────
+def test_selective_erasure_live_path_forgets_superseded_rewards():
+    """LIVE-PATH: a `selective_erasure` correction dispatched through
+    `record_correction` reaches the real `CapabilityIndex` and forgets only the
+    named superseded designations (RQGM selective erasure)."""
+    from agent_utilities.knowledge_graph.retrieval.capability_index import (
+        CapabilityIndex,
+    )
+
+    idx = CapabilityIndex(dim=4, prefer_backend="numpy")
+    idx.add("tool:old_a", [1.0, 0.0, 0.0, 0.0], ["web"])
+    idx.add("tool:old_b", [0.0, 1.0, 0.0, 0.0], ["web"])
+    idx.add("tool:keep", [0.0, 0.0, 1.0, 0.0], ["web"])
+    for nid in ("tool:old_a", "tool:old_b", "tool:keep"):
+        idx.record_outcome(nid, reward=1.0)
+
+    svc = FeedbackService(capability_index=idx)
+    res = svc.record_correction(
+        "selective_erasure",
+        "tool:old_a",
+        corrected_value=["tool:old_b"],
+        reason="capability redeployed",
+    )
+    assert res.applied
+    assert "erased 2" in res.detail
+    # Exactly the superseded ids were forgotten; the unrelated one is preserved.
+    assert idx.reward_of("tool:old_a") == 0.5
+    assert idx.reward_of("tool:old_b") == 0.5
+    assert idx.reward_of("tool:keep") > 0.5
+
+
 # ── FeedbackService: reads_avoided loop (CONCEPT:AHE-3.61) ────────────────────
 def test_reads_avoided_full_replacement_rewards_high_and_grades():
     idx = FakeIndex()
