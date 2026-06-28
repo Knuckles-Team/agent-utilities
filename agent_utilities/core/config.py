@@ -1082,6 +1082,14 @@ class AgentConfig(BaseSettings):
     kg_dspy_optimization_interval: float = Field(
         default=3600.0, alias="KG_DSPY_OPTIMIZATION_INTERVAL"
     )
+    # Agent-facing auto-apply gate (CONCEPT:AHE-3.71) — the high-impact half of the
+    # hardening loop. A DSPy-optimized *system prompt* that beats baseline on its
+    # agent's eval-corpus slice is only written to source (StructuredPrompt.save) when
+    # this is True; otherwise the cycle is **propose-only / shadow** — it records a
+    # queryable ``ProposedPromptChange`` for human/Claude review and leaves the live
+    # prompt untouched. Default OFF (mirrors KG_GOLDEN_AUTO_MERGE): a prompt rewrite is
+    # never silent. ``should_promote`` still gates even when this is enabled.
+    kg_agent_auto_apply: bool = Field(default=False, alias="KG_AGENT_AUTO_APPLY")
     # PerformanceAnomaly consumer (CONCEPT:AHE-3.19) — drains unconsumed
     # PerformanceAnomaly nodes into failure_gap topics for the golden loop.
     # Default ON: it is LLM-free, bounded, and propose-only (it writes topic
