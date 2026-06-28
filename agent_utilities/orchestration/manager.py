@@ -134,18 +134,35 @@ class Orchestrator:
 
     async def execute_workflow(
         self, workflow_id: str, task: str = "", max_steps: int = 30
-    ) -> str:
-        """Execute a compiled workflow."""
+    ) -> dict[str, Any]:
+        """Execute a compiled workflow by running its STORED step-DAG.
+
+        CONCEPT:ORCH-1.95 — close the execution seam. This previously constructed a
+        generic ``AgentOrchestrationEngine`` whose no-completion-state path ran ONE
+        ``dynamic_worker`` agent and never loaded the ingested
+        ``WorkflowDefinition``/``WorkflowStep`` DAG — so a stored/ingested workflow
+        (the KG-2.97 ``WorkflowStore`` shape) was dispatchable but never executed.
+
+        It now routes to the real :class:`WorkflowRunner` (ORCH-1.24), which
+        ``load_workflow(name)`` → builds dependency waves → runs each step on the
+        local LLM. The SHACL+ACL ontology gate (ORCH-1.42) still runs upstream in
+        the ``graph_orchestrate`` handler before this is called, so governance stays
+        in the path. Returns the ``WorkflowResult`` as a dict carrying the ``run_id``
+        handle (the session id) so a delegated workflow run is trackable (ORCH-1.97).
+        """
         if task:
             self._scan_task(task)
 
-        logger.info(f"Executing workflow {workflow_id}...")
-        try:
-            from agent_utilities.orchestration import AgentOrchestrationEngine
+        logger.info(f"Executing workflow {workflow_id} via WorkflowRunner...")
+        from agent_utilities.workflows.runner import WorkflowRunner
 
-            runner = AgentOrchestrationEngine()
-            result = await runner.execute_workflow(workflow_id=workflow_id)
-            return str(result)
-        except Exception as e:
-            logger.error(f"Failed to execute workflow {workflow_id}: {e}")
-            raise
+        runner = WorkflowRunner()
+        result = await runner.execute_by_name(
+            workflow_name=workflow_id,
+            engine=self.engine,
+            task=task or None,
+        )
+        payload = result.to_dict()
+        # ORCH-1.97 — surface a stable run handle for the delegated workflow run.
+        payload["run_id"] = result.session_id
+        return payload
