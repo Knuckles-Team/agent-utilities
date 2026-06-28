@@ -175,6 +175,17 @@ class _BatchedBackend:
         self._bulk = getattr(graph, "bulk_mutate", None) or getattr(
             graph, "batch_update", None
         )
+        # Multiplexed pool fan-out (CONCEPT:KG-2.274): when the engine exposes the
+        # pooled concurrent submitter, a large flush is split into independent
+        # sub-batches that ride SEPARATE pooled connections, so the engine services
+        # them as parallel per-connection tasks (and coalesces their durable commits)
+        # instead of one serial BatchUpdate on the single shared client. The flush is
+        # a set of independent node (or, after nodes land, edge) writes, so splitting
+        # it preserves correctness; ``flush()`` still drains nodes fully before edges.
+        self._bulk_concurrent = getattr(graph, "batch_update_concurrent", None)
+        # Sub-batch grain: ~a quarter of the flush so a full batch fans across ~4
+        # connections — enough to overlap submission without shredding the payload.
+        self._sub_batch = max(1, batch_size // 4)
 
     @property
     def bulk_available(self) -> bool:
@@ -206,16 +217,37 @@ class _BatchedBackend:
             }
         )
 
+    def _submit_bulk(self, ops: list[dict[str, Any]]) -> bool:
+        """Send one independent ``ops`` flush through the fastest available path.
+
+        Order of preference (CONCEPT:KG-2.274 → KG-2.16): the pooled concurrent
+        submitter (sub-batches fanned across separate connections) → the single bulk
+        ``batch_update`` → ``False`` so the caller degrades to per-item writes.
+        """
+        if self._bulk_concurrent is not None and len(ops) > self._sub_batch:
+            chunks = [
+                ops[i : i + self._sub_batch]
+                for i in range(0, len(ops), self._sub_batch)
+            ]
+            try:
+                self._bulk_concurrent(chunks)
+                return True
+            except Exception as e:  # noqa: BLE001 - degrade to a single bulk RPC
+                logger.debug("concurrent flush failed (%s); single-batch fallback", e)
+        if self._bulk is not None:
+            try:
+                self._bulk(ops)
+                return True
+            except Exception as e:  # noqa: BLE001 - degrade to per-item writes
+                logger.debug("batched flush failed (%s); per-item fallback", e)
+        return False
+
     def _flush_nodes(self) -> None:
         if not self._nodes:
             return
         ops, self._nodes = self._nodes, []
-        if self._bulk is not None:
-            try:
-                self._bulk(ops)
-                return
-            except Exception as e:  # noqa: BLE001 - degrade to per-node writes
-                logger.debug("batched node flush failed (%s); per-node fallback", e)
+        if self._submit_bulk(ops):
+            return
         for op in ops:
             self._backend.add_node(op["id"], **op["properties"])
 
@@ -223,12 +255,8 @@ class _BatchedBackend:
         if not self._edges:
             return
         ops, self._edges = self._edges, []
-        if self._bulk is not None:
-            try:
-                self._bulk(ops)
-                return
-            except Exception as e:  # noqa: BLE001 - degrade to per-edge writes
-                logger.debug("batched edge flush failed (%s); per-edge fallback", e)
+        if self._submit_bulk(ops):
+            return
         for op in ops:
             self._backend.add_edge(op["source"], op["target"], **op["properties"])
 
