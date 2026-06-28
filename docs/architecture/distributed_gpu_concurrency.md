@@ -165,6 +165,76 @@ coordinate beyond reporting their current target into the shared `GpuGroupBudget
   best-effort is pinned at its floor. Adding a host raises the aggregate (tier c)
   rather than oversubscribing a saturated device.
 
+## Dedicate vs share — placing embeddings vs generation (deployment planning)
+
+Tiers (a)/(b)/(c) above *manage* contention on a shared GPU. The cheapest way to
+*eliminate* it, when the hardware allows, is to **not share at all** — give
+embeddings and generation **different GPUs**. This is the GPU-allocation rule the
+deployment planner and genesis Step 4 apply, profile-aware:
+
+### Multiple GPUs → DEDICATE one to embeddings, one to generation (preferred)
+
+When the deployment has **more than one GPU / inference host**, place the **LLM
+(generation)** alone on the strongest GPU and the **embedder** on a separate,
+typically **cheaper/older** GPU. Each endpoint gets its **own** `gpu_group` and its
+**own** tier-(b) budget — so the embedder can scale to *its* GPU's max with **zero**
+risk to chat, and the LLM keeps its whole device for KV cache.
+
+Why this is the right split:
+
+* **Embeddings are throughput-not-latency, and batchable.** They tolerate a slower
+  device run 24/7 at max batch; generation is the latency-critical interactive path
+  that wants the fast GPU and its full memory. Trading surplus embed throughput for
+  guaranteed LLM headroom is a good trade.
+* **It removes the contention class entirely.** Two models on one *unified-memory*
+  box share one KV/activation pool; a bulk-embedding storm can starve the LLM's KV
+  cache and OOM the whole host. Different GPUs cannot share a pool — the failure mode
+  is **gone**, not merely managed.
+* **The cheaper GPU may not run the same stack.** An older card
+  (e.g. Pascal, compute-capability < 7.0) **cannot run vLLM** (needs CC ≥ 7.0).
+  Serve embeddings there with a CC-agnostic OpenAI-compatible stack — **Infinity**
+  (or a `sentence-transformers`+FastAPI shim) — and in **FP32** (consumer Pascal's
+  native FP16 is crippled, so FP16 is *slower*). Because the embedder client is
+  OpenAI-style (`base_url` + `/v1/embeddings`), this is a drop-in: only `base_url`
+  and `gpu_group` change. Keep the **served model name identical** so the pgvector
+  dimension/schema is unchanged across hosts.
+* **Optional fallback.** Keep an embedder on the LLM host as an automatic
+  **failover** for the dedicated embedder — but tag it `gpu_group=<llm-host>` so the
+  shared-GPU budget (tier b) caps its **joint** in-flight with the LLM and it can
+  never OOM the box even when it takes load.
+
+```jsonc
+// Two GPUs: embedder dedicated to the cheaper card, LLM alone on the strong one.
+"chat_models":      [{ "id": "<llm>",   "base_url": "http://llm-host/v1",
+                       "gpu_group": "llm-host" }],
+"embedding_models": [
+  { "id": "<embed>", "base_url": "http://embed-host/v1", "gpu_group": "embed-host" },   // PRIMARY (own budget)
+  { "id": "<embed>", "base_url": "http://llm-host/v1",   "gpu_group": "llm-host",       // FALLBACK on the LLM host
+    "role": "fallback" }
+],
+// Each physical GPU its OWN budget; the embed-host can ramp to its max independently.
+"GPU_CONCURRENCY_BUDGETS": { "llm-host": 32, "embed-host": 16 }
+```
+
+### One shared GPU/host → CAPACITY-GUARD the share (homelab / tiny / Pi)
+
+When there is only **one** GPU (or one box) for both roles — a homelab/tiny/Pi
+profile — keep both on it but apply the guard so the combined load is bounded:
+
+* both models on **one `gpu_group`** → the joint `GPU_CONCURRENCY_BUDGETS` caps
+  their **sum** (tier b), with chat's floor reserved off the top;
+* a per-endpoint **`max_concurrent_requests`** ceiling (KG-2.298) per model;
+* the per-endpoint **circuit breaker** (ORCH-1.102/1.103) backing off on a
+  shedding server. See [`llm-server-capacity-guard.md`](llm-server-capacity-guard.md).
+
+For the smallest single-host deploys, embeddings can also be pushed off the GPU
+entirely — **CPU or a remote embedding endpoint** — leaving the whole GPU for
+generation.
+
+**Decision in one line:** *more than one GPU → dedicate (separate endpoints +
+per-GPU budgets, cheaper GPU for embeds, optional LLM-host fallback); one GPU →
+capacity-guard the shared budget, or move embeds to CPU/remote.*
+
 ## Staying conservative + protecting interactive latency
 
 The whole design biases toward interactive latency: chat's floor is reserved off
