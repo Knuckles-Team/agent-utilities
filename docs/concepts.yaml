@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 566
+total_concepts: 569
 total_pillars: 22
 pillars:
 - AHE-3
@@ -3503,6 +3503,7 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/core/gpu_group_budget.py
   - agent_utilities/core/model_capacity_autoscale.py
+  - agent_utilities/core/model_circuit_breaker.py
   - agent_utilities/core/model_concurrency.py
   doc: Surfaces the universal latency signal
 - id: KG-2.146
@@ -4224,6 +4225,14 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/troubleshoot_context.py
   doc: KG-2.297
+- id: KG-2.298
+  name: Same semantics as
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/core/model_concurrency.py
+  doc: Same semantics as
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -5185,14 +5194,13 @@ concepts:
   - agent_utilities/core/resource_priority.py
   doc: ORCH-1.98
 - id: ORCH-1.99
-  name: priority-gate each call when tagged
+  name: also fold the vLLM scheduler
   pillar: ORCH-1
   status: live
   code_paths:
-  - agent_utilities/core/model_concurrency.py
   - agent_utilities/core/model_factory.py
   - agent_utilities/core/resource_priority.py
-  doc: priority-gate each call when tagged
+  doc: also fold the vLLM scheduler
 - id: ORCH-1.100
   name: makes the packaged expert personas *dispatchable* agents
   pillar: ORCH-1
@@ -5209,6 +5217,23 @@ concepts:
   - agent_utilities/mcp/toolset_factory.py
   - agent_utilities/orchestration/agent_runner.py
   doc: the transport invokes this factory with a transport-version
+- id: ORCH-1.102
+  name: the ceiling decides the steady-state MAX in flight; the
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/model_circuit_breaker.py
+  - agent_utilities/core/model_concurrency.py
+  - agent_utilities/knowledge_graph/enrichment/semantic.py
+  doc: the ceiling decides the steady-state MAX in flight; the
+- id: ORCH-1.103
+  name: back off while the server is shedding load
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/model_circuit_breaker.py
+  - agent_utilities/core/model_concurrency.py
+  doc: back off while the server is shedding load
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2
