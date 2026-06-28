@@ -65,9 +65,9 @@ def _sql_literal(value: Any) -> str:
         return "NULL"
     if isinstance(value, bool):
         return "TRUE" if value else "FALSE"
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return str(value)
-    if isinstance(value, (dict, list)):
+    if isinstance(value, dict | list):
         value = _json.dumps(value, default=str)
     return "'" + str(value).replace("'", "''") + "'"
 
@@ -124,7 +124,11 @@ def list_tables(engine: Any) -> list[str]:
             "SELECT table_name FROM information_schema.tables "
             "WHERE table_schema NOT IN ('information_schema')"
         )
-        return [r.get("table_name") for r in rows if isinstance(r, dict)]
+        return [
+            str(name)
+            for r in rows
+            if isinstance(r, dict) and (name := r.get("table_name")) is not None
+        ]
     except Exception as exc:  # noqa: BLE001 — engine may not expose info_schema
         logger.debug("list_tables failed: %s", exc)
         return []

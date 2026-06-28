@@ -35,6 +35,10 @@ _coupled_handlers_installed = False
 # graceful-degradation probe (a single `--help` exec) runs at most once.
 _idle_shutdown_support: dict[str, bool] = {}
 
+# Sentinel for "the connection pool has not been built yet" — distinct from a
+# built-but-unavailable pool (which caches as ``None``). (CONCEPT:KG-2.274)
+_POOL_UNSET: Any = object()
+
 
 def _engine_supports_idle_shutdown(server_path: str) -> bool:
     """Whether the installed engine binary advertises ``--idle-shutdown-secs``.
@@ -1641,6 +1645,189 @@ class GraphComputeEngine:
         Returns the number of evicted nodes.
         """
         return self._client.lifecycle.evict_lru(max_nodes)
+
+    # ── Multiplexed engine connection pool (CONCEPT:KG-2.274) ─────────────
+    # Consumer-side adoption of the epistemic_graph ShardRouter / ConnectionPool
+    # (CONCEPT:EG-037). This engine's own ``SyncEpistemicGraphClient`` is ONE
+    # connection — M concurrent callers serialize on it (and on the engine's
+    # serial per-connection read loop). For INDEPENDENT ops we instead fan out
+    # across an auto-sized pool: each op rides its OWN pooled connection, which the
+    # engine services as a separate ``tokio::spawn`` task, so wall-clock collapses
+    # from the serial sum toward one op. Ordering-dependent ops (node-before-edge in
+    # ONE logical write) stay on ONE connection — they belong INSIDE a single op
+    # closure, never split across two entries (the engine still serializes per
+    # shard; this only parallelizes the client→engine submission).
+
+    def _engine_loop(self) -> Any:
+        """The background asyncio loop the sync client runs on, or ``None``.
+
+        The pool's asyncio primitives (Queue/Lock) and its pooled connections are
+        bound to this loop, so every pool op MUST be driven on it (via
+        ``run_coroutine_threadsafe``). Reached through the breaker proxy.
+        """
+        sc = getattr(self._client, "__wrapped__", self._client)
+        return getattr(sc, "_loop", None)
+
+    def _ensure_pool(self) -> Any:
+        """Lazily build an auto-sized ShardRouter sharing this engine's endpoints.
+
+        Built ONCE, on the sync client's background loop, so its pooled connections
+        live on the same loop the bridge drives. The pool auto-sizes to the box
+        (``epistemic_graph.pool`` — no knob). Returns the router, or ``None`` when
+        the pool is unavailable (import/build/loop failure); callers then fall back
+        to the single shared connection. Never raises.
+
+        Single-endpoint homelab: the router still hands out N connections to the one
+        endpoint, so the server's task-per-connection still parallelizes — the pool
+        is a win even without multiple shards.
+        """
+        cached = getattr(self, "_pool_router", _POOL_UNSET)
+        if cached is not _POOL_UNSET:
+            return cached
+        router: Any = None
+        try:
+            import asyncio as _asyncio
+
+            from epistemic_graph.pool import ShardRouter
+
+            from agent_utilities.core.config import AgentConfig
+
+            from .shard_topology import resolve_endpoints
+
+            loop = self._engine_loop()
+            if loop is None:
+                self._pool_router = None
+                return None
+            config = AgentConfig()
+            endpoints = resolve_endpoints(config)
+            auth_secret, insecure = resolve_engine_auth(config)
+            router = ShardRouter(
+                endpoints, auth_secret=None if insecure else auth_secret
+            )
+            # Open the per-endpoint pools' min_size connections ON the engine loop.
+            fut = _asyncio.run_coroutine_threadsafe(router.initialize(), loop)
+            fut.result(timeout=30)
+        except Exception as exc:  # noqa: BLE001 — the pool is an optional accelerator
+            logger.debug(
+                "connection pool unavailable; using single connection: %s", exc
+            )
+            router = None
+        self._pool_router = router
+        return router
+
+    def batch_update_concurrent(
+        self,
+        batches: list[list[dict[str, Any]]],
+        graph: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Apply INDEPENDENT op-batches concurrently, each on its OWN pooled
+        connection (CONCEPT:KG-2.274).
+
+        Each entry of ``batches`` is a ``batch_update`` op-list (same shape as
+        :meth:`batch_update`). The batches must be independent of one another; ops
+        WITHIN a batch keep their order (one batch rides one ``BatchUpdate`` RPC on
+        one connection). The batches fan out across the auto-sized pool so the engine
+        services them as parallel per-connection tasks instead of serializing behind
+        the single shared client. Results are returned in input order.
+
+        Degrades cleanly: with no pool available the batches apply SEQUENTIALLY
+        through the existing single connection (correctness preserved, no
+        parallelism). Use this only for independent batches — a node-before-edge
+        ordering must live within ONE batch, not split across two entries.
+        """
+        if not batches:
+            return []
+        router = self._ensure_pool()
+        loop = self._engine_loop()
+        graph_name = graph or self.graph_name
+        if router is None or loop is None:
+            return [self.batch_update(b) for b in batches]
+        import asyncio as _asyncio
+
+        def _make_op(batch: list[dict[str, Any]]) -> Any:
+            async def _run(client: Any) -> Any:
+                return await client.lifecycle.batch_update(batch)
+
+            return _run
+
+        async def _drive() -> list[Any]:
+            return await router.map_concurrent(
+                graph_name, [_make_op(b) for b in batches]
+            )
+
+        try:
+            fut = _asyncio.run_coroutine_threadsafe(_drive(), loop)
+            results = fut.result()
+        except Exception as exc:  # noqa: BLE001 — degrade to the single connection
+            logger.debug(
+                "concurrent batch submit failed (%s); sequential fallback", exc
+            )
+            return [self.batch_update(b) for b in batches]
+        out: list[dict[str, Any]] = []
+        for result in results:
+            if isinstance(result, str | bytes | bytearray):
+                out.append(json.loads(result))
+            else:
+                out.append(result)
+        return out
+
+    async def map_concurrent(
+        self,
+        ops: list[Any],
+        graph: str | None = None,
+    ) -> list[Any]:
+        """Run INDEPENDENT engine ops concurrently across the pool (CONCEPT:KG-2.274).
+
+        ``ops`` is a list of ``async (client) -> result`` callables; each runs on its
+        OWN pooled connection so the engine services them as parallel per-connection
+        tasks. Awaitable from ANY event loop: the pool lives on the sync client's
+        background loop, so the work is bridged there and the result awaited via
+        ``asyncio.wrap_future``. Results keep ``ops`` order. Independent ops ONLY —
+        an ordered node-before-edge sequence goes inside a single ``op`` (one
+        connection), never split across two entries.
+
+        Degrades cleanly: with no pool the ops run SEQUENTIALLY on the single shared
+        async connection (correctness preserved, no parallelism).
+        """
+        if not ops:
+            return []
+        import asyncio as _asyncio
+
+        router = self._ensure_pool()
+        loop = self._engine_loop()
+        if loop is None:
+            raise RuntimeError("no engine loop available for map_concurrent")
+        graph_name = graph or self.graph_name
+        if router is not None:
+            coro = router.map_concurrent(graph_name, ops)
+        else:
+
+            async def _seq() -> list[Any]:
+                raw = getattr(self._client, "__wrapped__", self._client)
+                async_client = getattr(raw, "_client", None)
+                return [await op(async_client) for op in ops]
+
+            coro = _seq()
+        fut = _asyncio.run_coroutine_threadsafe(coro, loop)
+        return await _asyncio.wrap_future(fut)
+
+    def close_pool(self) -> None:
+        """Close the pooled connections (best-effort). Idempotent; safe if no pool."""
+        router = getattr(self, "_pool_router", None)
+        if router is None:
+            return
+        loop = self._engine_loop()
+        if loop is None:
+            self._pool_router = None
+            return
+        try:
+            import asyncio as _asyncio
+
+            fut = _asyncio.run_coroutine_threadsafe(router.close_all(), loop)
+            fut.result(timeout=10)
+        except Exception:  # noqa: BLE001 — teardown is best-effort
+            pass
+        self._pool_router = None
 
     # ── Graph Traversal API ──────────────────────────────────────────────
     # These provide the standard graph traversal interface used across
