@@ -39,7 +39,12 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
-from .task_lanes import BEST_EFFORT_LANES, LANE_NAMES, lane_for_task_type
+from .task_lanes import (
+    BEST_EFFORT_LANES,
+    INTERACTIVE_LANES,
+    LANE_NAMES,
+    lane_for_task_type,
+)
 
 __all__ = [
     "SchedulerConfig",
@@ -351,6 +356,22 @@ class AdmissionPolicy:
         )
         return max(1, derived, shard_floor)
 
+    # -- interactive reservation --------------------------------------------
+    def interactive_floor(self) -> int:
+        """Workers that NON-interactive lanes may never consume (CONCEPT:KG-2.289).
+
+        The HARD guarantee that the host always has a free worker for interactive /
+        MCP work even under a saturating bulk ingest. Auto-sized as
+        ``max(1, reserved)`` so it is floored at 1 regardless of how ``reserved`` is
+        configured, then clamped to ``worker_count − 1`` so a non-interactive task
+        can always make *some* progress (a degenerate 1-worker pool reserves 0 —
+        that single worker serves everything). Unlike the relaxable hot-spare
+        (rule 3), this floor is NEVER spent to cover an uncovered ingestion lane:
+        only an :data:`INTERACTIVE_LANES` task may claim into it.
+        """
+        cfg = self.config
+        return min(max(1, cfg.reserved), max(0, cfg.worker_count - 1))
+
     # -- coverage helpers ----------------------------------------------------
     def _uncovered_pending_lanes(
         self, pending_by_lane: dict[str, int], running_by_lane: dict[str, int]
@@ -391,6 +412,17 @@ class AdmissionPolicy:
             floor = max(1, cfg.per_lane_min)
             if running_by_lane.get(lane, 0) >= floor:
                 return _Decision(False, f"{lane} best-effort cap ({floor})")
+
+        # 1c) Interactive reservation (CONCEPT:KG-2.289) — the HARD floor that keeps
+        #     the host responsive. A NON-interactive task is refused if claiming would
+        #     drop the free-worker count below the interactive floor, and — unlike the
+        #     hot-spare (rule 3) — this is NOT relaxed to cover an uncovered ingestion
+        #     lane. So no amount of pending codebase/document/connector/maint work can
+        #     drive interactive capacity to 0; an MCP/interactive call always lands.
+        if lane not in INTERACTIVE_LANES:
+            floor = self.interactive_floor()
+            if floor > 0 and free - 1 < floor:
+                return _Decision(False, f"reserve interactive ({floor})")
 
         uncovered = self._uncovered_pending_lanes(pending_by_lane, running_by_lane)
         this_lane_uncovered = lane in uncovered

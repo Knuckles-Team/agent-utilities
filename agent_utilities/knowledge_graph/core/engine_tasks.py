@@ -2676,6 +2676,111 @@ class TaskManagerMixin(GraphEngineProtocol):
         self.start_task_workers()
         return job_id
 
+    def _maybe_fanout_codebase(
+        self, job_id: str, target: Path, meta: dict[str, Any]
+    ) -> bool:
+        """Split a too-large whole-repo codebase task into shard-routed sub-tasks.
+
+        CONCEPT:KG-2.287 — the big-repo tail fix. A whole-repo ``codebase`` task for
+        a repo above :data:`~...repo_split.SPLIT_MIN_FILES` files is fanned out into
+        K balanced sub-tasks, each scoped to a file bucket (``only_files``) and routed
+        to its own per-shard graph (``code:<repo>__s<i>``), so the buckets commit in
+        PARALLEL across the engine's K redb shard writers instead of one repo pinning
+        one worker/shard for minutes. Returns ``True`` when it fanned out (the caller
+        marks this parent done and stops); ``False`` to ingest inline as before.
+
+        Guards keep the median safe and the recursion bounded:
+
+        * a sub-task (carries ``route_repo``/``split_child``) never re-splits;
+        * an explicitly-scoped task (``only_files`` already set, e.g. the dirty
+          self-ingest) is left exactly as-is;
+        * splitting is skipped unless graph routing is enabled (distinct graphs are
+          what buys the shard parallelism — with routing off every bucket would land
+          on the same graph, so the split would add tasks for no gain);
+        * small/medium repos (the healthy p50) fall straight through to the inline
+          path, untouched.
+        """
+        # Already a sub-task, or an explicitly-scoped ingest → never fan out.
+        if meta.get("route_repo") or meta.get("split_child") or meta.get("only_files"):
+            return False
+        try:
+            from agent_utilities.knowledge_graph.core import ingest_routing
+
+            if not ingest_routing.routing_enabled():
+                return False
+        except Exception:  # noqa: BLE001 — routing probe is best-effort
+            return False
+
+        repo_root = Path(target)
+        if not repo_root.is_dir():
+            return False
+        try:
+            from agent_utilities.knowledge_graph.enrichment.pipeline import (
+                discover_source_files,
+            )
+            from agent_utilities.knowledge_graph.ingestion.repo_split import (
+                SPLIT_MIN_FILES,
+                plan_repo_split,
+                split_graph_suffix,
+            )
+
+            files = discover_source_files(repo_root)
+        except Exception:  # noqa: BLE001 — discovery failure → ingest inline
+            return False
+        if len(files) <= SPLIT_MIN_FILES:
+            return False
+
+        from agent_utilities.knowledge_graph.core.worker_scheduler import (
+            durable_shard_writers,
+        )
+
+        # Fan across the engine's shard-writer width (≥2 so a split is meaningful).
+        k = max(2, durable_shard_writers())
+        buckets = plan_repo_split(repo_root, files, k)
+        if len(buckets) <= 1:
+            return False
+
+        repo_name = repo_root.name
+        child_ids: list[str] = []
+        for i, bucket in enumerate(buckets):
+            child_ids.append(
+                self.submit_task(
+                    target_path=str(repo_root),
+                    is_codebase=True,
+                    provenance={},
+                    task_type="codebase",
+                    # All children share the repo target — the per-bucket identity is
+                    # the routing key, so the target-based dedupe must be bypassed.
+                    skip_dedupe=True,
+                    extra_meta={
+                        "only_files": [str(p) for p in bucket],
+                        "route_repo": f"{repo_name}{split_graph_suffix(i)}",
+                        "split_child": True,
+                        "split_parent": job_id,
+                        "split_bucket": i,
+                    },
+                )
+            )
+        self._update_task_status(
+            job_id,
+            "completed",
+            {
+                "target": str(repo_root),
+                "type": "codebase",
+                "status": "fanned_out",
+                "split_children": child_ids,
+                "split_buckets": len(buckets),
+                "split_files": len(files),
+            },
+        )
+        logger.info(
+            "[KG-2.287] split big repo %s (%d files) into %d shard-routed sub-tasks",
+            repo_name,
+            len(files),
+            len(buckets),
+        )
+        return True
+
     def _bulk_ingest_active(self, threshold: int = 1) -> bool:
         """True if ``threshold``+ codebase ingest tasks are pending/running.
 
@@ -3295,19 +3400,67 @@ class TaskManagerMixin(GraphEngineProtocol):
             # Cohort barrier finalize → assimilation pass + feature matrix (KG-2.172).
             "cohort_synthesize",
         }
-        if task_type in _HEAVY_TASK_TYPES:
-            from agent_utilities.core.background_throttle import get_throttle
+        # CONCEPT:KG-2.286 — bound EVERY claimed task by its lane's soft timeout so a
+        # hung task (a connector with no per-call timeout, a wedged maint tick) frees
+        # its worker FAST instead of pinning it until the reaper's 2h absolute cap.
+        #
+        # Why a watchdog THREAD and not ``asyncio.wait_for``: the work is run via
+        # ``asyncio.run`` and a hang may be a *synchronous* blocking call (a connector
+        # with no socket timeout) with no await point to cancel — and even when it is
+        # cancellable, ``asyncio.run``'s loop-close JOINS the default executor (up to
+        # ``THREAD_JOIN_TIMEOUT``), so the worker would still block on the hung thread.
+        # Running the task body in a daemon thread and ``join(timeout)``-ing it lets
+        # the worker RETURN at the bound regardless of where the hang is; the hung
+        # thread is abandoned (daemon → never blocks shutdown) and the task is routed
+        # through the KG-2.113 retry→backoff→dead_letter machinery by the worker loop.
+        import threading as _threading
 
-            with get_throttle().background_slot():
+        from .task_lanes import task_soft_timeout
+
+        timeout = task_soft_timeout(task_type)
+        heavy = task_type in _HEAVY_TASK_TYPES
+        outcome: dict[str, BaseException] = {}
+
+        def _run_body() -> None:
+            try:
                 asyncio.run(
                     self._run_background_task(
                         job_id, target_path, is_codebase, task_type
                     )
                 )
+            except BaseException as exc:  # noqa: BLE001 — relayed to the worker loop
+                outcome["exc"] = exc
+
+        worker_thread = _threading.Thread(
+            target=_run_body, name=f"kg-task-{job_id}", daemon=True
+        )
+        if heavy:
+            # Hold the background concurrency slot only while we WAIT — released the
+            # instant the worker is freed (success or timeout), so an abandoned hung
+            # thread can't leak a slot forever (it merely over-subscribes by one
+            # transiently, which the reaper/dead-letter then resolves).
+            from agent_utilities.core.background_throttle import get_throttle
+
+            with get_throttle().background_slot():
+                worker_thread.start()
+                worker_thread.join(timeout)
         else:
-            asyncio.run(
-                self._run_background_task(job_id, target_path, is_codebase, task_type)
+            worker_thread.start()
+            worker_thread.join(timeout)
+
+        if worker_thread.is_alive():
+            # Overran the bound — abandon the daemon thread, free the worker.
+            logger.warning(
+                "[KG-2.286] task %s (%s) exceeded soft timeout %.0fs — abandoning "
+                "for retry/dead_letter",
+                job_id,
+                task_type,
+                timeout,
             )
+            raise RuntimeError(f"soft timeout: {task_type} exceeded {timeout:.0f}s")
+        if "exc" in outcome:
+            # Re-raise the task's real failure so the worker loop's retry path runs.
+            raise outcome["exc"]
 
         # Post-ingestion: auto-build HNSW indexes when queue drains
         self._maybe_build_vector_indexes()
@@ -3804,10 +3957,25 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
                 )
                 cb_meta = _decode_metadata(cb_rows[0]["m"]) if cb_rows else {}
+
+                # CONCEPT:KG-2.287 — big-repo tail: if this is a whole-repo task for a
+                # repo large enough to pin one worker/shard for minutes, fan it out
+                # into K shard-routed sub-tasks instead of ingesting inline. Returns
+                # True when it fanned out (this parent is done); the children run in
+                # parallel across the K redb shard writers.
+                if self._maybe_fanout_codebase(job_id, target, cb_meta):
+                    return
+
                 cb_manifest_meta: dict[str, Any] = {"features": True}
                 only_files = cb_meta.get("only_files")
                 if isinstance(only_files, list) and only_files:
                     cb_manifest_meta["only_files"] = only_files
+                # CONCEPT:KG-2.287 — a split sub-task carries its own routing key so
+                # its structural writes land on a distinct per-shard graph
+                # (``code:<repo>__s<i>``) instead of the shared ``code:<repo>``.
+                route_repo = cb_meta.get("route_repo")
+                if route_repo:
+                    cb_manifest_meta["route_repo"] = route_repo
                 ing = IngestionEngine(kg_engine=self)
                 cb_res = await ing.ingest(
                     IngestionManifest(
@@ -4824,7 +4992,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         try:
             rows = self._control_cypher(
-                "MATCH (t:Task) RETURN t.status as status, t.metadata as meta"
+                "MATCH (t:Task) RETURN t.id as id, t.status as status, t.metadata as meta"
             )
         except Exception:  # noqa: BLE001
             return {}
@@ -4850,6 +5018,11 @@ class TaskManagerMixin(GraphEngineProtocol):
         groups: dict[str, dict[str, Any]] = {}
         starts: list[float] = []
         ends: list[float] = []
+        # CONCEPT:KG-2.288 — per-TASK tail: keep each task's identity+duration so the
+        # report can name the slowest-N outliers (the p95/max offenders), not just
+        # per-lane percentiles. This is what makes a 13-min codebase pin or a 456s
+        # hung connector VISIBLE as a specific task, not a lane statistic.
+        tail_tasks: list[dict[str, Any]] = []
         for r in rows or []:
             meta = _decode_metadata(r.get("meta"))
             ca = meta.get("completed_at")
@@ -4893,6 +5066,19 @@ class TaskManagerMixin(GraphEngineProtocol):
             dur = float(meta.get("duration_ms", 0) or 0)
             if dur > 0:
                 grp["_durations"].append(dur)
+                # CONCEPT:KG-2.288 — record the per-task tail entry.
+                tail_tasks.append(
+                    {
+                        "id": r.get("id"),
+                        "duration_ms": round(dur, 1),
+                        "type": meta.get("type")
+                        or meta.get("content_type")
+                        or "unknown",
+                        "lane": meta.get("lane") or g,
+                        "status": st,
+                        "target": str(meta.get("target", ""))[:120],
+                    }
+                )
             usage = meta.get("usage") or {}
             # OS-5.69/70 — the ingest profile carries real token usage + per-stage
             # timing (read/extract/embed/write), so the report is no longer tokens=0
@@ -4926,6 +5112,9 @@ class TaskManagerMixin(GraphEngineProtocol):
             grp["total_ms"] = round(sum(durs), 1)
             grp["p50_ms"] = round(_pct(durs, 50), 1)
             grp["p95_ms"] = round(_pct(durs, 95), 1)
+            # CONCEPT:KG-2.288 — surface p99 alongside p95/max so a thin tail (a
+            # few outliers) is distinguishable from a fat one at the lane level.
+            grp["p99_ms"] = round(_pct(durs, 99), 1)
             grp["max_ms"] = round(durs[-1], 1) if durs else 0.0
             grp["cost"] = round(grp["cost"], 4)
             # per-stage p50 / total across the group's ingests (OS-5.70)
@@ -4940,12 +5129,17 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         total_ms = sum(g["total_ms"] for g in groups.values())
         wall_ms = (max(ends) - min(starts)) * 1000.0 if starts and ends else 0.0
+        # CONCEPT:KG-2.288 — the slowest-N tasks overall: the concrete outliers a
+        # profiling run hunts (the big-repo pin, the hung connector/maint tick).
+        tail_tasks.sort(key=lambda t: t["duration_ms"], reverse=True)
+        slowest_n = 10
         return {
             "group_by": key,
             "groups": groups,
             "parallelism_factor": round(total_ms / wall_ms, 2) if wall_ms > 0 else 0.0,
             "wall_ms": round(wall_ms, 1),
             "total_task_ms": round(total_ms, 1),
+            "slowest": tail_tasks[:slowest_n],
         }
 
     def _checkpoint_db(self) -> None:
