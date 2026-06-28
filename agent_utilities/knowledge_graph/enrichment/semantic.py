@@ -22,33 +22,107 @@ EmbedFn = Callable[[list[str]], list[list[float]]]
 # (query_vec, k) -> list of {id, type, _similarity, ...}
 SearchFn = Callable[[list[float], int], list[dict[str, Any]]]
 
+# bge-m3 (the deployed embedder) handles large batches per request, so we send a
+# big LIST of inputs in ONE ``/v1/embeddings`` POST rather than re-chunking it into
+# tiny sub-requests. This caps a single POST's payload (and is also the value we
+# pin on the llama-index model's ``embed_batch_size`` so it stops splitting our
+# chunk into ``DEFAULT_EMBED_BATCH_SIZE``-sized POSTs). (CONCEPT:KG-2.280)
+_EMBED_MAX_BATCH = 256
 
-def make_embed_fn(batch_size: int = 64) -> EmbedFn:
-    """Batched embedding fn backed by the configured embedding model (bge-m3).
+# Memoized cpu/load-derived embed concurrency (computed once; cheap to reuse).
+_EMBED_CONCURRENCY: int | None = None
 
-    Batches are fanned out CONCURRENTLY up to the embedding model's declared
-    parallel-call capacity (``parallel_instances × max_parallel_calls``) via the
-    shared concurrency controller (CONCEPT:KG-2.143). Capacity ``1`` (the safe
-    default) is byte-for-byte the historical sequential for-loop; capacity ``K``
-    runs up to ``K`` batches in flight. Batch boundaries and output order are
-    preserved, so the same vectors come out in the same order.
+
+def _embed_concurrency() -> int:
+    """Auto-sized number of embed requests to keep in flight concurrently.
+
+    Reuses the *shared* cpu/memory/load sizing anchor (``compute_ingest_worker_count``
+    — the same ~36%-of-cores, Pi-OOM-capped budget the ingest pools use) rather than
+    inventing a new knob. Embedding is network/GPU-bound (the bge-m3 vLLM endpoint
+    services many requests at once), not local-cpu-bound, so we allow ~2× that anchor,
+    capped at 16. The model's *declared* parallel capacity (CONCEPT:KG-2.143) is the
+    floor, so an explicitly-configured higher capacity always wins. Never below 1.
+    (CONCEPT:KG-2.280)
+    """
+    global _EMBED_CONCURRENCY
+    if _EMBED_CONCURRENCY is not None:
+        return _EMBED_CONCURRENCY
+    try:
+        from agent_utilities.core.model_concurrency import resolve_capacity
+
+        declared = max(1, resolve_capacity("embedding"))
+    except Exception:  # noqa: BLE001 — capacity is best-effort
+        declared = 1
+    try:
+        from agent_utilities.knowledge_graph.core.engine_tasks import (
+            compute_ingest_worker_count,
+        )
+
+        anchor = max(1, compute_ingest_worker_count())
+    except Exception:  # noqa: BLE001 — sizing is best-effort
+        anchor = 4
+    _EMBED_CONCURRENCY = max(declared, min(anchor * 2, 16))
+    return _EMBED_CONCURRENCY
+
+
+def _auto_batch(n_texts: int, concurrency: int) -> int:
+    """Batch size that makes POSTs big BUT leaves enough chunks to fill the lanes.
+
+    A single huge batch would serialize the whole job on one POST; tiny batches
+    waste round-trips. Aim for ~``concurrency`` chunks, each a big LIST, clamped to
+    ``[32, _EMBED_MAX_BATCH]``. (CONCEPT:KG-2.280)
+    """
+    if n_texts <= 0:
+        return 1
+    import math
+
+    per = math.ceil(n_texts / max(1, concurrency))
+    return max(32, min(per, _EMBED_MAX_BATCH))
+
+
+def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
+    """Batched + concurrent embedding fn backed by the configured embedder (bge-m3).
+
+    Two compounding throughput wins over the historical one-text-per-request loop
+    (CONCEPT:KG-2.280, applying the AGENTS.md *batch-never-per-element* rule to
+    embeddings):
+
+    * **BATCH** — every request carries a big LIST of inputs (auto-sized up to
+      :data:`_EMBED_MAX_BATCH`), and the underlying llama-index model's
+      ``embed_batch_size`` is pinned so it issues ONE POST per chunk instead of
+      re-splitting it into ``DEFAULT_EMBED_BATCH_SIZE`` (=10) sub-POSTs.
+    * **CONCURRENCY** — chunks are fanned out CONCURRENTLY up to
+      :func:`_embed_concurrency` (cpu/load-derived, ≥ the model's declared
+      capacity) via the shared controller (CONCEPT:KG-2.143), so the ENRICH stage
+      is never one-request-in-flight.
+
+    ``batch_size`` pins the per-request batch explicitly (mainly for tests);
+    ``None`` (the default) auto-sizes it per call from the input length and the
+    resolved concurrency. Batch boundaries and output order are preserved, so the
+    same vectors come out in the same order. The fail-loud KG-2.3 contract below is
+    unchanged: a missing/unreachable embedder raises rather than returning a stub.
     """
     try:
         from agent_utilities.core.embedding_utilities import create_embedding_model
-        from agent_utilities.core.model_concurrency import (
-            map_concurrent_sync,
-            resolve_capacity,
-        )
+        from agent_utilities.core.model_concurrency import map_concurrent_sync
 
         model = create_embedding_model()
+        # Pin the model's internal batch so a chunk we hand it is ONE POST, not a
+        # fan of DEFAULT_EMBED_BATCH_SIZE-sized sub-POSTs (the serial-POST symptom).
+        try:
+            current = int(getattr(model, "embed_batch_size", 0) or 0)
+            model.embed_batch_size = max(current, _EMBED_MAX_BATCH)
+        except Exception:  # noqa: BLE001 — model may not expose the attr; harmless
+            pass
 
         def _fn(texts: list[str]) -> list[list[float]]:
             if not texts:
                 return []
-            chunks = [
-                texts[i : i + batch_size] for i in range(0, len(texts), batch_size)
-            ]
-            capacity = resolve_capacity("embedding")
+            concurrency = _embed_concurrency()
+            bs = batch_size or _auto_batch(len(texts), concurrency)
+            chunks = [texts[i : i + bs] for i in range(0, len(texts), bs)]
+            # Cap concurrency at the chunk count — never spin idle workers.
+            capacity = max(1, min(concurrency, len(chunks)))
             # Fan out per-batch embedding up to capacity; order preserved, so
             # flattening the per-chunk results reproduces the input order.
             chunk_results = map_concurrent_sync(

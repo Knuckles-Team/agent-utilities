@@ -60,11 +60,16 @@ def _generate_embedding_llamaindex(texts: list[str]) -> list[list[float]] | None
         from agent_utilities.core.embedding_utilities import create_embedding_model
 
         embed_model = create_embedding_model()
-        embeddings = []
-        for text in texts:
-            emb = embed_model.get_text_embedding(text)
-            embeddings.append(emb)
-        return embeddings
+        # Batch never per-element (CONCEPT:KG-2.280): send the whole list in one
+        # call (the model issues one POST per embed_batch_size) instead of a serial
+        # per-text loop.
+        try:
+            embed_model.embed_batch_size = max(
+                int(getattr(embed_model, "embed_batch_size", 0) or 0), len(texts)
+            )
+        except Exception:  # noqa: BLE001 — model may not expose the attr; harmless
+            pass
+        return list(embed_model.get_text_embedding_batch(texts))
     except ImportError:
         logger.debug("LlamaIndex embedding not available, using direct HTTP")
     except Exception as e:

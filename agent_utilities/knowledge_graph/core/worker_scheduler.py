@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
+from typing import Any
 
 from .task_lanes import BEST_EFFORT_LANES, LANE_NAMES, lane_for_task_type
 
@@ -45,6 +46,9 @@ __all__ = [
     "WorkerRegistry",
     "AdmissionPolicy",
     "scheduler_config_from_env",
+    "durable_shard_writers",
+    "resolve_engine_shard_writers",
+    "set_engine_shard_writers",
 ]
 
 # CONCEPT:KG-2.279 - Floor the codebase admission cap at the engine's durable K-way redb shard-writer width so concurrent cross-graph ingests fan across all K shard writers instead of the derived one-to-three that leaves most writers idle
@@ -52,21 +56,101 @@ __all__ = [
 # The heavy task type that must never be allowed to occupy the whole pool.
 HEAVY_TYPE = "codebase"
 
+# CONCEPT:KG-2.281 — the ENGINE's real shard-writer width, resolved once from the
+# live engine and cached. In split-storage the engine is REMOTE (e.g. R510, K=4
+# from its 8 cpus) while the scheduling host is a DIFFERENT box (e.g. RW710, 16
+# cpus → the cpu-derived estimate would say 8, over-admitting against an engine
+# that only has 4 shard writers). The floor must reflect the engine's ACTUAL K, so
+# we ask the engine for it (it knows) and fall back to the cpu/env estimate only
+# when the engine can't be reached.
+_ENGINE_SHARD_K: int | None = None
+_ENGINE_SHARD_LOCK = threading.Lock()
+
+
+def set_engine_shard_writers(k: int | None) -> None:
+    """Seed/override the cached engine shard-writer width (CONCEPT:KG-2.281).
+
+    Callers that already know the engine's K (e.g. a daemon that just queried it)
+    use this so :func:`durable_shard_writers` returns the authoritative value with
+    no further round-trips. ``None``/non-positive clears the cache.
+    """
+    global _ENGINE_SHARD_K
+    with _ENGINE_SHARD_LOCK:
+        _ENGINE_SHARD_K = int(k) if k and int(k) > 0 else None
+
+
+def resolve_engine_shard_writers(engine: Any) -> int | None:
+    """Best-effort: ask the live ENGINE for its durable shard-writer width K.
+
+    The engine's rebalance planner reports one entry per shard ("all K shards
+    represented incl. empties"), so ``len(rebalance_plan()["shards"]) == K`` — the
+    authoritative width straight from the process that owns the redb backend
+    (CONCEPT:KG-2.281). Accepts a ``GraphComputeEngine``, a backend wrapping one
+    (``._graph``/``.graph``), or a raw sync client. Cached on success; returns the
+    cached value on later calls and ``None`` when the engine can't answer (non-redb
+    build, unreachable, older engine) so the caller degrades to the cpu/env estimate.
+    """
+    global _ENGINE_SHARD_K
+    if _ENGINE_SHARD_K is not None:
+        return _ENGINE_SHARD_K
+    client = _resolve_sync_client(engine)
+    if client is None:
+        return None
+    try:
+        plan = client.resharding.rebalance_plan()
+    except Exception:  # noqa: BLE001 — non-redb / unreachable / old engine
+        return None
+    try:
+        shards = plan.get("shards") if isinstance(plan, dict) else None
+        k = len(shards) if shards is not None else 0
+    except Exception:  # noqa: BLE001 — tolerate an unexpected shape
+        return None
+    if k <= 0:
+        return None
+    with _ENGINE_SHARD_LOCK:
+        _ENGINE_SHARD_K = int(k)
+    return _ENGINE_SHARD_K
+
+
+def _resolve_sync_client(engine: Any) -> Any:
+    """Dig the underlying sync epistemic-graph client out of various handles."""
+    if engine is None:
+        return None
+    for obj in (engine, getattr(engine, "_graph", None), getattr(engine, "graph", None)):
+        if obj is None:
+            continue
+        client = getattr(obj, "_client", None)
+        if client is not None and hasattr(client, "resharding"):
+            return client
+        if hasattr(obj, "resharding"):
+            return obj
+    return None
+
 
 def durable_shard_writers() -> int:
-    """The engine's durable K-way redb shard-writer width (CONCEPT:KG-2.279).
+    """The engine's durable K-way redb shard-writer width (CONCEPT:KG-2.279/2.281).
 
-    Mirrors the engine's EG-026 auto-size — ``clamp(cpu/2, 1, 8)`` — honouring an
-    explicit ``EPISTEMIC_GRAPH_REDB_SHARDS`` override when set, WITHOUT an engine
-    round-trip (the scheduler stays pure in-process bookkeeping). Each codebase
-    ingest routes its structural writes to a per-repo graph (``code:<repo>``,
-    CONCEPT:KG-2.269) that hashes to ONE of these K shard writers; so K concurrent
-    codebase ingests spread across K *independent* writer threads — the exact
-    cross-shard parallelism the sharded writer exists to exploit, with no two
-    ingests contending on the same shard. The codebase admission cap uses this as
-    a FLOOR so it never throttles durable-write concurrency below the substrate's
-    own width (the submission-side limiter behind the profiled ``parallelism_factor``).
+    Resolution order, most-authoritative first:
+
+    1. The width resolved from the live ENGINE and cached (CONCEPT:KG-2.281) — the
+       ground truth in split-storage, where the engine is a remote box with a
+       different cpu count than this scheduling host. Seeded via
+       :func:`set_engine_shard_writers` / :func:`resolve_engine_shard_writers`.
+    2. An explicit ``EPISTEMIC_GRAPH_REDB_SHARDS`` override (clamped 1..=64) — valid
+       only when the engine's env is shared with this host.
+    3. The cpu-derived estimate ``clamp(cpu/2, 1, 8)`` mirroring the engine's EG-026
+       auto-size — the safe fallback when the engine hasn't been queried yet.
+
+    Each codebase ingest routes its structural writes to a per-repo graph
+    (``code:<repo>``, CONCEPT:KG-2.269) that hashes to ONE of these K shard writers;
+    so K concurrent codebase ingests spread across K *independent* writer threads.
+    The codebase admission cap uses this as a FLOOR so it never throttles
+    durable-write concurrency below the substrate's own width (the submission-side
+    limiter behind the profiled ``parallelism_factor``).
     """
+    if _ENGINE_SHARD_K is not None:
+        return _ENGINE_SHARD_K
+
     from agent_utilities.core._env import setting
 
     raw = setting("EPISTEMIC_GRAPH_REDB_SHARDS", None)

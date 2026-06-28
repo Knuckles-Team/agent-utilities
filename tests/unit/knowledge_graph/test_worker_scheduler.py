@@ -158,8 +158,86 @@ def test_shard_floor_respects_explicit_redb_shards_env(monkeypatch):
     """An explicit ``EPISTEMIC_GRAPH_REDB_SHARDS`` sets the floor (no engine call)."""
     from agent_utilities.knowledge_graph.core import worker_scheduler
 
+    worker_scheduler.set_engine_shard_writers(None)  # ensure no cached engine K
     monkeypatch.setenv("EPISTEMIC_GRAPH_REDB_SHARDS", "3")
     assert worker_scheduler.durable_shard_writers() == 3
+
+
+# ── CONCEPT:KG-2.281 — resolve the engine's REAL K (split-storage) ────────────
+
+
+class _FakeResharding:
+    def __init__(self, k):
+        self._k = k
+
+    def rebalance_plan(self):
+        # The engine reports one entry per shard ("all K shards represented"),
+        # so len(shards) == K — exactly what the real engine returned live.
+        return {"moves": [], "shards": [{"shard": i} for i in range(self._k)]}
+
+
+class _FakeClient:
+    def __init__(self, k):
+        self.resharding = _FakeResharding(k)
+
+
+class _FakeEngine:
+    """Mimics a GraphComputeEngine handle (carries ``_client``)."""
+
+    def __init__(self, k):
+        self._client = _FakeClient(k)
+
+
+class _FakeBackend:
+    """Mimics a backend that wraps the engine on ``._graph`` (the daemon path)."""
+
+    def __init__(self, k):
+        self._graph = _FakeEngine(k)
+
+
+def test_resolve_engine_shard_writers_uses_engine_K(monkeypatch):
+    """Split-storage: the host has 16 cpus (→ cpu estimate 8) but the REMOTE engine
+    only has K=4 writers. The floor must reflect the engine's actual K (CONCEPT:KG-2.281)."""
+    from agent_utilities.knowledge_graph.core import worker_scheduler
+
+    worker_scheduler.set_engine_shard_writers(None)
+    monkeypatch.delenv("EPISTEMIC_GRAPH_REDB_SHARDS", raising=False)
+    # Pretend this scheduling host has many cpus → the old cpu estimate over-counts.
+    monkeypatch.setattr("os.cpu_count", lambda: 16)
+    assert worker_scheduler.durable_shard_writers() == 8  # the WRONG host-cpu value
+
+    # Now resolve from the (remote) engine — K=4 — and it wins + is cached.
+    k = worker_scheduler.resolve_engine_shard_writers(_FakeBackend(4))
+    assert k == 4
+    assert worker_scheduler.durable_shard_writers() == 4
+    worker_scheduler.set_engine_shard_writers(None)
+
+
+def test_resolve_engine_shard_writers_accepts_raw_engine_handle():
+    from agent_utilities.knowledge_graph.core import worker_scheduler
+
+    worker_scheduler.set_engine_shard_writers(None)
+    assert worker_scheduler.resolve_engine_shard_writers(_FakeEngine(6)) == 6
+    worker_scheduler.set_engine_shard_writers(None)
+
+
+def test_resolve_engine_shard_writers_none_when_unavailable():
+    """A handle with no resharding surface (or an erroring engine) yields None so
+    the caller degrades to the cpu/env estimate — never crashes scheduling."""
+    from agent_utilities.knowledge_graph.core import worker_scheduler
+
+    worker_scheduler.set_engine_shard_writers(None)
+    assert worker_scheduler.resolve_engine_shard_writers(object()) is None
+    assert worker_scheduler.resolve_engine_shard_writers(None) is None
+
+    class _Boom:
+        class resharding:  # noqa: N801
+            @staticmethod
+            def rebalance_plan():
+                raise RuntimeError("non-redb build")
+
+    assert worker_scheduler.resolve_engine_shard_writers(_Boom()) is None
+    worker_scheduler.set_engine_shard_writers(None)
 
 
 def test_derived_cap_floors_at_one():
