@@ -390,6 +390,18 @@ class EmbeddingModelConfig(BaseModel):
     bulk embedding yields its concurrency to latency-sensitive chat under
     contention. Explicit tag wins; else defaults to the ``base_url`` host."""
     chunk_size: int = 768
+    fallback: "EmbeddingModelConfig | None" = None
+    """Optional automatic-failover endpoint (CONCEPT:KG-2.299). When the PRIMARY
+    embedder (this config) is unreachable — its circuit breaker (CONCEPT:ORCH-1.103)
+    is OPEN — embedding traffic is transparently re-routed to this fallback
+    endpoint, and routed back automatically once the primary recovers. The fallback
+    is a full ``EmbeddingModelConfig`` with its OWN ``base_url``, ``gpu_group``, and
+    ``max_concurrent_requests``, so the capacity guard applies the FALLBACK's GPU
+    budget while failed-over: point the primary at a dedicated embedder (e.g.
+    ``gr1080-embed.arpa`` ``gpu_group="gr1080"``) and the fallback at a shared box
+    (e.g. ``vllm-embed.arpa`` ``gpu_group="gb10"``) so fallback embeds share the
+    GB10's joint budget with the generator and can never OOM it. A nested
+    ``fallback`` here is ignored (single-level failover)."""
 
     @property
     def total_capacity(self) -> int:
@@ -399,6 +411,12 @@ class EmbeddingModelConfig(BaseModel):
         the concurrency controller to fan out embedding batches.
         """
         return _total_model_capacity(self.parallel_instances, self.max_parallel_calls)
+
+
+# Self-referential ``fallback`` field (CONCEPT:KG-2.299): config.py does not use
+# ``from __future__ import annotations``, so rebuild the model to resolve the
+# forward reference to ``EmbeddingModelConfig`` after the class is defined.
+EmbeddingModelConfig.model_rebuild()
 
 
 # _load_xdg_json_config() is now called dynamically via _ensure_env_loaded()
@@ -635,6 +653,15 @@ class AgentConfig(BaseSettings):
             cfg = self.super_chat_model
         elif key in ("embedding", "embed"):
             cfg = self.default_embedding_model
+        elif key in ("embedding:fallback", "embed:fallback", "embedding-fallback"):
+            # The automatic-failover endpoint (CONCEPT:KG-2.299): resolve it as a
+            # first-class model key so the WHOLE capacity guard — server_ceiling,
+            # adaptive capacity, gpu_group budget (CONCEPT:KG-2.300) — keys off the
+            # FALLBACK endpoint's config (its own gpu_group / max_concurrent_requests)
+            # while failed-over, so fallback embeds inherit the shared GPU's joint
+            # budget and can't OOM it.
+            primary = self.default_embedding_model
+            cfg = primary.fallback if primary is not None else None
         else:
             for m in self.chat_models:
                 if m.id == model:
