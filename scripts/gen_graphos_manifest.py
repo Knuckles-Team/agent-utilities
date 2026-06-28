@@ -76,7 +76,11 @@ def harvest_actions(func) -> set[str]:
                 ):
                     actions.add(left.value)
             # action in {...}/[...]/(...)  or  action in CONST
-            if isinstance(op, ast.In) and isinstance(left, ast.Name) and left.id == "action":
+            if (
+                isinstance(op, ast.In)
+                and isinstance(left, ast.Name)
+                and left.id == "action"
+            ):
                 for c in node.comparators:
                     if isinstance(c, (ast.Tuple, ast.List, ast.Set)):
                         actions |= {
@@ -113,15 +117,26 @@ def build_manifest() -> list[dict]:
     kg_server.ensure_tools_registered()
     from agent_utilities.mcp.kg_server import ACTION_TOOL_ROUTES, REGISTERED_TOOLS
 
+    # The low-level engine_<domain> tools (CONCEPT:ECO-4.99) are generic
+    # client-introspection dispatchers — their actions are NOT string literals in
+    # source (harvest_actions can't see them), so enumerate them from the engine
+    # surface manifest instead (CONCEPT:KG-2.278).
+    from agent_utilities.mcp.tools.engine_tools import ENGINE_DOMAINS
+
+    engine_actions: dict[str, set[str]] = {
+        f"engine_{domain}": set(methods) for domain, methods in ENGINE_DOMAINS.items()
+    }
+
     ops: list[dict] = []
     for tool in sorted(ACTION_TOOL_ROUTES):
         func = REGISTERED_TOOLS.get(tool)
-        actions = harvest_actions(func) if func else set()
+        if tool in engine_actions:
+            actions = engine_actions[tool]
+        else:
+            actions = harvest_actions(func) if func else set()
         if actions:
             for action in sorted(actions):
-                ops.append(
-                    {"tool": tool, "action": action, "name": f"{tool}_{action}"}
-                )
+                ops.append({"tool": tool, "action": action, "name": f"{tool}_{action}"})
         else:
             # Single-operation tool (no action switch) — itself is the verbose op.
             ops.append({"tool": tool, "action": None, "name": tool})
