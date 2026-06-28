@@ -96,6 +96,9 @@ class LoopController:
         # subprocess / workflow engine. Defaults are wired lazily on first use.
         self._develop_runner = develop_runner
         self._skill_runner = skill_runner
+        # Live-beacon + cycle id (CONCEPT:KG-2.290) — set per run_one_cycle.
+        self._beacon: Any = None
+        self._cycle_id: str = ""
         # propose_only is always True in v1 — kept explicit so a future
         # human-approved apply path is a deliberate flip, never accidental.
         self.propose_only = propose_only
@@ -196,9 +199,27 @@ class LoopController:
         }
         cycle_start = time.monotonic()
 
+        # CONCEPT:KG-2.290 — live per-stage progress beacon. A single mutable node
+        # updated at every stage boundary so the cycle is legible MID-FLIGHT (not only
+        # at finalize): graph_loops(action="state") reports the current stage + why.
+        import uuid as _uuid
+
+        from .evolution_state import StageBeacon
+
+        self._cycle_id = (
+            f"evo_cycle_{time.strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:6]}"
+        )
+        self._beacon = StageBeacon(
+            self.engine,
+            cycle_id=self._cycle_id,
+            why=(focus_query or "").strip() or "advance active loops + mine open gaps",
+        )
+        self._beacon.enter("start")
+
         def _stage(name: str, fn):
             """Run a stage best-effort, capture timing + any error."""
             t0 = time.monotonic()
+            self._beacon.enter(name)
             try:
                 return fn()
             except Exception as e:  # noqa: BLE001
@@ -733,7 +754,31 @@ class LoopController:
         return {"status": "pending", "output": "no sources found"}
 
     def _advance_develop(self, loop: dict[str, Any]) -> dict[str, Any]:
-        """Run one develop iteration: execute ``validation_cmd``; done on exit 0."""
+        """Run one develop iteration.
+
+        A spec-bound develop Loop (carrying ``spec_id``, created by the OS-5.73
+        spec-review approval) feeds the approved spec into the EXISTING promotion
+        pipeline via ``develop_spec`` → ``governed_publish`` (CONCEPT:KG-2.292) — the
+        ``merge_promotion`` human gate + capability ratchet stay on that path. A plain
+        develop Loop runs its ``validation_cmd`` and completes on exit 0 (unchanged).
+        """
+        spec_id = (loop.get("spec_id") or "").strip()
+        if spec_id:
+            from .spec_proposals import develop_spec
+
+            res = develop_spec(self.engine, spec_id)
+            status = str(res.get("status", ""))
+            # 'published'/'approval_queued' = the governed pipeline ran + queued a
+            # reviewable branch → the develop step did its job (complete). Hard
+            # failures stop the loop rather than retrying a broken synthesis forever.
+            done = status in ("published", "approval_queued", "approved")
+            import json as _json
+
+            return {
+                "status": "completed" if done else "failed",
+                "output": _json.dumps(res, default=str)[:2000],
+                "done": done,
+            }
         cmd = (loop.get("validation_cmd") or "").strip()
         runner = self._develop_runner or _default_develop_runner
         if not cmd:
@@ -1008,7 +1053,11 @@ class LoopController:
         import time as _time
 
         now_iso = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
-        cycle_id = f"evo_cycle_{_time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        # Share the id with the live beacon (CONCEPT:KG-2.290) so the finalized
+        # EvolutionCycle and the mid-flight beacon cross-reference one cycle.
+        cycle_id = self._cycle_id or (
+            f"evo_cycle_{_time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        )
         # Conform to the EvolutionCycle table schema (schema_definition.py): only
         # known columns are first-class; cycle-specific metrics go in ``metadata``
         # (a JSON STRING column) so the durable (Postgres) backend accepts them.
@@ -1055,6 +1104,48 @@ class LoopController:
         except Exception as e:  # noqa: BLE001 — instrumentation never blocks the loop
             logger.debug("[AHE-3.26] velocity ledger failed: %s", e)
 
+        # CONCEPT:KG-2.291 — saturation gauge. Aggregate open_gaps trend + the just-
+        # recorded velocity verdict + ingestion coverage into ONE 0..1 reading and
+        # stamp it on the report + the live beacon; when saturated (and stalling),
+        # surface a request-more recommendation (NEVER auto-fetch). Best-effort.
+        try:
+            from .evolution_state import (
+                _open_gaps_trend,
+                emit_saturation_signal,
+                saturation_gauge,
+            )
+
+            gaps = _open_gaps_trend(self.engine)
+            verdict = str((report.get("velocity") or {}).get("verdict", "idle"))
+            gauge = saturation_gauge(
+                coverage_pct=None,  # cheap path: skip the coverage probe in the hot loop
+                velocity_verdict=verdict,
+                gaps_recent=float(gaps.get("recent", 0) or 0),
+                gaps_prior=float(gaps.get("prior", 0) or 0),
+            )
+            report["saturation"] = gauge
+            if gauge.get("request_more"):
+                emit_saturation_signal(self.engine, gauge)
+                logger.info(
+                    "[KG-2.291] evolution saturated (gauge=%.2f) — %s",
+                    gauge["gauge"],
+                    gauge["recommendation"],
+                )
+        except Exception as e:  # noqa: BLE001 — gauge is observability only
+            logger.debug("[KG-2.291] saturation gauge failed: %s", e)
+            gauge = None
+
+        # Close out the live beacon (CONCEPT:KG-2.290).
+        if self._beacon is not None:
+            try:
+                self._beacon.finish(
+                    open_gaps=m.get("open_gaps", 0),
+                    errors=m.get("error_count", 0),
+                    saturation=(gauge or {}).get("gauge") if gauge else None,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.debug("beacon.finish failed: %s", e)
+
     def _distill_specs(self, topics: list[dict[str, Any]]) -> list[str]:
         """Distil ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/``."""
         from ..enrichment.cards import make_lite_llm_fn
@@ -1073,7 +1164,38 @@ class LoopController:
         if not specs:
             return []
         # propose_only: write DRAFTS under .specify/ only.
-        return write_spec_drafts(specs, self.codebase_root)
+        paths = write_spec_drafts(specs, self.codebase_root)
+
+        # CONCEPT:KG-2.292 — close the distill→develop seam. Persist each draft as a
+        # first-class, queryable :SpecProposal (status pending_review) linked to its
+        # source concepts, so the distilled spec is no longer a dead-end .md file but
+        # a develop-able + reviewable work item. The spec is fed into the existing
+        # promotion pipeline only AFTER the OS-5.73 spec-review checkpoint approves it.
+        from agent_utilities.core.config import config as _cfg
+
+        from .spec_proposals import auto_advance_specs, persist_spec_proposal
+
+        spec_ids: list[str] = []
+        padded_paths = paths + [""] * (len(specs) - len(paths))
+        for spec, path in zip(specs, padded_paths, strict=False):
+            sid = persist_spec_proposal(self.engine, spec, spec_path=path)
+            if sid:
+                spec_ids.append(sid)
+        self._beacon and self._beacon.enter(
+            "distill",
+            detail=f"distilled {len(spec_ids)} spec(s): "
+            + ", ".join(s.title for s in specs[:3]),
+        )
+        # Default = review-first (propose-and-hold). Only when KG_LOOP_AUTO_DEVELOP is
+        # explicitly on does the 24/7 loop auto-advance specs through the spec_promotion
+        # gate (which itself defaults to approval_required, so it only develops where an
+        # operator relaxed the tier). Acquisition is never auto-run.
+        if getattr(_cfg, "kg_loop_auto_develop", False) and spec_ids:
+            try:
+                auto_advance_specs(self.engine)
+            except Exception as e:  # noqa: BLE001 — never blocks the cycle
+                logger.debug("[OS-5.73] auto_advance_specs failed: %s", e)
+        return paths
 
     def _synthesize_team(self, topics: list[dict[str, Any]]) -> dict[str, Any] | None:
         """Synthesize a team proposal addressing the open topics; persist nodes."""
