@@ -1450,17 +1450,79 @@ class IngestionEngine:
                 except Exception:  # noqa: BLE001
                     logger.debug("spec write failed for %s", sp, exc_info=True)
 
+        # Commit-history graph (CONCEPT:KG-2.282) — a normal codebase ingest ALSO
+        # ingests the repo's evolution as first-class :Commit/:Author/:File +
+        # AUTHORED/PARENT/TOUCHED graph data (linked to the same file:<path> ids),
+        # so codebase evolution is a free native KG query (ownership, change-
+        # coupling, churn hotspots, file timelines) — exceeding Gource/SourceTree,
+        # which only render it. Native-by-default; delta by sha (re-ingest with no
+        # new commits is a no-op); auto-bounded for huge histories. Best-effort —
+        # never breaks the structural ingest.
+        history: dict[str, Any] = {}
+        if (
+            (manifest.metadata or {}).get("commit_history", True)
+            and backend is not None
+            and head_sha  # only meaningful on a git work-tree
+        ):
+            try:
+                from ..enrichment.git_history import (
+                    DEFAULT_MAX_COMMITS,
+                    existing_commit_shas,
+                    ingest_commit_history,
+                )
+
+                repo_name = Path(source_path).name
+                with get_throttle().bulk_ingest():
+                    history = ingest_commit_history(
+                        backend,
+                        source_path,
+                        repo_name=repo_name,
+                        existing_shas=existing_commit_shas(backend, repo_name),
+                        max_count=int(
+                            (manifest.metadata or {}).get(
+                                "commit_history_max", DEFAULT_MAX_COMMITS
+                            )
+                        ),
+                        since=(manifest.metadata or {}).get("commit_history_since"),
+                    )
+                logger.info(
+                    "[KG-2.282] commit-history: %d new commit(s), %d file(s), "
+                    "%d coupling edge(s) for %s (%.0f commits/s)",
+                    history.get("commits", 0),
+                    history.get("files", 0),
+                    history.get("coupling_edges", 0),
+                    repo_name,
+                    history.get("commits_per_sec", 0.0),
+                )
+            except Exception:  # noqa: BLE001 — history never breaks ingest
+                logger.debug("commit-history ingest failed", exc_info=True)
+
         nodes = summary.code + summary.tests + summary.features + specs
         cards_pending = max(0, summary.code - summary.cards_generated)
         details = summary.model_dump()
         details["cards_pending"] = cards_pending
         details["specs"] = specs
         details["source_path"] = source_path
+        if history:
+            details["commit_history"] = history
+            nodes += (
+                history.get("commits", 0)
+                + history.get("authors", 0)
+                + history.get("files", 0)
+            )
+        history_edges = (
+            history.get("touched_edges", 0)
+            + history.get("parent_edges", 0)
+            + history.get("coupling_edges", 0)
+            + history.get("commits", 0)  # AUTHORED edges (~one per commit)
+            if history
+            else 0
+        )
         return IngestionResult(
             manifest=manifest,
             status="success",
             nodes_created=nodes,
-            edges_created=summary.covers_edges + summary.calls_edges,
+            edges_created=summary.covers_edges + summary.calls_edges + history_edges,
             details=details,
             enrichable=spec_enrichable,
         )

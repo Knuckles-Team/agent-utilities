@@ -873,6 +873,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_analyze",
+        "action": "code_evolution",
+        "name": "graph_analyze_code_evolution",
+    },
+    {
+        "tool": "graph_analyze",
         "action": "code_metrics",
         "name": "graph_analyze_code_metrics",
     },

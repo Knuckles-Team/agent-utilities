@@ -24,12 +24,25 @@
     rdfs:domain :Test ;
     rdfs:range xsd:integer .
 
+:authored a owl:ObjectProperty ;
+    rdfs:label "authored" ;
+    rdfs:comment "An Author authored a Commit (CONCEPT:KG-2.282)." ;
+    rdfs:domain :Author ;
+    rdfs:range :Commit .
+
 :calls a owl:ObjectProperty,
         owl:TransitiveProperty ;
     rdfs:label "calls" ;
     rdfs:comment "Source symbol invokes target symbol; transitive call reachability." ;
     rdfs:domain :Code ;
     rdfs:range :Code .
+
+:changesWith a owl:ObjectProperty,
+        owl:SymmetricProperty ;
+    rdfs:label "changes with" ;
+    rdfs:comment "Two Files historically co-change in the same commits — hidden change-coupling the AST can't see; symmetric, weighted by support (CONCEPT:KG-2.104 / KG-2.282)." ;
+    rdfs:domain :File ;
+    rdfs:range :File .
 
 :covers a owl:ObjectProperty ;
     rdfs:label "covers" ;
@@ -91,6 +104,13 @@
     rdfs:domain :Test ;
     rdfs:range xsd:boolean .
 
+:parentOf a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "parent of" ;
+    rdfs:comment "A Commit is the parent of another Commit — the commit DAG; transitive over ancestry (CONCEPT:KG-2.282)." ;
+    rdfs:domain :Commit ;
+    rdfs:range :Commit .
+
 :partOfFeature a owl:ObjectProperty ;
     rdfs:label "part of feature" ;
     rdfs:comment "A Code symbol belongs to a Feature cluster." ;
@@ -148,9 +168,19 @@
     rdfs:domain :Code ;
     rdfs:range xsd:string .
 
+:touched a owl:ObjectProperty ;
+    rdfs:label "touched" ;
+    rdfs:comment "A Commit touched a File (added/modified/renamed it), carrying per-file insertions/deletions (CONCEPT:KG-2.282)." ;
+    rdfs:domain :Commit ;
+    rdfs:range :File .
+
 <http://knuckles.team/kg/software> a owl:Ontology ;
     rdfs:label "Agent Intelligence Graph — Software Module" ;
     rdfs:comment "Software domain extension (code, tests, assertions). Imported by the canonical <http://knuckles.team/kg> ontology; resolved to ontology_software.ttl by the local loader convention." .
+
+:Author a owl:Class ;
+    rdfs:label "Author" ;
+    rdfs:comment "A git commit author (name + email); links to the commits they authored (CONCEPT:KG-2.282)." .
 
 :ComputerUseSession a owl:Class ;
     rdfs:label "Computer-Use Session" ;
@@ -184,6 +214,14 @@
 :WorkspaceObservation a owl:Class ;
     rdfs:label "Workspace Observation" ;
     rdfs:comment "The typed result a WorkspaceAction produced (command output, file content, test result)." .
+
+:File a owl:Class ;
+    rdfs:label "File" ;
+    rdfs:comment "A source file as a versioned artifact, carrying churn aggregates (commit_count, churn) for hotspot analysis; the change-coupling endpoint (CONCEPT:KG-2.282 / KG-2.104)." .
+
+:Commit a owl:Class ;
+    rdfs:label "Commit" ;
+    rdfs:comment "A git commit — sha, message, timestamp, parents — ingested so a repo's evolution is first-class graph data (CONCEPT:KG-2.282)." .
 
 :ScreenObservation a owl:Class ;
     rdfs:label "Screen Observation" ;

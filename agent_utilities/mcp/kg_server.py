@@ -1394,6 +1394,28 @@ async def graph_analyze_change_coupling_endpoint(request: Request) -> JSONRespon
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+async def graph_analyze_code_evolution_endpoint(request: Request) -> JSONResponse:
+    """REST twin of graph_analyze action=code_evolution (CONCEPT:KG-2.283): query the
+    ingested commit-history graph for codebase evolution. Body:
+    ``{mode?, target?, top_k?}`` — mode = file|owners|hotspots|coupled,
+    target = file path / subsystem path substring."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_analyze",
+            action="code_evolution",
+            target=body.get("mode", "file"),
+            query=body.get("target", ""),
+            top_k=int(body.get("top_k", 20)),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
 async def graph_analyze_adr_endpoint(request: Request) -> JSONResponse:
     """REST twin of graph_analyze action=adr (CONCEPT:KG-2.105): ADR CRUD. Body:
     ``{title?, status?, decision?}`` — title creates, empty lists."""
@@ -3034,6 +3056,11 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route(
         "/graph/analyze/change-coupling",
         graph_analyze_change_coupling_endpoint,
+        ["POST"],
+    )
+    route(
+        "/graph/analyze/code-evolution",
+        graph_analyze_code_evolution_endpoint,
         ["POST"],
     )
     route("/graph/analyze/adr", graph_analyze_adr_endpoint, ["POST"])

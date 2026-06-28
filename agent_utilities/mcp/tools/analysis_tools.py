@@ -1262,6 +1262,26 @@ def register_analysis_tools(mcp):
                 return _json.dumps(
                     {"status": "ok", "repo": repo, "coupled_pairs": written}
                 )
+            elif action == "code_evolution":
+                # CONCEPT:KG-2.283 — query the ingested commit-history graph
+                # (KG-2.282) for codebase EVOLUTION: file timelines, subsystem
+                # ownership, churn hotspots, and change-coupling. `target` = the
+                # mode (file|owners|hotspots|coupled), `query` = the file path /
+                # subsystem path substring, `top_k` = result cap.
+                import json as _json
+
+                from agent_utilities.knowledge_graph.enrichment.git_history import (
+                    query_evolution,
+                )
+
+                backend = getattr(engine, "backend", None)
+                if backend is None:
+                    return "Error: no graph backend available."
+                mode = (target or "file").strip() or "file"
+                return _json.dumps(
+                    query_evolution(backend, mode, query.strip(), top_k or 20),
+                    default=str,
+                )
             elif action == "adr":
                 # CONCEPT:KG-2.105 — Architecture Decision Record CRUD. `query` = the
                 # decision title (create); empty = list. `target` = status; `node_id`
