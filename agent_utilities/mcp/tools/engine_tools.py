@@ -20,7 +20,7 @@ Design (anti-sprawl, anti-drift):
   generic dispatcher that resolves the engine client and calls
   ``getattr(client.<domain>, action)(**params)``. The action set per domain is
   DISCOVERED by introspecting the client sub-client class — no hand-maintained
-  method list to rot (CONCEPT:KG-2.277).
+  method list to rot (CONCEPT:KG-2.278).
 - Every tool gets its REST twin registered into ``ACTION_TOOL_ROUTES`` in the SAME
   call, so the surface-parity gate stays green and ``_mount_rest_routes`` mounts
   ``POST /engine/<domain>`` automatically.
@@ -32,7 +32,7 @@ Design (anti-sprawl, anti-drift):
   generator (``scripts/gen_graphos_manifest.py``).
 
 CONCEPT:ECO-4.99 — Full engine API + MCP surface (REST + MCP in lockstep)
-CONCEPT:KG-2.277 — Engine surface manifest (client-introspection source of truth)
+CONCEPT:KG-2.278 — Engine surface manifest (client-introspection source of truth)
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def _discover_domains() -> dict[str, list[str]]:
 
 
 # The declarative engine-surface manifest (source of truth for the tools AND the
-# verbose action manifest generator). CONCEPT:KG-2.277.
+# verbose action manifest generator). CONCEPT:KG-2.278.
 ENGINE_DOMAINS: dict[str, list[str]] = _discover_domains()
 
 

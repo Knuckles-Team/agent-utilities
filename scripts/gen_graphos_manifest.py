@@ -120,7 +120,7 @@ def build_manifest() -> list[dict]:
     # The low-level engine_<domain> tools (CONCEPT:ECO-4.99) are generic
     # client-introspection dispatchers — their actions are NOT string literals in
     # source (harvest_actions can't see them), so enumerate them from the engine
-    # surface manifest instead (CONCEPT:KG-2.277).
+    # surface manifest instead (CONCEPT:KG-2.278).
     from agent_utilities.mcp.tools.engine_tools import ENGINE_DOMAINS
 
     engine_actions: dict[str, set[str]] = {
