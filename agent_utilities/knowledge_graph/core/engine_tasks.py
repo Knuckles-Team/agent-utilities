@@ -3044,6 +3044,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         if reg is None:
             from .worker_scheduler import (
                 WorkerRegistry,
+                resolve_engine_shard_writers,
                 scheduler_config_from_env,
             )
 
@@ -3054,6 +3055,15 @@ class TaskManagerMixin(GraphEngineProtocol):
             reg = WorkerRegistry()
             self._worker_reg = reg
             self._sched_config = scheduler_config_from_env(wc)
+            # CONCEPT:KG-2.281 — resolve the ENGINE's real durable shard-writer
+            # width K once, from the engine that owns the redb backend (it may be a
+            # remote box with a different cpu count than this scheduling host in
+            # split-storage). Cached inside worker_scheduler so the codebase
+            # admission floor reflects the engine's actual K, not this host's cpus.
+            try:
+                resolve_engine_shard_writers(self.backend)
+            except Exception:  # noqa: BLE001 — best-effort; falls back to cpu/env
+                pass
         return reg
 
     def _pending_by_lane(self) -> dict[str, int]:
