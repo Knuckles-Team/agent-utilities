@@ -628,6 +628,49 @@ def _resolve_agent_from_kg(
     except Exception as e:
         logger.debug("Resource lookup failed for '%s': %s", agent_name, e)
 
+    # --- Search 2b: AgentTemplate nodes (KG-bound dispatchable personas) ---
+    # CONCEPT:ORCH-1.100 — a built-in/seeded AgentTemplate (e.g. the
+    # ``agent-utilities-expert``) binds a system-prompt node + toolsets + model
+    # preference. Resolve it by name, then recover the linked Prompt's body via
+    # the USES_PROMPT edge so the persona actually drives the run. Toolset binding
+    # of ``toolset_ids`` into live MCP toolsets is the run_agent execution seam.
+    try:
+        tmpl_rows = engine.backend.execute(
+            "MATCH (at:AgentTemplate) WHERE at.name = $name OR at.id = $tid "
+            "RETURN at.id AS tid, at.system_prompt_id AS spid, "
+            "at.toolset_ids AS toolsets, at.model_preference AS model",
+            {"name": agent_name, "tid": f"at:{agent_name}"},
+        )
+        if tmpl_rows:
+            row = tmpl_rows[0]
+            meta["type"] = "agent_template"
+            meta["model_preference"] = row.get("model") or ""
+            toolsets = row.get("toolsets") or []
+            if isinstance(toolsets, str):
+                with contextlib.suppress(Exception):
+                    import json as _json
+
+                    toolsets = _json.loads(toolsets)
+            meta["capabilities"] = list(toolsets) if isinstance(toolsets, list) else []
+            spid = row.get("spid") or ""
+            if spid:
+                with contextlib.suppress(Exception):
+                    prow = engine.backend.execute(
+                        "MATCH (p:Prompt) WHERE p.id = $pid "
+                        "RETURN p.system_prompt AS body",
+                        {"pid": spid},
+                    )
+                    if prow and prow[0].get("body"):
+                        meta["system_prompt"] = str(prow[0]["body"])
+            logger.info(
+                "[ORCH-1.100] Resolved '%s' as AgentTemplate (%d toolset(s))",
+                agent_name,
+                len(meta["capabilities"]),
+            )
+            return meta
+    except Exception as e:
+        logger.debug("AgentTemplate lookup failed for '%s': %s", agent_name, e)
+
     # --- Search 3: Hybrid semantic search ---
     try:
         results = engine.search_hybrid(agent_name, top_k=3)
@@ -800,9 +843,13 @@ def _build_execution_config(
 
     profile = resolve_execution_profile(execution_profile)
 
-    # Tag prompts: the agent itself + any capabilities
+    # Tag prompts: the agent itself + any capabilities. CONCEPT:ORCH-1.100 — when
+    # resolution recovered the agent's real system prompt (e.g. a seeded
+    # AgentTemplate persona like ``agent-utilities-expert``), drive the run with
+    # that full persona instead of the bare "Specialized agent" stub.
+    resolved_prompt = str(agent_meta.get("system_prompt") or "").strip()
     tag_prompts = {
-        agent_name: f"Specialized agent: {agent_name}",
+        agent_name: resolved_prompt or f"Specialized agent: {agent_name}",
     }
     for cap in agent_meta.get("capabilities", []):
         if cap and cap != agent_name:
@@ -823,9 +870,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts[
-            "mementos"
-        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
 
     # CONCEPT:KG-2.134 — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
