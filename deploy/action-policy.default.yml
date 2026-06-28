@@ -64,6 +64,10 @@ rules:
   - {kind: deploy_service, target: "*", tier: approval_required}
   - {kind: redeploy_stack, target: "*", tier: approval_required}
   - {kind: merge_promotion, target: "*", tier: approval_required}
+  # Spec-level review/veto (CONCEPT:OS-5.73): a distilled :SpecProposal must clear
+  # this EARLY gate before it becomes a develop Loop. Default approval_required so
+  # the 24/7 loop holds specs for Claude/human review; relax to auto-develop.
+  - {kind: spec_promotion, target: "*", tier: approval_required}
   # Secret-store mutations (CONCEPT:OS-5.66): writing/deleting a secret in the
   # engine-encrypted __secrets__ store is sensitive — approval_required. Reads
   # (secret.get / secret.list) are not gated, mirroring the read posture.

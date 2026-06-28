@@ -130,7 +130,7 @@ def _loop_dict(oid: str, data: dict[str, Any]) -> dict[str, Any]:
         # ``priority`` string a Concept might carry. (CONCEPT:KG-2.113)
         "prio_bucket": _prio_bucket(data.get("prio_bucket")),
     }
-    for k in ("objective", "end_state", "validation_cmd", "skill_ref", "status"):
+    for k in ("objective", "end_state", "validation_cmd", "skill_ref", "status", "spec_id"):
         v = data.get(k)
         if v:
             out[k] = v
@@ -274,7 +274,7 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
             "c.loop_kind AS loop_kind, c.status AS status, "
             "c.objective AS objective, c.validation_cmd AS validation_cmd, "
             "c.skill_ref AS skill_ref, c.end_state AS end_state, "
-            "c.prio_bucket AS prio_bucket LIMIT $limit",
+            "c.spec_id AS spec_id, c.prio_bucket AS prio_bucket LIMIT $limit",
             {"limit": int(limit) * 20},
         )
     except Exception as e:  # noqa: BLE001
