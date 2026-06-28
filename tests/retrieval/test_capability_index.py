@@ -206,3 +206,45 @@ def test_facade_construction_is_side_effect_free():
     assert kg is not None
     # retrieval works without ever touching store/compute/semantic.
     assert kg.designate(_basis(0), required_caps=["web"], k=10)
+
+
+# ----------------------------------------------------------------------
+# CONCEPT:KG-2.275 — generation-scoped selective reward erasure
+# ----------------------------------------------------------------------
+@pytest.mark.parametrize("prefer", ["numpy", "hnsw"])
+def test_material_reembed_erases_stale_reward(prefer):
+    """A materially different re-embed forgets the stale reward; a near-identical
+    re-embed keeps it (RQGM selective erasure on the upsert path)."""
+    idx = CapabilityIndex(dim=DIM, prefer_backend=prefer)
+    idx.add("tool", _basis(0), ["web"])
+    idx.record_outcome("tool", reward=1.0)
+    proven = idx.reward_of("tool")
+    assert proven > 0.5
+
+    # Near-identical re-embed (same axis, slight scale) — reward preserved.
+    idx.add("tool", _basis(0, scale=0.98), ["web"])
+    assert idx.reward_of("tool") == pytest.approx(proven)
+    assert idx.reward_erasures == 0
+
+    # Material re-embed (orthogonal axis) — stale reward erased to neutral.
+    idx.add("tool", _basis(7), ["web"])
+    assert idx.reward_of("tool") == 0.5
+    assert idx.reward_erasures == 1
+
+
+def test_selective_erase_rewards_is_targeted_and_order_independent():
+    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx.add("a", _basis(0), ["web"])
+    idx.add("b", _basis(1), ["web"])
+    idx.add("c", _basis(2), ["web"])
+    for nid in ("a", "b", "c"):
+        idx.record_outcome(nid, reward=1.0)
+
+    # Erase only {a, b}; c is preserved.
+    erased = idx.selective_erase_rewards(["a", "b", "missing"])
+    assert erased == 2
+    assert idx.reward_of("a") == 0.5
+    assert idx.reward_of("b") == 0.5
+    assert idx.reward_of("c") > 0.5
+    # Re-erasing the same ids is a no-op (order-independent / idempotent).
+    assert idx.selective_erase_rewards(["a", "b"]) == 0
