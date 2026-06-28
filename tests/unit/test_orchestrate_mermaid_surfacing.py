@@ -26,8 +26,12 @@ def _patched_run_agent(monkeypatch):
         "mermaid": "```mermaid\ngraph TD\n  A-->B\n```",
     }
 
-    monkeypatch.setattr(agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"})
-    monkeypatch.setattr(agent_runner, "_build_execution_config", lambda e, n, m, **kw: {})
+    monkeypatch.setattr(
+        agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"}
+    )
+    monkeypatch.setattr(
+        agent_runner, "_build_execution_config", lambda e, n, m, **kw: {}
+    )
     monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
 
     async def _fake_execute_graph(**kwargs):
@@ -69,11 +73,18 @@ async def test_run_agent_return_mermaid_wraps_when_present(_patched_run_agent):
 
 
 @pytest.mark.asyncio
-@pytest.mark.concept("ORCH-1.37")
-async def test_run_agent_no_mermaid_stays_bare_string(monkeypatch):
-    """AC4 edge: return_mermaid=True but no diagram -> still a bare string."""
-    monkeypatch.setattr(agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"})
-    monkeypatch.setattr(agent_runner, "_build_execution_config", lambda e, n, m, **kw: {})
+@pytest.mark.concept("ORCH-1.97")
+async def test_run_agent_no_mermaid_still_surfaces_run_id(monkeypatch):
+    """ORCH-1.97: return_mermaid=True ALWAYS wraps to carry the ``run_id`` handle
+    (even with no diagram) — the trackable handle for a delegated run's RunTrace +
+    :ToolCall provenance. Internal callers (return_mermaid=False) keep bare strings.
+    """
+    monkeypatch.setattr(
+        agent_runner, "_resolve_agent_from_kg", lambda e, n: {"type": "stub"}
+    )
+    monkeypatch.setattr(
+        agent_runner, "_build_execution_config", lambda e, n, m, **kw: {}
+    )
     monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
 
     async def _fake_execute_graph(**kwargs):
@@ -87,4 +98,7 @@ async def test_run_agent_no_mermaid_stays_bare_string(monkeypatch):
         engine=object(),
         return_mermaid=True,
     )
-    assert out == "no-diagram"
+    payload = json.loads(out)
+    assert payload["output"] == "no-diagram"
+    assert payload["run_id"].startswith("run:")
+    assert "mermaid" not in payload

@@ -95,6 +95,51 @@ def persist_as_runnable(backend: Any, spec: AgentSpec) -> tuple[int, int]:
     )
 
 
+def persist_skill_as_runnable(
+    backend: Any,
+    *,
+    skill_id: str,
+    name: str,
+    system_prompt: str,
+    description: str = "",
+    tools: list[str] | None = None,
+) -> tuple[int, int]:
+    """Bind an ingested ``:Skill`` node into a runnable ``CallableResource``.
+
+    CONCEPT:ORCH-1.96 — the dispatch half of skill ingestion. An ingested atomic
+    skill (whether a bare ``:Skill`` node written by ``skill_workflow_ingest`` or
+    an ``AGENT_SKILL`` CallableResource that only carries a ``skill_code_path``) is
+    *search corpus* until something makes it executable. This reuses the
+    :func:`persist_as_runnable` shape — it upserts the SAME ``CallableResource``
+    node id ``run_agent`` resolves (resource_type ``AGENT_SKILL``), now carrying the
+    skill's instruction body as ``system_prompt`` plus ``USES_TOOL`` edges to any
+    declared tools — so "pick an ingested skill, run it on the local LLM" has a
+    live, idempotent path. Writing onto the same node id keeps it a single object
+    (No-Legacy): the skill *becomes* its runnable resource, it is not duplicated.
+    """
+    nodes = [
+        GraphNode(
+            id=skill_id,
+            type="CallableResource",
+            props={
+                "name": name,
+                "resource_type": "AGENT_SKILL",
+                "description": description or name,
+                "system_prompt": (system_prompt or "")[:8000],
+                "runnable_bound": True,
+            },
+        )
+    ]
+    edges = [
+        EnrichmentEdge(source=skill_id, target=f"tool:{t}", rel_type="USES_TOOL")
+        for t in (tools or [])
+        if t
+    ]
+    return write_batch(
+        backend, ExtractionBatch(category="orchestration", nodes=nodes, edges=edges)
+    )
+
+
 def _runner() -> RunnerFn:
     from agent_utilities.orchestration.agent_runner import run_agent
 
