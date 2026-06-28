@@ -319,3 +319,8 @@ Aligned to ArchiMate 3.2 layers.""" ;
     rdfs:comment "One of the eight lifecycle hook points a processor attaches to (task_start, step_start, before_model, after_model, before_tool, after_tool, step_end, task_end). Distinct from the dev-CLI :Hook (CONCEPT:KG-2.109)." ;
     rdfs:subClassOf :ApplicationLayer .
 
+
+:ReconstructionTrajectory a owl:Class ;
+    rdfs:label "Reconstruction Trajectory" ;
+    rdfs:comment "The query-relevant subgraph an active Cue-Tag-Content reconstruction walk assembles, with the per-hop tag activations and evidence it accumulated (the analog of MRAgent's reconstructed memory M^(t); CONCEPT:KG-2.275)." ;
+    rdfs:subClassOf :ApplicationLayer .
