@@ -219,3 +219,68 @@ servers:
   - pulselink-mcp
   - technitium-dns-mcp
   - vector-mcp
+private_repos:
+  concept: OS-5.74
+  purpose: Standard operator-owned PRIVATE repos genesis provisions per profile — abstract/templated;
+    operator env lives only in XDG config + these repos, never in the public repo.
+  repos:
+    inventory:
+      purpose: Host inventory — the source of truth for hosts, roles & SSH access.
+      seed_from: ~/.config/agent-utilities/inventory.yaml
+      ci: false
+    config:
+      purpose: 'Resolved agent-utilities config: workspace.yml + redacted config/mcp examples.'
+      seed_from: ~/.config/agent-utilities/{workspace.yml,config.json,mcp_config.json}
+      ci: false
+    networks:
+      purpose: Overlay/network bootstrap (Swarm overlays / k8s CNI + CIDR allocations).
+      seed_from: deployment-planner network plan
+      ci: false
+    secrets-config:
+      purpose: Secrets CONVENTION — service->reference map (OpenBao/Vault or engine __secrets__). No plaintext.
+      seed_from: secret-store reconcile (graph_configure vault_sync)
+      ci: false
+    infrastructure:
+      purpose: Deployment manifests (compose/swarm/k8s stacks) for this deployment.
+      seed_from: workspace.yml stacks
+      ci: true
+    pipelines:
+      purpose: Generalized, reusable GitLab CI templates shared by every repo.
+      seed_from: null
+      ci: true
+  per_profile:
+    tiny:
+    - inventory
+    - config
+    single-node-prod:
+    - inventory
+    - config
+    - networks
+    - secrets-config
+    - infrastructure
+    enterprise:
+    - inventory
+    - config
+    - networks
+    - secrets-config
+    - infrastructure
+    - pipelines
+  git_mode:
+    tiny: local
+    single-node-prod: remote
+    enterprise: remote
+  ci_templates:
+  - agent-package-ci.yml
+  - service-deploy.yml
+  - stages.yml
+  runners:
+    tiny: 0
+    single-node-prod: 1
+    enterprise: 2
+  step: agent-os-genesis Step 9b (CONCEPT:OS-5.75)
+  tokens:
+  - GIT_NAMESPACE
+  - DEFAULT_BRANCH
+  - CI_TEMPLATES_PROJECT
+  - RUNNER_TAG
+  - REGISTRY
