@@ -31,6 +31,12 @@ _BUILTIN_PROVIDERS: dict[str, tuple[str, str]] = {
         "build_code_context",
     ),
     "ops": ("agent_utilities.knowledge_graph.retrieval.ops_context", "diagnose_ops"),
+    # Cross-layer error diagnosis: pulls the run's :RunTrace/:ToolCall and emits
+    # the app-trace→container→system→host→cross-cutting tool playbook (KG-2.297).
+    "troubleshoot": (
+        "agent_utilities.knowledge_graph.retrieval.troubleshoot_context",
+        "diagnose_symptom",
+    ),
     "deploy": (
         "agent_utilities.knowledge_graph.retrieval.deploy_context",
         "deploy_status",
@@ -80,6 +86,25 @@ _DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
         "why is",
         "backing up",
         "throughput",
+    ),
+    "troubleshoot": (
+        "error",
+        "failed run",
+        "crash",
+        "crashloop",
+        "unreachable",
+        "502",
+        "exit 137",
+        "oom",
+        "traceback",
+        "why did",
+        "session terminated",
+        "no route",
+        "troubleshoot",
+        "diagnose",
+        "container log",
+        "runtrace",
+        "toolcall",
     ),
 }
 
