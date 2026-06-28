@@ -1,6 +1,6 @@
 """Tests for deterministic repo content classification + codebase-ingest routing.
 
-CONCEPT:KG-2.282 / KG-2.283 — A single codebase ingest must natively recognise a
+CONCEPT:KG-2.284 / KG-2.285 — A single codebase ingest must natively recognise a
 repo's Skills / Prompts / Specs / Documents and route each to its own KG type
 instead of flattening everything into Code. These tests pin the classifier's
 precedence (the edge cases the design calls out) and verify the engine router
@@ -74,7 +74,7 @@ def mixed_repo(tmp_path: Path) -> Path:
 
 
 class TestRepoClassifier:
-    """CONCEPT:KG-2.282 — extension + path + sniff, explicit precedence."""
+    """CONCEPT:KG-2.284 — extension + path + sniff, explicit precedence."""
 
     def test_buckets(self, mixed_repo: Path):
         plan = classify_repo(mixed_repo)
@@ -156,7 +156,7 @@ class _FakeBackend:
 
 
 class TestCodebaseArtifactRouting:
-    """CONCEPT:KG-2.283 — live-path: routed manifests + Spec/Repo writes."""
+    """CONCEPT:KG-2.285 — live-path: routed manifests + Spec/Repo writes."""
 
     @pytest.mark.asyncio
     async def test_routes_each_type(self, mixed_repo: Path, monkeypatch):
