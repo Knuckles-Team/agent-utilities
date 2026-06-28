@@ -100,3 +100,42 @@ def test_empty_input(monkeypatch):
     fake = _FakeEmbedModel()
     _install(monkeypatch, fake, capacity=8)
     assert make_embed_fn(batch_size=4)([]) == []
+
+
+def test_unavailable_embedder_fails_loud_not_stub(monkeypatch):
+    """When the embedder can't be constructed, make_embed_fn RAISES (Zero-Stub).
+
+    Regression for the e2e profiler finding "embed_calls: 0 / no embeddings":
+    the serving plane shipped without the ``embeddings-openai`` extra, so
+    ``create_embedding_model()`` raised ``ModuleNotFoundError: No module named
+    'llama_index.embeddings'``. The old fallback silently returned 1-dim ``[[0.0]]``
+    stub vectors, so enrichment "succeeded" while corrupting the vector store and the
+    failure was invisible. It must fail loud instead. (CONCEPT:KG-2.3)
+    """
+    import agent_utilities.core.embedding_utilities as eu
+    from agent_utilities.knowledge_graph.enrichment.semantic import make_embed_fn
+
+    def _boom(*a, **k):
+        raise ModuleNotFoundError("No module named 'llama_index.embeddings'")
+
+    monkeypatch.setattr(eu, "create_embedding_model", _boom)
+
+    with pytest.raises(RuntimeError, match="embedding model unavailable"):
+        make_embed_fn()
+
+
+def test_available_embedder_returns_real_multidim_vectors(monkeypatch):
+    """The document/enrichment live path gets REAL (>1-dim) vectors, never a stub.
+
+    Asserts the constructed embed fn returns the model's true multi-dimensional
+    vectors — proving the document-ingest embedding path produces usable embeddings
+    rather than the degenerate 1-dim zero stub. (CONCEPT:KG-2.3)
+    """
+    from agent_utilities.knowledge_graph.enrichment.semantic import make_embed_fn
+
+    fake = _FakeEmbedModel()
+    _install(monkeypatch, fake, capacity=1)
+    out = make_embed_fn(batch_size=4)(["hello world"])
+    assert len(out) == 1
+    assert len(out[0]) > 1  # real embedding, NOT the 1-dim [0.0] stub
+    assert out[0] != [0.0]

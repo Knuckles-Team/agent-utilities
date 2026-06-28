@@ -247,7 +247,14 @@ serving = [
     # in every profile (the pi-tier binary included). rdflib/owlready2/pyshacl are now a
     # true last-resort Python fallback in the `[owl]` extra only, kept import-lazy so
     # `import agent_utilities` + a kg_server boot pull none of them. See AGENTS.md dep rule.
-    "agent-utilities[mcp,engine,feeds,embeddings,neo4j,falkordb,auth,metrics,agent-headless]",
+    # CONCEPT:KG-2.3 — the serving/host plane RUNS ingestion + enrichment, so it needs the
+    # CANONICAL embedder, not the bare `embeddings` core. `embeddings` pulls only
+    # `llama-index-core` (no provider), so `create_embedding_model()` / `make_embed_fn()`
+    # (which import `llama_index.embeddings.openai` to talk to the bge-m3 vLLM endpoint) raise
+    # `ModuleNotFoundError: No module named 'llama_index.embeddings'` on the host — dead-lettering
+    # every document ingest and producing ZERO embeddings fleet-wide. `embeddings-openai` ships the
+    # OpenAI-compatible provider (+ llms-openai) the vLLM embedding plane requires. See AGENTS.md.
+    "agent-utilities[mcp,engine,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
