@@ -2585,6 +2585,7 @@ def _build_server(bootstrap: bool = True):
         register_analysis_tools,
         register_analyze_suite_tools,
         register_bus_tools,
+        register_engine_tools,
         register_ontology_tools,
         register_query_tools,
         register_reach_tools,
@@ -2612,6 +2613,7 @@ def _build_server(bootstrap: bool = True):
             register_reach_tools,
             register_bus_tools,
             register_secret_tools,
+            register_engine_tools,
         ],
         verbose_register=register_graphos_verbose_tools,
     )
@@ -2642,12 +2644,22 @@ def register_graphos_verbose_tools(mcp) -> None:
     skip_single_op = tool_mode() == "both"
 
     def _make(tool_name: str, action: str | None):
+        # The low-level engine_<domain> tools (CONCEPT:ECO-4.99) are generic
+        # action-routed dispatchers that take method kwargs as a single
+        # ``params_json`` string (they cannot accept **kwargs — FastMCP rejects
+        # VAR_KEYWORD). So forward params_json verbatim instead of spreading it.
+        is_engine = tool_name.startswith("engine_")
+
         async def _verbose_op(
             params_json: str = Field(
                 default="{}",
                 description="JSON object of arguments for this operation.",
             ),
         ) -> Any:
+            if is_engine:
+                return await _execute_tool(
+                    tool_name, action=action, params_json=params_json or "{}"
+                )
             kwargs = _json.loads(params_json) if params_json else {}
             kwargs = {k: v for k, v in kwargs.items() if v is not None}
             if action is not None:
