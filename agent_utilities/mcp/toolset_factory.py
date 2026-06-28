@@ -26,8 +26,17 @@ DEFAULT_MCP_TIMEOUT = 60.0
 def _httpx_client_factory(verify: bool | str, default_timeout: float) -> Any:
     """Return a ``McpHttpClientFactory`` closing over SSL ``verify`` + timeout.
 
-    The transport calls it as ``factory(headers=, timeout=, auth=)``; we honor
-    the transport-supplied timeout when present and fall back to our default.
+    CONCEPT:ORCH-1.101 — the transport invokes this factory with a transport-version
+    dependent kwarg set. fastmcp's streamable-HTTP transport calls it as
+    ``factory(headers=, auth=, follow_redirects=, timeout=)`` (the ``follow_redirects``
+    kwarg was added in fastmcp ≥3.x); the older shape was ``factory(headers=, timeout=,
+    auth=)``. Binding a remote MCP toolset (e.g. an AgentTemplate's ``graph-os``) failed
+    hard with ``factory() got an unexpected keyword argument 'follow_redirects'``, so the
+    toolset could never connect and the agent ran tool-less. Accept ``follow_redirects``
+    explicitly (forwarded to httpx, which strips ``Authorization`` on cross-origin
+    redirects) and swallow any further forward-compat kwargs so a transport bump can
+    never break the connect path. We honor the transport-supplied timeout when present
+    and fall back to our default.
     """
     import httpx
 
@@ -35,12 +44,15 @@ def _httpx_client_factory(verify: bool | str, default_timeout: float) -> Any:
         headers: dict[str, str] | None = None,
         timeout: Any | None = None,
         auth: Any | None = None,
+        follow_redirects: bool = True,
+        **_forward_compat: Any,
     ) -> Any:
         return httpx.AsyncClient(
             headers=headers,
             auth=auth,
             timeout=timeout if timeout is not None else httpx.Timeout(default_timeout),
             verify=verify,
+            follow_redirects=follow_redirects,
         )
 
     return factory
