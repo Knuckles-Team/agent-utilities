@@ -3273,6 +3273,9 @@ class TaskManagerMixin(GraphEngineProtocol):
             "background_research",
             "relevance_sweep",
             "skill_workflows",
+            # Async session-bundle upload (CONCEPT:KG-2.272): each session fans out
+            # to many usage-store rows, so it drains under the background throttle.
+            "session_upload",
             # Scheduled jobs (source syncs, loop cycles, the RSS feed screen) run
             # under the background throttle so a heavy cycle yields to foreground
             # work like any other background task. (CONCEPT:OS-5.44)
@@ -3298,6 +3301,45 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         # Post-ingestion: auto-build HNSW indexes when queue drains
         self._maybe_build_vector_indexes()
+
+    def _drain_session_upload(
+        self, job_id: str, task_type: str = "session_upload"
+    ) -> dict[str, int]:
+        """Persist an enqueued session-bundle upload into the usage store.
+
+        CONCEPT:KG-2.272 — the ``ingest_sessions`` MCP/REST handler enqueues large
+        uploads as a ``session_upload`` task with the bundles on the Task node's
+        metadata payload (same shape as ``kg_memory``); this runs on the host
+        worker, off the request path. ``record_bundle`` is idempotent (replaces
+        existing rows) so a retry is safe.
+        """
+        from agent_utilities.usage.models import ParsedSessionBundle
+        from agent_utilities.usage.recorder import get_usage_recorder
+
+        urows = self._control_cypher(
+            "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
+        )
+        umeta = _decode_metadata(urows[0]["m"]) if urows else {}
+        payload = umeta.get("payload", {}) or {}
+        bundles = payload.get("bundles", []) or []
+        up_tenant = str(payload.get("tenant_id") or "")
+        recorder = get_usage_recorder()
+        ok = 0
+        for item in bundles:
+            try:
+                bundle = ParsedSessionBundle.model_validate(item)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("session_upload bad bundle skipped: %s", e)
+                continue
+            if up_tenant:
+                bundle.session.tenant_id = up_tenant
+            if recorder.record_bundle(bundle):
+                ok += 1
+        result = {"received": len(bundles), "ingested": ok}
+        self._update_task_status(
+            job_id, "completed", {"type": task_type, **result}
+        )
+        return result
 
     async def _run_background_task(
         self, job_id: str, target: Path, is_codebase: bool, task_type: str = "document"
@@ -3932,6 +3974,14 @@ class TaskManagerMixin(GraphEngineProtocol):
                         )
                     except Exception as e:
                         self._fail_or_retry_task(job_id, str(e), {"type": task_type})
+
+            elif task_type == "session_upload":
+                # CONCEPT:KG-2.272 — drain a remote session-bundle upload that the
+                # ``ingest_sessions`` MCP/REST handler enqueued (its synchronous
+                # record_bundle loop blew past the 60s MCP window). Body extracted
+                # to a helper so it is unit-testable without a live worker loop.
+                self._drain_session_upload(job_id, task_type)
+                return
 
             else:
                 import hashlib

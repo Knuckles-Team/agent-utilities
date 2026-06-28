@@ -3918,6 +3918,18 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_breaker.py
   doc: A single dropped connection
+- id: KG-2.272
+  name: non-blocking ingest_sessions upload
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/ingestion/collector.py
+  doc: ingest_sessions action=upload enqueues a durable session_upload background
+    task (drained by the host worker) and returns a job_id immediately instead of
+    synchronously ingesting bundles inside the MCP call window
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
