@@ -74,6 +74,41 @@ def _embed_concurrency() -> int:
     return _EMBED_CONCURRENCY
 
 
+def _joint_budget_cap(model_key: str, concurrency: int) -> int:
+    """Bound the embed fan-out by the ACTIVE endpoint's shared-GPU joint budget.
+
+    CONCEPT:KG-2.300 (the fallback's capacity-guard inheritance / OOM-safety) over
+    CONCEPT:KG-2.299 (failover) / KG-2.146 (the budget). The fan-out passes an explicit ``capacity`` to
+    ``map_concurrent_sync`` (the cpu/load-derived :func:`_embed_concurrency` anchor),
+    which bypasses ``resolve_capacity`` — and therefore the per-GPU joint budget.
+    That is exactly right for the PRIMARY embedder on its own dedicated endpoint
+    (no contention). But while **failed-over** to a GPU shared with the generator
+    (the GB10), the joint budget MUST govern so bulk embeds can't OOM the box.
+
+    ``resolve_capacity(model_key)`` seeds the group's priority peers (the generator)
+    and applies the budget; a non-``None`` ``group_allowed`` means a budget actually
+    governs this endpoint's group → clamp the fan-out to that joint-capped value.
+    No GPU budget configured (the primary on its own endpoint) ⇒ ``group_allowed``
+    is ``None`` ⇒ no clamp ⇒ zero regression. Fail-safe: any error returns the input
+    concurrency unchanged.
+    """
+    try:
+        from agent_utilities.core.config import config
+        from agent_utilities.core.gpu_group_budget import group_allowed
+        from agent_utilities.core.model_concurrency import resolve_capacity
+
+        group = config.gpu_group(model_key)
+        if not group:
+            return concurrency
+        # Seeds peers + applies the joint budget; returns the budget-capped target.
+        guard = resolve_capacity(model_key)
+        if group_allowed(group, model_key) is None:
+            return concurrency  # no budget governs this group → no regression
+        return max(1, min(int(concurrency), int(guard)))
+    except Exception:  # noqa: BLE001 — budget clamp is best-effort, never break embeds
+        return concurrency
+
+
 def _auto_batch(n_texts: int, concurrency: int) -> int:
     """Batch size that makes POSTs big BUT leaves enough chunks to fill the lanes.
 
@@ -110,34 +145,66 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
     resolved concurrency. Batch boundaries and output order are preserved, so the
     same vectors come out in the same order. The fail-loud KG-2.3 contract below is
     unchanged: a missing/unreachable embedder raises rather than returning a stub.
+
+    **Automatic failover (CONCEPT:KG-2.299).** Each call resolves the ACTIVE
+    embedder endpoint (:func:`active_embedding_endpoint`): the PRIMARY normally, or
+    the configured FALLBACK while the primary's circuit breaker is OPEN. The client
+    is rebuilt for that endpoint (the cache swaps it, no stale primary client) and
+    the fan-out gates on the endpoint's model KEY, so the capacity guard resolves
+    the ACTIVE endpoint's config — including its ``gpu_group``. While failed-over to
+    a shared GPU (e.g. the GB10), the group's JOINT budget bounds the embed fan-out
+    so it shares the ceiling with the generator and cannot OOM the box.
     """
     try:
+        from agent_utilities.core.embedding_failover import active_embedding_endpoint
         from agent_utilities.core.embedding_utilities import create_embedding_model
         from agent_utilities.core.model_concurrency import map_concurrent_sync
 
-        model = create_embedding_model()
-        # Pin the model's internal batch so a chunk we hand it is ONE POST, not a
-        # fan of DEFAULT_EMBED_BATCH_SIZE-sized sub-POSTs (the serial-POST symptom).
-        try:
-            current = int(getattr(model, "embed_batch_size", 0) or 0)
-            model.embed_batch_size = max(current, _EMBED_MAX_BATCH)
-        except Exception:  # noqa: BLE001 — model may not expose the attr; harmless
-            pass
+        def _resolve_active() -> tuple[Any, Any]:
+            """Resolve the ACTIVE endpoint + its cached client (CONCEPT:KG-2.299)."""
+            endpoint = active_embedding_endpoint()
+            # Build for the resolved endpoint explicitly so the client matches the
+            # capacity-guard key we gate with. The cache keys on the base_url, so
+            # this returns the fallback's client on failover and the primary's back
+            # on recovery — never a stale primary client.
+            mdl = create_embedding_model(
+                provider=endpoint.provider,
+                model=endpoint.model_id,
+                base_url=endpoint.base_url,
+                api_key=endpoint.api_key,
+            )
+            # Pin the model's internal batch so a chunk we hand it is ONE POST, not a
+            # fan of DEFAULT_EMBED_BATCH_SIZE-sized sub-POSTs (the serial-POST symptom).
+            try:
+                current = int(getattr(mdl, "embed_batch_size", 0) or 0)
+                mdl.embed_batch_size = max(current, _EMBED_MAX_BATCH)
+            except Exception:  # noqa: BLE001 — model may not expose the attr; harmless
+                pass
+            return endpoint, mdl
+
+        # Probe-build now so a missing embedder dep / endpoint fails LOUD at
+        # construction time (KG-2.3), not silently at first use.
+        _resolve_active()
 
         def _fn(texts: list[str]) -> list[list[float]]:
             if not texts:
                 return []
+            # Resolve the ACTIVE endpoint per call so a primary outage fails over —
+            # and recovery routes back — transparently mid-run (CONCEPT:KG-2.299).
+            endpoint, model = _resolve_active()
             concurrency = _embed_concurrency()
+            concurrency = _joint_budget_cap(endpoint.model_key, concurrency)
             bs = batch_size or _auto_batch(len(texts), concurrency)
             chunks = [texts[i : i + bs] for i in range(0, len(texts), bs)]
             # Cap concurrency at the chunk count — never spin idle workers.
             capacity = max(1, min(concurrency, len(chunks)))
             # Fan out per-batch embedding up to capacity; order preserved, so
-            # flattening the per-chunk results reproduces the input order.
+            # flattening the per-chunk results reproduces the input order. Gate on
+            # the ACTIVE endpoint's key so the breaker/ceiling/budget track failover.
             chunk_results = map_concurrent_sync(
                 chunks,
                 model.get_text_embedding_batch,
-                model="embedding",
+                model=endpoint.model_key,
                 capacity=capacity,
             )
             out: list[list[float]] = []

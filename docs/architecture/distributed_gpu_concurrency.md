@@ -205,3 +205,69 @@ fails safe toward the floor.
   "GPU_RESERVED_ROLES": "chat,generator,default"
 }
 ```
+
+## Automatic embedder failover (CONCEPT:KG-2.299 / KG-2.300)
+
+The embedding plane runs against a **primary** embedder endpoint and, when that
+endpoint is unreachable, **fails over automatically** to a configured **fallback**
+endpoint — routing **back** automatically once the primary recovers. The operator's
+homelab shape: a dedicated `gr1080-embed.arpa` GPU (its own `gpu_group="gr1080"`,
+its own budget) is the primary; the shared GB10 `vllm-embed.arpa`
+(`gpu_group="gb10"`, sharing the GB10 with the `qwen` generator) is the fallback.
+
+The headline guarantee: **while failed over, the fallback inherits the GB10 joint
+budget.** Because the fallback is resolved as a first-class capacity-guard model key
+(`embedding:fallback`) whose config carries `gpu_group="gb10"`, the whole guard —
+`server_ceiling`, the adaptive controller, and the per-GPU joint budget — keys off
+the fallback endpoint. So fallback embeds share the GB10 ceiling with the generator
+(the generator's floor is reserved off the top) and **can never OOM the shared box**
+— exactly the rule that governs the steady-state co-tenancy above, now applied to
+the failover path too.
+
+### How it works
+
+* **Trigger / recovery — the existing circuit breaker.** The primary embedder's
+  per-endpoint breaker (`embedding`, CONCEPT:ORCH-1.103) is fed by the primary embed
+  fan-out itself. While it is OPEN within its backoff cooldown
+  (`ModelCircuitBreaker.is_tripped()`), the router (`core/embedding_failover.py`,
+  `active_embedding_endpoint()`) selects the fallback. Once the cooldown elapses the
+  router returns to the primary, whose own HALF_OPEN probe confirms recovery (close →
+  stay primary) or re-opens (→ fallback again next round). No extra polling.
+* **Transparent to callers.** `create_embedding_model()` builds the client for the
+  active endpoint; the process-scoped client cache (CONCEPT:KG-2.294) keys on the
+  resolved `base_url`, so it **swaps** to the fallback's client on failover and back
+  on recovery — never a stale primary client. `make_embed_fn` resolves the active
+  endpoint per call and gates the fan-out on the active model key.
+* **Observability.** Failover/recovery transitions are logged (WARN on failover, INFO
+  on recovery) and counted; `embedding_endpoint_status()` returns the active endpoint,
+  whether it is the fallback, the primary breaker snapshot, and the cumulative
+  failover/recovery counts.
+
+### Configuration
+
+```jsonc
+// ~/.config/agent-utilities/config.json
+{
+  "embedding_models": [{
+    "id": "bge-m3",
+    "base_url": "http://gr1080-embed.arpa/v1",   // PRIMARY: dedicated GR1080
+    "gpu_group": "gr1080",
+    "max_concurrent_requests": 16,
+    "fallback": {                                  // FALLBACK: shared GB10
+      "id": "bge-m3",
+      "base_url": "http://vllm-embed.arpa/v1",
+      "gpu_group": "gb10",                         // shares the GB10 joint budget
+      "max_concurrent_requests": 8
+    }
+  }],
+  "chat_models": [{ "id": "qwen3.6-35b-a3b", "base_url": "http://vllm.arpa/v1", "gpu_group": "gb10" }],
+
+  // The GB10 joint budget governs the generator + the fallback embedder together,
+  // and (separately) the dedicated GR1080 budget governs the primary embedder.
+  "GPU_CONCURRENCY_BUDGETS": { "gb10": 20, "gr1080": 16 }
+}
+```
+
+A `fallback` is **optional**: with none configured, embedding behaves exactly as
+before (always primary, zero change). Single-level only — a nested `fallback` inside
+a `fallback` is ignored.

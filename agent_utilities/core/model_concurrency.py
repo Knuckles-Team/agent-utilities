@@ -263,6 +263,12 @@ def reset_controllers() -> None:
         reset_circuit_breakers()
     except Exception:  # noqa: BLE001 — best-effort cleanup
         pass
+    try:
+        from agent_utilities.core.embedding_failover import reset_embedding_failover
+
+        reset_embedding_failover()
+    except Exception:  # noqa: BLE001 — best-effort cleanup
+        pass
 
 
 async def map_concurrent(

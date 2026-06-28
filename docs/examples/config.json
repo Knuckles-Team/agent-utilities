@@ -279,11 +279,22 @@
     ],
     "embedding_models": [
         {
-            "id": "text-embedding-nomic-embed-text-v2-moe",
+            "id": "bge-m3",
             "provider": "openai",
-            "base_url": "http://vllm-embed.arpa/v1",
+            "base_url": "http://gr1080-embed.arpa/v1",
+            "gpu_group": "gr1080",
             "parallel_instances": 4,
-            "chunk_size": 768
+            "max_concurrent_requests": 16,
+            "chunk_size": 768,
+            "fallback": {
+                "id": "bge-m3",
+                "provider": "openai",
+                "base_url": "http://vllm-embed.arpa/v1",
+                "gpu_group": "gb10",
+                "parallel_instances": 2,
+                "max_concurrent_requests": 8,
+                "chunk_size": 768
+            }
         }
     ],
     "trading": {
