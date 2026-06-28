@@ -3422,12 +3422,25 @@ class TaskManagerMixin(GraphEngineProtocol):
         outcome: dict[str, BaseException] = {}
 
         def _run_body() -> None:
+            # CONCEPT:KG-2.293 — tag this task's whole execution with its resource
+            # PriorityClass (derived from the SAME lane taxonomy as the worker
+            # AdmissionPolicy), so every shared-LLM call it makes inherits the class:
+            # an ingestion task's enrichment calls run as BACKGROUND_INGESTION and
+            # yield the reserved LLM headroom to interactive/orchestration work, while
+            # an on-pool ``queries`` task (conversation/kg_memory) runs INTERACTIVE.
+            # Set inside the worker thread because contextvars don't cross threads.
+            from agent_utilities.core.resource_priority import (
+                priority_for_task_type,
+                priority_scope,
+            )
+
             try:
-                asyncio.run(
-                    self._run_background_task(
-                        job_id, target_path, is_codebase, task_type
+                with priority_scope(priority_for_task_type(task_type)):
+                    asyncio.run(
+                        self._run_background_task(
+                            job_id, target_path, is_codebase, task_type
+                        )
                     )
-                )
             except BaseException as exc:  # noqa: BLE001 — relayed to the worker loop
                 outcome["exc"] = exc
 
@@ -3499,9 +3512,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             if recorder.record_bundle(bundle):
                 ok += 1
         result = {"received": len(bundles), "ingested": ok}
-        self._update_task_status(
-            job_id, "completed", {"type": task_type, **result}
-        )
+        self._update_task_status(job_id, "completed", {"type": task_type, **result})
         return result
 
     async def _run_background_task(

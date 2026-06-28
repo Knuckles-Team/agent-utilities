@@ -23,6 +23,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from agent_utilities.core.resource_priority import PRIORITY_HEADER
 from agent_utilities.harness import tracing
 
 # Stable, run-wide correlation id (survives nested agent spawns within a run).
@@ -86,6 +87,15 @@ def current_carrier() -> dict[str, str]:
     sid = tracing.get_session_id()
     if sid:
         carrier[SESSION_HEADER] = sid
+    # CONCEPT:KG-2.293 — carry the resource PriorityClass so a spawned/child agent,
+    # and any engine read it issues (EG-044 reserved read lane), inherit the same
+    # priority as the entry point that started the run.
+    try:
+        from agent_utilities.core.resource_priority import priority_carrier
+
+        carrier.update(priority_carrier())
+    except Exception:  # noqa: BLE001 — priority is best-effort context
+        pass
     return carrier
 
 
@@ -107,6 +117,20 @@ def bind_carrier(carrier: dict[str, str] | None) -> Iterator[str]:
         tokens.append(
             (tracing._current_session_id, tracing._current_session_id.set(sid))
         )
+
+    # CONCEPT:KG-2.293 — restore the inherited resource priority for the block, so
+    # the child's LLM calls and engine reads are admitted at the parent's class.
+    prio = carrier.get(PRIORITY_HEADER)
+    if prio:
+        try:
+            from agent_utilities.core.resource_priority import (
+                PriorityClass,
+                _priority,
+            )
+
+            tokens.append((_priority, _priority.set(PriorityClass(prio))))
+        except Exception:  # noqa: BLE001 — best-effort restore
+            pass
 
     try:
         yield cid
@@ -141,6 +165,13 @@ def inject(headers: dict[str, str] | None = None) -> dict[str, str]:
             headers[ACTOR_HEADER] = actor.actor_id
     except Exception:  # noqa: BLE001 — identity is best-effort context
         pass
+    # CONCEPT:KG-2.293 — propagate the resource priority on outbound calls.
+    try:
+        from agent_utilities.core.resource_priority import priority_carrier
+
+        headers.update(priority_carrier())
+    except Exception:  # noqa: BLE001 — priority is best-effort context
+        pass
     return headers
 
 
@@ -150,7 +181,12 @@ def extract(headers: dict[str, str] | None) -> dict[str, str]:
     # Case-insensitive lookup for HTTP-style headers.
     lower = {k.lower(): v for k, v in headers.items()}
     carrier: dict[str, str] = {}
-    for key in (CORRELATION_HEADER, TRACEPARENT_HEADER, SESSION_HEADER):
+    for key in (
+        CORRELATION_HEADER,
+        TRACEPARENT_HEADER,
+        SESSION_HEADER,
+        PRIORITY_HEADER,
+    ):
         if key in lower:
             carrier[key] = lower[key]
     return carrier
