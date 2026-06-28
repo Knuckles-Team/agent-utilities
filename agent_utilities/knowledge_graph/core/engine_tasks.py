@@ -4039,6 +4039,38 @@ class TaskManagerMixin(GraphEngineProtocol):
                         ),
                     },
                 )
+            elif task_type == "connector_drain":
+                # CONCEPT:KG-2.301 — ONE paginated page of a chunked full-corpus drain. The
+                # Task carries drain_id/source/mode top-level + the resumable connector
+                # checkpoint in its metadata blob; ``run_drain_page`` drains this page, ingests
+                # it, and self-continues by enqueuing the NEXT page-task while the cursor has
+                # more — so a single ``source_sync(full)`` drains the whole corpus across many
+                # capacity-guarded background tasks without ever blocking the request.
+                from agent_utilities.knowledge_graph.core.chunked_drain import (
+                    run_drain_page,
+                )
+
+                drows = self._control_cypher(
+                    "MATCH (t:Task {id: $id}) RETURN t.sync_mode AS mode, "
+                    "t.drain_id AS did, t.drain_source AS src, t.drain_page AS page, "
+                    "t.metadata AS meta",
+                    {"id": job_id},
+                )
+                drow = drows[0] if drows else {}
+                dmeta = _decode_metadata(drow.get("meta")) if drow.get("meta") else {}
+                drain_res = run_drain_page(
+                    self,
+                    source=str(drow.get("src") or target),
+                    mode=str(drow.get("mode") or "full"),
+                    drain_id=str(drow.get("did") or ""),
+                    page=int(drow.get("page") or dmeta.get("drain_page") or 0),
+                    checkpoint_json=dmeta.get("drain_checkpoint"),
+                )
+                self._update_task_status(
+                    job_id,
+                    "completed",
+                    {"target": str(target), "type": task_type, **drain_res},
+                )
             elif task_type == "fleet_event_triage":
                 # Fleet-event triage (CONCEPT:OS-5.15): 'target' is the
                 # FleetEvent node id enqueued by the gateway's

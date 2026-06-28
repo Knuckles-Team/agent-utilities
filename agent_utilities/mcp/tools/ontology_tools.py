@@ -776,6 +776,44 @@ def register_ontology_tools(mcp):
     kg_server.REGISTERED_TOOLS["source_sync"] = source_sync
 
     @mcp.tool(
+        name="source_drain",
+        description="Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpus (CONCEPT:KG-2.301). action='status' + drain_id returns cumulative progress (pages_done / items_seen / items_ingested) plus a live per-status breakdown of the drain's connector_drain :Task chain. action='list' lists registered chunked-drain sources. A single source_sync(source=X, mode='full') returns a drain_id immediately and drains the whole backlog across capacity-guarded background page-tasks; poll this to watch it finish.",
+        tags=["graph-os", "ingestion"],
+    )
+    def source_drain(
+        action: str = Field(
+            default="status",
+            description="'status' (progress for a drain_id) or 'list' (registered chunked sources).",
+        ),
+        drain_id: str = Field(
+            default="",
+            description="The drain handle returned by source_sync(mode='full') (for action='status').",
+        ),
+    ) -> str:
+        """Report progress of a chunked drain or list chunked-drain-capable sources."""
+        from agent_utilities.knowledge_graph.core.chunked_drain import (
+            drain_status,
+            list_chunked_sources,
+        )
+
+        try:
+            if str(action) == "list":
+                return json.dumps({"chunked_sources": list_chunked_sources()})
+            try:
+                engine = kg_server._get_engine()
+            except Exception:  # noqa: BLE001
+                engine = None
+            if engine is None:
+                return json.dumps({"status": "skipped", "reason": "no active engine"})
+            if not drain_id:
+                return json.dumps({"error": "drain_id is required for action='status'"})
+            return json.dumps(drain_status(engine, str(drain_id)), default=str)
+        except Exception as e:  # noqa: BLE001
+            return json.dumps({"error": str(e)})
+
+    kg_server.REGISTERED_TOOLS["source_drain"] = source_drain
+
+    @mcp.tool(
         name="graph_etl",
         description=(
             "Unified ETL pipeline between systems over the canonical KG hub "
