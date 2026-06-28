@@ -47,10 +47,17 @@ def _embed_concurrency() -> int:
     global _EMBED_CONCURRENCY
     if _EMBED_CONCURRENCY is not None:
         return _EMBED_CONCURRENCY
+    ceiling = 16
     try:
-        from agent_utilities.core.model_concurrency import resolve_capacity
+        from agent_utilities.core.model_concurrency import (
+            resolve_capacity,
+            server_ceiling,
+        )
 
         declared = max(1, resolve_capacity("embedding"))
+        # CONCEPT:ORCH-1.102 — the embed fan-out is local-cpu-derived (~2× the ingest
+        # anchor); never let it exceed the embedder SERVER's real capacity ceiling.
+        ceiling = max(1, server_ceiling("embedding"))
     except Exception:  # noqa: BLE001 — capacity is best-effort
         declared = 1
     try:
@@ -61,7 +68,9 @@ def _embed_concurrency() -> int:
         anchor = max(1, compute_ingest_worker_count())
     except Exception:  # noqa: BLE001 — sizing is best-effort
         anchor = 4
-    _EMBED_CONCURRENCY = max(declared, min(anchor * 2, 16))
+    # cpu/load-derived (≤16), floored at the model's declared capacity, then HARD-
+    # capped at the server ceiling so it can never oversubscribe the embedder.
+    _EMBED_CONCURRENCY = min(max(declared, min(anchor * 2, 16)), ceiling)
     return _EMBED_CONCURRENCY
 
 
