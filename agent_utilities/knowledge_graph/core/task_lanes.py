@@ -100,6 +100,51 @@ TASK_LANES: dict[str, dict] = {
 LANE_NAMES: tuple[str, ...] = tuple(TASK_LANES)
 DEFAULT_LANE = "maint"
 
+# CONCEPT:KG-2.289 — INTERACTIVE lanes: latency-sensitive work that must ALWAYS
+# have a free host worker, even when ingestion saturates the pool. The scheduler's
+# AdmissionPolicy reserves a worker floor that NON-interactive lanes
+# (codebase/document/connector/maint) can never claim, so an interactive call is
+# serviceable even under a heavy bulk ingest. ``queries`` owns conversation /
+# kg_memory (the on-pool half of MCP/chat); the off-pool MCP server stays
+# responsive because the host is never 100%-consumed by ingestion workers.
+INTERACTIVE_LANES: frozenset[str] = frozenset({"queries"})
+
+# CONCEPT:KG-2.286 — per-lane SOFT execution timeout (seconds). A claimed task
+# whose execution exceeds its lane's bound is cancelled and routed through the
+# existing KG-2.113 retry→backoff→dead_letter machinery, so a hung connector or
+# maint tick frees its worker FAST instead of pinning it until the reaper's 2h
+# absolute runtime cap. Auto-sized per lane from its expected envelope — the live
+# tail evidence is: connectors p50=16ms but one hung 456s (→180s bound catches it
+# with ~10000x p50 headroom); maint p50=30s but one hung 761s (→600s bound); the
+# heavy ingestion lane is generous (codebase p95 is legitimately minutes, and the
+# big-repo split (KG-2.287) shrinks each unit anyway). No env knob: the bound is a
+# deterministic function of the lane, and the reaper's absolute cap is the backstop.
+LANE_SOFT_TIMEOUT_SEC: dict[str, float] = {
+    "queries": 120.0,
+    "connectors": 180.0,
+    "worldview": 300.0,
+    "maint": 600.0,
+    "research": 1800.0,
+    "extraction": 1800.0,
+    "ingestion": 3600.0,
+}
+# Default bound for an unmapped lane: generous, below the reaper's 2h hard cap.
+DEFAULT_SOFT_TIMEOUT_SEC: float = 1800.0
+
+
+def lane_soft_timeout(lane: str | None) -> float:
+    """The soft execution-timeout bound (seconds) for ``lane`` (CONCEPT:KG-2.286)."""
+    return LANE_SOFT_TIMEOUT_SEC.get(lane or "", DEFAULT_SOFT_TIMEOUT_SEC)
+
+
+def task_soft_timeout(task_type: str | None) -> float:
+    """The soft execution-timeout bound (seconds) for a task TYPE (CONCEPT:KG-2.286).
+
+    Resolves the type's lane and returns that lane's bound, so the cancel-and-retry
+    watchdog is sized by functional domain without a per-type table to drift.
+    """
+    return lane_soft_timeout(lane_for_task_type(task_type))
+
 # CONCEPT:ORCH-1.82 — "best-effort" lanes: low-value, high-volume periodic work
 # (the maint interval ticks) that must be GUARANTEED its minimum coverage but must
 # NEVER expand into spare workers. Without this, a backlog of cheap scheduled-job

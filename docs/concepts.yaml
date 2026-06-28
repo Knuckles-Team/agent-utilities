@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 535
+total_concepts: 541
 total_pillars: 22
 pillars:
 - AHE-3
@@ -3982,7 +3982,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/staged_pipeline.py
   doc: staged
 - id: KG-2.269
-  name: that hashes to ONE of these K shard writers; so K concurrent
+  name: preserve unified query under ingestion graph routing. When
   pillar: KG-2
   status: live
   code_paths:
@@ -3992,7 +3992,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/query_tools.py
-  doc: that hashes to ONE of these K shard writers; so K concurrent
+  doc: preserve unified query under ingestion graph routing. When
 - id: KG-2.272
   name: the server now ENQUEUES a large batch as a background
   pillar: KG-2
@@ -4057,6 +4057,54 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: Floor the codebase admission cap at the engine
+- id: KG-2.280
+  name: applying the AGENTS.md *batch-never-per-element* rule to
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/semantic.py
+  - agent_utilities/knowledge_graph/pipeline/phases/embedding.py
+  doc: applying the AGENTS.md *batch-never-per-element* rule to
+- id: KG-2.281
+  name: resolve the ENGINE
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/worker_scheduler.py
+  doc: resolve the ENGINE
+- id: KG-2.286
+  name: bound EVERY claimed task by its lane
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  doc: bound EVERY claimed task by its lane
+- id: KG-2.287
+  name: a split sub-task carries its own routing key so
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/ingestion/repo_split.py
+  doc: a split sub-task carries its own routing key so
+- id: KG-2.288
+  name: surface p99 alongside p95/max so a thin tail
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: surface p99 alongside p95/max so a thin tail
+- id: KG-2.289
+  name: the HARD floor that keeps
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/knowledge_graph/core/worker_scheduler.py
+  doc: the HARD floor that keeps
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
