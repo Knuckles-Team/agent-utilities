@@ -434,6 +434,13 @@ async def run_agent(
         duration_ms=duration_ms,
         result_preview=str(result)[:500],
     )
+    # CONCEPT:KG-2.296 — persist each tool call the local LLM made as a :ToolCall
+    # node on this run's RunTrace, so the delegated action is fully visible over
+    # graph-os ("what tools, what args, what result"). Best-effort, never breaks.
+    if isinstance(result, dict) and result.get("tool_calls"):
+        _persist_tool_calls(
+            engine, run_id, agent_name, agent_name, result["tool_calls"]
+        )
     # ARPO read-back (CONCEPT:AHE-3.15): credit the intermediate agent-steps of
     # this run into the capability reward-EMA so routing learns from the steps,
     # not only the final answer. Guarded — never breaks the run path.
@@ -480,9 +487,15 @@ async def run_agent(
             output_str = str(result)
         # CONCEPT:ORCH-1.37 — surface the routed-graph diagram when requested.
         # CONCEPT:ORCH-1.40 — surface the message channel id when one was opened.
+        # CONCEPT:ORCH-1.97 — when the caller opts into the rich wrapper
+        # (``return_mermaid``, the MCP execute_agent path), ALWAYS surface the
+        # ``run_id`` so a delegation is trackable — the handle to query this run's
+        # RunTrace + :ToolCall provenance (KG-2.296) over graph-os, and the
+        # prerequisite for async/streaming/steering later. Internal callers
+        # (``return_mermaid=False``) keep the bare-string contract bit-for-bit.
         mermaid = result.get("mermaid")
-        if (return_mermaid and mermaid) or channel_id:
-            wrapper: dict[str, Any] = {"output": output_str}
+        if return_mermaid or channel_id:
+            wrapper: dict[str, Any] = {"output": output_str, "run_id": run_id}
             if return_mermaid and mermaid:
                 wrapper["mermaid"] = mermaid
             if channel_id:
@@ -490,6 +503,11 @@ async def run_agent(
             return json.dumps(wrapper, default=str)
         return output_str
 
+    if return_mermaid or channel_id:
+        wrapper2: dict[str, Any] = {"output": str(result), "run_id": run_id}
+        if channel_id:
+            wrapper2["channel_id"] = channel_id
+        return json.dumps(wrapper2, default=str)
     return str(result)
 
 
@@ -533,6 +551,100 @@ def _unresolved_agent_meta() -> dict[str, Any]:
         "url": "",
         "system_prompt": "",
     }
+
+
+def _hydrate_skill_runnable(
+    engine: IntelligenceGraphEngine,
+    meta: dict[str, Any],
+    *,
+    skill_id: str,
+    name: str,
+    description: str,
+    system_prompt: str,
+    skill_code_path: str,
+    source_is_resource: bool = True,
+) -> None:
+    """Populate ``meta`` so an ingested skill runs with its own instructions + tools.
+
+    CONCEPT:ORCH-1.96 — sets ``meta['system_prompt']`` (the skill's instruction body)
+    and ``meta['tools']`` (its declared ``USES_TOOL`` targets), then binds the skill
+    back into a runnable ``AGENT_SKILL`` CallableResource (idempotent) via
+    :func:`persist_skill_as_runnable` so the next resolution is a pure prop read and
+    the capability fabric carries the skill→tool edges. Best-effort: a binding
+    failure leaves the skill resolvable (it still runs, just un-densified).
+
+    ``source_is_resource`` is True when the node is already a ``CallableResource``
+    (the AGENT_SKILL branch) — the binding updates props on that same node. When
+    False (a bare ``:Skill`` node), writing a CallableResource onto the ``:Skill``
+    id would NOT relabel it, so the runnable resource is written under a distinct
+    ``resource:<skill_id>`` and a ``BINDS_RUNNABLE`` edge links the skill to it.
+    """
+    body = (system_prompt or "").strip()
+    # Cold AGENT_SKILL nodes carry only a code path — read the SKILL.md body once.
+    if not body and skill_code_path:
+        try:
+            import os
+
+            if os.path.isfile(skill_code_path):
+                raw = open(  # noqa: SIM115
+                    skill_code_path, encoding="utf-8", errors="replace"
+                ).read()
+                # Strip YAML frontmatter so the prompt is the instruction body.
+                if raw.startswith("---"):
+                    _, _, rest = raw.partition("\n---")
+                    raw = rest.lstrip("\n-") or raw
+                body = raw.strip()
+        except Exception as exc:  # noqa: BLE001 — body read is best-effort
+            logger.debug("[ORCH-1.96] skill body read failed for %s: %s", name, exc)
+
+    # Declared tools the skill needs (USES_TOOL edges), if any were materialized.
+    tools: list[str] = []
+    try:
+        rows = engine.backend.execute(
+            "MATCH (r) WHERE r.id = $sid "
+            "MATCH (r)-[:USES_TOOL]->(t) RETURN t.name AS name, t.id AS id",
+            {"sid": skill_id},
+        )
+        tools = [
+            str(r.get("name") or r.get("id"))
+            for r in (rows or [])
+            if (r.get("name") or r.get("id"))
+        ]
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[ORCH-1.96] skill tool lookup failed for %s: %s", name, exc)
+
+    if body:
+        meta["system_prompt"] = (
+            f"You are the '{name}' skill. Follow these instructions to fulfil the "
+            f"user's request, calling any available tools as needed:\n\n{body}"
+        )
+    meta["tools"] = [{"name": t, "description": t} for t in tools]
+    meta["skill_id"] = skill_id
+
+    # Densify: bind the skill into a runnable CallableResource so it persists. An
+    # already-CallableResource node is updated in place; a bare :Skill node gets a
+    # distinct resource:<id> sibling + a BINDS_RUNNABLE edge (a bare node can't be
+    # relabelled to CallableResource on the backend).
+    if body or tools:
+        resource_id = skill_id if source_is_resource else f"resource:{skill_id}"
+        try:
+            from agent_utilities.knowledge_graph.enrichment.execute import (
+                persist_skill_as_runnable,
+            )
+
+            persist_skill_as_runnable(
+                getattr(engine, "backend", engine),
+                skill_id=resource_id,
+                name=name,
+                system_prompt=body,
+                description=description,
+                tools=tools,
+            )
+            if not source_is_resource:
+                with contextlib.suppress(Exception):
+                    engine.link_nodes(skill_id, resource_id, "BINDS_RUNNABLE")
+        except Exception as exc:  # noqa: BLE001 — binding is best-effort
+            logger.debug("[ORCH-1.96] skill→runnable bind failed for %s: %s", name, exc)
 
 
 def _resolve_agent_from_kg(
@@ -604,7 +716,7 @@ def _resolve_agent_from_kg(
         resource_rows = engine.backend.execute(
             "MATCH (r:CallableResource) WHERE r.name = $name "
             "RETURN r.id AS rid, r.resource_type AS rtype, r.description AS description, "
-            "r.skill_code_path AS skill_path",
+            "r.skill_code_path AS skill_path, r.system_prompt AS system_prompt",
             {"name": agent_name},
         )
         if resource_rows:
@@ -616,7 +728,22 @@ def _resolve_agent_from_kg(
                     "description", ""
                 )  # URL stored in description for A2A
             elif rtype == "AGENT_SKILL":
+                # CONCEPT:ORCH-1.96 — make the ingested skill actually RUNNABLE, not
+                # just resolvable: load its instruction body as the system prompt and
+                # its declared tools so the spawned LLM is primed with the skill's
+                # behaviour. ``ingest_agent_skill`` writes only a ``skill_code_path``,
+                # so read the SKILL.md body on a cold node and bind it back onto the
+                # resource (idempotent) so the next resolution is a pure prop read.
                 meta["type"] = "skill"
+                _hydrate_skill_runnable(
+                    engine,
+                    meta,
+                    skill_id=row.get("rid", "") or f"skill:{agent_name}",
+                    name=agent_name,
+                    description=row.get("description", "") or "",
+                    system_prompt=row.get("system_prompt", "") or "",
+                    skill_code_path=row.get("skill_path", "") or "",
+                )
             else:
                 meta["type"] = "resource"
             logger.info(
@@ -627,6 +754,48 @@ def _resolve_agent_from_kg(
             return meta
     except Exception as e:
         logger.debug("Resource lookup failed for '%s': %s", agent_name, e)
+
+    # --- Search 2b: bare ``:Skill`` nodes (CONCEPT:ORCH-1.96) ---------------
+    # ``skill_workflow_ingest`` (KG-2.97) writes plain ``:Skill`` nodes as the
+    # ``USES_SKILL`` targets of workflow steps; they are search corpus, not
+    # CallableResources, so ``run_agent`` could never dispatch them. Bind such a
+    # skill into a runnable ``AGENT_SKILL`` CallableResource on first resolution
+    # (reusing ``persist_skill_as_runnable``) so an ingested skill name becomes a
+    # real dispatch target — closing the "ingested ≠ executable" gap.
+    try:
+        skill_rows = engine.backend.execute(
+            "MATCH (s:Skill) WHERE s.name = $name OR s.id = $sid "
+            "RETURN s.id AS sid, s.name AS name, s.description AS description, "
+            "s.body AS body, s.instruction AS instruction, s.content AS content",
+            {"name": agent_name, "sid": f"skill:{agent_name}"},
+        )
+        if skill_rows:
+            row = skill_rows[0]
+            skill_id = row.get("sid", "") or f"skill:{agent_name}"
+            body = (
+                row.get("body")
+                or row.get("instruction")
+                or row.get("content")
+                or row.get("description")
+                or ""
+            )
+            meta["type"] = "skill"
+            _hydrate_skill_runnable(
+                engine,
+                meta,
+                skill_id=skill_id,
+                name=row.get("name", agent_name) or agent_name,
+                description=row.get("description", "") or "",
+                system_prompt=str(body),
+                skill_code_path="",
+                source_is_resource=False,
+            )
+            logger.info(
+                "[ORCH-1.96] Resolved '%s' as a runnable ingested skill", agent_name
+            )
+            return meta
+    except Exception as e:
+        logger.debug("Skill lookup failed for '%s': %s", agent_name, e)
 
     # --- Search 3: Hybrid semantic search ---
     try:
@@ -823,9 +992,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts[
-            "mementos"
-        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
 
     # CONCEPT:KG-2.134 — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
@@ -1083,7 +1252,13 @@ async def _execute_single_server(
         if getattr(result, "output", None) is not None
         else getattr(result, "data", None) or getattr(result, "content", None) or result
     )
-    return {"results": {"output": str(output)}}
+    # CONCEPT:KG-2.296 — carry the per-tool-call provenance up to run_agent, which
+    # persists it as :ToolCall nodes on the run's RunTrace. This is the deterministic
+    # MCP tool-loop, so it is exactly where real tool calls happen and are visible.
+    return {
+        "results": {"output": str(output)},
+        "tool_calls": _extract_tool_calls(result),
+    }
 
 
 # Generic suffixes stripped to show the product name in the focused-tools prompt.
@@ -1375,6 +1550,170 @@ def _record_execution_trace(
             )
     except Exception as e:
         logger.debug("Failed to record execution trace: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Internal: per-tool-call provenance (CONCEPT:KG-2.296)
+# ---------------------------------------------------------------------------
+
+_TOOL_ARG_SECRET_KEYS = (
+    "password",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer",
+    "credential",
+    "private_key",
+)
+
+
+def _sanitize_tool_args(args: Any) -> str:
+    """Render tool-call args as a compact, secret-redacted JSON string.
+
+    CONCEPT:KG-2.296 — the args are persisted for visibility ("what did the local
+    LLM call, with what"), so redact obvious secret-shaped keys and bound the size.
+    """
+    try:
+        import json as _json
+
+        if isinstance(args, str):
+            try:
+                args = _json.loads(args)
+            except Exception:
+                return args[:2000]
+        if isinstance(args, dict):
+            red = {
+                k: (
+                    "***"
+                    if any(s in str(k).lower() for s in _TOOL_ARG_SECRET_KEYS)
+                    else v
+                )
+                for k, v in args.items()
+            }
+            return _json.dumps(red, default=str)[:2000]
+        return _json.dumps(args, default=str)[:2000]
+    except Exception:  # noqa: BLE001
+        return str(args)[:2000]
+
+
+def _extract_tool_calls(run_result: Any) -> list[dict[str, Any]]:
+    """Pull the (tool_name, args, result/error) of every tool call from a run.
+
+    CONCEPT:KG-2.296 — reads the pydantic-ai message history
+    (``all_messages()``): a ``ToolCallPart`` opens a call, its paired
+    ``ToolReturnPart`` (matched by ``tool_call_id``) carries the result, and a
+    ``RetryPromptPart`` carries a tool error. Returns one ordered record per call.
+    Best-effort and version-tolerant (matches on part class name / ``part_kind``)
+    so a pydantic-ai bump can never break the run path.
+    """
+    calls: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    try:
+        messages = run_result.all_messages()
+    except Exception:  # noqa: BLE001 — not every result exposes a history
+        return []
+    # Only a real materialized history is iterable here; a mock/coroutine is not.
+    if not isinstance(messages, (list, tuple)):
+        return []
+    for msg in messages or []:
+        for part in getattr(msg, "parts", None) or []:
+            kind = str(getattr(part, "part_kind", "") or part.__class__.__name__)
+            lk = kind.lower()
+            if "toolcall" in lk or lk == "tool-call":
+                tcid = str(getattr(part, "tool_call_id", "") or f"tc{len(order)}")
+                rec = {
+                    "tool_call_id": tcid,
+                    "tool_name": str(getattr(part, "tool_name", "") or ""),
+                    "args": _sanitize_tool_args(getattr(part, "args", None)),
+                    "result": "",
+                    "error": "",
+                }
+                calls[tcid] = rec
+                order.append(tcid)
+            elif "toolreturn" in lk or lk == "tool-return":
+                tcid = str(getattr(part, "tool_call_id", "") or "")
+                if tcid in calls:
+                    calls[tcid]["result"] = str(getattr(part, "content", ""))[:2000]
+            elif "retryprompt" in lk or lk == "retry-prompt":
+                tcid = str(getattr(part, "tool_call_id", "") or "")
+                if tcid in calls:
+                    calls[tcid]["error"] = str(getattr(part, "content", ""))[:500]
+    return [calls[t] for t in order]
+
+
+def _persist_tool_calls(
+    engine: IntelligenceGraphEngine | None,
+    run_id: str,
+    agent_name: str,
+    server: str,
+    tool_calls: list[dict[str, Any]],
+) -> int:
+    """Persist each tool call as a ``:ToolCall`` node linked to the run's RunTrace.
+
+    CONCEPT:KG-2.296 — the run-level RunTrace (ORCH-1.21) said *that* a delegation
+    ran; this makes the individual tool calls first-class, queryable provenance so
+    Claude can ask "what tools did the local LLM call, with what args, what result"
+    over graph-os. Each call also feeds ``action_outcome`` (AHE-3.62) so the
+    reward-EMA densifies on the tools that actually worked — visibility and learning
+    from the same seam. Best-effort: a provenance write must never fail the run.
+    """
+    if not engine or not tool_calls:
+        return 0
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    trace_id = f"trace:{run_id}"
+    written = 0
+    try:
+        from agent_utilities.knowledge_graph.adaptation.feedback import FeedbackService
+
+        feedback = FeedbackService.from_engine(engine)
+    except Exception:  # noqa: BLE001 — reward is optional
+        feedback = None
+    for i, tc in enumerate(tool_calls):
+        tc_id = f"toolcall:{run_id.split(':', 1)[-1]}:{i}"
+        ok = not tc.get("error")
+        props: dict[str, Any] = {
+            "run_id": run_id,
+            "agent_name": agent_name,
+            "server": server,
+            "tool_name": tc.get("tool_name", ""),
+            "args": tc.get("args", ""),
+            "result_preview": tc.get("result", "")[:2000],
+            "error": tc.get("error", "")[:500],
+            "status": "ok" if ok else "error",
+            "sequence": i,
+            "timestamp": ts,
+        }
+        _stamp_run_identity(props)
+        try:
+            engine.add_node(tc_id, "ToolCall", properties=props)
+            # link_nodes writes backend-FIRST (durable), unlike add_edge's
+            # best-effort compute-cache path — so the provenance edge survives in
+            # the epistemic-graph for graph-os traversal queries.
+            engine.link_nodes(trace_id, tc_id, "MADE_TOOL_CALL")
+            written += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[KG-2.296] ToolCall persist failed (%s): %s", tc_id, exc)
+            continue
+        if feedback is not None and tc.get("tool_name"):
+            try:
+                feedback.record_action_outcome(
+                    f"tool:{tc['tool_name']}",
+                    success=ok,
+                    observed=tc.get("result", "")[:200],
+                    reason="tool_call_outcome",
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[KG-2.296] tool action_outcome failed: %s", exc)
+    if written:
+        logger.info(
+            "[KG-2.296] run %s: persisted %d ToolCall node(s) under %s",
+            run_id,
+            written,
+            trace_id,
+        )
+    return written
 
 
 # ---------------------------------------------------------------------------

@@ -87,6 +87,7 @@ default ``None`` keeps the legacy behavior bit-for-bit.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -301,7 +302,16 @@ class WorkflowRunner:
                     StepResult(
                         step_index=wave_idx,
                         node_id=r.agent_id,
-                        task=r.task,
+                        # CONCEPT:ORCH-1.95 — ``AgentExecutionResult`` (the ParallelEngine
+                        # wave result) carries no ``task`` field; it lives in its
+                        # ``metadata``. Reading ``r.task`` raised AttributeError and
+                        # crashed every wired ``execute_workflow`` run after the steps
+                        # had already executed. Fall back through metadata → agent_id.
+                        task=(
+                            getattr(r, "task", None)
+                            or (r.metadata or {}).get("task")
+                            or r.agent_id
+                        ),
                         output=r.output,
                         status="completed" if r.success else "failed",
                         duration_ms=r.duration_ms,
@@ -464,9 +474,16 @@ class WorkflowRunner:
         trace_session: str | None = None,
         task: str | None = None,
     ) -> WorkflowResult:
-        """Load a stored workflow by name from the KG and execute it.
+        """Load a stored workflow by name from the KG and execute its step-DAG.
 
-        CONCEPT:ORCH-1.24 — Named Workflow Execution
+        CONCEPT:ORCH-1.24 / ORCH-1.95 — Named Workflow Execution. Loads the stored
+        ``WorkflowDefinition``/``WorkflowStep`` DAG (the KG-2.97 ``WorkflowStore``
+        shape) and runs each step through :func:`run_agent` in dependency-wave order
+        — so a step that names a ``Server``/ingested ``Skill`` resolves to its real
+        MCP toolset and runs the tool-calling loop on the LOCAL LLM, with each step's
+        RunTrace + :ToolCall provenance (KG-2.296) written for free. This is the
+        execution half of "ingested workflow → executed", routed here from
+        ``graph_orchestrate action=execute_workflow``.
         """
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
@@ -475,10 +492,143 @@ class WorkflowRunner:
         if plan is None:
             raise ValueError(f"Workflow '{workflow_name}' not found in KG or catalog")
 
-        return await self.execute(
+        return await self._execute_plan_via_agents(
             plan=plan,
             engine=engine,
             workflow_name=workflow_name,
             trace_session=trace_session,
             task=task,
         )
+
+    async def _execute_plan_via_agents(
+        self,
+        plan: GraphPlan,
+        engine: IntelligenceGraphEngine,
+        workflow_name: str,
+        trace_session: str | None = None,
+        task: str | None = None,
+    ) -> WorkflowResult:
+        """Run a stored plan's steps via :func:`run_agent`, respecting dependencies.
+
+        CONCEPT:ORCH-1.95 — wires the EXISTING ``run_agent`` executor (not a new one)
+        into named-workflow execution: steps with satisfied dependencies run
+        concurrently as a wave, each via ``run_agent(step.id, step.task, engine=...)``
+        on the local LLM with its resolved MCP toolset. Upstream step outputs are
+        threaded into a dependent step's context. ``run_agent`` records each step's
+        own RunTrace + :ToolCall nodes, so workflow execution is fully visible over
+        graph-os with zero extra plumbing.
+        """
+        import time as _time
+
+        from agent_utilities.orchestration.agent_runner import run_agent
+
+        session_id = trace_session or f"wf-{uuid.uuid4().hex[:8]}"
+        wf_started = _time.monotonic()
+
+        steps = list(plan.steps)
+        # Resolve per-step (agent_name, task) from the canonical WorkflowStep shape:
+        # step.id is the resolvable agent/skill/server name, step.refined_subtask the
+        # task (falling back to the step description / the workflow-level task).
+        by_id: dict[str, Any] = {}
+        for s in steps:
+            sid = getattr(s, "id", "") or ""
+            by_id[sid] = s
+        completed: dict[str, StepResult] = {}
+        outputs: dict[str, str] = {}
+        wave_idx = 0
+        remaining = list(steps)
+
+        while remaining:
+            ready = [
+                s
+                for s in remaining
+                if all(
+                    dep in completed for dep in (getattr(s, "depends_on", None) or [])
+                )
+            ]
+            if not ready:
+                # A dependency cycle / dangling dep — run the rest as one wave rather
+                # than deadlock (the SHACL gate upstream guards malformed DAGs).
+                ready = list(remaining)
+
+            async def _run_step(step: Any, wave: int = wave_idx) -> StepResult:
+                sid = getattr(step, "id", "") or f"step-{wave}"
+                step_task = (
+                    getattr(step, "refined_subtask", None)
+                    or getattr(step, "description", None)
+                    or task
+                    or sid
+                )
+                # Thread completed upstream outputs in as context.
+                deps = getattr(step, "depends_on", None) or []
+                ctx = "\n\n".join(
+                    f"Output of '{d}':\n{outputs.get(d, '')}"
+                    for d in deps
+                    if outputs.get(d)
+                )
+                t0 = _time.monotonic()
+                try:
+                    out = await run_agent(
+                        agent_name=sid,
+                        task=str(step_task),
+                        engine=engine,
+                        max_steps=self.max_steps_per_agent,
+                        context=ctx or None,
+                        session_id=session_id,
+                    )
+                    ok = not str(out).startswith("Agent execution failed")
+                    return StepResult(
+                        step_index=wave,
+                        node_id=sid,
+                        task=str(step_task),
+                        output=str(out),
+                        status="completed" if ok else "failed",
+                        duration_ms=(_time.monotonic() - t0) * 1000,
+                        error=None if ok else str(out)[:300],
+                        trace_id=session_id,
+                    )
+                except Exception as exc:  # noqa: BLE001 — one step must not kill the DAG
+                    return StepResult(
+                        step_index=wave,
+                        node_id=sid,
+                        task=str(step_task),
+                        output="",
+                        status="failed",
+                        duration_ms=(_time.monotonic() - t0) * 1000,
+                        error=str(exc)[:300],
+                        trace_id=session_id,
+                    )
+
+            results = await asyncio.gather(*(_run_step(s) for s in ready))
+            for step, res in zip(ready, results, strict=False):
+                sid = getattr(step, "id", "") or res.node_id
+                completed[sid] = res
+                outputs[sid] = res.output
+            remaining = [
+                s for s in remaining if (getattr(s, "id", "") or "") not in completed
+            ]
+            wave_idx += 1
+
+        step_results = [
+            completed[getattr(s, "id", "")]
+            for s in steps
+            if getattr(s, "id", "") in completed
+        ]
+        n_failed = sum(1 for r in step_results if r.status == "failed")
+        n_ok = sum(1 for r in step_results if r.status == "completed")
+        status = "completed" if n_failed == 0 else ("partial" if n_ok else "failed")
+
+        result = WorkflowResult(
+            workflow_name=workflow_name,
+            session_id=session_id,
+            step_results=step_results,
+            total_duration_ms=(_time.monotonic() - wf_started) * 1000,
+            status=status,
+            mermaid=plan.to_mermaid(title=workflow_name)
+            if hasattr(plan, "to_mermaid")
+            else "",
+        )
+        _active_workflows[session_id] = result
+        # Same provenance close-out as the manifest path (ORCH-1.43).
+        self._close_out_process_lineage(engine, workflow_name, result)
+        return result

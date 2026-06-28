@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 557
+total_concepts: 561
 total_pillars: 22
 pillars:
 - AHE-3
@@ -4210,6 +4210,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   doc: writes go to
+- id: KG-2.296
+  name: carry the per-tool-call provenance up to run_agent, which
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: carry the per-tool-call provenance up to run_agent, which
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -4479,7 +4486,7 @@ concepts:
   - agent_utilities/knowledge_graph/workflow_compiler.py
   doc: Semantic Workflow Retrieval
 - id: ORCH-1.24
-  name: Workflow Lifecycle Management
+  name: / ORCH-1.95 — Named Workflow Execution. Loads the stored
   pillar: ORCH-1
   status: live
   code_paths:
@@ -4487,7 +4494,7 @@ concepts:
   - agent_utilities/orchestration/engine.py
   - agent_utilities/workflows/__init__.py
   - agent_utilities/workflows/runner.py
-  doc: Workflow Lifecycle Management
+  doc: / ORCH-1.95 — Named Workflow Execution. Loads the stored
 - id: ORCH-1.26
   name: RLM synthesis failed, falling back to
   pillar: ORCH-1
@@ -5140,6 +5147,29 @@ concepts:
   - agent_utilities/rlm/sandboxes/container_fork_backend.py
   - agent_utilities/runtime/warm_registry.py
   doc: a HARD wall-clock lifetime cap. A warm parent older than this is reaped even
+- id: ORCH-1.95
+  name: close the execution seam. This previously constructed a
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/manager.py
+  - agent_utilities/workflows/runner.py
+  doc: close the execution seam. This previously constructed a
+- id: ORCH-1.96
+  name: the dispatch half of skill ingestion. An ingested atomic
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/execute.py
+  - agent_utilities/orchestration/agent_runner.py
+  doc: the dispatch half of skill ingestion. An ingested atomic
+- id: ORCH-1.97
+  name: when the caller opts into the rich wrapper
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: when the caller opts into the rich wrapper
 - id: ORCH-1.98
   name: ORCH-1.98
   pillar: ORCH-1
