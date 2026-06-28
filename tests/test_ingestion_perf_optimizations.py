@@ -172,7 +172,10 @@ class TestProfileReport:
         from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
         obj = TaskManagerMixin.__new__(TaskManagerMixin)
-        obj._control_cypher = MagicMock(return_value=rows)  # type: ignore[attr-defined]
+        # profile_report issues two control queries: the :Task scan (rows) then the
+        # off-queue :ProfileSpan scan (none here). Returning ``rows`` for BOTH would
+        # double-count every task, so the span query yields [].
+        obj._control_cypher = MagicMock(side_effect=[rows, []])  # type: ignore[attr-defined]
         return obj
 
     def _row(self, status: str, **meta: object) -> dict:

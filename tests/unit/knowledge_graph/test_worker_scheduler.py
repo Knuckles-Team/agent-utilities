@@ -68,16 +68,19 @@ def test_reservation_keeps_at_least_one_free():
 
 
 def test_reservation_relaxed_to_cover_uncovered_pending_lane():
-    """The spare is spent rather than starve a pending lane with zero coverage."""
-    policy, reg = _policy(worker_count=4, reserved=1)
-    # 3 ingestion workers busy, 1 free. A content_url just arrived (queries-like
-    # bursty lane). Here use the 'connectors' lane as an uncovered pending lane.
+    """The hot spare is spent to cover an uncovered pending lane rather than starve
+    it — but only down to the interactive floor (CONCEPT:KG-2.285), never into the
+    reserved interactive worker (that boundary is exercised in
+    test_ingest_tail_optimization)."""
+    policy, reg = _policy(worker_count=5, reserved=1)
+    # 3 ingestion workers busy, 2 free. Covering the uncovered connectors lane
+    # leaves 1 free == the interactive floor, so the relaxation still applies.
     reg.start("w0", INGEST_LANE, "codebase")
     reg.start("w1", INGEST_LANE, "codebase")
     reg.start("w2", INGEST_LANE, "document")
     pending = {INGEST_LANE: 5, "connectors": 1}
     # Claiming the connectors lane covers an uncovered pending lane → admitted
-    # even though it spends the last spare (degrade to zero spare, never starve).
+    # (degrade toward the floor, never starve), without touching the reserved slot.
     assert policy.admit("connectors", "connector_sync", pending) is True
 
 
@@ -274,17 +277,17 @@ def test_content_url_admitted_while_codebase_saturates_pool():
 
 
 def test_content_url_in_own_lane_jumps_saturated_codebase():
-    """If content_url were its OWN lane (uncovered + pending) while codebase
-    saturates ingestion, it is admitted instantly — the spare is spent to cover
-    the uncovered channel rather than let it wait behind heavy jobs."""
-    policy, reg = _policy(worker_count=4, reserved=1, per_lane_min=1)
+    """A dedicated bursty channel (its OWN lane, uncovered + pending) jumps ahead of
+    saturated codebase — admitted from spare capacity above the interactive floor
+    (CONCEPT:KG-2.285), rather than waiting behind heavy jobs."""
+    policy, reg = _policy(worker_count=5, reserved=1, per_lane_min=1)
     for i in range(3):
         reg.start(f"w{i}", INGEST_LANE, "codebase")
     # connectors lane stands in for a dedicated bursty channel with pending work
-    # and zero coverage; only 1 worker free (== reserved).
+    # and zero coverage; 2 workers free (one above the interactive floor).
     pending = {INGEST_LANE: 50, "connectors": 1}
-    assert reg.free_count(4) == 1
-    # Uncovered pending connectors lane → admitted, spending the spare.
+    assert reg.free_count(5) == 2
+    # Uncovered pending connectors lane → admitted from the non-reserved spare.
     assert policy.admit("connectors", "connector_sync", pending) is True
     # But a fresh codebase task is still capped/steered away.
     assert policy.admit(INGEST_LANE, "codebase", pending) is False
