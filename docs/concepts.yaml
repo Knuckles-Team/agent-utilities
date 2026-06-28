@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 530
+total_concepts: 531
 total_pillars: 22
 pillars:
 - AHE-3
@@ -3414,14 +3414,14 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/entity_context.py
   doc: KG-2.139
 - id: KG-2.140
-  name: This is how
+  name: a
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   - agent_utilities/knowledge_graph/retrieval/code_context.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
-  doc: This is how
+  doc: a
 - id: KG-2.141
   name: the user-override layer of the prompt library, mirroring
   pillar: KG-2
@@ -4016,6 +4016,15 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/active_reconstruction.py
   - agent_utilities/knowledge_graph/retrieval/entity_context.py
   doc: assimilated from MRAgent
+- id: KG-2.276
+  name: generation-scoped selective reward erasure for memory maintenance
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  - agent_utilities/knowledge_graph/retrieval/capability_index.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: generation-scoped selective reward erasure for memory maintenance
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1

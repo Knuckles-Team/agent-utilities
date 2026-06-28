@@ -335,14 +335,21 @@ def register_write_ingest_tools(mcp):
             "query?}) so routing/playbooks prefer actions that achieve their goal "
             "(CONCEPT:AHE-3.62), 'gotcha' pins a hard-won trap to a file/module "
             "(target_id=path, corrected_value=the note) so code_context surfaces it "
-            "when an agent next touches that area (CONCEPT:KG-2.140). This is how "
+            "when an agent next touches that area (CONCEPT:KG-2.140), "
+            "'selective_erasure' forgets the learned reward for superseded "
+            "designations (target_id + optional corrected_value list of ids) so the "
+            "router re-learns them instead of carrying stale utility across a "
+            "source/model regime change (CONCEPT:KG-2.276). This is how "
             "'this was wrong, here's the fix' becomes future behaviour (CONCEPT:KG-2.8)."
         ),
         tags=["graph-os", "feedback", "learning"],
     )
     def graph_feedback(
         correction_type: str = Field(
-            description="outcome | rule | eval | reads_avoided | action_outcome | gotcha."
+            description=(
+                "outcome | rule | eval | reads_avoided | action_outcome | gotcha | "
+                "selective_erasure."
+            )
         ),
         target_id: str = Field(
             description="Entity/episode/query the correction is about."

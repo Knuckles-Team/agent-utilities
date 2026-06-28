@@ -28,7 +28,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_VALID = {"outcome", "rule", "eval", "reads_avoided", "action_outcome", "gotcha"}
+_VALID = {
+    "outcome",
+    "rule",
+    "eval",
+    "reads_avoided",
+    "action_outcome",
+    "gotcha",
+    "selective_erasure",
+}
 
 # Map a free-form rule scope to the persisted node type consumed by
 # governance_rules.load_active_rules.
@@ -122,6 +130,8 @@ class FeedbackService:
             return self.record_gotcha(
                 target_id, str(corrected_value or reason or ""), actor_id=actor_id
             )
+        if ctype == "selective_erasure":
+            return self._apply_selective_erasure(target_id, corrected_value, reason)
         if ctype == "outcome":
             return self._apply_outcome(target_id, reward, corrected_value, reason)
         if ctype == "rule":
@@ -179,6 +189,53 @@ class FeedbackService:
         new = self.capability_index.record_outcome(target_id, reward=r)
         return CorrectionResult(
             "outcome", target_id, True, f"reward updated to {new:.3f} ({reason})"
+        )
+
+    # ------------------------------------------------------------------
+    def _apply_selective_erasure(
+        self, target_id: str, corrected_value: Any, reason: str
+    ) -> CorrectionResult:
+        """Provenance-scoped reward erasure (CONCEPT:KG-2.276).
+
+        Forget the learned reward EMA for one or more superseded designations,
+        so the retrieval router re-learns them from the neutral prior instead of
+        carrying utility scored under a now-displaced source/impl/model regime.
+        This is the Red Queen Gödel Machine's *selective erasure*
+        (arXiv:2606.26294) on the memory router's utility records.
+
+        ``target_id`` is the primary id; ``corrected_value`` may carry extra ids
+        (a JSON list, or a comma/whitespace-separated string) so a whole
+        superseded generation is forgotten in one call.
+        """
+        index = self.capability_index
+        if index is None or not hasattr(index, "selective_erase_rewards"):
+            return CorrectionResult(
+                "selective_erasure", target_id, False, "no capability_index available"
+            )
+        ids: list[str] = [target_id] if target_id else []
+        if corrected_value is not None:
+            payload = corrected_value
+            if isinstance(payload, str):
+                text = payload.strip()
+                if text.startswith("["):
+                    try:
+                        import json as _json
+
+                        payload = _json.loads(text)
+                    except Exception:
+                        payload = text.replace(",", " ").split()
+                else:
+                    payload = text.replace(",", " ").split()
+            if isinstance(payload, (list, tuple, set)):
+                ids.extend(str(p) for p in payload)
+        erased = index.selective_erase_rewards(ids)
+        return CorrectionResult(
+            "selective_erasure",
+            target_id,
+            erased > 0,
+            f"erased {erased} reward record(s) ({reason})"
+            if reason
+            else f"erased {erased} reward record(s)",
         )
 
     # ------------------------------------------------------------------

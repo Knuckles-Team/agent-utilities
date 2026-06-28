@@ -45,6 +45,7 @@ flowchart TB
     subgraph MNT["4 · Maintenance"]
         DECAY["Ebbinghaus decay / consolidation<br/>(KG-2.4 Evolving Memory)"]
         REAP["idle / max-age reapers + compaction"]
+        ERASE["Generation-scoped selective reward erasure<br/>(KG-2.276 — provenance, not age)"]
     end
 
     EXT --> REP
@@ -52,6 +53,45 @@ flowchart TB
     RET --> MNT
     MNT -. "promote / decay / forget" .-> REP
 ```
+
+### Generation-scoped selective reward erasure (CONCEPT:KG-2.276)
+
+The maintenance quadrant decays learned utility by **age** (`decay_rewards`,
+KG-2.4) and reaps memories by idle/max-age. It had no way to forget utility by
+**provenance** — when the source/impl/model regime that *produced* a learned
+reward is superseded, the reward EMA on `CapabilityIndex` (`record_outcome`,
+the live retrieval router's self-tuning signal) kept biasing `designate()` with
+evidence scored under a now-defunct representation. This is the *non-stationary
+utility* problem the Red Queen Gödel Machine names (arXiv:2606.26294): a fixed
+utility carried across a regime change leaves the search anchored by stale,
+potentially reward-hacked evidence. RQGM's answer is **selective erasure** at an
+epoch boundary — discard only the utility records tied to the displaced
+evaluator, preserve everything unrelated, and let the router re-climb under the
+new regime. We adopt exactly that primitive on the memory router's utility
+records, in two wired forms:
+
+- **Native, auto-detected (the upsert path).** `CapabilityIndex.add()` already
+  re-embeds an entity on every re-ingest. When the new embedding has *materially*
+  diverged from the stored one (cosine distance `> _REWARD_REGEN_DISTANCE`), the
+  re-add is a new *generation*: the stale reward EMA is selectively erased to the
+  neutral prior, while content-stable re-adds keep their reward. No flag — it runs
+  on the existing ingestion upsert for every entity (Native-by-default).
+- **Explicit, two-surface (operator/agent).** `selective_erase_rewards(ids)` is
+  the order-independent direct analog, surfaced through `FeedbackService`
+  (`record_correction` `correction_type="selective_erasure"`) and therefore
+  through both `graph_feedback` (MCP) and `POST /graph/feedback` (REST) — to
+  forget a whole superseded generation (a redeployed capability, a retracted
+  source) in one call. Unlike `decay_rewards`, it targets by *provenance*, not by
+  *age*.
+
+> **Scope honesty.** arXiv:2606.26294 is a *self-improving-agents / co-evolving-evaluator*
+> paper, not a memory paper; most of its mechanism (controlled utility evolution,
+> ground-truth-anchored challenger promotion, the multi-agent workspace tree)
+> already lives in our AHE-3.x self-improvement spine (the capability reward-EMA
+> router, the eval/preference corpus, the GEPA held-out split, the MemoryData
+> router-vs-best bake-off). Selective erasure is the **one** mechanism that filled
+> a genuine memory-maintenance gap. See
+> `reports/memory-2606.26294-comparative-analysis-2026-06-28.md`.
 
 ## MemoryData bake-off — proving the retrieval stack against published baselines
 
