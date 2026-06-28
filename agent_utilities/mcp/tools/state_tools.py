@@ -155,14 +155,19 @@ def register_state_tools(mcp):
             "skill_ref for skill]), 'list' (active Loops), 'run' (advance all active "
             "Loops one cycle — research acquires/reasons, develop validates, skill "
             "executes), 'drive' (run ONE Loop by id to completion, durably — "
-            "resume/checkpoint/corrigible, any kind), 'cancel' (terminate a Loop by id)."
+            "resume/checkpoint/corrigible, any kind), 'cancel' (terminate a Loop by id), "
+            "'prioritize' (set claim bucket). TRANSPARENCY + STEERING (KG-2.290/292, "
+            "OS-5.73): 'state' (LIVE EvolutionState — current stage + why, saturation "
+            "gauge, open_gaps trend, velocity, spec backlog), 'specs' (distilled "
+            "SpecProposal backlog; filter by status), 'review' (approve|edit|reject a "
+            "distilled spec BEFORE it develops — spec_id + decision)."
         ),
         tags=["graph-os", "loops"],
     )
     async def graph_loops(
         action: str = Field(
             default="list",
-            description="submit|list|run|drive|cancel|prioritize",
+            description="submit|list|run|drive|cancel|prioritize|state|specs|review",
         ),
         objective: str = Field(default="", description="Objective text (submit)."),
         kind: str = Field(
@@ -184,9 +189,21 @@ def register_state_tools(mcp):
             description="Priority bucket 0-3 or critical|high|normal|background "
             "(submit/prioritize).",
         ),
+        spec_id: str = Field(
+            default="", description="SpecProposal id (review action)."
+        ),
+        decision: str = Field(
+            default="",
+            description="approve|edit|reject — spec-review decision (review action).",
+        ),
+        status: str = Field(
+            default="",
+            description="Filter SpecProposals by status (specs action): "
+            "pending_review|approved|developing|published|reverted|rejected.",
+        ),
     ) -> str:
-        """Submit / list / run / drive / cancel / prioritize Loops — the one
-        Loop-engine entrypoint."""
+        """Submit / list / run / drive / cancel / prioritize Loops + observe & steer
+        the self-evolution flywheel (state / specs / review) — the one entrypoint."""
         import json as _json
 
         from agent_utilities.knowledge_graph.core.engine_tasks import (
@@ -260,6 +277,51 @@ def register_state_tools(mcp):
                         "prio_bucket": bucket,
                         "ok": ok,
                     }
+                )
+            if action == "state":
+                # LIVE EvolutionState (CONCEPT:KG-2.290/2.291): current stage + why,
+                # saturation gauge, open_gaps trend, velocity, distilled-spec backlog.
+                from agent_utilities.knowledge_graph.research.evolution_state import (
+                    read_evolution_state,
+                )
+
+                return _json.dumps(
+                    {"action": "state", "evolution": read_evolution_state(engine)},
+                    indent=2,
+                    default=str,
+                )
+            if action == "specs":
+                # The distilled-spec backlog (CONCEPT:KG-2.292).
+                from agent_utilities.knowledge_graph.research.spec_proposals import (
+                    list_specs,
+                )
+
+                return _json.dumps(
+                    {
+                        "action": "specs",
+                        "specs": list_specs(
+                            engine, status=(status or None), limit=limit
+                        ),
+                    },
+                    default=str,
+                )
+            if action == "review":
+                # Spec-level review/veto BEFORE develop (CONCEPT:OS-5.73).
+                from agent_utilities.knowledge_graph.research.spec_proposals import (
+                    review_spec,
+                )
+
+                sid = spec_id or loop_id
+                if not sid or not decision:
+                    return _json.dumps(
+                        {"error": "review needs spec_id and decision (approve|edit|reject)"}
+                    )
+                return _json.dumps(
+                    {
+                        "action": "review",
+                        "result": review_spec(engine, sid, decision, reviewer="user"),
+                    },
+                    default=str,
                 )
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:

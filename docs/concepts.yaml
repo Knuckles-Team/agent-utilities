@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 541
+total_concepts: 549
 total_pillars: 22
 pillars:
 - AHE-3
@@ -4073,6 +4073,38 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: resolve the ENGINE
+- id: KG-2.282
+  name: a normal codebase ingest ALSO
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/git_history.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  doc: a normal codebase ingest ALSO
+- id: KG-2.283
+  name: query the ingested commit-history graph
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/git_history.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: query the ingested commit-history graph
+- id: KG-2.284
+  name: over the same tree and fan the
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/ingestion/repo_classifier.py
+  doc: over the same tree and fan the
+- id: KG-2.285
+  name: a repo is not just code. Run the deterministic
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  doc: a repo is not just code. Run the deterministic
 - id: KG-2.286
   name: bound EVERY claimed task by its lane
   pillar: KG-2
@@ -4105,6 +4137,32 @@ concepts:
   - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: the HARD floor that keeps
+- id: KG-2.290
+  name: EvolutionState live surface + per-stage progress beacon. The
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/evolution_state.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/mcp/tools/state_tools.py
+  doc: EvolutionState live surface + per-stage progress beacon. The
+- id: KG-2.291
+  name: Saturation gauge. Aggregates the four signals that already exist
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/evolution_state.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  doc: Saturation gauge. Aggregates the four signals that already exist
+- id: KG-2.292
+  name: close the distill→develop seam. Persist each draft as a
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/knowledge_graph/research/spec_proposals.py
+  - agent_utilities/mcp/tools/state_tools.py
+  doc: close the distill→develop seam. Persist each draft as a
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -5759,6 +5817,16 @@ concepts:
   code_paths:
   - agent_utilities/mcp/check_env_var_drift.py
   doc: Env-var drift guard
+- id: OS-5.73
+  name: autonomous spec→develop. OFF by default = review-first
+  pillar: OS-5
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/research/spec_proposals.py
+  - agent_utilities/mcp/tools/state_tools.py
+  - agent_utilities/orchestration/action_policy.py
+  doc: autonomous spec→develop. OFF by default = review-first
 - id: SAFE-1.0
   name: Tool-Agnostic File Safety Hooks
   pillar: SAFE-1
