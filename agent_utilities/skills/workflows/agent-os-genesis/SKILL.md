@@ -384,6 +384,22 @@ highest-free-RAM node, manager/edge (Caddy)→R820. This manifest drives node la
 - Requires: `systems-manager-mcp`, `tunnel-manager-mcp`, `container-manager-mcp`
 - Expected: `placement-manifest`
 
+> **GPU-allocation best practice — dedicate embeddings vs generation, else capacity-guard the share.**
+> When the deployment has **multiple GPUs / inference hosts** (enterprise / multi-GPU),
+> **DEDICATE one GPU to embeddings and one to generation** — separate endpoints, each with
+> its **own** per-GPU concurrency budget. Embeddings are *throughput-not-latency* and batchable,
+> so a cheaper/older GPU suffices (a Pascal/CC<7.0 card can't run vLLM — serve embeddings with
+> **Infinity** in FP32 instead). Separation removes embed↔generation memory contention — the
+> failure mode where a shared embedder starves an LLM's KV cache and OOMs the box.
+> When you must **SHARE one host/GPU** for both (homelab / tiny / single-node — a Pi or one box),
+> apply the **capacity guard** instead: a per-endpoint ceiling (`max_concurrent_requests`), the
+> joint per-physical-GPU budget (`GPU_CONCURRENCY_BUDGETS` keyed on a shared `gpu_group`), and the
+> circuit breaker (CONCEPT:ORCH-1.102/1.103, KG-2.146/KG-2.298) so the **combined** load can't OOM
+> the box — and optionally keep an embedder on the LLM host as an automatic **fallback** for the
+> dedicated embedder. Tiny single-host deploys may put embeddings on **CPU / a remote endpoint**
+> entirely. Mechanism + the dedicate-vs-share decision: agent-utilities
+> `docs/architecture/distributed_gpu_concurrency.md` and `llm-server-capacity-guard.md`.
+
 ### Step 5: mesh-provisioner (swarm | kubernetes | podman | compose)
 [depends_on: Step 4]
 Stand up the cluster substrate. Branch on the Step 0 `orchestrator` choice — all paths are idempotent and re-runnable.
