@@ -4,15 +4,15 @@ The median ingestion is healthy; the TAIL blows up on edge cases:
 
   * a single BIG repo (thousands of files) is one task → one graph → one shard
     writer, pinning a worker for ~13 min (codebase p95=650s/max=797s) — fixed by
-    splitting it into K shard-routed sub-tasks (CONCEPT:KG-2.283);
+    splitting it into K shard-routed sub-tasks (CONCEPT:KG-2.287);
   * a connector / maint task with no per-task bound hangs (456s / 761s) and
     starves a worker — fixed by a per-lane soft timeout that cancels → routes the
-    task through the KG-2.113 retry→backoff→dead_letter machinery (CONCEPT:KG-2.282);
+    task through the KG-2.113 retry→backoff→dead_letter machinery (CONCEPT:KG-2.286);
   * the profiler reported only per-lane percentiles, so the specific outliers were
-    invisible — fixed by surfacing the slowest-N tasks + p99 (CONCEPT:KG-2.284);
+    invisible — fixed by surfacing the slowest-N tasks + p99 (CONCEPT:KG-2.288);
   * under heavy ingestion the host worker pool was fully consumed, starving
     interactive/MCP work — fixed by a HARD interactive reservation no ingestion
-    lane can spend (CONCEPT:KG-2.285).
+    lane can spend (CONCEPT:KG-2.289).
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ from agent_utilities.knowledge_graph.ingestion.repo_split import (
 )
 
 
-# ── KG-2.283: big-repo split planner ────────────────────────────────────────
+# ── KG-2.287: big-repo split planner ────────────────────────────────────────
 class TestPlanRepoSplit:
     def _files(self, root: Path) -> list[Path]:
         files: list[Path] = []
@@ -102,7 +102,7 @@ class TestPlanRepoSplit:
         assert split_graph_suffix(3) == "__s3"
 
 
-# ── KG-2.282: per-lane soft timeout sizing ──────────────────────────────────
+# ── KG-2.286: per-lane soft timeout sizing ──────────────────────────────────
 class TestSoftTimeout:
     def test_connector_and_maint_bounds_catch_the_observed_hangs(self):
         # The live tail: a connector hung 456s, a maint tick hung 761s.
@@ -128,7 +128,7 @@ class TestSoftTimeout:
         assert lane_soft_timeout("no-such-lane") == 1800.0
 
 
-# ── KG-2.282: a hung task hits the timeout → routed to retry/dead_letter ─────
+# ── KG-2.286: a hung task hits the timeout → routed to retry/dead_letter ─────
 class TestHungTaskTimeout:
     def _mixin(self) -> TaskManagerMixin:
         obj = TaskManagerMixin.__new__(TaskManagerMixin)
@@ -192,7 +192,7 @@ class TestHungTaskTimeout:
         assert statuses == ["dead_letter"]
 
 
-# ── KG-2.285: interactive reservation under ingestion saturation ────────────
+# ── KG-2.289: interactive reservation under ingestion saturation ────────────
 class TestInteractiveReservation:
     def _policy(self, worker_count=4, reserved=1):
         cfg = SchedulerConfig(
@@ -238,7 +238,7 @@ class TestInteractiveReservation:
         assert pol.admit("ingestion", "codebase", {"ingestion": 3}) is True
 
 
-# ── KG-2.283: _maybe_fanout_codebase fan-out + guards ───────────────────────
+# ── KG-2.287: _maybe_fanout_codebase fan-out + guards ───────────────────────
 class TestCodebaseFanout:
     def _mixin(self, submit_ids: list[str] | None = None) -> TaskManagerMixin:
         obj = TaskManagerMixin.__new__(TaskManagerMixin)
@@ -348,7 +348,7 @@ class TestCodebaseFanout:
         obj.submit_task.assert_not_called()
 
 
-# ── KG-2.284: profiler surfaces the slowest-N tasks + p99 ───────────────────
+# ── KG-2.288: profiler surfaces the slowest-N tasks + p99 ───────────────────
 class TestProfilerTail:
     def _mixin(self, rows: list[dict]) -> TaskManagerMixin:
         obj = TaskManagerMixin.__new__(TaskManagerMixin)

@@ -4073,7 +4073,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: resolve the ENGINE
-- id: KG-2.282
+- id: KG-2.286
   name: bound EVERY claimed task by its lane
   pillar: KG-2
   status: live
@@ -4081,7 +4081,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   doc: bound EVERY claimed task by its lane
-- id: KG-2.283
+- id: KG-2.287
   name: a split sub-task carries its own routing key so
   pillar: KG-2
   status: live
@@ -4090,14 +4090,14 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/repo_split.py
   doc: a split sub-task carries its own routing key so
-- id: KG-2.284
+- id: KG-2.288
   name: surface p99 alongside p95/max so a thin tail
   pillar: KG-2
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: surface p99 alongside p95/max so a thin tail
-- id: KG-2.285
+- id: KG-2.289
   name: the HARD floor that keeps
   pillar: KG-2
   status: live
