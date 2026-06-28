@@ -209,7 +209,7 @@ def test_facade_construction_is_side_effect_free():
 
 
 # ----------------------------------------------------------------------
-# CONCEPT:KG-2.275 — generation-scoped selective reward erasure
+# CONCEPT:KG-2.276 — generation-scoped selective reward erasure
 # ----------------------------------------------------------------------
 @pytest.mark.parametrize("prefer", ["numpy", "hnsw"])
 def test_material_reembed_erases_stale_reward(prefer):

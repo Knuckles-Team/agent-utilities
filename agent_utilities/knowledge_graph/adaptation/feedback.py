@@ -195,7 +195,7 @@ class FeedbackService:
     def _apply_selective_erasure(
         self, target_id: str, corrected_value: Any, reason: str
     ) -> CorrectionResult:
-        """Provenance-scoped reward erasure (CONCEPT:KG-2.275).
+        """Provenance-scoped reward erasure (CONCEPT:KG-2.276).
 
         Forget the learned reward EMA for one or more superseded designations,
         so the retrieval router re-learns them from the neutral prior instead of
