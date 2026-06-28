@@ -8,7 +8,8 @@ embedding models. It supports various providers including OpenAI, Ollama,
 HuggingFace, and local models, with robust environment-based configuration.
 """
 
-from typing import TYPE_CHECKING
+import threading
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -29,6 +30,36 @@ except ImportError:
 
 
 __version__ = "0.2.40"
+
+
+# CONCEPT:KG-2.294 — process-scoped embedder-client cache.
+#
+# ``create_embedding_model`` was rebuilding a fresh LlamaIndex embedding client on
+# EVERY call. On the ingest hot path that is per-window / per-document / per-fact
+# (e.g. ``FactDeduper`` builds one per ``extract_facts`` call, document processing
+# and derived-property enrichers per item), so the live host log showed a
+# ``Creating OpenAIEmbedding`` line on every embedding call — a new httpx client,
+# TLS context, and tokenizer constructed each time on top of the actual POST.
+#
+# The client is stateless w.r.t. content (only the resolved provider/model/endpoint/
+# key/TLS/timeout matter) and its underlying httpx client is already used
+# concurrently by the batched embedder (``make_embed_fn`` fans ``get_text_embedding_batch``
+# across threads on ONE model), so a shared instance keyed by those resolved inputs
+# is safe to reuse for the whole run. Thread-safe (double-checked under a lock). The
+# fail-loud KG-2.3 contract is unchanged — a missing provider/dep still raises; we
+# only cache successful constructions.
+_EMBED_MODEL_CACHE: dict[tuple[Any, ...], "BaseEmbedding"] = {}
+_EMBED_MODEL_LOCK = threading.Lock()
+
+
+def clear_embedding_model_cache() -> None:
+    """Drop every cached embedder client (CONCEPT:KG-2.294).
+
+    Mainly for tests / config hot-reload — the next ``create_embedding_model`` for a
+    given key rebuilds the client.
+    """
+    with _EMBED_MODEL_LOCK:
+        _EMBED_MODEL_CACHE.clear()
 
 
 def create_embedding_model(
@@ -58,8 +89,6 @@ def create_embedding_model(
         ValueError: If an unsupported provider is specified.
 
     """
-    from llama_index.embeddings.openai import OpenAIEmbedding
-
     # Resolve defaults from the model registry
     _embed_cfg = config.default_embedding_model
     _chat_cfg = config.default_chat_model
@@ -87,6 +116,65 @@ def create_embedding_model(
         or (_chat_cfg.api_key if _chat_cfg else None)
     )
 
+    if provider_str == "mock":
+        raise ValueError(
+            "Mock embeddings are strictly forbidden by Zero-Stub Compliance. Please configure a real embedding provider in AgentConfig."
+        )
+
+    # OpenAI's LM-Studio/local fallback key is resolved here so it participates in
+    # the cache key (otherwise an empty-key call and a "Test-1234"-key call would
+    # build two clients).
+    if provider_str == "openai" and not api_key_str:
+        api_key_str = config.openai_api_key or "Test-1234"
+
+    # CONCEPT:KG-2.294 — return the cached client for this exact resolved config
+    # instead of constructing a new one on every call. Key on every input that
+    # changes the client's identity/behaviour.
+    cache_key: tuple[Any, ...] = (
+        provider_str,
+        model_str,
+        base_url_str,
+        api_key_str,
+        bool(ssl_verify),
+        float(timeout),
+    )
+    cached = _EMBED_MODEL_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    with _EMBED_MODEL_LOCK:
+        cached = _EMBED_MODEL_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        model_obj = _build_embedding_model(
+            provider_str=provider_str,
+            model_str=model_str,
+            base_url_str=base_url_str,
+            api_key_str=api_key_str,
+            ssl_verify=ssl_verify,
+            timeout=timeout,
+            provider=provider,
+        )
+        _EMBED_MODEL_CACHE[cache_key] = model_obj
+        return model_obj
+
+
+def _build_embedding_model(
+    *,
+    provider_str: str,
+    model_str: str,
+    base_url_str: str,
+    api_key_str: str | None,
+    ssl_verify: bool,
+    timeout: float,
+    provider: str | None,
+) -> "BaseEmbedding":
+    """Construct a fresh embedding client (the un-cached path, CONCEPT:KG-2.294).
+
+    Split out of :func:`create_embedding_model` so the cache wraps exactly one
+    construction site. Logs once per distinct config because the caller only
+    invokes it on a cache miss.
+    """
     # TLS verification is ON unless the deployment's SSL_VERIFY flag (or an
     # explicit ssl_verify=False argument) opts out — the canonical factory
     # keeps verify=True the default; insecure stays a per-call decision.
@@ -94,18 +182,12 @@ def create_embedding_model(
     if not ssl_verify:
         http_client = create_http_client(verify=False, timeout=timeout)  # nosec B501
 
-    if provider_str == "mock":
-        raise ValueError(
-            "Mock embeddings are strictly forbidden by Zero-Stub Compliance. Please configure a real embedding provider in AgentConfig."
-        )
-
     if provider_str == "openai":
-        # Fallback for LM Studio / Local Testing
-        if not api_key_str:
-            api_key_str = config.openai_api_key or "Test-1234"
-
         import sys
 
+        from llama_index.embeddings.openai import OpenAIEmbedding
+
+        # One line per distinct embedder config now (cache-miss only), not per call.
         print(f"Creating OpenAIEmbedding with key={api_key_str}", file=sys.stderr)
 
         return OpenAIEmbedding(
@@ -141,11 +223,6 @@ def create_embedding_model(
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
         return HuggingFaceEmbedding(model_name=model_str)
-
-    elif provider_str == "mock":
-        raise ValueError(
-            "Mock embeddings are strictly forbidden by Zero-Stub Compliance. Please configure a real embedding provider in AgentConfig."
-        )
 
     else:
         raise ValueError(f"Unsupported embedding provider: {provider}")
