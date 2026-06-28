@@ -1435,7 +1435,6 @@ class IngestionEngine:
         except Exception:  # noqa: BLE001
             logger.debug("codebase per-file manifest persist failed", exc_info=True)
 
-
         # Commit-history graph (CONCEPT:KG-2.282) — a normal codebase ingest ALSO
         # ingests the repo's evolution as first-class :Commit/:Author/:File +
         # AUTHORED/PARENT/TOUCHED graph data (linked to the same file:<path> ids),
@@ -1599,7 +1598,7 @@ class IngestionEngine:
             except Exception:  # noqa: BLE001
                 logger.debug("spec write failed for %s", fc.path, exc_info=True)
 
-        # ── Skill / Prompt / Document → existing adaptors (bounded fan-out) ──
+        # ── Skill / Prompt → existing adaptors (bounded fan-out) ────────────
         sem = _asyncio.Semaphore(max(1, compute_ingest_worker_count()))
 
         async def _route(ct: ContentType, path: Path) -> IngestionResult | None:
@@ -1613,18 +1612,88 @@ class IngestionEngine:
                 try:
                     return await self.ingest(sub)
                 except Exception:  # noqa: BLE001
-                    logger.debug("routed %s ingest failed for %s", ct.value, path, exc_info=True)
+                    logger.debug(
+                        "routed %s ingest failed for %s", ct.value, path, exc_info=True
+                    )
                     return None
 
-        jobs: list[tuple[ContentType, Path]] = []
-        jobs += [(ContentType.SKILL, fc.path) for fc in plan.skills]
-        jobs += [(ContentType.PROMPT, fc.path) for fc in plan.prompts]
-        jobs += [(ContentType.DOCUMENT, fc.path) for fc in plan.documents]
+        # ── Documents → batched, enrich-deferred fan-out (CONCEPT:KG-2.295) ──
+        # A repo's markdown used to explode into one full ``self.ingest()`` per
+        # file — each its own adaptor-dispatch + per-node engine round-trips + its
+        # own inline central-enrich (concept/fact + embedder) pass. For a docs-heavy
+        # repo that multiplied tasks and embed round-trips faster than they drained.
+        # Instead each doc's structural write goes through a per-doc ``_BatchedBackend``
+        # (its Document + chunk + concept nodes flush as ONE bulk RPC, not N socket
+        # round-trips), and its ``enrichable`` text bubbles up to the PARENT result so
+        # the codebase ingest's SINGLE central seam enriches the whole repo's docs in
+        # one pass (matching the spec/`_ingest_document_dir` pattern) — not N inline
+        # passes. Per-doc delta-skip + manifest-record are preserved so unchanged docs
+        # are still skipped on re-ingest.
+        from ..enrichment.pipeline import _BatchedBackend
 
-        routed = await _asyncio.gather(*(_route(ct, p) for ct, p in jobs))
+        def _ingest_doc_batched(sub: IngestionManifest, path: Path) -> IngestionResult:
+            # Delta-skip (the gate ``self.ingest`` would apply) so an unchanged doc
+            # is not re-read/re-written/re-embedded on a repo re-ingest.
+            identity: tuple[str, str] | None = None
+            try:
+                identity = self._content_identity(sub)
+            except Exception:  # noqa: BLE001
+                identity = None
+            if (
+                identity
+                and not sub.force
+                and self.manifest.seen(
+                    self.graph_name, sub.content_type.value, identity[0], identity[1]
+                )
+            ):
+                return IngestionResult(
+                    manifest=sub, status="skipped", details={"reason": "unchanged"}
+                )
+            bb = _BatchedBackend(self.backend)
+            if bb.bulk_available:
+                res = self._ingest_document_file(sub, path, backend=bb)
+                bb.flush()
+            else:  # engine has no bulk path → unchanged per-item writes
+                res = self._ingest_document_file(sub, path)
+            if identity and res.status == "success":
+                try:
+                    self.manifest.record(
+                        self.graph_name,
+                        sub.content_type.value,
+                        identity[0],
+                        identity[1],
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("doc manifest record failed", exc_info=True)
+            return res
+
+        async def _route_document(path: Path) -> IngestionResult | None:
+            sub = IngestionManifest(
+                content_type=ContentType.DOCUMENT,
+                source_uri=str(path),
+                metadata={**manifest.metadata, "repo": repo_name, "classify": False},
+                force=manifest.force,
+            )
+            async with sem:
+                try:
+                    return await _asyncio.to_thread(_ingest_doc_batched, sub, path)
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "routed document ingest failed for %s", path, exc_info=True
+                    )
+                    return None
+
+        sp_jobs: list[tuple[ContentType, Path]] = []
+        sp_jobs += [(ContentType.SKILL, fc.path) for fc in plan.skills]
+        sp_jobs += [(ContentType.PROMPT, fc.path) for fc in plan.prompts]
+
+        sp_routed, doc_routed = await _asyncio.gather(
+            _asyncio.gather(*(_route(ct, p) for ct, p in sp_jobs)),
+            _asyncio.gather(*(_route_document(fc.path) for fc in plan.documents)),
+        )
 
         counts = {"skill": 0, "prompt": 0, "document": 0}
-        for (ct, _p), res in zip(jobs, routed, strict=False):
+        for (ct, _p), res in zip(sp_jobs, sp_routed, strict=False):
             if isinstance(res, IngestionResult) and res.status == "success":
                 counts[ct.value] = counts.get(ct.value, 0) + 1
                 result.nodes_created += res.nodes_created
@@ -1635,13 +1704,26 @@ class IngestionEngine:
                 )
                 _link(str(src))
 
+        for res in doc_routed:
+            if isinstance(res, IngestionResult) and res.status == "success":
+                counts["document"] += 1
+                result.nodes_created += res.nodes_created
+                result.edges_created += res.edges_created
+                src = next(
+                    (e.get("source_id") for e in res.enrichable if e.get("source_id")),
+                    "",
+                )
+                _link(str(src))
+                # Bubble each doc's text to the parent so the central seam enriches
+                # the whole repo's docs in ONE pass (concepts already done in-unit;
+                # the seam adds the canonical-fact layer). (CONCEPT:KG-2.295)
+                result.enrichable.extend(res.enrichable)
+
         classified = {**counts, "spec": specs}
         result.nodes_created += specs
         result.details["classified"] = classified
         if any(classified.values()):
-            logger.info(
-                "[KG-2.285] repo %s classified: %s", repo_name, classified
-            )
+            logger.info("[KG-2.285] repo %s classified: %s", repo_name, classified)
 
     @adaptor(ContentType.DOCUMENT)
     async def _ingest_document(self, manifest: IngestionManifest) -> IngestionResult:
@@ -1970,7 +2052,10 @@ class IngestionEngine:
                 pass
 
     def _ingest_document_file(
-        self, manifest: IngestionManifest, path_obj: Path
+        self,
+        manifest: IngestionManifest,
+        path_obj: Path,
+        backend: Any | None = None,
     ) -> IngestionResult:
         """Canonical single-document ingest → the standardized contract.
 
@@ -2017,9 +2102,15 @@ class IngestionEngine:
         else:
             llm = lambda _p: ""  # noqa: E731 — Document node only, no concepts
 
+        # CONCEPT:KG-2.295 — writes go to ``backend`` (a per-doc ``_BatchedBackend``
+        # when the classified-document router supplies one, so a doc's Document +
+        # chunk + concept nodes flush as ONE bulk RPC instead of a socket round-trip
+        # per node), else the engine's default backend (byte-for-byte legacy).
+        backend = backend if backend is not None else self.backend
+
         with _pstage("extract"):  # OS-5.70 — the LLM concept-extraction stage
             doc, concepts, edges = extract_document(str(path_obj), text, llm)
-        add_node = getattr(self.backend, "add_node", None)
+        add_node = getattr(backend, "add_node", None)
         if not callable(add_node):
             return IngestionResult(
                 manifest=manifest, status="failed", error="backend.add_node unavailable"
@@ -2045,7 +2136,7 @@ class IngestionEngine:
                 summary=c.summary,
                 source_ids=_json.dumps(c.source_ids),
             )
-        add_edge = getattr(self.backend, "add_edge", None)
+        add_edge = getattr(backend, "add_edge", None)
         if callable(add_edge):
             for e in edges:
                 try:
@@ -2093,7 +2184,7 @@ class IngestionEngine:
                 )
 
                 processor = DocumentProcessor(
-                    self.backend,
+                    backend,
                     chunking=ChunkingConfig(
                         chunk_size=int(manifest.metadata.get("chunk_size", 800)),
                         overlap=int(manifest.metadata.get("overlap", 120)),
