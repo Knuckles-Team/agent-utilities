@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 549
+total_concepts: 557
 total_pillars: 22
 pillars:
 - AHE-3
@@ -706,6 +706,29 @@ concepts:
   - agent_utilities/knowledge_graph/assimilation/dedup.py
   - agent_utilities/knowledge_graph/assimilation/entity_resolution.py
   doc: transliteration + singularization extend the AHE-3.69 ladder
+- id: AHE-3.71
+  name: the transparency surface. Every hardening decision
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/harness/dspy_optimization.py
+  - agent_utilities/harness/evolve_agent.py
+  doc: the transparency surface. Every hardening decision
+- id: AHE-3.72
+  name: when the outcome names the agent that produced it
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/adaptation/feedback.py
+  doc: when the outcome names the agent that produced it
+- id: AHE-3.73
+  name: the closed agent-hardening cycle
+  pillar: AHE-3
+  status: live
+  code_paths:
+  - agent_utilities/harness/evolve_agent.py
+  doc: the closed agent-hardening cycle
 - id: CE-038
   name: periodic code-health
   pillar: CE-038
@@ -4130,13 +4153,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: surface p99 alongside p95/max so a thin tail
 - id: KG-2.289
-  name: the HARD floor that keeps
+  name: reserves a worker floor that non-interactive lanes can never
   pillar: KG-2
   status: live
   code_paths:
+  - agent_utilities/core/resource_priority.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
-  doc: the HARD floor that keeps
+  doc: reserves a worker floor that non-interactive lanes can never
 - id: KG-2.290
   name: EvolutionState live surface + per-stage progress beacon. The
   pillar: KG-2
@@ -4163,6 +4187,29 @@ concepts:
   - agent_utilities/knowledge_graph/research/spec_proposals.py
   - agent_utilities/mcp/tools/state_tools.py
   doc: close the distill→develop seam. Persist each draft as a
+- id: KG-2.293
+  name: carry the resource PriorityClass so a spawned/child agent
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/resource_priority.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/observability/correlation.py
+  doc: carry the resource PriorityClass so a spawned/child agent
+- id: KG-2.294
+  name: return the cached client for this exact resolved config
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/core/embedding_utilities.py
+  doc: return the cached client for this exact resolved config
+- id: KG-2.295
+  name: writes go to
+  pillar: KG-2
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  doc: writes go to
 - id: LGC-1.0
   name: LGC-1.0
   pillar: LGC-1
@@ -5093,6 +5140,22 @@ concepts:
   - agent_utilities/rlm/sandboxes/container_fork_backend.py
   - agent_utilities/runtime/warm_registry.py
   doc: a HARD wall-clock lifetime cap. A warm parent older than this is reaped even
+- id: ORCH-1.98
+  name: ORCH-1.98
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/resource_priority.py
+  doc: ORCH-1.98
+- id: ORCH-1.99
+  name: priority-gate each call when tagged
+  pillar: ORCH-1
+  status: live
+  code_paths:
+  - agent_utilities/core/model_concurrency.py
+  - agent_utilities/core/model_factory.py
+  - agent_utilities/core/resource_priority.py
+  doc: priority-gate each call when tagged
 - id: ORCH-2.0
   name: Orchestration Engine
   pillar: ORCH-2

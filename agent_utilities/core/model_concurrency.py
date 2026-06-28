@@ -29,7 +29,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import TypeVar
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -170,6 +170,38 @@ def get_thread_pool(
         return pool
 
 
+def _async_limiter(model: str | None, cap: int) -> Callable[[], Any]:
+    """A factory of the per-call async limiter (CONCEPT:ORCH-1.99).
+
+    Returns a zero-arg callable yielding an async context manager: the
+    priority-aware gate when the current call is priority-tagged, else the plain
+    per-model semaphore (historical behaviour). Resolved once per fan-out so the
+    contextvar read is cheap.
+    """
+    from agent_utilities.core.resource_priority import current_priority, priority_slot
+
+    prio = current_priority()
+    if prio is None:
+        sem = get_semaphore(model, cap)
+        return lambda: sem
+    return lambda: priority_slot(model, capacity=cap, priority=prio)
+
+
+def _sync_limiter(model: str | None, cap: int) -> Callable[[], Any]:
+    """Sync analogue of :func:`_async_limiter` (CONCEPT:ORCH-1.99)."""
+    from contextlib import nullcontext
+
+    from agent_utilities.core.resource_priority import (
+        current_priority,
+        priority_slot_sync,
+    )
+
+    prio = current_priority()
+    if prio is None:
+        return lambda: nullcontext()
+    return lambda: priority_slot_sync(model, capacity=cap, priority=prio)
+
+
 def reset_controllers() -> None:
     """Drop all cached gates/pools (test isolation; config reload). CONCEPT:KG-2.143.
 
@@ -212,11 +244,16 @@ async def map_concurrent(
     if not items:
         return []
     cap = max(1, int(capacity)) if capacity is not None else resolve_capacity(model)
-    sem = get_semaphore(model, cap)
     is_coro = _is_async_callable(fn)
+    # CONCEPT:ORCH-1.99 — when the call is priority-tagged (the entry point bound a
+    # PriorityClass), gate it through the priority-aware admission gate so a
+    # BACKGROUND_INGESTION enrichment fan-out yields the reserved headroom to any
+    # interactive/orchestration/hydration call on the SAME model. Untagged calls
+    # keep the plain per-model semaphore — fully additive, zero behaviour change.
+    _limiter = _async_limiter(model, cap)
 
     async def _run(item: T) -> R:
-        async with sem:
+        async with _limiter():
             start = time.monotonic()
             try:
                 if is_coro:
@@ -256,11 +293,17 @@ def map_concurrent_sync(
     if n == 0:
         return []
     cap = max(1, int(capacity)) if capacity is not None else resolve_capacity(model)
+    # CONCEPT:ORCH-1.99 — priority-gate each call when tagged (see _async_limiter).
+    # The bge-m3 embedding fan-out (model="embedding") gets its OWN gate key, so it
+    # is gated only against other embedding work and never contends with the shared
+    # qwen generator — the contention map made enforceable.
+    _limiter = _sync_limiter(model, cap)
 
     def _timed(item: T) -> R:
         start = time.monotonic()
         try:
-            result = fn(item)
+            with _limiter():
+                result = fn(item)
         except BaseException as exc:  # noqa: BLE001 — observe then re-raise
             _record(
                 model,

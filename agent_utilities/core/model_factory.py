@@ -196,13 +196,32 @@ def _openai_reasoning_settings(effort: str | None) -> Any | None:
     OpenAI effort enum pydantic-ai validates but IS the value this vLLM build honors to
     suppress the reasoning block. Returns ``None`` when ``effort`` is ``None`` (caller keeps
     the model's own default) or when pydantic-ai's OpenAI settings type is unavailable."""
-    if effort is None:
+    # CONCEPT:ORCH-1.99 — also fold the vLLM scheduler `priority` field (lower =
+    # sooner) from the ambient PriorityClass into extra_body, so a server started
+    # with --scheduling-policy priority sees a background-ingestion enrichment call
+    # as lower priority than an interactive/orchestration one. Additive: when no
+    # priority is in context the field is omitted, and the always-on client-side
+    # gate (resource_priority) remains the primary enforcement regardless.
+    extra: dict[str, Any] = {}
+    if effort is not None:
+        extra["reasoning_effort"] = effort
+    try:
+        from agent_utilities.core.resource_priority import current_priority
+
+        prio = current_priority()
+        if prio is not None:
+            from agent_utilities.core.resource_priority import vllm_priority
+
+            extra["priority"] = vllm_priority(prio)
+    except Exception:  # noqa: BLE001 — priority hint is best-effort
+        pass
+    if not extra:
         return None
     try:
         from pydantic_ai.models.openai import OpenAIChatModelSettings
     except Exception:  # pragma: no cover - pydantic-ai shape changed
         return None
-    return OpenAIChatModelSettings(extra_body={"reasoning_effort": effort})
+    return OpenAIChatModelSettings(extra_body=extra)
 
 
 def _create_model_impl(
