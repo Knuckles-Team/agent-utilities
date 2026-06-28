@@ -1218,8 +1218,8 @@ class IngestionEngine:
         except Exception as e:  # noqa: BLE001
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
 
-        # CONCEPT:KG-2.283 — a repo is not just code. Run the deterministic
-        # per-file classifier (CONCEPT:KG-2.282) over the same tree and fan the
+        # CONCEPT:KG-2.285 — a repo is not just code. Run the deterministic
+        # per-file classifier (CONCEPT:KG-2.284) over the same tree and fan the
         # NON-code artifacts out to their existing native adaptors so ONE
         # ``graph_ingest`` over a repo yields Code + Document(markdown) + Skill +
         # Prompt + Spec nodes, each natively chunked/embedded for its type — not
@@ -1231,7 +1231,7 @@ class IngestionEngine:
                 await self._route_classified_artifacts(manifest, source_path, result)
             except Exception:  # noqa: BLE001
                 logger.warning(
-                    "[KG-2.283] artifact classification/routing failed for %s",
+                    "[KG-2.285] artifact classification/routing failed for %s",
                     source_path,
                     exc_info=True,
                 )
@@ -1432,7 +1432,7 @@ class IngestionEngine:
 
         # Specs, markdown, skills and prompts are no longer detected here: the
         # async ``_ingest_codebase`` wrapper runs the deterministic per-file
-        # classifier (CONCEPT:KG-2.282/2.283) over this tree AFTER the structural
+        # classifier (CONCEPT:KG-2.284/2.283) over this tree AFTER the structural
         # pass and fans each artifact out to its native adaptor (specs included,
         # now covering ``*.spec.md`` as well as ``.specify/**``).
         nodes = summary.code + summary.tests + summary.features
@@ -1456,7 +1456,7 @@ class IngestionEngine:
     ) -> None:
         """Classify a repo's non-code files and route them to native adaptors.
 
-        CONCEPT:KG-2.283 — The deterministic classifier (CONCEPT:KG-2.282) splits
+        CONCEPT:KG-2.285 — The deterministic classifier (CONCEPT:KG-2.284) splits
         the tree into Skill / Spec / Prompt / Document / Config buckets. Each
         non-code bucket fans out to the *existing* per-type adaptor (this is a
         router, never a new ingest engine):
@@ -1572,7 +1572,7 @@ class IngestionEngine:
         result.details["classified"] = classified
         if any(classified.values()):
             logger.info(
-                "[KG-2.283] repo %s classified: %s", repo_name, classified
+                "[KG-2.285] repo %s classified: %s", repo_name, classified
             )
 
     @adaptor(ContentType.DOCUMENT)

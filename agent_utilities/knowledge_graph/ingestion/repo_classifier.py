@@ -1,6 +1,6 @@
 """Deterministic per-file content classifier for codebase ingestion.
 
-CONCEPT:KG-2.282
+CONCEPT:KG-2.284
 
 When a repository is ingested as a ``CODEBASE`` the structural pipeline only
 parses *source* files (``SOURCE_EXTENSIONS``) into ``Code``/``Test``/``Feature``
@@ -215,7 +215,7 @@ def _classify_file(path: Path, *, in_prompts_dir: bool) -> FileClass | None:
 def classify_repo(root: str | Path) -> RepoClassification:
     """Walk ``root`` once and classify every file into its native KG type.
 
-    CONCEPT:KG-2.282 — Deterministic: skill dirs claim their subtree, then the
+    CONCEPT:KG-2.284 — Deterministic: skill dirs claim their subtree, then the
     precedence ladder (spec → prompt → config → document → code) decides each
     remaining file. The result feeds the codebase-ingest router, which fans the
     non-code classes out to their existing per-type adaptors.
