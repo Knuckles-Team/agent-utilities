@@ -557,6 +557,10 @@ def _role_hint(model: str | None) -> str | None:
     returned as-is. ``None`` ⇒ the group coordinator falls back to the model key.
     """
     key = (model or "").strip().lower()
+    # The failover embedder key (CONCEPT:KG-2.299) is a best-effort embedding role,
+    # so it yields the shared GPU's headroom to the latency-sensitive generator.
+    if key in ("embedding:fallback", "embed:fallback", "embedding-fallback"):
+        return "embedding"
     if key in ("", "chat", "default", "lite", "super", "embedding", "embed"):
         return key or "default"
     try:

@@ -194,6 +194,28 @@ class ModelCircuitBreaker:
             time.sleep(min(wait, _MAX_SLEEP_SLICE_S))
 
     # -- introspection (tests / observability) -------------------------------
+    def is_tripped(self) -> bool:
+        """True while this endpoint is actively shedding load (CONCEPT:KG-2.299).
+
+        Read-only and side-effect-free (it does NOT consume the HALF_OPEN probe):
+        returns ``True`` only while the breaker is OPEN *and still within its
+        backoff cooldown*. A failover router (``embedding_failover``) consults this
+        to route AWAY from a saturating/unreachable endpoint and onto its fallback —
+        and gets automatic recovery for free: once the cooldown elapses this returns
+        ``False`` again, so traffic returns to the primary and the normal HALF_OPEN
+        probe (:meth:`before_call`) decides whether it has truly recovered (closing
+        the breaker) or re-opens it (re-routing to the fallback next round).
+
+        Always ``False`` when the breaker is disabled, so failover only ever engages
+        on a real, observed shedding signal.
+        """
+        if not _enabled():
+            return False
+        with self._lock:
+            if self._state is CircuitState.OPEN:
+                return time.monotonic() < self._open_until
+            return False
+
     @property
     def state(self) -> CircuitState:
         with self._lock:
