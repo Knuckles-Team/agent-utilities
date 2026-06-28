@@ -89,32 +89,48 @@ def create_embedding_model(
         ValueError: If an unsupported provider is specified.
 
     """
-    # Resolve defaults from the model registry
+    # Resolve defaults from the model registry. When the caller pins nothing
+    # explicit (the "give me the default embedder" call — make_embed_fn and every
+    # enrichment/query embed), resolve the ACTIVE failover endpoint (CONCEPT:KG-2.299)
+    # instead of the static primary: while the primary embedder is down its breaker
+    # is OPEN and this returns the FALLBACK endpoint's base_url/provider, so every
+    # embed caller transparently follows the failover. The cache below keys on the
+    # resolved base_url, so the cached client SWAPS to the fallback's and back on
+    # recovery (no stale primary client).
     _embed_cfg = config.default_embedding_model
     _chat_cfg = config.default_chat_model
+    _active_provider = _embed_cfg.provider if _embed_cfg else None
+    _active_model = _embed_cfg.id if _embed_cfg else None
+    _active_base_url = _embed_cfg.base_url if _embed_cfg else None
+    _active_api_key = _embed_cfg.api_key if _embed_cfg else None
+    if provider is None and model is None and base_url is None:
+        try:
+            from agent_utilities.core.embedding_failover import (
+                active_embedding_endpoint,
+            )
+
+            _ep = active_embedding_endpoint()
+            _active_provider = _ep.provider or _active_provider
+            _active_model = _ep.model_id or _active_model
+            _active_base_url = _ep.base_url or _active_base_url
+            _active_api_key = _ep.api_key or _active_api_key
+        except Exception:  # noqa: BLE001 — failover is best-effort; keep static defaults
+            pass
     provider_str = (
         provider
-        or (_embed_cfg.provider if _embed_cfg else None)
+        or _active_provider
         or (_chat_cfg.provider if _chat_cfg else None)
         or "openai"
     )
     provider_str = provider_str.lower()
-    model_str = (
-        model
-        or (_embed_cfg.id if _embed_cfg else None)
-        or "text-embedding-nomic-embed-text-v2-moe"
-    )
+    model_str = model or _active_model or "text-embedding-nomic-embed-text-v2-moe"
     base_url_str = (
         base_url
-        or (_embed_cfg.base_url if _embed_cfg else None)
+        or _active_base_url
         or (_chat_cfg.base_url if _chat_cfg else None)
         or "http://vllm-embed.arpa/v1"
     )
-    api_key_str = (
-        api_key
-        or (_embed_cfg.api_key if _embed_cfg else None)
-        or (_chat_cfg.api_key if _chat_cfg else None)
-    )
+    api_key_str = api_key or _active_api_key or (_chat_cfg.api_key if _chat_cfg else None)
 
     if provider_str == "mock":
         raise ValueError(
