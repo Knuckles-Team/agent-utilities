@@ -54,7 +54,10 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "'call_graph' (callers/callees/inherits for node_id; target=callees|callers|"
             "inherits — KG-2.100), 'similar_code' (near-clones of node_id — KG-2.101), "
             "'routes' (HTTP route→handler→service graph — KG-2.102), 'change_coupling' "
-            "(files that change together; target=repo path — KG-2.104), 'blast_radius' "
+            "(files that change together; target=repo path — KG-2.104), 'code_evolution' "
+            "(query the ingested commit-history graph; target=file|owners|hotspots|coupled, "
+            "query=file/subsystem path — file timelines, ownership, churn hotspots, co-change "
+            "— KG-2.283), 'blast_radius' "
             "(transitive impact of node_id; depth — what breaks if I change this), "
             "'code_metrics' (god nodes / communities / bridges — KG-2.210), 'arch_report' "
             "(regenerable architecture report — KG-2.213), 'adr' (architecture decision records)."
@@ -64,7 +67,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
     async def graph_code(
         action: str = Field(
             default="code_context",
-            description="code_context | cross_repo_usages | call_graph | similar_code | routes | change_coupling | blast_radius | code_metrics | arch_report | adr",
+            description="code_context | cross_repo_usages | call_graph | similar_code | routes | change_coupling | code_evolution | blast_radius | code_metrics | arch_report | adr",
         ),
         query: str = Field(
             default="", description="Question / area / symbol name / repo path."
