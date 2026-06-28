@@ -176,6 +176,87 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
     return sources
 
 
+# CONCEPT:ORCH-1.100 — Built-in, KG-bound, dispatchable AgentTemplates.
+#
+# A prompt blueprint is the persona; an ``AgentTemplate`` is what makes that
+# persona a *runnable* agent — it binds the system-prompt node, the toolsets,
+# and the model preference so ``graph_orchestrate(action='execute_agent')``
+# resolves it (``orchestration/agent_runner._resolve_agent_from_kg``). The
+# ``agent-utilities-expert`` is the resident ecosystem expert: it is bound to its
+# base prompt, the platform's own management toolsets, and the local qwen model.
+_BUILTIN_AGENT_TEMPLATES: list[dict[str, Any]] = [
+    {
+        "id": "at:agent-utilities-expert",
+        "name": "agent-utilities-expert",
+        "role": "ecosystem-expert",
+        "description": (
+            "Resident expert of the entire agent-utilities ecosystem — understands "
+            "the 5 pillars, the one-engine ontology-driven Knowledge Graph, the dev "
+            "discipline, SDD, graph-os + the multiplexer, connectors/ingestion, and "
+            "the evolution loop; manages and evolves the platform as code."
+        ),
+        "system_prompt_id": "prompt:agent-utilities-expert",
+        "toolset_ids": [
+            "graph-os",
+            "mcp-multiplexer",
+            "repository-manager-mcp",
+            "data-science-mcp",
+            "scholarx-mcp",
+        ],
+        # Default to the LOCAL fleet model (the model router gets final say).
+        "model_preference": "qwen/qwen3.6-35b-a3b",
+        "execution_tier": "standard",
+    },
+]
+
+
+def seed_builtin_agent_templates(engine: Any) -> int:
+    """Upsert the built-in AgentTemplate nodes + their USES_PROMPT edges.
+
+    CONCEPT:ORCH-1.100 — makes the packaged expert personas *dispatchable* agents
+    rather than bare prompt blueprints. Each template (1:1 with its base prompt)
+    is upserted via the same engine path the prompts use, and wired to its
+    ``prompt:<name>`` node with a ``USES_PROMPT`` edge so resolution can recover
+    the system prompt. Best-effort and idempotent (keyed on the stable node id);
+    returns the number of templates seeded.
+    """
+    from agent_utilities.models.knowledge_graph import (
+        AgentTemplateNode,
+        RegistryEdgeType,
+    )
+
+    backend = getattr(engine, "backend", None)
+    if backend is None:
+        return 0
+
+    seeded = 0
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    for tmpl in _BUILTIN_AGENT_TEMPLATES:
+        try:
+            node = AgentTemplateNode(
+                id=tmpl["id"],
+                name=tmpl["name"],
+                description=tmpl.get("description", ""),
+                role=tmpl.get("role", ""),
+                system_prompt_id=tmpl.get("system_prompt_id", ""),
+                toolset_ids=list(tmpl.get("toolset_ids", [])),
+                model_preference=tmpl.get("model_preference", ""),
+                execution_tier=tmpl.get("execution_tier", "standard"),
+                timestamp=ts,
+                is_permanent=True,
+            )
+            data = engine._serialize_node(node, label="AgentTemplate")
+            engine._upsert_node("AgentTemplate", node.id, data)
+            prompt_id = tmpl.get("system_prompt_id", "")
+            if prompt_id:
+                engine.add_edge(node.id, prompt_id, RegistryEdgeType.USES_PROMPT.value)
+            seeded += 1
+            logger.debug("[ORCH-1.100] Seeded AgentTemplate %s", node.id)
+        except Exception as e:  # noqa: BLE001 — never break prompt ingestion
+            logger.warning("Failed to seed AgentTemplate %s: %s", tmpl.get("id"), e)
+    return seeded
+
+
 async def ingest_prompts_to_graph():
     """Ingest JSON prompt blueprints into the Knowledge Graph prompt library.
 
@@ -250,6 +331,15 @@ async def ingest_prompts_to_graph():
                 engine._upsert_node("Prompt", node.id, serialized_data)
             except Exception as e:
                 logger.warning(f"Failed to ingest prompt {pfile.name}: {e}")
+
+        # CONCEPT:ORCH-1.100 — once the prompt nodes exist, seed the built-in
+        # AgentTemplates that bind them into dispatchable agents (USES_PROMPT).
+        try:
+            seeded = seed_builtin_agent_templates(engine)
+            if seeded:
+                logger.debug("Seeded %d built-in AgentTemplate(s)", seeded)
+        except Exception as e:  # noqa: BLE001 — best-effort; never break ingest
+            logger.warning("AgentTemplate seeding failed: %s", e)
 
         logger.info("Prompt library ingested into the Knowledge Graph.")
     except Exception as e:
